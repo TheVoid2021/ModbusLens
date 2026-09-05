@@ -511,7 +511,7 @@ RED → GREEN 状态变化实录：`f03` 从"无法链接（15 undefined referen
 | Part A 代码提交（LKGC） | `73825c6` | `T004(Part A): implement RTU wire codec with CRC validation` |
 | Part A 回填 | `015d3eb` | docs-only |
 | Part B Test Design | `818a095` | `T004(Part B): 0x03 Codec 学习与测试设计（docs-only）` |
-| Part B 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T004(Part B): implement Function 0x03 semantic decoder` |
+| Part B 代码提交（**新 LKGC**） | `e8b62f6` | `T004(Part B): implement Function 0x03 semantic decoder` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：Part B 产生新业务代码并经 configure/clean build/full ctest（5/5）验证；LKGC 由 `73825c6` 推进至 Part B 代码提交，由 docs-only 回填提交写入。**T004 整体 DONE；T005 未开始。**

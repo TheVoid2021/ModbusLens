@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | **M2 Protocol Core ✅ 完成**（T002/T003/T004）；M3 模拟与故障注入待启动 |
-| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T004 Part B 代码提交，哈希由 docs-only 回填提交写入；此前为 `73825c6`） |
+| Last Known Good Commit | **`e8b62f6`**（T004 Part B 代码提交：build+ctest 5/5 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T004A `73825c6`、T003 `a44a6d2`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 30 targets） |
 | Test 状态 | ✅ **5/5 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03`，32 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · **T004** |
@@ -96,3 +96,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | 回填：LKGC = `73825c6`（T004 Part A 代码提交；由暂停期间产生的无名提交 `c605550` amend 而来，内容不变）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-06 | T004 Part B Learning / Test Design（docs-only）：0x03 语义模型×3、错误模型五值、矩阵 F03-B01~B12（V1.1b3 §6.3 官方金样已数值复核）、Deferred-to-T007、40001 边界；下一步 = Part B Implementation。T004 保持 IN PROGRESS |
 | 2026-09-06 | T004 Part B 完成：`Function03` 落地 `modbuslens_core`（三个 decoder + big-endian helper），B01~B12 RED（linker error ×15）→GREEN，全项目 ctest 5/5、零警告。byteCount=0 口径修正（单帧即非法，Part B 直接拒绝，不再推迟 T007）。**T004 整体 DONE，M2 Protocol Core 关闭**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
+| 2026-09-06 | 回填：LKGC = `e8b62f6`（T004 Part B 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
