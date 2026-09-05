@@ -288,7 +288,7 @@ ctest 再次 2/2 通过
 | --- | --- | --- |
 | Phase A | `a64ee7e` | `T002(Phase A): CRC16 学习 checkpoint — 知识留痕（docs-only）` |
 | Phase B | `28a538c` | `T002(Phase B): CRC16 测试设计 — 测试矩阵/接口定案/Phase C 计划（docs-only）` |
-| Phase C（代码提交，**LKGC**） | `PENDING-BACKFILL` | `T002: implement CRC-16/MODBUS core with KAT tests` |
+| Phase C（代码提交，**LKGC**） | `e8ef30c` | `T002: implement CRC-16/MODBUS core with KAT tests` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填代码提交哈希至本档案与 PROJECT_STATUS |
 
 > LKGC 推进：Phase C 产生了业务代码并经 configure/build/ctest 验证，LKGC 从 `aa337f6` 推进至 Phase C 代码提交（哈希由 docs-only 回填提交写入 PROJECT_STATUS）；HEAD 为回填提交，两者在 PROJECT_STATUS 中明确区分。

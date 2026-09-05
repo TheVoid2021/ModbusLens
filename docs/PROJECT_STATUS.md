@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | **M2 Protocol Core**（T002 ✅ 完成；T003/T004 待启动） |
-| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T002 Phase C 代码提交，哈希由紧随的 docs-only 回填提交写入；此前为 `aa337f6`） |
+| Last Known Good Commit | **`e8ef30c`**（T002 Phase C 代码提交：build+ctest 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值 `aa337f6`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（含新增 `modbuslens_core`） |
 | Test 状态 | ✅ **2/2 通过**（ctest：`smoke` 2 用例 + `crc` 8 用例，共 10 个 QtTest 用例） |
 | 已完成任务 | T001 · T001.1 · **T002** |
@@ -85,3 +85,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-05 | T002 启动：Phase A Learning Checkpoint（docs-only）；T002 标记 IN PROGRESS，**未标完成** |
 | 2026-09-05 | T002 Phase B（Test Design，docs-only）完成：测试矩阵 CRC-T01–T06 + 优先级 + 接口定案 + Phase C 13 步计划；状态改为四段式表达（Current Task/Phase/Next Action/Next Task After T002） |
 | 2026-09-05 | T002 Phase C 完成：`modbuslens_core` + CRC 按位实现 + 6 用例 RED→GREEN；全项目 ctest 2/2、零警告。**T002 DONE**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
+| 2026-09-05 | 回填：LKGC = `e8ef30c`（T002 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
