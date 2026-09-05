@@ -8,15 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | **M2 Protocol Core**（T002 ✅ 完成；T003/T004 待启动） |
-| Last Known Good Commit | **`e8ef30c`**（T002 Phase C 代码提交：build+ctest 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值 `aa337f6`） |
-| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（含新增 `modbuslens_core`） |
-| Test 状态 | ✅ **2/2 通过**（ctest：`smoke` 2 用例 + `crc` 8 用例，共 10 个 QtTest 用例） |
-| 已完成任务 | T001 · T001.1 · **T002** |
+| 当前 Milestone（Current Milestone） | **M2 Protocol Core**（T002 ✅ / T003 ✅；T004 待启动） |
+| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T003 代码提交，哈希由 docs-only 回填提交写入；此前为 `e8ef30c`） |
+| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告 |
+| Test 状态 | ✅ **3/3 通过**（ctest：`smoke` / `crc` / `frame`，12 个测试函数全过） |
+| 已完成任务 | T001 · T001.1 · T002 · **T003** |
 | 当前任务（Current Task） | **None**（无进行中任务） |
-| 最近完成任务（Last Completed Task） | **T002 Modbus CRC16**（Phase A/B/C 全部 DONE） |
-| 下一步动作（Next Action） | **Start T003 Modbus RTU Frame Model** |
-| 下一任务（Next Task） | **T003 Modbus RTU Frame Model** |
+| 最近完成任务（Last Completed Task） | **T003 Modbus RTU Frame Model** |
+| 下一步动作（Next Action） | **Start T004 Function 0x03 Codec** |
+| 下一任务（Next Task） | **T004 Function 0x03 Codec** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -28,14 +28,15 @@
 | T001 | 项目引导：骨架、文档体系、最小 Qt6 应用 | 骨架可构建、smoke 测试通过、文档体系建立 | [T001](tasks/T001-project-bootstrap.md) |
 | T001.1 | Bootstrap Documentation Cleanup | 文档更名、preset 示例模板、环境文档重写、BACKLOG 细粒度拆分 | [T001.1](tasks/T001.1-bootstrap-cleanup.md) |
 | T002 | Modbus CRC16 | `modbuslens_core` 落地；CRC-16/MODBUS 按位实现 + 6 个测试（T01–T06）RED→GREEN 全程留痕；全项目 ctest 2/2 | [T002](tasks/T002-modbus-crc16.md) |
+| T003 | Modbus RTU Frame Model | `ModbusRtuFrame`（address/functionCode/data，value 语义，不存 CRC）+ `isExceptionResponse`；FRAME-T01~T04 全绿；ctest 3/3；范围修订：fuzz 移除、编解码归 T004 | [T003](tasks/T003-modbus-rtu-frame-model.md) |
 
 ## 2. 当前任务
 
-- **None**。T002 已完成（`calculateModbusCrc` 按位实现 + 6 用例全绿 + 全项目构建零警告）。下一步：启动 T003 Modbus RTU Frame Model（见 BACKLOG）。
+- **None**。T003 已完成（内存 Frame 模型 + 4 测试全绿 + ADR001 归档）。下一步：启动 T004 Function 0x03 Codec（见 BACKLOG）。
 
 ## 3. 下一任务
 
-- **T003 — Modbus RTU Frame Model**（详见 [BACKLOG](BACKLOG.md)）：帧数据模型（地址/功能码/数据/CRC 布局）、构造/序列化/解析 + CRC 校验集成（含"CRC 数值 → 低字节在前两字节"的序列化，验收依据已在 T002 测试注释中预留）、金样帧对拍与 fuzz-lite。
+- **T004 — Function 0x03 Codec**（详见 [BACKLOG](BACKLOG.md)）：Read Holding Registers 请求/响应/异常编解码、寄存器值大端解释、RTU wire 编解码与 CRC 校验集成（低字节在前）、round-trip 测试、边界地址与异常码帧。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -86,3 +87,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-05 | T002 Phase B（Test Design，docs-only）完成：测试矩阵 CRC-T01–T06 + 优先级 + 接口定案 + Phase C 13 步计划；状态改为四段式表达（Current Task/Phase/Next Action/Next Task After T002） |
 | 2026-09-05 | T002 Phase C 完成：`modbuslens_core` + CRC 按位实现 + 6 用例 RED→GREEN；全项目 ctest 2/2、零警告。**T002 DONE**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-05 | 回填：LKGC = `e8ef30c`（T002 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
+| 2026-09-05 | T003 完成：`ModbusRtuFrame` 内存模型 + FRAME-T01~T04 全绿（ctest 3/3）；范围修订——fuzz 移出 T003、wire 编解码归 T004；补录 ADR001（最终 UI = Qt Quick/QML，用户于 T003 前确认）。**T003 DONE**；LKGC 推进至 T003 代码提交（哈希由 docs-only 回填提交写入） |

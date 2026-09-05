@@ -6,8 +6,8 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────────┐
-│ UI 层（src/ui，Qt Widgets，后续 + QtCharts）                      │
-│  主窗口 / 模式切换 / 帧·事务·统计·报告视图                        │
+│ UI 层（src/ui：最终 Qt Quick/QML ← ADR001，T008 切换）            │
+│  页面/交互/动画/Dashboard；QMainWindow 仅为 bootstrap scaffold    │
 ├──────────────────────────────────────────────────────────────────┤
 │ App 装配层（src/app）                                             │
 │  会话管理：按模式装配「数据源 + 分析核心」，生命周期与线程调度     │
@@ -73,7 +73,8 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 src/
 ├── app/     # 装配与生命周期（T008 起）
 ├── core/    # 协议编解码（T002–T004）、事务统计（T007）、诊断（T011）
-│   └── protocol/ModbusCrc.{h,cpp}   # ✅ T002：CRC-16/MODBUS 按位实现（数值）
+│   ├── protocol/ModbusCrc.{h,cpp}       # ✅ T002：CRC-16/MODBUS 按位实现（数值）
+│   └── protocol/ModbusRtuFrame.h        # ✅ T003：RTU 帧内存模型（不存 CRC）+ isExceptionResponse
 ├── io/      # IFrameSource 与三种数据源（T005/T009/T010）
 ├── ui/      # 窗口与视图（T008 起）
 └── main.cpp # 入口
@@ -93,3 +94,7 @@ tests/
 
 - 任何对 D1–D5 的变动 → 新建 ADR，禁止静默改架构。
 - 本文件随 ADR 诞生而更新「决策索引」，保持与代码事实一致。
+
+### 决策索引
+
+- **ADR001**（2026-09-05）：最终 UI 采用 Qt Quick/QML + Qt Quick Controls；QMainWindow 仅为 bootstrap scaffold，T008 切换。C++ 侧以 Controller/`QAbstractListModel`/`QSerialPort` 桥接；Modbus Core 不得依赖 QML。

@@ -42,7 +42,7 @@
 ### 待实现内容的预告（任务完成后才可答，此处仅列题类）
 
 - ✅ 已可答（T002，见任务档案两个 Knowledge 清单）：CRC-16/MODBUS 原理与实现、规范向量对拍、数值 vs 线上字节序、`std::span` 接口取舍、独立 core target 的意义、TDD RED 证据纪律、KAT vs invariant 证据分级
-- 帧模型的字节布局设计与 fuzz-lite 防御（T003）
+- ✅ 已可答（T003，见任务档案）：RTU 帧结构（Address+Function+Data+CRC，≤256B）、内存模型为何不存 CRC（stale-data）、value 语义与 defaulted `==`、`std::vector<uint8_t>` vs QByteArray、0x03/0x83 关系；fuzz-lite 已按用户指示移出 T003（待 codec 后评估）；wire 编解码/CRC 校验归 T004
 - 0x03 编解码与寄存器大端解释（T004）
 - 三模式为什么能共享核心（IFrameSource 抽象落地细节）（T005/T009/T010）
 - 虚拟时钟与确定性模拟（T005/T006）

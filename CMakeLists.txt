@@ -59,8 +59,17 @@ if(BUILD_TESTING)
 
     add_test(NAME crc COMMAND modbuslens_crc_tests)
 
+    add_executable(modbuslens_frame_tests tests/test_modbus_rtu_frame.cpp)
+    target_link_libraries(modbuslens_frame_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_frame_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME frame COMMAND modbuslens_frame_tests)
+
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(smoke crc PROPERTIES
+    set_tests_properties(smoke crc frame PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()
