@@ -14,10 +14,10 @@
 | Test 状态 | ✅ **4/4 通过**（ctest：`smoke` / `crc` / `frame` / `codec`，19 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 |
 | 当前任务（Current Task） | **T004 Modbus RTU Codec**（IN PROGRESS——Part B 未完成） |
-| 当前 Part（Current Part） | **Part A — RTU Wire Codec** ✅ DONE（实现 + A01~A07 全绿） |
-| 当前阶段（Current Phase） | **Part A: DONE**（Part B: NOT STARTED） |
-| 下一步动作（Next Action） | **T004 Part B — Function 0x03 Codec Learning / Test Design** |
-| 下一 Part（Next Part） | **Part B — Function 0x03 Codec** |
+| 当前 Part（Current Part） | **Part B — Function 0x03 Codec**（Part A ✅ DONE） |
+| 当前阶段（Current Phase） | **Part B: Learning / Test Design ✅（docs-only）**（Implementation ⬜） |
+| 下一步动作（Next Action） | **T004 Part B — Implementation** |
+| 下一 Part（Next Part） | 无（Part B 是 T004 最后一个 Part） |
 | T004 之后的下一任务（Next Task After T004） | **T005 Simulator Basic Slave**（T004 两个 Part 完成并验证后启动） |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
@@ -34,7 +34,7 @@
 
 ## 2. 当前任务
 
-- **T004 Modbus RTU Codec — IN PROGRESS（Part A: RTU Wire Codec ✅ DONE）**：`encodeRtuFrame` / `decodeRtuFrame` 落地 `modbuslens_core`（variant 错误模型、低字节在前 CRC、CRC 失败不产 Frame）；A01~A07 全绿，RED（linker error）→GREEN 全程留痕。**Part B（Function 0x03 Codec）NOT STARTED**；下一步动作 = T004 Part B Learning / Test Design。
+- **T004 Modbus RTU Codec — IN PROGRESS（Part B: Function 0x03 Codec，Phase: Learning / Test Design，docs-only）**：三个语义模型（Request/Response/Exception）、独立错误模型（`Function03DecodeErrorCode` 五值）、测试矩阵 F03-B01~B12（P0×10/P1×2，含 V1.1b3 §6.3 官方金样 B02/B08）、Deferred-to-T007 清单、40001 边界、12 题问答、18 步实施计划已落库（[T004 档案](tasks/T004-modbus-rtu-codec.md)）。**Part B 未实现**；下一步动作 = T004 Part B — Implementation。
 
 ## 3. T004 之后的下一任务
 
@@ -95,3 +95,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-05 | T004 Part A Test Design（docs-only）：接口定案（variant 错误模型）、测试矩阵 RTU-A01~A07、Raw bytes 边界、Deferred 决策、14 步实施计划；下一步 = Part A Implementation |
 | 2026-09-06 | T004 Part A 完成：`ModbusRtuCodec` 落地 `modbuslens_core`（encode/decode + variant 错误模型），A01~A07 RED（linker error）→GREEN，全项目 ctest 4/4、clean 重建零警告。**Part A DONE，T004 整体 IN PROGRESS（Part B 未开始）**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-06 | 回填：LKGC = `73825c6`（T004 Part A 代码提交；由暂停期间产生的无名提交 `c605550` amend 而来，内容不变）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
+| 2026-09-06 | T004 Part B Learning / Test Design（docs-only）：0x03 语义模型×3、错误模型五值、矩阵 F03-B01~B12（V1.1b3 §6.3 官方金样已数值复核）、Deferred-to-T007、40001 边界；下一步 = Part B Implementation。T004 保持 IN PROGRESS |
