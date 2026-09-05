@@ -23,6 +23,7 @@ qt_standard_project_setup()
 add_library(modbuslens_core STATIC
     src/core/protocol/ModbusCrc.cpp
     src/core/protocol/ModbusRtuCodec.cpp
+    src/core/protocol/Function03.cpp
 )
 target_include_directories(modbuslens_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -78,8 +79,17 @@ if(BUILD_TESTING)
 
     add_test(NAME codec COMMAND modbuslens_codec_tests)
 
+    add_executable(modbuslens_function03_tests tests/test_function03.cpp)
+    target_link_libraries(modbuslens_function03_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_function03_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME f03 COMMAND modbuslens_function03_tests)
+
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(smoke crc frame codec PROPERTIES
+    set_tests_properties(smoke crc frame codec f03 PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

@@ -1,8 +1,8 @@
 # T004 — Modbus RTU Codec
 
-> 状态：**IN PROGRESS**｜Part A（RTU Wire Codec）：**DONE ✅**｜Part B（Function 0x03 Codec）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**
-> 协议依据：MODBUS Application Protocol **V1.1b3 §6.3**（Part B 主要依据：0x03 Read Holding Registers）+ MODBUS over Serial Line V1.02（Part A：帧/CRC/字节序）。
-> Part B Implementation 边界预告（未实现，禁止提前）：不实现 0x06、不实现业务请求 encode、不实现 Simulator/Transaction matcher/Replay/Serial/QML/Agent、不做 fuzz/benchmark。
+> 状态：**DONE ✅**（2026-09-06）｜Part A（RTU Wire Codec）：**DONE ✅**｜Part B（Function 0x03 Codec）：**DONE ✅**（Learning / Test Design + Implementation，RED→GREEN 全程留痕）
+> 协议依据：MODBUS Application Protocol **V1.1b3 §6.3**（Part B 主要依据）+ MODBUS over Serial Line V1.02（Part A）。
+> 交付边界回顾：只实现 0x03 三个 decoder + 语义模型；**未实现** Function 03 encoder、0x06、Simulator、Transaction matcher、Timeout、Replay、Serial、QML、Agent、fuzz、benchmark。
 
 ## Goal
 
@@ -197,6 +197,8 @@ struct ReadHoldingRegistersResponse {
 - `Frame.data[0]` = **byteCount**；其后为寄存器字节；
 - **byteCount 必须等于后续寄存器数据的实际字节数**（一致性校验）；
 - **byteCount 必须为偶数**：1 register = 2 bytes；
+- 〔Part B Implementation 前修正〕**byteCount 合法范围 2~250 且为偶数**：quantity 1~125 → byteCount = 2×N；因此 **byteCount = 0 对 Function 0x03 Normal Response 本身就是非法**（`data = {0x00}` → `InvalidByteCount`），由 Part B 直接拒绝，**不推迟到 T007**（修正说明见下节 Deferred 段的追加批注；旧口径保留存档）；
+- 〔概念澄清〕byteCount **不是 RTU serial frame delimiter**：它只是 Function 0x03 Normal Response **内部的长度字段**（表示其后有多少 register data bytes）；RTU 串口层如何识别完整帧（t3.5 静默等）属于未来 **T010 Serial Transport**。
 - 例：`04 00 64 00 C8` → byteCount=4，values = {100, 200}。
 
 ### Exception 数据模型（定案）
@@ -275,6 +277,7 @@ struct Function03DecodeError { Function03DecodeErrorCode code; };
 - latency、timeout、transaction status。
 
 同理：byteCount=0（结构上自洽的"零寄存器响应"）在 Part B 通过格式校验，其与请求 quantity≥1 的矛盾由 T007 配对发现——Part B 不加特判。
+> 〔Part B Implementation 前修正，2026-09-06〕上一句旧口径**作废**（保留存档）。重新核对 V1.1b3 §6.3 后确认：quantity 合法范围 1~125 ⇒ 正常响应必有 ≥1 个寄存器 ⇒ byteCount = 2×N ≥ 2。因此 **byteCount=0 是单帧自身即违反 Function 0x03 格式**，不是"跨 transaction 才能发现的矛盾"——改为 **Part B 直接判 `InvalidByteCount`**（合法范围收窄为 2~250 且偶数）。T007 只负责真正的跨帧一致性（如 request quantity=2 vs response 3 个寄存器）。
 
 ### 40001 不进入 Core
 
@@ -318,31 +321,54 @@ Core 中 `startAddress` 一律是 **0-based 协议地址**（0x0000 起）。设
 
 **不额外实现**：0x06、业务请求 encode、Simulator、Transaction、fuzz、benchmark。若未来 Simulator（T005）需要构造 0x03 响应，再单独评估是否加 Function 03 encode helper——不提前设计过量 API。
 
+## Part B — Implementation（本阶段实录，2026-09-06）
+
+### 新增文件
+
+- `src/core/protocol/Function03.h`：三个语义模型（defaulted `==`）、`Function03DecodeErrorCode` 五值、`Function03DecodeError`、三个 result alias、三个 decoder 声明；注释写明"输入永远是 Part A 已验证的 Frame、不碰 wire/CRC、exceptionCode 只存数值"。
+- `src/core/protocol/Function03.cpp`：实现（匿名 namespace 内 `readBigEndianUint16(high, low)` 显式移位拼装；常量 kMin/MaxQuantity=1/125、kMin/MaxByteCount=2/250）。
+- `tests/test_function03.cpp`：QtTest B01~B12（B10 拆 a/b 两个用例），共 13 个测试函数。
+- `CMakeLists.txt`：core 加入 `Function03.cpp`；新增 target `modbuslens_function03_tests` + ctest `f03`。
+
+### decoder 校验顺序（与设计一致）
+
+- **Request**：functionCode==0x03（否则 WrongFunctionCode）→ data.size()==4（否则 InvalidRequestLength）→ 大端读 startAddress/quantity → quantity∈[1,125]（否则 InvalidQuantity）。
+- **Response**：functionCode==0x03 → data 非空（否则 InvalidByteCount）→ byteCount∈[2,250] 且偶数（否则 InvalidByteCount）→ `data.size() == 1 + byteCount`（否则 InvalidByteCount）→ 每 2 字节大端解析进 values。**不**与任何 Request quantity 比较（decoder 看不到对应请求）。
+- **Exception**：functionCode==0x83（否则 WrongFunctionCode）→ data.size()==1（否则 InvalidExceptionLength）→ exceptionCode 仅存数值（未知码对未来诊断仍有价值，文字映射归 Analysis）。
+
+### 本阶段设计修正（byteCount=0）
+
+Learning 阶段旧口径把 byteCount=0 推迟给 T007；实现前重核 §6.3 后修正：quantity 1~125 ⇒ 响应必有 ≥1 寄存器 ⇒ byteCount=2×N≥2，因此 **byteCount=0 单帧即违反 0x03 格式**，由 Part B 直接判 `InvalidByteCount`（`data={0x00}` 用例 B10b 锁定）。旧口径以追加批注保留在 Test Design 两处（Response 规则、Deferred 段），未删改。同时澄清：**byteCount 不是 RTU serial frame delimiter**——它只是 0x03 响应内部的长度字段，帧定界（t3.5 等）属 T010。
+
 ## Files Changed
 
 Learning：`docs/tasks/T004-modbus-rtu-codec.md`、`docs/devlog/2026-09-05-T004-Learning.md`、`docs/BACKLOG.md`、`docs/PROJECT_STATUS.md`。
 Part A Test Design：`docs/tasks/T004-modbus-rtu-codec.md`、`docs/devlog/2026-09-05-T004-PartA-TestDesign.md`、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`。
 Part A Implementation：`src/core/protocol/ModbusRtuCodec.{h,cpp}`、`tests/test_modbus_rtu_codec.cpp`、`CMakeLists.txt`、`docs/devlog/2026-09-06-T004-PartA.md`、T004 档案、PROJECT_STATUS、BACKLOG、02_ARCHITECTURE、04_TEST_STRATEGY、INTERVIEW_NOTES。
 
-Part B Learning / Test Design（本阶段，docs-only）：
-- 修改：`docs/tasks/T004-modbus-rtu-codec.md`（本文件：Part B 设计、矩阵 B01–B12、Deferred to T007、40001 边界、12 题、18 步计划）
-- 修改：`docs/PROJECT_STATUS.md`（Current Part/Phase/Next Action）、`docs/BACKLOG.md`（T004 行状态）
-- 新增：`docs/devlog/2026-09-06-T004-PartB-TestDesign.md`
+Part B Learning / Test Design（docs-only）：`docs/tasks/T004-modbus-rtu-codec.md`、`docs/devlog/2026-09-06-T004-PartB-TestDesign.md`、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`。
 
-始终未改动：`src/`、`tests/`、`CMakeLists.txt`、presets。
+Part B Implementation（本阶段）：
+- 新增：`src/core/protocol/Function03.h`、`src/core/protocol/Function03.cpp`、`tests/test_function03.cpp`、`docs/devlog/2026-09-06-T004-PartB.md`
+- 修改：`CMakeLists.txt`（core 源 + f03 target）、`docs/tasks/T004-modbus-rtu-codec.md`（本文件：Implementation/12 题问答/byteCount 修正/Verification/Result）、`docs/PROJECT_STATUS.md`（T004 DONE/LKGC）、`docs/BACKLOG.md`（M2 完成/T005 Ready）、`docs/02_ARCHITECTURE.md`、`docs/04_TEST_STRATEGY.md`、`docs/INTERVIEW_NOTES.md`、`AGENTS.md`（Git policy 追加）
+- 未改动：`ModbusCrc.{h,cpp}`、`ModbusRtuFrame.h`、`ModbusRtuCodec.{h,cpp}`、`src/main.cpp`、既有四个测试文件、presets
 
 ## Problems Encountered
 
 1. **RED 如预期表现为 linker error**：头文件仅有声明时，`modbuslens_codec_tests.exe` 链接失败——`undefined reference to modbuslens::core::encodeRtuFrame(...)` 与 `decodeRtuFrame(...)` 共 10 处。这是计划内、真实的 TDD RED，未伪造任何运行时失败，未提交 RED 状态代码。
 2. **仓库出现无名提交（流程事件，非代码问题）**：实现完成后发现 HEAD 是一个消息为 `commit` 的提交（`c605550`，本仓库同一 git 身份、会话暂停期间产生），内容恰为本任务 Part A 的全部代码与文档。处理：`git commit --amend` 将其修正为规约信息 `T004(Part A): implement RTU wire codec with CRC validation`（内容不变，并合入当时暂存的状态面板更新），该提交即新 LKGC（`73825c6`）；过程在 PROJECT_STATUS 变更记录中留痕。
-3. 细节观察（非问题）：MinGW 符号名中 `std::span<unsigned char const, 18446744073709551615ull>` 的动态 extent 以 `size_t` 最大值打印——动态长度 span 的 demangle 特征，读链接错误时不要被它迷惑。
-4. **No significant implementation issue encountered.** 未出现 span 构造、vector/span 转换、CRC 字节序、高低位 cast、期望值不符、CMake target、variant 提取问题；一次实现即 GREEN。
+4. **Part A：No significant implementation issue encountered.** 未出现 span 构造、vector/span 转换、CRC 字节序、高低位 cast、期望值不符、CMake target、variant 提取问题；一次实现即 GREEN。
+5. **byteCount=0 口径修正（Part B，设计修正而非 bug）**：Learning 阶段旧口径把 byteCount=0 推迟 T007；实现前重核 V1.1b3 §6.3 确认"quantity 1~125 ⇒ byteCount≥2"是**单帧格式规则**，改为 Part B 直接判 `InvalidByteCount`（B10b 锁定）。文档以追加批注修正、旧文保留。教训：Deferred 清单也要复核——"推迟"不等于"永久豁免"。
+6. **Part B：No significant implementation issue encountered.** 无 span/variant/大端 helper/CMake 问题；一次实现即 GREEN（RED 为预期 linker error，15 处 undefined reference）。
+7. **AGENTS.md Git policy 追加（延续 Part A 的无名提交事件）**：仅允许 amend 当前任务最新且未 push 的提交；禁止 rewrite 更早历史；当前不得 git push。
 
 ## Solutions
 
 1. RED 证据全文存档（见 Verification）后，按 Test Design 实现；同一次提交中 cpp 即最终实现，stub 从未入库。
 2. amend 保留全部内容、仅修 message 并合入面板更新；amend 前后内容差异 = 暂存的 PROJECT_STATUS 面板（Part A DONE / LKGC 占位 / 4/4 测试）。
 3. 记录符号名观察，供后续读链接错误参考。
+4. byteCount=0 修正以追加批注落档（Test Design 两处），旧口径保留存档，B10b 用例锁定新口径。
+5. Git policy 写入 AGENTS.md（提交规范章节后新增），并同步 devlog。
 
 ## Verification
 
@@ -381,7 +407,7 @@ $ cmake --build --preset debug-local --clean-first
 
 RED → GREEN 状态变化实录：`codec` 从"无法链接（10 undefined references）"变为 "Passed"；既有 smoke/crc/frame 全程未破坏。
 
-### Part B Learning / Test Design（本阶段，docs-only）
+### Part B Learning / Test Design（docs-only）
 
 ```text
 期望值独立复核（一次性 Python，不进仓库）：
@@ -395,11 +421,40 @@ git diff --check      → 通过
 git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt 未出现
 ```
 
+### Part B Implementation（本阶段）
+
+```text
+$ cmake --preset debug-local      → configure PASS
+$ cmake --build --preset debug-local
+FAILED: modbuslens_function03_tests.exe
+tests/test_function03.cpp:59/68/77/82/90/...: undefined reference to
+    `modbuslens::core::decodeReadHoldingRegistersRequest(...)' 等三个 decoder
+（共 15 处 undefined reference；compile 全部通过，仅 link 失败——预期 RED）
+
+$ 实现 Function03.cpp 并加入 modbuslens_core 后：
+$ cmake --build --preset debug-local          → [14/14] 全部链接成功
+$ ./build/debug/modbuslens_function03_tests.exe -o build/green_f03.txt,txt
+exit_code=0
+PASS: b01~b12（b10 拆 a/b）共 13 个测试函数
+Totals: 15 passed, 0 failed, 0 skipped (2ms)
+
+$ ctest --preset debug-local
+5/5: smoke | crc | frame | codec | f03 全部 Passed
+100% tests passed, 0 tests failed out of 5
+
+$ cmake --build --preset debug-local --clean-first
+警告/错误行数 grep = 0（零警告，30 targets）；ctest 再次 5/5 通过
+```
+
+RED → GREEN 状态变化实录：`f03` 从"无法链接（15 undefined references）"变为 "Passed"；既有 smoke/crc/frame/codec 全程未破坏。
+
 ## Result
 
 ✅ **Part A DONE**：`encodeRtuFrame` / `decodeRtuFrame` 按定稿接口实现并全绿；结构化错误（FrameTooShort / CrcMismatch）可用；CRC 失败不产 Frame；0x83 透明处理；全项目 ctest 4/4、零警告。
 ✅ **Part B Learning / Test Design DONE（docs-only）**：三个语义模型、独立错误模型、12 用例矩阵（P0×10 + P1×2）、官方金样复核、Deferred-to-T007 清单、40001 边界、12 题问答、18 步实施计划落库。
-⬜ **Part B Implementation NOT STARTED** → **T004 整体仍 IN PROGRESS**。
+✅ **Part B Implementation DONE**：三个 decoder + 语义模型落地 `modbuslens_core`，B01~B12 全绿；全项目 ctest 5/5、clean 重建零警告。
+
+🏆 **T004 整体 DONE**（Part A + Part B 全部完成并验证）。
 
 ## Knowledge Learned（实现阶段十问索引）
 
@@ -416,9 +471,29 @@ git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt 未出现
 
 新增实现体会：先声明后实现的 linker-error RED 是零成本留痕方式；`std::vector → span` 的隐式转换让"CRC 输入=前三段视图"零样板；span 子视图（`first()`）天然表达"payload/CRC 切分"。
 
+### Part B 实现阶段必答（12 题，含两项修正口径）
+
+1. **Part A 和 Part B 的区别**：Part A 是字节容器层（Frame↔wire、CRC，对所有功能码一致）；Part B 是功能码语义层（0x03 专有的 data 解释）。输入粒度也不同：wire bytes vs 已验证的 Frame。
+2. **Function 03 Request 为什么固定 4 bytes**：语义只有"起始地址 + 数量"两个字段、各 2 字节，因此恒为 4——固定长度让校验简单可靠。
+3. **quantity 为什么 1~125**：下界 1（读 0 个无意义）；上界 125 由响应长度上限反推（250 数据字节 + 3 字节头 ≤ RTU 帧 256 字节）。
+4. **什么叫 big-endian**：多字节数值的高字节先存/先传。协议字段 0x0064 拆成 `00 64` 两字节发送；与主机端序无关，实现必须显式 `(high<<8)|low`。
+5. **`00 64` 为什么是 100**：`(0x00<<8)|0x64 = 0x0064` = 十进制 100。
+6. **byteCount 是什么**：0x03 Normal Response data 的第 0 字节，表示**其后**有多少 register data bytes（= 2×寄存器数）；它属于应用层帧内结构，不是传输层概念。
+7. **为什么 byteCount 不能是奇数**：寄存器固定 2 字节；奇数意味着半截寄存器——必然损坏或伪造（B10a）。
+8. **为什么 byteCount=0 也非法**：quantity 1~125 ⇒ 响应必有 ≥1 寄存器 ⇒ byteCount=2×N≥2；byteCount=0 单帧即违反 0x03 格式，Part B 直接拒（B10b；本阶段修正，旧口径推迟 T007 已作废）。
+9. **为什么 byteCount 不是 RTU frame delimiter**：RTU 帧定界靠串口层的 t3.5 静默（T010）；byteCount 只描述 0x03 响应内部结构，且要解析到 data[0] 才可见——位置和时机都不允许它承担帧定界职责。
+10. **为什么 Response decoder 不验证 Request quantity**：decoder 一次只见一帧，没有"对应 Request"的上下文；配对与一致性需要时间序与事务状态，属 T007。
+11. **为什么 0x83 是 0x03 exception response**：异常响应功能码 = 原功能码 | 0x80；0x83 = 0x03|0x80，data 首字节为 exceptionCode（T003 的 `isExceptionResponse` 即判此标志）。
+12. **为什么 exceptionCode 不在 Codec 层翻译成人类文本**：文字映射是展示/诊断职责；未知码仍有诊断价值，提前翻译会限制扩展并把纯结构层变成业务层（B11 只存数值）。
+
 ## Potential Interview Questions
 
-- 前 19 题（Learning 9 + Part A 设计 10）仍有效。
+- 前 31 题（Learning 9 + Part A 10 + Part B 设计 12）仍有效；Part B 实现阶段 12 题见 Knowledge Learned。
+- Part B Implementation 新增：
+  1. byteCount=0 为什么由 Part B 而不是 T007 拒绝？（单帧格式规则 vs 跨帧一致性——本阶段修正案例）
+  2. `readBigEndianUint16` 为什么放匿名 namespace？（纯实现细节，不污染 public API）
+  3. B10 为什么拆成 a/b 两个用例？（奇数与零是两个不同的违反原因，失败定位更精确）
+  4. response 解析循环为什么用 `offset + 1 < size` 而不是 `offset < size-1`？（等价但避免 size 无符号下溢）
 - Implementation 阶段新增：
   1. 你的 RED 是怎么产生的？（仅声明无定义 → linker error，证据存档，stub 不入库）
   2. `encodeRtuFrame` 为什么 `reserve`？（上限已知一次分配；嵌套 push 不扩张）
@@ -435,6 +510,8 @@ git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt 未出现
 | T004 Part A Test Design | `f3321d1` | docs-only |
 | Part A 代码提交（LKGC） | `73825c6` | `T004(Part A): implement RTU wire codec with CRC validation` |
 | Part A 回填 | `015d3eb` | docs-only |
-| Part B Test Design | 见 `git log` | `T004(Part B): 0x03 Codec 学习与测试设计（docs-only）` |
+| Part B Test Design | `818a095` | `T004(Part B): 0x03 Codec 学习与测试设计（docs-only）` |
+| Part B 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T004(Part B): implement Function 0x03 semantic decoder` |
+| 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
-> LKGC 推进：Part A 产生新业务代码并经 configure/clean build/full ctest（4/4）验证；LKGC 由 `a44a6d2` 推进至本代码提交，由 docs-only 回填提交写入。**T004 整体未完成（Part B 未开始），不得开始 T005。**
+> LKGC 推进：Part B 产生新业务代码并经 configure/clean build/full ctest（5/5）验证；LKGC 由 `73825c6` 推进至 Part B 代码提交，由 docs-only 回填提交写入。**T004 整体 DONE；T005 未开始。**
