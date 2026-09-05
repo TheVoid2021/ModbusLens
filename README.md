@@ -63,13 +63,13 @@ ctest --preset debug
 - 🧱 架构设计：[docs/02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md)
 - 📖 Modbus 知识库：[docs/03_MODBUS_LEARNING.md](docs/03_MODBUS_LEARNING.md)
 - 🧪 测试策略：[docs/04_TEST_STRATEGY.md](docs/04_TEST_STRATEGY.md)
-- 🎬 演示指南：[docs/05_DEMO_GUIDIDE.md](docs/05_DEMO_GUIDIDE.md)
+- 🎬 演示指南：[docs/05_DEMO_GUIDE.md](docs/05_DEMO_GUIDE.md)
 - 💬 面试素材：[docs/INTERVIEW_NOTES.md](docs/INTERVIEW_NOTES.md)
 - 🔧 开发规约（AI 代理必读）：[AGENTS.md](AGENTS.md)
 
 ## 当前状态
 
-项目当前处于 **M1 里程碑（工程引导与文档体系）** 收尾阶段，详情见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)。
+项目已完成 **M1 里程碑（工程引导与文档体系，T001 + T001.1）**；下一任务是 **T002 Modbus CRC16**（M2 协议核心第一步）。详情见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 与 [docs/BACKLOG.md](docs/BACKLOG.md)。
 
 ## 开发原则速览
 

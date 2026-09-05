@@ -10,6 +10,6 @@ demo/
 └── checklists/     # 真机演示清单（按设备归档）          → T005/T011
 ```
 
-演示流程与脚本说明见 [docs/05_DEMO_GUIDIDE.md](../docs/05_DEMO_GUIDIDE.md)。
+演示流程与脚本说明见 [docs/05_DEMO_GUIDE.md](../docs/05_DEMO_GUIDE.md)。
 
 当前状态（T001）：尚未有素材，仅保留目录约定。

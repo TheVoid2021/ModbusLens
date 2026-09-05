@@ -52,7 +52,7 @@ ModbusLens 是一个 C++20 + Qt6 的工业通信（Modbus）智能诊断平台�
 | `docs/02_ARCHITECTURE.md` | 分层架构与核心设计决策 | 架构变化时（配 ADR） |
 | `docs/03_MODBUS_LEARNING.md` | Modbus 协议知识库（学习笔记） | 学到新知识点时 |
 | `docs/04_TEST_STRATEGY.md` | 测试策略、分层、验收口径 | 测试手段变化时 |
-| `docs/05_DEMO_GUIDIDE.md` | 演示指南（三种模式的演示脚本） | 新增演示能力时 |
+| `docs/05_DEMO_GUIDE.md` | 演示指南（三种模式的演示脚本） | 新增演示能力时 |
 | `docs/PROJECT_STATUS.md` | 项目状态单一事实源 | **每个任务完成后** |
 | `docs/BACKLOG.md` | 全部任务与优先级（里程碑视图） | **每个任务完成后** |
 | `docs/ENVIRONMENT.md` | 环境搭建/工具链/常见坑 | 环境变化时 |

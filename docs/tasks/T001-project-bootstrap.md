@@ -38,7 +38,7 @@
 - `.gitignore`、`CMakeLists.txt`、`CMakePresets.json`（提交）；`CMakeUserPresets.json`（gitignore，本机专用不提交）
 - `src/main.cpp`、`tests/test_smoke.cpp`
 - `AGENTS.md`、`README.md`
-- `docs/00_PROJECT_CHARTER.md`、`01_REQUIREMENTS.md`、`02_ARCHITECTURE.md`、`03_MODBUS_LEARNING.md`、`04_TEST_STRATEGY.md`、`05_DEMO_GUIDIDE.md`、`PROJECT_STATUS.md`、`BACKLOG.md`、`ENVIRONMENT.md`、`INTERVIEW_NOTES.md`
+- `docs/00_PROJECT_CHARTER.md`、`01_REQUIREMENTS.md`、`02_ARCHITECTURE.md`、`03_MODBUS_LEARNING.md`、`04_TEST_STRATEGY.md`、`05_DEMO_GUIDIDE.md`、`PROJECT_STATUS.md`、`BACKLOG.md`、`ENVIRONMENT.md`、`INTERVIEW_NOTES.md`（其中 `05_DEMO_GUIDIDE.md` 已随 T001.1 更名为 `docs/05_DEMO_GUIDE.md`，本条为历史记录）
 - `docs/tasks/T001-project-bootstrap.md`（本文件）
 - `docs/devlog/2026-09-05-bootstrap.md`、`demo/README.md`、`docs/{issues,adr,devlog}/.gitkeep`
 
@@ -84,6 +84,7 @@ $ QT_QPA_PLATFORM=offscreen timeout 5 ./build/debug/modbuslens.exe
 ## Knowledge Learned
 
 - Qt 6 新版权检查（qtlicd）会在 AutoMoc 阶段介入；开源/无法注册 LicenseService 场景下 `QTFRAMEWORK_BYPASS_LICENSE_CHECK=1` 是官方给出的构建期开关。
+- 〔T001.1 追加修正〕上一行按当时记录保留；现按项目口径澄清：`QTFRAMEWORK_BYPASS_LICENSE_CHECK=1` 是本机 Qt 安装出现 qtlicd 构建警告时采用的**临时环境处理手段**，出自构建输出提示、未经官方渠道确认；它**不是** ModbusLens 的必要依赖，项目代码与提交文件不得使用。示例模板与 CI 均不含该变量（详见 T001.1 档案）。
 - `QT_QPA_PLATFORM=offscreen` 让 GUI 程序在无显示器环境可启动、可测试——GUI 项目 CI 化的关键。
 - CMake Presets 的"通用 + 机器私有"双层结构是多人/跨机器/AI 协作的标准姿势。
 - 工具链验证要点：永远以 configure 输出中的编译器探测结果为准，而不是 PATH 第一个 `g++`。

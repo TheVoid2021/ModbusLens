@@ -4,42 +4,50 @@
 > 状态取值：`Done` / `In Progress` / `Ready` / `Backlog`
 > 优先级：`P0` 必须现在做 · `P1` 尽快 · `P2` 有余力再做
 
-## 里程碑总览
+## 里程碑总览（T001.1 起按细粒度任务规划）
 
 | ID | 里程碑 | 任务 | 状态 |
 | --- | --- | --- | --- |
-| M1 | 工程引导与文档体系 | T001 | ✅ 完成 |
-| M2 | 协议核心 | T002, T003 | ⬜ |
-| M3 | 三种数据源模式 | T004, T005, T006 | ⬜ |
-| M4 | 事务分析与统计 | T007 | ⬜ |
-| M5 | 诊断规则引擎 | T008 | ⬜ |
-| M6 | UI 整合与可视化 | T009 | ⬜ |
-| M7 | 只读 LLM Agent（HTTP） | T010 | ⬜ |
-| M8 | 打磨与发布 | T011 | ⬜ |
+| M1 | 工程引导与文档体系 | T001, T001.1 | ✅ 完成 |
+| M2 | Modbus 协议核心 | T002, T003, T004 | ⬜ |
+| M3 | 模拟与故障注入 | T005, T006 | ⬜ |
+| M4 | 事务分析与界面 | T007, T008 | ⬜ |
+| M5 | 回放与串口模式 | T009, T010 | ⬜ |
+| M6 | AI 诊断与 Agent 工具 | T011, T012 | ⬜ |
+| M7 | 收尾与演示 | T013 | ⬜ |
 
 ## 任务表
 
-| ID | 标题 | 里程碑 | 优先级 | 状态 | 依赖 | 说明 / 关键产出 |
+| ID | 标题 | 里程碑 | 优先 | 状态 | 依赖 | 说明 / 关键产出 |
 | --- | --- | --- | --- | --- | --- | --- |
 | T001 | 项目引导：骨架 + 文档体系 + 最小 Qt6 应用 | M1 | P0 | ✅ Done | — | 目录骨架、AGENTS 规约、全套文档、CMake Presets、offscreen 冒烟测试 |
-| T002 | Modbus 协议核心 v1：CRC16 + RTU 帧编解码 | M2 | P0 | Ready（**建议下一任务**） | T001 | `src/core/` 数据模型与纯函数解码；按位/查表 CRC；金样对拍 + round-trip + fuzz-lite；`tests/unit/` 落地 |
-| T003 | MLog 日志格式 v1 与解析器 | M2 | P1 | Backlog | T002 | 日志格式规范（ADR）、写入/解析、fixture 日志样例入 `tests/data/` |
-| T004 | Simulator Mode：虚拟从站 + 主站轮询闭环 | M3 | P0 | Backlog | T002 | `IFrameSource` 首个实现；虚拟时钟确定性（ADR）；异常注入开关 |
-| T005 | Serial Mode：QtSerialPort 采集 + t3.5 帧切分 | M3 | P0 | Backlog | T002 | 串口参数配置；环形缓冲；com0com/socat 虚拟串口对集成测试 |
-| T006 | Replay Mode：回放与时间轴控制 | M3 | P0 | Backlog | T002, T003 | 回放速度/暂停/跳转；**口径一致性测试**（Simulator 与 Replay 同流同结论） |
-| T007 | 事务分析与统计核心 | M4 | P0 | Backlog | T002 | 请求-响应配对、时延、超时、广播；统计快照；合成流量单测 |
-| T008 | 诊断规则引擎与报告 | M5 | P0 | Backlog | T007 | 确定性规则集；Markdown/JSON 报告导出；规则命中单测 |
-| T009 | UI 整合：模式切换 + 帧/事务/统计/报告视图 | M6 | P0 | Backlog | T004–T008 | UI 薄壳；核心↔视图解耦；offscreen 冒烟扩展 |
-| T010 | HTTP 服务 + 只读 LLM Agent | M7 | P2 | Backlog | T007, T008 | 只读 Service（无写 API）；Agent 自然语言诊断说明；配置化开关 |
-| T011 | 打包、演示脚本与文档终稿 | M8 | P1 | Backlog | T009(+T010) | 安装包/便携包；demo/ 素材齐备；面试录屏与文档终审 |
+| T001.1 | Bootstrap Documentation Cleanup | M1 | P0 | ✅ Done | T001 | 文档更名为 05_DEMO_GUIDE、preset 示例模板、ENVIRONMENT 重写、BACKLOG 细粒度拆分 |
+| T002 | **Modbus CRC16** | M2 | P0 | Ready（**下一任务**） | T001.1 | CRC-16/MODBUS **按位法**实现（Poly 0x8005/A001，Init 0xFFFF）；规范向量对拍（"123456789"→0x4B37）；零余数属性测试；空/单字节边界测试。**明确不含**：Frame Codec（T003）、查表法优化（后续优化任务）、benchmark、fuzz testing、simulator、serial port |
+| T003 | **Modbus RTU Frame Model** | M2 | P0 | Backlog | T002 | 帧数据模型（地址/功能码/数据/CRC 布局）；构造/序列化/解析 + CRC 校验集成；金样帧对拍（`01 03 00 00 00 01`→CRC `84 0A`）；帧完整性规则；fuzz-lite（截断/翻转/乱序字节必须安全失败） |
+| T004 | **Function 0x03 Codec** | M2 | P0 | Backlog | T003 | Read Holding Registers 请求/响应/异常编解码；寄存器值大端解释；round-trip 测试；边界地址与异常码帧 |
+| T005 | **Simulator Basic Slave** | M3 | P0 | Backlog | T004 | IFrameSource 首个实现；寄存器表；虚拟主站轮询闭环；虚拟时钟 + 种子确定性（ADR）；offscreen 可跑 |
+| T006 | **Fault Injection** | M3 | P0 | Backlog | T005 | 超时/CRC 错帧/异常码注入开关；确定性复现；供 Demo A 使用的场景脚本 |
+| T007 | **Transaction Analysis** | M4 | P0 | Backlog | T004（+T005 提供流量） | 请求-响应配对（含广播/超时）、时延计算、错误与功能码统计快照；合成流量单测 |
+| T008 | **Qt Analysis UI** | M4 | P0 | Backlog | T007 | 主窗口、模式切换骨架、帧/事务/统计/报告视图；UI 薄壳与核心解耦；offscreen 冒烟扩展 |
+| T009 | **Replay Mode** | M5 | P0 | Backlog | T007 | MLog 日志格式 v1（ADR）与读写；回放/暂停/调速/时间轴；**口径一致性测试**（Simulator 与 Replay 同流同结论） |
+| T010 | **Serial Mode** | M5 | P0 | Backlog | T007 | QtSerialPort 采集、t3.5 帧切分、环形缓冲；com0com/socat 虚拟串口对集成测试；真机核对清单 |
+| T011 | **AI Diagnosis** | M6 | P2 | Backlog | T007 | 诊断模块：**确定性规则引擎（不依赖 LLM）** + 报告导出（Markdown/JSON）；可选 LLM 自然语言解释（可插拔、缺失不影响） |
+| T012 | **Agent Tools** | M6 | P2 | Backlog | T007/T008/T011 输出 | 只读 Agent 工具集：读日志摘要/统计/报告；架构强制**无写 API**（类型层面不存在） |
+| T013 | **Final Integration & Demo** | M7 | P1 | Backlog | T008（含 T009–T012 可用能力） | 打包/便携发布；演示脚本与素材齐备（demo/ 目录）；文档终稿；可选：CRC 查表优化与基准（单独拆分，不并入任何协议任务） |
 
-## 建议路线（默认顺序）
+## 建议路线（默认执行顺序）
 
-`T001 ✅ → T002 CRC/帧解析 → T003 日志格式 → T004 Simulator → T005 Serial → T006 Replay → T007 事务统计 → T008 诊断 → T009 UI → T010 Agent(选做) → T011 收尾`
+```text
+T001 ✅ → T001.1 ✅ → T002 CRC16 → T003 Frame Model → T004 0x03 Codec
+→ T005 Simulator → T006 Fault Injection → T007 Transaction Analysis
+→ T008 Qt UI → T009 Replay → T010 Serial → T011 AI Diagnosis
+→ T012 Agent Tools → T013 Final Integration & Demo
+```
 
 ## 变更记录
 
 | 日期 | 事件 |
 | --- | --- |
-| 2026-09-05 | T001 建立本文件与任务表（T002–T011 草案） |
+| 2026-09-05 | T001 建立本文件与任务表草案（旧编号 T002–T011） |
 | 2026-09-05 | T001 完成（提交 `aa337f6`）；M1 关闭；T002 保持 Ready |
+| 2026-09-05 | T001.1：任务细粒度重排为 T002–T013（T002 仅 CRC16；帧模型/0x03 编解码/模拟器/故障注入/UI/回放/串口/AI/Agent 各自独立）；里程碑重组为 M1–M7 |

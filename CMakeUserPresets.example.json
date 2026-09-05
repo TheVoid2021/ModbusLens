@@ -1,0 +1,66 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "debug-local",
+      "displayName": "Debug (machine-local toolchain)",
+      "description": "MACHINE-LOCAL PRESET TEMPLATE. How to use: copy this file to CMakeUserPresets.json (git-ignored, never committed), then replace the four example path fragments in environment.PATH and cacheVariables with the real locations from YOUR machine. The paths below are generic examples (Qt's default installer layout), NOT any real machine's paths.",
+      "inherits": "debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/debug",
+      "environment": {
+        "PATH": "C:/Qt/Tools/CMake_64/bin;C:/Qt/Tools/Ninja;C:/Qt/Tools/mingw1310_64/bin;$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.8.2/mingw_64",
+        "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/g++.exe"
+      }
+    },
+    {
+      "name": "release-local",
+      "displayName": "Release (machine-local toolchain)",
+      "description": "Same as debug-local: copy from CMakeUserPresets.example.json and replace the example paths with your machine's real Qt installation.",
+      "inherits": "release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "environment": {
+        "PATH": "C:/Qt/Tools/CMake_64/bin;C:/Qt/Tools/Ninja;C:/Qt/Tools/mingw1310_64/bin;$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.8.2/mingw_64",
+        "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/g++.exe"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug-local",
+      "configurePreset": "debug-local"
+    },
+    {
+      "name": "release-local",
+      "configurePreset": "release-local"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug-local",
+      "configurePreset": "debug-local",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "release-local",
+      "configurePreset": "release-local",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

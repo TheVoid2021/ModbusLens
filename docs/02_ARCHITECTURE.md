@@ -1,6 +1,6 @@
 # 02 — 架构文档
 
-> 状态：**骨架版 v0.1**（T001 建立总体分层与原则；各层具体接口在 T002–T008 落地，重要取舍随 ADR 固化）
+> 状态：**骨架版 v0.1**（T001 建立总体分层与原则；各层具体接口在 T002–T011 落地，重要取舍随 ADR 固化）
 
 ## 1. 分层总览
 
@@ -48,12 +48,12 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 - 该层编译不依赖 QtGUI/SerialPort/Network，只允许 QtCore/QtTest（测试）与 STL。
 - 保证：Simulator 与 Replay 的统计口径一致；核心可在 CI 无显示器环境跑全套测试。
 
-### D4 线程模型（初步，T004+ 细化）
+### D4 线程模型（初步，T005 首个数据源落地时细化）
 
 - 采集（I/O 线程）→ 无锁/少锁队列 → 分析（工作线程）→ 快照发布（信号槽）→ UI。
 - Serial 采集用 QtSerialPort 的 `readyRead` + 环形缓冲；Simulator 用可控虚拟时钟驱动，保证确定性。
 
-### D5 Agent 边界（M7）
+### D5 Agent 边界（M6）
 
 - Agent 通过 HTTP 与只读 Service 通信；Service 所能触及的数据仅为统计快照与报告。
 - 写操作能力在类型层面不存在（无任何"写"API），从架构上保证 FR-AG-02。
@@ -70,10 +70,10 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 
 ```text
 src/
-├── app/     # 装配与生命周期（T004+）
-├── core/    # 协议解析、事务、统计、诊断（T002 起）
-├── io/      # IFrameSource 与三种数据源（T003 起）
-├── ui/      # 窗口与视图（T009 起）
+├── app/     # 装配与生命周期（T008 起）
+├── core/    # 协议编解码（T002–T004）、事务统计（T007）、诊断（T011）
+├── io/      # IFrameSource 与三种数据源（T005/T009/T010）
+├── ui/      # 窗口与视图（T008 起）
 └── main.cpp # 入口（当前仅有）
 tests/
 ├── test_smoke.cpp          # 当前：骨架冒烟测试
