@@ -1,0 +1,10 @@
+# 统一行尾：仓库内始终存 LF，避免跨平台/AI 平台协作产生 CRLF 噪音
+* text=auto eol=lf
+
+# Windows 批处理脚本保持 CRLF
+*.bat text eol=crlf
+
+# 二进制文件不做转换
+*.png binary
+*.jpg binary
+*.ico binary

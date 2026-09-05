@@ -1,0 +1,30 @@
+# --- Build output ---
+/build/
+/cmake-build-*/
+build*/
+
+# --- CMake local overrides (machine-specific toolchains live here, never committed) ---
+CMakeUserPresets.json
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.user
+.cache/
+.clangd/
+compile_commands.json
+
+# --- Compiler / linker artifacts ---
+*.o
+*.obj
+*.exe
+*.dll
+*.dylib
+*.so
+*.a
+*.lib
+*.pdb
+
+# --- OS noise ---
+.DS_Store
+Thumbs.db
