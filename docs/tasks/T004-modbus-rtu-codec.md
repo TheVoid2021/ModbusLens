@@ -163,13 +163,15 @@ Part A Implementation（本阶段）：
 ## Problems Encountered
 
 1. **RED 如预期表现为 linker error**：头文件仅有声明时，`modbuslens_codec_tests.exe` 链接失败——`undefined reference to modbuslens::core::encodeRtuFrame(...)` 与 `decodeRtuFrame(...)` 共 10 处。这是计划内、真实的 TDD RED，未伪造任何运行时失败，未提交 RED 状态代码。
-2. 细节观察（非问题）：MinGW 符号名中 `std::span<unsigned char const, 18446744073709551615ull>` 的动态 extent 以 `size_t` 最大值打印——动态长度 span 的 demangle 特征，读链接错误时不要被它迷惑。
-3. **No significant implementation issue encountered.** 未出现 span 构造、vector/span 转换、CRC 字节序、高低位 cast、期望值不符、CMake target、variant 提取问题；一次实现即 GREEN。
+2. **仓库出现无名提交（流程事件，非代码问题）**：实现完成后发现 HEAD 是一个消息为 `commit` 的提交（`c605550`，本仓库同一 git 身份、会话暂停期间产生），内容恰为本任务 Part A 的全部代码与文档。处理：`git commit --amend` 将其修正为规约信息 `T004(Part A): implement RTU wire codec with CRC validation`（内容不变，并合入当时暂存的状态面板更新），该提交即新 LKGC（`73825c6`）；过程在 PROJECT_STATUS 变更记录中留痕。
+3. 细节观察（非问题）：MinGW 符号名中 `std::span<unsigned char const, 18446744073709551615ull>` 的动态 extent 以 `size_t` 最大值打印——动态长度 span 的 demangle 特征，读链接错误时不要被它迷惑。
+4. **No significant implementation issue encountered.** 未出现 span 构造、vector/span 转换、CRC 字节序、高低位 cast、期望值不符、CMake target、variant 提取问题；一次实现即 GREEN。
 
 ## Solutions
 
 1. RED 证据全文存档（见 Verification）后，按 Test Design 实现；同一次提交中 cpp 即最终实现，stub 从未入库。
-2. 记录符号名观察，供后续读链接错误参考。
+2. amend 保留全部内容、仅修 message 并合入面板更新；amend 前后内容差异 = 暂存的 PROJECT_STATUS 面板（Part A DONE / LKGC 占位 / 4/4 测试）。
+3. 记录符号名观察，供后续读链接错误参考。
 
 ## Verification
 
@@ -245,7 +247,7 @@ RED → GREEN 状态变化实录：`codec` 从"无法链接（10 undefined refer
 | T003 代码 | `a44a6d2` | （前 LKGC） |
 | T004 Learning | `89c9df4` | docs-only |
 | T004 Part A Test Design | `f3321d1` | docs-only |
-| Part A 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T004(Part A): implement RTU wire codec with CRC validation` |
+| Part A 代码提交（**新 LKGC**） | `73825c6` | `T004(Part A): implement RTU wire codec with CRC validation` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：Part A 产生新业务代码并经 configure/clean build/full ctest（4/4）验证；LKGC 由 `a44a6d2` 推进至本代码提交，由 docs-only 回填提交写入。**T004 整体未完成（Part B 未开始），不得开始 T005。**

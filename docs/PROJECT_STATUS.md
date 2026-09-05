@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | **M2 Protocol Core**（T002 ✅ / T003 ✅ / T004 进行中） |
-| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T004 Part A 代码提交，哈希由 docs-only 回填提交写入；此前为 `a44a6d2`） |
+| Last Known Good Commit | **`73825c6`**（T004 Part A 代码提交：build+ctest 4/4 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T003 `a44a6d2`、T002 `e8ef30c`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 25 targets） |
 | Test 状态 | ✅ **4/4 通过**（ctest：`smoke` / `crc` / `frame` / `codec`，19 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 |
@@ -94,3 +94,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-05 | T004 启动：Learning / Scope Refinement（docs-only）——Codec 知识留痕、Part A/B 拆分、BACKLOG 范围同步；T004 标记 IN PROGRESS，**未标完成** |
 | 2026-09-05 | T004 Part A Test Design（docs-only）：接口定案（variant 错误模型）、测试矩阵 RTU-A01~A07、Raw bytes 边界、Deferred 决策、14 步实施计划；下一步 = Part A Implementation |
 | 2026-09-06 | T004 Part A 完成：`ModbusRtuCodec` 落地 `modbuslens_core`（encode/decode + variant 错误模型），A01~A07 RED（linker error）→GREEN，全项目 ctest 4/4、clean 重建零警告。**Part A DONE，T004 整体 IN PROGRESS（Part B 未开始）**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
+| 2026-09-06 | 回填：LKGC = `73825c6`（T004 Part A 代码提交；由暂停期间产生的无名提交 `c605550` amend 而来，内容不变）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
