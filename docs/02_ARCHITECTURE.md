@@ -74,7 +74,8 @@ src/
 ├── app/     # 装配与生命周期（T008 起）
 ├── core/    # 协议编解码（T002–T004）、事务统计（T007）、诊断（T011）
 │   ├── protocol/ModbusCrc.{h,cpp}       # ✅ T002：CRC-16/MODBUS 按位实现（数值）
-│   └── protocol/ModbusRtuFrame.h        # ✅ T003：RTU 帧内存模型（不存 CRC）+ isExceptionResponse
+│   ├── protocol/ModbusRtuFrame.h        # ✅ T003：RTU 帧内存模型（不存 CRC）+ isExceptionResponse
+│   └── protocol/ModbusRtuCodec.{h,cpp}  # ✅ T004 Part A：Frame↔wire 编解码（variant 错误模型）
 ├── io/      # IFrameSource 与三种数据源（T005/T009/T010）
 ├── ui/      # 窗口与视图（T008 起）
 └── main.cpp # 入口
