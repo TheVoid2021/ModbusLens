@@ -8,15 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | **M2 Protocol Core**（T002 ✅ / T003 ✅；T004 待启动） |
+| 当前 Milestone（Current Milestone） | **M2 Protocol Core**（T002 ✅ / T003 ✅ / T004 进行中） |
 | Last Known Good Commit | **`a44a6d2`**（T003 代码提交：build+ctest 3/3 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T002 `e8ef30c`、T001 `aa337f6`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告 |
 | Test 状态 | ✅ **3/3 通过**（ctest：`smoke` / `crc` / `frame`，12 个测试函数全过） |
-| 已完成任务 | T001 · T001.1 · T002 · **T003** |
-| 当前任务（Current Task） | **None**（无进行中任务） |
-| 最近完成任务（Last Completed Task） | **T003 Modbus RTU Frame Model** |
-| 下一步动作（Next Action） | **Start T004 Function 0x03 Codec** |
-| 下一任务（Next Task） | **T004 Function 0x03 Codec** |
+| 已完成任务 | T001 · T001.1 · T002 · T003 |
+| 当前任务（Current Task） | **T004 Modbus RTU Codec**（IN PROGRESS，未完成） |
+| 当前阶段（Current Phase） | **Learning / Scope Refinement**（docs-only；Part A/B 均未实现） |
+| 下一步动作（Next Action） | **T004 Part A — Test Design** |
+| T004 之后的下一任务（Next Task After T004） | **T005 Simulator Basic Slave**（在 T004 两个 Part 完成并验证后启动） |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -32,11 +32,11 @@
 
 ## 2. 当前任务
 
-- **None**。T003 已完成（内存 Frame 模型 + 4 测试全绿 + ADR001 归档）。下一步：启动 T004 Function 0x03 Codec（见 BACKLOG）。
+- **T004 Modbus RTU Codec — IN PROGRESS（Learning / Scope Refinement，docs-only）**：Codec 概念、Part A/B 数据流与职责边界、0x03 字段解释、双字节序规则、9 题必答已落库（[T004 档案](tasks/T004-modbus-rtu-codec.md)）。**Part A/B 均未实现**；下一步动作 = T004 Part A — Test Design。
 
-## 3. 下一任务
+## 3. T004 之后的下一任务
 
-- **T004 — Function 0x03 Codec**（详见 [BACKLOG](BACKLOG.md)）：Read Holding Registers 请求/响应/异常编解码、寄存器值大端解释、RTU wire 编解码与 CRC 校验集成（低字节在前）、round-trip 测试、边界地址与异常码帧。
+- **T005 — Simulator Basic Slave**（详见 [BACKLOG](BACKLOG.md)）：`IFrameSource` 首个实现、虚拟从站（常用功能码）、虚拟主站轮询闭环、虚拟时钟 + 种子确定性（ADR）。依赖 T004 的 wire codec；在 T004 两个 Part 完成并验证后启动。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -89,3 +89,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-05 | 回填：LKGC = `e8ef30c`（T002 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-05 | T003 完成：`ModbusRtuFrame` 内存模型 + FRAME-T01~T04 全绿（ctest 3/3）；范围修订——fuzz 移出 T003、wire 编解码归 T004；补录 ADR001（最终 UI = Qt Quick/QML，用户于 T003 前确认）。**T003 DONE**；LKGC 推进至 T003 代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-05 | 回填：LKGC = `a44a6d2`（T003 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
+| 2026-09-05 | T004 启动：Learning / Scope Refinement（docs-only）——Codec 知识留痕、Part A/B 拆分、BACKLOG 范围同步；T004 标记 IN PROGRESS，**未标完成** |

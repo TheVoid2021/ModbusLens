@@ -24,7 +24,7 @@
 | T001.1 | Bootstrap Documentation Cleanup | M1 | P0 | ✅ Done | T001 | 文档更名为 05_DEMO_GUIDE、preset 示例模板、ENVIRONMENT 重写、BACKLOG 细粒度拆分 |
 | T002 | **Modbus CRC16** | M2 | P0 | ✅ Done | T001.1 | `modbuslens_core`（无 Qt 纯 C++20 静态库）+ `calculateModbusCrc(std::span<const std::uint8_t>)` 按位实现；6 测试（KAT/边界/敏感性/zero-remainder）RED→GREEN 全程留痕。按约定未做：查表优化、benchmark、fuzz、序列化 |
 | T003 | **Modbus RTU Frame Model** | M2 | P0 | ✅ Done | T002 | 交付：`ModbusRtuFrame`（address/functionCode/data，C++20 value 语义，**不存 CRC**）+ `isExceptionResponse`；FRAME-T01~T04 全绿。**范围修订（T003 执行时确认）**：wire 编解码、CRC 校验集成、fuzz-lite **移出 T003**——编解码与 CRC 校验随 T004 codec 承接，fuzz 待 codec 存在后评估；t1.5/t3.5 时序归 T010 |
-| T004 | **Function 0x03 Codec** | M2 | P0 | Ready（**下一任务**） | T003 | Read Holding Registers 请求/响应/异常编解码；寄存器值大端解释；RTU wire 编解码 + CRC 校验集成（低字节在前，验收向量 `01 03 00 00 00 01 84 0A`）；round-trip 测试；边界地址与异常码帧 |
+| T004 | **Modbus RTU Codec**（Part A Wire Codec + Part B 0x03 Codec） | M2 | P0 | In Progress — Learning / Scope Refinement（docs-only） | T003 | **Part A — RTU Wire Codec**：`ModbusRtuFrame` ↔ 完整 wire bytes（CRC 计算 + 低字节在前序列化 + CRC 验证；验收向量 `01 03 00 00 00 01 ↔ 84 0A`）。**Part B — Function 0x03 Codec**：解释 0x03 的 data 字段（request: startAddress/quantity，大端；normal response: byteCount/寄存器值，大端；exception: 结构化保存 exceptionCode）。两 Part 分别 TDD，**不得一次性实现**。**范围**：fuzz/benchmark 不在 T004；异常码→文字映射归 analysis 层 |
 | T005 | **Simulator Basic Slave** | M3 | P0 | Backlog | T004 | IFrameSource 首个实现；寄存器表；虚拟主站轮询闭环；虚拟时钟 + 种子确定性（ADR）；offscreen 可跑 |
 | T006 | **Fault Injection** | M3 | P0 | Backlog | T005 | 超时/CRC 错帧/异常码注入开关；确定性复现；供 Demo A 使用的场景脚本 |
 | T007 | **Transaction Analysis** | M4 | P0 | Backlog | T004（+T005 提供流量） | 请求-响应配对（含广播/超时）、时延计算、错误与功能码统计快照；合成流量单测 |
@@ -38,7 +38,7 @@
 ## 建议路线（默认执行顺序）
 
 ```text
-T001 ✅ → T001.1 ✅ → T002 CRC16 → T003 Frame Model → T004 0x03 Codec
+T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Codec（A: Wire / B: 0x03，进行中）
 → T005 Simulator → T006 Fault Injection → T007 Transaction Analysis
 → T008 Qt UI → T009 Replay → T010 Serial → T011 AI Diagnosis
 → T012 Agent Tools → T013 Final Integration & Demo
@@ -55,3 +55,4 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 → T003 Frame Model → T004 0x03 Codec
 | 2026-09-05 | T002 Phase B（Test Design）完成：测试矩阵与优先级、接口定案（std::span）、Phase C TDD 计划落库 |
 | 2026-09-05 | T002 完成（Phase C 实现 + RED→GREEN，T002 **DONE**）；T003 转 Ready；里程碑 M2 进行中（T003/T004 待启动） |
 | 2026-09-05 | T003 完成（Frame 内存模型 + 4 测试全绿，T003 **DONE**）；范围修订：fuzz-lite 移出 T003、wire 编解码/CRC 校验集成归 T004；补录 ADR001（最终 UI = Qt Quick/QML，用户于 T003 开始前确认）；T004 转 Ready |
+| 2026-09-05 | T004 启动（Learning，docs-only）：更名 **Modbus RTU Codec** 并拆 Part A（Wire）/ Part B（0x03）；确认 fuzz/benchmark 不在 T004、异常码文字映射归 analysis；T005 不变 |
