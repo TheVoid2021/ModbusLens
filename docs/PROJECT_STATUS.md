@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | **M2 Protocol Core**（T002 ✅ / T003 ✅；T004 待启动） |
-| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T003 代码提交，哈希由 docs-only 回填提交写入；此前为 `e8ef30c`） |
+| Last Known Good Commit | **`a44a6d2`**（T003 代码提交：build+ctest 3/3 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T002 `e8ef30c`、T001 `aa337f6`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告 |
 | Test 状态 | ✅ **3/3 通过**（ctest：`smoke` / `crc` / `frame`，12 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · **T003** |
@@ -88,3 +88,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-05 | T002 Phase C 完成：`modbuslens_core` + CRC 按位实现 + 6 用例 RED→GREEN；全项目 ctest 2/2、零警告。**T002 DONE**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-05 | 回填：LKGC = `e8ef30c`（T002 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-05 | T003 完成：`ModbusRtuFrame` 内存模型 + FRAME-T01~T04 全绿（ctest 3/3）；范围修订——fuzz 移出 T003、wire 编解码归 T004；补录 ADR001（最终 UI = Qt Quick/QML，用户于 T003 前确认）。**T003 DONE**；LKGC 推进至 T003 代码提交（哈希由 docs-only 回填提交写入） |
+| 2026-09-05 | 回填：LKGC = `a44a6d2`（T003 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |

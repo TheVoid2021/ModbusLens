@@ -144,7 +144,7 @@ $ cmake --build --preset debug-local --clean-first    # clean 全量重建
 | T001 | `aa337f6` | 项目引导 |
 | T001.1 | `ffd2b94`（+回填 `bfa73c6`） | 文档清理 |
 | T002 | `e8ef30c`（+回填 `ae4e708`） | CRC16（LKGC 至 T002） |
-| T003 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T003: Modbus RTU frame model with value semantics` |
+| T003 代码提交（**新 LKGC**） | `a44a6d2` | `T003: Modbus RTU frame model with value semantics` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：本任务产生新业务代码并经 configure/build/ctest（3/3）验证；LKGC 从 `e8ef30c` 推进至 T003 代码提交，由 docs-only 回填提交写入 PROJECT_STATUS。ADR001 随本任务提交，其决策来源为用户在 T003 开始前的确认（见 ADR 头部）。
