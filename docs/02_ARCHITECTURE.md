@@ -46,6 +46,7 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 
 - 分析核心只消费 `RawFrame` 流、产出结果对象（事务表/统计快照/诊断报告）。
 - 该层编译不依赖 QtGUI/SerialPort/Network，只允许 QtCore/QtTest（测试）与 STL。
+- **实现载体（T002 落地）**：独立静态库 target `modbuslens_core`，**不链接任何 Qt**；`modbuslens` 应用与各测试 target 只依赖它——协议逻辑与 GUI 在构建系统层面物理隔离，Simulator/Replay/Serial 与未来 CLI 均复用同一核心。
 - 保证：Simulator 与 Replay 的统计口径一致；核心可在 CI 无显示器环境跑全套测试。
 
 ### D4 线程模型（初步，T005 首个数据源落地时细化）
@@ -72,9 +73,10 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 src/
 ├── app/     # 装配与生命周期（T008 起）
 ├── core/    # 协议编解码（T002–T004）、事务统计（T007）、诊断（T011）
+│   └── protocol/ModbusCrc.{h,cpp}   # ✅ T002：CRC-16/MODBUS 按位实现（数值）
 ├── io/      # IFrameSource 与三种数据源（T005/T009/T010）
 ├── ui/      # 窗口与视图（T008 起）
-└── main.cpp # 入口（当前仅有）
+└── main.cpp # 入口
 tests/
 ├── test_smoke.cpp          # 当前：骨架冒烟测试
 ├── unit/  component/  integration/   # 随核心落地扩充

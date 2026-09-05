@@ -41,7 +41,7 @@
 
 ### 待实现内容的预告（任务完成后才可答，此处仅列题类）
 
-- CRC-16/MODBUS 实现与规范向量对拍（T002）
+- ✅ 已可答（T002，见任务档案两个 Knowledge 清单）：CRC-16/MODBUS 原理与实现、规范向量对拍、数值 vs 线上字节序、`std::span` 接口取舍、独立 core target 的意义、TDD RED 证据纪律、KAT vs invariant 证据分级
 - 帧模型的字节布局设计与 fuzz-lite 防御（T003）
 - 0x03 编解码与寄存器大端解释（T004）
 - 三模式为什么能共享核心（IFrameSource 抽象落地细节）（T005/T009/T010）
