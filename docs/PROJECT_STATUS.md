@@ -8,13 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone | M1 ✅ 已完成；**M2 协议核心进行中（T002 Phase A）** |
+| 当前 Milestone | M1 ✅ 已完成；**M2 协议核心进行中（T002：Phase A/B 完成，Phase C 未开始）** |
 | Last Known Good Commit | `aa337f6`（最近一次构建+测试双通过；T001.1 与 T002-PhaseA 均为 docs-only 提交，LKGC 不推进，哈希见 git log） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告 |
 | Test 状态 | ✅ **1/1 通过**（`smoke`，内含 2 个 QtTest 用例） |
 | 已完成任务 | T001 · T001.1 |
-| 当前任务 | **T002 Modbus CRC16 — IN PROGRESS（Phase A: Learning Checkpoint）** |
-| 下一任务 | **T003 Modbus RTU Frame Model**（待 T002 完成并验证后启动） |
+| 当前任务（Current Task） | **T002 Modbus CRC16**（IN PROGRESS，未完成） |
+| 当前阶段（Current Phase） | **Phase B — Test Design**（本阶段 docs-only 交付已提交；Phase A ✅ / Phase B ✅ / Phase C ⬜） |
+| 下一步动作（Next Action） | 启动 **T002 Phase C — Test First + Implementation** |
+| T002 之后的下一任务（Next Task After T002） | **T003 Modbus RTU Frame Model**（必须在 T002 完成并验证后启动） |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -28,11 +30,12 @@
 
 ## 2. 当前任务
 
-- **T002 Modbus CRC16 — IN PROGRESS（Phase A: Learning Checkpoint）**：本阶段为 docs-only，学习与知识留痕已完成待提交；Phase B（测试先行）与 Phase C（实现）**尚未开始**，等待指令。
+- **T002 Modbus CRC16 — IN PROGRESS**：Phase A（学习与知识留痕）✅、Phase B（测试设计：矩阵/优先级/接口定案/Phase C 计划）✅（均已 docs-only 提交）；**Phase C（Test First + Implementation）⬜ 未开始**。
+- 请勿把 T003 视为当前下一步：当前下一步动作是启动 T002 Phase C；T003 仅在 T002 完成并验证后按 BACKLOG 顺序启动。
 
-## 3. 下一任务
+## 3. T002 之后的下一任务
 
-- **T003 — Modbus RTU Frame Model**（详见 [BACKLOG](BACKLOG.md)）：帧数据模型（地址/功能码/数据/CRC 布局）、构造/序列化/解析 + CRC 校验集成、金样帧对拍与 fuzz-lite。在 **T002 完成并验证后**按 BACKLOG 顺序启动。
+- **T003 — Modbus RTU Frame Model**（详见 [BACKLOG](BACKLOG.md)）：帧数据模型（地址/功能码/数据/CRC 布局）、构造/序列化/解析 + CRC 校验集成、金样帧对拍与 fuzz-lite。注意 T003 包含"CRC 数值 → 帧尾两字节（低字节在前）"的序列化职责（已在 T002 测试设计中预留知识验收）。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -80,3 +83,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-05 | T001 收尾：回填 LKGC=`aa337f6`，M1 关闭 |
 | 2026-09-05 | T001.1 完成（docs-only；提交哈希与信息见 git log / T001.1 档案）；LKGC 依约定不变 |
 | 2026-09-05 | T002 启动：Phase A Learning Checkpoint（docs-only）；T002 标记 IN PROGRESS，**未标完成** |
+| 2026-09-05 | T002 Phase B（Test Design，docs-only）完成：测试矩阵 CRC-T01–T06 + 优先级 + 接口定案 + Phase C 13 步计划；状态改为四段式表达（Current Task/Phase/Next Action/Next Task After T002） |
