@@ -22,7 +22,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | T001 | 项目引导：骨架 + 文档体系 + 最小 Qt6 应用 | M1 | P0 | ✅ Done | — | 目录骨架、AGENTS 规约、全套文档、CMake Presets、offscreen 冒烟测试 |
 | T001.1 | Bootstrap Documentation Cleanup | M1 | P0 | ✅ Done | T001 | 文档更名为 05_DEMO_GUIDE、preset 示例模板、ENVIRONMENT 重写、BACKLOG 细粒度拆分 |
-| T002 | **Modbus CRC16** | M2 | P0 | Ready（**下一任务**） | T001.1 | CRC-16/MODBUS **按位法**实现（Poly 0x8005/A001，Init 0xFFFF）；规范向量对拍（"123456789"→0x4B37）；零余数属性测试；空/单字节边界测试。**明确不含**：Frame Codec（T003）、查表法优化（后续优化任务）、benchmark、fuzz testing、simulator、serial port |
+| T002 | **Modbus CRC16** | M2 | P0 | In Progress — Phase A Learning（docs-only） | T001.1 | CRC-16/MODBUS **按位法**实现（Poly 0x8005/A001，Init 0xFFFF）；规范向量对拍（"123456789"→0x4B37）；零余数属性测试；空/单字节边界测试。**明确不含**：Frame Codec（T003）、查表法优化（后续优化任务）、benchmark、fuzz testing、simulator、serial port |
 | T003 | **Modbus RTU Frame Model** | M2 | P0 | Backlog | T002 | 帧数据模型（地址/功能码/数据/CRC 布局）；构造/序列化/解析 + CRC 校验集成；金样帧对拍（`01 03 00 00 00 01`→CRC `84 0A`）；帧完整性规则；fuzz-lite（截断/翻转/乱序字节必须安全失败） |
 | T004 | **Function 0x03 Codec** | M2 | P0 | Backlog | T003 | Read Holding Registers 请求/响应/异常编解码；寄存器值大端解释；round-trip 测试；边界地址与异常码帧 |
 | T005 | **Simulator Basic Slave** | M3 | P0 | Backlog | T004 | IFrameSource 首个实现；寄存器表；虚拟主站轮询闭环；虚拟时钟 + 种子确定性（ADR）；offscreen 可跑 |
@@ -51,3 +51,4 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 → T003 Frame Model → T004 0x03 Codec
 | 2026-09-05 | T001 建立本文件与任务表草案（旧编号 T002–T011） |
 | 2026-09-05 | T001 完成（提交 `aa337f6`）；M1 关闭；T002 保持 Ready |
 | 2026-09-05 | T001.1：任务细粒度重排为 T002–T013（T002 仅 CRC16；帧模型/0x03 编解码/模拟器/故障注入/UI/回放/串口/AI/Agent 各自独立）；里程碑重组为 M1–M7 |
+| 2026-09-05 | T002 进入 Phase A（Learning Checkpoint，docs-only）；状态改为 In Progress，未标完成 |
