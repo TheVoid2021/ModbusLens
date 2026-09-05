@@ -5,4 +5,5 @@
 - 最小应用与冒烟测试：build 通过、ctest 1/1 通过、offscreen 启动验证（exit=124 为预期）。
 - 处理 AutoMoc 的 qtlicd 许可证提示：`QTFRAMEWORK_BYPASS_LICENSE_CHECK=1` 注入 local preset，重构建零噪音。
 - 编写全套文档体系（AGENTS 规约、charter/requirements/architecture/learning/test/demo、STATUS/BACKLOG/ENVIRONMENT/INTERVIEW）。
+- 提交：主提交 `aa337f6`；收尾 docs-only 回填提交见 `git log`。
 - 任务档案：[T001](tasks/T001-project-bootstrap.md)

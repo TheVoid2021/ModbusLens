@@ -96,5 +96,7 @@ $ QT_QPA_PLATFORM=offscreen timeout 5 ./build/debug/modbuslens.exe
 
 | 提交 | 哈希 | 说明 |
 | --- | --- | --- |
-| 主提交 | `PENDING` | `T001: 项目引导 — 骨架、文档体系、最小 Qt6 应用` |
-| 回填提交 | `PENDING` | `T001: 回填任务记录（LKGC 与提交哈希）` |
+| 主提交 | `aa337f6` | `T001: 项目引导 — 骨架、文档体系、最小 Qt6 应用`（24 文件，+1282 行） |
+| 回填提交 | 见 `git log`（本任务收尾的 docs-only 提交） | `T001: 回填任务记录（LKGC 与提交哈希）` |
+
+> 注：Last Known Good Commit = `aa337f6`（构建+测试双通过的提交）；回填提交仅修改文档，不改变构建与测试事实。
