@@ -8,15 +8,16 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | **M2 Protocol Core ✅ 完成**（T002/T003/T004）；M3 模拟与故障注入待启动 |
+| 当前 Milestone（Current Milestone） | M2 ✅ 完成（T002/T003/T004）；**M3 进行中（T005 Learning / Test Design）** |
 | Last Known Good Commit | **`e8b62f6`**（T004 Part B 代码提交：build+ctest 5/5 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T004A `73825c6`、T003 `a44a6d2`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 30 targets） |
 | Test 状态 | ✅ **5/5 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03`，32 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · **T004** |
-| 当前任务（Current Task） | **None**（无进行中任务） |
+| 当前任务（Current Task） | **T005 Simulator Basic Slave**（IN PROGRESS，未完成） |
 | 最近完成任务（Last Completed Task） | **T004 Modbus RTU Codec**（Part A + Part B 全部 DONE） |
-| 下一步动作（Next Action） | **Start T005 Simulator Basic Slave** |
-| 下一任务（Next Task） | **T005 Simulator Basic Slave** |
+| 当前阶段（Current Phase） | **Learning / Test Design**（docs-only；Implementation ⬜） |
+| 下一步动作（Next Action） | **T005 Implementation** |
+| 下一任务（Next Task After T005） | **T006 Fault Injection** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -33,11 +34,11 @@
 
 ## 2. 当前任务
 
-- **None**。T004 已整体完成（Part A + Part B），**M2 Protocol Core 里程碑关闭**。下一步：启动 T005 Simulator Basic Slave（见 BACKLOG）。
+- **T005 Simulator Basic Slave — IN PROGRESS（Phase: Learning / Test Design，docs-only）**：范围收缩定案（IFrameSource/VirtualMaster/虚拟时钟/seed 全部推迟）、`SimulatedSlave` 数据模型与四条流程定案、测试矩阵 SIM-T01~T07 + SIM-I01（全链路闭环）、12 题问答、实施计划已落库（[T005 档案](tasks/T005-simulator-basic-slave.md)）。**Simulator 未实现**；下一步动作 = T005 Implementation。
 
 ## 3. 下一任务
 
-- **T005 — Simulator Basic Slave**（详见 [BACKLOG](BACKLOG.md)）：`IFrameSource` 首个实现、虚拟从站（常用功能码）、虚拟主站轮询闭环、虚拟时钟 + 种子确定性（ADR）。依赖的 T002/T003/T004 核心已全部就绪。
+- **T006 — Fault Injection**（详见 [BACKLOG](BACKLOG.md)）：在 Simulator 正常响应之上注入 Timeout / delay / CRC fault / frame loss / random fault。依赖 T005 的 Slave 端点（未完成）；在 T005 实现并验证后启动。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -97,3 +98,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T004 Part B Learning / Test Design（docs-only）：0x03 语义模型×3、错误模型五值、矩阵 F03-B01~B12（V1.1b3 §6.3 官方金样已数值复核）、Deferred-to-T007、40001 边界；下一步 = Part B Implementation。T004 保持 IN PROGRESS |
 | 2026-09-06 | T004 Part B 完成：`Function03` 落地 `modbuslens_core`（三个 decoder + big-endian helper），B01~B12 RED（linker error ×15）→GREEN，全项目 ctest 5/5、零警告。byteCount=0 口径修正（单帧即非法，Part B 直接拒绝，不再推迟 T007）。**T004 整体 DONE，M2 Protocol Core 关闭**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-06 | 回填：LKGC = `e8b62f6`（T004 Part B 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
+| 2026-09-06 | T005 启动：Learning / Test Design（docs-only）——范围收缩（IFrameSource/VirtualMaster/虚拟时钟/seed 推迟；Timeout/CRC fault 归 T006）、SimulatedSlave 模型与流程定案、SIM-T01~T07 + SIM-I01 矩阵落库；T005 标记 IN PROGRESS，**未标完成** |
