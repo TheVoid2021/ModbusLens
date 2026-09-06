@@ -8,16 +8,16 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ 完成；**M3 进行中（T005 ✅ / T006 待启动）** |
+| 当前 Milestone（Current Milestone） | M2 ✅ 完成；**M3 进行中（T005 ✅ / T006 Learning+Test Design）** |
 | Last Known Good Commit | **`3a896df`**（T005 代码提交：build+ctest 7/7 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T004B `e8b62f6`、T004A `73825c6`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 39 targets） |
 | Test 状态 | ✅ **7/7 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration`，41 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · **T005** |
-| 当前任务（Current Task） | **None**（无进行中任务） |
+| 当前任务（Current Task） | **T006 Deterministic Fault Injection**（IN PROGRESS，未完成） |
 | 最近完成任务（Last Completed Task） | **T005 Simulator Basic Slave** |
-| 当前阶段（Current Phase） | — （T005 DONE；M3 进行中，T006 待启动） |
-| 下一步动作（Next Action） | **Start T006 Fault Injection** |
-| 下一任务（Next Task After T005） | **T006 Fault Injection** |
+| 当前阶段（Current Phase） | **Learning / Test Design**（docs-only；Implementation ⬜） |
+| 下一步动作（Next Action） | **T006 Implementation** |
+| 下一任务（Next Task After T006） | **T007 Transaction Analysis** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -35,11 +35,11 @@
 
 ## 2. 当前任务
 
-- **None**。T005 已完成（SimulatedSlave + 两套测试全绿 + SIM-I01 闭环打通 + ISSUE-001 建档修复）。下一步：启动 T006 Fault Injection（见 BACKLOG）。
+- **T006 Deterministic Fault Injection — IN PROGRESS（Phase: Learning / Test Design，docs-only）**：四模式范围定案（None/DropResponse/CorruptCrc/ArtificialDelay，random/seed/real delay/丢包概率显式移出）、Timeout=Session 层判断（T006 只交付 DropResponse）、CRC fault 只作用 wire 层（SimulatedSlave 不动）、ArtificialDelay=元数据不真等、数据模型 `applySimulationFault(span, config) -> variant<DeliveredWire, DroppedResponse>`、矩阵 FAULT-T01~T05 + I01/I02、12 题问答已落库（[T006 档案](tasks/T006-fault-injection.md)）。**Fault Injector 未实现**；下一步动作 = T006 Implementation。
 
 ## 3. 下一任务
 
-- **T006 — Fault Injection**（详见 [BACKLOG](BACKLOG.md)）：在 Simulator 正常响应之上注入 Timeout / delay / CRC fault / frame loss / random fault。依赖 T005 的 Slave 端点（已就绪）。
+- **T007 — Transaction Analysis**（详见 [BACKLOG](BACKLOG.md)）：请求-响应配对（含广播/超时判定——DropResponse + 等待阈值在此成为 Timeout）、时延计算、错误与功能码统计快照；合成流量单测。依赖 T005/T006 提供的流量与故障样本（T006 未完成）。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -102,3 +102,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T005 启动：Learning / Test Design（docs-only）——范围收缩（IFrameSource/VirtualMaster/虚拟时钟/seed 推迟；Timeout/CRC fault 归 T006）、SimulatedSlave 模型与流程定案、SIM-T01~T07 + SIM-I01 矩阵落库；T005 标记 IN PROGRESS，**未标完成** |
 | 2026-09-06 | T005 完成：`SimulatedSlave` 落地 `modbuslens_core`，SIM-T01~T07 + SIM-I01 RED（linker error ×29）→GREEN；过程中发现并修复 ISSUE-001（variant 测试辅助函数悬垂指针，含 T004 测试脚手架同批修复，语义零变化）。全项目 ctest 7/7、零警告。**T005 DONE**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-06 | 回填：LKGC = `3a896df`（T005 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
+| 2026-09-06 | T006 启动：Learning / Test Design（docs-only）——四模式定案（random/seed/real delay/丢包概率移出）、Timeout=Session 判断（T006 只交付 DropResponse）、CRC fault 只作用 wire、ArtificialDelay=元数据；矩阵 FAULT-T01~T05 + I01/I02 落库；T006 标记 IN PROGRESS，**未标完成** |
