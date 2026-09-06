@@ -321,7 +321,7 @@ RED → GREEN 状态变化实录：`simulator`/`simulator_integration` 从"无�
 | --- | --- | --- |
 | T004 Part B 代码 | `e8b62f6` | （前 LKGC） |
 | T005 Learning | `0a99870` | docs-only |
-| T005 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T005: implement deterministic Modbus simulated slave` |
+| T005 代码提交（**新 LKGC**） | `3a896df` | `T005: implement deterministic Modbus simulated slave` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：T005 产生新业务代码并经 configure/clean build/full ctest（7/7）验证；LKGC 由 `e8b62f6` 推进至 T005 代码提交，由 docs-only 回填提交写入。**T005 DONE；T006 未开始。**

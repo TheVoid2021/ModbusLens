@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | M2 ✅ 完成；**M3 进行中（T005 ✅ / T006 待启动）** |
-| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T005 代码提交，哈希由 docs-only 回填提交写入；此前为 `e8b62f6`） |
+| Last Known Good Commit | **`3a896df`**（T005 代码提交：build+ctest 7/7 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T004B `e8b62f6`、T004A `73825c6`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 39 targets） |
 | Test 状态 | ✅ **7/7 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration`，41 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · **T005** |
@@ -101,3 +101,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | 回填：LKGC = `e8b62f6`（T004 Part B 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-06 | T005 启动：Learning / Test Design（docs-only）——范围收缩（IFrameSource/VirtualMaster/虚拟时钟/seed 推迟；Timeout/CRC fault 归 T006）、SimulatedSlave 模型与流程定案、SIM-T01~T07 + SIM-I01 矩阵落库；T005 标记 IN PROGRESS，**未标完成** |
 | 2026-09-06 | T005 完成：`SimulatedSlave` 落地 `modbuslens_core`，SIM-T01~T07 + SIM-I01 RED（linker error ×29）→GREEN；过程中发现并修复 ISSUE-001（variant 测试辅助函数悬垂指针，含 T004 测试脚手架同批修复，语义零变化）。全项目 ctest 7/7、零警告。**T005 DONE**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
+| 2026-09-06 | 回填：LKGC = `3a896df`（T005 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
