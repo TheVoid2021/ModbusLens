@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ 完成；**M4 进行中（T007 ✅ / T008 Part A ✅ DONE）**。注：按 BACKLOG 既有定义 M4=事务分析与界面（T007,T008），T008 完成后才关闭 |
-| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T008 Part A 代码提交，哈希由 docs-only 回填提交写入；此前为 `0f3109a`） |
+| Last Known Good Commit | **`76030a2`**（T008 Part A 代码提交：build+ctest 14/14+QML smoke+Manual UI Smoke 双重验收；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T007B `0f3109a`、T007A `14982f6`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 86 targets；App 已迁移 Qt Quick，Widgets 依赖移除） |
 | Test 状态 | ✅ **14/14 通过**（ctest：`crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration` / `transaction` / `transaction_integration` / `statistics` / `statistics_integration` / `ui_bridge` / `qml_smoke`，69 个测试函数全过；原 `smoke` 随 QWidget bootstrap 移除） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 |
@@ -116,3 +116,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | 回填：LKGC = `0f3109a`（T007 Part B 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-06 | T008 启动：Part A Learning / Test Design（docs-only）——Part A/B 拆分、依赖方向定案、QML 模块/迁移计划、Controller/Model 设计、矩阵 UI-A01~A06 + I01（I02 记录不做）、Manual UI Smoke 计划落库；T008 标记 IN PROGRESS，**未标完成**（M4 按 BACKLOG 定义含 T008，保持进行中） |
 | 2026-09-06 | T008 Part A 完成：main.cpp 迁移 QGuiApplication（QMainWindow bootstrap 与 Widgets 依赖移除）；AnalysisController + TransactionListModel 桥接落地；UI-A01~A06 + 真实 exe 的 QML load smoke 全绿；Manual UI Smoke 12/12（a11y 结构化验收）。**Part A DONE，T008 整体 IN PROGRESS（Part B 未开始）**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
+| 2026-09-06 | 回填：LKGC = `76030a2`（T008 Part A 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |

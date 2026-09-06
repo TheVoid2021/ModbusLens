@@ -368,7 +368,7 @@ installed / Type unavailable / binding loop / ReferenceError / TypeError。
   4. Manual UI Smoke 用什么方法验收？（窗口枚举 + 可访问性树对真实运行进程逐项核对——桌面前台被占用时不抢焦点，并如实记录方法）
 
 | Part A Learning | `fe9dab6` | docs-only |
-| Part A 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T008(Part A): migrate app to Qt Quick and add QML bridge` |
+| Part A 代码提交（**新 LKGC**） | `76030a2` | `T008(Part A): migrate app to Qt Quick and add QML bridge` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：Part A 产生新业务代码并经 configure/clean build/full ctest（14/14）+ QML smoke + Manual UI Smoke 验证；LKGC 由 `0f3109a` 推进至 Part A 代码提交，由 docs-only 回填提交写入。**Part A DONE；T008 整体 IN PROGRESS（Part B 未开始）；T009 未开始。**
