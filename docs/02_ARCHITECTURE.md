@@ -6,8 +6,12 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────────┐
-│ UI 层（src/ui：最终 Qt Quick/QML ← ADR001，T008 切换）            │
-│  页面/交互/动画/Dashboard；QMainWindow 仅为 bootstrap scaffold    │
+│ UI 层（src/ui：Qt Quick/QML ← ADR001，T008 起）                   │
+│  Main.qml Shell/Dashboard；QMainWindow 仅为旧 scaffold，T008 删除 │
+├──────────────────────────────────────────────────────────────────┤
+│ App/Adapter 层（src/ui：AnalysisController + TransactionListModel）│
+│  QObject/QAbstractListModel 桥接：core 快照 → 可绑定属性/role；    │
+│  optional → hasX + value；statusText 等 label 适配在此层           │
 ├──────────────────────────────────────────────────────────────────┤
 │ App 装配层（src/app）                                             │
 │  会话管理：按模式装配「数据源 + 分析核心」，生命周期与线程调度     │
@@ -26,6 +30,18 @@
 ```
 
 ## 2. 核心设计决策（D 系列）
+
+**依赖方向（T008 定案，强制）**：
+
+```text
+QML / Qt Quick
+       ↓
+AnalysisController / TransactionListModel（App/Adapter 层，Qt 类型仅允许于此）
+       ↓
+modbuslens_core（Pure C++20，Zero Qt）
+```
+
+严格禁止 `modbuslens_core → Qt/QML` 反向依赖；Qt 类型（QString/QVariant/QObject 等）只能出现在 app/ui adapter 层与 UI 测试。optional 语义在边界拆为 hasX + value（不把 nullopt 偷偷变成 0）。
 
 ### D1 统一数据源抽象：IFrameSource（三模式复用的关键）
 
