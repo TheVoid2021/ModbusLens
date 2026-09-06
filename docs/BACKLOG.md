@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | M1 | 工程引导与文档体系 | T001, T001.1 | ✅ 完成 |
 | M2 | Modbus 协议核心 | T002, T003, T004 | ✅ 完成 |
-| M3 | 模拟与故障注入 | T005, T006 | 🔄 进行中（T005 Learning / Test Design） |
+| M3 | 模拟与故障注入 | T005, T006 | 🔄 进行中（T005 ✅ / T006 待启动） |
 | M4 | 事务分析与界面 | T007, T008 | ⬜ |
 | M5 | 回放与串口模式 | T009, T010 | ⬜ |
 | M6 | AI 诊断与 Agent 工具 | T011, T012 | ⬜ |
@@ -25,8 +25,8 @@
 | T002 | **Modbus CRC16** | M2 | P0 | ✅ Done | T001.1 | `modbuslens_core`（无 Qt 纯 C++20 静态库）+ `calculateModbusCrc(std::span<const std::uint8_t>)` 按位实现；6 测试（KAT/边界/敏感性/zero-remainder）RED→GREEN 全程留痕。按约定未做：查表优化、benchmark、fuzz、序列化 |
 | T003 | **Modbus RTU Frame Model** | M2 | P0 | ✅ Done | T002 | 交付：`ModbusRtuFrame`（address/functionCode/data，C++20 value 语义，**不存 CRC**）+ `isExceptionResponse`；FRAME-T01~T04 全绿。**范围修订（T003 执行时确认）**：wire 编解码、CRC 校验集成、fuzz-lite **移出 T003**——编解码与 CRC 校验随 T004 codec 承接，fuzz 待 codec 存在后评估；t1.5/t3.5 时序归 T010 |
 | T004 | **Modbus RTU Codec**（Part A Wire Codec + Part B 0x03 Codec） | M2 | P0 | ✅ Done | T003 | **Part A** ✅：`ModbusRtuCodec`（encode/decode + `variant<Frame, RtuDecodeError>` 错误模型 + CRC 低字节在前序列化/验证）落地 `modbuslens_core`；RTU-A01~A07 全绿。**Part B** ✅：`Function03`（`ReadHoldingRegistersRequest/Response` + `ModbusExceptionResponse` 三个 decoder、`Function03DecodeErrorCode` 五值、big-endian helper），F03-B01~B12 全绿（V1.1b3 §6.3 官方金样）。修正：byteCount=0 单帧即非法（Part B 直接拒绝，不推迟 T007）；byteCount 非帧定界符（帧定界属 T010）。配对/一致性归 T007；fuzz/benchmark 不在范围 |
-| T005 | **Simulator Basic Slave** | M3 | P0 | In Progress — Learning / Test Design（docs-only）/ Implementation ⬜ | T004 | **范围收缩后**：`SimulatedSlave`（单设备地址 + `vector<uint16_t>` 连续 Holding Registers + Function 0x03：正常响应 / 0x02 Illegal Address / 0x01 Illegal Function / 0x03 Illegal Data Value；地址不匹配 → `IgnoredRequest`；**复用** T004B decoder；SIM-I01 全链路闭环 T002→T005）。**Deferred**：IFrameSource / VirtualMaster / 轮询 / 虚拟时钟 / seed（等真实复用需求出现再抽象）；Timeout / CRC fault / delay → T006；broadcast 后续 |
-| T006 | **Fault Injection** | M3 | P0 | Backlog | T005 | 超时/CRC 错帧/异常码注入开关；确定性复现；供 Demo A 使用的场景脚本 |
+| T005 | **Simulator Basic Slave** | M3 | P0 | ✅ Done | T004 | **范围收缩后交付**：`SimulatedSlave`（单设备地址 + `vector<uint16_t>` 连续寄存器文件补 0 + Function 0x03 正常响应 / 0x02 Illegal Address / 0x01 Illegal Function / 0x03 Illegal Data Value；地址不匹配 → `IgnoredRequest`；**复用** T004B decoder；const 纯应答端点）；SIM-T01~T07 + SIM-I01 全链路闭环全绿。**Deferred 兑现**：IFrameSource/VirtualMaster/轮询/虚拟时钟/seed 未实现（等真实共性）；Timeout/CRC fault → T006。附带：ISSUE-001（variant 测试悬垂指针）建档并修复 |
+| T006 | **Fault Injection** | M3 | P0 | Ready（**下一任务**） | T005 | 在 Simulator 正常响应之上注入 Timeout / delay / CRC fault / frame loss / random fault（确定性可控）；与 T005 相同的纯函数式思路，禁止真实线程/时钟 |
 | T007 | **Transaction Analysis** | M4 | P0 | Backlog | T004（+T005 提供流量） | 请求-响应配对（含广播/超时）、时延计算、错误与功能码统计快照；合成流量单测 |
 | T008 | **Qt Analysis UI** | M4 | P0 | Backlog | T007 | 主窗口、模式切换骨架、帧/事务/统计/报告视图；UI 薄壳与核心解耦；offscreen 冒烟扩展 |
 | T009 | **Replay Mode** | M5 | P0 | Backlog | T007 | MLog 日志格式 v1（ADR）与读写；回放/暂停/调速/时间轴；**口径一致性测试**（Simulator 与 Replay 同流同结论） |
@@ -61,3 +61,4 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-06 | T004 Part B Learning / Test Design（docs-only）：语义模型×3、错误模型五值、矩阵 F03-B01~B12（官方 §6.3 金样复核）；配对/一致性显式 Deferred 至 T007；下一步 = Part B Implementation |
 | 2026-09-06 | T004 Part B 完成（三个 decoder + big-endian helper，B01~B12 RED→GREEN，T004 **DONE**）；byteCount=0 口径修正（单帧即非法）；**M2 Protocol Core 关闭**；T005 转 Ready |
 | 2026-09-06 | T005 启动（Learning / Test Design，docs-only）：**范围收缩**——IFrameSource / VirtualMaster / 轮询 / 虚拟时钟 / seed 移出 T005（单数据源阶段不过早抽象，等 Replay/Serial 出现真实共性再提取）；Timeout / CRC fault / delay 归 T006；T006 不变 |
+| 2026-09-06 | T005 完成（SimulatedSlave + SIM-T01~T07/SIM-I01 RED→GREEN，T005 **DONE**）；ISSUE-001 建档（variant 测试悬垂指针，T004 测试脚手架同批修复）；T006 转 Ready |

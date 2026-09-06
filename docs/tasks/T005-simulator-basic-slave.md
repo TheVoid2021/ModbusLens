@@ -1,9 +1,8 @@
 # T005 — Simulator Basic Slave
 
-> 状态：**IN PROGRESS — Learning / Test Design**（2026-09-06，docs-only）｜Implementation ⬜
-> 前置确认：T004 DONE、M2 Protocol Core DONE、LKGC = `e8b62f6`。
-> 协议依据：V1.1b3 §6.3（0x03 语义，复用 T004 Part B）+ V1.02（帧层，已由 Part A 封装）。
-> 本阶段边界：只学习与设计。**禁止**（全部未做）：修改 `src/`、`tests/`、`CMakeLists.txt`；实现 Simulator；T006 及以后的一切。
+> 状态：**DONE ✅**（2026-09-06）｜Learning / Test Design ✅｜Implementation ✅（RED→GREEN 全程留痕）
+> 前置确认：T004 DONE、M2 Protocol Core DONE。
+> 交付边界回顾：只实现 `SimulatedSlave`（单设备地址 + Function 0x03）；**未实现** IFrameSource/VirtualMaster/轮询/虚拟时钟/seed（推迟）、Timeout/CRC fault/delay（T006）、broadcast；未开始 T006。
 
 ## Goal
 
@@ -69,6 +68,10 @@ Simulated Slave #1（Holding Registers: 0=100, 1=200, 2=1500, 3=67, 4=1）
 | `std::unordered_map<uint16_t,uint16_t>` | 稀疏地址省内存 | 遍历无序、代码噪音大、真实 slave 寄存器文件本就是连续块 | ❌ 过度设计 |
 
 扩容策略：`setHoldingRegister(addr, v)` 时若 `addr+1 > size` 则 resize 到 `addr+1` 并以 0 填充（未初始化寄存器=0，行为确定、可测）。
+
+### 寄存器空间语义（v1 明确设计行为）
+
+当前 `SimulatedSlave` 使用 `std::vector<std::uint16_t>` 表示**连续 Holding Register 空间**。例如执行 `setHoldingRegister(4, 100)` 时，若此前 vector 小于 5，则 `resize(5, 0)`——此后合法地址范围为 **0 ~ 4**，其中未显式写入的位置默认值为 **0**。它模拟的是**连续寄存器文件**，而不是稀疏寄存器映射；未来如果真实设备 profile 需要稀疏寄存器空间，再重新评估数据结构（v1 不做复杂 map/profile 系统）。
 
 ## 数据模型（定案，不实现）
 
@@ -199,23 +202,44 @@ sleep、QTimer、QThread、random、timeout、CRC corruption、frame loss、late
 
 **禁止**：Function 03 之外的任何功能码、encode 请求侧（Master 角色归测试本身）、线程/时钟/随机性。
 
-## Implementation
+## Implementation（实录，2026-09-06）
 
-**未发生。** 本阶段 docs-only；`src/`、`tests/`、`CMakeLists.txt` 零改动。
+### 新增文件
 
-## Files Changed（本阶段）
+- `src/core/simulator/SimulatedSlave.{h,cpp}`：`IgnoredRequest`（defaulted `==`）、`SimulatorResult = variant<ModbusRtuFrame, IgnoredRequest>`、`SimulatedSlave`（explicit ctor / `setHoldingRegister` / **const** `handleRequest`——从站是纯应答端点，状态只经 set 改变，const 无需任何妥协）。
+- `tests/test_simulated_slave.cpp`：SIM-T01~T07（T07 拆 a/b），8 个测试函数。
+- `tests/test_simulator_integration.cpp`：SIM-I01 全链路闭环（encode→decode→handleRequest→encode→decode→0x03 解释，wire 金样 `…C4 0B` / `…BA 7A` 逐字节断言）。
+- `CMakeLists.txt`：core 加入 `SimulatedSlave.cpp`；两个测试 target + ctest `simulator` / `simulator_integration`。
 
-- 新增：`docs/tasks/T005-simulator-basic-slave.md`（本文件）、`docs/devlog/2026-09-06-T005-TestDesign.md`
-- 修改：`docs/PROJECT_STATUS.md`（四段式状态）、`docs/BACKLOG.md`（T005 范围收缩 + 变更记录）、`docs/02_ARCHITECTURE.md`（io/ 抽象推迟说明）
-- 未改动：`src/`、`tests/`、`CMakeLists.txt`、presets
+### handleRequest 实际处理顺序（与设计一致）
+
+1. **地址归属**：`request.address != address_` → `IgnoredRequest{}`（含地址 0，v1 无 broadcast）；
+2. **功能分发**：functionCode≠0x03 → 异常帧 `fn|0x80 / {0x01}`（Illegal Function）；
+3. **复用 T004**：`decodeReadHoldingRegistersRequest(request)`，任何 `Function03DecodeError` → 异常帧 `0x83 / {0x03}`（Illegal Data Value）——不静默、不 SimulatorError；
+4. **越界判定**（32 位提升防 uint16 回绕）：`start ≥ size || start+count > size` → 异常帧 `0x83 / {0x02}`（Illegal Data Address），不做部分读取；
+5. **正常响应**：`byteCount = 2×count`（≤250 安全入 uint8）+ 每寄存器显式移位"高字节在前"（禁 memcpy）。
+
+寄存器空间语义（实现前已定案）：vector 连续寄存器文件，set 时 `resize(addr+1, 0)` 补 0——中间地址默认 0 是明确行为，不是疏忽。
+
+## Files Changed（本阶段实现）
+
+- 新增：`src/core/simulator/SimulatedSlave.{h,cpp}`、`tests/test_simulated_slave.cpp`、`tests/test_simulator_integration.cpp`、`docs/issues/ISSUE-001-variant-test-dangling-pointer.md`、`docs/devlog/2026-09-06-T005-Implementation.md`
+- 修改：`CMakeLists.txt`（core 源 + 两个 target）、`docs/tasks/T005-simulator-basic-slave.md`（本文件补齐）、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/02_ARCHITECTURE.md`、`docs/04_TEST_STRATEGY.md`、`docs/INTERVIEW_NOTES.md`
+- **测试脚手架修复（语义零变化）**：`tests/test_modbus_rtu_codec.cpp`、`tests/test_function03.cpp` 中与 ISSUE-001 相同的悬垂指针模式被一并修复（断言内容逐字未动）——见 Problems #2
+- 未改动：`ModbusCrc.{h,cpp}`、`ModbusRtuFrame.h`、`ModbusRtuCodec.{h,cpp}`、`Function03.{h,cpp}`、`src/main.cpp`、`test_smoke.cpp`、`test_modbus_crc.cpp`、`test_modbus_rtu_frame.cpp`、presets
 
 ## Problems Encountered
 
-无实现问题（docs-only）。范围事项：BACKLOG 原 T005 行含 IFrameSource/VirtualMaster/虚拟时钟/seed——与本任务"最小 Slave 端点"决策冲突，已改写并在变更记录留痕（见 Solutions）。
+1. **RED 如预期**：仅声明无定义时两个测试目标链接失败——configure PASS、compile PASS、link FAIL，共 **29 处 undefined reference**（去重符号：`SimulatedSlave::SimulatedSlave(unsigned char)` / `setHoldingRegister(unsigned short, unsigned short)` / `handleRequest(...) const`）。未提交 RED 状态。
+2. **ISSUE-001（本任务最重要的问题，已建档）**：首版实现后 t01 断言失败而 T02~T07 全过；同批集成测试编译失败（GCC `taking address of rvalue` ×4）。根因是**同一个**：variant 测试辅助函数 `as<T>(f())` 返回"指向临时 variant 内部"的指针——临时在语句末析构，指针悬垂（UB）；t01 的后续 `expected` 栈构造恰好覆写了该存储。编译错误与运行期失败同根：GCC 对显式 `&右值` 报错，对"const& 绑定临时 + 内部取址"的等价悬垂形态却静默。同一模式潜伏在 T004 已提交的 codec/f03 测试中（当时"全过"只是尚未被覆写）。
+3. **修复**：辅助函数改 `std::optional<T>`（拷贝语义，从结构上消灭悬垂）；集成测试绑定具名局部量后再 `get_if`；T004 两个测试文件以相同方式修复（断言逐字未动）。详见 [ISSUE-001](../issues/ISSUE-001-variant-test-dangling-pointer.md)。
+4. **实现本身：No significant implementation issue encountered.** 悬垂指针问题出在测试脚手架而非 SimulatedSlave——修复后 t01 立即稳定通过，反证实现无误。
 
 ## Solutions
 
-T005 行改写为收缩后范围；推迟项逐条写明去向与理由（IFrameSource 等真实复用需求出现再抽象；Timeout/CRC fault 归 T006）；历史记录不删改。
+1. RED 证据存档后按 Test Design 实现。
+2. 按 ISSUE-001 的方案修复三个测试文件 + 集成测试，并创建首份 Issue 档案。
+3. ctest 由"2 个 Not Run + 1 个失败"恢复为 7/7 全绿。
 
 ## Verification（本阶段，docs-only）
 
@@ -224,9 +248,51 @@ git diff --check        → 通过（无空白/行尾问题）
 git diff --name-only    → 仅 docs/ 下文件；src/、tests/、CMakeLists.txt 未出现
 ```
 
+## Verification（Implementation，2026-09-06）
+
+### RED（仅声明、无定义；未提交）
+
+```text
+$ cmake --preset debug-local      → configure PASS
+$ cmake --build --preset debug-local
+两个测试目标链接失败；undefined reference 共 29 处，去重符号：
+  `modbuslens::core::SimulatedSlave::SimulatedSlave(unsigned char)`
+  `modbuslens::core::SimulatedSlave::setHoldingRegister(unsigned short, unsigned short)`
+  `modbuslens::core::SimulatedSlave::handleRequest(modbuslens::core::ModbusRtuFrame const&) const`
+compile 全部通过，仅 link 失败——预期 RED。
+```
+
+### 过程问题（详见 Problems #2 / ISSUE-001）
+
+```text
+首版实现后：
+  t01 FAIL（悬垂指针读被覆写栈内存），T02~T07 PASS
+  集成测试 compile FAIL：taking address of rvalue ×4
+→ 修复：optional 拷贝语义辅助函数 + 具名局部量（T004 两个测试文件同批修复）
+```
+
+### GREEN（修复后）
+
+```text
+$ cmake --build --preset debug-local              → [12/12] 全部链接成功
+$ ./build/debug/modbuslens_simulator_tests.exe
+  PASS: t01~t07（t07 拆 a/b）  Totals: 10 passed, 0 failed (2ms)
+$ ./build/debug/modbuslens_simulator_integration_tests.exe
+  PASS: i01_fullProtocolRoundTrip  Totals: 3 passed, 0 failed (4ms)
+
+$ ctest --preset debug-local
+7/7: smoke | crc | frame | codec | f03 | simulator | simulator_integration 全部 Passed
+100% tests passed, 0 tests failed out of 7
+
+$ cmake --build --preset debug-local --clean-first
+警告/错误行数 grep = 0（零警告，39 targets）；ctest 再次 7/7 通过
+```
+
+RED → GREEN 状态变化实录：`simulator`/`simulator_integration` 从"无法链接（29 undefined references）"变为 "Passed"；既有五个测试全程未破坏。
+
 ## Result
 
-Learning / Test Design 完成：范围收缩定案、Simulator 角色与数据模型定案、四条流程（正常/越界/地址不匹配/malformed）、8 用例矩阵（P0×7 + P1×1，含 SIM-I01 全链路闭环）、12 题问答、实施计划落库。**Simulator 未实现**；T005 整体 IN PROGRESS。
+✅ **T005 DONE**：`SimulatedSlave` 落地 `modbuslens_core`（零 Qt、同步、const 接口）；SIM-T01~T07 + SIM-I01 全绿；SIM-I01 首次打通 T002→T003→T004A→T004B→T005 完整协议闭环（wire 金样逐字节断言）；全项目 ctest 7/7、clean 重建零警告；范围收缩承诺全部兑现（无 IFrameSource/VirtualMaster/时钟/seed/故障注入）。
 
 ## Knowledge Learned
 
@@ -234,12 +300,28 @@ Learning / Test Design 完成：范围收缩定案、Simulator 角色与数据�
 - **抽象时机纪律**：IFrameSource 推迟是本任务最重要的决定——单数据源阶段提取的接口必然来自想象；接口应从第二、第三个实现的真实共性中"长"出来。
 - **协议级结果 vs 宿主级结果**：越界、malformed 都是"合法的协议结果"（Frame）；只有"不是发给我的"才是宿主级结果（IgnoredRequest）——分清两者让 variant 只需两个分支。
 - SIM-I01 的设计价值：集成测试不必大——一条贯穿四层的 8 步链路就是"系统首次通电"。
+- **实现阶段新增**：
+  1. **返回指针必问生命周期**：`as<T>(f())` 的悬垂指针（ISSUE-001）证明"测试全过 ≠ 无 UB"；`optional<T>` 拷贝语义把正确性做进辅助函数，比约束每个调用点可靠。
+  2. **异常响应也是"正常输出"**：makeExceptionFrame 与正常响应走同一条返回路径，错误处理代码量≈0 且行为可测。
+  3. **越界判定要防整型回绕**：start+quantity 在 uint16 域会回绕，提升到 32 位后判定；这是"只查起点不查区间"漏洞的标准解法。
+  4. **const handleRequest**：从站是纯应答者，const 既表达设计意图，也强制状态变更只能走 set 接口。
 
 ## Potential Interview Questions
 
-- 12 题见上；后续 Implementation 阶段将补充：异常响应构造的复用方式、set 扩容策略的取舍、SIM-I01 断言分层。
+- 12 题见上（Knowledge I Must Be Able To Explain）。
+- Implementation 阶段新增：
+  1. 越界判定为什么要提升到 32 位？（uint16 start+quantity 回绕会让非法区间"看起来合法"）
+  2. 为什么 handleRequest 是 const？（纯应答端点；状态变更只经 set 接口——设计意图进类型系统）
+  3. ISSUE-001 讲了什么？（variant 临时生命周期 → 悬垂指针 → optional 拷贝语义修复；"测试全过 ≠ 无 UB"）
+  4. SIM-I01 的 wire 金样（C4 0B / BA 7A）从哪来？（一次性独立脚本按 T002 算法复核，断言逐字节）
 
 ## Git Commit
 
-- 本阶段提交信息：`T005(Learning): Simulator 范围收缩与测试设计（docs-only）`
-- 哈希：见 `git log`（docs-only 不推进 LKGC；LKGC 保持 `e8b62f6`）。
+| 提交 | 哈希 | 说明 |
+| --- | --- | --- |
+| T004 Part B 代码 | `e8b62f6` | （前 LKGC） |
+| T005 Learning | `0a99870` | docs-only |
+| T005 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T005: implement deterministic Modbus simulated slave` |
+| 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
+
+> LKGC 推进：T005 产生新业务代码并经 configure/clean build/full ctest（7/7）验证；LKGC 由 `e8b62f6` 推进至 T005 代码提交，由 docs-only 回填提交写入。**T005 DONE；T006 未开始。**

@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <cstdint>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -15,14 +16,14 @@ using modbuslens::core::encodeRtuFrame;
 
 namespace {
 
-const RtuDecodeError* asError(const RtuDecodeResult& result)
+// Copy semantics on purpose — see docs/issues/ISSUE-001.
+template <typename T, typename Variant>
+std::optional<T> as(const Variant& result)
 {
-    return std::get_if<RtuDecodeError>(&result);
-}
-
-const ModbusRtuFrame* asFrame(const RtuDecodeResult& result)
-{
-    return std::get_if<ModbusRtuFrame>(&result);
+    if (auto* value = std::get_if<T>(&result)) {
+        return *value;
+    }
+    return std::nullopt;
 }
 
 class ModbusRtuCodecTest : public QObject
@@ -69,8 +70,8 @@ void ModbusRtuCodecTest::a02_decodeKnownRequest()
     const std::vector<std::uint8_t> wire{
         0x01, 0x03, 0x00, 0x00, 0x00, 0x01, 0x84, 0x0A};
 
-    const auto* frame = asFrame(decodeRtuFrame(wire));
-    QVERIFY(frame != nullptr);
+    const auto frame = as<ModbusRtuFrame>(decodeRtuFrame(wire));
+    QVERIFY(frame.has_value());
     QCOMPARE(frame->address, std::uint8_t{0x01});
     QCOMPARE(frame->functionCode, std::uint8_t{0x03});
 
@@ -85,20 +86,20 @@ void ModbusRtuCodecTest::a03_decodeCrcMismatch()
     const std::vector<std::uint8_t> wire{
         0x01, 0x03, 0x00, 0x00, 0x00, 0x02, 0x84, 0x0A};
 
-    const auto* error = asError(decodeRtuFrame(wire));
-    QVERIFY(error != nullptr);
+    const auto error = as<RtuDecodeError>(decodeRtuFrame(wire));
+    QVERIFY(error.has_value());
     QCOMPARE(error->code, RtuDecodeErrorCode::CrcMismatch);
 }
 
 void ModbusRtuCodecTest::a04_frameTooShort()
 {
-    const auto* emptyError = asError(decodeRtuFrame({}));
-    QVERIFY(emptyError != nullptr);
+    const auto emptyError = as<RtuDecodeError>(decodeRtuFrame({}));
+    QVERIFY(emptyError.has_value());
     QCOMPARE(emptyError->code, RtuDecodeErrorCode::FrameTooShort);
 
     const std::vector<std::uint8_t> threeBytes{0x01, 0x03, 0x00};
-    const auto* shortError = asError(decodeRtuFrame(threeBytes));
-    QVERIFY(shortError != nullptr);
+    const auto shortError = as<RtuDecodeError>(decodeRtuFrame(threeBytes));
+    QVERIFY(shortError.has_value());
     QCOMPARE(shortError->code, RtuDecodeErrorCode::FrameTooShort);
 }
 
@@ -126,8 +127,8 @@ void ModbusRtuCodecTest::a06_exceptionShapedRoundTrip()
     const auto wire = encodeRtuFrame(frame);
     QCOMPARE(wire, expectedWire);
 
-    const auto* decoded = asFrame(decodeRtuFrame(wire));
-    QVERIFY(decoded != nullptr);
+    const auto decoded = as<ModbusRtuFrame>(decodeRtuFrame(wire));
+    QVERIFY(decoded.has_value());
     QVERIFY(*decoded == frame);
 }
 
@@ -144,8 +145,8 @@ void ModbusRtuCodecTest::a07_normalFrameRoundTrip()
     const auto wire = encodeRtuFrame(frame);
     QCOMPARE(wire, expectedWire);
 
-    const auto* decoded = asFrame(decodeRtuFrame(wire));
-    QVERIFY(decoded != nullptr);
+    const auto decoded = as<ModbusRtuFrame>(decodeRtuFrame(wire));
+    QVERIFY(decoded.has_value());
     QVERIFY(*decoded == frame);
 }
 
