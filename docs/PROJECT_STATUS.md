@@ -8,16 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ 完成；**M4 进行中（T007 ✅ / T008 Part A ✅ / Part B Learning+Test Design）** |
-| Last Known Good Commit | **`28f38b0`**（T008.1 代码/脚本提交：build+ctest 14/14+deploy minimal-PATH smoke 双重验证；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T008A `76030a2`、T007B `0f3109a`） |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / **M4 ✅ 完成**（T002–T008）；M5 回放与串口模式待启动 |
+| Last Known Good Commit | **`4075223`**（T008 最终代码提交，含 QML Presentation 修正：build+ctest 14/14+QML smoke+deploy regression+用户 Manual Demo Smoke 多重验收；当前 HEAD 为其后的 docs-only 归档提交，不改变 LKGC。历史值：T008A `76030a2`、T007B `0f3109a`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 86 targets；App 已迁移 Qt Quick，Widgets 依赖移除） |
 | Test 状态 | ✅ **14/14 通过**（ctest：`crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration` / `transaction` / `transaction_integration` / `statistics` / `statistics_integration` / `ui_bridge` / `qml_smoke`，69 个测试函数全过；原 `smoke` 随 QWidget bootstrap 移除） |
-| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 |
-| 当前任务（Current Task） | **T008 Qt Quick / QML Analysis UI**（IN PROGRESS——Part B 未完成） |
-| 最近完成任务（Last Completed Task） | **T007 Transaction Analysis**（Part A + Part B 全部 DONE） |
-| 当前阶段（Current Phase） | **Part B: Implementation DONE — Manual Demo Smoke = WAITING FOR USER** |
-| 下一步动作（Next Action） | **用户 Manual Demo Smoke 确认 → Part B 归档 → T008 归档** |
-| 下一 Part（Next Part） | 无（Part B 是 T008 最后一个 Part） |
+| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · **T008** |
+| 当前任务（Current Task） | **None**（无进行中任务） |
+| 最近完成任务（Last Completed Task） | **T008 Qt Quick / QML Analysis UI**（Part A + Part B 全部 DONE，用户 Manual Demo Smoke 确认） |
+| 当前阶段（Current Phase） | —（T008 DONE；M4 已关闭，T009 待启动） |
+| 下一步动作（Next Action） | **Start T009 Replay Mode** |
 | 下一任务（Next Task After T008） | **T009 Replay Mode** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |

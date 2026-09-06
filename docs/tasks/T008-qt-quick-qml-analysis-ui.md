@@ -1,6 +1,6 @@
 # T008 — Qt Quick / QML Analysis UI
 
-> 状态：**IN PROGRESS**｜Part A（Qt Quick Migration + C++/QML Bridge）：**DONE ✅**（Learning / Test Design + Implementation + 用户人工验收 12/12，RED→GREEN + Manual UI Smoke 全程留痕）｜Part B（Analysis Dashboard + Deterministic Demo）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**
+> 状态：**DONE ✅**（2026-09-06）｜Part A：**DONE ✅**｜Part B：**DONE ✅**（Learning / Test Design + Implementation + QML Presentation 修正 + **Manual Demo Smoke 用户确认 PASS**）
 > 前置确认：T007 DONE、LKGC = `28f38b0`（T008.1 代码/脚本提交）、ISSUE-002 RESOLVED。
 > ⚠ 独立遗留：Standalone Explorer Launch = FAIL / ISSUE-002 OPEN（runtime collision 为部署/环境问题，不影响 Part A 验收，修复待立项）。
 > Part B Implementation 边界预告（未实现，禁止提前）：Run Demo Batch、Clear Demo、真实调用 T005/T006/T007 链路、Dashboard 统计更新、事务列表填充；轮询/Serial/Replay/Agent/AI/database/timer/thread 全部不做。
@@ -355,6 +355,7 @@ $ scripts/deploy_windows.bat + minimal-PATH deploy smoke
 | ISSUE-002 诊断 | `14fcffa` | docs-only |
 | runtime 追记 | `1ee2c5c` | docs-only |
 | Part B Test Design | `f7716c4` | docs-only |
+| Part B QML 修正（**最终 LKGC**） | `4075223` | `T008(Part B): QML presentation fixes` |
 | Part B 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T008(Part B): add deterministic analysis dashboard demo` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
@@ -494,7 +495,10 @@ installed / Type unavailable / binding loop / ReferenceError / TypeError。
 
 ✅ **Part A DONE**（2026-09-06，用户人工验收确认）：QWidget bootstrap → Qt Quick 迁移完成（Widgets 依赖彻底移除）；AnalysisController/TransactionListModel 桥接 + UI-A01~A06 全绿；真实 exe 的 QML load smoke 通过（runtime warning = 0）；Core Zero Qt 保持；全项目 ctest 14/14、clean 重建零警告；**Manual Visual UI Smoke = PASS（用户 12/12 确认）**。
 ⛔ **Standalone Explorer Launch = FAIL / ISSUE-002 OPEN**（环境部署问题，独立于 Part A 验收，修复待立项）。
-⬜ **Part B（Analysis Dashboard + Deterministic Demo）Not Started** → **T008 整体仍 IN PROGRESS**。
+✅ **Part B Implementation DONE**：runDemoBatch/clearDemo 落地 Controller；四条事务全部真实调用 T005/T006/T007 Core 链路；statistics 来自 summarizeTransactions；UI-B01~B06 全过；QML Dashboard 含状态计数卡 + Run/Clear 按钮；standalone deploy 回归 PASS。
+✅ **QML Presentation 修正 PASS**（用户二次人工验收确认）：Clear 按钮可见性、Function Code 0xNN 格式、Exception Detail Code 0xNN 格式。
+
+🏆 **T008 整体 DONE**（Part A + Part B 全部完成并验证）；**M4 事务分析与界面里程碑关闭**。
 
 ## Knowledge Learned
 
@@ -519,7 +523,7 @@ installed / Type unavailable / binding loop / ReferenceError / TypeError。
 | Part A 代码提交（**新 LKGC**） | `76030a2` | `T008(Part A): migrate app to Qt Quick and add QML bridge` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
-> LKGC 推进：Part A 产生新业务代码并经 configure/clean build/full ctest（14/14）+ QML smoke + Manual UI Smoke 验证；LKGC 由 `0f3109a` 推进至 Part A 代码提交，由 docs-only 回填提交写入。**Part A DONE；T008 整体 IN PROGRESS（Part B 未开始）；T009 未开始。**
+> LKGC = `4075223`（T008 最终代码提交）。docs-only 归档提交不推进 LKGC。原并经 configure/clean build/full ctest（14/14）+ QML smoke + Manual UI Smoke 验证；LKGC 由 `0f3109a` 推进至 Part A 代码提交，由 docs-only 回填提交写入。**Part A DONE；T008 整体 IN PROGRESS（Part B 未开始）；T009 未开始。**
 ## Part B — Analysis Dashboard + Deterministic Demo（Learning + Test Design，本阶段定稿）
 
 ### 职责
