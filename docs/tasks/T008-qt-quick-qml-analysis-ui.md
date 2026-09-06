@@ -1,7 +1,8 @@
 # T008 — Qt Quick / QML Analysis UI
 
-> 状态：**IN PROGRESS**｜Part A（Qt Quick Migration + C++/QML Bridge）：**DONE ✅**（Learning / Test Design + Implementation，RED→GREEN + Manual UI Smoke 全程留痕）｜Part B（Analysis Dashboard + Deterministic Demo）：⬜ Not Started
-> 前置确认：T007 DONE、LKGC 起点为 `0f3109a`。
+> 状态：**IN PROGRESS**｜Part A（Qt Quick Migration + C++/QML Bridge）：**DONE ✅**（Learning / Test Design + Implementation + 用户人工验收 12/12，RED→GREEN + Manual UI Smoke 全程留痕）｜Part B（Analysis Dashboard + Deterministic Demo）：⬜ Not Started
+> 前置确认：T007 DONE、LKGC = `76030a2`（Part A 代码提交）。
+> ⚠ 独立遗留：Standalone Explorer Launch = FAIL / ISSUE-002 OPEN（runtime collision 为部署/环境问题，不影响 Part A 验收，修复待立项）。
 > Part B 边界预告（未实现）：Run Demo Batch、fault 注入按钮、统计更新、Clear Demo、基础视觉整理；Replay/Serial/AI/Agent 仍不做。
 
 ## Implementation 前追加规则（2026-09-06，定案）
@@ -332,7 +333,7 @@ installed / Type unavailable / binding loop / ReferenceError / TypeError。
 => 当时记录为 PASS（a11y 结构化验收）
 ```
 
-**〔2026-09-06 追记：Manual Visual UI Smoke = FAIL / BLOCKED〕**
+**〔2026-09-06 追记：Manual Visual UI Smoke = PASS（用户人工确认 12/12）；Standalone Explorer Launch = FAIL / ISSUE-002 OPEN〕**
 
 用户从 **Windows Explorer 直接双击** `build/debug/modbuslens.exe` 启动失败：
 
@@ -340,16 +341,19 @@ installed / Type unavailable / binding loop / ReferenceError / TypeError。
 
 诊断结论：**Runtime toolchain collision**——系统 PATH 中 `D:\Git\mingw64\bin`（Git 自带 runtime）与 `D:\mingw64\bin`（MinGW 8.1，2018-05）排在 Qt 13.1 runtime 之前；Explorer 环境解析到的 libstdc++-6.dll 实测**缺失** `_ZNSt3pmr20get_default_resourceEv`（objdump 精确对照；8.1 版=0，13.1 版=1）。临时 PATH（Qt bin + 13.1 MinGW bin 前置）验证启动成功（进程存活、窗口与 a11y 树完整、无警告）——根因坐实，**非 Core/QML/迁移代码缺陷**。
 
+**〔2026-09-06 用户人工确认（最终）〕**用户以正确 runtime 启动应用并完成视觉检查，**checklist 12/12 PASS**：窗口正常打开、标题 ModbusLens、Qt Quick/QML UI 正常显示、Header 正常、Simulator Mode 正常、Observed/Completed/Pending = 0、Success Rate = —、Avg Latency = —、No transactions yet 正常显示、无明显布局/运行时异常。
+
 - 完整诊断与证据：[ISSUE-002](../issues/ISSUE-002-explorer-launch-dll-collision.md)
-- 当前状态：**Manual Visual UI Smoke = WAITING FOR USER**——应用已以正确 runtime 在后台运行（临时 PATH 会话，pid 32048），等待用户对真实窗口做视觉确认（checklist 12 项见上）
-- Part A 最终 DONE 与代码提交 **冻结**，等用户确认后再归档
-- 后续修复方向（待确认后立项，本任务不动 src/CMake）：部署期 runtime 随应用部署（windeployqt / 复制 13.1 三件套到应用目录）
+- **两个结论严格区分**：
+  - Manual Visual UI Smoke = **PASS**（正确 runtime 下真实窗口人工验收 12/12）；
+  - Standalone Explorer Launch = **FAIL / ISSUE-002 OPEN**（runtime collision 是部署/环境问题，未解决，不影响 Part A 验收结论）。
+- Part A 归档：DONE。后续修复方向（待立项，独立任务）：部署期 runtime 随应用部署（windeployqt / 复制 13.1 三件套到应用目录）。
 
 ## Result
 
-✅ **Part A 实现与自动化验收完成**：迁移 + 桥接 + UI-A01~A06 + QML smoke + a11y 初验全绿。
-⛔ **Manual Visual UI Smoke = FAIL / BLOCKED → WAITING FOR USER**（Explorer 启动环境 runtime collision，ISSUE-002）。
-⬜ **Part A 最终归档冻结**：等用户视觉确认后，Part A 方可标 DONE；Part B 未开始；T008 整体 IN PROGRESS。
+✅ **Part A DONE**（2026-09-06，用户人工验收确认）：QWidget bootstrap → Qt Quick 迁移完成（Widgets 依赖彻底移除）；AnalysisController/TransactionListModel 桥接 + UI-A01~A06 全绿；真实 exe 的 QML load smoke 通过（runtime warning = 0）；Core Zero Qt 保持；全项目 ctest 14/14、clean 重建零警告；**Manual Visual UI Smoke = PASS（用户 12/12 确认）**。
+⛔ **Standalone Explorer Launch = FAIL / ISSUE-002 OPEN**（环境部署问题，独立于 Part A 验收，修复待立项）。
+⬜ **Part B（Analysis Dashboard + Deterministic Demo）Not Started** → **T008 整体仍 IN PROGRESS**。
 
 ## Knowledge Learned
 

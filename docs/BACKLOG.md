@@ -11,7 +11,7 @@
 | M1 | 工程引导与文档体系 | T001, T001.1 | ✅ 完成 |
 | M2 | Modbus 协议核心 | T002, T003, T004 | ✅ 完成 |
 | M3 | 模拟与故障注入 | T005, T006 | ✅ 完成 |
-| M4 | 事务分析与界面 | T007, T008 | 🔄 进行中（T007 ✅ / T008 Part A Learning+Test Design） |
+| M4 | 事务分析与界面 | T007, T008 | 🔄 进行中（T007 ✅ / T008 Part A ✅ DONE） |
 | M5 | 回放与串口模式 | T009, T010 | ⬜ |
 | M6 | AI 诊断与 Agent 工具 | T011, T012 | ⬜ |
 | M7 | 收尾与演示 | T013 | ⬜ |
@@ -27,7 +27,7 @@
 | T004 | **Modbus RTU Codec**（Part A Wire Codec + Part B 0x03 Codec） | M2 | P0 | ✅ Done | T003 | **Part A** ✅：`ModbusRtuCodec`（encode/decode + `variant<Frame, RtuDecodeError>` 错误模型 + CRC 低字节在前序列化/验证）落地 `modbuslens_core`；RTU-A01~A07 全绿。**Part B** ✅：`Function03`（`ReadHoldingRegistersRequest/Response` + `ModbusExceptionResponse` 三个 decoder、`Function03DecodeErrorCode` 五值、big-endian helper），F03-B01~B12 全绿（V1.1b3 §6.3 官方金样）。修正：byteCount=0 单帧即非法（Part B 直接拒绝，不推迟 T007）；byteCount 非帧定界符（帧定界属 T010）。配对/一致性归 T007；fuzz/benchmark 不在范围 |
 | T005 | **Simulator Basic Slave** | M3 | P0 | ✅ Done | T004 | **范围收缩后交付**：`SimulatedSlave`（单设备地址 + `vector<uint16_t>` 连续寄存器文件补 0 + Function 0x03 正常响应 / 0x02 Illegal Address / 0x01 Illegal Function / 0x03 Illegal Data Value；地址不匹配 → `IgnoredRequest`；**复用** T004B decoder；const 纯应答端点）；SIM-T01~T07 + SIM-I01 全链路闭环全绿。**Deferred 兑现**：IFrameSource/VirtualMaster/轮询/虚拟时钟/seed 未实现（等真实共性）；Timeout/CRC fault → T006。附带：ISSUE-001（variant 测试悬垂指针）建档并修复 |
 | T006 | **Fault Injection** | M3 | P0 | ✅ Done | T005 | **交付**：`applySimulationFault(wire, config)` 四模式（None 透传 / DropResponse 丢弃 / CorruptCrc 固定 XOR 末 CRC 字节 / ArtificialDelay 元数据延迟），结果 `variant<DeliveredWire, DroppedResponse>`；FAULT-T01~T05（含确定性双调用与模式隔离断言）+ I01/I02 全绿；SimulatedSlave 零修改。**范围收缩兑现**：random/seed/real sleep/丢包概率等未实现；Timeout 判定归 T007 |
-| T007 | **Transaction Analysis**（Part A 单事务 + Part B 统计快照） | M4 | P0 | In Progress — **Part A ✅ DONE**（实现+15 测试全绿）/ **Part B：Learning+Test Design ✅（docs-only）/ Implementation ⬜** | T004（+T005/T006 提供流量） | **Part A** ✅：`analyzeFunction03Transaction`（六状态 Pending/Success/Exception/CrcError/Timeout/ProtocolError；观察 `variant<Frame, RtuDecodeError, NoResponse>`；跨帧校验地址/功能/数量；elapsed 与 exceptionCode 双不变量经 makeAnalysis 漏斗保证），TX-A01~A12 + I01~I03 全绿。**Part B**：`summarizeTransactions(batch)` → `TransactionStatisticsSnapshot`（三计数 + 五分类 + optional successRate/averageSuccessLatencyMs + 四不变量），矩阵 STAT-B01~B08 + I01 已定稿。**范围收缩兑现**：real timer/polling/session manager/database/persistence/rolling window/per-device 聚合未实现 |
+| T007 | **Transaction Analysis**（Part A 单事务 + Part B 统计快照） | M4 | P0 | ✅ Done（整体） | T004（+T005/T006 提供流量） | **Part A** ✅：`analyzeFunction03Transaction`（六状态 Pending/Success/Exception/CrcError/Timeout/ProtocolError；观察 `variant<Frame, RtuDecodeError, NoResponse>`；跨帧校验地址/功能/数量；elapsed 与 exceptionCode 双不变量经 makeAnalysis 漏斗保证），TX-A01~A12 + I01~I03 全绿。**Part B** ✅：`summarizeTransactions(batch)` → `TransactionStatisticsSnapshot`（三计数 + 五分类 + optional successRate/averageSuccessLatencyMs + 四不变量），STAT-B01~B08 + I01 全绿。**范围收缩兑现**：real timer/polling/session manager/database/persistence/rolling window/per-device 聚合未实现 |
 | T008 | **Qt Analysis UI**（Part A 迁移+桥接 / Part B Dashboard+Demo） | M4 | P0 | In Progress — **Part A ✅ DONE**（迁移+桥接+8 测试+QML smoke+Manual Smoke 全过）/ **Part B ⬜ Not Started** | T007 | **Part A** ✅：QGuiApplication+QQmlApplicationEngine（QMainWindow scaffold 与 Widgets 依赖已删除）、qt_add_qml_module（URI ModbusLens/Main.qml，QML 模块直接挂 exe）、AnalysisController（optional→hasX+value，int 计数）、TransactionListModel（7 roles/DTO/setEntries）、UI-A01~A06 + 真实 exe 的 QML load smoke + Manual UI Smoke 12/12。**Part B**：Run Demo Batch（T005/T006/T007 数据填 Dashboard）、统计更新、Clear Demo、基础视觉。**范围**：无轮询/Serial/Replay/QSerialPort/Agent/AI/database/chart/动画大工程/theme/persistent settings/timer/thread/networking |
 | T009 | **Replay Mode** | M5 | P0 | Backlog | T007 | MLog 日志格式 v1（ADR）与读写；回放/暂停/调速/时间轴；**口径一致性测试**（Simulator 与 Replay 同流同结论） |
 | T010 | **Serial Mode** | M5 | P0 | Backlog | T007 | QtSerialPort 采集、t3.5 帧切分、环形缓冲；com0com/socat 虚拟串口对集成测试；真机核对清单 |
@@ -38,9 +38,9 @@
 ## 建议路线（默认执行顺序）
 
 ```text
-T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Codec（A: Wire / B: 0x03，进行中）
-→ T005 Simulator → T006 Fault Injection → T007 Transaction Analysis
-→ T008 Qt UI → T009 Replay → T010 Serial → T011 AI Diagnosis
+T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Codec ✅
+→ T005 Simulator ✅ → T006 Fault Injection ✅ → T007 Transaction Analysis ✅
+→ T008 Qt UI（Part A ✅ / Part B 进行中）→ T009 Replay → T010 Serial → T011 AI Diagnosis
 → T012 Agent Tools → T013 Final Integration & Demo
 ```
 
@@ -64,3 +64,9 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-06 | T005 完成（SimulatedSlave + SIM-T01~T07/SIM-I01 RED→GREEN，T005 **DONE**）；ISSUE-001 建档（variant 测试悬垂指针，T004 测试脚手架同批修复）；T006 转 Ready |
 | 2026-09-06 | T006 启动（Learning / Test Design，docs-only）：**范围收缩**——random fault / probability / seed / real sleep / QTimer / timeout timer / 丢包概率 / burst / noise 移出 T006（确定性优先：故障由测试或用户显式选择）；Timeout 判定显式归 T007；下一步 = T006 Implementation |
 | 2026-09-06 | T006 完成（`SimulationFault` 四模式，FAULT-T01~T05/I01/I02 RED→GREEN，T006 **DONE**）；SimulatedSlave 零修改；**M3 模拟与故障注入关闭**；T007 转 Ready |
+| 2026-09-06 | T007 启动：Part A Learning / Test Design（docs-only）——Transaction 定义、六状态、观察/结果模型、跨帧校验规则、矩阵 TX-A01~A12 + I01~I03 落库；统计快照拆入 Part B |
+| 2026-09-06 | T007 Part A 完成（`analyzeFunction03Transaction` 六状态 + 跨帧校验，TX-A01~A12/I01~I03 RED→GREEN，Part A **DONE**）；统计快照拆入 Part B；T008 转 Ready |
+| 2026-09-06 | T007 Part B Learning / Test Design（docs-only）：Statistics Snapshot 模型/API/四不变量/矩阵 STAT-B01~B08 + I01 落库 |
+| 2026-09-06 | T007 Part B 完成（`TransactionStatistics` 聚合 + STAT-B01~B08/I01 RED→GREEN，T007 **整体 DONE**）；**M4 事务分析关闭**；T008 转 Ready |
+| 2026-09-06 | T008 启动：Part A Learning / Test Design（docs-only）——Part A/B 拆分、依赖方向定案、QML 模块/迁移计划、Controller/Model 设计、矩阵 UI-A01~A06 + I01（I02 记录不做）、Manual UI Smoke 计划落库；T008 标记 IN PROGRESS |
+| 2026-09-06 | T008 Part A 完成（QML 迁移+桥接+UI-A01~A06+QML smoke 全绿 + **Manual Visual Smoke 用户确认 12/12**，Part A **DONE**）；Part B 未开始，T008 保持 IN PROGRESS；ISSUE-002 保持 OPEN |
