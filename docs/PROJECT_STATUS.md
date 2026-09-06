@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ 完成；**M4 进行中（T007 ✅ / T008 Part A ✅ DONE）**。注：按 BACKLOG 既有定义 M4=事务分析与界面（T007,T008），T008 完成后才关闭 |
-| Last Known Good Commit | **`76030a2`**（T008 Part A 代码提交：build+ctest 14/14+QML smoke+Manual UI Smoke 双重验收；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T007B `0f3109a`、T007A `14982f6`） |
+| Last Known Good Commit | **`28f38b0`**（T008.1 代码/脚本提交：build+ctest 14/14+deploy minimal-PATH smoke 双重验证；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T008A `76030a2`、T007B `0f3109a`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 86 targets；App 已迁移 Qt Quick，Widgets 依赖移除） |
 | Test 状态 | ✅ **14/14 通过**（ctest：`crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration` / `transaction` / `transaction_integration` / `statistics` / `statistics_integration` / `ui_bridge` / `qml_smoke`，69 个测试函数全过；原 `smoke` 随 QWidget bootstrap 移除） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 |
