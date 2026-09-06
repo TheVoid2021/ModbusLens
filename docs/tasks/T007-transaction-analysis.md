@@ -330,7 +330,7 @@ RED → GREEN 状态变化实录：`transaction`/`transaction_integration` 从"�
 | --- | --- | --- |
 | T006 代码 | `2c8d850` | （前 LKGC） |
 | T007 Part A Learning | `fa56100` | docs-only |
-| Part A 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T007(Part A): implement single transaction analysis` |
+| Part A 代码提交（**新 LKGC**） | `14982f6` | `T007(Part A): implement single transaction analysis` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：Part A 产生新业务代码并经 configure/clean build/full ctest（11/11）验证；LKGC 由 `2c8d850` 推进至 Part A 代码提交，由 docs-only 回填提交写入。**Part A DONE；T007 整体 IN PROGRESS（Part B 未开始）；T008 未开始。**
