@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | **M2 ✅ / M3 ✅ 完成**（T002–T006）；M4 事务分析待启动 |
-| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T006 代码提交，哈希由 docs-only 回填提交写入；此前为 `3a896df`） |
+| Last Known Good Commit | **`2c8d850`**（T006 代码提交：build+ctest 9/9 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T005 `3a896df`、T004B `e8b62f6`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 48 targets） |
 | Test 状态 | ✅ **9/9 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration`，48 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · **T006** |
@@ -105,3 +105,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | 回填：LKGC = `3a896df`（T005 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-06 | T006 启动：Learning / Test Design（docs-only）——四模式定案（random/seed/real delay/丢包概率移出）、Timeout=Session 判断（T006 只交付 DropResponse）、CRC fault 只作用 wire、ArtificialDelay=元数据；矩阵 FAULT-T01~T05 + I01/I02 落库；T006 标记 IN PROGRESS，**未标完成** |
 | 2026-09-06 | T006 完成：`SimulationFault` 落地 `modbuslens_core`（四模式单一 switch），FAULT-T01~T05 + I01/I02 RED（linker error ×6，另修正一处测试类名不一致）→GREEN；SimulatedSlave 零修改；全项目 ctest 9/9、零警告。**T006 DONE，M3 关闭**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
+| 2026-09-06 | 回填：LKGC = `2c8d850`（T006 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |

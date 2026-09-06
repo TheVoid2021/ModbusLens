@@ -335,7 +335,7 @@ RED → GREEN 状态变化实录：`fault`/`fault_integration` 从"无法链接�
 | --- | --- | --- |
 | T005 代码 | `3a896df` | （前 LKGC） |
 | T006 Learning | `c086ff1` | docs-only |
-| T006 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T006: implement deterministic wire fault injection` |
+| T006 代码提交（**新 LKGC**） | `2c8d850` | `T006: implement deterministic wire fault injection` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：T006 产生新业务代码并经 configure/clean build/full ctest（9/9）验证；LKGC 由 `3a896df` 推进至 T006 代码提交，由 docs-only 回填提交写入。**T006 DONE、M3 关闭；T007 未开始。**

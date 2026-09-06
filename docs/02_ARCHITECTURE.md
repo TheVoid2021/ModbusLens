@@ -77,7 +77,8 @@ src/
 │   ├── protocol/ModbusRtuFrame.h        # ✅ T003：RTU 帧内存模型（不存 CRC）+ isExceptionResponse
 │   ├── protocol/ModbusRtuCodec.{h,cpp}  # ✅ T004 Part A：Frame↔wire 编解码（variant 错误模型）
 │   ├── protocol/Function03.{h,cpp}      # ✅ T004 Part B：0x03 三个 decoder + 语义模型（大端 helper）
-│   └── simulator/SimulatedSlave.{h,cpp} # ✅ T005：模拟从站端点（Frame 进 Frame 出，const 纯应答）
+│   ├── simulator/SimulatedSlave.{h,cpp} # ✅ T005：模拟从站端点（Frame 进 Frame 出，const 纯应答）
+│   └── simulator/SimulationFault.{h,cpp}# ✅ T006：确定性故障注入四模式（wire 层，元数据延迟）
 ├── io/      # 数据源适配（IFrameSource 抽象**推迟**：单数据源阶段不过早设计，等 Replay/Serial 出现真实共性再提取；Simulator 端点先行，见 T005）
 ├── ui/      # 窗口与视图（T008 起）
 └── main.cpp # 入口
