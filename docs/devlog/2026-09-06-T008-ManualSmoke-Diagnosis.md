@@ -10,4 +10,5 @@
 - 结论：非 Core bug、非 QML binding bug、非迁移代码 bug；为开发机 DLL 解析环境问题。修复方向 = 部署期 runtime 随应用部署（windeployqt/应用目录三件套），待用户确认后立项；未动系统 PATH/未删旧 MinGW/未复制 DLL/未改 src/CMake。
 - 归档：ISSUE-002 建档（Symptom/Root Cause/Evidence/Fix/takeaway）；T008 档案 Manual Smoke 段追记 FAIL/BLOCKED→WAITING FOR USER（保留先前的 a11y 初验记录）；PROJECT_STATUS（Current Phase=WAITING FOR USER、K4 新增、LKGC 维持 76030a2 不变）。
 - 应用当前以正确 runtime 保持运行中（pid 32048），等待用户视觉确认 12 项 checklist。
+- 〔追记〕临时 PATH 会话中的应用随后正常退出（**exit=0，干净关闭，无崩溃**）——进一步佐证正确 runtime 下应用运行稳定；但退出不等于视觉确认，**Manual Visual UI Smoke 仍 = WAITING FOR USER**。
 - Issue：[ISSUE-002](issues/ISSUE-002-explorer-launch-dll-collision.md)
