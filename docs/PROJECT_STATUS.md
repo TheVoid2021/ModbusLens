@@ -8,16 +8,16 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ 完成；**M4 进行中（T007 Part A ✅ DONE / Part B 待启动）** |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ 完成；**M4 进行中（T007 Part A ✅ / Part B Learning+Test Design）** |
 | Last Known Good Commit | **`14982f6`**（T007 Part A 代码提交：build+ctest 11/11 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T006 `2c8d850`、T005 `3a896df`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 57 targets） |
 | Test 状态 | ✅ **11/11 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration` / `transaction` / `transaction_integration`，63 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · **T006** |
 | 当前任务（Current Task） | **T007 Transaction Analysis**（IN PROGRESS——Part B 未完成） |
 | 最近完成任务（Last Completed Task） | **T006 Deterministic Fault Injection** |
-| 当前阶段（Current Phase） | **Part A: DONE**（Part B: Not Started） |
-| 下一步动作（Next Action） | **T007 Part B — Learning / Test Design** |
-| 下一 Part（Next Part） | **Part B — Statistics Snapshot** |
+| 当前阶段（Current Phase） | **Part B: Learning / Test Design**（docs-only；Implementation ⬜） |
+| 下一步动作（Next Action） | **T007 Part B — Implementation** |
+| 下一 Part（Next Part） | 无（Part B 是 T007 最后一个 Part） |
 | 下一任务（Next Task After T007） | **T008 Qt Quick / QML Analysis UI** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
@@ -37,11 +37,11 @@
 
 ## 2. 当前任务
 
-- **T007 Transaction Analysis — IN PROGRESS（Part A: Single Transaction Analysis ✅ DONE）**：`analyzeFunction03Transaction` 落地 `src/core/analysis/`（六状态、观察模型 variant、跨帧校验、elapsed/exceptionCode 双不变量经 makeAnalysis 单一漏斗保证）；TX-A01~A12 + I01~I03 全绿。**Part B（Statistics Snapshot）Not Started**；下一步动作 = T007 Part B — Learning / Test Design。
+- **T007 Transaction Analysis — IN PROGRESS（Part B: Statistics Snapshot，Phase: Learning / Test Design，docs-only）**：三计数概念（observed/pending/completed）、successRate 严格定义（Pending 不进分母；completed=0 → nullopt）、Success-only latency、四条快照不变量、矩阵 STAT-B01~B08 + STAT-I01（真实链路聚合）、mutable accumulator 取舍、14 题问答已落库（[T007 档案](tasks/T007-transaction-analysis.md)）。**Part B 未实现**；下一步动作 = T007 Part B — Implementation。
 
 ## 3. 下一任务
 
-- **T008 — Qt Quick / QML Analysis UI**（详见 [BACKLOG](BACKLOG.md)，受 ADR001 约束）：最终 UI 切换 QML + C++ Controller/Model 桥接。依赖 T007 的事务分析结果与 Part B 统计快照（未完成；T007 两个 Part 完成后启动）。
+- **T008 — Qt Quick / QML Analysis UI**（详见 [BACKLOG](BACKLOG.md)，受 ADR001 约束）：最终 UI 切换 QML + C++ Controller/Model 桥接。依赖 T007 的事务分析与统计快照（Part B 未完成；T007 两个 Part 完成后启动）。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -110,3 +110,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T007 启动：Part A Learning / Test Design（docs-only）——Transaction 定义、六状态、观察/结果模型、跨帧校验规则（地址/功能/数量）、矩阵 TX-A01~A12 + I01~I03 落库；统计快照拆入 Part B；T007 标记 IN PROGRESS，**未标完成** |
 | 2026-09-06 | T007 Part A 完成：`analyzeFunction03Transaction` 落地 `src/core/analysis/`（六状态、跨帧校验、双不变量），TX-A01~A12 + I01~I03 RED（linker error ×10）→GREEN；全项目 ctest 11/11、零警告。**Part A DONE，T007 整体 IN PROGRESS（Part B 未开始）**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-06 | 回填：LKGC = `14982f6`（T007 Part A 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
+| 2026-09-06 | T007 Part B 启动：Learning / Test Design（docs-only）——Statistics Snapshot 模型/API/四不变量/矩阵 STAT-B01~B08 + I01/浮点规则/mutable accumulator 取舍落库；T007 保持 IN PROGRESS，**未标完成** |

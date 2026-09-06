@@ -1,8 +1,8 @@
 # T007 — Transaction Analysis
 
-> 状态：**IN PROGRESS**｜Part A（Single Transaction Analysis）：**DONE ✅**（Learning / Test Design + Implementation，RED→GREEN 全程留痕）｜Part B（Statistics Snapshot）：⬜ Not Started
-> 前置确认：T006 DONE、M3 DONE、LKGC 起点为 `2c8d850`。
-> Part B 边界预告（未实现）：只做 Statistics Snapshot（计数/成功率/延迟摘要）；SessionManager、queue、polling、QTimer、thread、serial、database、persistence、dashboard、Agent 全部不做。
+> 状态：**IN PROGRESS**｜Part A（Single Transaction Analysis）：**DONE ✅**｜Part B（Statistics Snapshot）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**
+> 前置确认：T006 DONE、M3 DONE。
+> Part B Implementation 边界预告（未实现，禁止提前）：只做纯函数统计快照；rolling/incremental accumulator、history store、database、persistent log、time window、per-device/per-function 聚合、p95/p99、charts、Qt model、QAbstractListModel、QML、Agent 全部不做。
 
 ## Implementation 前追加规则（2026-09-06，定案）
 
@@ -251,11 +251,166 @@ ResponseObservation
 
 三条规则落实：**A** `makeAnalysis` 单一漏斗保证 elapsed 六状态原样保留；**B** exceptionCode 仅 Exception 分支赋值（其余路径 nullopt）；**C** exceptionCode 只存数值。RtuDecodeError 分支无 default——新增枚举值时 `-Wswitch` 报警而非静默吞掉，switch 后保留显式兜底 return 保证函数 total。
 
+## Part B — Statistics Snapshot Design（Learning + Test Design，本阶段定稿）
+
+### 职责
+
+- Part A：一个 Transaction → 一个 TransactionAnalysis；
+- Part B：**一批 TransactionAnalysis → 一个 TransactionStatisticsSnapshot**。
+
+Part B 只回答"这一批事务**现在**呈现什么统计特征"。它**不是** Transaction Manager / Session Manager / History Store / Database，也不是实时计时器——保持纯函数：输入一批分析结果，一次计算一个快照。
+
+### 三个计数概念（输入可包含 Pending）
+
+实际 Dashboard 的当前集合会同时存在已完成与未完成事务，因此输入允许包含所有 `TransactionAnalysis`：
+
+```text
+observedCount  = 输入总数
+pendingCount   = status == Pending 的数量
+completedCount = observedCount - pendingCount
+               = Success + Exception + CrcError + Timeout + ProtocolError
+```
+
+### successRate 的严格定义
+
+```text
+successRate = successCount / completedCount      （Pending 不进入分母）
+```
+
+例：Success=8, Exception=1, Timeout=1, Pending=90 → observed=100, completed=10 → **80%**，而不是 8/100=8%。原因：Pending 事务尚未产生最终结果，**不能提前当失败**。
+
+### completedCount == 0 → successRate = nullopt
+
+- 输入为空或全部 Pending 时 `completedCount = 0`，成功率没有数学意义；
+- **不除以 0，也不返回 0%**——0% 会被理解成"已经完成但没有一次成功"，而真实含义是"**目前还没有完成事务**"；
+- 因此 `successRate` 类型为 `std::optional<double>`：completedCount==0 → `nullopt`；>0 → successCount/completedCount。
+
+### Latency Summary 的 v1 定义
+
+只统计**成功事务延迟**：`std::optional<double> averageSuccessLatencyMs`。
+
+- Success 的 elapsed = 一次成功响应完成所需时间，语义清晰；
+- Pending/Timeout/Exception/CrcError/ProtocolError 的 elapsed **不混入**——尤其 Timeout 的 elapsed 只表示"等待阈值已经达到"，拉进来会虚高"成功响应平均延迟"；
+- successCount==0 → `nullopt`；>0 → 所有 Success.elapsed 的算术平均（毫秒）。例：10/20/30ms → 20.0；
+- **暂不做** min/max/median/p95/p99/标准差——有真实需求再加。
+
+### 数据模型（定案，不实现）
+
+```cpp
+struct TransactionStatisticsSnapshot {
+    std::size_t observedCount{};
+    std::size_t pendingCount{};
+    std::size_t completedCount{};
+
+    std::size_t successCount{};
+    std::size_t exceptionCount{};
+    std::size_t crcErrorCount{};
+    std::size_t timeoutCount{};
+    std::size_t protocolErrorCount{};
+
+    std::optional<double> successRate;
+    std::optional<double> averageSuccessLatencyMs;
+
+    bool operator==(const TransactionStatisticsSnapshot&) const = default;
+};
+```
+
+**不增加**：QString、QVariant、chart series、device name、timestamps、history vector。
+
+### API（定案）
+
+```cpp
+TransactionStatisticsSnapshot summarizeTransactions(
+    std::span<const TransactionAnalysis> transactions);
+```
+
+纯 C++20、无 Qt、无持久状态。输入变化 → 重新调用重算即可；**不创建** StatisticsManager / StatisticsAccumulator / Singleton / QObject。
+
+### Snapshot Invariants（实现后必须测试锁定）
+
+- **A**：`observedCount == pendingCount + completedCount`
+- **B**：`completedCount == successCount + exceptionCount + crcErrorCount + timeoutCount + protocolErrorCount`
+- **C**：`successRate` 有值 ⟺ `completedCount > 0`
+- **D**：`averageSuccessLatencyMs` 有值 ⟺ `successCount > 0`
+
+对 QML 的价值：UI 不需要猜字段之间是否一致——快照自洽。
+
+### Status Counting（实现约定）
+
+遍历 + **穷举 `switch(TransactionStatus)`**（无 if-else 串、无 `map<TransactionStatus,int>`）：直接累加到 struct 字段——enum 固定且字段明确，显式字段最容易被 QML 暴露，新增枚举值时编译器强制处理。
+
+### 浮点测试规则
+
+1.0、20.0 这类可精确值直接断言；`2.0/6.0` 用 QtTest 的浮点容差比较（`qFuzzyCompare` 语义），不断言字符串/百分比格式。Core 返回数学值；"33.33%" 这类**展示格式属未来 QML/Presentation**。
+
+### Part B 测试矩阵
+
+| Test ID | Input | Expected | Why This Test Exists | What Bug It Can Catch | Priority |
+| --- | --- | --- | --- | --- | --- |
+| STAT-B01 | `{}`（空） | observed/pending/completed 全 0，successRate=nullopt，avgLatency=nullopt | 空输入是最小契约点；nullopt 语义的锚 | 除零、把空当 0% | **P0** |
+| STAT-B02 | Success 10/20/30ms | observed=3, completed=3, success=3, rate=1.0, avg=20.0 | 全成功基线 + 平均值计算 | 平均算错（和/个数）、rate 上限 >1 | **P0** |
+| STAT-B03 | Success 10/30 + Exception 20 + CrcError 15 + Timeout 1000 + ProtocolError 12 | observed=6, completed=6, 五分类 2/1/1/1/1，rate=2/6，avg=20.0（**Timeout 1000ms 不进平均**） | 混合状态分箱 + 延迟隔离 | 分箱漏状态、非 Success elapsed 混入平均 | **P0** |
+| STAT-B04 | Success 25ms + Pending 500ms + Pending 800ms | observed=3, pending=2, completed=1, success=1, **rate=1.0（不是 1/3）**, avg=25.0 | Pending 不进分母的核心语义 | 分母用 observed、Pending 当失败 | **P0** |
+| STAT-B05 | Pending ×2 | observed=2, pending=2, completed=0, rate=nullopt, avg=nullopt | "尚无最终结果" ≠ "成功率 0%" | 用 0.0 冒充未定义 | **P0** |
+| STAT-B06 | Exception + CrcError + Timeout + ProtocolError | completed=4, success=0, **rate=0.0**, avg=nullopt | 与 B05 的关键对比：有 completed 且 0 success 才是 0% | nullopt/0.0 语义混淆 | **P0** |
+| STAT-B07 | Success 10/30 + Exception 200 + CrcError 400 + Timeout 1000 + ProtocolError 500 | avg=20.0（仅 Success 进入） | 成功延迟隔离性 | 所有 elapsed 一锅炖 | **P0** |
+| STAT-B08 | 混合批次（复用 B03 数据） | Invariant A：observed==pending+completed；Invariant B：completed==五分类之和 | 快照自洽性护栏（未来 QML 不用猜） | 计数器更新路径不一致 | P1 |
+
+优先级：P0 = B01–B07；P1 = B08（不变量护栏，可与 B03 数据合并实现但保持独立测试函数）。
+
+### STAT-I01 — 真实链路聚合（Integration，P0）
+
+不手造状态，至少用现有模块真实产生 4 条 TransactionAnalysis：
+
+```text
+1× Success    ：SimulatedSlave → analyzer（elapsed 显式 15ms）
+1× Exception  ：向 Slave 请求越界地址 → 0x83/{0x02} → analyzer
+1× CrcError   ：SimulatedSlave → encode → CorruptCrc → decode → analyzer
+1× Timeout    ：NoResponse + elapsed ≥ threshold → analyzer
+→ summarizeTransactions(...)
+```
+
+Expected：observed=4, completed=4, pending=0；success=1, exception=1, crcError=1, timeout=1, protocolError=0；successRate=**0.25**；averageSuccessLatencyMs=**15.0**。
+
+目的：证明 T005 + T006 + T007A + T007B 形成**真正的诊断统计闭环**。不再扩大更多集成场景。
+
+### Part B 不负责的内容（显式禁止）
+
+rolling statistics、incremental accumulator、history store、database、persistent log、time window、per-device aggregation、per-function aggregation、p95/p99、charts、Qt model、QAbstractListModel、QML、Agent。当前只要 **batch → snapshot**。
+
+### 为什么不做 mutable accumulator（设计理由）
+
+纯 snapshot 函数：输入明确、输出明确、无隐藏状态、测试简单；Replay 未来可对任意一批事务直接重算；QML Controller 也可按当前数据随时重求快照。而 mutable accumulator 会立刻带来 reset / remove / rollback / history sync / thread safety 一整串问题——当前没有任何消费者需要它们。
+
+### Part B Knowledge I Must Be Able To Explain（14 题）
+
+**PB-Q1. Statistics Snapshot 和 Transaction Analysis 有什么区别？** Part A 把一个事务翻译成一个分类结果；Part B 把一批结果聚合成一个统计快照——层级不同、输入输出粒度不同。
+**PB-Q2. 为什么 Pending 不能算失败？** Pending 表示"还没有最终结果"（可能在途）；提前计失败会把正常的等待扭曲成故障，成功率随轮询节奏波动。
+**PB-Q3. observed / pending / completed 有什么区别？** observed=输入总数；pending=仍无最终结果的；completed=已有最终结果的（五分类之和）；恒等式 observed = pending + completed。
+**PB-Q4. successRate 的分母为什么是 completedCount？** 成功率回答"已决事务里多少成功"；Pending 未决，进分母会让成功率随等待时长被动下降。
+**PB-Q5. 为什么 completedCount=0 时 successRate 是 nullopt 而不是 0？** 0% 有明确否定语义（"完成了，但没成功"）；nullopt 表达"没有数据"——两者必须可区分，UI 才能显示 N/A 而非 0%。
+**PB-Q6. 为什么 completedCount>0 且 success=0 时 successRate 才是 0？** 此时才有真实否定证据：全部已决事务都失败了——这才是数学意义上的 0%。
+**PB-Q7. 为什么 Timeout elapsed 不进入 averageSuccessLatency？** Timeout 的 elapsed 是"等待阈值达到的时刻"，不是"响应完成时间"；混入会系统性虚高成功延迟指标。
+**PB-Q8. 为什么当前 latency 只统计 Success？** 只有 Success 的 elapsed 语义统一（响应完成耗时）；Exception/CrcError 的耗时语义各不相同，混算无解释力。
+**PB-Q9. 为什么没有成功事务时 averageSuccessLatency 是 nullopt？** 同 PB-Q5："无数据"≠"数据为零"；0ms 平均会暗示"有成功样本且瞬间完成"。
+**PB-Q10. 为什么 Core 返回 0.25 而不是字符串 "25%"？** 数学值与展示格式分离：格式（小数位/本地化/颜色）属于 Presentation；Core 返回可计算的数值。
+**PB-Q11. 为什么现在不用 StatisticsManager？** batch→snapshot 纯函数无隐藏状态，UI/测试/Replay 都能随时重算；Manager 带来生命周期、线程安全与同步问题，当前无消费者。
+**PB-Q12. 为什么 batch→snapshot 对未来 Replay 很友好？** Replay 的任意历史片段都是"一批 TransactionAnalysis"，直接重算快照即可，无需维护增量状态或重放进度。
+**PB-Q13. 两个 count invariant 分别是什么？** A：observed == pending + completed；B：completed == success + exception + crcError + timeout + protocolError——快照内部自洽，UI 不必猜。
+**PB-Q14. T007 Part B 如何为 QML Dashboard 提供数据？** 快照字段与仪表盘指标一一对应（计数/成功率/平均延迟），且四条 invariant 保证自洽；Controller 每当事务集合变化时调用 summarize 得到新快照即可绑定。
+
 ## Files Changed（本阶段实现）
 
 - 新增：`src/core/analysis/TransactionAnalysis.{h,cpp}`、`tests/test_transaction_analysis.cpp`、`tests/test_transaction_integration.cpp`、`docs/devlog/2026-09-06-T007-PartA-Implementation.md`
 - 修改：`CMakeLists.txt`（core 源 + 两个 target）、`docs/tasks/T007-transaction-analysis.md`（本文件补齐）、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/02_ARCHITECTURE.md`、`docs/04_TEST_STRATEGY.md`、`docs/INTERVIEW_NOTES.md`
 - 未改动：`ModbusCrc`、`ModbusRtuFrame`、`ModbusRtuCodec`、`Function03`、`SimulatedSlave`、`SimulationFault`、`src/main.cpp`、既有九个测试文件、presets
+
+Part B Learning / Test Design（本阶段，docs-only）：
+- 修改：`docs/tasks/T007-transaction-analysis.md`（本文件：Part B 设计、三计数/successRate/nullopt 语义、四不变量、矩阵 STAT-B01~B08 + I01、浮点规则、mutable accumulator 取舍、14 题问答、16 步计划）
+- 修改：`docs/PROJECT_STATUS.md`（Current Part/Phase/Next Action）、`docs/BACKLOG.md`（T007 行 Part B 状态）
+- 新增：`docs/devlog/2026-09-06-T007-PartB-TestDesign.md`
+
+始终未改动：`src/`、`tests/`、`CMakeLists.txt`、presets。
 
 ## Problems Encountered
 
@@ -299,10 +454,18 @@ $ cmake --build --preset debug-local --clean-first
 
 RED → GREEN 状态变化实录：`transaction`/`transaction_integration` 从"无法链接（10 undefined references）"变为 "Passed"；既有九个测试全程未破坏。
 
+### Part B Learning / Test Design（本阶段，docs-only）
+
+```text
+git diff --check      → 通过
+git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt 未出现
+```
+
 ## Result
 
 ✅ **Part A DONE**：`analyzeFunction03Transaction` 落地 `modbuslens_core`（零 Qt、纯函数、无时钟）；TX-A01~A12 + I01~I03 全绿（含 elapsed/exceptionCode 双不变量与数量一致性跨帧校验）；全项目 ctest 11/11、clean 重建零警告。
-⬜ **Part B（Statistics Snapshot）Not Started** → **T007 整体仍 IN PROGRESS**。
+✅ **Part B Learning / Test Design DONE（docs-only）**：三计数概念、successRate 严格定义（Pending 不进分母）、nullopt 语义（无数据≠零）、Success-only latency、四不变量、8 用例矩阵 + STAT-I01 真实链路聚合、mutable accumulator 取舍、14 题问答、16 步实施计划落库。
+⬜ **Part B Implementation NOT STARTED** → **T007 整体仍 IN PROGRESS**。
 
 ## Knowledge Learned
 
@@ -331,6 +494,7 @@ RED → GREEN 状态变化实录：`transaction`/`transaction_integration` 从"�
 | T006 代码 | `2c8d850` | （前 LKGC） |
 | T007 Part A Learning | `fa56100` | docs-only |
 | Part A 代码提交（**新 LKGC**） | `14982f6` | `T007(Part A): implement single transaction analysis` |
+| Part B Test Design | 见 `git log` | `T007(Part B): 统计快照学习与测试设计（docs-only）` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：Part A 产生新业务代码并经 configure/clean build/full ctest（11/11）验证；LKGC 由 `2c8d850` 推进至 Part A 代码提交，由 docs-only 回填提交写入。**Part A DONE；T007 整体 IN PROGRESS（Part B 未开始）；T008 未开始。**
