@@ -8,15 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ 完成；**M3 进行中（T005 ✅ / T006 Learning+Test Design）** |
-| Last Known Good Commit | **`3a896df`**（T005 代码提交：build+ctest 7/7 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T004B `e8b62f6`、T004A `73825c6`） |
-| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 39 targets） |
-| Test 状态 | ✅ **7/7 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration`，41 个测试函数全过） |
-| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · **T005** |
-| 当前任务（Current Task） | **T006 Deterministic Fault Injection**（IN PROGRESS，未完成） |
-| 最近完成任务（Last Completed Task） | **T005 Simulator Basic Slave** |
-| 当前阶段（Current Phase） | **Learning / Test Design**（docs-only；Implementation ⬜） |
-| 下一步动作（Next Action） | **T006 Implementation** |
+| 当前 Milestone（Current Milestone） | **M2 ✅ / M3 ✅ 完成**（T002–T006）；M4 事务分析待启动 |
+| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T006 代码提交，哈希由 docs-only 回填提交写入；此前为 `3a896df`） |
+| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 48 targets） |
+| Test 状态 | ✅ **9/9 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration`，48 个测试函数全过） |
+| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · **T006** |
+| 当前任务（Current Task） | **None**（无进行中任务） |
+| 最近完成任务（Last Completed Task） | **T006 Deterministic Fault Injection** |
+| 当前阶段（Current Phase） | —（T006 DONE；M3 已关闭，T007 待启动） |
+| 下一步动作（Next Action） | **Start T007 Transaction Analysis** |
 | 下一任务（Next Task After T006） | **T007 Transaction Analysis** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
@@ -32,14 +32,15 @@
 | T003 | Modbus RTU Frame Model | `ModbusRtuFrame`（address/functionCode/data，value 语义，不存 CRC）+ `isExceptionResponse`；FRAME-T01~T04 全绿；ctest 3/3；范围修订：fuzz 移除、编解码归 T004 | [T003](tasks/T003-modbus-rtu-frame-model.md) |
 | T004 | Modbus RTU Codec | Part A：`ModbusRtuCodec`（Frame↔wire，variant 错误模型）+ RTU-A01~A07；Part B：`Function03`（0x03 三个 decoder + 语义模型）+ F03-B01~B12（含 V1.1b3 官方金样）；ctest 5/5 | [T004](tasks/T004-modbus-rtu-codec.md) |
 | T005 | Simulator Basic Slave | `SimulatedSlave`（单地址 + 连续寄存器文件 + 0x03，const 纯应答端点）；SIM-T01~T07 + SIM-I01 全链路闭环（T002→T005 首次通电）；ctest 7/7；范围收缩兑现（IFrameSource 等推迟） | [T005](tasks/T005-simulator-basic-slave.md) |
+| T006 | Deterministic Fault Injection | `applySimulationFault` 四模式（None/DropResponse/CorruptCrc/ArtificialDelay，确定性、wire 层、元数据延迟）；FAULT-T01~T05 + I01/I02 全绿；SimulatedSlave 零修改；ctest 9/9 | [T006](tasks/T006-fault-injection.md) |
 
 ## 2. 当前任务
 
-- **T006 Deterministic Fault Injection — IN PROGRESS（Phase: Learning / Test Design，docs-only）**：四模式范围定案（None/DropResponse/CorruptCrc/ArtificialDelay，random/seed/real delay/丢包概率显式移出）、Timeout=Session 层判断（T006 只交付 DropResponse）、CRC fault 只作用 wire 层（SimulatedSlave 不动）、ArtificialDelay=元数据不真等、数据模型 `applySimulationFault(span, config) -> variant<DeliveredWire, DroppedResponse>`、矩阵 FAULT-T01~T05 + I01/I02、12 题问答已落库（[T006 档案](tasks/T006-fault-injection.md)）。**Fault Injector 未实现**；下一步动作 = T006 Implementation。
+- **None**。T006 已完成（四模式确定性故障注入 + 全绿），**M3 模拟与故障注入里程碑关闭**。下一步：启动 T007 Transaction Analysis（见 BACKLOG）。
 
 ## 3. 下一任务
 
-- **T007 — Transaction Analysis**（详见 [BACKLOG](BACKLOG.md)）：请求-响应配对（含广播/超时判定——DropResponse + 等待阈值在此成为 Timeout）、时延计算、错误与功能码统计快照；合成流量单测。依赖 T005/T006 提供的流量与故障样本（T006 未完成）。
+- **T007 — Transaction Analysis**（详见 [BACKLOG](BACKLOG.md)）：请求-响应配对（含广播/超时判定——T006 的 DropResponse 在此配合等待阈值成为 Timeout）、时延计算、错误与功能码统计快照；合成流量单测。依赖 T005/T006 提供的流量与故障样本（已就绪）。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -103,3 +104,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T005 完成：`SimulatedSlave` 落地 `modbuslens_core`，SIM-T01~T07 + SIM-I01 RED（linker error ×29）→GREEN；过程中发现并修复 ISSUE-001（variant 测试辅助函数悬垂指针，含 T004 测试脚手架同批修复，语义零变化）。全项目 ctest 7/7、零警告。**T005 DONE**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-06 | 回填：LKGC = `3a896df`（T005 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-06 | T006 启动：Learning / Test Design（docs-only）——四模式定案（random/seed/real delay/丢包概率移出）、Timeout=Session 判断（T006 只交付 DropResponse）、CRC fault 只作用 wire、ArtificialDelay=元数据；矩阵 FAULT-T01~T05 + I01/I02 落库；T006 标记 IN PROGRESS，**未标完成** |
+| 2026-09-06 | T006 完成：`SimulationFault` 落地 `modbuslens_core`（四模式单一 switch），FAULT-T01~T05 + I01/I02 RED（linker error ×6，另修正一处测试类名不一致）→GREEN；SimulatedSlave 零修改；全项目 ctest 9/9、零警告。**T006 DONE，M3 关闭**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |

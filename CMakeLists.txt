@@ -25,6 +25,7 @@ add_library(modbuslens_core STATIC
     src/core/protocol/ModbusRtuCodec.cpp
     src/core/protocol/Function03.cpp
     src/core/simulator/SimulatedSlave.cpp
+    src/core/simulator/SimulationFault.cpp
 )
 target_include_directories(modbuslens_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -107,8 +108,26 @@ if(BUILD_TESTING)
 
     add_test(NAME simulator_integration COMMAND modbuslens_simulator_integration_tests)
 
+    add_executable(modbuslens_fault_tests tests/test_simulation_fault.cpp)
+    target_link_libraries(modbuslens_fault_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_fault_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME fault COMMAND modbuslens_fault_tests)
+
+    add_executable(modbuslens_fault_integration_tests tests/test_fault_integration.cpp)
+    target_link_libraries(modbuslens_fault_integration_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_fault_integration_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME fault_integration COMMAND modbuslens_fault_integration_tests)
+
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(smoke crc frame codec f03 simulator simulator_integration PROPERTIES
+    set_tests_properties(smoke crc frame codec f03 simulator simulator_integration fault fault_integration PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

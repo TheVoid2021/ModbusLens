@@ -1,9 +1,20 @@
 # T006 — Deterministic Fault Injection
 
-> 状态：**IN PROGRESS — Learning / Test Design**（2026-09-06，docs-only）｜Implementation ⬜
-> 前置确认：T005 DONE（`SimulatedSlave` 就绪）、M3 进行中、LKGC = `3a896df`。
-> 协议依据：V1.1b3 / V1.02（故障不影响协议语义本身——故障发生在传输模拟层）。
-> 本阶段边界：只学习与设计。**禁止**（全部未做）：修改 `src/`、`tests/`、`CMakeLists.txt`；实现 Fault Injector；T007 及以后的一切。
+> 状态：**DONE ✅**（2026-09-06）｜Learning / Test Design ✅｜Implementation ✅（RED→GREEN 全程留痕）
+> 前置确认：T005 DONE、LKGC 起点为 `3a896df`。
+> 交付边界回顾：四模式确定性注入（None/DropResponse/CorruptCrc/ArtificialDelay）；**未实现** random/seed/real sleep/QTimer/timeout timer/丢包概率/burst/noise；SimulatedSlave 零修改；T007 未开始。
+
+## Implementation 前追加规则（2026-09-06，定案）
+
+**A. artificialDelay 的模式隔离**：`artificialDelay` 只在 `SimulationFaultMode::ArtificialDelay` 时生效。对 `None` 与 `CorruptCrc`，`DeliveredWire.artificialDelay` 必须为 **0ms**（即使 config 带了非零 delay 值）；`DropResponse` 不产生 DeliveredWire。v1 **不支持** `CorruptCrc + Delay` 等组合故障——一次 config 只表达一种模式。
+
+**B. validWire 参数契约**：`applySimulationFault` 的输入表示**已经存在的、完整合法的 RTU wire**。正常生产路径：`ModbusRtuFrame → encodeRtuFrame() → validWire → applySimulationFault()`。T006 **不重新承担** CRC validation、RTU parsing、malformed wire classification——这些属于 T004A；**不**为 T006 建立新的通用 InputError framework。
+
+**C. ArtificialDelay 的测试方式**：**不增加严格墙钟阈值测试**（如 `execution < 10ms`）——此类断言受 CI/系统负载影响，天然不稳定。证明"不真实等待"的主要证据：实现中无 sleep、无 timer、无 thread，只返回 chrono 元数据。
+
+**CorruptCrc 最小防护（补充）**：输入契约为 `encodeRtuFrame` 产物（≥4 字节）；实现中对**空 wire** 采用最小防护（空输入无可破坏字节，原样透传返回 DeliveredWire），不扩张成 wire parser/error system——该路径属契约违规兜底，不进测试矩阵。
+
+## Implementation 前追加规则（结束）
 
 ## Goal
 
@@ -208,35 +219,91 @@ Expected：`DeliveredWire`，bytes 与输入一致，`artificialDelay = 500ms`�
 9. SimulatedSlave 零改动复核（git diff 验证）；
 10. 文档归档；code commit；推进 LKGC；docs backfill（如需要）。
 
-## Implementation
+## Implementation（实录，2026-09-06）
 
-**未发生。** 本阶段 docs-only；`src/`、`tests/`、`CMakeLists.txt` 零改动。
+### 新增文件
 
-## Files Changed（本阶段）
+- `src/core/simulator/SimulationFault.{h,cpp}`：四模式枚举 + config + `DeliveredWire`/`DroppedResponse`（defaulted `==`）+ `applySimulationFault`（单一 switch，无 IFaultStrategy/FaultPipeline 抽象）。
+- `tests/test_simulation_fault.cpp`：FAULT-T01~T05（T05 含确定性双调用 + 模式隔离断言：CorruptCrc/None 即使 config 带 500ms 也必须报 0ms）。
+- `tests/test_fault_integration.cpp`：FAULT-I01/I02（真实走 SimulatedSlave → encode → inject → decode 链路，wire 金样 `…C4 0B` / `…BA 7A`→`…7B` 逐字节断言）。
+- `CMakeLists.txt`：core 加入 `SimulationFault.cpp`；两个测试 target + ctest `fault` / `fault_integration`。
 
-- 新增：`docs/tasks/T006-fault-injection.md`（本文件）、`docs/devlog/2026-09-06-T006-TestDesign.md`
-- 修改：`docs/PROJECT_STATUS.md`（四段式状态）、`docs/BACKLOG.md`（T006 范围收缩 + 变更记录）
-- 未改动：`src/`、`tests/`、`CMakeLists.txt`、presets、`SimulatedSlave`
+### 四模式实际行为（switch 语义）
+
+- **None**：完整拷贝 wire → `DeliveredWire{copy, 0ms}`；不重算 CRC。
+- **DropResponse**：直接 `DroppedResponse{}`——**不用空 DeliveredWire 表达**（"交付 0 字节包"与"根本没交付"是两个事实）。
+- **CorruptCrc**：拷贝 wire → `bytes.back() ^= 0x01`（末 CRC 字节最低位翻转，payload 不动）→ `DeliveredWire{copy, 0ms}`；空 wire 走最小防护（原样透传，契约违规兜底，已注明不进测试矩阵）。
+- **ArtificialDelay**：完整拷贝 wire → `DeliveredWire{copy, config.artificialDelay}`；无 sleep/timer/thread。
+
+### 三条追加规则的落实
+
+- **A 模式隔离**：CorruptCrc/None 的 delay 恒为 0ms（实现写死 + T05 断言锁定），DropResponse 无 DeliveredWire；v1 无组合故障。
+- **B validWire 契约**：不做 CRC 校验/解析/malformed 分类（T004A 职责）；唯一防护是 CorruptCrc 空 wire 透传（已注明）。
+- **C 测试方式**：无墙钟阈值断言；"不真等"的证据 = 实现无 sleep/timer/thread + 套件耗时保持在毫秒级。
+
+## Files Changed（本阶段实现）
+
+- 新增：`src/core/simulator/SimulationFault.{h,cpp}`、`tests/test_simulation_fault.cpp`、`tests/test_fault_integration.cpp`、`docs/devlog/2026-09-06-T006-Implementation.md`
+- 修改：`CMakeLists.txt`（core 源 + 两个 target）、`docs/tasks/T006-fault-injection.md`（本文件补齐）、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/02_ARCHITECTURE.md`、`docs/04_TEST_STRATEGY.md`
+- **SimulatedSlave 零修改**（`git diff` 复核为空——故障层完全独立于协议端点）
+- 未改动：`ModbusCrc`、`ModbusRtuFrame`、`ModbusRtuCodec`、`Function03`、`src/main.cpp`、既有七个测试文件、presets
 
 ## Problems Encountered
 
-无实现问题（docs-only）。范围事项：BACKLOG 原 T006 行为"超时/CRC 错帧/异常码注入开关"的泛化描述，与本次"确定性四模式 + 显式删除随机性"的决策冲突 → 已改写并在变更记录留痕。
+1. **RED 如预期**：仅声明无定义时两个测试目标链接失败——6 处 `undefined reference to modbuslens::core::applySimulationFault(...)`。未提交 RED 状态。
+2. **集成测试编译失败（真实小问题）**：测试类**声明名 `FaultIntegrationTest` 与定义名 `SimulationFaultIntegrationTest` 不一致**（写作中途重命名残留），编译器把错误指在定义行。修正类名后通过。教训：重命名要用工具级替换，肉眼改定义漏了声明侧。
+3. **无 ISSUE-001 复发**：新测试全部遵守"具名局部量绑定 + optional 拷贝语义辅助"，未出现 `&右值` 或悬垂指针问题。
+4. **SimulatedSlave 零修改达成**：无需为故障注入改动协议端点（故障层独立可行的设计验证）。
 
 ## Solutions
 
-T006 行改写为四模式范围；random/seed/real delay/丢包概率移出并在变更记录写明理由；异常码注入（0x01/0x02/0x03）已由 T005 的 SimulatedSlave 交付，不在 T006 重复。
+1. RED 证据存档后按定案实现；实现极小（单一 switch）。
+2. 类名统一为 `FaultIntegrationTest`。
+3. 防护策略：CorruptCrc 空 wire 透传兜底（文档注明，不扩张错误体系）。
 
-## Verification（本阶段，docs-only）
+## Verification
+
+### RED（仅声明、无定义；未提交）
 
 ```text
-git diff --check        → 通过（无空白/行尾问题）
-git diff --name-only    → 仅 docs/ 下文件；src/、tests/、CMakeLists.txt 未出现
-ISSUE-001 索引检查      → INTERVIEW_NOTES 已有入口（T005 时加入），无需重复
+$ cmake --preset debug-local      → configure PASS
+$ cmake --build --preset debug-local
+两个测试目标链接失败；undefined reference 共 6 处：
+  `modbuslens::core::applySimulationFault(std::span<unsigned char const, ...>, ... const&)`
+compile 全部通过，仅 link 失败——预期 RED。
 ```
+
+### 过程问题
+
+```text
+首版集成测试 compile FAIL：类名声明/定义不一致（FaultIntegrationTest vs
+SimulationFaultIntegrationTest）→ 统一后通过（Problems #2）。
+```
+
+### GREEN（修复后）
+
+```text
+$ cmake --build --preset debug-local              → 全部链接成功
+$ ./build/debug/modbuslens_fault_tests.exe
+  PASS: t01~t05  Totals: 7 passed, 0 failed (2ms)
+$ ./build/debug/modbuslens_fault_integration_tests.exe
+  PASS: i01/i02  Totals: 4 passed, 0 failed (2ms)
+
+$ ctest --preset debug-local
+9/9: smoke | crc | frame | codec | f03 | simulator | simulator_integration |
+     fault | fault_integration 全部 Passed
+100% tests passed, 0 tests failed out of 9
+
+$ cmake --build --preset debug-local --clean-first
+警告/错误行数 grep = 0（零警告，48 targets）；ctest 再次 9/9 通过
+SimulatedSlave.{h,cpp} git diff = 空（零修改复核通过）
+```
+
+RED → GREEN 状态变化实录：`fault`/`fault_integration` 从"无法链接（6 undefined references）"变为 "Passed"；既有七个测试全程未破坏。
 
 ## Result
 
-Learning / Test Design 完成：四模式范围定案（random/seed/real delay/丢包概率显式移出）、Timeout vs DropResponse 与 CRC fault 层级约束落库、数据模型定案、5+2 用例矩阵（P0×6 + P1×1）、12 题问答、实施计划齐备。**Fault Injector 未实现**；T006 整体 IN PROGRESS。
+✅ **T006 DONE**：`applySimulationFault` 四模式落地 `modbuslens_core`（零 Qt、无等待、无随机、单一 switch）；FAULT-T01~T05 + I01/I02 全绿（含模式隔离与确定性护栏断言）；SimulatedSlave 零修改；全项目 ctest 9/9、clean 重建零警告。**M3 模拟与故障注入里程碑关闭**（T005 + T006）。
 
 ## Knowledge Learned
 
@@ -245,12 +312,30 @@ Learning / Test Design 完成：四模式范围定案（random/seed/real delay/�
 - **确定性优先于拟真**：v1 用固定 XOR 策略替代随机破坏，牺牲"像真实线路"换取可测/可复演/可讲解——这是两周项目的正确取舍。
 - **元数据替代行为**：ArtificialDelay 用一个 `chrono::milliseconds` 字段表达"应该延迟多久"，把"真的等"留给未来消费者——行为与信息的分离让测试零等待。
 
+### Implementation 阶段补充（对应用户 14 问中的增量点）
+
+- **Timeout 最少还需要两个概念**：①请求发出的时间基准（时钟/时间戳）；②超时阈值——两者都在未来 Session/Transaction 层，T006 只有"无响应"这一事实。
+- **为什么 ModbusRtuFrame 不保存坏 CRC**：Frame 是语义模型，CRC 是线路层派生值；保存（更不必说保存"坏"值）会破坏防 stale 设计并把故障语义泄漏进协议层。
+- **为什么 payload 必须保持不变**：CRC Error 的诊断语义就是"内容对、校验坏"；如果连 payload 都改了，故障就变成了另一种东西（内容损坏），统计口径会失真。
+- **为什么 DropResponse 不能用空 DeliveredWire 表示**：空包=“交付了一个 0 字节帧”（本身就是协议异常），丢弃=“什么都没发生”；variant 两个分支让上层不必猜测。
+- **T006 对无硬件 Demo 的价值**：Demo A 的"注入异常"按钮直接切换 mode，CRC 错误与超时场景每次演示完全一致——可复现的故障才是可验证的诊断。
+- **工程小课**：类名重命名要覆盖声明+定义两侧（本次肉眼改定义漏了声明，编译器指出后才补上）。
+
 ## Potential Interview Questions
 
-- 12 题见上。
-- Implementation 阶段将补充：`chrono::milliseconds` 在 ABI/序列化上的注意点、SimulatedDelivery 的 get_if 模式（ISSUE-001 教训的应用验证）。
+- 12 题见上（Knowledge I Must Be Able To Explain）+ 本阶段补充问答。
+- Implementation 新增：
+  1. 为什么不用 IFaultStrategy/策略模式？（四个分支 20 行代码搞定；抽象成本 > 收益——YAGNI 的现场判断）
+  2. 模式隔离怎么保证？（实现写死 0ms + T05 对 CorruptCrc/None 带 500ms config 的断言锁定）
+  3. 空 wire 走 CorruptCrc 会怎样？（最小防护透传，契约违规兜底，不扩张错误体系——设计取舍可讲）
 
 ## Git Commit
 
-- 本阶段提交信息：`T006(Learning): 确定性故障注入学习与测试设计（docs-only）`
-- 哈希：见 `git log`（docs-only 不推进 LKGC；LKGC 保持 `3a896df`）。
+| 提交 | 哈希 | 说明 |
+| --- | --- | --- |
+| T005 代码 | `3a896df` | （前 LKGC） |
+| T006 Learning | `c086ff1` | docs-only |
+| T006 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T006: implement deterministic wire fault injection` |
+| 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
+
+> LKGC 推进：T006 产生新业务代码并经 configure/clean build/full ctest（9/9）验证；LKGC 由 `3a896df` 推进至 T006 代码提交，由 docs-only 回填提交写入。**T006 DONE、M3 关闭；T007 未开始。**
