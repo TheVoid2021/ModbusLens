@@ -71,7 +71,7 @@
 - 用 `set_tests_properties(... LABELS "unit|component|integration")` 打标签，未来支持 `ctest -L unit` 快速过滤；
 - 需要真实硬件或人工步骤的测试以 `manual_` 前缀 + `DISABLED` 或文档化，不进默认 `ctest`；
 - 所有可在无显示器环境运行的 QT 测试统一加 `QT_QPA_PLATFORM=offscreen`（CMakeLists 已示范）。
-- 已落地（T002–T006）：ctest 注册 9 个测试——`smoke`、`crc`、`frame`、`codec`、`f03`、`simulator`、`simulator_integration`（SIM-I01 全链路闭环）、`fault`（FAULT-T01~T05 含确定性护栏）、`fault_integration`（FAULT-I01/I02：故障层↔解码器联动）；后八者链 `modbuslens_core`（无 Qt 的纯核心库）+ QtTest。
+- 已落地（T002–T007A）：ctest 注册 11 个测试——`smoke`、`crc`、`frame`、`codec`、`f03`、`simulator`、`simulator_integration`、`fault`、`fault_integration`、`transaction`（TX-A01~A12 六状态与跨帧校验）、`transaction_integration`（TX-I01~I03：Simulator/故障层↔事务分析联动）；后十者链 `modbuslens_core`（无 Qt 的纯核心库）+ QtTest。
 
 ## 5. 覆盖率与质量门槛
 

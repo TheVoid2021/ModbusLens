@@ -1,9 +1,20 @@
 # T007 — Transaction Analysis
 
-> 状态：**IN PROGRESS**｜Part A（Single Transaction Analysis）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**｜Part B（Statistics Snapshot）：⬜ Not Started
-> 前置确认：T006 DONE、M3 DONE、LKGC = `2c8d850`。
-> 协议依据：V1.1b3 §6.3（0x03 语义，复用 T004B）+ 串行主站模型（V1.02）。
-> Part A Implementation 边界预告（未实现，禁止提前）：SessionManager、queue、polling loop、QTimer、thread、serial、QML model、database、history persistence、statistics accumulator、dashboard、Agent 全部不做。
+> 状态：**IN PROGRESS**｜Part A（Single Transaction Analysis）：**DONE ✅**（Learning / Test Design + Implementation，RED→GREEN 全程留痕）｜Part B（Statistics Snapshot）：⬜ Not Started
+> 前置确认：T006 DONE、M3 DONE、LKGC 起点为 `2c8d850`。
+> Part B 边界预告（未实现）：只做 Statistics Snapshot（计数/成功率/延迟摘要）；SessionManager、queue、polling、QTimer、thread、serial、database、persistence、dashboard、Agent 全部不做。
+
+## Implementation 前追加规则（2026-09-06，定案）
+
+**A. elapsed 对所有 TransactionStatus 原样保留**：Pending/Success/Exception/CrcError/Timeout/ProtocolError 六种状态的 `TransactionAnalysis.elapsed` 都等于调用方传入的 elapsed；Analyzer 不自行修改或重新测量。
+
+**B. exceptionCode invariant**：仅当 `status == TransactionStatus::Exception` 时 `exceptionCode` 有值；其余状态（Success/Pending/Timeout/CrcError/ProtocolError）一律 `std::nullopt`。
+
+**C. Part A 只保留异常码数值**（如 0x02）：不在 Transaction Analyzer 中转换为 "Illegal Data Address" 等文字——映射继续属于未来 Presentation / Diagnosis 层。
+
+**防御性解码分支（补充）**：Normal Response 路径为取 quantity 会调用 `decodeReadHoldingRegistersRequest(request)`——虽然契约上 request 合法，若该防御性调用意外失败，映射为 `ProtocolError`（不崩溃、不新增第七个状态）。RtuDecodeError 分支采用**无 default 的穷举 switch**：新增枚举值时 `-Wswitch` 会报警（不静默吞新状态），switch 后保留显式兜底 return 保证函数必然返回。
+
+## Implementation 前追加规则（结束）
 
 ## Goal
 
@@ -216,34 +227,82 @@ Part B（后续独立任务）只负责 **Statistics Snapshot**——把一批�
 
 **禁止**：Session/queue/线程/timer/统计/持久化；不修改 T002–T006 任何既有代码。
 
-## Implementation
+## Implementation（实录，2026-09-06）
 
-**未发生。** 本阶段 docs-only；`src/`、`tests/`、`CMakeLists.txt` 零改动。
+### 新增文件
 
-## Files Changed（本阶段）
+- `src/core/analysis/TransactionAnalysis.{h,cpp}`：`TransactionStatus` 六值、`NoResponse`、`ResponseObservation`、`TransactionAnalysis`（defaulted `==`）、`analyzeFunction03Transaction`；落点 `src/core/analysis/`（Analysis 是 Protocol 的**上层**，依赖方向 analysis → protocol，禁止反向）。
+- `tests/test_transaction_analysis.cpp`：TX-A01~A12，12 个测试函数。
+- `tests/test_transaction_integration.cpp`：TX-I01~I03（T005→T007 语义直连；T006 Drop→NoResponse 适配；T006 CorruptCrc→decode→CrcError）。
+- `CMakeLists.txt`：core 加入 `TransactionAnalysis.cpp`；两个测试 target + ctest `transaction` / `transaction_integration`。
 
-- 新增：`docs/tasks/T007-transaction-analysis.md`（本文件）、`docs/devlog/2026-09-06-T007-PartA-TestDesign.md`
-- 修改：`docs/PROJECT_STATUS.md`（四段式状态）、`docs/BACKLOG.md`（T007 拆 Part A/B + 范围收缩记录 + M4 状态）
-- 未改动：`src/`、`tests/`、`CMakeLists.txt`、presets
+### 实际分析顺序（与设计一致，按 observation 类型先分支）
+
+```text
+ResponseObservation
+    ├─ NoResponse      → elapsed < threshold ? Pending : Timeout
+    ├─ RtuDecodeError  → 穷举 switch（无 default）：CrcMismatch→CrcError；FrameTooShort→ProtocolError
+    └─ ModbusRtuFrame  → ① address 配对（≠→ProtocolError）
+                         ② 0x83 → decodeReadHoldingRegistersException → Exception + 数值码（失败→ProtocolError）
+                         ③ 0x03 → decodeReadHoldingRegistersRequest/Response（防御失败→ProtocolError）
+                                   → 数量一致性（uint16→size_t 显式提升后比较，≠→ProtocolError）→ Success
+                         ④ 其他功能码 → ProtocolError
+```
+
+三条规则落实：**A** `makeAnalysis` 单一漏斗保证 elapsed 六状态原样保留；**B** exceptionCode 仅 Exception 分支赋值（其余路径 nullopt）；**C** exceptionCode 只存数值。RtuDecodeError 分支无 default——新增枚举值时 `-Wswitch` 报警而非静默吞掉，switch 后保留显式兜底 return 保证函数 total。
+
+## Files Changed（本阶段实现）
+
+- 新增：`src/core/analysis/TransactionAnalysis.{h,cpp}`、`tests/test_transaction_analysis.cpp`、`tests/test_transaction_integration.cpp`、`docs/devlog/2026-09-06-T007-PartA-Implementation.md`
+- 修改：`CMakeLists.txt`（core 源 + 两个 target）、`docs/tasks/T007-transaction-analysis.md`（本文件补齐）、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/02_ARCHITECTURE.md`、`docs/04_TEST_STRATEGY.md`、`docs/INTERVIEW_NOTES.md`
+- 未改动：`ModbusCrc`、`ModbusRtuFrame`、`ModbusRtuCodec`、`Function03`、`SimulatedSlave`、`SimulationFault`、`src/main.cpp`、既有九个测试文件、presets
 
 ## Problems Encountered
 
-无实现问题（docs-only）。范围事项：原 BACKLOG T007 行把"统计快照"与单事务分析混在一行、隐含一次做完——已拆分 Part A/B 并在变更记录留痕；broadcast 事务口径显式推迟至 Session/Runtime。
+1. **RED 如预期**：仅声明无定义时两个测试目标链接失败——10 处 `undefined reference to analyzeFunction03Transaction(...)`。未提交 RED 状态。
+2. **实现本身：No significant implementation issue encountered.** 无 variant/类型比较/CMake 问题，一次实现即 GREEN；ISSUE-001 模式未复发（全部具名局部量 + optional 拷贝辅助）。
 
 ## Solutions
 
-按用户指示拆分 Part A（单事务）/ Part B（统计快照）；"统计快照"移入 Part B 并写明其一句话边界；变更写入 BACKLOG 变更记录，历史不删改。
+1. RED 证据存档后按定案顺序实现（observation 分支优先、makeAnalysis 单一漏斗）。
 
-## Verification（本阶段，docs-only）
+## Verification
+
+### RED（仅声明、无定义；未提交）
 
 ```text
-git diff --check        → 通过（无空白/行尾问题）
-git diff --name-only    → 仅 docs/ 下文件；src/、tests/、CMakeLists.txt 未出现
+$ cmake --preset debug-local      → configure PASS
+$ cmake --build --preset debug-local
+两个测试目标链接失败；undefined reference 共 10 处：
+  `modbuslens::core::analyzeFunction03Transaction(ModbusRtuFrame const&,
+   variant<ModbusRtuFrame, RtuDecodeError, NoResponse> const&, duration, duration)`
+compile 全部通过，仅 link 失败——预期 RED。
 ```
+
+### GREEN（实现后）
+
+```text
+$ cmake --build --preset debug-local              → [26/26] 全部链接成功
+$ ./build/debug/modbuslens_transaction_tests.exe
+  PASS: a01~a12  Totals: 14 passed, 0 failed (2ms)
+$ ./build/debug/modbuslens_transaction_integration_tests.exe
+  PASS: i01/i02/i03  Totals: 5 passed, 0 failed (2ms)
+
+$ ctest --preset debug-local
+11/11: smoke | crc | frame | codec | f03 | simulator | simulator_integration |
+       fault | fault_integration | transaction | transaction_integration 全部 Passed
+100% tests passed, 0 tests failed out of 11
+
+$ cmake --build --preset debug-local --clean-first
+警告/错误行数 grep = 0（零警告，57 targets）；ctest 再次 11/11 通过
+```
+
+RED → GREEN 状态变化实录：`transaction`/`transaction_integration` 从"无法链接（10 undefined references）"变为 "Passed"；既有九个测试全程未破坏。
 
 ## Result
 
-Part A Learning / Test Design 完成：Transaction 定义、串行配对模型、六状态、观察/结果模型、判定规则（Pending/Timeout 边界、CRC/FrameTooShort 映射、地址/功能/数量三类跨帧校验）、12 用例矩阵 + 3 条集成测试（I03 纳入 P0）、14 题问答、实施计划落库。**Analyzer 未实现**；Part B 未开始；T007 整体 IN PROGRESS。
+✅ **Part A DONE**：`analyzeFunction03Transaction` 落地 `modbuslens_core`（零 Qt、纯函数、无时钟）；TX-A01~A12 + I01~I03 全绿（含 elapsed/exceptionCode 双不变量与数量一致性跨帧校验）；全项目 ctest 11/11、clean 重建零警告。
+⬜ **Part B（Statistics Snapshot）Not Started** → **T007 整体仍 IN PROGRESS**。
 
 ## Knowledge Learned
 
@@ -251,12 +310,27 @@ Part A Learning / Test Design 完成：Transaction 定义、串行配对模型�
 - **观察与判断分离**：NoResponse 是事实，Timeout 是事实+阈值的判断——与 T006 的 DropResponse 呼应，三层各管一段。
 - **错误分类要有消费者**：CrcError 单列（有明确诊断价值）、FrameTooShort 归并（暂无消费者）——状态设计跟着统计口径走。
 - **Analyzer 纯函数化**：elapsed/threshold 全部外置，测试零等待、结果可精确断言（延续 T006 元数据思路）。
+- **实现阶段新增**：
+  1. **单一漏斗保不变量**：`makeAnalysis` 私有 helper 让 elapsed/exceptionCode 两条不变量"写一次就处处成立"，12 个分支零遗漏。
+  2. **穷举 switch 不写 default**：新增 `RtuDecodeErrorCode` 枚举时 `-Wswitch` 强制处理新分支（不静默吞），switch 后的显式兜底 return 保证函数 total——两全。
+  3. **跨类型比较显式提升**：`uint16_t quantity` vs `size_t values.size()` 用 `static_cast<std::size_t>` 显式对齐，零警告。
+  4. **适配发生在边界**：T006 `DroppedResponse` → `NoResponse` 的转换放在集成测试/调用边界，Transaction API 保持抽象（不认识具体故障类型）。
 
 ## Potential Interview Questions
 
-- 14 题见上；Implementation 阶段将补充：variant 观察模型的分发顺序、optional exceptionCode 的语义、集成测试中 T006→T007 的类型转换归属。
+- 14 题见上；Implementation 阶段新增：
+  1. 为什么用 `holds_alternative` + `get` 而不是 `get_if` 链？（先判型后取值，分支语义清晰；配合 ISSUE-001 的具名局部量原则）
+  2. 六状态里为什么没有 InvalidRequest？（request 是契约输入，不是观察结果——防御失败映射 ProtocolError 即可）
+  3. Pending/Timeout 为什么用 `>=` 划界？（超时必须被报告，边界时刻归属 Timeout）
+  4. `makeAnalysis` 漏斗与"每个分支手写返回"的取舍？（漏斗把两条不变量固化在一点，12 个返回路径零漂移）
 
 ## Git Commit
 
-- 本阶段提交信息：`T007(Part A): 单事务分析学习与测试设计（docs-only）`
-- 哈希：见 `git log`（docs-only 不推进 LKGC；LKGC 保持 `2c8d850`）。
+| 提交 | 哈希 | 说明 |
+| --- | --- | --- |
+| T006 代码 | `2c8d850` | （前 LKGC） |
+| T007 Part A Learning | `fa56100` | docs-only |
+| Part A 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T007(Part A): implement single transaction analysis` |
+| 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
+
+> LKGC 推进：Part A 产生新业务代码并经 configure/clean build/full ctest（11/11）验证；LKGC 由 `2c8d850` 推进至 Part A 代码提交，由 docs-only 回填提交写入。**Part A DONE；T007 整体 IN PROGRESS（Part B 未开始）；T008 未开始。**
