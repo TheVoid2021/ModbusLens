@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / **M4 ✅ 完成**（T002–T007）；M5 诊断规则引擎待启动 |
-| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T007 Part B 代码提交，哈希由 docs-only 回填提交写入；此前为 `2c8d850`） |
+| Last Known Good Commit | **`0f3109a`**（T007 Part B 代码提交：build+ctest 13/13 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T007A `14982f6`、T006 `2c8d850`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 66 targets） |
 | Test 状态 | ✅ **13/13 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration` / `transaction` / `transaction_integration` / `statistics` / `statistics_integration`，72 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · **T007** |
@@ -34,14 +34,15 @@
 | T004 | Modbus RTU Codec | Part A：`ModbusRtuCodec`（Frame↔wire，variant 错误模型）+ RTU-A01~A07；Part B：`Function03`（0x03 三个 decoder + 语义模型）+ F03-B01~B12（含 V1.1b3 官方金样）；ctest 5/5 | [T004](tasks/T004-modbus-rtu-codec.md) |
 | T005 | Simulator Basic Slave | `SimulatedSlave`（单地址 + 连续寄存器文件 + 0x03，const 纯应答端点）；SIM-T01~T07 + SIM-I01 全链路闭环（T002→T005 首次通电）；ctest 7/7；范围收缩兑现（IFrameSource 等推迟） | [T005](tasks/T005-simulator-basic-slave.md) |
 | T006 | Deterministic Fault Injection | `applySimulationFault` 四模式（None/DropResponse/CorruptCrc/ArtificialDelay，确定性、wire 层、元数据延迟）；FAULT-T01~T05 + I01/I02 全绿；SimulatedSlave 零修改；ctest 9/9 | [T006](tasks/T006-fault-injection.md) |
+| T007 | Transaction Analysis | Part A：`analyzeFunction03Transaction`（六状态、跨帧校验、双不变量）+ TX-A01~A12/I01~I03；Part B：`summarizeTransactions`（三计数/五分类/optional rate 与 latency/四不变量）+ STAT-B01~B08/I01；ctest 13/13 | [T007](tasks/T007-transaction-analysis.md) |
 
 ## 2. 当前任务
 
-- **T007 Transaction Analysis — IN PROGRESS（Part B: Statistics Snapshot，Phase: Learning / Test Design，docs-only）**：三计数概念（observed/pending/completed）、successRate 严格定义（Pending 不进分母；completed=0 → nullopt）、Success-only latency、四条快照不变量、矩阵 STAT-B01~B08 + STAT-I01（真实链路聚合）、mutable accumulator 取舍、14 题问答已落库（[T007 档案](tasks/T007-transaction-analysis.md)）。**Part B 未实现**；下一步动作 = T007 Part B — Implementation。
+- **None**。T007 已整体完成（Part A + Part B），**M4 事务分析里程碑关闭**。下一步：启动 T008 Qt Quick / QML Analysis UI（见 BACKLOG）。
 
 ## 3. 下一任务
 
-- **T008 — Qt Quick / QML Analysis UI**（详见 [BACKLOG](BACKLOG.md)，受 ADR001 约束）：最终 UI 切换 QML + C++ Controller/Model 桥接。依赖 T007 的事务分析与统计快照（Part B 未完成；T007 两个 Part 完成后启动）。
+- **T008 — Qt Quick / QML Analysis UI**（详见 [BACKLOG](BACKLOG.md)，受 ADR001 约束）：最终 UI 切换 QML + C++ Controller/Model 桥接；事务分析与统计快照数据源已就绪。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -111,3 +112,5 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T007 Part A 完成：`analyzeFunction03Transaction` 落地 `src/core/analysis/`（六状态、跨帧校验、双不变量），TX-A01~A12 + I01~I03 RED（linker error ×10）→GREEN；全项目 ctest 11/11、零警告。**Part A DONE，T007 整体 IN PROGRESS（Part B 未开始）**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-06 | 回填：LKGC = `14982f6`（T007 Part A 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-06 | T007 Part B 启动：Learning / Test Design（docs-only）——Statistics Snapshot 模型/API/四不变量/矩阵 STAT-B01~B08 + I01/浮点规则/mutable accumulator 取舍落库；T007 保持 IN PROGRESS，**未标完成** |
+| 2026-09-06 | T007 Part B 完成：`TransactionStatistics` 落地 `modbuslens_core`（穷举 switch 聚合、completed 按分类之和构造、optional rate/latency），STAT-B01~B08 + I01 RED（linker error ×7）→GREEN；修复一处 -Wmissing-field-initializers 测试警告；全项目 ctest 13/13、零警告。**Part B DONE，T007 整体 DONE，M4 关闭**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
+| 2026-09-06 | 回填：LKGC = `0f3109a`（T007 Part B 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |

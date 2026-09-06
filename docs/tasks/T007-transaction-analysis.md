@@ -581,7 +581,7 @@ git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt 未出现
 | T007 Part A Learning | `fa56100` | docs-only |
 | Part A 代码提交（**新 LKGC**） | `14982f6` | `T007(Part A): implement single transaction analysis` |
 | Part B Test Design | `f7716c4` | `T007(Part B): 统计快照学习与测试设计（docs-only）` |
-| Part B 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T007(Part B): implement transaction statistics snapshot` |
+| Part B 代码提交（**新 LKGC**） | `0f3109a` | `T007(Part B): implement transaction statistics snapshot` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：Part B 产生新业务代码并经 configure/clean build/full ctest（13/13）验证；LKGC 由 `14982f6` 推进至 Part B 代码提交，由 docs-only 回填提交写入。**T007 整体 DONE；M4 关闭；T008 未开始。**
