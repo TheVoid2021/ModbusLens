@@ -1,9 +1,9 @@
 # T008 — Qt Quick / QML Analysis UI
 
-> 状态：**IN PROGRESS**｜Part A（Qt Quick Migration + C++/QML Bridge）：**DONE ✅**（Learning / Test Design + Implementation + 用户人工验收 12/12，RED→GREEN + Manual UI Smoke 全程留痕）｜Part B（Analysis Dashboard + Deterministic Demo）：⬜ Not Started
-> 前置确认：T007 DONE、LKGC = `76030a2`（Part A 代码提交）。
+> 状态：**IN PROGRESS**｜Part A（Qt Quick Migration + C++/QML Bridge）：**DONE ✅**（Learning / Test Design + Implementation + 用户人工验收 12/12，RED→GREEN + Manual UI Smoke 全程留痕）｜Part B（Analysis Dashboard + Deterministic Demo）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**
+> 前置确认：T007 DONE、LKGC = `28f38b0`（T008.1 代码/脚本提交）、ISSUE-002 RESOLVED。
 > ⚠ 独立遗留：Standalone Explorer Launch = FAIL / ISSUE-002 OPEN（runtime collision 为部署/环境问题，不影响 Part A 验收，修复待立项）。
-> Part B 边界预告（未实现）：Run Demo Batch、fault 注入按钮、统计更新、Clear Demo、基础视觉整理；Replay/Serial/AI/Agent 仍不做。
+> Part B Implementation 边界预告（未实现，禁止提前）：Run Demo Batch、Clear Demo、真实调用 T005/T006/T007 链路、Dashboard 统计更新、事务列表填充；轮询/Serial/Replay/Agent/AI/database/timer/thread 全部不做。
 
 ## Implementation 前追加规则（2026-09-06，定案）
 
@@ -379,3 +379,142 @@ installed / Type unavailable / binding loop / ReferenceError / TypeError。
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
 
 > LKGC 推进：Part A 产生新业务代码并经 configure/clean build/full ctest（14/14）+ QML smoke + Manual UI Smoke 验证；LKGC 由 `0f3109a` 推进至 Part A 代码提交，由 docs-only 回填提交写入。**Part A DONE；T008 整体 IN PROGRESS（Part B 未开始）；T009 未开始。**
+## Part B — Analysis Dashboard + Deterministic Demo（Learning + Test Design，本阶段定稿）
+
+### 职责
+
+- Part A：QWidget→QML 迁移 + 桥接骨架（**已完成**）；
+- Part B：把 T005/T006/T007 数据真实填进 Dashboard——一个按钮，稳定产生完全可复现的诊断演示。
+
+**禁止**：real polling loop、QTimer、QThread、random fault、live fault selector、chart framework、Replay、Serial、AI、Agent、database、persistent history。
+
+### Demo Batch 定案（四条固定事务）
+
+| # | 场景 | Request | SimulatedSlave 响应 | Analyzer 结果 | elapsed |
+| --- | --- | --- | --- | --- | --- |
+| DEMO-1 | Success | dev=1, fc=03, start=0, qty=2 | 正常响应 {100,200} | Success | 25ms |
+| DEMO-2 | Exception | dev=1, fc=03, start=100, qty=1 | 异常 0x83/{0x02} | Exception code=0x02 | 18ms |
+| DEMO-3 | CRC Error | dev=1, fc=03, start=0, qty=2 | 正常响应 → CorruptCrc → CrcMismatch | CrcError | 17ms |
+| DEMO-4 | Timeout | dev=1, fc=03, start=0, qty=2 | 正常响应 → DropResponse → NoResponse | Timeout（elapsed≥threshold） | 1000ms |
+
+**不伪造 TransactionStatus**：四条结果必须通过现有 Core 模块真实产生（SimulatedSlave → encode/fault → decode → analyzeFunction03Transaction），elapsed 由调用方显式提供（Runtime Timer 尚未实现）。
+
+### Expected Statistics（summarizeTransactions 输出）
+
+```text
+observedCount = 4, pendingCount = 0, completedCount = 4
+successCount = 1, exceptionCount = 1, crcErrorCount = 1, timeoutCount = 1, protocolErrorCount = 0
+successRate = 1/4 = 0.25
+averageSuccessLatencyMs = 25.0   （仅 DEMO-1 的 25ms；18/17/1000 不混入成功平均延迟）
+```
+
+### Controller Part B API（定案，不实现）
+
+```cpp
+public slots:  // 或 Q_INVOKABLE
+    void runDemoBatch();
+    void clearDemo();
+```
+
+**为什么 Controller 而非 QML 直接调用**：Controller 本来就是 QML user action → application orchestration → Core 的适配层；QML 不应该自己创建 SimulatedSlave、调 encodeRtuFrame、调 Fault Injector、调 Analyzer、算 Statistics——所有业务编排继续在 C++ Controller。
+
+### runDemoBatch 内部编排（概念流程）
+
+```text
+1. 创建 deterministic SimulatedSlave（reg[0]=100, reg[1]=200, reg[2]=1500）
+2. DEMO-1：readRequest(1,0,2) → slave.handleRequest → 正常响应 Frame
+   → ResponseObservation{frame} → analyzeFunction03Transaction(req, obs, 25ms, 1000ms) → Success
+3. DEMO-2：readRequest(1,100,1) → slave.handleRequest → 异常 Frame 0x83/{0x02}
+   → ResponseObservation{frame} → analyzeFunction03Transaction → Exception code=0x02
+4. DEMO-3：readRequest(1,0,2) → slave.handleRequest → 正常 Frame
+   → encodeRtuFrame → applySimulationFault(CorruptCrc) → decodeRtuFrame → CrcMismatch
+   → ResponseObservation{RtuDecodeError} → analyzeFunction03Transaction → CrcError
+5. DEMO-4：readRequest(1,0,2) → slave.handleRequest → 正常 Frame
+   → encodeRtuFrame → applySimulationFault(DropResponse) → DroppedResponse
+   → 适配为 NoResponse → analyzeFunction03Transaction(req, NoResponse, 1000ms, 1000ms) → Timeout
+6. 收集 vector<TransactionAnalysis> → summarizeTransactions() → snapshot
+7. 从 Request metadata + TransactionAnalysis 组合 TransactionListEntry batch
+8. applySnapshot(snapshot) + setTransactionEntries(entries) → emit statisticsChanged
+```
+
+**Replace 语义**：每次 `runDemoBatch()` 重新生成同样四条结果，`setEntries` 整批替换（`beginResetModel/endResetModel`）；rowCount 恒 = 4，不追加为 8——保证演示可重复、测试可稳定、统计不因点击次数变化。
+
+### clearDemo 语义
+
+恢复空 batch → `summarizeTransactions(空)` → 全计数=0、hasSuccessRate=false、hasAverageSuccessLatency=false、rowCount=0。复用 `summarizeTransactions(empty)`（与 T007 同源），不手工遗漏任何 count。
+
+### Part B Test Matrix（UI-B01~B06）
+
+| Test ID | 场景 | Expected | Priority |
+| --- | --- | --- | --- |
+| UI-B01 | `controller.runDemoBatch()` | observed=4, completed=4, pending=0; success=1, exception=1, crcError=1, timeout=1, protocolError=0; hasSuccessRate=true, successRate≈0.25; hasAverageSuccessLatency=true, avg≈25.0 | **P0** |
+| UI-B02 | `runDemoBatch()` 后 transactionModel | rowCount=4; 逐行 status: Success/Exception/CrcError/Timeout; elapsed: 25/18/17/1000 | **P0** |
+| UI-B03 | Row 1 (Exception) | hasExceptionCode=true, exceptionCode=2; 其余三行 hasExceptionCode=false | **P0** |
+| UI-B04 | `runDemoBatch()` ×2 | 统计完全相同，rowCount 仍=4（不追加为 8） | **P0** |
+| UI-B05 | `runDemoBatch()` → `clearDemo()` | 全 count=0, rowCount=0, hasSuccessRate=false, hasAverageSuccessLatency=false | **P0** |
+| UI-B06 | `run` → `clear` → `run` | 恢复完全相同的四条 demo | P1 |
+
+### Core Integration Guard
+
+Demo **不直接构造** TransactionStatus——测试必须证明 Controller 真在调用已有 Core。集成断言：CRC row 必须来自 CorruptCrc → decodeRtuFrame → CrcMismatch → analyzeFunction03Transaction → CrcError。独立脚本已复核（本阶段 Verification 节）。
+
+### QML Dashboard 范围（Part B 新增）
+
+Part A 已有：Observed / Completed / Pending / Success Rate / Avg Latency。
+
+Part B 新增：**五个状态计数卡**（Success / Exception / CRC Error / Timeout / Protocol Error）+ **两个按钮**（Run Demo Batch / Clear）+ **transaction delegate 增强**（status 文字/色块区分、elapsed 加 "ms"、exception 显示 "Code 0x02"）。
+
+**不做**：chart library、Theme Manager、全局设计系统、动画 framework——信息清晰即可。
+
+### Demo Controls（QML）
+
+```qml
+Button { text: qsTr("Run Demo Batch"); onClicked: analysisController.runDemoBatch() }
+Button { text: qsTr("Clear"); onClicked: analysisController.clearDemo() }
+```
+
+**不增加**：Start Polling / Stop / Auto Run / Interval / Fault Probability——当前没有 Runtime。
+
+### Part B Knowledge I Must Be Able To Explain（14 题）
+
+**PB-Q1. 为什么 QML 不直接调用 Simulator？** QML 是声明式视图，没有能力创建 C++ 对象、调用 encodeRtuFrame 或管理故障注入——这些是 C++ 编排层的职责。QML 只消费 Controller 暴露的属性和命令。
+**PB-Q2. Controller 为什么属于 application orchestration 层？** Controller 把"用户意图"翻译成"Core 调用序列"：用户按 Run → Controller 编排 Simulator/Fault/Analyzer/Statistics → 把结果映射回 QML 可绑定的属性/模型。这就是 orchestration。
+**PB-Q3. 为什么 Demo status 必须由 Transaction Analyzer 产生？** 防止伪造——如果 Controller 直接写 `status = Success`，那 Demo 就不是在验证协议链路，而是在测试 UI 渲染。真实 Core 调用保证 Demo 展示的是协议栈的真实行为。
+**PB-Q4. 为什么 Dashboard 和 transaction list 必须来自同一批结果？** 如果统计和列表来自不同数据源，可能出现"统计说 4 条但列表只有 3 条"的不一致。同一批次 → 同一快照 → 同一模型 → 天然一致。
+**PB-Q5. 为什么重复 Run 不 append？** Run 的语义是"重新执行确定性演示"，不是"追加历史"。固定 rowCount=4 保证演示可重复、统计不随点击次数变化。追加语义属于未来的 History 功能。
+**PB-Q6. 为什么 Clear 后 successRate 应重新变 nullopt？** Clear 恢复到"没有事务"状态——空批的 successRate 是 nullopt（"没有数据"），不是 0%（"全部失败"）。T007 的 nullopt 语义必须在 UI 端也正确表达。
+**PB-Q7. 为什么 Success Rate 是 25%？** 四条事务中仅 DEMO-1（Success）成功；1/4 = 0.25 = 25%。DEMO-2 是 Exception（设备回复了异常）、DEMO-3 是 CRC Error（线路损坏）、DEMO-4 是 Timeout（未交付）——各计 1 条非成功。
+**PB-Q8. 为什么 Avg Latency 是 25ms？** 只有 Success 事务的 elapsed 进入成功延迟平均（T007 Part B 设计）；25ms 即 DEMO-1 的显式 elapsed。
+**PB-Q9. 为什么 Exception 0x02 与 CRC Error 是两类不同故障？** 0x02 是设备主动回复的"非法数据地址"（设备端问题）；CRC Error 是线路把正确响应损坏了（线路端问题）。原因和处置完全不同——统计必须分开。
+**PB-Q10. 为什么 DropResponse 在最终 UI 显示 Timeout？** DropResponse 是交付层事实（"没有响应被交付"）；Timeout 是等待方基于"无响应 + elapsed≥阈值"做出的判断（T006/T007 已定案）。Demo 的 DEMO-4 elapsed=1000ms ≥ threshold=1000ms → Timeout。
+**PB-Q11. 为什么当前不用 Timer？** Timer 属于真实 Runtime 的职责（轮询/调度/超时测量）；Part B 的 Demo 是同步确定性场景，elapsed 显式传入——Timer 会引入不可复现的时序依赖。
+**PB-Q12. 为什么 deterministic demo 适合秋招现场演示？** 同输入必同输出：演示前彩排 = 演示现场结果；不怕紧张按错；不需要真硬件也不怕现场干扰；如果面试官要求再来一次，结果完全一致。
+**PB-Q13. 为什么 Part B 仍然不需要真实硬件？** SimulatedSlave 替代了物理从站；CorruptCrc/DropResponse 替代了线路故障——整个 Demo 在纯软件层闭环，真硬件要到 T010 Serial。
+**PB-Q14. T002~T008 是怎样串成完整产品链的？** CRC 校验（T002）→ 语义帧（T003）→ wire 编解码（T004）→ 模拟设备响应（T005）→ 故障注入（T006）→ 事务分析（T007A）→ 统计快照（T007B）→ QML Dashboard 展示（T008B）——从字节到用户可看，全链贯通。
+
+### Part B Implementation Plan（下一阶段，22 步）
+
+1. 给 AnalysisController 增加 `runDemoBatch()`
+2. 增加 `clearDemo()`
+3. 编排四条真实 Core scenario（复用 T005/T006/T007）
+4. 生成 TransactionAnalysis batch
+5. 生成 TransactionListEntry batch
+6. summarizeTransactions
+7. 更新 Controller properties/model
+8. 扩展 QML status cards
+9. 增加 Run / Clear
+10. 完善 transaction delegate
+11. UI-B01~B06 tests
+12. RED
+13. GREEN
+14. clean build
+15. full ctest
+16. deploy_windows.bat
+17. minimal-PATH smoke
+18. Manual Demo Smoke
+19. 文档归档
+20. code commit
+21. LKGC
+22. docs backfill
+
+**禁止**：QTimer、QThread、sleep、automatic polling、random、database、filesystem history、Replay、Serial、Agent、AI。禁止修改 T002~T007 Core 业务语义。
