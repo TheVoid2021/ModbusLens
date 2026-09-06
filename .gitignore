@@ -28,3 +28,6 @@ compile_commands.json
 # --- OS noise ---
 .DS_Store
 Thumbs.db
+# --- Deployment diagnostic temp files ---
+build/deploy_err*.txt
+build/deploy_out*.txt

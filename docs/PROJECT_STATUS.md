@@ -52,7 +52,7 @@
 | K1 | 本机 Qt 在 AutoMoc 阶段出现 qtlicd 证书服务不可用的构建期警告 | 仅为构建日志噪音，产物正常 | **临时环境处理**：仅在本机（gitignored 的 CMakeUserPresets.json）注入 `QTFRAMEWORK_BYPASS_LICENSE_CHECK=1`。项目代码与提交文件**不依赖**该变量（T001.1 已澄清措辞，见 [ENVIRONMENT](ENVIRONMENT.md) §6） |
 | K2 | 系统 PATH 中存在 Anaconda 的 Qt5 qmake 与 MinGW g++ 8.1.0（过旧） | 若直接裸用会产生 Qt/编译器 ABI 不匹配 | 规避：统一通过 `*-local` preset 注入 Qt 自带工具链；见 [ENVIRONMENT](ENVIRONMENT.md) |
 | K3 | `Could NOT find WrapVulkanHeaders`（configure 提示） | 无（Qt Widgets 不依赖；仅影响未来 QtQuick/RHI 功能） | 记录观察，不处理 |
-| K4 | **[ISSUE-002] Explorer 启动 modbuslens.exe 失败**（无法定位输入点 `_ZNSt3pmr20get_default_resourceEv` 于 Qt6Gui.dll） | 仅影响"不经终端直接双击启动"场景；终端前置正确 PATH 后启动正常；**正确 runtime 下用户已人工确认 UI 12/12 正常** | **Runtime toolchain collision（根因已确认，保持 OPEN）**：系统 PATH 中 `D:\Git\mingw64\bin` 与 `D:\mingw64\bin`（MinGW 8.1，实测缺 pmr 符号）排在 Qt 13.1 runtime 之前。修复方向（待立项）：部署期 runtime 随应用部署（windeployqt/应用目录三件套）；**未自动修改系统 PATH 或删除任何文件** |
+| K4 | **[ISSUE-002] Explorer 启动 modbuslens.exe 失败**（无法定位输入点 `_ZNSt3pmr20get_default_resourceEv` 于 Qt6Gui.dll） | 仅影响"不经终端直接双击启动"场景；终端前置正确 PATH 后启动正常；**正确 runtime 下用户已人工确认 UI 12/12 正常** | **修复已部署（T008.1），保持 OPEN**：等待用户从 Explorer 双击 build/deploy/ModbusLens.exe 确认后置 RESOLVED。部署脚本 scripts/deploy_windows.bat 可重复生成；未动系统 PATH/未删旧 MinGW |
 
 ## 5. 开发环境
 
@@ -128,3 +128,5 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T008 Part A 完成：main.cpp 迁移 QGuiApplication（QMainWindow bootstrap 与 Widgets 依赖移除）；AnalysisController + TransactionListModel 桥接落地；UI-A01~A06 + 真实 exe 的 QML load smoke 全绿；a11y 初验 12/12。**Part A 实现完成，Manual Visual Smoke 进入用户确认流程，T008 整体 IN PROGRESS** |
 | 2026-09-06 | **[ISSUE-002] Manual Visual Smoke 人工验收完成 = PASS（12/12，用户确认）**；Standalone Explorer Launch 保持 FAIL / ISSUE-002 OPEN（修复待立项）。**T008 Part A 正式归档 DONE**（验收 docs-only 提交，LKGC 维持 76030a2 不变） |
 | 2026-09-06 | 回填：LKGC = `76030a2`（T008 Part A 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
+| 2026-09-06 | T008.1 部署修复验证：`scripts/deploy_windows.bat` 生成 build/deploy（三件套 provenance SHA256=编译器 bin VERIFIED）；minimal-PATH smoke（--qml-smoke-test exit=0）+ 普通运行存活 PASS；脚本可重复生成验证 PASS。**等待用户从 Explorer 双击确认**后 ISSUE-002 置 RESOLVED |
+| 2026-09-06 | T008.1 部署修复已部署并验证：build/deploy 生成完毕（三件套 provenance VERIFIED + minimal-PATH smoke + 普通运行存活 全过）；**等待用户从 Explorer 双击 build/deploy/ModbusLens.exe 确认**后 ISSUE-002 置 RESOLVED |

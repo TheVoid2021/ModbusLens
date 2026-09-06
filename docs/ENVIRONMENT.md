@@ -65,7 +65,24 @@ ctest --preset debug-local
 - 模板中**故意不含** `QTFRAMEWORK_BYPASS_LICENSE_CHECK` 等任何本机特例变量——新机器不需要；只有出现 qtlicd 警告时才按 §6 FAQ 处理。
 - 如果 Qt 恰好装在系统默认路径且默认生成器可用，也可以直接用通用 preset：`cmake --preset debug [-DCMAKE_PREFIX_PATH=<Qt前缀>]`。
 
-## 4. 换电脑 / 换 AI 平台时重新建立环境的清单
+## 4. Development Run vs Standalone Deployment（两种运行方式，勿混淆）
+
+### Development Run（开发运行）
+
+- 对象：`build/debug/modbuslens.exe`（Development Build Artifact）
+- 前提：从**正确的 Qt/MinGW 环境**启动——本地 preset 注入的工具链，或会话内临时前置 Qt DLL 目录（`D:/QT/6.11.1/mingw_64/bin`）与 MinGW runtime 目录（`D:/QT/Tools/mingw1310_64/bin`）
+- 允许依赖开发环境；**不作为交付/演示对象**（全局 PATH 存在多套 MinGW runtime 时，干净环境双击会失败——ISSUE-002 的教训）
+
+### Standalone Deployment（独立部署，演示/交付用）
+
+- 生成：运行 `scripts\deploy_windows.bat`（从 `build/debug/CMakeCache.txt` 自动解析编译器 bin 与 Qt bin，无需传参）→ 生成 **`build/deploy/`**
+- 内容：ModbusLens.exe + windeployqt 部署的 Qt DLL/plugins/QML runtime + **强制来自编译器 bin 的 MinGW 三件套**（SHA256 与编译器 bin 比对验证）+ 应用 QML 模块（ModbusLens/qmldir + Main.qml）
+- 使用：**从 Windows Explorer 直接双击 `build\deploy\ModbusLens.exe`**——不依赖开发 shell PATH、Qt Creator、系统 Qt/MinGW PATH
+- 重新生成：删除 build/deploy 后重跑脚本即可（可重复）
+
+**不要通过修改全局 PATH 让 build/debug 的 exe 变成"部署版"**——那是开发环境问题，不是部署（ISSUE-002 的教训）。
+
+## 5. 换电脑 / 换 AI 平台时重新建立环境的清单
 
 1. 安装 Git 与 Qt（<https://www.qt.io/download-qt-installer>，勾选 Desktop/MinGW kit——安装器自带 CMake、Ninja、MinGW，一步到位）。
 2. `git clone` 仓库，先读 `AGENTS.md` → `PROJECT_STATUS.md` → `BACKLOG.md`。
@@ -74,7 +91,7 @@ ctest --preset debug-local
 5. **回填事实**：更新本文件 §1 验证环境表与 `PROJECT_STATUS.md` 的"开发环境"（项目可追溯性要求）。
 6. （Linux/macOS 参考）Ubuntu：`sudo apt install g++ cmake ninja-build qt6-base-dev`；macOS：`brew install cmake ninja qt`。均用通用 preset；串口模式（T010）还需 Linux `dialout` 组权限。
 
-## 5. 路径依赖红线（项目代码不得依赖任何机器的绝对路径）
+## 6. 路径依赖红线（项目代码不得依赖任何机器的绝对路径）
 
 - **红线**：`src/`、`tests/`、`CMakeLists.txt`、提交的 `CMakePresets.json`、`.github/`（未来 CI）、示例日志/测试数据中，**禁止出现任何机器绝对路径**（`D:/QT`、`E:/desktop`、`C:/Users/...` 等）。
 - **自检命令**（每次提交前可跑）：
@@ -87,7 +104,7 @@ git grep -n -E "D:/QT|E:/desktop|C:/Users" -- . ':!docs/*' ':!demo/*'
 - **双保险**：真实本机 preset 被 `.gitignore` 精确忽略（`git check-ignore CMakeUserPresets.json` 应命中），即使 `git add -A` 也不会误提交。
 - 收益：任何 AI 平台/协作者接管时，"clone → 复制模板 → 三条命令"即可独立重建，不继承原电脑的任何路径假设。
 
-## 6. 常见问题（FAQ）
+## 7. 常见问题（FAQ）
 
 | 现象 | 原因与解法 |
 | --- | --- |
@@ -97,12 +114,12 @@ git grep -n -E "D:/QT|E:/desktop|C:/Users" -- . ':!docs/*' ':!demo/*'
 | 测试无法运行/闪退 | 无显示器环境 → 测试已统一 `QT_QPA_PLATFORM=offscreen`（在 `CMakeLists.txt` 的 `set_tests_properties` 中） |
 | 中文乱码或 MSVC 编译中文报错 | 源码文件保持 ASCII 安全（英文注释）；中文仅出现在 UTF-8 的 Markdown 文档 |
 
-## 7. 未来：CI（关联 BACKLOG）
+## 8. 未来：CI（关联 BACKLOG）
 
 - 计划：GitHub Actions 双平台矩阵（Ubuntu + Windows），通用 preset + `ctest` 作为最小门禁；时机安排在 T002 之后评估。
 - 目标：任何平台/协作者先看 CI 全绿再开始改代码。
 
-## 8. 变更记录
+## 9. 变更记录
 
 | 日期 | 事件 |
 | --- | --- |

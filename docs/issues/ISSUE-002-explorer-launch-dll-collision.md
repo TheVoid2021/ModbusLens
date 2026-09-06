@@ -67,3 +67,25 @@ ctest/终端内运行时，开发会话的 PATH 恰好（或经临时前置）�
 2. **同名 DLL 多套共存是 Windows 生态经典事故**：`where` 顺序即故障顺序；`objdump -p` 精确核对缺失符号；"符号缺失报错指向 Qt DLL"不代表 Qt 坏，而是它的依赖被换了。
 3. **Manual Smoke 的价值实证**：自动化 14/14 全绿仍挡不住启动环境问题——分层验收（自动化 + 人工真实启动）缺一不可。
 4. 诊断路径：报错符号 demangle（`std::pmr::get_default_resource`）→ 推断 GCC 版本差 → `where` 顺序 + `objdump` 导出对照 → 临时 PATH 单变量验证。
+
+## Fix 验证与关闭条件（2026-09-06 更新，T008.1）
+
+**修复已实施并验证（T008.1）**：
+
+- `scripts/deploy_windows.bat`：从 `build/debug/CMakeCache.txt` 自动解析编译器 bin 与 Qt bin（无硬编码路径），创建干净的 `build/deploy/`，复制 exe → windeployqt（--qmldir 扫描 src/ui/qml）→ **强制从编译器 bin 覆盖三件套 runtime** → 部署应用 QML 模块（ModbusLens/qmldir + Main.qml，修复"类型 Main 不在模块中"的加载失败）→ 关键文件校验。
+- Runtime Provenance = **VERIFIED**：deploy 三件套 SHA256 与编译器 bin 完全一致（windeployqt 部署的版本本就正确，脚本仍按规则强制覆盖并复核）。
+- **Minimal-PATH smoke = PASS**：`PATH=C:\Windows\System32;C:\Windows` 下 `ModbusLens.exe --qml-smoke-test` exit=0；普通运行（无 smoke 参数）进程存活验证 PASS。
+- 部署脚本可重复生成验证 = PASS（清空 build/deploy 后重跑脚本 → 再验 smoke 通过）。
+- 业务代码修改 = **NONE**（仅新增 scripts/deploy_windows.bat 与文档）。
+
+**ISSUE-002 状态 = 仍 OPEN（fix verified & deployed, awaiting user Explorer confirmation）**。
+
+RESOLVED 条件清单（缺一不可）：
+
+1. ✅ Root cause 已有证据（PATH 顺序 + objdump 符号对照 + 临时 PATH 单变量验证）
+2. ✅ deploy runtime provenance verified（三件套 SHA256 = 编译器 bin）
+3. ✅ minimal-PATH smoke PASS（--qml-smoke-test exit=0；普通运行存活）
+4. ✅ deploy script 可重复生成（清空重跑 + 再验通过）
+5. ⬜ **用户从 Explorer 双击 deploy/ModbusLens.exe PASS** ← 待用户执行
+
+临时 PATH 可以启动 ≠ Issue 关闭——必须以"干净 Explorer 双击部署目录"为准。用户确认后本 Issue 才置 RESOLVED。
