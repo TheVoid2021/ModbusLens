@@ -8,16 +8,16 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | **M2 ✅ / M3 ✅ 完成**（T002–T006）；M4 事务分析待启动 |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ 完成；**M4 进行中（T007 Part A Learning+Test Design）** |
 | Last Known Good Commit | **`2c8d850`**（T006 代码提交：build+ctest 9/9 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T005 `3a896df`、T004B `e8b62f6`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 48 targets） |
 | Test 状态 | ✅ **9/9 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration`，48 个测试函数全过） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · **T006** |
-| 当前任务（Current Task） | **None**（无进行中任务） |
+| 当前任务（Current Task） | **T007 Transaction Analysis**（IN PROGRESS，未完成） |
 | 最近完成任务（Last Completed Task） | **T006 Deterministic Fault Injection** |
-| 当前阶段（Current Phase） | —（T006 DONE；M3 已关闭，T007 待启动） |
-| 下一步动作（Next Action） | **Start T007 Transaction Analysis** |
-| 下一任务（Next Task After T006） | **T007 Transaction Analysis** |
+| 当前阶段（Current Phase） | **Part A: Learning / Test Design**（docs-only；Implementation ⬜） |
+| 下一步动作（Next Action） | **T007 Part A — Implementation** |
+| 下一任务（Next Task After T007） | **T008 Qt Quick / QML Analysis UI** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -36,11 +36,11 @@
 
 ## 2. 当前任务
 
-- **None**。T006 已完成（四模式确定性故障注入 + 全绿），**M3 模拟与故障注入里程碑关闭**。下一步：启动 T007 Transaction Analysis（见 BACKLOG）。
+- **T007 Transaction Analysis — IN PROGRESS（Part A: Single Transaction Analysis，Phase: Learning / Test Design，docs-only）**：Transaction 定义、串行配对模型、六状态（Pending/Success/Exception/CrcError/Timeout/ProtocolError）、观察/结果模型（`variant<ModbusRtuFrame, RtuDecodeError, NoResponse>`）、判定规则（Pending/Timeout 边界、CRC/FrameTooShort 映射、地址/功能/数量三类跨帧校验）、矩阵 TX-A01~A12 + I01/I02/I03、14 题问答已落库（[T007 档案](tasks/T007-transaction-analysis.md)）。**Analyzer 未实现**；下一步动作 = T007 Part A — Implementation；Part B（Statistics Snapshot）Not Started。
 
 ## 3. 下一任务
 
-- **T007 — Transaction Analysis**（详见 [BACKLOG](BACKLOG.md)）：请求-响应配对（含广播/超时判定——T006 的 DropResponse 在此配合等待阈值成为 Timeout）、时延计算、错误与功能码统计快照；合成流量单测。依赖 T005/T006 提供的流量与故障样本（已就绪）。
+- **T008 — Qt Quick / QML Analysis UI**（详见 [BACKLOG](BACKLOG.md)，受 ADR001 约束）：最终 UI 切换 QML + C++ Controller/Model 桥接。依赖 T007 的事务分析结果作为 UI 数据源（Part B 统计快照亦然；T007 两个 Part 完成后启动）。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -106,3 +106,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T006 启动：Learning / Test Design（docs-only）——四模式定案（random/seed/real delay/丢包概率移出）、Timeout=Session 判断（T006 只交付 DropResponse）、CRC fault 只作用 wire、ArtificialDelay=元数据；矩阵 FAULT-T01~T05 + I01/I02 落库；T006 标记 IN PROGRESS，**未标完成** |
 | 2026-09-06 | T006 完成：`SimulationFault` 落地 `modbuslens_core`（四模式单一 switch），FAULT-T01~T05 + I01/I02 RED（linker error ×6，另修正一处测试类名不一致）→GREEN；SimulatedSlave 零修改；全项目 ctest 9/9、零警告。**T006 DONE，M3 关闭**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-06 | 回填：LKGC = `2c8d850`（T006 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
+| 2026-09-06 | T007 启动：Part A Learning / Test Design（docs-only）——Transaction 定义、六状态、观察/结果模型、跨帧校验规则（地址/功能/数量）、矩阵 TX-A01~A12 + I01~I03 落库；统计快照拆入 Part B；T007 标记 IN PROGRESS，**未标完成** |
