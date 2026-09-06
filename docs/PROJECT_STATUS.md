@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 86 targets；App 已迁移 Qt Quick，Widgets 依赖移除） |
 | Test 状态 | ✅ **14/14 通过**（ctest：`crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration` / `transaction` / `transaction_integration` / `statistics` / `statistics_integration` / `ui_bridge` / `qml_smoke`，69 个测试函数全过；原 `smoke` 随 QWidget bootstrap 移除） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 |
-| 当前任务（Current Task） | **T008 Qt Quick / QML Analysis UI**（IN PROGRESS——Part B 未完成） |
+| 当前任务（Current Task） | **T008 Qt Quick / QML Analysis UI**（IN PROGRESS——Part A 自动化完成，Manual Visual Smoke 阻塞待用户确认） |
 | 最近完成任务（Last Completed Task） | **T007 Transaction Analysis**（Part A + Part B 全部 DONE） |
-| 当前阶段（Current Phase） | **Part A: DONE**（Part B: Not Started） |
-| 下一步动作（Next Action） | **T008 Part B — Learning / Test Design** |
+| 当前阶段（Current Phase） | **Part A: Implementation DONE — Manual Visual UI Smoke = WAITING FOR USER**（ISSUE-002 runtime collision 根因确认，应用已以正确 runtime 运行中） |
+| 下一步动作（Next Action） | **用户视觉确认（12 项 checklist）→ Part A 归档**；随后 T008 Part B — Learning / Test Design |
 | 下一 Part（Next Part） | **Part B — Analysis Dashboard + Deterministic Demo** |
 | 下一任务（Next Task After T008） | **T009 Replay Mode** |
 | Known Issues | 见 §4 |
@@ -51,6 +51,7 @@
 | K1 | 本机 Qt 在 AutoMoc 阶段出现 qtlicd 证书服务不可用的构建期警告 | 仅为构建日志噪音，产物正常 | **临时环境处理**：仅在本机（gitignored 的 CMakeUserPresets.json）注入 `QTFRAMEWORK_BYPASS_LICENSE_CHECK=1`。项目代码与提交文件**不依赖**该变量（T001.1 已澄清措辞，见 [ENVIRONMENT](ENVIRONMENT.md) §6） |
 | K2 | 系统 PATH 中存在 Anaconda 的 Qt5 qmake 与 MinGW g++ 8.1.0（过旧） | 若直接裸用会产生 Qt/编译器 ABI 不匹配 | 规避：统一通过 `*-local` preset 注入 Qt 自带工具链；见 [ENVIRONMENT](ENVIRONMENT.md) |
 | K3 | `Could NOT find WrapVulkanHeaders`（configure 提示） | 无（Qt Widgets 不依赖；仅影响未来 QtQuick/RHI 功能） | 记录观察，不处理 |
+| K4 | **[ISSUE-002] Explorer 启动 modbuslens.exe 失败**（无法定位输入点 `_ZNSt3pmr20get_default_resourceEv` 于 Qt6Gui.dll） | 仅影响"不经终端直接双击启动"场景；终端前置正确 PATH 后启动正常 | **Runtime toolchain collision（根因已确认）**：系统 PATH 中 `D:\Git\mingw64\bin` 与 `D:\mingw64\bin`（MinGW 8.1，实测缺 pmr 符号）排在 Qt 13.1 runtime 之前。临时 PATH 验证启动成功（应用当前以此方式运行中，等待用户视觉确认）。修复方向（待立项）：部署期 runtime 随应用部署（windeployqt/应用目录三件套）；**未自动修改系统 PATH 或删除任何文件** |
 
 ## 5. 开发环境
 
@@ -115,5 +116,6 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T007 Part B 完成：`TransactionStatistics` 落地 `modbuslens_core`（穷举 switch 聚合、completed 按分类之和构造、optional rate/latency），STAT-B01~B08 + I01 RED（linker error ×7）→GREEN；修复一处 -Wmissing-field-initializers 测试警告；全项目 ctest 13/13、零警告。**Part B DONE，T007 整体 DONE，M4 关闭**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-06 | 回填：LKGC = `0f3109a`（T007 Part B 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-06 | T008 启动：Part A Learning / Test Design（docs-only）——Part A/B 拆分、依赖方向定案、QML 模块/迁移计划、Controller/Model 设计、矩阵 UI-A01~A06 + I01（I02 记录不做）、Manual UI Smoke 计划落库；T008 标记 IN PROGRESS，**未标完成**（M4 按 BACKLOG 定义含 T008，保持进行中） |
-| 2026-09-06 | T008 Part A 完成：main.cpp 迁移 QGuiApplication（QMainWindow bootstrap 与 Widgets 依赖移除）；AnalysisController + TransactionListModel 桥接落地；UI-A01~A06 + 真实 exe 的 QML load smoke 全绿；Manual UI Smoke 12/12（a11y 结构化验收）。**Part A DONE，T008 整体 IN PROGRESS（Part B 未开始）**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
+| 2026-09-06 | T008 Part A 完成：main.cpp 迁移 QGuiApplication（QMainWindow bootstrap 与 Widgets 依赖移除）；AnalysisController + TransactionListModel 桥接落地；UI-A01~A06 + 真实 exe 的 QML load smoke 全绿；a11y 初验 12/12。**Part A 实现完成，Manual Visual Smoke 进入用户确认流程，T008 整体 IN PROGRESS** |
+| 2026-09-06 | **[ISSUE-002] Manual Visual Smoke = FAIL/BLOCKED → WAITING FOR USER**：Explorer 启动因 Runtime toolchain collision 失败（Git/8.1 旧 libstdc++ 抢占，8.1 版实测缺 pmr 符号）；临时 PATH 验证启动成功（应用运行中，pid 32048）等待用户视觉确认 12 项 checklist；修复方向 = 部署期 runtime 随应用部署（待立项），未动系统配置/业务代码 |
 | 2026-09-06 | 回填：LKGC = `76030a2`（T008 Part A 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |

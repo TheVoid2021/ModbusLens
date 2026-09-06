@@ -322,31 +322,34 @@ installed / Type unavailable / binding loop / ReferenceError / TypeError。
 
 ### Manual UI Smoke（真实启动验收）
 
+~~初版验收（已被 ISSUE-002 修正，见下）~~：
+
 ```text
-启动方式：./build/debug/modbuslens.exe（真实启动，非 smoke 参数）
+[历史记录] 启动方式：./build/debug/modbuslens.exe（Git Bash 会话内）
 验收方法：窗口枚举 + 可访问性树（桌面前台被用户其他运行中软件占据，
 恢复/聚焦本窗口会干扰之，故不抢前台做像素截图；结构与内容经 a11y 全量核对）
-结果（12/12 项）：
-  1  窗口实际出现          ✓（window_id=13636166，进程存活期间全程稳定）
-  2  标题 ModbusLens       ✓（窗口 title 与 [15] Header 文本）
-  3  非 QWidget/QMainWindow ✓（QML ApplicationWindow + Widgets 依赖已移除）
-  4  Header 可见           ✓（[15] ModbusLens）
-  5  Simulator Mode 可见    ✓（[14]）
-  6  Observed = 0          ✓（[13][12]）
-  7  Completed = 0         ✓（[11][10]）
-  8  Pending = 0           ✓（[9][8]）
-  9  Success Rate = —      ✓（[7][6]，nullopt 语义贯穿到 QML）
-  10 Avg Latency = —       ✓（[5][4]）
-  11 No transactions yet ✓（[3][2]，空状态未伪造数据）
-  12 无 QML runtime warning ✓（stderr 空；qml_smoke 输出无异常）
-=> Manual UI Smoke = PASS（a11y 结构化验收；像素级外观未核——启动窗口处于
-   最小化状态且前台被用户其他软件占用，不做抢焦点操作）
+结果（12/12 项）：窗口/标题/Header/Simulator Mode/统计 0/—/空状态/无警告 全部确认
+=> 当时记录为 PASS（a11y 结构化验收）
 ```
+
+**〔2026-09-06 追记：Manual Visual UI Smoke = FAIL / BLOCKED〕**
+
+用户从 **Windows Explorer 直接双击** `build/debug/modbuslens.exe` 启动失败：
+
+> 无法定位程序输入点 `_ZNSt3pmr20get_default_resourceEv` 于 `D:\QT\6.11.1\mingw_64\bin\Qt6Gui.dll`
+
+诊断结论：**Runtime toolchain collision**——系统 PATH 中 `D:\Git\mingw64\bin`（Git 自带 runtime）与 `D:\mingw64\bin`（MinGW 8.1，2018-05）排在 Qt 13.1 runtime 之前；Explorer 环境解析到的 libstdc++-6.dll 实测**缺失** `_ZNSt3pmr20get_default_resourceEv`（objdump 精确对照；8.1 版=0，13.1 版=1）。临时 PATH（Qt bin + 13.1 MinGW bin 前置）验证启动成功（进程存活、窗口与 a11y 树完整、无警告）——根因坐实，**非 Core/QML/迁移代码缺陷**。
+
+- 完整诊断与证据：[ISSUE-002](../issues/ISSUE-002-explorer-launch-dll-collision.md)
+- 当前状态：**Manual Visual UI Smoke = WAITING FOR USER**——应用已以正确 runtime 在后台运行（临时 PATH 会话，pid 32048），等待用户对真实窗口做视觉确认（checklist 12 项见上）
+- Part A 最终 DONE 与代码提交 **冻结**，等用户确认后再归档
+- 后续修复方向（待确认后立项，本任务不动 src/CMake）：部署期 runtime 随应用部署（windeployqt / 复制 13.1 三件套到应用目录）
 
 ## Result
 
-✅ **Part A DONE**：QWidget bootstrap → Qt Quick 迁移完成（Widgets 依赖彻底移除）；AnalysisController/TransactionListModel 桥接 + UI-A01~A06 全绿；真实 exe 的 QML load smoke 通过（runtime warning = 0）；Manual UI Smoke 12/12（a11y 结构化验收）；Core Zero Qt 保持；全项目 ctest 14/14、clean 重建零警告。
-⬜ **Part B（Analysis Dashboard + Deterministic Demo）Not Started** → **T008 整体仍 IN PROGRESS**。
+✅ **Part A 实现与自动化验收完成**：迁移 + 桥接 + UI-A01~A06 + QML smoke + a11y 初验全绿。
+⛔ **Manual Visual UI Smoke = FAIL / BLOCKED → WAITING FOR USER**（Explorer 启动环境 runtime collision，ISSUE-002）。
+⬜ **Part A 最终归档冻结**：等用户视觉确认后，Part A 方可标 DONE；Part B 未开始；T008 整体 IN PROGRESS。
 
 ## Knowledge Learned
 
