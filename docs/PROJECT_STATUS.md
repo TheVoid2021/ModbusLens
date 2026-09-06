@@ -15,8 +15,8 @@
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 |
 | 当前任务（Current Task） | **T008 Qt Quick / QML Analysis UI**（IN PROGRESS——Part B 未完成） |
 | 最近完成任务（Last Completed Task） | **T007 Transaction Analysis**（Part A + Part B 全部 DONE） |
-| 当前阶段（Current Phase） | **Part B: Learning / Test Design**（docs-only；Implementation ⬜） |
-| 下一步动作（Next Action） | **T008 Part B — Implementation** |
+| 当前阶段（Current Phase） | **Part B: Implementation DONE — Manual Demo Smoke = WAITING FOR USER** |
+| 下一步动作（Next Action） | **用户 Manual Demo Smoke 确认 → Part B 归档 → T008 归档** |
 | 下一 Part（Next Part） | 无（Part B 是 T008 最后一个 Part） |
 | 下一任务（Next Task After T008） | **T009 Replay Mode** |
 | Known Issues | 见 §4 |

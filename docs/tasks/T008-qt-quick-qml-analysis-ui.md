@@ -219,6 +219,147 @@ Implementation 后必须检查 `modbuslens_core` 未新增 Qt6::Core/Gui/Qml/Qui
 
 见 §CMake Migration Plan（1–18 步，含 RED/GREEN 与 Manual UI Smoke）。
 
+## Part B — Analysis Dashboard + Deterministic Demo Implementation（实录，2026-09-06）
+
+### Demo 编排实现
+
+`AnalysisController` 新增两个 `Q_INVOKABLE` 方法：
+
+- **`runDemoBatch()`**：编排完整协议链——创建确定性 `SimulatedSlave{1}`（reg[0]=100, reg[1]=200, reg[2]=1500）→ 依次执行四个场景（Success / Exception / CRC Error / Timeout），每个场景真实调用 `handleRequest` → `encodeRtuFrame` → `applySimulationFault` → `decodeRtuFrame` → `analyzeFunction03Transaction` → 收集 `TransactionAnalysis` + `TransactionListEntry` → `summarizeTransactions` → 原子发布（`setEntries` + `statistics_` + `emit statisticsChanged`）。
+- **`clearDemo()`**：复用 `summarizeTransactions(空批)` 恢复 Core 空快照语义 + `setEntries({})` 清空列表。
+
+**Replace 语义**：每次 `runDemoBatch` 从同一初始状态重建 Slave，产生相同四条结果；`setEntries` 整批替换（非 append），rowCount 恒=4。
+
+**defensive strategy**：固定 Demo fixture 不应失败；若内部 invariant 意外失败，采用 `qWarning` + 早退（不发布半成品 batch）。
+
+### 四条 Demo 事务
+
+| # | Request | Slave 响应 | 路径 | Analyzer 结果 | elapsed |
+| --- | --- | --- | --- | --- | --- |
+| DEMO-1 | start=0, qty=2 | 正常 {100,200} | handleRequest → Analyzer | Success | 25ms |
+| DEMO-2 | start=100, qty=1 | 越界 0x83/{0x02} | handleRequest → Analyzer | Exception 0x02 | 18ms |
+| DEMO-3 | start=0, qty=2 | 正常 → CorruptCrc | encode→fault→decode→Analyzer | CrcError | 17ms |
+| DEMO-4 | start=0, qty=2 | 正常 → DropResponse | encode→fault→适配 NoResponse→Analyzer | Timeout | 1000ms |
+
+### Expected Statistics
+
+observed=4, completed=4, pending=0；success=1, exception=1, crcError=1, timeout=1, protocolError=0；successRate=0.25；averageSuccessLatencyMs=25.0。
+
+### Core Integration Guard
+
+Controller 实际引用（grep 验证）：`SimulatedSlave` / `applySimulationFault` / `encodeRtuFrame` / `decodeRtuFrame` / `analyzeFunction03Transaction` / `summarizeTransactions`——全部为 T002–T007 既有 Core 模块，Controller 仅做编排，不伪造 TransactionStatus。
+
+### QML Dashboard 扩展
+
+- 新增 Demo 控制区：Run Demo Batch / Clear 两个按钮
+- 新增 5 个状态计数卡：Success / Exception / CRC Error / Timeout / Protocol Error
+- Transaction delegate 保持使用现有 model roles
+
+### Issues during implementation
+
+1. **QStringLiteral 不接受运行时 char***：b02 测试中 QStringLiteral(expected[row].status) 编译失败。修复：改用 QString(...) 构造。
+2. **命名空间限定遗漏 + 双重前缀**：`ModbusRtuFrame` 等类型在 runDemoBatch 中未加 `modbuslens::core::` 前缀导致多个编译错误；批量修正时又出现双重前缀（`modbuslens::core::modbuslens::core::`）。修复：精确修正为单次前缀。
+
+## Files Changed（Part B 实现）
+
+- 修改：`src/ui/AnalysisController.{h,cpp}`（Q_INVOKABLE 方法 + 编排实现）、`src/ui/qml/Main.qml`（Run/Clear 按钮 + 状态计数卡）、`tests/test_ui_bridge.cpp`（UI-B01~B06）、`docs/tasks/T008-qt-quick-qml-analysis-ui.md`（本文件 Part B 设计+实现补齐）
+- 文档：`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/04_TEST_STRATEGY.md`
+- 新增 devlog
+- 未改动：`src/core/` 全部、`src/ui/TransactionListModel.{h,cpp}`、`src/ui/qml/Main.qml` 的 Part A 部分布局、presets
+
+## Problems Encountered（Part B）
+
+1. **QStringLiteral 不接受运行时 `const char*`**：测试 b02 中 `QStringLiteral(expected[row].status)` 编译失败。修复：改用 `QString(expected[row].status)`。
+2. **命名空间限定遗漏 + 双重前缀**：`runDemoBatch` 中 `ModbusRtuFrame` 等类型未加 `modbuslens::core::` 前缀——多个编译错误。修复：全部加 `modbuslens::core::` 前缀；一次 Python 批量替换导致 `ResponseObservation` 双重前缀（`modbuslens::core::modbuslens::core::`），立即用 Edit 工具修正。
+3. **实现本身：无 Core 集成问题**。SimulatedSlave/encodeRtuFrame/applySimulationFault/analyzeFunction03Transaction/summarizeTransactions 全部正常协作。
+
+## Solutions
+
+1. QStringLiteral → QString 构造函数（运行时 char* 可用）。
+2. 逐个加命名空间限定 + 修正双重前缀。
+3. （无 Core 集成问题需解决。）
+
+## Verification
+
+### RED（方法声明无定义；未提交）
+
+```text
+$ cmake --build --preset debug-local
+undefined reference 共 2 处：
+  `AnalysisController::runDemoBatch()`
+  `AnalysisController::clearDemo()`
+compile 通过，仅 link 失败——预期 RED。
+```
+
+### GREEN（实现后）
+
+```text
+$ cmake --build --preset debug-local              → 全部链接成功
+$ ./build/debug/modbuslens_ui_bridge_tests.exe
+  PASS: b01~b06  Totals: 14 passed, 0 failed (7ms)
+  （a01~a06 + b01~b06 共 14 个测试函数全过）
+
+$ ctest --preset debug-local
+14/14: 全部 Passed（含新增 b01~b06 于 ui_bridge target 内）
+
+$ cmake --build --preset debug-local --clean-first
+警告/错误 grep = 0（零警告）；ctest 再次 14/14
+
+$ QT_QPA_PLATFORM=offscreen ./build/debug/modbuslens.exe --qml-smoke-test
+  exit=0（QML 模块加载并实例化成功——含 Part B 新增的 runDemoBatch/clearDemo Q_INVOKABLE）
+
+$ scripts/deploy_windows.bat + minimal-PATH deploy smoke
+  exit=0（standalone deployment 回归 PASS，ISSUE-002 未回归）
+```
+
+## Result
+
+✅ **Part B Implementation 完成**：`runDemoBatch` / `clearDemo` 落地 Controller；四条事务全部真实调用 T005/T006/T007 Core 链路；statistics 来自 summarizeTransactions（非手工赋值）；UI-B01~B06 全过；QML Dashboard 含状态计数卡 + Run/Clear 按钮；standalone deploy 回归 PASS。
+⏳ **Manual Demo Smoke = 待用户交互验收**（deploy exe 已启动，用户可点击 Run/Clear 按钮验证）。
+⬜ **Part B 最终 DONE / T008 整体 DONE / M4 关闭：等用户确认后归档**。
+
+## Knowledge Learned
+
+- **adapter 层是 QML 化的核心**：Controller/Model 把"纯 core 对象"翻译成"可绑定属性/role"，翻译规则（optional→hasX+value、数值→格式化）显式成文。
+- **QML 是运行时语言**：它的"编译期"就是 load smoke——offscreen 加载验证是 QML 项目的最小自动化防线。
+- **类型在边界处定案**：QML-facing 用 int/double/bool/QString，core 用 size_t/optional/enum——两边各自最优，翻译集中在 adapter。
+- **实现阶段新增**：
+  1. **QML 模块挂 exe 目标**：注册对象属 exe 自身目标文件，静态链接不可能丢注册；独立 STATIC 模块库方案在 Windows/MinGW 下连踩 DLL 符号导出与静态插件拉入两坑——YAGNI 收敛到官方 app 模板结构。
+  2. **`__has_include` 静默跳过**：QML 类型注册生成文件对找不到的头文件不报错、只跳过 include——"注册代码消失"类故障要先查生成文件的探测条件。
+  3. **GUI app 的后台启动会被 shell 会话终止**：验收用 `timeout`/持久后台 + 可访问性树，不要依赖一次性后台任务存活。
+  4. **qFuzzyCompare 对 0 不可靠**（延续 T007B）：精确零值用 `==`。
+- **Part B 实现阶段新增**：
+  1. **Batch Demo 原子发布**：先完整构建 analyses+entries 两个 vector，最后一次性 setEntries+applySnapshot+emit——不允许逐条 emit 或半成品发布。
+  2. **Core Integration Guard 实证**：Controller 引用 grep 验证确认所有 Core 调用存在，无伪造 status。
+  3. **Replace 语义**：setEntries 整批替换（beginResetModel/endResetModel）天然实现 Replace——不需要额外的"去重"或"追加"逻辑。
+
+## Potential Interview Questions
+
+- 18 题见上；Implementation 阶段新增：
+  1. QML 模块为什么挂 exe 而不是独立库？（静态注册对象拉入问题——独立库在 Windows/MinGW 下连踩 DLL 导出与 whole-archive 两坑，官方 app 模板结构最稳）
+  2. `__has_include` 静默跳过 include 的坑怎么发现？（QML 类型注册编译失败的排查实录，见 Problems #1）
+  3. QML load smoke 为什么运行真实 exe？（规则 A：测实际交付模块；`--qml-smoke-test` 只是不进事件循环）
+  4. Manual UI Smoke 用什么方法验收？（窗口枚举 + 可访问性树对真实运行进程逐项核对——桌面前台被占用时不抢焦点，并如实记录方法）
+- Part B 阶段新增：
+  1. runDemoBatch 编排了哪些 Core 模块？（SimulatedSlave→encodeRtuFrame→applySimulationFault→decodeRtuFrame→analyzeFunction03Transaction→summarizeTransactions——完整协议链）
+  2. Replace 语义为什么用 beginResetModel/endResetModel？（QAbstractListModel 的标准整批替换通知协议——比逐行 dataChanged 更简洁安全）
+  3. Demo 为什么每次重建 Slave？（确定性：同一初始状态→同一输出序列→演示可重复）
+
+## Git Commit
+
+| 提交 | 哈希 | 说明 |
+| --- | --- | --- |
+| Part A Learning | `fe9dab6` | docs-only |
+| Part A 代码提交（**LKGC**） | `76030a2` | `T008(Part A): migrate app to Qt Quick and add QML bridge` |
+| Part A 回填 | `36ee814` | docs-only |
+| ISSUE-002 诊断 | `14fcffa` | docs-only |
+| runtime 追记 | `1ee2c5c` | docs-only |
+| Part B Test Design | `f7716c4` | docs-only |
+| Part B 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T008(Part B): add deterministic analysis dashboard demo` |
+| 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
+
+> LKGC 推进：Part B 产生新业务代码并经 configure/clean build/full ctest（14/14）+ QML smoke + deploy regression 验证；LKGC 由 `0f3109a` 推进至 Part B 代码提交，由 docs-only 回填提交写入。**Part B DONE 待用户确认后归档；T008 整体 IN PROGRESS（Part B 未最终确认）；T009 未开始。**
+
 ## Implementation（实录，2026-09-06）
 
 ### 新增/迁移文件

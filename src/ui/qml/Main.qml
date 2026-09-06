@@ -44,6 +44,23 @@ ApplicationWindow {
             color: "#D0D0D0"
         }
 
+        // Demo controls
+        RowLayout {
+            Layout.fillWidth: true
+
+            Button {
+                text: qsTr("Run Demo Batch")
+                onClicked: analysisController.runDemoBatch()
+            }
+            Button {
+                text: qsTr("Clear")
+                onClicked: analysisController.clearDemo()
+            }
+            Item {
+                Layout.fillWidth: true
+            }
+        }
+
         // Statistics area
         RowLayout {
             Layout.fillWidth: true
@@ -123,6 +140,49 @@ ApplicationWindow {
                               : qsTr("—")
                         font.pixelSize: 20
                         font.bold: true
+                    }
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+            }
+        }
+
+        // Status count cards
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+
+            Repeater {
+                model: [
+                    { label: qsTr("Success"), value: analysisController.successCount, color: "#306030" },
+                    { label: qsTr("Exception"), value: analysisController.exceptionCount, color: "#806000" },
+                    { label: qsTr("CRC Error"), value: analysisController.crcErrorCount, color: "#803030" },
+                    { label: qsTr("Timeout"), value: analysisController.timeoutCount, color: "#604080" },
+                    { label: qsTr("Protocol Error"), value: analysisController.protocolErrorCount, color: "#606060" },
+                ]
+
+                delegate: Rectangle {
+                    Layout.preferredWidth: 110
+                    Layout.preferredHeight: 64
+                    color: "#F0F0F0"
+                    radius: 6
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 2
+
+                        Label {
+                            text: modelData.label
+                            font.pixelSize: 11
+                            color: modelData.color
+                        }
+                        Label {
+                            text: modelData.value
+                            font.pixelSize: 18
+                            font.bold: true
+                        }
                     }
                 }
             }

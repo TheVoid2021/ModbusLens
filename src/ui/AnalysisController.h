@@ -36,6 +36,10 @@ class AnalysisController : public QObject
 public:
     explicit AnalysisController(QObject* parent = nullptr);
 
+    // Part B: deterministic demo orchestration (QML invokable commands)
+    Q_INVOKABLE void runDemoBatch();
+    Q_INVOKABLE void clearDemo();
+
     [[nodiscard]] int observedCount() const;
     [[nodiscard]] int pendingCount() const;
     [[nodiscard]] int completedCount() const;
