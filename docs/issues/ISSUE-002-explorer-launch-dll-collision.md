@@ -1,5 +1,7 @@
 # ISSUE-002: Explorer 启动失败——全局 PATH 旧 MinGW runtime 抢占（DLL collision）
 
+> 状态：**RESOLVED ✅**（2026-09-06，用户从 Explorer 双击 build/deploy/ModbusLens.exe 确认）
+
 ## Symptom（现象）
 
 用户从 Windows Explorer 直接双击启动 `build/debug/modbuslens.exe`，弹出：
@@ -68,7 +70,7 @@ ctest/终端内运行时，开发会话的 PATH 恰好（或经临时前置）�
 3. **Manual Smoke 的价值实证**：自动化 14/14 全绿仍挡不住启动环境问题——分层验收（自动化 + 人工真实启动）缺一不可。
 4. 诊断路径：报错符号 demangle（`std::pmr::get_default_resource`）→ 推断 GCC 版本差 → `where` 顺序 + `objdump` 导出对照 → 临时 PATH 单变量验证。
 
-## Fix 验证与关闭条件（2026-09-06 更新，T008.1）
+## Fix 验证与关闭（2026-09-06，T008.1 完成）
 
 **修复已实施并验证（T008.1）**：
 
@@ -78,14 +80,4 @@ ctest/终端内运行时，开发会话的 PATH 恰好（或经临时前置）�
 - 部署脚本可重复生成验证 = PASS（清空 build/deploy 后重跑脚本 → 再验 smoke 通过）。
 - 业务代码修改 = **NONE**（仅新增 scripts/deploy_windows.bat 与文档）。
 
-**ISSUE-002 状态 = 仍 OPEN（fix verified & deployed, awaiting user Explorer confirmation）**。
-
-RESOLVED 条件清单（缺一不可）：
-
-1. ✅ Root cause 已有证据（PATH 顺序 + objdump 符号对照 + 临时 PATH 单变量验证）
-2. ✅ deploy runtime provenance verified（三件套 SHA256 = 编译器 bin）
-3. ✅ minimal-PATH smoke PASS（--qml-smoke-test exit=0；普通运行存活）
-4. ✅ deploy script 可重复生成（清空重跑 + 再验通过）
-5. ⬜ **用户从 Explorer 双击 deploy/ModbusLens.exe PASS** ← 待用户执行
-
-临时 PATH 可以启动 ≠ Issue 关闭——必须以"干净 Explorer 双击部署目录"为准。用户确认后本 Issue 才置 RESOLVED。
+**用户 Explorer 双击确认 = PASS（2026-09-06）**：用户从 Windows Explorer 直接打开 `build/deploy/ModbusLens.exe`，确认不再出现入口点错误、不再出现 Qt6Core/Gui/Qml 等 DLL 入口点错误、窗口正常打开。**ISSUE-002 = RESOLVED ✅**

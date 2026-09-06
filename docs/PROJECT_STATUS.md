@@ -52,7 +52,7 @@
 | K1 | 本机 Qt 在 AutoMoc 阶段出现 qtlicd 证书服务不可用的构建期警告 | 仅为构建日志噪音，产物正常 | **临时环境处理**：仅在本机（gitignored 的 CMakeUserPresets.json）注入 `QTFRAMEWORK_BYPASS_LICENSE_CHECK=1`。项目代码与提交文件**不依赖**该变量（T001.1 已澄清措辞，见 [ENVIRONMENT](ENVIRONMENT.md) §6） |
 | K2 | 系统 PATH 中存在 Anaconda 的 Qt5 qmake 与 MinGW g++ 8.1.0（过旧） | 若直接裸用会产生 Qt/编译器 ABI 不匹配 | 规避：统一通过 `*-local` preset 注入 Qt 自带工具链；见 [ENVIRONMENT](ENVIRONMENT.md) |
 | K3 | `Could NOT find WrapVulkanHeaders`（configure 提示） | 无（Qt Widgets 不依赖；仅影响未来 QtQuick/RHI 功能） | 记录观察，不处理 |
-| K4 | **[ISSUE-002] Explorer 启动 modbuslens.exe 失败**（无法定位输入点 `_ZNSt3pmr20get_default_resourceEv` 于 Qt6Gui.dll） | 仅影响"不经终端直接双击启动"场景；终端前置正确 PATH 后启动正常；**正确 runtime 下用户已人工确认 UI 12/12 正常** | **修复已部署（T008.1），保持 OPEN**：等待用户从 Explorer 双击 build/deploy/ModbusLens.exe 确认后置 RESOLVED。部署脚本 scripts/deploy_windows.bat 可重复生成；未动系统 PATH/未删旧 MinGW |
+| K4 | ~~**[ISSUE-002] Explorer 启动 modbuslens.exe 失败**~~ **[RESOLVED ✅]**（无法定位输入点 `_ZNSt3pmr20get_default_resourceEv` 于 Qt6Gui.dll） | 仅影响"不经终端直接双击启动"场景；终端前置正确 PATH 后启动正常；**正确 runtime 下用户已人工确认 UI 12/12 正常** | **已解决（T008.1）**：`scripts/deploy_windows.bat` 生成 build/deploy 独立目录（runtime provenance SHA256=编译器 bin VERIFIED + minimal-PATH smoke PASS）；**用户 Explorer 双击确认 PASS**。ISSUE-002 置 RESOLVED |
 
 ## 5. 开发环境
 
@@ -130,3 +130,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | 回填：LKGC = `76030a2`（T008 Part A 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-06 | T008.1 部署修复验证：`scripts/deploy_windows.bat` 生成 build/deploy（三件套 provenance SHA256=编译器 bin VERIFIED）；minimal-PATH smoke（--qml-smoke-test exit=0）+ 普通运行存活 PASS；脚本可重复生成验证 PASS。**等待用户从 Explorer 双击确认**后 ISSUE-002 置 RESOLVED |
 | 2026-09-06 | T008.1 部署修复已部署并验证：build/deploy 生成完毕（三件套 provenance VERIFIED + minimal-PATH smoke + 普通运行存活 全过）；**等待用户从 Explorer 双击 build/deploy/ModbusLens.exe 确认**后 ISSUE-002 置 RESOLVED |
+| 2026-09-06 | **用户 Explorer 双击 build/deploy/ModbusLens.exe = PASS**：不再出现入口点错误，窗口正常打开。**ISSUE-002 置 RESOLVED ✅**；T008.1 DONE；LKGC 维持 `28f38b0` 不变 |
