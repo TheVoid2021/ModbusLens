@@ -54,6 +54,7 @@ ApplicationWindow {
             }
             Button {
                 text: qsTr("Clear")
+                palette.buttonText: "#303030"
                 onClicked: analysisController.clearDemo()
             }
             Item {
@@ -227,13 +228,17 @@ ApplicationWindow {
                         anchors.margins: 6
 
                         Label { text: qsTr("Device %1").arg(model.deviceAddress); Layout.preferredWidth: 90 }
-                        Label { text: qsTr("FC %1").arg(model.functionCode); Layout.preferredWidth: 60 }
+                        Label {
+                            text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
+                            Layout.preferredWidth: 60
+                        }
                         Label { text: model.statusText; Layout.preferredWidth: 120 }
                         Label { text: model.elapsedMs + qsTr(" ms"); Layout.preferredWidth: 90 }
                         Label {
                             text: model.hasExceptionCode
-                                  ? qsTr("Exception Code: %1").arg(model.exceptionCode)
-                                  : ""
+                                  ? qsTr("Code 0x%1").arg(
+                                        ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
+                                  : qsTr("—")
                             color: "#803030"
                         }
                     }
