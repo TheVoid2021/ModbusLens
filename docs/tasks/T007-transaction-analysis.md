@@ -1,8 +1,8 @@
 # T007 — Transaction Analysis
 
-> 状态：**IN PROGRESS**｜Part A（Single Transaction Analysis）：**DONE ✅**｜Part B（Statistics Snapshot）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**
+> 状态：**DONE ✅**（2026-09-06）｜Part A（Single Transaction Analysis）：**DONE ✅**｜Part B（Statistics Snapshot）：**DONE ✅**（Learning / Test Design + Implementation，RED→GREEN 全程留痕）
 > 前置确认：T006 DONE、M3 DONE。
-> Part B Implementation 边界预告（未实现，禁止提前）：只做纯函数统计快照；rolling/incremental accumulator、history store、database、persistent log、time window、per-device/per-function 聚合、p95/p99、charts、Qt model、QAbstractListModel、QML、Agent 全部不做。
+> 交付边界回顾：Part A 单事务分析 + Part B batch→snapshot 纯函数统计；**未实现** mutable accumulator、rolling window、history store、database、p95/p99、charts、Qt model、QML、Agent；T008 未开始。
 
 ## Implementation 前追加规则（2026-09-06，定案）
 
@@ -382,7 +382,13 @@ rolling statistics、incremental accumulator、history store、database、persis
 
 纯 snapshot 函数：输入明确、输出明确、无隐藏状态、测试简单；Replay 未来可对任意一批事务直接重算；QML Controller 也可按当前数据随时重求快照。而 mutable accumulator 会立刻带来 reset / remove / rollback / history sync / thread safety 一整串问题——当前没有任何消费者需要它们。
 
-### Part B Knowledge I Must Be Able To Explain（14 题）
+#### Implementation 细则（追加，2026-09-06）
+
+**A. Success latency 用整数毫秒累加**：聚合阶段使用 `std::int64_t successLatencyTotalMs`，每个 Success 累加 `transaction.elapsed.count()`；仅在计算平均值时转 double：`averageSuccessLatencyMs = double(totalMs) / double(successCount)`。理由：milliseconds 本身是整数单位，先整数累加更直接、可解释、无多余浮点累计误差。
+
+**B. 浮点断言规则**：Snapshot 保留 defaulted `operator==`，但测试**不得**依赖整个 Snapshot 的精确 `==`（浮点字段）——`successRate = 2.0/6.0` 用测试框架的 fuzzy/tolerance 比较分别验证；计数字段仍精确比较。Core 不负责 "33.33%" 这类百分比字符串格式。
+
+## Part B Knowledge I Must Be Able To Explain（14 题）
 
 **PB-Q1. Statistics Snapshot 和 Transaction Analysis 有什么区别？** Part A 把一个事务翻译成一个分类结果；Part B 把一批结果聚合成一个统计快照——层级不同、输入输出粒度不同。
 **PB-Q2. 为什么 Pending 不能算失败？** Pending 表示"还没有最终结果"（可能在途）；提前计失败会把正常的等待扭曲成故障，成功率随轮询节奏波动。
@@ -399,11 +405,35 @@ rolling statistics、incremental accumulator、history store、database、persis
 **PB-Q13. 两个 count invariant 分别是什么？** A：observed == pending + completed；B：completed == success + exception + crcError + timeout + protocolError——快照内部自洽，UI 不必猜。
 **PB-Q14. T007 Part B 如何为 QML Dashboard 提供数据？** 快照字段与仪表盘指标一一对应（计数/成功率/平均延迟），且四条 invariant 保证自洽；Controller 每当事务集合变化时调用 summarize 得到新快照即可绑定。
 
+## Part B — Implementation（实录，2026-09-06）
+
+### 新增文件
+
+- `src/core/analysis/TransactionStatistics.{h,cpp}`：`TransactionStatisticsSnapshot`（defaulted `==`）+ `summarizeTransactions`；注释写明四不变量与"Success latency 整数毫秒累加"细则。
+- `tests/test_transaction_statistics.cpp`：STAT-B01~B08（8 个测试函数；B06 用精确 `== 0.0`——qFuzzyCompare 对 0 不可靠，而 0/4 数学上精确）。
+- `tests/test_statistics_integration.cpp`：STAT-I01（真实产生 Success/Exception/CrcError/Timeout 四条 analysis 后聚合）。
+- `CMakeLists.txt`：core 加入 `TransactionStatistics.cpp`；两个测试 target + ctest `statistics` / `statistics_integration`。
+
+### 聚合实现顺序（与设计一致）
+
+```text
+observedCount = size
+遍历 + 穷举 switch(TransactionStatus)（无 default，-Wswitch 保护）：
+    Pending → pendingCount++            （不入 completed）
+    Success → successCount++；successLatencyTotalMs += elapsed.count()（int64）
+    Exception/CrcError/Timeout/ProtocolError → 各自 ++（不计 latency）
+completedCount = 五分类之和            ← Invariant B 由构造方式直接保证
+completedCount > 0 ? successRate = double(success)/double(completed) : nullopt
+successCount   > 0 ? averageSuccessLatencyMs = double(totalMs)/double(successCount) : nullopt
+```
+
+四不变量落实：B 由"completed 按分类之和计算"**结构性成立**（非第二遍扫描校验）；A 因 observed 先行赋值 + completed 由子集构成而自动成立；C/D 由两个 if 构造；STAT-B08 在混合批次（含 Pending）上断言 A–D。
+
 ## Files Changed（本阶段实现）
 
-- 新增：`src/core/analysis/TransactionAnalysis.{h,cpp}`、`tests/test_transaction_analysis.cpp`、`tests/test_transaction_integration.cpp`、`docs/devlog/2026-09-06-T007-PartA-Implementation.md`
+- 新增：`src/core/analysis/TransactionStatistics.{h,cpp}`、`tests/test_transaction_statistics.cpp`、`tests/test_statistics_integration.cpp`、`docs/devlog/2026-09-06-T007-PartB-Implementation.md`
 - 修改：`CMakeLists.txt`（core 源 + 两个 target）、`docs/tasks/T007-transaction-analysis.md`（本文件补齐）、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/02_ARCHITECTURE.md`、`docs/04_TEST_STRATEGY.md`、`docs/INTERVIEW_NOTES.md`
-- 未改动：`ModbusCrc`、`ModbusRtuFrame`、`ModbusRtuCodec`、`Function03`、`SimulatedSlave`、`SimulationFault`、`src/main.cpp`、既有九个测试文件、presets
+- 未改动：T002–T007A 全部既有源码与测试、`src/main.cpp`、presets
 
 Part B Learning / Test Design（本阶段，docs-only）：
 - 修改：`docs/tasks/T007-transaction-analysis.md`（本文件：Part B 设计、三计数/successRate/nullopt 语义、四不变量、矩阵 STAT-B01~B08 + I01、浮点规则、mutable accumulator 取舍、14 题问答、16 步计划）
@@ -414,12 +444,16 @@ Part B Learning / Test Design（本阶段，docs-only）：
 
 ## Problems Encountered
 
-1. **RED 如预期**：仅声明无定义时两个测试目标链接失败——10 处 `undefined reference to analyzeFunction03Transaction(...)`。未提交 RED 状态。
-2. **实现本身：No significant implementation issue encountered.** 无 variant/类型比较/CMake 问题，一次实现即 GREEN；ISSUE-001 模式未复发（全部具名局部量 + optional 拷贝辅助）。
+1. **RED 如预期**：仅声明无定义时两个测试目标链接失败——10 处 `undefined reference to analyzeFunction03Transaction(...)`（Part A）。未提交 RED 状态。
+2. **实现本身（Part A）：No significant implementation issue encountered.** 无 variant/类型比较/CMake 问题，一次实现即 GREEN；ISSUE-001 模式未复发（全部具名局部量 + optional 拷贝辅助）。
+3. **RED（Part B）如预期**：7 处 `undefined reference to summarizeTransactions(...)`。未提交 RED 状态。
+4. **-Wmissing-field-initializers 警告（Part B，真实小问题）**：测试辅助 `makeAnalysis` 的 designated initializer 漏写 `exceptionCode` 成员，clean 重建的零警告 grep 抓出。修复：显式补 `.exceptionCode = std::nullopt`。教训：partial designated init 在 GCC 下触发该警告，显式补齐更清晰。
+5. **实现本身（Part B）：No significant implementation issue encountered.** 无聚合/类型/浮点问题；ISSUE-001 模式未复发。
 
 ## Solutions
 
 1. RED 证据存档后按定案顺序实现（observation 分支优先、makeAnalysis 单一漏斗）。
+2. Part B 警告修复后 clean 重建复归零警告。
 
 ## Verification
 
@@ -454,6 +488,46 @@ $ cmake --build --preset debug-local --clean-first
 
 RED → GREEN 状态变化实录：`transaction`/`transaction_integration` 从"无法链接（10 undefined references）"变为 "Passed"；既有九个测试全程未破坏。
 
+### Part B RED（仅声明、无定义；未提交）
+
+```text
+$ cmake --preset debug-local      → configure PASS
+$ cmake --build --preset debug-local
+两个测试目标链接失败；undefined reference 共 7 处：
+  `modbuslens::core::summarizeTransactions(std::span<TransactionAnalysis const, ...>)`
+compile 全部通过，仅 link 失败——预期 RED。
+```
+
+### 过程问题（Part B）
+
+```text
+clean 全量重建零警告 grep 命中 1 行：
+  test_transaction_statistics.cpp:21 warning: missing initializer for member
+  'TransactionAnalysis::exceptionCode' [-Wmissing-field-initializers]
+→ 显式补齐后复归 0 命中。
+```
+
+### Part B GREEN（实现后）
+
+```text
+$ cmake --build --preset debug-local              → [30/30] 全部链接成功
+$ ./build/debug/modbuslens_statistics_tests.exe
+  PASS: b01~b08  Totals: 10 passed, 0 failed (3ms)
+$ ./build/debug/modbuslens_statistics_integration_tests.exe
+  PASS: i01  Totals: 3 passed, 0 failed (2ms)
+
+$ ctest --preset debug-local
+13/13: smoke | crc | frame | codec | f03 | simulator | simulator_integration |
+       fault | fault_integration | transaction | transaction_integration |
+       statistics | statistics_integration 全部 Passed
+100% tests passed, 0 tests failed out of 13
+
+$ cmake --build --preset debug-local --clean-first
+警告/错误行数 grep = 0（零警告，66 targets）；ctest 再次 13/13 通过
+```
+
+RED → GREEN 状态变化实录：`statistics`/`statistics_integration` 从"无法链接（7 undefined references）"变为 "Passed"；既有十一个测试全程未破坏。
+
 ### Part B Learning / Test Design（本阶段，docs-only）
 
 ```text
@@ -465,7 +539,9 @@ git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt 未出现
 
 ✅ **Part A DONE**：`analyzeFunction03Transaction` 落地 `modbuslens_core`（零 Qt、纯函数、无时钟）；TX-A01~A12 + I01~I03 全绿（含 elapsed/exceptionCode 双不变量与数量一致性跨帧校验）；全项目 ctest 11/11、clean 重建零警告。
 ✅ **Part B Learning / Test Design DONE（docs-only）**：三计数概念、successRate 严格定义（Pending 不进分母）、nullopt 语义（无数据≠零）、Success-only latency、四不变量、8 用例矩阵 + STAT-I01 真实链路聚合、mutable accumulator 取舍、14 题问答、16 步实施计划落库。
-⬜ **Part B Implementation NOT STARTED** → **T007 整体仍 IN PROGRESS**。
+✅ **Part B Implementation DONE**：`summarizeTransactions` 落地 `modbuslens_core`（零 Qt、纯函数、穷举 switch、completed 按分类之和构造保证 Invariant B）；STAT-B01~B08 + I01 全绿（B06 精确 0.0、B08 四不变量锁定）；全项目 ctest 13/13、clean 重建零警告。
+
+🏆 **T007 整体 DONE**（Part A + Part B 全部完成并验证）；M4 事务分析里程碑关闭。
 
 ## Knowledge Learned
 
@@ -478,6 +554,11 @@ git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt 未出现
   2. **穷举 switch 不写 default**：新增 `RtuDecodeErrorCode` 枚举时 `-Wswitch` 强制处理新分支（不静默吞），switch 后的显式兜底 return 保证函数 total——两全。
   3. **跨类型比较显式提升**：`uint16_t quantity` vs `size_t values.size()` 用 `static_cast<std::size_t>` 显式对齐，零警告。
   4. **适配发生在边界**：T006 `DroppedResponse` → `NoResponse` 的转换放在集成测试/调用边界，Transaction API 保持抽象（不认识具体故障类型）。
+- **Part B 实现阶段新增**：
+  1. **Invariant B 由构造保证**：completed 按五分类之和计算，恒等式不需要第二遍校验——"让错误状态无法表达"优于"事后断言"。
+  2. **整数毫秒累加**：latency 先 int64 累加、平均值处才转 double，可解释且无浮点累计误差（实现细则 A）。
+  3. **partial designated init 会触发 -Wmissing-field-initializers**：显式补齐每个成员更清晰（零警告 grep 抓出的真实警告）。
+  4. **qFuzzyCompare 对 0 不可靠**：比较 0/4=0.0 这类精确零值用 `==`（数学上精确），非零比例才用 fuzzy。
 
 ## Potential Interview Questions
 
@@ -486,6 +567,11 @@ git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt 未出现
   2. 六状态里为什么没有 InvalidRequest？（request 是契约输入，不是观察结果——防御失败映射 ProtocolError 即可）
   3. Pending/Timeout 为什么用 `>=` 划界？（超时必须被报告，边界时刻归属 Timeout）
   4. `makeAnalysis` 漏斗与"每个分支手写返回"的取舍？（漏斗把两条不变量固化在一点，12 个返回路径零漂移）
+- Part B 阶段新增：
+  1. successRate 为什么是 optional？（区分"没有数据"与"成功率为零"——B05/B06 的语义对比）
+  2. completed 为什么按分类之和计算？（Invariant B 由构造保证，新增状态时编译器强制同步）
+  3. 为什么 latency 用 int64 累加？（整数单位整数累加，避免浮点累计误差）
+  4. 为什么 0.0 断言不用 qFuzzyCompare？（qFuzzyCompare 相对比较对 0 失效；0/4 精确为零用 ==）
 
 ## Git Commit
 
@@ -494,7 +580,10 @@ git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt 未出现
 | T006 代码 | `2c8d850` | （前 LKGC） |
 | T007 Part A Learning | `fa56100` | docs-only |
 | Part A 代码提交（**新 LKGC**） | `14982f6` | `T007(Part A): implement single transaction analysis` |
-| Part B Test Design | 见 `git log` | `T007(Part B): 统计快照学习与测试设计（docs-only）` |
+| Part B Test Design | `f7716c4` | `T007(Part B): 统计快照学习与测试设计（docs-only）` |
+| Part B 代码提交（**新 LKGC**） | `PENDING-BACKFILL` | `T007(Part B): implement transaction statistics snapshot` |
 | 回填提交（docs-only，HEAD） | 见 `git log` | 回填哈希 |
+
+> LKGC 推进：Part B 产生新业务代码并经 configure/clean build/full ctest（13/13）验证；LKGC 由 `14982f6` 推进至 Part B 代码提交，由 docs-only 回填提交写入。**T007 整体 DONE；M4 关闭；T008 未开始。**
 
 > LKGC 推进：Part A 产生新业务代码并经 configure/clean build/full ctest（11/11）验证；LKGC 由 `2c8d850` 推进至 Part A 代码提交，由 docs-only 回填提交写入。**Part A DONE；T007 整体 IN PROGRESS（Part B 未开始）；T008 未开始。**

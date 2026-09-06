@@ -27,6 +27,7 @@ add_library(modbuslens_core STATIC
     src/core/simulator/SimulatedSlave.cpp
     src/core/simulator/SimulationFault.cpp
     src/core/analysis/TransactionAnalysis.cpp
+    src/core/analysis/TransactionStatistics.cpp
 )
 target_include_directories(modbuslens_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -145,8 +146,26 @@ if(BUILD_TESTING)
 
     add_test(NAME transaction_integration COMMAND modbuslens_transaction_integration_tests)
 
+    add_executable(modbuslens_statistics_tests tests/test_transaction_statistics.cpp)
+    target_link_libraries(modbuslens_statistics_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_statistics_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME statistics COMMAND modbuslens_statistics_tests)
+
+    add_executable(modbuslens_statistics_integration_tests tests/test_statistics_integration.cpp)
+    target_link_libraries(modbuslens_statistics_integration_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_statistics_integration_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME statistics_integration COMMAND modbuslens_statistics_integration_tests)
+
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(smoke crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration PROPERTIES
+    set_tests_properties(smoke crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()
