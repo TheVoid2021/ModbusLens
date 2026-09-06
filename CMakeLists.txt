@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # BUILD_TESTING is defined by include(CTest), defaults to ON.
 include(CTest)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Test)
 qt_standard_project_setup()
 
 # ------------------------------------------------------------------- core ----
@@ -36,8 +36,33 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 # ------------------------------------------------------------- application --
-add_executable(modbuslens WIN32 src/main.cpp)
-target_link_libraries(modbuslens PRIVATE Qt6::Widgets modbuslens_core)
+# Qt Quick app (ADR001): QML is the final UI; the old QWidget/QMainWindow
+# bootstrap and the Widgets dependency were removed in T008 Part A.
+#
+# The QML module is attached DIRECTLY to the executable target (standard Qt
+# app-template structure): its registration objects then belong to the exe
+# itself, so static linking cannot accidentally drop the module
+# registration. The bridge tests compile the adapter sources directly (see
+# tests section) — no QML duplication anywhere.
+qt_add_executable(modbuslens WIN32
+    src/main.cpp
+)
+qt_add_qml_module(modbuslens
+    URI ModbusLens
+    VERSION 1.0
+    QML_FILES
+        src/ui/qml/Main.qml
+    SOURCES
+        src/ui/AnalysisController.h
+        src/ui/AnalysisController.cpp
+        src/ui/TransactionListModel.h
+        src/ui/TransactionListModel.cpp
+)
+target_include_directories(modbuslens PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui")
+target_link_libraries(modbuslens PRIVATE
+    modbuslens_core Qt6::Qml Qt6::Quick Qt6::QuickControls2)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(modbuslens PRIVATE -Wall -Wextra)
@@ -47,14 +72,8 @@ endif()
 if(BUILD_TESTING)
     find_package(Qt6 REQUIRED COMPONENTS Test)
 
-    add_executable(modbuslens_tests tests/test_smoke.cpp)
-    target_link_libraries(modbuslens_tests PRIVATE Qt6::Widgets Qt6::Test)
-
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(modbuslens_tests PRIVATE -Wall -Wextra)
-    endif()
-
-    add_test(NAME smoke COMMAND modbuslens_tests)
+    # The old QMainWindow smoke test (T001) was removed with the QWidget
+    # bootstrap in T008 Part A; app-level QML smoke is `qml_smoke` below.
 
     add_executable(modbuslens_crc_tests tests/test_modbus_crc.cpp)
     target_link_libraries(modbuslens_crc_tests PRIVATE modbuslens_core Qt6::Test)
@@ -164,8 +183,29 @@ if(BUILD_TESTING)
 
     add_test(NAME statistics_integration COMMAND modbuslens_statistics_integration_tests)
 
+    add_executable(modbuslens_ui_bridge_tests tests/test_ui_bridge.cpp
+        src/ui/AnalysisController.h
+        src/ui/AnalysisController.cpp
+        src/ui/TransactionListModel.h
+        src/ui/TransactionListModel.cpp)
+    target_include_directories(modbuslens_ui_bridge_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(modbuslens_ui_bridge_tests PRIVATE modbuslens_core Qt6::Qml Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_ui_bridge_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME ui_bridge COMMAND modbuslens_ui_bridge_tests)
+
+    # QML load smoke: runs the REAL app executable in diagnostic mode — it
+    # loads the actual shipped QML module, verifies instantiation, and exits
+    # without entering the event loop (T008 Part A rule A).
+    add_test(NAME qml_smoke
+        COMMAND modbuslens --qml-smoke-test)
+
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(smoke crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge qml_smoke PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

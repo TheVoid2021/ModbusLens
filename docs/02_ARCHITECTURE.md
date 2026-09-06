@@ -95,9 +95,13 @@ src/
 │   ├── protocol/Function03.{h,cpp}      # ✅ T004 Part B：0x03 三个 decoder + 语义模型（大端 helper）
 │   ├── simulator/SimulatedSlave.{h,cpp} # ✅ T005：模拟从站端点（Frame 进 Frame 出，const 纯应答）
 │   ├── simulator/SimulationFault.{h,cpp}# ✅ T006：确定性故障注入四模式（wire 层，元数据延迟）
-│   └── analysis/TransactionAnalysis.{h,cpp} # ✅ T007 Part A：单事务分析（六状态，跨帧校验；Analysis 为 Protocol 上层）
+│   ├── analysis/TransactionAnalysis.{h,cpp} # ✅ T007 Part A：单事务分析（六状态，跨帧校验；Analysis 为 Protocol 上层）
+│   └── analysis/TransactionStatistics.{h,cpp} # ✅ T007 Part B：统计快照（三计数/五分类/optional rate/latency）
 ├── io/      # 数据源适配（IFrameSource 抽象**推迟**：单数据源阶段不过早设计，等 Replay/Serial 出现真实共性再提取；Simulator 端点先行，见 T005）
-├── ui/      # 窗口与视图（T008 起）
+├── ui/      # ✅ T008 Part A 起（Qt App/Adapter 层，ADR001：Qt 类型仅允许于此）
+│   ├── qml/Main.qml                     # ApplicationWindow Shell（统计卡/事务列表/空状态）
+│   ├── AnalysisController.{h,cpp}       # core 快照 → 可绑定属性（optional→hasX+value）
+│   └── TransactionListModel.{h,cpp}     # QAbstractListModel（7 roles，setEntries 整批替换）
 └── main.cpp # 入口
 tests/
 ├── test_smoke.cpp          # 当前：骨架冒烟测试

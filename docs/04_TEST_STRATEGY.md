@@ -71,7 +71,7 @@
 - 用 `set_tests_properties(... LABELS "unit|component|integration")` 打标签，未来支持 `ctest -L unit` 快速过滤；
 - 需要真实硬件或人工步骤的测试以 `manual_` 前缀 + `DISABLED` 或文档化，不进默认 `ctest`；
 - 所有可在无显示器环境运行的 QT 测试统一加 `QT_QPA_PLATFORM=offscreen`（CMakeLists 已示范）。
-- 已落地（T002–T007A）：ctest 注册 11 个测试——`smoke`、`crc`、`frame`、`codec`、`f03`、`simulator`、`simulator_integration`、`fault`、`fault_integration`、`transaction`（TX-A01~A12 六状态与跨帧校验）、`transaction_integration`（TX-I01~I03：Simulator/故障层↔事务分析联动）；后十者链 `modbuslens_core`（无 Qt 的纯核心库）+ QtTest。
+- 已落地（T002–T008A）：ctest 注册 14 个测试——`crc`（CRC-T01~T06）、`frame`（FRAME-T01~T04）、`codec`（RTU-A01~A07）、`f03`（F03-B01~B12，含 V1.1b3 官方金样）、`simulator`（SIM-T01~T07）、`simulator_integration`（SIM-I01 全链路闭环）、`fault`（FAULT-T01~T05 含确定性护栏）、`fault_integration`（FAULT-I01/I02）、`transaction`（TX-A01~A12 六状态与跨帧校验）、`transaction_integration`（TX-I01~I03）、`statistics`（STAT-B01~B08 含四不变量）、`statistics_integration`（STAT-I01 真实链路聚合）、`ui_bridge`（Controller/Model 桥接）、`qml_smoke`（真实 exe 加载 QML 后退出；原 `smoke` 随 QWidget bootstrap 在 T008 Part A 删除）；除 `qml_smoke` 运行真实 app 外均链 `modbuslens_core`/`modbuslens_ui` + QtTest。
 
 ## 5. 覆盖率与质量门槛
 

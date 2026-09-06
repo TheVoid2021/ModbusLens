@@ -8,15 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ 完成；**M4 进行中（T007 ✅ / T008 Part A Learning+Test Design）**。注：按 BACKLOG 既有定义 M4=事务分析与界面（T007,T008），T008 完成后才关闭 |
-| Last Known Good Commit | **`0f3109a`**（T007 Part B 代码提交：build+ctest 13/13 双通过；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：T007A `14982f6`、T006 `2c8d850`） |
-| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 66 targets） |
-| Test 状态 | ✅ **13/13 通过**（ctest：`smoke` / `crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration` / `transaction` / `transaction_integration` / `statistics` / `statistics_integration`，72 个测试函数全过） |
-| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · **T007** |
-| 当前任务（Current Task） | **T008 Qt Quick / QML Analysis UI**（IN PROGRESS，未完成） |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ 完成；**M4 进行中（T007 ✅ / T008 Part A ✅ DONE）**。注：按 BACKLOG 既有定义 M4=事务分析与界面（T007,T008），T008 完成后才关闭 |
+| Last Known Good Commit | `PENDING-BACKFILL`（= 本次 T008 Part A 代码提交，哈希由 docs-only 回填提交写入；此前为 `0f3109a`） |
+| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 86 targets；App 已迁移 Qt Quick，Widgets 依赖移除） |
+| Test 状态 | ✅ **14/14 通过**（ctest：`crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration` / `transaction` / `transaction_integration` / `statistics` / `statistics_integration` / `ui_bridge` / `qml_smoke`，69 个测试函数全过；原 `smoke` 随 QWidget bootstrap 移除） |
+| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 |
+| 当前任务（Current Task） | **T008 Qt Quick / QML Analysis UI**（IN PROGRESS——Part B 未完成） |
 | 最近完成任务（Last Completed Task） | **T007 Transaction Analysis**（Part A + Part B 全部 DONE） |
-| 当前阶段（Current Phase） | **Part A: Learning / Test Design**（docs-only；Implementation ⬜） |
-| 下一步动作（Next Action） | **T008 Part A — Implementation** |
+| 当前阶段（Current Phase） | **Part A: DONE**（Part B: Not Started） |
+| 下一步动作（Next Action） | **T008 Part B — Learning / Test Design** |
 | 下一 Part（Next Part） | **Part B — Analysis Dashboard + Deterministic Demo** |
 | 下一任务（Next Task After T008） | **T009 Replay Mode** |
 | Known Issues | 见 §4 |
@@ -38,7 +38,7 @@
 
 ## 2. 当前任务
 
-- **T008 Qt Quick / QML Analysis UI — IN PROGRESS（Part A: Qt Quick Migration + C++/QML Bridge，Phase: Learning / Test Design，docs-only）**：Part A/B 拆分、依赖方向定案（QML→Controller/Model→core，严禁反向）、QML 模块（qt_add_qml_module/URI ModbusLens/Main.qml）、迁移计划（QGuiApplication，删 QMainWindow，Widgets→Gui/Qml/Quick/QuickControls2）、AnalysisController（optional→hasX+value，int 计数）、TransactionListModel（roles/DTO/setEntries）、矩阵 UI-A01~A06 + UI-I01（I02 记录不做）、Manual UI Smoke 计划、18 题问答、18 步实施计划已落库（[T008 档案](tasks/T008-qt-quick-qml-analysis-ui.md)）。**UI 未实现**；下一步动作 = T008 Part A — Implementation。
+- **T008 Qt Quick / QML Analysis UI — IN PROGRESS（Part A: Qt Quick Migration + C++/QML Bridge ✅ DONE）**：QWidget bootstrap → QML 迁移完成（Widgets 依赖移除）；AnalysisController + TransactionListModel 桥接落地（optional→hasX+value 贯穿 QML）；UI-A01~A06 + 真实 exe 的 QML load smoke 全绿；Manual UI Smoke 12/12（a11y 结构化验收）。**Part B（Dashboard+Demo）Not Started**；下一步动作 = T008 Part B — Learning / Test Design。
 
 ## 3. 下一任务
 
@@ -115,3 +115,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T007 Part B 完成：`TransactionStatistics` 落地 `modbuslens_core`（穷举 switch 聚合、completed 按分类之和构造、optional rate/latency），STAT-B01~B08 + I01 RED（linker error ×7）→GREEN；修复一处 -Wmissing-field-initializers 测试警告；全项目 ctest 13/13、零警告。**Part B DONE，T007 整体 DONE，M4 关闭**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
 | 2026-09-06 | 回填：LKGC = `0f3109a`（T007 Part B 代码提交）；本次 HEAD 为 docs-only 回填提交，二者已区分 |
 | 2026-09-06 | T008 启动：Part A Learning / Test Design（docs-only）——Part A/B 拆分、依赖方向定案、QML 模块/迁移计划、Controller/Model 设计、矩阵 UI-A01~A06 + I01（I02 记录不做）、Manual UI Smoke 计划落库；T008 标记 IN PROGRESS，**未标完成**（M4 按 BACKLOG 定义含 T008，保持进行中） |
+| 2026-09-06 | T008 Part A 完成：main.cpp 迁移 QGuiApplication（QMainWindow bootstrap 与 Widgets 依赖移除）；AnalysisController + TransactionListModel 桥接落地；UI-A01~A06 + 真实 exe 的 QML load smoke 全绿；Manual UI Smoke 12/12（a11y 结构化验收）。**Part A DONE，T008 整体 IN PROGRESS（Part B 未开始）**；LKGC 推进至本次代码提交（哈希由 docs-only 回填提交写入） |
