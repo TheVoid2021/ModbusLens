@@ -8,16 +8,17 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / **M4 ✅ 完成**（T002–T008）；M5 回放与串口模式待启动 |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ 完成；**M5 进行中（T009 Part A Learning+Test Design）** |
 | Last Known Good Commit | **`4075223`**（T008 最终代码提交，含 QML Presentation 修正：build+ctest 14/14+QML smoke+deploy regression+用户 Manual Demo Smoke 多重验收；当前 HEAD 为其后的 docs-only 归档提交，不改变 LKGC。历史值：T008A `76030a2`、T007B `0f3109a`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 86 targets；App 已迁移 Qt Quick，Widgets 依赖移除） |
 | Test 状态 | ✅ **14/14 通过**（ctest：`crc` / `frame` / `codec` / `f03` / `simulator` / `simulator_integration` / `fault` / `fault_integration` / `transaction` / `transaction_integration` / `statistics` / `statistics_integration` / `ui_bridge` / `qml_smoke`，69 个测试函数全过；原 `smoke` 随 QWidget bootstrap 移除） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · **T008** |
-| 当前任务（Current Task） | **None**（无进行中任务） |
-| 最近完成任务（Last Completed Task） | **T008 Qt Quick / QML Analysis UI**（Part A + Part B 全部 DONE，用户 Manual Demo Smoke 确认） |
-| 当前阶段（Current Phase） | —（T008 DONE；M4 已关闭，T009 待启动） |
-| 下一步动作（Next Action） | **Start T009 Replay Mode** |
-| 下一任务（Next Task After T008） | **T009 Replay Mode** |
+| 当前任务（Current Task） | **T009 Replay Mode**（IN PROGRESS——Part B 未开始） |
+| 最近完成任务（Last Completed Task） | **T008 Qt Quick / QML Analysis UI**（Part A + Part B 全部 DONE） |
+| 当前阶段（Current Phase） | **Part A: Learning / Test Design**（docs-only；Implementation ⬜） |
+| 下一步动作（Next Action） | **T009 Part A — Implementation** |
+| 下一 Part（Next Part） | **Part B — Replay UI Integration** |
+| 下一任务（Next Task After T009） | **T010 Serial Mode** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -34,14 +35,15 @@
 | T005 | Simulator Basic Slave | `SimulatedSlave`（单地址 + 连续寄存器文件 + 0x03，const 纯应答端点）；SIM-T01~T07 + SIM-I01 全链路闭环（T002→T005 首次通电）；ctest 7/7；范围收缩兑现（IFrameSource 等推迟） | [T005](tasks/T005-simulator-basic-slave.md) |
 | T006 | Deterministic Fault Injection | `applySimulationFault` 四模式（None/DropResponse/CorruptCrc/ArtificialDelay，确定性、wire 层、元数据延迟）；FAULT-T01~T05 + I01/I02 全绿；SimulatedSlave 零修改；ctest 9/9 | [T006](tasks/T006-fault-injection.md) |
 | T007 | Transaction Analysis | Part A：`analyzeFunction03Transaction`（六状态、跨帧校验、双不变量）+ TX-A01~A12/I01~I03；Part B：`summarizeTransactions`（三计数/五分类/optional rate 与 latency/四不变量）+ STAT-B01~B08/I01；ctest 13/13 | [T007](tasks/T007-transaction-analysis.md) |
+| T008 | Qt Quick / QML Analysis UI | Part A：QML 迁移 + AnalysisController/TransactionListModel 桥接 + UI-A01~A06 + Manual Visual Smoke 12/12；Part B：runDemoBatch/clearDemo 确定性 Demo Dashboard + UI-B01~B06 + QML Presentation 修正 + Manual Demo Smoke PASS；T008.1 standalone 部署（ISSUE-002 RESOLVED）；ctest 14/14 零警告 | [T008](tasks/T008-qt-quick-qml-analysis-ui.md) |
 
 ## 2. 当前任务
 
-- **T008 Qt Quick / QML Analysis UI — IN PROGRESS（Part B: Analysis Dashboard + Deterministic Demo，Phase: Learning / Test Design，docs-only）**：Part A ✅（迁移+桥接+Manual Smoke 12/12）；Part B 设计定案（四条确定性 Demo 事务、Controller runDemoBatch/clearDemo API、测试矩阵 UI-B01~B06、Core Integration Guard、14 题问答、22 步实施计划）已落库（[T008 档案](tasks/T008-qt-quick-qml-analysis-ui.md)）。**Part B 未实现**；下一步动作 = T008 Part B — Implementation。
+- **T009 Replay Mode — IN PROGRESS（Part A: Replay Log Format + Replay Core，Phase: Learning / Test Design，docs-only）**：Replay 角色定案（vs Simulator——历史文件重新分析，不模拟 Slave 行为）、`.mlog` v1 格式定案（版本化 header + TXN records，transaction-oriented）、数据模型定案（ReplayTransactionRecord/ReplayLog）、Parser 错误模型定案（ReplayParseErrorCode 八值 + lineNumber）、Replay Analyzer API 定案（parseReplayLog string_view 纯函数 + analyzeReplayLog→ReplayBatchAnalysis）、wire 金样独立复核（CRC 全过）、分层规则（Text Syntax→Wire Codec→Transaction Analysis）、矩阵 REPLAY-A01~A08 + I01~I04/I05、16 题问答、18 步实施计划落库（[T009 档案](tasks/T009-replay-mode.md)）。**Replay 未实现**；下一步动作 = T009 Part A — Implementation。
 
 ## 3. 下一任务
 
-- **T009 — Replay Mode**（详见 [BACKLOG](BACKLOG.md)）：MLog 日志格式 v1（ADR）与读写、回放/暂停/调速/时间轴、口径一致性测试。依赖 T005/T006/T007 提供的分析链路（已就绪）；在 T008 完成后启动。
+- **T010 — Serial Mode**（详见 [BACKLOG](BACKLOG.md)）：QtSerialPort 采集、t3.5 帧切分、环形缓冲；com0com/socat 虚拟串口对集成测试；真机核对清单。依赖 T009（未完成）；在 T009 完成后启动。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -129,3 +131,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | T008.1 部署修复验证：`scripts/deploy_windows.bat` 生成 build/deploy（三件套 provenance SHA256=编译器 bin VERIFIED）；minimal-PATH smoke（--qml-smoke-test exit=0）+ 普通运行存活 PASS；脚本可重复生成验证 PASS。**等待用户从 Explorer 双击确认**后 ISSUE-002 置 RESOLVED |
 | 2026-09-06 | T008.1 部署修复已部署并验证：build/deploy 生成完毕（三件套 provenance VERIFIED + minimal-PATH smoke + 普通运行存活 全过）；**等待用户从 Explorer 双击 build/deploy/ModbusLens.exe 确认**后 ISSUE-002 置 RESOLVED |
 | 2026-09-06 | **用户 Explorer 双击 build/deploy/ModbusLens.exe = PASS**：不再出现入口点错误，窗口正常打开。**ISSUE-002 置 RESOLVED ✅**；T008.1 DONE；LKGC 维持 `28f38b0` 不变 |
+| 2026-09-06 | T008 Part B 启动：Learning / Test Design（docs-only）——四条确定性 Demo 事务、Controller runDemoBatch/clearDemo API、矩阵 UI-B01~B06、Core Integration Guard、14 题问答、22 步实施计划落库；T008 整体保持 IN PROGRESS |
+| 2026-09-06 | T008 Part B 完成：`runDemoBatch`/`clearDemo` 落地 AnalysisController（四条事务真实调用 T005/T006/T007 链路，快照与行数据同源）；UI-B01~B06 RED→GREEN；ctest 14/14、clean 重建零警告、deploy minimal-PATH smoke PASS。LKGC = `4ede9b3`（Part B 代码提交，由 docs-only 回填写入） |
+| 2026-09-06 | **用户 Manual Demo Smoke 第一轮**：核心数据/统计全 PASS；报告 3 个 QML Presentation 问题（Clear 按钮文字不可见 / FC 显示 10 进制 / Exception Code 显示 10 进制）→ 提交 `4075223` 修正（Clear palette.buttonText、0xNN 十六进制补零）并全量复验（ctest 14/14 / QML smoke / clean 零警告 / deploy 回归全过） |
+| 2026-09-06 | **用户 Manual Demo Smoke 第二轮 = PASS（12/12 人工确认）**：4 条事务正确、重复 Run 不追加、Clear 恢复全零、Clear 文字/0x03/Code 0x02 均正常。**T008 Part B 归档 DONE；T008 整体 DONE；M4 事务分析与界面临界关闭（按 BACKLOG 既有定义含 T007+T008）**。LKGC = `4075223`；HEAD = docs-only 归档提交 `a1db0d8` |
+| 2026-09-07 | **T009 启动：Part A Learning / Test Design（docs-only）**——Replay 角色定案、`.mlog` v1 格式定案、数据/错误模型与 API 定案、wire 金样独立复核、矩阵 REPLAY-A01~A08 + I01~I04/I05 落库；T009 标记 IN PROGRESS，**Replay 未实现、Part B 未开始** |

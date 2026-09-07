@@ -12,7 +12,7 @@
 | M2 | Modbus 协议核心 | T002, T003, T004 | ✅ 完成 |
 | M3 | 模拟与故障注入 | T005, T006 | ✅ 完成 |
 | M4 | 事务分析与界面 | T007, T008 | ✅ 完成 |
-| M5 | 回放与串口模式 | T009, T010 | ⬜ |
+| M5 | 回放与串口模式 | T009, T010 | 🔄 进行中（T009 Part A Learning+Test Design） |
 | M6 | AI 诊断与 Agent 工具 | T011, T012 | ⬜ |
 | M7 | 收尾与演示 | T013 | ⬜ |
 
@@ -30,7 +30,7 @@
 | T007 | **Transaction Analysis**（Part A 单事务 + Part B 统计快照） | M4 | P0 | ✅ Done（整体） | T004（+T005/T006 提供流量） | **Part A** ✅：`analyzeFunction03Transaction`（六状态 Pending/Success/Exception/CrcError/Timeout/ProtocolError；观察 `variant<Frame, RtuDecodeError, NoResponse>`；跨帧校验地址/功能/数量；elapsed 与 exceptionCode 双不变量经 makeAnalysis 漏斗保证），TX-A01~A12 + I01~I03 全绿。**Part B** ✅：`summarizeTransactions(batch)` → `TransactionStatisticsSnapshot`（三计数 + 五分类 + optional successRate/averageSuccessLatencyMs + 四不变量），STAT-B01~B08 + I01 全绿。**范围收缩兑现**：real timer/polling/session manager/database/persistence/rolling window/per-device 聚合未实现 |
 | T008 | **Qt Analysis UI**（Part A 迁移+桥接 / Part B Dashboard+Demo） | M4 | P0 | ✅ Done（整体） | T007 | **Part A** ✅：QGuiApplication+QQmlApplicationEngine（QMainWindow scaffold 与 Widgets 依赖已删除）、qt_add_qml_module（URI ModbusLens/Main.qml，QML 模块直接挂 exe）、AnalysisController（optional→hasX+value，int 计数）、TransactionListModel（7 roles/DTO/setEntries）、UI-A01~A06 + 真实 exe 的 QML load smoke + Manual Visual Smoke（用户确认）。**Part B** ✅：runDemoBatch/clearDemo（真实调用 T005/T006/T007 链路）、四条确定性 Demo、Dashboard 统计卡扩展、QML Presentation 修正（0xNN 格式/Clear 可见性）、矩阵 UI-B01~B06 + **Manual Demo Smoke 用户确认** 全过。**范围**：无轮询/Serial/Replay/QSerialPort/Agent/AI/database/chart/动画大工程/theme/persistent settings/timer/thread/networking |
 | T008.1 | **Windows Standalone Deployment Fix**（ISSUE-002 修复） | M4 | P0 | ✅ Done（自动化全过；**用户 Explorer 双击确认 = PASS**；**ISSUE-002 = RESOLVED**） | T008 | `scripts/deploy_windows.bat`（CMakeCache 自动取路径→干净 build/deploy→windeployqt→强制编译器 bin 三件套→部署应用 QML 模块→关键文件校验）；Runtime Provenance SHA256 = 编译器 bin VERIFIED；minimal-PATH smoke（--qml-smoke-test exit=0）+ 普通运行存活全过；脚本可重复生成验证 PASS |
-| T009 | **Replay Mode** | M5 | P0 | Backlog | T007 | MLog 日志格式 v1（ADR）与读写；回放/暂停/调速/时间轴；**口径一致性测试**（Simulator 与 Replay 同流同结论） |
+| T009 | **Replay Mode**（Part A Log Format+Core / Part B UI Integration） | M5 | P0 | In Progress — **Part A: Learning / Test Design ✅（docs-only）/ Implementation ⬜**；Part B Backlog | T007 | **Part A**：Replay 角色定案（历史记录重新分析，不调用 SimulatedSlave）；`.mlog` v1 格式（`MODBUSLENS_MLOG\|1\|timeout_ms=` header + `TXN\|elapsed\|request\|response/NO_RESPONSE` records + 注释/空行）；数据模型（ReplayTransactionRecord/ReplayLog）；错误模型（ReplayParseErrorCode 八值 + ReplayExecutionError）；API（parseReplayLog string_view 纯函数 / analyzeReplayLog→ReplayBatchAnalysis）；分层 Text Syntax→Wire Codec→Transaction Analysis；矩阵 REPLAY-A01~A08 + I01~I04/I05 已定稿。**范围**：Part A 无 QML FileDialog/页面/playback/pause/speed/real-time sleep/watcher/database/binary/压缩/Serial/AI/Agent；**不做 IFrameSource**（等 T010 出现后观察三者共性）。**Part B 边界**：Load .mlog（FileDialog）+ 填现有 Model/Dashboard + 文件名显示 + Clear Replay；无 real-time playback |
 | T010 | **Serial Mode** | M5 | P0 | Backlog | T007 | QtSerialPort 采集、t3.5 帧切分、环形缓冲；com0com/socat 虚拟串口对集成测试；真机核对清单 |
 | T011 | **AI Diagnosis** | M6 | P2 | Backlog | T007 | 诊断模块：**确定性规则引擎（不依赖 LLM）** + 报告导出（Markdown/JSON）；可选 LLM 自然语言解释（可插拔、缺失不影响） |
 | T012 | **Agent Tools** | M6 | P2 | Backlog | T007/T008/T011 输出 | 只读 Agent 工具集：读日志摘要/统计/报告；架构强制**无写 API**（类型层面不存在） |
@@ -41,7 +41,7 @@
 ```text
 T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Codec ✅
 → T005 Simulator ✅ → T006 Fault Injection ✅ → T007 Transaction Analysis ✅
-→ T008 Qt UI（Part A ✅ / Part B 进行中）→ T009 Replay → T010 Serial → T011 AI Diagnosis
+→ T008 Qt UI（整体 ✅ Done）→ T009 Replay（Part A Learning+Test Design ✅ → Implementation）→ T010 Serial → T011 AI Diagnosis
 → T012 Agent Tools → T013 Final Integration & Demo
 ```
 
@@ -72,3 +72,7 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-06 | T008 启动：Part A Learning / Test Design（docs-only）——Part A/B 拆分、依赖方向定案、QML 模块/迁移计划、Controller/Model 设计、矩阵 UI-A01~A06 + I01（I02 记录不做）、Manual UI Smoke 计划落库；T008 标记 IN PROGRESS |
 | 2026-09-06 | T008 Part A 完成（QML 迁移+桥接+UI-A01~A06+QML smoke 全绿 + **Manual Visual Smoke 用户确认 12/12**，Part A **DONE**）；Part B 未开始，T008 保持 IN PROGRESS；ISSUE-002 保持 OPEN |
 | 2026-09-06 | T008.1（Windows Standalone Deployment Fix）：deploy_windows.bat 落地，deploy 目录 + 三件套 provenance VERIFIED + minimal-PATH smoke 全过；**Explorer 双击确认 = 待用户**，确认后 ISSUE-002 置 RESOLVED |
+| 2026-09-06 | **用户 Explorer 双击 build/deploy/ModbusLens.exe = PASS**：ISSUE-002 置 RESOLVED ✅，T008.1 DONE |
+| 2026-09-06 | T008 Part B 启动：Learning / Test Design（docs-only）——四条确定性 Demo、runDemoBatch/clearDemo API、矩阵 UI-B01~B06 落库 |
+| 2026-09-06 | T008 Part B 完成（runDemoBatch/clearDemo 实现 + UI-B01~B06 全绿）；**用户 Manual Demo Smoke 二轮确认 PASS**（含 QML Presentation 修正 `4075223`）；**T008 Part B DONE → T008 整体 DONE → M4 事务分析与界面 CLOSED**；LKGC = `4075223`；T009 转 Ready |
+| 2026-09-07 | **T009 启动：Part A Learning / Test Design（docs-only）**——Replay 角色 / `.mlog` v1 格式 / 数据与错误模型 / API 定案 + wire 金样独立复核 + 矩阵落库；T009 标记 IN PROGRESS；M5 转进行中 |
