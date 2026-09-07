@@ -1,6 +1,6 @@
 # T009 — Replay Mode
 
-> 状态：**IN PROGRESS**｜Part A（Replay Log Format + Replay Core）：**DONE ✅**（Learning / Test Design + Implementation + 全量验证）｜Part B（Replay UI Integration）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**
+> 状态：**IN PROGRESS**｜Part A（Replay Log Format + Replay Core）：**DONE ✅**｜Part B（Replay UI Integration）：**Implementation 完成（自动化 GREEN）→ Manual Replay Smoke = WAITING FOR USER**
 > 前置确认：T008 DONE、M4 CLOSED、LKGC = `4075223`、ISSUE-002 RESOLVED。Part A 完成验收见文末 Verification；T009 整体完成后才标 DONE。
 > Part A Implementation 边界（已实现，见文末；超范围禁项仍然成立）：versioned `.mlog` v1 格式、transaction-oriented text log、纯 C++ parser、Replay semantic model、Replay batch analyzer、复用 T004/T007 模块、deterministic tests、sample fixture；QML FileDialog、Replay 页面、playback、pause/resume、speed、real-time sleeping、filesystem watcher、database、binary format、compression、Serial、AI、Agent 全部不做。
 
@@ -625,3 +625,72 @@ Current Task = T009 Replay Mode；Current Part = Part B — Replay UI Integratio
 ## PB-30 docs-only 验证（本阶段执行）
 
 `git diff --check`；确认 `src/`、`tests/`、`CMakeLists.txt`、`scripts/` 零修改（以 git status 为准）；独立 docs-only commit；不推进 LKGC；不 git push。
+
+## PB-31 原子状态规则（Implementation 前追加，2026-09-07）
+
+**A. Replay 加载失败时必须保留整个旧成功状态。** 保留的不只是 statistics + transaction rows，还包括 modeLabel + sourceLabel。例：当前 Simulator Mode / Deterministic Demo / 4 条 Demo rows → load bad.mlog 失败 → Dashboard/rows/mode/source 全仍为原 Demo，只新增 `hasReplayError=true` + `replayErrorMessage`。不得出现"旧 Dashboard + 新失败文件 source"混合态。
+
+**B. Replay 成功发布必须是一个逻辑 batch。** 仅当 file read / parse / analysis / UI entries 全部成功后,才一次性提交：statistics + rows + `modeLabel="Replay Mode"` + `sourceLabel=basename` + 清 Replay error。禁止中途先切 mode 再失败。
+
+**C. Run Demo Batch 是显式来源切换。** runDemoBatch 成功后：`modeLabel="Simulator Mode"`、`sourceLabel="Deterministic Demo"`、清 Replay error；Demo rows/statistics 保持 T008 deterministic replace semantics。
+
+---
+
+# Part B — Implementation（2026-09-07）
+
+## Goal / 交付
+
+Replay UI Integration 落地：用户选择 `.mlog` → Qt/App 层读文件 → `parseReplayLog` → `analyzeReplayLog`（全部复用 Part A Core）→ 原子发布到现有 Dashboard。零新建第二套模型/页面。
+
+## Implementation
+
+- **canonical sample 迁移**：`tests/data/demo_v1.mlog` → `samples/demo_v1.mlog`（`git mv`，rename 100%，无第二份）。CMake `configure_file(samples/demo_v1.mlog → build/test_data/ COPYONLY)`；`MODBUSLENS_DEMO_MLOG_PATH` test-only compile definition 同时给 `replay_analysis` 与 `ui_bridge` 两个测试 target。无硬编码路径。
+- **AnalysisController.h/.cpp**（orchestration 层）：
+  - `Q_INVOKABLE void loadReplayFile(const QUrl&)`——完整流程见下；
+  - `clearDemo()` **直接重命名** `clearResults()`（无转发别名；Main.qml + UI-B05/B06 同步）；
+  - 新增属性 `hasReplayError`/`replayErrorMessage`（NOTIFY replayStateChanged）、`modeLabel`/`sourceLabel`（NOTIFY sourceChanged），初始 "Simulator Mode"/"Deterministic Demo"；
+  - 匿名 namespace 错误 adapter：parse 八码 → "Replay parse error at line N: <phrase>"（lineNumber==0 时无 "line 0"）；execution 三码 → "Replay analysis error at transaction N+1: <phrase>"（Core 保持 0-based，仅展示 +1）。
+  - `loadReplayFile` 流程：`isLocalFile` 校验 → `QFile ReadOnly` → `readAll` → QByteArray 持有的临时 `std::string_view`（仅覆盖 parse 调用，绝不保存 view）→ `parseReplayLog` → 失败只 `setReplayError` return → `analyzeReplayLog` → 失败同上 → `ReplayBatchAnalysis.transactions` 逐条映射现有 `TransactionListEntry`（五字段一一对应）→ **原子发布**：`setEntries` → `statistics_ = batch.statistics` → modeLabel="Replay Mode" → sourceLabel=basename（`QFileInfo::fileName`）→ `clearReplayError` → emit statisticsChanged + sourceChanged。任何失败路径不触碰 statistics_/model/mode/source（PB-31 规则 A/B）。
+  - `runDemoBatch`：发布 Demo 后追加 modeLabel="Simulator Mode"/sourceLabel="Deterministic Demo"/clearReplayError + emit sourceChanged（规则 C）。
+- **Main.qml**：`import QtQuick.Dialogs` + `FileDialog{id: replayFileDialog; nameFilters ["ModbusLens Replay Logs (*.mlog)","All Files (*)"]; onAccepted: loadReplayFile(selectedFile)}`；按钮顺序 Run Demo Batch / Load Replay... / Clear（→clearResults）；Header 右侧改绑定 modeLabel（加粗）+ sourceLabel（小字）；错误 Label 仅 `hasReplayError` 时可见（error 色、wrap）。
+- **deploy_windows.bat**：步骤 7b 从 canonical `samples/demo_v1.mlog` 复制到 `build/deploy/samples/`（失败非零退出）；步骤 8 校验清单加 `samples\demo_v1.mlog`。
+- **CMake**：无新增 Qt 组件链接——`QtQuick.Dialogs` 为动态 QML plugin，真实 configure/build/qml smoke 证明无需显式 `QuickDialogs2` target（最少必要依赖原则）；windeployqt 经 `--qmldir` 扫描自动部署 Dialog runtime（Qt6QuickDialogs2*.dll 实测在 build/deploy 内）。
+
+## Files Changed
+
+- 修改：`src/ui/AnalysisController.h/.cpp`、`src/ui/qml/Main.qml`、`tests/test_ui_bridge.cpp`、`CMakeLists.txt`、`scripts/deploy_windows.bat`
+- 迁移：`tests/data/demo_v1.mlog` → `samples/demo_v1.mlog`
+- 文档：本文件（PB-31 + 本章）、PROJECT_STATUS/BACKLOG/devlog
+
+## Problems Encountered
+
+- **PE-3（部署脚本行尾事故）**：Edit 工具改写 `scripts/deploy_windows.bat` 后全文行尾变成 LF，cmd.exe 解析直接断裂（"'f' 不是内部或外部命令"、"CMakeCache.txt not found in \"\""）。定位：`file` 命令显示无 CRLF；修复：恢复 CRLF 后 deploy exit=0。教训：批处理文件必须保持 CRLF；改动后先 `file` 核验。
+- 其余按计划零问题：FileDialog 静态声明即被 qml_smoke 验证（import 可解析），无 ReferenceError。
+
+## Verification（自动化部分；Manual Replay Smoke 待用户）
+
+```text
+RED：cmake --build → error: no declaration matches 'void AnalysisController::clearDemo()'
+     （API 重命名后实现未跟上——真实 RED，非伪造）
+GREEN：cmake --build exit=0
+ui_bridge：22/22 通过（原 14 + 新增 UI-R01~R08 八项全绿）
+ctest --preset debug-local：100% tests passed, 0 tests failed out of 16
+clean build（--clean-first）：96 targets，warning/error 命中 0
+qml smoke：--qml-smoke-test exit=0（QtQuick.Dialogs import 可解析）
+Core Zero Qt：grep src/core/replay → 无 Q 引用（exit=1）
+ISSUE-001 复查：全部 get_if 作用于具名局部变量
+deploy_windows.bat：exit=0；build/deploy/samples/demo_v1.mlog SHA256 == canonical（b3857453…）
+minimal-PATH smoke：set PATH=System32 下 ModbusLens.exe --qml-smoke-test exit=0
+ISSUE-002：无回归（deploy 版正常）
+```
+
+## Result
+
+Part B 自动化验证全部 GREEN：`d473d36`（LKGC candidate）。**Manual Replay Smoke = WAITING FOR USER CONFIRMATION**（native FileDialog 不可可靠自动化——PB-24 定则）。用户 PASS 前：T009 Part B ≠ DONE、T009 ≠ DONE、不推进 LKGC 归档、不开始 T010。
+
+## Git Commit
+
+| 提交 | 哈希 | 说明 |
+| --- | --- | --- |
+| Part B Implementation（code/config） | `d473d36` | `T009(Part B): integrate replay files into analysis dashboard`（**LKGC candidate**） |
+| 归档 docs-only | `<docs-only HEAD>` | 本阶段文档与状态回填 |

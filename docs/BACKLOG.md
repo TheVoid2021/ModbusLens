@@ -78,3 +78,4 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-07 | **T009 启动：Part A Learning / Test Design（docs-only）**——Replay 角色 / `.mlog` v1 格式 / 数据与错误模型 / API 定案 + wire 金样独立复核 + 矩阵落库；T009 标记 IN PROGRESS；M5 转进行中 |
 | 2026-09-07 | **T009 Part A 完成**（`e4920da`）：ReplayLog parser + ReplayAnalysis 批量回放分析落地 `src/core/replay/`（Zero Qt）；request 可信链三错误码；REPLAY-A01~A08 + I01~I05/03B/03C 24 测试函数 RED→GREEN；ctest 16/16、clean 96 targets 零警告；**Part A DONE；T009 保持 IN PROGRESS**；T009 Part B 转 Ready |
 | 2026-09-07 | **T009 Part B 启动：Learning / Test Design（docs-only）**——单 Dashboard / Controller 新 API / 失败策略 / FileDialog 本机实证 / canonical sample / UI-R01~R08 矩阵落库；Part B 未实现，T009 保持 IN PROGRESS |
+| 2026-09-07 | **T009 Part B Implementation 完成**（`d473d36` LKGC candidate）：loadReplayFile/clearResults/错误与来源状态/FileDialog 落地；UI-R01~R08 全过；canonical sample 迁 samples/；deploy 回归 PASS；**Manual Replay Smoke = WAITING FOR USER** |
