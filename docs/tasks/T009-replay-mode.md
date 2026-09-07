@@ -1,6 +1,6 @@
 # T009 — Replay Mode
 
-> 状态：**IN PROGRESS**｜Part A（Replay Log Format + Replay Core）：**DONE ✅**（Learning / Test Design + Implementation + 全量验证）｜Part B（Replay UI Integration）：⬜ Not Started
+> 状态：**IN PROGRESS**｜Part A（Replay Log Format + Replay Core）：**DONE ✅**（Learning / Test Design + Implementation + 全量验证）｜Part B（Replay UI Integration）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**
 > 前置确认：T008 DONE、M4 CLOSED、LKGC = `4075223`、ISSUE-002 RESOLVED。Part A 完成验收见文末 Verification；T009 整体完成后才标 DONE。
 > Part A Implementation 边界（已实现，见文末；超范围禁项仍然成立）：versioned `.mlog` v1 格式、transaction-oriented text log、纯 C++ parser、Replay semantic model、Replay batch analyzer、复用 T004/T007 模块、deterministic tests、sample fixture；QML FileDialog、Replay 页面、playback、pause/resume、speed、real-time sleeping、filesystem watcher、database、binary format、compression、Serial、AI、Agent 全部不做。
 
@@ -368,3 +368,260 @@ GREEN：
 | 归档回填 | `<docs-only HEAD>` | docs-only；LKGC 哈希由本提交写入 |
 
 > LKGC = `e4920da`（Part A Implementation 代码提交）；Part B 未开始。
+
+---
+
+# Part B — Replay UI Integration：Learning / Test Design（2026-09-07，docs-only）
+
+> 本章为 Part B 设计定案；**Implementation ⬜ 未开始**。红线：本阶段 `src/`、`tests/`、`CMakeLists.txt`、`scripts/` 零修改。
+
+## PB-0 压缩后状态核验（先于一切）
+
+从仓库事实重新读取并通过：T008 = DONE ✅；T009 Part A = DONE ✅；T009 Part B = NOT STARTED；T010 = NOT STARTED；LKGC = `e4920da`（与此一致）；HEAD = `7235e83`（Part A 归档 docs-only）。工作区 clean。全 docs 检索未见 `TXN|<elapsed>=0>` 类笔误（T009 档案 §`.mlog` v1 格式 中已为 `TXN|elapsed_ms|…` 且注明 `elapsed_ms >= 0`），无需修正。
+
+## PB-1 Part B 核心目标与职责边界
+
+Part B 只做三层事：**File I/O + Application orchestration + Presentation**。
+
+```text
+用户选择 .mlog
+↓ QML FileDialog → QUrl
+Qt/App 层读取文本（QFile）
+↓ parseReplayLog()        (Part A Core)
+↓ analyzeReplayLog()      (Part A Core)
+ReplayBatchAnalysis
+↓ 适配到现有 AnalysisController statistics + TransactionListModel
+现有 Dashboard 展示
+```
+
+禁止重新实现：CRC / Frame decode / Function03 decode / Transaction classification / Statistics aggregation。
+
+**单 Dashboard 原则**：Simulator Demo 与 Replay 数据来源不同，但最终都产出 `TransactionAnalysis` + `TransactionStatisticsSnapshot`，展示层完全共享：
+
+```text
+Simulator Demo ─┐
+                ├→ AnalysisController → TransactionListModel → QML
+Replay .mlog ───┘
+```
+
+禁止创建 ReplayStatisticsModel / ReplayTransactionModel / 第二套 Dashboard。
+
+## PB-2 AnalysisController 继续作为 orchestration 层
+
+不新建 ReplayManager / ReplayService hierarchy / QObject framework。在现有 AnalysisController 增加最小 Replay command/state：
+
+```cpp
+Q_INVOKABLE void loadReplayFile(const QUrl& fileUrl);
+```
+
+**清理 API 泛化定案：直接重命名 `clearDemo()` → `clearResults()`，不保留转发别名。** 理由：① `clearDemo` 在 Replay 加入后名字过窄；② 转发兼容会长期共存两个名字、误导读者以为有两套逻辑；③ 改动面极小（Main.qml Clear 按钮 1 处 + test_ui_bridge.cpp UI-B05/B06 两处调用点，断言语义零变化）；④ 清理逻辑只有一套，与新 API 一一对应。Main.qml 的 Clear 按钮改调 `clearResults()`。T008 档案中出现的 `clearDemo` 为历史事实，不修改历史章节，仅在本章记录更名。
+
+## PB-3 FileDialog 属于 QML / App 层
+
+- QML 层使用 `QtQuick.Dialogs.FileDialog`（Qt 6.11.1，**已在本机实证**：`D:/QT/6.11.1/mingw_64/qml/QtQuick/Dialogs/quickimpl/qml/FileDialog.qml` 存在；CMake 组件目录含 `Qt6QuickDialogs2`，即 target `Qt6::QuickDialogs2`）。
+- Implementation 时再以真实 configure/build 实证 `find_package(Qt6 COMPONENTS … QuickDialogs2)` + QML `import QtQuick.Dialogs`；本轮不得凭记忆写 target/import——以上述实证结果为准。
+- **Core（src/core/replay）不得 include QFileDialog/QFile/QUrl。**
+
+## PB-4 File I/O 边界（定案流程）
+
+```text
+QML FileDialog → QUrl → AnalysisController::loadReplayFile(QUrl)
+→ 确认 local file → QFile ReadOnly → QByteArray 全文
+→ 临时 std::string_view（只覆盖 parseReplayLog 调用）
+→ parseReplayLog() → ReplayLog（完全拥有自己的数据）
+```
+
+`parseReplayLog(std::string_view)` 仍是 pure Core API；QByteArray/string_view 生命周期只需覆盖该调用；**不得把 string_view 保存进 Controller/Core result**。
+
+## PB-5 Replay File Error UI（错误状态归属）
+
+```cpp
+Q_PROPERTY(bool hasReplayError READ hasReplayError NOTIFY replayStateChanged)
+Q_PROPERTY(QString replayErrorMessage READ replayErrorMessage NOTIFY replayStateChanged)
+```
+
+错误字符串属于 Qt Presentation Adapter，不是 Core：Core 只返回 `ReplayParseErrorCode` / `ReplayExecutionErrorCode`，Controller 负责 `enum + line/index → 用户可读 QString`（一组小型 adapter helper；不做国际化系统/错误码数据库/异常 hierarchy）。
+
+## PB-6 Parse Error 映射（保留行号）
+
+格式：`"Replay parse error at line %1: <phrase>"`。八码映射（小型 switch，缺 default 交由编译期检查穷举）：
+
+| ReplayParseErrorCode | phrase |
+| --- | --- |
+| MissingHeader | "log header is missing" |
+| UnsupportedVersion | "unsupported log version" |
+| InvalidHeader | "invalid log header" |
+| InvalidRecord | "invalid record" |
+| InvalidElapsed | "invalid elapsed value" |
+| InvalidHex | "invalid hex data" |
+| MissingRequest | "request field is empty" |
+| InvalidResponseField | "invalid response field" |
+
+## PB-7 Execution Error 映射（0-based → 人类编号）
+
+Core `transactionIndex` 为 0-based，**只在 Presentation 显示时 +1**（Core 索引不变）。格式：`"Replay analysis error at transaction %1: <phrase>"`（%1 = index+1）。
+
+| ReplayExecutionErrorCode | phrase |
+| --- | --- |
+| InvalidRequestWire | "invalid request wire data" |
+| InvalidRequestFunction | "unsupported function code in request" |
+| InvalidRequestData | "invalid request data" |
+
+示例：`{InvalidRequestData, transactionIndex=1}` → `"Replay analysis error at transaction 2: invalid request data"`。
+
+## PB-8 加载失败不得发布半成品（重要 invariant，附策略定案）
+
+`loadReplayFile` 顺序：读取完整文件 → parse 完整成功 → analyze 完整成功 → 得到完整 `ReplayBatchAnalysis` → **一次性发布** Dashboard + rows。file open 失败 / parse 失败 / analysis 失败时，不得出现统计更新一半/列表保留另一批/部分 Replay rows。
+
+**失败策略定案：旧成功结果保持不变 + 显示 replay error。** 理由：一次失败的文件加载不应销毁用户刚得到的可用分析结果；错误信息告知原因后，用户可继续操作。此语义必须测试（UI-R03/R04/R05）。
+
+## PB-9 成功后清旧 error
+
+第一次 load invalid（hasReplayError=true）→ 随后 load valid：`hasReplayError=false`、`replayErrorMessage` 清空，正常发布新数据。同理 `Run Demo Batch` 切回 Simulator 时也清掉旧 Replay Error——UI 不得永远挂着过时错误。
+
+## PB-10 mode/source state（来源可见性）
+
+```cpp
+Q_PROPERTY(QString modeLabel READ modeLabel NOTIFY sourceChanged)
+Q_PROPERTY(QString sourceLabel READ sourceLabel NOTIFY sourceChanged)
+```
+
+- 初始 / Run Demo Batch：`modeLabel = "Simulator Mode"`，`sourceLabel = "Deterministic Demo"`（或空）。
+- Replay 成功：`modeLabel = "Replay Mode"`，`sourceLabel = 文件 basename`（如 `demo_v1.mlog`；**不长期显示绝对路径**——内部如需保存完整路径，与 presentation basename 分开）。
+- QML Header 当前硬编码 "Simulator Mode" 改为绑定 `analysisController.modeLabel`。
+
+## PB-11 ReplayBatch → TransactionListEntry 适配（不建第二套）
+
+直接映射到现有 `TransactionListEntry`（deviceAddress/functionCode/status/elapsedMs/exceptionCode）。不得修改 TransactionAnalysis，不得创建第二套 ListEntry：
+
+| ListEntry 字段 | 来源 |
+| --- | --- |
+| deviceAddress | outcome.deviceAddress |
+| functionCode | outcome.functionCode |
+| status | outcome.analysis.status |
+| elapsedMs | outcome.analysis.elapsed.count() |
+| exceptionCode | outcome.analysis.exceptionCode |
+
+## PB-12 Statistics 直接用 Replay Core 结果
+
+Controller 调用 `applySnapshot(replayBatch.statistics)`（或等价）。**禁止 Controller 重新 summarize / 手工 count / 重算 successRate**——Part A 已保证 Replay statistics 来自 summarizeTransactions，UI 不需要第二次统计。
+
+## PB-13 Golden Replay UI 期望（验收口径）
+
+加载 `samples/demo_v1.mlog` → Dashboard：4/4/0、Success=1/Exception=1/CRC Error=1/Timeout=1/Protocol Error=0、Success Rate=25.0%、Avg Latency=25.0 ms。Rows：1/0x03/Success/25ms；1/0x03/Exception/18ms/Code 0x02；1/0x03/CRC Error/17ms；1/0x03/Timeout/1000ms。**与 T008 Demo 视觉结果相同，但来源必须不同（SimulatedSlave+Fault vs mlog 历史记录）——这是本任务重要验收点。**
+
+## PB-14 Canonical Sample 定案（单一源头）
+
+**方案 A 定案**：唯一 canonical 文件 = `samples/demo_v1.mlog`（Implementation 做最小迁移：`git mv tests/data/demo_v1.mlog → samples/demo_v1.mlog`，CMake configure_file 源路径、deploy 脚本、Manual Smoke 全部指向它）。测试 fixture 与部署 sample 共用同一文件，**避免 tests/data 与 samples 两份漂移**（方案 B 维护两份，不采纳）。禁止硬编码用户绝对路径：测试路径经 test-only compile definition 注入（沿用 Part A 的 MODBUSLENS_DEMO_MLOG_PATH 机制）。
+
+## PB-15 Deployment Sample
+
+`build/deploy/` 最终包含 `ModbusLens.exe` + … + `samples/demo_v1.mlog`。`deploy_windows.bat` 从 canonical `samples/` 复制业务 sample（windeployqt 不负责业务 sample 文件）。面试现场：Load Replay → 选 `samples/demo_v1.mlog` → 立即出现四结果 Dashboard。
+
+## PB-16 clearResults 语义
+
+无论当前来源（Simulator 或 Replay），`clearResults()` 后：statistics = empty snapshot、transaction model = empty、Replay error 清除。**mode/source 不强制切回 Simulator**：若当前是 Replay，仍显示 "Replay Mode" + 当前文件名——用户知道自己处于什么来源，只是结果被清空。**只有 Run Demo Batch 才明确切回 Simulator Mode。** 理由：Clear 表达"清结果"，不是"切来源"；两个动作正交，分别可预期。
+
+## PB-17 Run Demo 与 Replay 切换（replace 语义）
+
+Replay 成功 → mode=Replay；随后 Run Demo Batch → mode=Simulator、source label 更新、Replay error 清除、Demo 四行替换 Replay rows。反向同理。**不得 append**（恒 4 行，不是 4→8→12）。Dashboard 永远只显示当前 active batch；当前不做多 session/history。
+
+## PB-18 UI Controls
+
+现有 `Run Demo Batch`、`Clear` 之外新增 `Load Replay...`，顺序：`Run Demo Batch | Load Replay... | Clear`。QML FileDialog 仅用于选择文件；不做 Drag&Drop / Recent Files / Folder history / File watcher。
+
+## PB-19 Replay Error Presentation
+
+Main.qml 增加轻量错误区域：仅 `analysisController.hasReplayError` 时可见，显示 `analysisController.replayErrorMessage`（Text/Label + 轻微 error styling，如错误色）。不引入 MessageDialog framework / Toast manager / notification system。
+
+## PB-20 UI 测试矩阵（UI-R01~R08；全部经 Controller 直接调用，不自动化点击 FileDialog）
+
+| Test ID | 场景 | Expected | Priority |
+| --- | --- | --- | --- |
+| UI-R01 | `loadReplayFile(QUrl::fromLocalFile(…))` 加载 canonical demo_v1.mlog | modeLabel="Replay Mode"、sourceLabel="demo_v1.mlog"、hasReplayError=false；statistics 4/4/0、1/1/1/1/0、0.25、25.0；rowCount=4 | **P0** |
+| UI-R02 | 校验四行内容 | 顺序 Success/Exception/CrcError/Timeout；elapsed 25/18/17/1000；Exception 行 hasExceptionCode=true、code=2 | **P0** |
+| UI-R03 | 先 load golden，再 load 含 `GG` 的坏文件（测试内 QTemporaryDir 构造） | hasReplayError=true；message 含 line number + invalid hex 语义；**旧 batch 保持**（rowCount 仍 4、statistics 仍 golden） | **P0** |
+| UI-R04 | load 含 `01 03 00 00 00 00 45 CA`（quantity=0）的文件 | hasReplayError=true；message 表达 transaction 1 + invalid request data；旧成功 batch 保持不变 | **P0** |
+| UI-R05 | load 不存在的 local file | hasReplayError=true；message 表达无法读取文件；不 crash、不清空旧 batch | P1 |
+| UI-R06 | 先 load invalid（error=true）再 load golden | hasReplayError=false、message 空、Replay Dashboard 正常 | **P0** |
+| UI-R07 | load replay → runDemoBatch → load replay | 每次仍 4 行（不 4→8→12）；mode 依次 Replay→Simulator→Replay | **P0** |
+| UI-R08 | load replay → clearResults | 所有计数 0、rowCount 0、optional null 语义；modeLabel 仍 "Replay Mode"、sourceLabel 仍文件名（按 PB-16 定案） | P1 |
+
+## PB-21 FileDialog 自动化边界
+
+不为 Windows native FileDialog 写脆弱 GUI click automation。自动化=Controller.loadReplayFile(QUrl) 全覆盖 + QML module load smoke；**Manual UI Smoke 真正点 Load Replay... 人工选择文件**。不引入 Squish / WinAppDriver / 复杂 UI automation framework。
+
+## PB-22 QML Smoke 与 CMake
+
+加入 `QtQuick.Dialogs` import 与 `Qt6::QuickDialogs2` 后，现有 `--qml-smoke-test` 必须继续 PASS（本机 Qt 6.11.1 已实证 module/组件存在，见 PB-3）。Implementation 重点检查 module unavailable / FileDialog type unavailable / ReferenceError / TypeError / binding loop。不得引入 Qt6::Widgets。
+
+## PB-23 Core Zero Qt 保证
+
+Replay File I/O 只允许出现在 AnalysisController / App 层；`src/core/replay` 继续 Zero Qt（Regression 检查延续 Part A 的 grep 手段）。
+
+## PB-24 Manual Replay Smoke（Implementation 后、自动化全过后）
+
+clean build + full ctest + qml smoke + deploy regression 全 PASS 后，运行 `build/deploy/ModbusLens.exe`，用户人工验证：
+A. 初始 / Demo 功能仍正常；B. 点 `Load Replay...` 选 `samples/demo_v1.mlog` → Header "Replay Mode" + "demo_v1.mlog"，Dashboard 4/4/0、1/1/1/1/0、25.0%、25.0 ms，四行 Success 25ms / Exception 18ms Code 0x02 / CRC Error 17ms / Timeout 1000ms；C. 点 Clear → 结果清空（mode 仍 Replay）；D. 再 Run Demo → 切回 Simulator Mode、四条 Demo 正常；E. 再 Load Replay → 替换不追加。
+如 Agent 无法可靠操作 FileDialog：**必须 WAITING FOR USER CONFIRMATION，不得自报 PASS** —— 本项目判断：native FileDialog 交互不可可靠自动化，Manual Replay Smoke 一律 WAITING FOR USER。
+
+## PB-25 Standalone Deployment Regression
+
+`deploy_windows.bat` 重跑：build/deploy 含最新 exe、QML、Qt Quick Dialog runtime、`samples/demo_v1.mlog`；minimal-PATH `ModbusLens.exe --qml-smoke-test` exit=0；ISSUE-002 不得回归。
+
+## PB-26 Part B Scope Red Lines
+
+禁止：real-time playback / QTimer playback / sleep / speed slider / pause-resume / seek / drag-drop / recent file database / filesystem watcher / Serial / AI / Agent / IFrameSource。禁止修改 T002~T007 Core 业务语义；非真实 bug，不得因 UI 需求扩张 Replay Core（Part A）。
+
+## PB-27 Knowledge I Must Be Able To Explain（16 题）
+
+**PB-Q1 为什么 Replay UI 复用现有 Dashboard？** 两种来源最终都产出 TransactionAnalysis + TransactionStatisticsSnapshot，展示层共享即"同一事实一份 UI"；另建第二套卡片/模型只会滋生口径漂移。
+**PB-Q2 为什么 File I/O 不能放进 Replay Core？** Core 三元组承诺：Zero Qt、可单测（string_view 进值出，无文件系统）、三模式复用。文件系统访问是 App 编排职责。
+**PB-Q3 QFile/QUrl 为什么可以出现在 Controller？** Controller 本就是 Qt Presentation Adapter 层（ADR001：Qt 类型仅允许于此）；它负责把 file bytes 转换成文字后塞给 pure Core API。
+**PB-Q4 为什么 ReplayAnalysisResult 不直接返回 QString error？** Core 若持 QString 就破坏了 Zero Qt，且错误文案是展示事务；enum+line/index 是稳定数据契约，文案可随时改而不动 Core。
+**PB-Q5 lineNumber 和 transactionIndex 在 UI 怎么展示？** parse 错误显示 "line N"（1-based physical，直接可用）；execution 错误显示 "transaction N"（0-based index 在展示层 +1）。Core 索引不动。
+**PB-Q6 为什么加载失败不能发布半成品 batch？** 原子性：要么完整成功一起换，要么不动。半成品（统计一半/列表另一批）会给用户一个无法解释的状态，也无法回放复现。
+**PB-Q7 为什么推荐保留旧成功结果而显示 error？** 失败的加载是"新尝试失败"，不是"旧结果失效"；销毁旧结果会让一次误选文件毁掉之前的工作。错误信息单独呈现即可。
+**PB-Q8 为什么 valid load 后必须清除旧 error？** 错误是加载结果的属性，不是 UI 的永久状态；成功后仍挂着旧 error 会误导（"上次失败"被误读为"这次也失败"）。
+**PB-Q9 Simulator Mode 与 Replay Mode 怎么切换？** Run Demo 与 Load Replay 各自发布成功后设置 mode/source；两者互相 replace（从不清空为中间态）。Clear 只清结果不切来源。
+**PB-Q10 为什么 Demo 与 Replay 都是 replace semantics？** Dashboard 语义始终是"当前 active batch"；append 会把两次不同来源的数据混成一套统计，破坏口径一致性。
+**PB-Q11 为什么 Replay statistics 不在 Controller 重算？** 重算=第二份统计逻辑=口径漂移风险；Part A 已保证 statistics 来自 summarizeTransactions，Controller 直接 apply。
+**PB-Q12 为什么 Replay row 可以复用 TransactionListEntry？** 列表行的显示事实（设备/功能/状态/耗时/异常码）与来源无关；Outcome 已经携带同构字段，映射即可。
+**PB-Q13 为什么 sample log 应只有一个 canonical source？** 两份 golden data 长期必然漂移（改一份忘另一份），tests+deployment+manual smoke 共用一份，漂移面=0。
+**PB-Q14 为什么不自动化点击 native FileDialog？** Windows native dialog 不在 QML 可达性树内，GUI click automation 脆弱且引入重型依赖；等价自动化（Controller.loadReplayFile(QUrl)）+ 人工 Smoke 已覆盖两端。
+**PB-Q15 为什么 Replay 不需要 Timer？** Analytical Replay：elapsed 是历史事实直接传给分析器，不真实等待；Timer 属于 real-time playback（明确排除在外）。
+**PB-Q16 T009 如何证明 UI 已与数据来源解耦？** 同一个 Dashboard 不经任何改动同时呈现 Simulator 现场生成与 Replay 历史加载的两批数据（UI-R07 切换测试 + Manual Smoke D/E），且两批统计同口径（Demo 4/4/0 与 Golden Replay 4/4/0 相等）。
+
+## PB-28 Implementation Plan（23 步）
+
+1. 定案 canonical sample 位置：`samples/demo_v1.mlog`
+2. `git mv tests/data/demo_v1.mlog samples/demo_v1.mlog`
+3. 更新 Replay tests fixture 路径（CMake configure_file 源路径）；ui_bridge 测试经 test-only compile definition 获得路径
+4. Controller 增加 loadReplayFile
+5. Controller 增加 replay error / source state（hasReplayError/replayErrorMessage/modeLabel/sourceLabel）
+6. 清理 API 泛化：clearDemo() 重命名 clearResults()（Main.qml + UI-B05/B06 同步）
+7. ReplayBatch → existing model adapter（TransactionListEntry 映射）
+8. QML 增加 Load Replay FileDialog（QtQuick.Dialogs + QuickDialogs2 实证）
+9. Header mode/source 动态显示
+10. QML 增加 replay error label
+11. UI-R01~R08 tests（RED）
+12. RED 证据记录
+13. GREEN（实现全部）
+14. clean build 0 warnings
+15. full ctest（期望 16 targets 不变 + ui_bridge 内新增用例）
+16. qml smoke
+17. Core Zero Qt 复查
+18. deploy_windows.bat 更新 sample 复制
+19. minimal-PATH deploy smoke
+20. Manual Replay Smoke → WAITING FOR USER CONFIRMATION（Agent 不可自报 PASS）
+21. code commit
+22. LKGC 推进（docs 回填）
+23. docs confirmation backfill（用户确认后）
+
+## PB-29 PROJECT_STATUS 更新（本阶段执行）
+
+Current Task = T009 Replay Mode；Current Part = Part B — Replay UI Integration；Current Phase = Learning / Test Design；Next Action = T009 Part B — Implementation；Next Task After T009 = T010 Serial Mode；T009 overall = IN PROGRESS；Milestone 按 BACKLOG 现有定义（M5）不变。
+
+## PB-30 docs-only 验证（本阶段执行）
+
+`git diff --check`；确认 `src/`、`tests/`、`CMakeLists.txt`、`scripts/` 零修改（以 git status 为准）；独立 docs-only commit；不推进 LKGC；不 git push。

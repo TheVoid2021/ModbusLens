@@ -8,16 +8,16 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ 完成；**M5 进行中（T009 Part A ✅ / Part B 未开始；T010 未开始）** |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ 完成；**M5 进行中（T009 Part A ✅ / Part B Learning+Test Design；T010 未开始）** |
 | Last Known Good Commit | **`e4920da`**（T009 Part A 代码提交：clean build 96 targets 零警告 + ctest 16/16 + QML smoke + Core Zero Qt 多重验证；当前 HEAD 为其后的 docs-only 归档提交，不改变 LKGC。历史值：`4075223`（T008）、T008A `76030a2`、T007B `0f3109a`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 96 targets） |
 | Test 状态 | ✅ **16/16 通过**（ctest：原 14 项 + `replay_log` + `replay_analysis`；87 个测试函数全过，其中 Replay 24 个） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · **T008** |
-| 当前任务（Current Task） | **T009 Replay Mode**（IN PROGRESS——Part B 未开始） |
+| 当前任务（Current Task） | **T009 Replay Mode**（IN PROGRESS——Part B 未完成） |
 | 最近完成任务（Last Completed Task） | **T008 Qt Quick / QML Analysis UI**（Part A + Part B 全部 DONE） |
-| 当前阶段（Current Phase） | **Part A — Replay Log Format + Replay Core：DONE ✅** |
-| 下一步动作（Next Action） | **T009 Part B — Learning / Test Design** |
-| 下一 Part（Next Part） | **Part B — Replay UI Integration** |
+| 当前阶段（Current Phase） | **Part B — Replay UI Integration：Learning / Test Design**（docs-only；Implementation ⬜） |
+| 下一步动作（Next Action） | **T009 Part B — Implementation** |
+| 下一 Part（Next Part） | 无（Part B 是 T009 最后一个 Part） |
 | 下一任务（Next Task After T009） | **T010 Serial Mode** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
@@ -39,7 +39,7 @@
 
 ## 2. 当前任务
 
-- **T009 Replay Mode — IN PROGRESS（Part A: Replay Log Format + Replay Core = DONE ✅，Part B 未开始）**：Part A 交付 `.mlog` v1 解析与批量回放分析（[T009 档案](tasks/T009-replay-mode.md)）——`src/core/replay/ReplayLog`（数据/错误模型 + parseReplayLog 纯文本解析：from_chars 整段消费、CRLF 兼容、八种解析错误 + 1-based 物理行号）与 `ReplayAnalysis`（request 可信链三错误码 InvalidRequestWire/Function/Data；坏 response 为诊断事实进 T007 → CrcError/ProtocolError；统计经 summarizeTransactions 与 Simulator 同源）；golden fixture `tests/data/demo_v1.mlog`；REPLAY-A01~A08 + I01~I05（+I03B/I03C）24 个测试函数全绿；ctest 16/16、clean 96 targets 零警告、Core Zero Qt、ISSUE-001 无回归。**下一步动作 = T009 Part B — Learning / Test Design（Replay UI Integration）**。
+- **T009 Replay Mode — IN PROGRESS（Part A = DONE ✅；Part B: Replay UI Integration，Phase: Learning / Test Design，docs-only）**：Part A 交付 `.mlog` v1 解析与批量回放分析（[T009 档案](tasks/T009-replay-mode.md)，Part B 设计章 PB-0~PB-30）——`src/core/replay/ReplayLog`（数据/错误模型 + parseReplayLog 纯文本解析：from_chars 整段消费、CRLF 兼容、八种解析错误 + 1-based 物理行号）与 `ReplayAnalysis`（request 可信链三错误码 InvalidRequestWire/Function/Data；坏 response 为诊断事实进 T007 → CrcError/ProtocolError；统计经 summarizeTransactions 与 Simulator 同源）；golden fixture `tests/data/demo_v1.mlog`；REPLAY-A01~A08 + I01~I05（+I03B/I03C）24 个测试函数全绿；ctest 16/16、clean 96 targets 零警告、Core Zero Qt、ISSUE-001 无回归。**Part B 设计定案**：单 Dashboard 复用（不建第二套模型）、loadReplayFile(QUrl)/clearResults()（clearDemo 直接重命名）/hasReplayError+replayErrorMessage/modeLabel+sourceLabel（显示 basename）、错误映射表（line 保留；transactionIndex 仅 Presentation +1）、失败策略=旧结果保持+显示错误、原子发布 invariant、clearResults 不切来源、Run Demo 与 Replay replace 语义、FileDialog 经本机 Qt 6.11.1 实证（QtQuick.Dialogs + Qt6::QuickDialogs2）、canonical sample `samples/demo_v1.mlog`（方案 A 单一源头）、矩阵 UI-R01~R08、16 题问答、23 步实施计划落库。**下一步动作 = T009 Part B — Implementation**。
 
 ## 3. 下一任务
 
@@ -137,3 +137,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-06 | **用户 Manual Demo Smoke 第二轮 = PASS（12/12 人工确认）**：4 条事务正确、重复 Run 不追加、Clear 恢复全零、Clear 文字/0x03/Code 0x02 均正常。**T008 Part B 归档 DONE；T008 整体 DONE；M4 事务分析与界面临界关闭（按 BACKLOG 既有定义含 T007+T008）**。LKGC = `4075223`；HEAD = docs-only 归档提交 `a1db0d8` |
 | 2026-09-07 | **T009 启动：Part A Learning / Test Design（docs-only）**——Replay 角色定案、`.mlog` v1 格式定案、数据/错误模型与 API 定案、wire 金样独立复核、矩阵 REPLAY-A01~A08 + I01~I04/I05 落库；T009 标记 IN PROGRESS，**Replay 未实现、Part B 未开始** |
 | 2026-09-07 | **T009 Part A 完成**：`src/core/replay/` 落地（ReplayLog parser + ReplayAnalysis 批量回放分析，Pure C++20 Zero Qt）；request 可信链三错误码（新增 InvalidRequestData，REPLAY-I03B 金样 `01 03 00 00 00 00 45 CA`）；REPLAY-A01~A08 + I01~I05 共 24 测试函数 RED（101 处 undefined reference）→GREEN；修复真 bug（from_chars 结果未写回 out 参数）与 2 处测试警告；ctest 16/16、clean 96 targets 零警告、Core Zero Qt、ISSUE-001 无回归、QML smoke exit=0。**Part A = DONE，T009 整体 IN PROGRESS**；LKGC = `e4920da`（回填提交写入） |
+| 2026-09-07 | **T009 Part B 启动：Learning / Test Design（docs-only）**——单 Dashboard 复用、Controller 新 API（loadReplayFile/clearResults 重命名/error 与 mode-source state）、失败策略（旧结果保持+显示 error）、FileDialog 本机实证（QtQuick.Dialogs + Qt6::QuickDialogs2）、canonical sample `samples/demo_v1.mlog` 定案、矩阵 UI-R01~R08、16 题问答、23 步计划落库；T009 保持 IN PROGRESS，**Part B 未实现** |
