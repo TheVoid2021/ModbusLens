@@ -8,17 +8,17 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ 完成；**M5 进行中（T009 ✅ DONE / T010 未开始；按 BACKLOG 既有定义 M5=T009,T010）** |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ 完成；**M5 进行中（T009 ✅ / T010 Part A Learning+Test Design；按 BACKLOG 既有定义 M5=T009,T010，不得提前关闭）** |
 | Last Known Good Commit | **`d473d36`**（T009 Part B 代码提交：clean build 96 targets 零警告 + ctest 16/16 + qml smoke + Core Zero Qt + deploy/minimal-PATH smoke + **用户 Manual Replay Smoke PASS** 多重验证；当前 HEAD 为其后的 docs-only 确认提交，不改变 LKGC。历史值：`e4920da`（T009A）、`4075223`（T008）） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 96 targets） |
 | Test 状态 | ✅ **16/16 通过**（ctest：原 14 项 + `replay_log` + `replay_analysis`；87 个测试函数全过，其中 Replay 24 个） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · **T009** |
-| 当前任务（Current Task） | **None**（无进行中任务） |
+| 当前任务（Current Task） | **T010 Serial Mode**（IN PROGRESS——Part B 未开始） |
 | 最近完成任务（Last Completed Task） | **T009 Replay Mode**（Part A + Part B 全部 DONE，用户 Manual Replay Smoke 确认） |
-| 当前阶段（Current Phase） | —（T009 DONE；T010 待启动） |
-| 下一步动作（Next Action） | **Start T010 Serial Mode** |
-| 下一 Part（Next Part） | 无（Part B 是 T009 最后一个 Part） |
-| 下一任务（Next Task After T009） | **T010 Serial Mode** |
+| 当前阶段（Current Phase） | **Part A — Serial Transaction Runtime + QtSerialPort Adapter：Learning / Test Design**（docs-only；Implementation ⬜） |
+| 下一步动作（Next Action） | **T010 Part A — Implementation**（前置阻塞：ISSUE-003 QtSerialPort 未安装，待用户决策） |
+| 下一 Part（Next Part） | **Part B — Serial UI Integration + Hardware/No-Hardware Smoke** |
+| 下一任务（Next Task After T010） | **T011 AI Diagnosis** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -40,9 +40,11 @@
 
 ## 2. 当前任务
 
-- **None**。T009 Replay Mode 已整体 DONE（Part A + Part B，用户 Manual Replay Smoke 确认）；Simulator 与 Replay 两种来源共享同一 Dashboard 的目标达成。下一步：启动 T010 Serial Mode（见 §3 与 BACKLOG）。
+- **T010 Serial Mode — IN PROGRESS（Part A: Serial Transaction Runtime + QtSerialPort Adapter，Phase: Learning / Test Design，docs-only）**：Serial 角色定案（真实字节流→chunk 累积→Codec→Analyzer）、framing 前提（readyRead ≠ 一帧）、FC03 response 长度规则（normal 5+2N / exception 5）、completion 与 oversized 不截断规则、timeout 双路语义（空 buffer→Timeout；partial→Protocol/Crc 诊断）、one outstanding、elapsed 与 threshold 口径、`SerialTransactionSession` 模型与 API、矩阵 SERIAL-A01~A14 + I01、18 题问答、22 步计划落库（[T010 档案](tasks/T010-serial-mode.md)）。**Serial 未实现**；⚠ **ISSUE-003（OPEN）**：本机 Qt 6.11.1 未安装 QtSerialPort（headers/CMake package/DLL 均实证不存在；仅 MaintenanceTool.exe 可用于官方补装）——下一步 Implementation 的 Qt adapter/SERIAL-I01 受此阻塞，待用户决策。
 
+## 3. 下一任务
 
+- **T011 — AI Diagnosis**（详见 [BACKLOG](BACKLOG.md)）：诊断模块：确定性规则引擎（不依赖 LLM）+ 报告导出；可选 LLM 自然语言解释（可插拔、缺失不影响）。依赖 T007；在 T010 完成后启动。
 ## 3. 下一任务
 
 - **T010 — Serial Mode**（详见 [BACKLOG](BACKLOG.md)）：QtSerialPort 采集、t3.5 帧切分、环形缓冲；com0com/socat 虚拟串口对集成测试；真机核对清单。依赖 T009（未完成）；在 T009 完成后启动。
@@ -55,6 +57,7 @@
 | K2 | 系统 PATH 中存在 Anaconda 的 Qt5 qmake 与 MinGW g++ 8.1.0（过旧） | 若直接裸用会产生 Qt/编译器 ABI 不匹配 | 规避：统一通过 `*-local` preset 注入 Qt 自带工具链；见 [ENVIRONMENT](ENVIRONMENT.md) |
 | K3 | `Could NOT find WrapVulkanHeaders`（configure 提示） | 无（Qt Widgets 不依赖；仅影响未来 QtQuick/RHI 功能） | 记录观察，不处理 |
 | K4 | ~~**[ISSUE-002] Explorer 启动 modbuslens.exe 失败**~~ **[RESOLVED ✅]**（无法定位输入点 `_ZNSt3pmr20get_default_resourceEv` 于 Qt6Gui.dll） | 仅影响"不经终端直接双击启动"场景；终端前置正确 PATH 后启动正常；**正确 runtime 下用户已人工确认 UI 12/12 正常** | **已解决（T008.1）**：`scripts/deploy_windows.bat` 生成 build/deploy 独立目录（runtime provenance SHA256=编译器 bin VERIFIED + minimal-PATH smoke PASS）；**用户 Explorer 双击确认 PASS**。ISSUE-002 置 RESOLVED |
+| K5 | **[ISSUE-003] 本机 Qt 6.11.1 未安装 QtSerialPort 组件** | T010 Part A Implementation 的 Serial Qt adapter / SERIAL-I01 阻塞（find_package(Qt6 COMPONENTS SerialPort) 将失败） | **OPEN**：已备选项——`D:/QT/MaintenanceTool.exe` 官方补装 Additional Libraries → Qt Serial Port；待用户决策 |
 
 ## 5. 开发环境
 
@@ -142,3 +145,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-07 | **T009 Part B 启动：Learning / Test Design（docs-only）**——单 Dashboard 复用、Controller 新 API（loadReplayFile/clearResults 重命名/error 与 mode-source state）、失败策略（旧结果保持+显示 error）、FileDialog 本机实证（QtQuick.Dialogs + Qt6::QuickDialogs2）、canonical sample `samples/demo_v1.mlog` 定案、矩阵 UI-R01~R08、16 题问答、23 步计划落库；T009 保持 IN PROGRESS，**Part B 未实现** |
 | 2026-09-07 | **T009 Part B Implementation 完成（自动化全 GREEN）**：loadReplayFile 原子发布 + 失败保全旧 batch/source；clearResults 重命名；canonical sample 迁移 samples/（git mv + SHA256 验证）；Main.qml FileDialog/Header/错误 label；UI-R01~R08 新增全过（ui_bridge 22/22）；ctest 16/16、clean 96 targets 零警告、deploy+minimal-PATH smoke PASS。LKGC candidate = `d473d36`。**Manual Replay Smoke = WAITING FOR USER**（PB-24 定则，Agent 不自报 PASS） |
 | 2026-09-07 | **用户 Manual Replay Smoke = PASS（A~E 全项人工验收）**：Replay 加载/统计/四行正确、Clear 保留来源、Demo↔Replay 互切不追加。**T009 Part B DONE → T009 整体 DONE**。LKGC = `d473d36`（核验存在后写入）；HEAD = docs-only 确认提交。M5 按 BACKLOG 既有定义保持进行中（T010 未开始） |
+| 2026-09-07 | **T010 启动：Part A Learning / Test Design（docs-only）**——Serial 语义/framing/timeout/矩阵落库；**发现 ISSUE-003（QtSerialPort 未安装，OPEN）**；T010 标记 IN PROGRESS，M5 保持进行中（T009 ✅ / T010 ⬜） |

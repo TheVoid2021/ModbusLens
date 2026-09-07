@@ -12,7 +12,7 @@
 | M2 | Modbus 协议核心 | T002, T003, T004 | ✅ 完成 |
 | M3 | 模拟与故障注入 | T005, T006 | ✅ 完成 |
 | M4 | 事务分析与界面 | T007, T008 | ✅ 完成 |
-| M5 | 回放与串口模式 | T009, T010 | 🔄 进行中（T009 ✅ DONE / T010 未开始） |
+| M5 | 回放与串口模式 | T009, T010 | 🔄 进行中（T009 ✅ / T010 Part A Learning+Test Design） |
 | M6 | AI 诊断与 Agent 工具 | T011, T012 | ⬜ |
 | M7 | 收尾与演示 | T013 | ⬜ |
 
@@ -31,7 +31,7 @@
 | T008 | **Qt Analysis UI**（Part A 迁移+桥接 / Part B Dashboard+Demo） | M4 | P0 | ✅ Done（整体） | T007 | **Part A** ✅：QGuiApplication+QQmlApplicationEngine（QMainWindow scaffold 与 Widgets 依赖已删除）、qt_add_qml_module（URI ModbusLens/Main.qml，QML 模块直接挂 exe）、AnalysisController（optional→hasX+value，int 计数）、TransactionListModel（7 roles/DTO/setEntries）、UI-A01~A06 + 真实 exe 的 QML load smoke + Manual Visual Smoke（用户确认）。**Part B** ✅：runDemoBatch/clearDemo（真实调用 T005/T006/T007 链路）、四条确定性 Demo、Dashboard 统计卡扩展、QML Presentation 修正（0xNN 格式/Clear 可见性）、矩阵 UI-B01~B06 + **Manual Demo Smoke 用户确认** 全过。**范围**：无轮询/Serial/Replay/QSerialPort/Agent/AI/database/chart/动画大工程/theme/persistent settings/timer/thread/networking |
 | T008.1 | **Windows Standalone Deployment Fix**（ISSUE-002 修复） | M4 | P0 | ✅ Done（自动化全过；**用户 Explorer 双击确认 = PASS**；**ISSUE-002 = RESOLVED**） | T008 | `scripts/deploy_windows.bat`（CMakeCache 自动取路径→干净 build/deploy→windeployqt→强制编译器 bin 三件套→部署应用 QML 模块→关键文件校验）；Runtime Provenance SHA256 = 编译器 bin VERIFIED；minimal-PATH smoke（--qml-smoke-test exit=0）+ 普通运行存活全过；脚本可重复生成验证 PASS |
 | T009 | **Replay Mode**（Part A Log Format+Core / Part B UI Integration） | M5 | P0 | ✅ Done（整体） | T007 | **Part A** ✅：`src/core/replay/`（Pure C++20 Zero Qt）——`ReplayLog`（`.mlog` v1 模型 + parseReplayLog 纯文本解析：from_chars 整段消费 / CRLF 兼容 / 空行与 `#` 注释 / 八种解析错误 + 1-based 物理行号，0 = 无违规行）+ `ReplayAnalysis`（analyzeReplayLog：request 可信链 decodeRtuFrame→0x03→decodeReadHoldingRegistersRequest，失败 → InvalidRequestWire/InvalidRequestFunction/**InvalidRequestData** + 0-based transactionIndex；坏 response 为诊断事实进 T007 → CrcError/ProtocolError 而不失败；统计经 summarizeTransactions 与 Simulator 同源）；golden fixture `tests/data/demo_v1.mlog`（Implementation 迁 `samples/demo_v1.mlog` canonical）；矩阵 REPLAY-A01~A08 + I01~I05（+I03B/I03C）24 测试函数 RED（101 处 undefined reference）→GREEN；ctest 16/16、clean 96 targets 零警告。**Part B** ✅：loadReplayFile(QUrl)（QFile→string_view→parse→analyze 复用 Part A 后**原子发布**；失败只动 error state、旧 batch+mode/source 完整保留）+clearResults（clearDemo 直接重命名）+hasReplayError/replayErrorMessage/modeLabel/sourceLabel+Main.qml FileDialog（QtQuick.Dialogs 动态解析，CMake 零新增链接）/Header 绑定/错误 label；canonical sample `samples/demo_v1.mlog`（git mv 单一源头，tests/deploy/manual 共用）；UI-R01~R08 全过（ui_bridge 22/22）；ctest 16/16 零警告；deploy sample SHA256 一致 + minimal-PATH smoke PASS；**用户 Manual Replay Smoke PASS（A~E）**。**范围**：无 real-time playback/QTimer/sleep/speed/pause/seek/drag-drop/recent DB/watcher/Serial/AI/Agent/IFrameSource/第二套 Dashboard |
-| T010 | **Serial Mode** | M5 | P0 | Backlog | T007 | QtSerialPort 采集、t3.5 帧切分、环形缓冲；com0com/socat 虚拟串口对集成测试；真机核对清单 |
+| T010 | **Serial Mode**（Part A Transaction Runtime+Adapter / Part B UI+Hardware Smoke） | M5 | P0 | In Progress — **Part A: Learning / Test Design ✅（docs-only）/ Implementation ⬜（受 ISSUE-003 阻塞）**；Part B Backlog | T007（T004） | **Part A**：FC03 单事务运行时——`SerialTransactionSession`（Idle/AwaitingResponse 两态、one outstanding→Busy、任意分块累积、completion：buffer[1]==0x83→5 bytes / size==5+2N、oversized 不截断、timeout 双路：空 buffer→NoResponse→Timeout、partial→decode→CrcError/ProtocolError、completion/cancel 后回 Idle）；`encodeReadHoldingRegistersRequest`（T004 缺失的最小 encoder，语义 Frame + quantity 1~125）；QtSerialPort 薄 adapter（signals+single-shot QTimer 只做 timeout，禁 blocking API）；矩阵 SERIAL-A01~A14 + I01；配置 8N1 + baud 列表；Transport Error 与 TransactionStatus 分层。**ISSUE-003（OPEN）**：本机 Qt 6.11.1 无 QtSerialPort 组件，Qt adapter 实现受阻（Pure session 不受影响）。**范围**：无 Serial QML/COM selector/polling/QThread/FC04/06/16/TCP/sniffer/t3.5 framer/AI/Agent；不抽 IFrameSource。**Part B 边界**：Port/Baud ComboBox、Connect/Disconnect、Read Once（replace 当前 batch=1 transaction）、Serial header、transport error 展示、hardware smoke（无硬件则 NOT RUN 记录，不伪报） |
 | T011 | **AI Diagnosis** | M6 | P2 | Backlog | T007 | 诊断模块：**确定性规则引擎（不依赖 LLM）** + 报告导出（Markdown/JSON）；可选 LLM 自然语言解释（可插拔、缺失不影响） |
 | T012 | **Agent Tools** | M6 | P2 | Backlog | T007/T008/T011 输出 | 只读 Agent 工具集：读日志摘要/统计/报告；架构强制**无写 API**（类型层面不存在） |
 | T013 | **Final Integration & Demo** | M7 | P1 | Backlog | T008（含 T009–T012 可用能力） | 打包/便携发布；演示脚本与素材齐备（demo/ 目录）；文档终稿；可选：CRC 查表优化与基准（单独拆分，不并入任何协议任务） |
@@ -41,7 +41,7 @@
 ```text
 T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Codec ✅
 → T005 Simulator ✅ → T006 Fault Injection ✅ → T007 Transaction Analysis ✅
-→ T008 Qt UI ✅ → T009 Replay ✅ → T010 Serial → T011 AI Diagnosis
+→ T008 Qt UI ✅ → T009 Replay ✅ → T010 Serial（Part A Learning+Test Design 完成） → T011 AI Diagnosis
 → T012 Agent Tools → T013 Final Integration & Demo
 ```
 
@@ -80,3 +80,4 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-07 | **T009 Part B 启动：Learning / Test Design（docs-only）**——单 Dashboard / Controller 新 API / 失败策略 / FileDialog 本机实证 / canonical sample / UI-R01~R08 矩阵落库；Part B 未实现，T009 保持 IN PROGRESS |
 | 2026-09-07 | **T009 Part B Implementation 完成**（`d473d36` LKGC candidate）：loadReplayFile/clearResults/错误与来源状态/FileDialog 落地；UI-R01~R08 全过；canonical sample 迁 samples/；deploy 回归 PASS；**Manual Replay Smoke = WAITING FOR USER** |
 | 2026-09-07 | **用户 Manual Replay Smoke = PASS**：**T009 Part B DONE → T009 整体 DONE**；LKGC = `d473d36`；T010 转 Ready（M5 保持进行中，按既有定义含 T010） |
+| 2026-09-07 | **T010 启动：Part A Learning / Test Design（docs-only）**——Serial 事务运行时设计落库；**ISSUE-003（QtSerialPort 未安装）建档 OPEN**；T010 标记 IN PROGRESS |
