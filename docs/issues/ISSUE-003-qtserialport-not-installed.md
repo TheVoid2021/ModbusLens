@@ -79,3 +79,27 @@ Qt 6 安装时未勾选 **Additional Libraries → Qt Serial Port** 组件（属
 1. 打开 `D:\QT\MaintenanceTool.exe` → "Add or remove components" → 搜索框输入 `serial` → 确认 **Qt 6.11.1 → Additional Libraries → Qt Serial Port** 复选框是否已勾选（不是 Qt Serial Bus）。
 2. 补装完成后运行安装日志应出现当日记录：查看 `D:\QT\InstallationLog.txt` 末尾时间戳。
 3. 硬核验（PowerShell）：`Test-Path D:\QT\6.11.1\mingw_64\include\QtSerialPort` 与 `Test-Path D:\QT\6.11.1\mingw_64\bin\Qt6SerialPort.dll` 应为 True。
+
+## 2026-09-07 最终验证 = **PASS**；状态：**RESOLVED ✅**
+
+### Resolved Root Cause（最终根因，保留上文全部 FAILED 调查记录）
+
+QtSerialPort initially existed only in a separate Qt 6.11.1 **MSVC** installation (`D:\QTDesign\6.11.1\msvc2022_64`)，而 ModbusLens 实际使用 `D:\QT\6.11.1\mingw_64` + `D:\QT\Tools\mingw1310_64`（MinGW kit）——多 prefix / 多 kit 依赖错位，此前初次补装疑似落入了错误的 kit。用户随后通过 `D:\QT\MaintenanceTool.exe` 把官方 Qt Serial Port 装到**正确的 MinGW kit**（用户侧文件实证 + 本轮代理复核双通过）。
+
+### Closure Evidence（逐一验证，2026-09-07）
+
+| 项 | 结果 |
+| --- | --- |
+| `include/QtSerialPort/`（QSerialPort、QSerialPortInfo 等 13 个头文件） | ✅ EXISTS（本轮实证） |
+| `lib/cmake/Qt6SerialPort(Private)` | ✅ EXISTS |
+| `bin/Qt6SerialPort.dll` | ✅ EXISTS |
+| `lib/libQt6SerialPort.a` | ✅ EXISTS |
+| compiler | ✅ 不变：`D:\QT\Tools\mingw1310_64\bin\g++.exe`（CMakeCache 证实） |
+| 临时 CMake probe（`find_package(Qt6 6.11 REQUIRED COMPONENTS Core SerialPort)` + link `Qt6::Core Qt6::SerialPort` + 引用 QSerialPort/QSerialPortInfo） | ✅ configure/compile/link/run 全过（"probe ok: 2 serial device(s) visible"） |
+| 第三方 serial 库 | ✅ 无 |
+| 全局 PATH 修改 | ✅ 无（deploy minimal-PATH 验证延续） |
+| Qt 版本切换 | ✅ 无（仍 6.11.1 MinGW） |
+
+### 后续影响
+
+T010 Part A Implementation 在实证通过后立即恢复并完成（SERIAL-A01~A16 + adapter 全绿，见 T010 档案）。

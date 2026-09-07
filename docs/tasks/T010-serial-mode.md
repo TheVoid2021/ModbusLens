@@ -1,8 +1,8 @@
 # T010 — Serial Mode
 
-> 状态：**IN PROGRESS**｜Part A（Serial Transaction Runtime + QtSerialPort Adapter）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜（受 ISSUE-003 阻塞）**｜Part B（Serial UI Integration + Hardware/No-Hardware Smoke）：⬜ Not Started
+> 状态：**IN PROGRESS**｜Part A（Serial Transaction Runtime + QtSerialPort Adapter）：**DONE ✅**（Learning / Test Design + Implementation + 全量验证；ISSUE-003 RESOLVED）｜Part B（Serial UI Integration + Hardware/No-Hardware Smoke）：⬜ Not Started
 > 前置确认：T008 DONE、T009 DONE、LKGC = `bb0a652` 之前的代码提交 `d473d36`（LKGC）、T010 未开始、ISSUE-001/002 RESOLVED。
-> ⚠ **ISSUE-003（OPEN）**：本机 Qt 6.11.1 未安装 QtSerialPort 组件——Part A Implementation 的 Serial Qt adapter 与 SERIAL-I01 阻塞，待用户决策补装。
+> **ISSUE-003 RESOLVED ✅**（2026-09-07）：Qt Serial Port 已补装到正确 MinGW kit（五步实证全过，根因=多 kit 错位）。
 
 ## Goal
 
@@ -286,3 +286,63 @@ Part A Learning / Test Design 完成：Serial 角色定案、framing 前提与 c
 | Part A Learning / Test Design | 见 `git log` | `T010(Part A): Serial 事务运行时设计 — Learning / Test Design（docs-only）`（含 ISSUE-003） |
 
 > LKGC 维持 `d473d36` 不变（docs-only 不推进）。
+---
+
+# Part A — Implementation（2026-09-07）
+
+## 环境前置：ISSUE-003 最终验证 PASS → RESOLVED
+
+本轮先执行"安装后实证"：正确 MinGW kit 的 headers/CMake package/DLL/.a 全部 EXISTS，compiler 未变；仓库外临时 CMake probe（`find_package(Qt6 6.11 REQUIRED COMPONENTS Core SerialPort)` + link `Qt6::Core Qt6::SerialPort` + 真实 include/使用 QSerialPort/QSerialPortInfo）configure/compile/link/run 四步全过（运行时可见 2 个串口设备）。**ISSUE-003 = RESOLVED**（根因：初次补装落入 MSVC kit `D:\QTDesign\6.11.1\msvc2022_64`；随后装到正确 MinGW kit）。probe 不入仓库。
+
+## Implementation
+
+- **FC03 request encoder（T004 最小补全，Pure Core）**：`encodeReadHoldingRegistersRequest(address, startAddress, quantity) → variant<ModbusRtuFrame, Function03EncodeError>`。quantity 1~125 由 encoder 校验（InvalidQuantity）；**unicast 地址 1~247 校验留在 Serial Session 层**（原因：通用 codec 应保持地址无关；Session 是 unicast 语义的自然边界——分层理由已记入头文件与档案）。只生成语义 Frame，wire+CRC 仍归 encodeRtuFrame。
+- **SerialTransactionSession（src/core/serial/，Pure C++20 Zero Qt）**：两态 `Idle/AwaitingResponse`（无 Connected/Disconnected——连接属 adapter）；`beginReadHoldingRegisters`（Busy/InvalidAddress/InvalidQuantity 失败即返回、绝无半初始化状态；成功清 buffer 存可信 request 返回 frame+wire）；`feedResponseBytes(span, elapsed)`（任意 chunk 累积；exact-candidate 才收口；oversized **不截断**等 timeout 整 buffer decode）；`onResponseTimeout(elapsed)`（空 buffer→NoResponse→T007（Timeout 由 elapsed≥threshold 判定）；非空→整 buffer decode→真实诊断；Idle 误用→NotActive variant 错误）；`cancel()`（丢弃 pending→Idle，不产出 TransactionStatus）；完成后必 reset（buffer/request 清空），上一响应不污染下一事务。
+- **最终 framing 规则（按修正版实现并用测试锁死）**：
+  - buffer < 2 → AwaitingMoreData；
+  - `(buffer[1] & 0x80) != 0` → 异常格式 candidate = **5 bytes**（**不硬编码 0x83**——A15 以 0x84 锁死：5 字节即收口，T007 判 ProtocolError，不等 timeout）；
+  - buffer[1] == 0x03 → buffer<3 则等；否则 candidate = **5 + buffer[2]（响应自身 byteCount，不是 request quantity 推导）**——A16 以 byteCount=2 的 7 字节响应锁死"不硬等 9 bytes"；
+  - 其他正常 function code：v1 不发明长度解析器，保 buffer 至 timeout 整 buffer decode/analyze；
+  - exact-candidate：`size == candidate` 立即收口；`size > candidate` 不截断（A14：9+1=10 字节单 chunk → Awaiting → timeout → CrcError 而非截断的 Success）。
+- **QtSerialPort 薄 adapter（src/ui/serial/，Qt/App 层）**：QSerialPort（8N1 + caller baud）+ QElapsedTimer + single-shot QTimer（**仅 response timeout，非轮询**）+ Session；异步：readyRead→readAll→feed→完成则 stop timer + emit transactionCompleted；timeout→onResponseTimeout→emit；禁 waitForReadyRead/waitForBytesWritten/sleep；**write 失败与端口 fatal → session.cancel() + Transport Error，绝不伪造成 Timeout**；closePort/cancel 不产出 TransactionStatus。
+- **CMake**：`find_package` 组件加 SerialPort；`serial`（session 测试）与 `serial_adapter`（Qt6::SerialPort **只链接这一个测试 target**——红线：modbuslens_core 不碰 Qt；app binary 也不链 SerialPort，等 Part B UI 接入才是真实 link graph）。
+
+## Problems Encountered
+
+- **PE-4（真问题，价值最高的一课）：QSerialPort 打开不存在端口时的 errorOccurred 反馈风暴**。实测：`open()` 失败后 errorOccurred 会发射"0（NoError）→ 10（DeviceNotFoundError）× 无限循环"；handler 里 close() 每轮又触发更多 error，导致堆栈崩坏（adapter 测试 SIGSEGV，gdb/最小 repro 定位）。修复：① errorOccurred 改 **Qt::QueuedConnection**（避免在 open() 调用栈内重入半开端口）；② `suppressPortErrors_` 标志——fatal error 只处理一次，后续发射至下次 startTransaction 前忽略；③ open 失败走 startTransaction 自身的同步返回 + 自 emit transportError，不依赖该信号。
+- **PE-5（测试期望 vs 真实 wire-truth）**：SERIAL-A07 原按"partial→ProtocolError"写期望，实际 4 字节 partial `01 03 04 00` **恰好等于 RTU 最小帧形状（addr+fn+CRC=4）**，codec 将其按帧解释 → CrcMismatch → **CrcError**。修正：A07 双场景锁定真实行为（4B→CrcError；2B 低于最小帧→FrameTooShort→ProtocolError），两种都 ≠ Timeout——"以真实为准"原则的又一次践行。
+- RED 期：serial_adapter 测试 target 引用了尚不存在的 SerialPortAdapter.cpp → configure 报 "Cannot find source file"（RED 调整后重录：15 处 undefined reference）。
+
+## Verification
+
+```text
+核对正确 kit + 临时 CMake probe（不入仓库）：configure/compile/link/run 四步 PASS
+RED：15 处 undefined reference（Session 全部 API + encoder + Adapter 全部成员/vtable）
+GREEN：cmake --build exit=0
+serial 测试：21/21（SERIAL-A01~A16 + encoder 3 用例）
+serial_adapter 测试：2/2（SERIAL-I01 invalid port open→Transport Error 不崩不超时；I02 idle wiring）
+ctest --preset debug-local：100% tests passed, 0 tests failed out of 18（原 16 + serial + serial_adapter）
+clean build（--clean-first）：106 targets，编译 warning/error 命中 0（configure 期 QTP0001/QTP0004 dev 提醒为 Qt 6.11 既有现象，未在本任务引入/扩大）
+Core Zero Qt：src/core/serial 仅标准库/自有 core 头文件（无 Qt include）
+ISSUE-001 复查：6 处 get_if 全部作用于具名 local result
+deploy_windows.bat：exit=0；Qt6SerialPort.dll 按设计不在 deploy（app binary 未链 SerialPort，真实 link graph 记录在案）；minimal-PATH --qml-smoke-test exit=0
+ISSUE-003：RESOLVED ✅（closure evidence 见 Issue 文档）
+```
+
+## Result
+
+**T010 Part A = DONE**（自动化全绿，完全无硬件：session 以 byte span+elapsed 注入全覆盖）。**T010 overall 仍 IN PROGRESS**（Part B 未开始）；**M5 仍 IN PROGRESS**（T009 ✅ / T010 Part A ✅ / T010 Part B ⬜）。无需用户人工验收的 Manual Smoke 门槛本轮（无 UI 变更——Serial UI 属 Part B）。
+
+## Files Changed
+
+- 新增：`src/core/serial/SerialTransactionSession.{h,cpp}`、`src/ui/serial/SerialPortAdapter.{h,cpp}`、`tests/test_serial_session.cpp`、`tests/test_serial_adapter.cpp`
+- 修改：`src/core/protocol/Function03.{h,cpp}`（+encodeReadHoldingRegistersRequest）、`CMakeLists.txt`（SerialPort 组件 + serial/serial_adapter 两 test target + offscreen 列表）、`docs/issues/ISSUE-003-*.md`（RESOLVED）
+
+## Git Commit
+
+| 提交 | 哈希 | 说明 |
+| --- | --- | --- |
+| Part A Implementation（code/config） | `b31233b` | `T010(Part A): implement serial transaction runtime and QtSerialPort adapter`（**新 LKGC**） |
+| 归档 docs-only | `<docs-only HEAD>` | LKGC 哈希回填 |
+
+> LKGC = `b31233b`；Part B 未开始。
