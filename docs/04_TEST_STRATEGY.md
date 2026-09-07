@@ -45,7 +45,7 @@
 
 ### 三种模式复用性验证（全局护栏）
 
-- **口径一致性测试**：同一组测试帧流，分别经过 SimulatorSource / ReplaySource 进入分析核心，断言产出统计/报告完全一致（T009 落地，与 Replay 同批）。这是架构承诺 D1 的可自动验证形式。
+- **口径一致性测试**：同一组测试帧流，分别经过 SimulatorSource / ReplaySource 进入分析核心，断言产出统计/报告完全一致。**T009 Part A 已落地第一形态**：T008 Demo Batch（Simulator 现场生成）与 `demo_v1.mlog` Golden Replay（历史文件加载）共享同一 wire 金样，两套统计快照严格相等（4/4/0、1/1/1/1/0、0.25、25.0ms）。这是架构承诺 D1 的可自动验证形式。
 
 ### Simulator
 
@@ -53,7 +53,8 @@
 
 ### Replay
 
-- `tests/data/sample-*.mlog` 夹具 + 期望命中结论（T009；MLog 格式同一任务定义）。
+- `tests/data/demo_v1.mlog` golden fixture（**T009 Part A 落地**，configure_file COPYONLY 进 build 树 + 单一 compile definition 定位）+ 期望命中结论：REPLAY-A01~A08 解析矩阵（header 合法性/hex 金样/行号规则/注释空行 CRLF）、REPLAY-I01~I05 集成矩阵（四结果 Golden 统计与 T008 Demo 同口径 4/4/0·1/1/1/1/0·0.25·25.0ms、确定性双跑全等、坏 request→InvalidRequestWire/InvalidRequestData/InvalidRequestFunction、坏 response→CrcError/ProtocolError 不失败）。
+- 口径一致性在此的自动化形式：Replay Golden 与 Simulator Demo 的统计快照严格相等（架构承诺 D1 的可验证形式）。
 
 ### Serial
 

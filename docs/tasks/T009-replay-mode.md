@@ -1,8 +1,8 @@
 # T009 — Replay Mode
 
-> 状态：**IN PROGRESS**｜Part A（Replay Log Format + Replay Core）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**｜Part B（Replay UI Integration）：⬜ Not Started
-> 前置确认：T008 DONE、M4 CLOSED、LKGC = `4075223`、ISSUE-002 RESOLVED。
-> Part A Implementation 边界预告（未实现，禁止提前）：versioned `.mlog` v1 格式、transaction-oriented text log、纯 C++ parser、Replay semantic model、Replay batch analyzer、复用 T004/T007 模块、deterministic tests、sample fixture；QML FileDialog、Replay 页面、playback、pause/resume、speed、real-time sleeping、filesystem watcher、database、binary format、compression、Serial、AI、Agent 全部不做。
+> 状态：**IN PROGRESS**｜Part A（Replay Log Format + Replay Core）：**DONE ✅**（Learning / Test Design + Implementation + 全量验证）｜Part B（Replay UI Integration）：⬜ Not Started
+> 前置确认：T008 DONE、M4 CLOSED、LKGC = `4075223`、ISSUE-002 RESOLVED。Part A 完成验收见文末 Verification；T009 整体完成后才标 DONE。
+> Part A Implementation 边界（已实现，见文末；超范围禁项仍然成立）：versioned `.mlog` v1 格式、transaction-oriented text log、纯 C++ parser、Replay semantic model、Replay batch analyzer、复用 T004/T007 模块、deterministic tests、sample fixture；QML FileDialog、Replay 页面、playback、pause/resume、speed、real-time sleeping、filesystem watcher、database、binary format、compression、Serial、AI、Agent 全部不做。
 
 ## Goal
 
@@ -128,6 +128,21 @@ wire field 规则：
 
 `01 03` 在语法上可以是合法 hex bytes——至于是不是合法 RTU Frame，交给后面的 T004 decoder 判断。**不要让 text parser 重复实现 RTU 规则。**
 
+## Parser Robustness 规则（Implementation 前定案）
+
+A. **CRLF**：parser 必须正确接受 `\r\n`（按 `\n` 切行，尾部 `\r` 在 trim 后不污染 field）。REPLAY-A07 加入 CRLF case。
+B. **elapsed**：必须 `>= 0`；`-1` / `abc` / 整数溢出 → InvalidElapsed。
+C. **timeout**（header `timeout_ms`）：必须 `> 0`；`0` / 负数 / 非数字 / 溢出 / trailing garbage（如 `1000abc`）→ InvalidHeader。不建新 enum，InvalidHeader 足够。
+
+## Line Number 规则（Implementation 前定案）
+
+`ReplayParseError.lineNumber` = **1-based physical line number**（含 blank/comment 行的实际位置）。错误发生在文件第 6 行 → lineNumber=6。
+
+- 整个文件没有任何非空/非注释行 → MissingHeader，lineNumber = **0**（无具体 offending line）。
+- 第一个 meaningful line 就是 TXN → MissingHeader，lineNumber = 该物理行号。
+
+`ReplayExecutionError.transactionIndex` = **0-based vector index**（定位 ReplayLog.transactions；第一条=0）。lineNumber 给人看文件位置，transactionIndex 给程序定位 records——两个不同概念，不混用。
+
 ## Parser 与 Protocol Validation 分层
 
 ```text
@@ -148,21 +163,37 @@ Response wire → decodeRtuFrame：
 
 所以：**坏 Request = Replay record 无法分析**；**坏 Response = 往往正是 Replay 想诊断的历史故障**。必须明确区分。
 
-## Replay Execution Error（定案，不实现）
+## Replay Execution Error（Implementation 前修正：三值定案）
+
+**Request 可信链（必须全过才允许进入 T007 Analyzer）**：
+
+```text
+requestWire
+↓ decodeRtuFrame()
+合法 RTU Frame
+↓ functionCode == 0x03
+↓ decodeReadHoldingRegistersRequest()
+合法 Function03 semantic request
+→ 才允许调用 analyzeFunction03Transaction()
+```
 
 ```cpp
 enum class ReplayExecutionErrorCode {
-    InvalidRequestWire,
-    InvalidRequestFunction
+    InvalidRequestWire,     // RTU decode 失败（CRC mismatch / FrameTooShort）
+    InvalidRequestFunction, // RTU Frame 合法但 functionCode != 0x03
+    InvalidRequestData      // Frame 与 function 合法但 0x03 语义校验失败
+                            //（quantity=0 / quantity=126 / request data 长度错误）
 };
 
 struct ReplayExecutionError {
     ReplayExecutionErrorCode code;
-    std::size_t transactionIndex{};
+    std::size_t transactionIndex{};   // 0-based vector index（非 lineNumber）
 };
 ```
 
-当前只支持 Function 0x03。Request decode 成功但 functionCode != 0x03 → `InvalidRequestFunction`。
+**不把 InvalidRequestData 混成 ProtocolError**：T007 analyzer 的输入 contract 要求 request 本身已经可信；Replay 必须先满足该 contract，再谈响应分类。当前只支持 Function 0x03；Request decode 成功但 functionCode != 0x03 → `InvalidRequestFunction`。
+
+**InvalidRequestData 金样**：`01 03 00 00 00 00 45 CA` —— payload `01 03 00 00 00 00`，CRC = `0xCA45`（wire `45 CA`，CRC 本身正确）；quantity=0 → decodeRtuFrame 成功、decodeReadHoldingRegistersRequest 失败（InvalidQuantity）→ `ReplayExecutionErrorCode::InvalidRequestData`（REPLAY-I03B，P0）。不用坏 CRC 测这一条——否则无法证明 semantic validation 存在。
 
 ## Replay Outcome（定案，不实现）
 
@@ -220,8 +251,9 @@ ReplayAnalysisResult analyzeReplayLog(const ReplayLog& log);
 | REPLAY-A04 | `MODBUSLENS_MLOG\|2\|timeout_ms=1000` | UnsupportedVersion | **P0** |
 | REPLAY-A05 | wire field 含 `GG` | InvalidHex + 正确 lineNumber | **P0** |
 | REPLAY-A06 | TXN 字段数缺失或多余 | InvalidRecord | **P0** |
-| REPLAY-A07 | 空行 + `# comment` | 正确忽略 | P1 |
-| REPLAY-A08 | `TXN\|abc\|...` | InvalidElapsed | P1 |
+| REPLAY-A07 | 空行 + `# comment`（含 CRLF 行尾） | 正确忽略；CRLF 行尾不污染 field | P1 |
+| REPLAY-A08 | `TXN\|abc\|...` / `TXN\|-1\|...` | InvalidElapsed | P1 |
+| （附加） | `timeout_ms=0` / 非数字 / trailing garbage | InvalidHeader | P1 |
 
 ## Replay Integration Test Matrix（REPLAY-I01~I04/I05）
 
@@ -230,8 +262,9 @@ ReplayAnalysisResult analyzeReplayLog(const ReplayLog& log);
 | REPLAY-I01 | 加载 demo_v1.mlog → parse → analyzeReplayLog | 4 transactions, status 顺序 Success/Exception/CrcError/Timeout, statistics 4/4/0, 1/1/1/1/0, rate=0.25, avg=25.0 | **P0** |
 | REPLAY-I02 | 同一 ReplayLog analyze 两次 | ReplayBatchAnalysis 完全一致 | P1 |
 | REPLAY-I03 | Request CRC 损坏 | ReplayExecutionError{InvalidRequestWire, transactionIndex} | **P0** |
+| REPLAY-I03B | Request `01 03 00 00 00 00 45 CA`（CRC 正确但 quantity=0） | ReplayExecutionError{InvalidRequestData, transactionIndex} | **P0** |
 | REPLAY-I04 | Request 合法 + Response CRC 损坏 | 整个 Replay 不失败；该 transaction = CrcError | **P0** |
-| REPLAY-I05 | Response CRC 正确但 address/function 不匹配 | 正常进入 T007 Analyzer → ProtocolError | P1 |
+| REPLAY-I05 | Response CRC 正确但 address 不匹配（ModbusRtuFrame+encodeRtuFrame 生成，不新增 hardcoded KAT） | 正常进入 T007 Analyzer → ProtocolError | P1 |
 
 ## 不做 IFrameSource
 
@@ -260,76 +293,78 @@ T009 Part B 后续才做：Replay UI Integration——Load .mlog（Qt FileDialog
 **R-Q15. 为什么现在仍不抽 IFrameSource？** Simulator/Replay 调用形状不同（Request→Response vs Recorded Batch→Analysis）；等 T010 Serial 出现后再观察三者共性。
 **R-Q16. Replay 如何满足"无硬件也能排查历史问题"的项目目标？** 真实从站的历史通信保存为 .mlog → Replay 加载并重新分析 → 产出与现场相同的诊断结论——不需要真硬件连接。
 
-## Implementation Plan（Part A 下一阶段，18 步）
-
-1. 创建 ReplayLog.h（数据模型 + parser error/model）
-2. 创建 ReplayLog.cpp（parseReplayLog 实现）
-3. 创建 ReplayAnalysis.h/.cpp（execution error/model + analyzeReplayLog）
-4. 建 tests/data/demo_v1.mlog（golden fixture）
-5. REPLAY-A01~A08 tests
-6. REPLAY-I01~I04（可选 I05）tests
-7. RED
-8. GREEN
-9. clean build
-10. full ctest
-11. Core Zero Qt
-12. docs 归档
-13. code commit
-14. LKGC
-15. docs backfill
-16. （预留：Part B — Replay UI Integration）
-
 ## Implementation
 
-**未发生。** 本阶段 docs-only；`src/`、`tests/`、`CMakeLists.txt`、`scripts/` 零改动。
+**Part A Implementation 完成**（真实 TDD：RED → GREEN → 全量验证）：
 
-## Files Changed（本阶段）
+- `src/core/replay/ReplayLog.h` — 数据模型（ReplayTransactionRecord/ReplayLog，operator== default）、parser 错误模型（八值 + lineNumber）、`parseReplayLog(std::string_view)` 声明。零 Qt 依赖。
+- `src/core/replay/ReplayLog.cpp` — parser 实现：anonymous namespace 小助手（trim/splitFields/parseInteger/parseHexWire/fitsMilliseconds），逐物理行 1-based 计数，header/record 两态机；`std::from_chars` 整段消费（拒绝符号/trailing garbage/溢出）；hex token 恰 2 字符 + 0x00~0xFF。
+- `src/core/replay/ReplayAnalysis.h/.cpp` — `analyzeReplayLog`：request 可信链（decodeRtuFrame → functionCode==0x03 → decodeReadHoldingRegistersRequest）任何一环失败 → ReplayExecutionError（新错误码 **InvalidRequestData**）；response 侧 decode 失败**不是** replay 失败，进入 T007 → CrcError/ProtocolError；统计经 summarizeTransactions（与 Simulator/Demo 同源）。
+- 所有 variant 先具名再 get_if（ISSUE-001 纪律）；Replay 不调用 SimulatedSlave、不 sleep、不自己分类事务。
 
-- 新增：`docs/tasks/T009-replay-mode.md`（本文件）、`docs/devlog/2026-09-07-T009-PartA-TestDesign.md`
-- 修改：`docs/PROJECT_STATUS.md`（四段式状态）、`docs/BACKLOG.md`（T009 行状态）
-- 未改动：`src/`、`tests/`、`CMakeLists.txt`、`scripts/`、presets
+## Files Changed
+
+- 新增：`src/core/replay/ReplayLog.h` / `ReplayLog.cpp`、`src/core/replay/ReplayAnalysis.h` / `ReplayAnalysis.cpp`、`tests/data/demo_v1.mlog`（golden fixture）、`tests/test_replay_log.cpp`、`tests/test_replay_analysis.cpp`、`docs/devlog/2026-09-07-T009-PartA-Implementation.md`
+- 修改：`CMakeLists.txt`（modbuslens_core 源列表追加 replay 两文件；新增 `replay_log` / `replay_analysis` 两个 CTest target；configure_file COPYONLY 复制 fixture 进 build 树；set_tests_properties 补两个名字）
+- 文档同步：`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/02_ARCHITECTURE.md`、`docs/04_TEST_STRATEGY.md`、`docs/INTERVIEW_NOTES.md`
 
 ## Problems Encountered
 
-无实现问题（docs-only）。
+- **PE-1（本次真 bug）：parseInteger 丢弃解析结果。** from_chars 写进 lambda 局部 `value`，忘记写回 out 参数 → version 恒 0、timeout/elapsed 全 0 → 每个 header 被误报 UnsupportedVersion（REPLAY-A01/A02/A03/A07 等大批失败）。定位：最小 standalone repro（g++ 直链 libmodbuslens_core.a，打印 version 恒 0）证明 from_chars 解析正常但外部值为 0 → 根因三行内锁定。教训：out-param 模板助手，from_chars 目标必须直接就是 out。
+- **PE-2：测试目标挑刺 —— 两处 -Wrange-loop-construct**（`for (const std::string text : {…})` 按值拷贝）→ 改为 `const std::string&`。零警告恢复。
 
 ## Solutions
 
-（无。）
+见 PE-1/PE-2。PE-1 修正为 `std::from_chars(text.data(), text.data()+text.size(), out, base)` 直接写 out。重跑后全部 GREEN。
 
-## Verification（本阶段，docs-only）
+## Verification
 
 ```text
-独立 CRC 脚本复核（一次性，不进仓库）：
-  Success request   01 03 00 00 00 02 → CRC 0x0BC4, wire C4 0B ✓
-  Success response  01 03 04 00 64 00 C8 → CRC 0x7ABA, wire BA 7A ✓
-  Exception request 01 03 00 64 00 01 → CRC 0xD5C5, wire C5 D5 ✓
-  Exception response01 83 02           → CRC 0xF1C0, wire C0 F1 ✓
-  CRC Error         01 03 04 00 64 00 C8 → 正确 CRC 0x7ABA，wire 故意 BA 7B → decode CrcMismatch ✓
+RED（真实记录，工作树不留存）：
+  cmake --build → link 失败 101 处 undefined reference to modbuslens::core::parseReplayLog / analyzeReplayLog
+  （另先修一处测试代码自身编译错误：QVERIFY 用于非 void 函数 readGoldenFixture）
 
-git diff --check      → 通过
-git diff --name-only  → 仅 docs/；src/、tests/、CMakeLists.txt、scripts/ 未出现
+GREEN：
+  test_replay_log.cpp     17/17：REPLAY-A01~A08（A01 ValidHeader / A02 OneTXN / A03 NO_RESPONSE
+                          / A04 UnsupportedVersion / A05 InvalidHex+行号 / A06 RecordShape×3
+                          / A07 comments+blank+CRLF≡LF（>> 相等断言）/ A08 abc+(-1)
+                          / A09 MissingHeader（0 与物理行号两种）/ A10 timeout 六种错误
+                          / A11 MissingRequest / A12 空 response+NO_RESPONSE 在 request）
+  test_replay_analysis.cpp 7/7：REPLAY-I01 Golden（4 状态顺序/exceptionCode=0x02/统计 4,4,0,1,1,1,1,0,0.25,25.0）
+                          / I02 determinism（两次全等）/ I03 坏 CRC request→InvalidRequestWire!
+                          0 与 1 / I03B quantity=0→InvalidRequestData / I03C 0x06→InvalidRequestFunction
+                          / I04 坏 CRC response→CrcError 不失败 / I05 地址不符→ProtocolError
+
+  ctest --preset debug-local : 100% tests passed, 0 tests failed out of 16（原 14 + replay_log + replay_analysis）
+  clean build（--clean-first）：96 targets，零警告零错误
+  QML smoke：--qml-smoke-test exit=0
+  Core Zero Qt：grep src/core/replay → 无 Q* 引用，exit=1 PASS
+  ISSUE-001 防回归：3 处 get_if 全部作用于具名局部变量
 ```
 
 ## Result
 
-Part A Learning / Test Design 完成：Replay 角色定案、`.mlog` v1 格式定案、数据模型/错误模型/Analyzer API 定案、wire 金样独立复核、分层规则（Parser→Codec→Analyzer）落库、8+4 测试矩阵、16 题问答、18 步实施计划齐备。**Replay 未实现**；Part B 未开始；T009 整体 IN PROGRESS。
+**T009 Part A = DONE**。`.mlog` v1 解析 + Replay 批量分析链落地 modbuslens_core（Pure C++20、Zero Qt）；request 可信链三错误码（含 InvalidRequestData）；bad request/bad response 非对称语义经 REPLAY-I03/I03B/I03C 与 I04/I05 锁定；Golden Replay 统计与 T008 Demo Dashboard 完全同口径（4/4/0、1/1/1/1/0、0.25、25.0ms）——Simulator 现场生成 vs 历史文件加载达成一致。**T009 整体保持 IN PROGRESS（Part B Replay UI Integration 未开始）**。
 
 ## Knowledge Learned
 
-- **Replay 与 Simulator 的接口形状不同**：Request→Response vs Recorded Batch→Analysis——不强行统一（IFrameSource 推迟）。
-- **`optional<vector<uint8_t>>` vs 空 vector**："收到 0 字节"≠"没收到"——与 T006 设计一致。
-- **版本号是格式演化的保险**：`.mlog` v2 可以新增字段而 v1 parser 仍可拒绝（不是崩溃）。
-- **三层分线**：Text Syntax（Parser）→ Wire Codec（T004）→ Transaction Analysis（T007）——每层只做自己那一层的事。
+- **from_chars 的 out-param 陷阱**：模板 helper 里把 parsed value 存入局部再忘记赋值给 out 是"合法代码、错误语义"的典型 bug；被 reprо 的"局部=1、外部=0"二分打印立刻锁定。
+- **bad request ≠ bad response**：前者阻断可信链（execution error + 0-based index），后者进入诊断分类（CrcError/ProtocolError）。这是"工具自身故障"与"被诊断对象故障"的边界。
+- **CRLF 兼容一行内解决**：按 `
+` 切行 + trim 吃掉尾部 `
+`，old-Windows 文件与 Git 的 LF 夹具产出完全相同的 ReplayLog（>> 相等断言锁定）。
+- **lineNumber（1-based physical）↔ transactionIndex（0-based vector）**：给人看 vs 给程序定位，两个概念不混用。
 
 ## Potential Interview Questions
 
-- 16 题见上；Implementation 阶段将补充：string_view 生命周期、hex parser 的边界 case、ReplayLog 的 move 语义。
+- 16 题见上 + 本阶段新增：为什么 request 要过 decodeReadHoldingRegistersRequest 这一层（T007 contract）、from_chars 为什么优于 atoi（完整消费 + 无未定义行为）、CRLF 如何兼容（切行后 trim）、解析脏数据为什么不 crash（variant 错误模型 + 行号）、Golden Replay 与 Demo Dashboard 同口径的意义（D1 架构承诺的可验证形式）。
 
 ## Git Commit
 
 | 提交 | 哈希 | 说明 |
 | --- | --- | --- |
-| Part A Learning / Test Design | 见 `git log` | `T009(Part A): Replay Log 格式与分析学习测试设计（docs-only）` |
+| Part A Learning / Test Design | `6159918` | `T009(Part A): Replay Log 格式与回放核心 — Learning / Test Design（docs-only）` |
+| Part A Implementation | `e4920da` | `T009(Part A): implement versioned replay log and analysis core`（**新 LKGC**） |
+| 归档回填 | `<docs-only HEAD>` | docs-only；LKGC 哈希由本提交写入 |
 
-> LKGC 维持 `4075223` 不变（docs-only 不推进）。
+> LKGC = `e4920da`（Part A Implementation 代码提交）；Part B 未开始。

@@ -48,7 +48,9 @@
 - ✅ 已可答（T005，见任务档案 + ISSUE-001）：模拟从站端点设计（Frame 进 Frame 出、const 纯应答）、连续寄存器文件 vs 稀疏映射、越界判定防 uint16 回绕、异常响应即协议输出、为什么推迟 IFrameSource（rule of three）；**ISSUE-001**：variant 临时生命周期 → 测试悬垂指针（"测试全过 ≠ 无 UB"）→ optional 拷贝语义修复
 - ✅ 已可答（T006，见任务档案）：确定性故障注入设计（四模式、单 config 单模式）、Timeout=Session 层判断（DropResponse 只是交付层事实）、CRC fault 只作用 wire 层（payload 不动 + 固定 XOR 策略）、ArtificialDelay=元数据不真等、Exception/CRC Error/Drop 三层区分；**T006 补充**：确定性优先于拟真的取舍论证
 - ✅ 已可答（T007 Part A，见任务档案）：事务=请求+观察（帧合法≠回答正确）、六状态语义（含 Timeout=NoResponse+阈值）、RTU 无事务 ID 的串行配对模型、数量一致性首次跨帧校验、elapsed/exceptionCode 双不变量经 makeAnalysis 漏斗保证、穷举 switch 无 default 的防静默扩展
-- ✅ 已可答（T008 Part A，见任务档案）：QML 模块挂 exe 的静态注册拉入问题（`__has_include` 静默跳过）、Widgets→Quick 迁移与 CMake 组件替换、optional→hasX+value 的 QML 边界、QAbstractListModel roles、QML load smoke + Manual UI Smoke 双层验收
+- ✅ 已可答（T007 Part B，见任务档案）：statistics snapshot 的四条不变量与测试锁定方式（A：observed=pending+completed；B：completed=五分类之和；C：successRate 有值 ⟺ completed>0；D：avg latency 有值 ⟺ success>0）、optional 为空在 UI 上呈现 "—" 的语义（"没有统计"≠"0"）、completed 按分类之和构造的防漏记风险
+- ✅ 已可答（T008 Part B + T008.1，见任务档案 + ISSUE-002）：确定性 demo 与真实 core 链路的结合（演示即集成测试）、batch publish 原子性、Runtime Provenance（编译器三件套 SHA256）与 minimal-PATH smoke、Windows PATH 冲突（旧 libstdc++ 无 pmr 符号）的系统性排查
+- ✅ 已可答（T009 Part A，见任务档案）：Simulator vs Replay 的本质区别（现场计算 vs 历史重新分析）、`.mlog` v1 版本化文本格式为何不选 JSON（无标准库 parser、Core 边界）、解析分层 Text Syntax→Wire Codec→Transaction Analysis（parser 不懂 CRC）、坏 request（ReplayExecutionError 三错误码）vs 坏 response（CrcError/ProtocolError 诊断事实）的非对称处理、NO_RESPONSE 用 `optional` 而非空 vector、CRLF 兼容一行搞定、lineNumber（1-based physical）vs transactionIndex（0-based vector）、from_chars 完整消费 vs atoi、Golden Replay 与 Simulator Demo 统计同口径（D1 承诺的可验证形式）
 - 三模式为什么能共享核心（IFrameSource 抽象落地细节）（T005/T009/T010）
 - 虚拟时钟与确定性模拟（T005/T006）
 - 事务配对的启发式算法与广播/超时处理（T007）

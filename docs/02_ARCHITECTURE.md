@@ -80,7 +80,7 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 | 模式 | 数据来源 | 关键点 | 复用程度 |
 | --- | --- | --- | --- |
 | Simulator | 内存虚拟从站响应 + 虚拟主站轮询 | 确定性种子、虚拟时钟、异常注入 | 复用全部核心 |
-| Replay | MLog 日志文件 | 按时间戳回放，时间轴控制 | 复用全部核心 |
+| Replay | `.mlog` v1 日志文件（transaction-oriented text log） | **更新（T009 Part A）**：批处理/分析式回放——历史记录瞬间重新分析，非实时播放；parser 只管文本语法，CRC/长度/0x03 语义归 protocol 层 | 复用全部核心 |
 | Serial | 真实串口字节流 | 帧切分、t3.5 判定、缓冲区 | 复用全部核心 |
 
 ## 4. 目录规划（随任务落地）
@@ -96,7 +96,9 @@ src/
 │   ├── simulator/SimulatedSlave.{h,cpp} # ✅ T005：模拟从站端点（Frame 进 Frame 出，const 纯应答）
 │   ├── simulator/SimulationFault.{h,cpp}# ✅ T006：确定性故障注入四模式（wire 层，元数据延迟）
 │   ├── analysis/TransactionAnalysis.{h,cpp} # ✅ T007 Part A：单事务分析（六状态，跨帧校验；Analysis 为 Protocol 上层）
-│   └── analysis/TransactionStatistics.{h,cpp} # ✅ T007 Part B：统计快照（三计数/五分类/optional rate/latency）
+│   ├── analysis/TransactionStatistics.{h,cpp} # ✅ T007 Part B：统计快照（三计数/五分类/optional rate/latency）
+│   ├── replay/ReplayLog.{h,cpp}      # ✅ T009 Part A：.mlog v1 模型 + parseReplayLog（纯文本解析，八错误码+1-based 物理行号；无 Qt、string_view 进值出）✅
+│   └── replay/ReplayAnalysis.{h,cpp} # ✅ T009 Part A：批量回放分析（request 可信链→T007→summarizeTransactions；不 sleep、不调用 SimulatedSlave）✅
 ├── io/      # 数据源适配（IFrameSource 抽象**推迟**：单数据源阶段不过早设计，等 Replay/Serial 出现真实共性再提取；Simulator 端点先行，见 T005）
 ├── ui/      # ✅ T008 Part A 起（Qt App/Adapter 层，ADR001：Qt 类型仅允许于此）
 │   ├── qml/Main.qml                     # ApplicationWindow Shell（统计卡/事务列表/空状态）
