@@ -28,6 +28,8 @@ add_library(modbuslens_core STATIC
     src/core/simulator/SimulationFault.cpp
     src/core/analysis/TransactionAnalysis.cpp
     src/core/analysis/TransactionStatistics.cpp
+    src/core/replay/ReplayLog.cpp
+    src/core/replay/ReplayAnalysis.cpp
 )
 target_include_directories(modbuslens_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -198,6 +200,32 @@ if(BUILD_TESTING)
 
     add_test(NAME ui_bridge COMMAND modbuslens_ui_bridge_tests)
 
+    # Replay (T009): the committed golden fixture is copied into the build
+    # tree and only the replay_analysis test target learns that path via a
+    # compile definition — no absolute user-dependent paths in product code.
+    configure_file(tests/data/demo_v1.mlog
+        "${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog" COPYONLY)
+
+    add_executable(modbuslens_replay_log_tests tests/test_replay_log.cpp)
+    target_link_libraries(modbuslens_replay_log_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_replay_log_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME replay_log COMMAND modbuslens_replay_log_tests)
+
+    add_executable(modbuslens_replay_analysis_tests tests/test_replay_analysis.cpp)
+    target_compile_definitions(modbuslens_replay_analysis_tests PRIVATE
+        MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog")
+    target_link_libraries(modbuslens_replay_analysis_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_replay_analysis_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME replay_analysis COMMAND modbuslens_replay_analysis_tests)
+
     # QML load smoke: runs the REAL app executable in diagnostic mode — it
     # loads the actual shipped QML module, verifies instantiation, and exits
     # without entering the event loop (T008 Part A rule A).
@@ -205,7 +233,7 @@ if(BUILD_TESTING)
         COMMAND modbuslens --qml-smoke-test)
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge qml_smoke PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis qml_smoke PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()
