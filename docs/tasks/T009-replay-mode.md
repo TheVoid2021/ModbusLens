@@ -1,6 +1,7 @@
 # T009 — Replay Mode
 
-> 状态：**IN PROGRESS**｜Part A（Replay Log Format + Replay Core）：**DONE ✅**｜Part B（Replay UI Integration）：**Implementation 完成（自动化 GREEN）→ Manual Replay Smoke = WAITING FOR USER**
+> 状态：**DONE ✅（2026-09-07）**｜Part A（Replay Log Format + Replay Core）：**DONE ✅**｜Part B（Replay UI Integration）：**DONE ✅**（Learning / Test Design + Implementation + 用户 Manual Replay Smoke 确认 PASS）
+> T009 整体 DONE；下一任务：T010 Serial Mode（未开始）。
 > 前置确认：T008 DONE、M4 CLOSED、LKGC = `4075223`、ISSUE-002 RESOLVED。Part A 完成验收见文末 Verification；T009 整体完成后才标 DONE。
 > Part A Implementation 边界（已实现，见文末；超范围禁项仍然成立）：versioned `.mlog` v1 格式、transaction-oriented text log、纯 C++ parser、Replay semantic model、Replay batch analyzer、复用 T004/T007 模块、deterministic tests、sample fixture；QML FileDialog、Replay 页面、playback、pause/resume、speed、real-time sleeping、filesystem watcher、database、binary format、compression、Serial、AI、Agent 全部不做。
 
@@ -686,11 +687,12 @@ ISSUE-002：无回归（deploy 版正常）
 
 ## Result
 
-Part B 自动化验证全部 GREEN：`d473d36`（LKGC candidate）。**Manual Replay Smoke = WAITING FOR USER CONFIRMATION**（native FileDialog 不可可靠自动化——PB-24 定则）。用户 PASS 前：T009 Part B ≠ DONE、T009 ≠ DONE、不推进 LKGC 归档、不开始 T010。
+**T009 Part B = DONE；T009 整体 = DONE（2026-09-07）。** 自动化验证全 GREEN（见上）+ **用户 Manual Replay Smoke 人工验收 = PASS（A~E 全项）**：A Demo 正常；B Load Replay 后 Header "Replay Mode / demo_v1.mlog"、Dashboard 4/4/0、1/1/1/1/0、25.0%、25.0 ms、四行顺序与详情正确；C Clear 后全零/—/No transactions yet 且 Header 保持 Replay Mode / demo_v1.mlog；D Run Demo 切回 Simulator Mode / Deterministic Demo、4 行正常；E 再 Load Replay 切回 Replay Mode、仍 4 行不追加。重要验收点达成：Simulator 现场生成与 Replay 历史加载两来源驱动同一 Dashboard，UI 与数据来源解耦得到人工确认。
 
 ## Git Commit
 
 | 提交 | 哈希 | 说明 |
 | --- | --- | --- |
-| Part B Implementation（code/config） | `d473d36` | `T009(Part B): integrate replay files into analysis dashboard`（**LKGC candidate**） |
-| 归档 docs-only | `<docs-only HEAD>` | 本阶段文档与状态回填 |
+| Part B Implementation（code/config） | `d473d36` | `T009(Part B): integrate replay files into analysis dashboard`（**新 LKGC**） |
+| 归档 docs-only（WAITING FOR USER） | `0935180` | 自动化验证归档 |
+| 用户确认归档（docs-only） | `<docs-only HEAD>` | Manual Replay Smoke PASS 回填；LKGC 哈希由本提交写入 |

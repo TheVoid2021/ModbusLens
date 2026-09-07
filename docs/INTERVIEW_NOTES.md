@@ -51,6 +51,7 @@
 - ✅ 已可答（T007 Part B，见任务档案）：statistics snapshot 的四条不变量与测试锁定方式（A：observed=pending+completed；B：completed=五分类之和；C：successRate 有值 ⟺ completed>0；D：avg latency 有值 ⟺ success>0）、optional 为空在 UI 上呈现 "—" 的语义（"没有统计"≠"0"）、completed 按分类之和构造的防漏记风险
 - ✅ 已可答（T008 Part B + T008.1，见任务档案 + ISSUE-002）：确定性 demo 与真实 core 链路的结合（演示即集成测试）、batch publish 原子性、Runtime Provenance（编译器三件套 SHA256）与 minimal-PATH smoke、Windows PATH 冲突（旧 libstdc++ 无 pmr 符号）的系统性排查
 - ✅ 已可答（T009 Part A，见任务档案）：Simulator vs Replay 的本质区别（现场计算 vs 历史重新分析）、`.mlog` v1 版本化文本格式为何不选 JSON（无标准库 parser、Core 边界）、解析分层 Text Syntax→Wire Codec→Transaction Analysis（parser 不懂 CRC）、坏 request（ReplayExecutionError 三错误码）vs 坏 response（CrcError/ProtocolError 诊断事实）的非对称处理、NO_RESPONSE 用 `optional` 而非空 vector、CRLF 兼容一行搞定、lineNumber（1-based physical）vs transactionIndex（0-based vector）、from_chars 完整消费 vs atoi、Golden Replay 与 Simulator Demo 统计同口径（D1 承诺的可验证形式）
+- ✅ 已可答（T009 Part B，见任务档案）：UI 与数据来源解耦（Simulator/Replay 共用一套 Dashboard+Model，两批统计严格同口径）、原子发布三分法（失败只动 error state 保全旧 batch+mode+source；成功一次性发布；Run Demo 显式切换来源）、`std::string_view` 跨 QByteArray 生命周期的边界纪律（Core 返回值必须自持有）、QFile/QUrl 只出现在 App/Controller 层（ADR001）、错误文案适配器（Core 保持 enum+line/index，展示层 +1 与人类可读）、Qt Quick FileDialog 动态 QML plugin（无需 CMake 组件的实证过程）、canonical fixture 单一源头（git mv + SHA256 一致性）、replace semantics 与多来源切换
 - 三模式为什么能共享核心（IFrameSource 抽象落地细节）（T005/T009/T010）
 - 虚拟时钟与确定性模拟（T005/T006）
 - 事务配对的启发式算法与广播/超时处理（T007）

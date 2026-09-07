@@ -25,3 +25,8 @@
 
 - Part B Implementation（code/config）：`d473d36`（LKGC candidate）
 - 本 devlog 随 docs-only 归档提交；LKGC 维持 Part A 的 `e4920da`，待用户 Manual Smoke PASS 后正式推进。
+
+## 追加（同日）· 用户手动验收 PASS
+
+- **User Manual Replay Smoke = PASS（A~E 全项）**：Replay 加载统计/四行正确、Clear 保留来源、Demo↔Replay 互切不追加。
+- **T009 Part B = DONE；T009 整体 = DONE**。LKGC 推进至 `d473d36`（`git cat-file -t` 核验为真实 commit）；docs-only 确认提交不再次推进 LKGC。M5 按 BACKLOG 既有定义（T009,T010）保持进行中。未 push；未开始 T010。

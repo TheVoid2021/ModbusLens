@@ -8,15 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ 完成；**M5 进行中（T009 Part A ✅ / Part B 自动化 GREEN、待用户确认；T010 未开始）** |
-| Last Known Good Commit | **`e4920da`**（T009 Part A 代码提交：clean build 96 targets 零警告 + ctest 16/16 + QML smoke + Core Zero Qt 多重验证；当前 HEAD 为其后的 docs-only 归档提交，不改变 LKGC。历史值：`4075223`（T008）、T008A `76030a2`、T007B `0f3109a`） |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ 完成；**M5 进行中（T009 ✅ DONE / T010 未开始；按 BACKLOG 既有定义 M5=T009,T010）** |
+| Last Known Good Commit | **`d473d36`**（T009 Part B 代码提交：clean build 96 targets 零警告 + ctest 16/16 + qml smoke + Core Zero Qt + deploy/minimal-PATH smoke + **用户 Manual Replay Smoke PASS** 多重验证；当前 HEAD 为其后的 docs-only 确认提交，不改变 LKGC。历史值：`e4920da`（T009A）、`4075223`（T008）） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 96 targets） |
 | Test 状态 | ✅ **16/16 通过**（ctest：原 14 项 + `replay_log` + `replay_analysis`；87 个测试函数全过，其中 Replay 24 个） |
-| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · **T008** |
-| 当前任务（Current Task） | **T009 Replay Mode**（IN PROGRESS——Part B 未完成） |
-| 最近完成任务（Last Completed Task） | **T008 Qt Quick / QML Analysis UI**（Part A + Part B 全部 DONE） |
-| 当前阶段（Current Phase） | **Part B — Replay UI Integration：Implementation 完成（自动化全 GREEN）→ Manual Replay Smoke = WAITING FOR USER** |
-| 下一步动作（Next Action） | **用户 Manual Replay Smoke 确认 → T009 整体归档** |
+| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · **T009** |
+| 当前任务（Current Task） | **None**（无进行中任务） |
+| 最近完成任务（Last Completed Task） | **T009 Replay Mode**（Part A + Part B 全部 DONE，用户 Manual Replay Smoke 确认） |
+| 当前阶段（Current Phase） | —（T009 DONE；T010 待启动） |
+| 下一步动作（Next Action） | **Start T010 Serial Mode** |
 | 下一 Part（Next Part） | 无（Part B 是 T009 最后一个 Part） |
 | 下一任务（Next Task After T009） | **T010 Serial Mode** |
 | Known Issues | 见 §4 |
@@ -36,10 +36,11 @@
 | T006 | Deterministic Fault Injection | `applySimulationFault` 四模式（None/DropResponse/CorruptCrc/ArtificialDelay，确定性、wire 层、元数据延迟）；FAULT-T01~T05 + I01/I02 全绿；SimulatedSlave 零修改；ctest 9/9 | [T006](tasks/T006-fault-injection.md) |
 | T007 | Transaction Analysis | Part A：`analyzeFunction03Transaction`（六状态、跨帧校验、双不变量）+ TX-A01~A12/I01~I03；Part B：`summarizeTransactions`（三计数/五分类/optional rate 与 latency/四不变量）+ STAT-B01~B08/I01；ctest 13/13 | [T007](tasks/T007-transaction-analysis.md) |
 | T008 | Qt Quick / QML Analysis UI | Part A：QML 迁移 + AnalysisController/TransactionListModel 桥接 + UI-A01~A06 + Manual Visual Smoke 12/12；Part B：runDemoBatch/clearDemo 确定性 Demo Dashboard + UI-B01~B06 + QML Presentation 修正 + Manual Demo Smoke PASS；T008.1 standalone 部署（ISSUE-002 RESOLVED）；ctest 14/14 零警告 | [T008](tasks/T008-qt-quick-qml-analysis-ui.md) |
+| T009 | Replay Mode（Replay Log Format + Replay Core / Replay UI Integration） | Part A：`.mlog` v1 解析 + 批量回放分析（request 可信链三错误码；坏 response 为诊断事实；复用 T004/T007）；REPLAY-A01~A08+I01~I05（24 函数）。Part B：loadReplayFile 原子发布 + clearResults + 错误/来源状态 + FileDialog；UI-R01~R08；canonical sample `samples/demo_v1.mlog`（git mv 单一源头）；**Manual Replay Smoke 用户确认 PASS**；ctest 16/16 零警告 | [T009](tasks/T009-replay-mode.md) |
 
 ## 2. 当前任务
 
-- **T009 Replay Mode — IN PROGRESS（Part A = DONE ✅；Part B: Replay UI Integration = 自动化 GREEN，Manual Replay Smoke WAITING FOR USER）**：Part A 交付见上（[T009 档案](tasks/T009-replay-mode.md)，Part B Implementation 章）。**Part B Implementation 完成**：loadReplayFile(QUrl)（QFile→string_view→parseReplayLog→analyzeReplayLog 全链路复用 Part A Core；file/parse/analyze 任一失败仅 setReplayError、旧 batch+mode/source 完整保留；全成功才原子发布 statistics+rows+mode/source+清 error）；clearDemo 直接重命名 clearResults（不切来源）；hasReplayError/replayErrorMessage/modeLabel/sourceLabel；错误映射保留行号、transactionIndex 仅展示 +1；Main.qml 新增 Load Replay.../FileDialog（QtQuick.Dialogs，动态解析无需新增 CMake 链接）、Header 动态绑定、错误 label；canonical sample `samples/demo_v1.mlog`（git mv；tests/deploy/manual 共用，SHA256 一致性验证）；deploy_windows.bat 复制 sample 到 build/deploy/samples。RED（clearDemo 定义失配编译错误）→GREEN；ui_bridge 22/22（新增 UI-R01~R08）；ctest 16/16、clean 96 targets 零警告、qml smoke exit=0、Core Zero Qt、deploy+minimal-PATH smoke PASS；PE-3：bat 文件行尾被工具改写为 LF 致 cmd 解析断裂，恢复 CRLF 解决。LKGC candidate = `d473d36`。**下一步动作 = 用户 Manual Replay Smoke 确认（A~E 清单）→ T009 整体归档；Pass 之前 T009 不标 DONE、不推进 LKGC 归档、不开始 T010**。
+- **None**。T009 Replay Mode 已整体 DONE（Part A + Part B，用户 Manual Replay Smoke 确认）；Simulator 与 Replay 两种来源共享同一 Dashboard 的目标达成。下一步：启动 T010 Serial Mode（见 §3 与 BACKLOG）。
 
 
 ## 3. 下一任务
@@ -140,3 +141,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-07 | **T009 Part A 完成**：`src/core/replay/` 落地（ReplayLog parser + ReplayAnalysis 批量回放分析，Pure C++20 Zero Qt）；request 可信链三错误码（新增 InvalidRequestData，REPLAY-I03B 金样 `01 03 00 00 00 00 45 CA`）；REPLAY-A01~A08 + I01~I05 共 24 测试函数 RED（101 处 undefined reference）→GREEN；修复真 bug（from_chars 结果未写回 out 参数）与 2 处测试警告；ctest 16/16、clean 96 targets 零警告、Core Zero Qt、ISSUE-001 无回归、QML smoke exit=0。**Part A = DONE，T009 整体 IN PROGRESS**；LKGC = `e4920da`（回填提交写入） |
 | 2026-09-07 | **T009 Part B 启动：Learning / Test Design（docs-only）**——单 Dashboard 复用、Controller 新 API（loadReplayFile/clearResults 重命名/error 与 mode-source state）、失败策略（旧结果保持+显示 error）、FileDialog 本机实证（QtQuick.Dialogs + Qt6::QuickDialogs2）、canonical sample `samples/demo_v1.mlog` 定案、矩阵 UI-R01~R08、16 题问答、23 步计划落库；T009 保持 IN PROGRESS，**Part B 未实现** |
 | 2026-09-07 | **T009 Part B Implementation 完成（自动化全 GREEN）**：loadReplayFile 原子发布 + 失败保全旧 batch/source；clearResults 重命名；canonical sample 迁移 samples/（git mv + SHA256 验证）；Main.qml FileDialog/Header/错误 label；UI-R01~R08 新增全过（ui_bridge 22/22）；ctest 16/16、clean 96 targets 零警告、deploy+minimal-PATH smoke PASS。LKGC candidate = `d473d36`。**Manual Replay Smoke = WAITING FOR USER**（PB-24 定则，Agent 不自报 PASS） |
+| 2026-09-07 | **用户 Manual Replay Smoke = PASS（A~E 全项人工验收）**：Replay 加载/统计/四行正确、Clear 保留来源、Demo↔Replay 互切不追加。**T009 Part B DONE → T009 整体 DONE**。LKGC = `d473d36`（核验存在后写入）；HEAD = docs-only 确认提交。M5 按 BACKLOG 既有定义保持进行中（T010 未开始） |
