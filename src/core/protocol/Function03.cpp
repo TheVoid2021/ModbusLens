@@ -90,4 +90,26 @@ decodeReadHoldingRegistersException(const ModbusRtuFrame& frame)
     return ModbusExceptionResponse{.exceptionCode = frame.data[0]};
 }
 
+ReadHoldingRegistersEncodeResult encodeReadHoldingRegistersRequest(
+    std::uint8_t address, std::uint16_t startAddress, std::uint16_t quantity)
+{
+    // T010 addition (T004 shipped decode-only): the symmetric encoder.
+    // Quantity is validated HERE; unicast slave-address validation belongs
+    // to the Serial session layer because a generic codec stays
+    // address-agnostic. Wire bytes and CRC stay ModbusRtuCodec's job.
+    if (quantity < kMinQuantity || quantity > kMaxQuantity) {
+        return Function03EncodeError{Function03EncodeErrorCode::InvalidQuantity};
+    }
+    return ModbusRtuFrame{
+        .address = address,
+        .functionCode = kReadHoldingRegistersFunction,
+        .data = {
+            static_cast<std::uint8_t>(startAddress >> 8),
+            static_cast<std::uint8_t>(startAddress & 0xFF),
+            static_cast<std::uint8_t>(quantity >> 8),
+            static_cast<std::uint8_t>(quantity & 0xFF),
+        },
+    };
+}
+
 } // namespace modbuslens::core

@@ -47,6 +47,27 @@ struct Function03DecodeError {
     Function03DecodeErrorCode code;
 };
 
+// Encode side (added in T010 Part A — T004 deliberately shipped decode-only).
+// Builds the SEMANTIC frame only: wire bytes and CRC remain ModbusRtuCodec's
+// job. Validates quantity (1..125); unicast slave-address validation
+// (1..247) deliberately lives in the Serial session layer, not here — a
+// generic codec stays address-agnostic.
+enum class Function03EncodeErrorCode {
+    InvalidQuantity,
+};
+
+struct Function03EncodeError {
+    Function03EncodeErrorCode code;
+};
+
+// startAddress is the protocol 0-based address (uint16_t, no 40001-style
+// 1-based presentation here).
+using ReadHoldingRegistersEncodeResult =
+    std::variant<ModbusRtuFrame, Function03EncodeError>;
+
+ReadHoldingRegistersEncodeResult encodeReadHoldingRegistersRequest(
+    std::uint8_t address, std::uint16_t startAddress, std::uint16_t quantity);
+
 using ReadHoldingRegistersRequestResult =
     std::variant<ReadHoldingRegistersRequest, Function03DecodeError>;
 using ReadHoldingRegistersResponseResult =

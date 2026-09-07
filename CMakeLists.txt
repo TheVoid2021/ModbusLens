@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # BUILD_TESTING is defined by include(CTest), defaults to ON.
 include(CTest)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 SerialPort Test)
 qt_standard_project_setup()
 
 # ------------------------------------------------------------------- core ----
@@ -30,6 +30,7 @@ add_library(modbuslens_core STATIC
     src/core/analysis/TransactionStatistics.cpp
     src/core/replay/ReplayLog.cpp
     src/core/replay/ReplayAnalysis.cpp
+    src/core/serial/SerialTransactionSession.cpp
 )
 target_include_directories(modbuslens_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -229,6 +230,34 @@ if(BUILD_TESTING)
 
     add_test(NAME replay_analysis COMMAND modbuslens_replay_analysis_tests)
 
+    # Serial (T010 Part A): Pure transaction session needs no Qt beyond the
+    # test framework; the adapter test is the ONLY target that links
+    # Qt6::SerialPort (the app binary does NOT link it until Part B wires the
+    # adapter into the UI — documented in the T010 task archive).
+    add_executable(modbuslens_serial_tests tests/test_serial_session.cpp)
+    target_link_libraries(modbuslens_serial_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_serial_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME serial COMMAND modbuslens_serial_tests)
+
+    add_executable(modbuslens_serial_adapter_tests
+        tests/test_serial_adapter.cpp
+        src/ui/serial/SerialPortAdapter.h
+        src/ui/serial/SerialPortAdapter.cpp)
+    target_include_directories(modbuslens_serial_adapter_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(modbuslens_serial_adapter_tests PRIVATE
+        modbuslens_core Qt6::SerialPort Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_serial_adapter_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME serial_adapter COMMAND modbuslens_serial_adapter_tests)
+
     # QML load smoke: runs the REAL app executable in diagnostic mode — it
     # loads the actual shipped QML module, verifies instantiation, and exits
     # without entering the event loop (T008 Part A rule A).
@@ -236,7 +265,7 @@ if(BUILD_TESTING)
         COMMAND modbuslens --qml-smoke-test)
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis qml_smoke PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter qml_smoke PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()
