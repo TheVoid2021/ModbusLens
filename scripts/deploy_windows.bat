@@ -103,8 +103,18 @@ copy /y "%SOURCE_DIR%\src\ui\qml\Main.qml" "%DEPLOY_DIR%\ModbusLens\Main.qml" >n
     echo depends QtQuick
 )
 
+rem ---- 7b. canonical replay sample (business data — explicitly NOT
+rem windeployqt's job): one source in samples/, shared by tests, deployment
+rem and the manual smoke. ----
+if not exist "%SOURCE_DIR%\samples\demo_v1.mlog" (
+    echo [ERROR] Canonical sample "%SOURCE_DIR%\samples\demo_v1.mlog" not found
+    exit /b 1
+)
+mkdir "%DEPLOY_DIR%\samples"
+copy /y "%SOURCE_DIR%\samples\demo_v1.mlog" "%DEPLOY_DIR%\samples\demo_v1.mlog" >nul
+
 rem ---- 8. verify key deployment files ----
-for %%F in (ModbusLens.exe Qt6Core.dll Qt6Gui.dll Qt6Qml.dll Qt6Quick.dll Qt6QuickControls2.dll libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll platforms\qwindows.dll ModbusLens\qmldir ModbusLens\Main.qml) do (
+for %%F in (ModbusLens.exe Qt6Core.dll Qt6Gui.dll Qt6Qml.dll Qt6Quick.dll Qt6QuickControls2.dll libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll platforms\qwindows.dll ModbusLens\qmldir ModbusLens\Main.qml samples\demo_v1.mlog) do (
     if not exist "%DEPLOY_DIR%\%%F" (
         echo [ERROR] Missing deployment file: %%F
         exit /b 1

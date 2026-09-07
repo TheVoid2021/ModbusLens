@@ -192,6 +192,8 @@ if(BUILD_TESTING)
         src/ui/TransactionListModel.cpp)
     target_include_directories(modbuslens_ui_bridge_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_definitions(modbuslens_ui_bridge_tests PRIVATE
+        MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog")
     target_link_libraries(modbuslens_ui_bridge_tests PRIVATE modbuslens_core Qt6::Qml Qt6::Test)
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -200,10 +202,11 @@ if(BUILD_TESTING)
 
     add_test(NAME ui_bridge COMMAND modbuslens_ui_bridge_tests)
 
-    # Replay (T009): the committed golden fixture is copied into the build
-    # tree and only the replay_analysis test target learns that path via a
+    # Replay (T009): the CANONICAL golden sample lives in samples/ (single
+    # source shared by tests, deployment and the manual smoke). It is copied
+    # into the build tree and only the test targets learn that path via a
     # compile definition — no absolute user-dependent paths in product code.
-    configure_file(tests/data/demo_v1.mlog
+    configure_file(samples/demo_v1.mlog
         "${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog" COPYONLY)
 
     add_executable(modbuslens_replay_log_tests tests/test_replay_log.cpp)

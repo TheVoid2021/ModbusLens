@@ -1,6 +1,11 @@
 #include <QtTest>
 
 #include <QAbstractItemModel>
+#include <QDir>
+#include <QFile>
+#include <QString>
+#include <QTemporaryFile>
+#include <QUrl>
 #include <QVariant>
 
 #include <cstdint>
@@ -65,6 +70,24 @@ private slots:
     void b05_clear();
     // UI-B06 (P1): clear then re-run.
     void b06_clearThenReRun();
+
+    // ---- T009 Part B: replay UI integration ----
+    // UI-R01 (P0): golden replay load publishes the full batch.
+    void r01_goldenReplay();
+    // UI-R02 (P0): golden replay rows carry status/elapsed/exception.
+    void r02_goldenReplayRows();
+    // UI-R03 (P0): parse failure keeps the old batch + source intact.
+    void r03_parseErrorPreservesState();
+    // UI-R04 (P0): execution failure (quantity=0) maps to a human message.
+    void r04_executionError();
+    // UI-R05 (P1): missing file reports a file error, state preserved.
+    void r05_fileOpenFailure();
+    // UI-R06 (P0): valid load after failure clears the error.
+    void r06_errorRecovery();
+    // UI-R07 (P0): replay/demo/replay all replace, never append.
+    void r07_sourceReplace();
+    // UI-R08 (P1): clearResults empties results but keeps the source.
+    void r08_clearKeepsSource();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -243,7 +266,7 @@ void UiBridgeTest::b05_clear()
 {
     AnalysisController controller;
     controller.runDemoBatch();
-    controller.clearDemo();
+    controller.clearResults();
     QCOMPARE(controller.observedCount(), 0);
     QCOMPARE(controller.pendingCount(), 0);
     QCOMPARE(controller.completedCount(), 0);
@@ -261,7 +284,7 @@ void UiBridgeTest::b06_clearThenReRun()
 {
     AnalysisController controller;
     controller.runDemoBatch();
-    controller.clearDemo();
+    controller.clearResults();
     controller.runDemoBatch();
     QCOMPARE(controller.observedCount(), 4);
     QCOMPARE(controller.completedCount(), 4);
@@ -274,6 +297,229 @@ void UiBridgeTest::b06_clearThenReRun()
     QVERIFY(controller.hasAverageSuccessLatency());
     QVERIFY(qFuzzyCompare(controller.averageSuccessLatencyMs(), 25.0));
     QCOMPARE(controller.transactionModel()->rowCount(), 4);
+}
+
+// ---- T009 Part B test implementations ----
+
+namespace {
+
+// Writes `content` to a temporary .mlog-named file and returns its path
+// (empty on failure — callers QVERIFY it). The QTemporaryFile must outlive
+// loadReplayFile's synchronous read, so the helper keeps the object alive
+// via the holder out-parameter.
+QString writeTempMlog(const QString& content,
+                      std::optional<QTemporaryFile>& holder)
+{
+    holder.emplace(QDir::tempPath() + QStringLiteral("/modbuslens_ui_XXXXXX.mlog"));
+    if (!holder->open()) {
+        return {};
+    }
+    if (holder->write(content.toUtf8()) < 0) {
+        return {};
+    }
+    holder->flush();
+    return holder->fileName();
+}
+
+const QString kBadHexLog = QStringLiteral(
+    "MODBUSLENS_MLOG|1|timeout_ms=1000\n"
+    "TXN|1|GG|01 03 04 00 64 00 C8 BA 7A\n");
+
+// quantity = 0 with a CORRECT CRC (01 03 00 00 00 00 45 CA): frame and
+// function both valid, 0x03 semantics fail -> InvalidRequestData.
+const QString kZeroQuantityLog = QStringLiteral(
+    "MODBUSLENS_MLOG|1|timeout_ms=1000\n"
+    "TXN|1|01 03 00 00 00 00 45 CA|NO_RESPONSE\n");
+
+} // namespace
+
+void UiBridgeTest::r01_goldenReplay()
+{
+    AnalysisController controller;
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
+    QVERIFY(!controller.hasReplayError());
+    QVERIFY(controller.replayErrorMessage().isEmpty());
+
+    QCOMPARE(controller.observedCount(), 4);
+    QCOMPARE(controller.completedCount(), 4);
+    QCOMPARE(controller.pendingCount(), 0);
+    QCOMPARE(controller.successCount(), 1);
+    QCOMPARE(controller.exceptionCount(), 1);
+    QCOMPARE(controller.crcErrorCount(), 1);
+    QCOMPARE(controller.timeoutCount(), 1);
+    QCOMPARE(controller.protocolErrorCount(), 0);
+    QVERIFY(controller.hasSuccessRate());
+    QVERIFY(qFuzzyCompare(controller.successRate(), 0.25));
+    QVERIFY(controller.hasAverageSuccessLatency());
+    QVERIFY(qFuzzyCompare(controller.averageSuccessLatencyMs(), 25.0));
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+}
+
+void UiBridgeTest::r02_goldenReplayRows()
+{
+    AnalysisController controller;
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+    auto* model = controller.transactionModel();
+    QCOMPARE(model->rowCount(), 4);
+
+    struct Row { const char* status; qint64 elapsed; bool hasException; int exception; };
+    const Row expected[] = {
+        {"Success", 25, false, 0},
+        {"Exception", 18, true, 2},
+        {"CRC Error", 17, false, 0},
+        {"Timeout", 1000, false, 0},
+    };
+    for (int row = 0; row < 4; ++row) {
+        const auto idx = model->index(row, 0);
+        QCOMPARE(model->data(idx, TransactionListModel::DeviceAddressRole), QVariant{1});
+        QCOMPARE(model->data(idx, TransactionListModel::FunctionCodeRole), QVariant{3});
+        QCOMPARE(model->data(idx, TransactionListModel::StatusTextRole).toString(),
+                 QString(expected[row].status));
+        QCOMPARE(model->data(idx, TransactionListModel::ElapsedMsRole),
+                 QVariant{expected[row].elapsed});
+        QCOMPARE(model->data(idx, TransactionListModel::HasExceptionCodeRole),
+                 QVariant{expected[row].hasException});
+        QCOMPARE(model->data(idx, TransactionListModel::ExceptionCodeRole),
+                 QVariant{expected[row].exception});
+    }
+}
+
+void UiBridgeTest::r03_parseErrorPreservesState()
+{
+    AnalysisController controller;
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+    const auto rowsBefore = controller.transactionModel()->rowCount();
+    const auto observedBefore = controller.observedCount();
+
+    std::optional<QTemporaryFile> holder;
+    const QString badPath = writeTempMlog(kBadHexLog, holder);
+    QVERIFY(!badPath.isEmpty());
+    controller.loadReplayFile(QUrl::fromLocalFile(badPath));
+
+    // Error is visible and human-readable (line + phrase).
+    QVERIFY(controller.hasReplayError());
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("line")));
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("invalid hex")));
+
+    // The WHOLE previous successful state is preserved (rule A).
+    QCOMPARE(controller.observedCount(), observedBefore);
+    QCOMPARE(controller.transactionModel()->rowCount(), rowsBefore);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
+    QVERIFY(controller.hasSuccessRate());
+}
+
+void UiBridgeTest::r04_executionError()
+{
+    AnalysisController controller;
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+
+    std::optional<QTemporaryFile> holder;
+    const QString badPath = writeTempMlog(kZeroQuantityLog, holder);
+    QVERIFY(!badPath.isEmpty());
+    controller.loadReplayFile(QUrl::fromLocalFile(badPath));
+
+    QVERIFY(controller.hasReplayError());
+    // 0-based core index 0 -> human-readable "transaction 1".
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("transaction 1")));
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("invalid request data")));
+
+    // Old batch and source stay (rule A).
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
+}
+
+void UiBridgeTest::r05_fileOpenFailure()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+
+    const QString missing =
+        QDir::tempPath() + QStringLiteral("/modbuslens_definitely_missing_") +
+        QString::number(reinterpret_cast<quintptr>(&controller)) + QStringLiteral(".mlog");
+    QVERIFY(!QFile::exists(missing));
+    controller.loadReplayFile(QUrl::fromLocalFile(missing));
+
+    QVERIFY(controller.hasReplayError());
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("load failed")));
+
+    // Demo batch + Simulator source preserved (rule A).
+    QCOMPARE(controller.observedCount(), 4);
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+}
+
+void UiBridgeTest::r06_errorRecovery()
+{
+    AnalysisController controller;
+    QVERIFY(!controller.hasReplayError());
+
+    std::optional<QTemporaryFile> holder;
+    const QString badPath = writeTempMlog(kBadHexLog, holder);
+    QVERIFY(!badPath.isEmpty());
+    controller.loadReplayFile(QUrl::fromLocalFile(badPath));
+    QVERIFY(controller.hasReplayError());
+
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+    QVERIFY(!controller.hasReplayError());
+    QVERIFY(controller.replayErrorMessage().isEmpty());
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    QCOMPARE(controller.observedCount(), 4);
+}
+
+void UiBridgeTest::r07_sourceReplace()
+{
+    AnalysisController controller;
+
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+    QVERIFY(!controller.hasReplayError());
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+
+    controller.runDemoBatch();
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+    QVERIFY(!controller.hasReplayError());
+
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QVERIFY(!controller.hasReplayError());
+}
+
+void UiBridgeTest::r08_clearKeepsSource()
+{
+    AnalysisController controller;
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+
+    // Force an error first; clear must drop it too.
+    std::optional<QTemporaryFile> holder;
+    const QString badPath = writeTempMlog(kBadHexLog, holder);
+    QVERIFY(!badPath.isEmpty());
+    controller.loadReplayFile(QUrl::fromLocalFile(badPath));
+    QVERIFY(controller.hasReplayError());
+
+    controller.clearResults();
+
+    QCOMPARE(controller.observedCount(), 0);
+    QCOMPARE(controller.completedCount(), 0);
+    QVERIFY(!controller.hasSuccessRate());
+    QVERIFY(!controller.hasAverageSuccessLatency());
+    QCOMPARE(controller.transactionModel()->rowCount(), 0);
+    QVERIFY(!controller.hasReplayError());
+    QVERIFY(controller.replayErrorMessage().isEmpty());
+
+    // Source identity survives the clear (only runDemoBatch switches it).
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
 }
 
 } // namespace

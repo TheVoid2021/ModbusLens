@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import ModbusLens
 
@@ -13,6 +14,16 @@ ApplicationWindow {
 
     AnalysisController {
         id: analysisController
+    }
+
+    FileDialog {
+        id: replayFileDialog
+        title: qsTr("Load Replay Log")
+        nameFilters: [
+            qsTr("ModbusLens Replay Logs (*.mlog)"),
+            qsTr("All Files (*)")
+        ]
+        onAccepted: analysisController.loadReplayFile(selectedFile)
     }
 
     ColumnLayout {
@@ -32,9 +43,19 @@ ApplicationWindow {
             Item {
                 Layout.fillWidth: true
             }
-            Label {
-                text: qsTr("Simulator Mode")
-                color: "#606060"
+            ColumnLayout {
+                Layout.alignment: Qt.AlignRight
+                Label {
+                    Layout.alignment: Qt.AlignRight
+                    text: analysisController.modeLabel
+                    font.bold: true
+                }
+                Label {
+                    Layout.alignment: Qt.AlignRight
+                    text: analysisController.sourceLabel
+                    font.pixelSize: 11
+                    color: "#606060"
+                }
             }
         }
 
@@ -53,13 +74,26 @@ ApplicationWindow {
                 onClicked: analysisController.runDemoBatch()
             }
             Button {
+                text: qsTr("Load Replay...")
+                onClicked: replayFileDialog.open()
+            }
+            Button {
                 text: qsTr("Clear")
                 palette.buttonText: "#303030"
-                onClicked: analysisController.clearDemo()
+                onClicked: analysisController.clearResults()
             }
             Item {
                 Layout.fillWidth: true
             }
+        }
+
+        // Replay error area (lightweight, visible only on failure)
+        Label {
+            visible: analysisController.hasReplayError
+            text: analysisController.replayErrorMessage
+            color: "#B03030"
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
         }
 
         // Statistics area

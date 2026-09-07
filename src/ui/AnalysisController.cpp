@@ -3,11 +3,17 @@
 #include "core/analysis/TransactionStatistics.h"
 #include "core/protocol/Function03.h"
 #include "core/protocol/ModbusRtuCodec.h"
+#include "core/replay/ReplayAnalysis.h"
+#include "core/replay/ReplayLog.h"
 #include "core/simulator/SimulatedSlave.h"
 #include "core/simulator/SimulationFault.h"
 
 #include <QDebug>
+#include <QFile>
+#include <QFileInfo>
+#include <QUrl>
 
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -35,6 +41,70 @@ modbuslens::core::ModbusRtuFrame makeFc03Read(
             static_cast<std::uint8_t>(quantity & 0xFF),
         },
     };
+}
+
+// ---- Replay error presentation adapters (Core -> user-readable QString).
+// Core stays enum + line/index; this file owns the human phrasing. ----
+
+QString parseErrorMessage(const modbuslens::core::ReplayParseError& error)
+{
+    const char* phrase = "invalid replay log";
+    switch (error.code) {
+    case modbuslens::core::ReplayParseErrorCode::MissingHeader:
+        phrase = "log header is missing";
+        break;
+    case modbuslens::core::ReplayParseErrorCode::UnsupportedVersion:
+        phrase = "unsupported log version";
+        break;
+    case modbuslens::core::ReplayParseErrorCode::InvalidHeader:
+        phrase = "invalid log header";
+        break;
+    case modbuslens::core::ReplayParseErrorCode::InvalidRecord:
+        phrase = "invalid record";
+        break;
+    case modbuslens::core::ReplayParseErrorCode::InvalidElapsed:
+        phrase = "invalid elapsed value";
+        break;
+    case modbuslens::core::ReplayParseErrorCode::InvalidHex:
+        phrase = "invalid hex data";
+        break;
+    case modbuslens::core::ReplayParseErrorCode::MissingRequest:
+        phrase = "request field is empty";
+        break;
+    case modbuslens::core::ReplayParseErrorCode::InvalidResponseField:
+        phrase = "invalid response field";
+        break;
+    }
+    // lineNumber == 0 means "no specific offending line" (e.g. a log with no
+    // header at all) — never render a meaningless "line 0".
+    if (error.lineNumber == 0) {
+        return QStringLiteral("Replay parse error: %1")
+            .arg(QLatin1String(phrase));
+    }
+    return QStringLiteral("Replay parse error at line %1: %2")
+        .arg(error.lineNumber)
+        .arg(QLatin1String(phrase));
+}
+
+QString executionErrorMessage(
+    const modbuslens::core::ReplayExecutionError& error)
+{
+    const char* phrase = "replay analysis failed";
+    switch (error.code) {
+    case modbuslens::core::ReplayExecutionErrorCode::InvalidRequestWire:
+        phrase = "invalid request wire data";
+        break;
+    case modbuslens::core::ReplayExecutionErrorCode::InvalidRequestFunction:
+        phrase = "unsupported function code in request";
+        break;
+    case modbuslens::core::ReplayExecutionErrorCode::InvalidRequestData:
+        phrase = "invalid request data";
+        break;
+    }
+    // Core indexing is 0-based; humans count transactions from 1.
+    return QStringLiteral("Replay analysis error at transaction %1: %2")
+        .arg(error.transactionIndex + 1)
+        .arg(QLatin1String(phrase));
 }
 
 } // namespace
@@ -113,6 +183,40 @@ double AnalysisController::averageSuccessLatencyMs() const
 QAbstractItemModel* AnalysisController::transactionModel()
 {
     return &transactionModel_;
+}
+
+bool AnalysisController::hasReplayError() const
+{
+    return hasReplayError_;
+}
+
+QString AnalysisController::replayErrorMessage() const
+{
+    return replayErrorMessage_;
+}
+
+QString AnalysisController::modeLabel() const
+{
+    return modeLabel_;
+}
+
+QString AnalysisController::sourceLabel() const
+{
+    return sourceLabel_;
+}
+
+void AnalysisController::setReplayError(const QString& message)
+{
+    hasReplayError_ = true;
+    replayErrorMessage_ = message;
+    emit replayStateChanged();
+}
+
+void AnalysisController::clearReplayError()
+{
+    hasReplayError_ = false;
+    replayErrorMessage_.clear();
+    emit replayStateChanged();
 }
 
 void AnalysisController::applySnapshot(
@@ -252,12 +356,85 @@ void AnalysisController::runDemoBatch()
     auto snapshot = modbuslens::core::summarizeTransactions(analyses);
     transactionModel_.setEntries(std::move(entries));
     statistics_ = std::move(snapshot);
+    modeLabel_ = QStringLiteral("Simulator Mode");
+    sourceLabel_ = QStringLiteral("Deterministic Demo");
+    clearReplayError();
     emit statisticsChanged();
+    emit sourceChanged();
 }
 
-void AnalysisController::clearDemo()
+void AnalysisController::clearResults()
 {
+    // Clears the analysis results and any pending replay error, but NEVER
+    // switches the source: the user still sees which mode/source they are in
+    // (only runDemoBatch explicitly switches to Simulator).
     applySnapshot(summarizeTransactions(
         std::span<const modbuslens::core::TransactionAnalysis>{}));
     transactionModel_.setEntries({});
+    clearReplayError();
+}
+
+void AnalysisController::loadReplayFile(const QUrl& fileUrl)
+{
+    using namespace modbuslens::core;
+
+    if (!fileUrl.isLocalFile()) {
+        setReplayError(QStringLiteral("Replay load failed: not a local file"));
+        return;
+    }
+
+    const QString filePath = fileUrl.toLocalFile();
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        setReplayError(QStringLiteral("Replay load failed: cannot open file"));
+        return;
+    }
+
+    // QByteArray outlives the parse call; the resulting ReplayLog owns its
+    // own bytes, so nothing view-like escapes this scope.
+    const QByteArray contents = file.readAll();
+    const std::string_view text{
+        contents.constData(), static_cast<std::size_t>(contents.size())};
+
+    const auto parseResult = parseReplayLog(text);
+    if (const auto* parseError = std::get_if<ReplayParseError>(&parseResult)) {
+        setReplayError(parseErrorMessage(*parseError));
+        return;
+    }
+    const auto& replayLog = std::get<ReplayLog>(parseResult);
+
+    const auto analysisResult = analyzeReplayLog(replayLog);
+    if (const auto* executionError =
+            std::get_if<ReplayExecutionError>(&analysisResult)) {
+        setReplayError(executionErrorMessage(*executionError));
+        return;
+    }
+    const auto& batch = std::get<ReplayBatchAnalysis>(analysisResult);
+
+    // Adapter: ReplayTransactionOutcome -> existing presentation entries.
+    // No second list model; the shared dashboard renders whatever batch is
+    // current, no matter which source produced it.
+    std::vector<TransactionListEntry> entries;
+    entries.reserve(batch.transactions.size());
+    for (const auto& outcome : batch.transactions) {
+        entries.push_back(TransactionListEntry{
+            .deviceAddress = static_cast<int>(outcome.deviceAddress),
+            .functionCode = static_cast<int>(outcome.functionCode),
+            .status = outcome.analysis.status,
+            .elapsedMs = outcome.analysis.elapsed.count(),
+            .exceptionCode = outcome.analysis.exceptionCode,
+        });
+    }
+
+    // Atomic publish (rule B): everything below runs only after the whole
+    // read/parse/analyze/adapt pipeline succeeded. Any earlier failure
+    // returned without touching a single piece of the old state (rule A).
+    transactionModel_.setEntries(std::move(entries));
+    statistics_ = batch.statistics;
+    modeLabel_ = QStringLiteral("Replay Mode");
+    // Presentation keeps the basename only; the full path never enters the UI.
+    sourceLabel_ = QFileInfo(filePath).fileName();
+    clearReplayError();
+    emit statisticsChanged();
+    emit sourceChanged();
 }
