@@ -56,3 +56,26 @@ Qt 6 安装时未勾选 **Additional Libraries → Qt Serial Port** 组件（属
 
 - 发现于：T010 Part A Learning / Test Design（docs/tasks/T010-serial-mode.md §"QtSerialPort 本机实证"）
 - 阻塞：T010 Part A Implementation（Serial Qt adapter / SERIAL-I01）
+## 2026-09-07 补装后重实证 = **FAIL**（用户声称已安装，机器证据不支持）
+
+用户反馈："Qt SerialPort 已通过官方 MaintenanceTool 手动安装完成"。按规则执行安装后重实证（不因口头确认跳过检测），逐项结果：
+
+| 核验项 | 期望 | 实际 |
+| --- | --- | --- |
+| `D:\QT\6.11.1\mingw_64\include\QtSerialPort`（QSerialPort/QSerialPortInfo） | 存在 | **不存在**（include 全目录字母序列表无 QtSerialPort/QtSerialBus） |
+| `D:\QT\6.11.1\mingw_64\lib\cmake\Qt6SerialPort` | 存在 | **不存在**（lib/cmake grep -i serial 无输出） |
+| `D:\QT\6.11.1\mingw_64\bin\Qt6SerialPort.dll` | 存在 | **不存在**（bin 151 个文件，grep -i serial 0 命中） |
+| `D:\QT\6.11.1\mingw_64\lib\libQt6SerialPort.a` | 存在 | **不存在** |
+| compiler | 仍为 MinGW13.1 | 未受影响（CMakeCache 仍指向 D:/QT/Tools/mingw1310_64，编译链无问题，但组件缺失仍在） |
+| MaintenanceTool 今日运行痕迹 | InstallationLog.txt 应有 2026-09-07 记录 | **无**——`D:\QT\InstallationLog.txt` mtime = **Sep 1 19:42**；MaintenanceTool.dat/components.xml mtime = Aug 7 16:06 |
+| 其他 Qt 安装位置 | — | 全盘例行检查：仅 `D:\QT`（6.11.1/mingw_64）一处；C:\Qt 不存在；唯一在盘的 Qt6SerialPort.dll 位于 `D:\QT\Tools\QtCreator\bin\`（QtCreator 自带运行时，与 6.11.1 kit 无关） |
+
+**结论**：本机 Qt 6.11.1 kit 上 QtSerialPort 组件仍未落地；MaintenanceTool 尚无今日运行记录。可能原因（供用户排查，非断言）：组件被勾选安装到了其他 Qt 版本条目（本机只有 6.11.1，不存在该情况）；安装尚未完成/被取消；勾选的组件名不同（6.11.1 下应为 `Additional Libraries → Qt Serial Port`）。
+
+**状态：仍 OPEN。T010 Part A Implementation 按规则停止（一步失败即停）。**
+
+## 用户自查清单（排查提示）
+
+1. 打开 `D:\QT\MaintenanceTool.exe` → "Add or remove components" → 搜索框输入 `serial` → 确认 **Qt 6.11.1 → Additional Libraries → Qt Serial Port** 复选框是否已勾选（不是 Qt Serial Bus）。
+2. 补装完成后运行安装日志应出现当日记录：查看 `D:\QT\InstallationLog.txt` 末尾时间戳。
+3. 硬核验（PowerShell）：`Test-Path D:\QT\6.11.1\mingw_64\include\QtSerialPort` 与 `Test-Path D:\QT\6.11.1\mingw_64\bin\Qt6SerialPort.dll` 应为 True。

@@ -16,7 +16,7 @@
 | 当前任务（Current Task） | **T010 Serial Mode**（IN PROGRESS——Part B 未开始） |
 | 最近完成任务（Last Completed Task） | **T009 Replay Mode**（Part A + Part B 全部 DONE，用户 Manual Replay Smoke 确认） |
 | 当前阶段（Current Phase） | **Part A — Serial Transaction Runtime + QtSerialPort Adapter：Learning / Test Design**（docs-only；Implementation ⬜） |
-| 下一步动作（Next Action） | **T010 Part A — Implementation**（前置阻塞：ISSUE-003 QtSerialPort 未安装，待用户决策） |
+| 下一步动作（Next Action） | **T010 Part A — Implementation**（**停止中**：ISSUE-003 重实证 FAIL——用户称已补装但 kit 无 QtSerialPort 且 MaintenanceTool 无今日运行记录；待用户复查补装） |
 | 下一 Part（Next Part） | **Part B — Serial UI Integration + Hardware/No-Hardware Smoke** |
 | 下一任务（Next Task After T010） | **T011 AI Diagnosis** |
 | Known Issues | 见 §4 |
@@ -146,3 +146,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-07 | **T009 Part B Implementation 完成（自动化全 GREEN）**：loadReplayFile 原子发布 + 失败保全旧 batch/source；clearResults 重命名；canonical sample 迁移 samples/（git mv + SHA256 验证）；Main.qml FileDialog/Header/错误 label；UI-R01~R08 新增全过（ui_bridge 22/22）；ctest 16/16、clean 96 targets 零警告、deploy+minimal-PATH smoke PASS。LKGC candidate = `d473d36`。**Manual Replay Smoke = WAITING FOR USER**（PB-24 定则，Agent 不自报 PASS） |
 | 2026-09-07 | **用户 Manual Replay Smoke = PASS（A~E 全项人工验收）**：Replay 加载/统计/四行正确、Clear 保留来源、Demo↔Replay 互切不追加。**T009 Part B DONE → T009 整体 DONE**。LKGC = `d473d36`（核验存在后写入）；HEAD = docs-only 确认提交。M5 按 BACKLOG 既有定义保持进行中（T010 未开始） |
 | 2026-09-07 | **T010 启动：Part A Learning / Test Design（docs-only）**——Serial 语义/framing/timeout/矩阵落库；**发现 ISSUE-003（QtSerialPort 未安装，OPEN）**；T010 标记 IN PROGRESS，M5 保持进行中（T009 ✅ / T010 ⬜） |
+| 2026-09-07 | **T010 Part A Implementation 启动即停**：安装后重实证 FAIL——用户称 Qt Serial Port 已补装，但 6.11.1 kit 的 include/cmake package/DLL 均不存在，InstallationLog.txt 无今日记录（mtime Sep 1）。按规则（一步失败即停）停止 Implementation；ISSUE-003 追加证据与用户自查清单，保持 OPEN |
