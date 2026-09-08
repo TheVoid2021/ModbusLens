@@ -8,15 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ 完成；**M5 进行中（T009 ✅ / T010 Part A ✅ / Part B 未开始；按 BACKLOG 既有定义 M5=T009,T010，不得提前关闭）** |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ 完成；**M5 进行中（T009 ✅ / T010 Part A ✅ / Part B Learning+Test Design；按 BACKLOG 既有定义 M5=T009,T010，不得提前关闭）** |
 | Last Known Good Commit | **`b31233b`**（T010 Part A 代码提交：clean build 106 targets 零警告 + ctest 18/18 + Core Zero Qt + ISSUE-001/002 无回归 + deploy/minimal-PATH smoke 多重验证；当前 HEAD 为其后的 docs-only 回填提交，不改变 LKGC。历史值：`d473d36`（T009）、`e4920da`（T009A）） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1/CMake 3.30.5，零警告（clean 全量重建 106 targets） |
 | Test 状态 | ✅ **18/18 通过**（ctest：原 16 项 + `serial` + `serial_adapter`；其中 Serial 新增 23 个测试函数） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · **T009** |
 | 当前任务（Current Task） | **T010 Serial Mode**（IN PROGRESS——Part B 未开始） |
 | 最近完成任务（Last Completed Task） | **T009 Replay Mode**（Part A + Part B 全部 DONE，用户 Manual Replay Smoke 确认） |
-| 当前阶段（Current Phase） | **Part A — Serial Transaction Runtime + QtSerialPort Adapter：DONE ✅** |
-| 下一步动作（Next Action） | **T010 Part B — Learning / Test Design** |
+| 当前阶段（Current Phase） | **Part B — Serial UI Integration + Hardware/No-Hardware Smoke：Learning / Test Design**（docs-only；Implementation ⬜） |
+| 下一步动作（Next Action） | **T010 Part B — Implementation** |
 | 下一 Part（Next Part） | **Part B — Serial UI Integration + Hardware/No-Hardware Smoke** |
 | 下一任务（Next Task After T010） | **T011 AI Diagnosis** |
 | Known Issues | 见 §4 |
@@ -40,7 +40,7 @@
 
 ## 2. 当前任务
 
-- **T010 Serial Mode — IN PROGRESS（Part A = DONE ✅；Part B 未开始）**：Part A 交付（[T010 档案](tasks/T010-serial-mode.md) Implementation 章）——`src/core/serial/SerialTransactionSession`（Zero Qt 单事务状态机：Idle/AwaitingResponse、one outstanding→Busy、分块累积、修正版 framing（bit7 异常格式=5B / 0x03=5+响应 byteCount / 其他正常码等超时）、exact-candidate 不截断、timeout 双路语义、cancel 不伪造状态）；`encodeReadHoldingRegistersRequest`（T004 最小补全）；`src/ui/serial/SerialPortAdapter`（QSerialPort+single-shot QTimer 仅超时；QueuedConnection+suppress 破 errorOccurred 反馈风暴 PE-4）；SERIAL-A01~A16 + encoder 用例 21 项 + serial_adapter 2 项全绿（含 A07 真实 wire-truth 双场景锁定）；ctest 18/18、clean 106 targets 零警告、Core Zero Qt、deploy 回归 PASS（app 未链 SerialPort，DLL 按设计不进 deploy）。**ISSUE-003 = RESOLVED ✅**（Qt Serial Port 已装到正确 MinGW kit，五步实证全过）。**下一步动作 = T010 Part B — Learning / Test Design（Serial UI Integration）+ Hardware/No-Hardware Smoke 方案**。
+- **T010 Serial Mode — IN PROGRESS（Part A = DONE ✅；Part B: Serial UI Integration，Phase: Learning / Test Design，docs-only）**：Part B 设计定案（[T010 档案](tasks/T010-serial-mode.md) SB-0~SB-22）——Controller Serial state/commands（refreshSerialPorts/connectSerial/disconnectSerial/readHoldingRegistersOnce + serialConnected/serialBusy/hasSerialError/serialErrorMessage/serialPortNames）；Connect 成功=来源切换清旧 batch、失败=原子保留（与 T009 同构）；Disconnect 保留最后结果（Clear≠Disconnect）；Read Once replace=1 语义（Success 100%/25ms、Timeout 0%+avg=—）；`publishSerialResult` hardware-free seam（测试控 TransactionAnalysis fixture，与 T008 禁令不冲突的理由入档）；SB-13 四个 source switching 原子矩阵；QML GroupBox + enable 规则 + Reading... + 独立 serial 错误 label；矩阵 UI-S01~S09 + SERIAL-I02（PE-4 有界回归）/I03；discovery 只 enumerate 绝不自动 open（probe 的 2 个 COM 不证明是 Modbus 设备）；deployment Qt6SerialPort.dll provenance（SHA256 对照 MinGW bin，ISSUE-003 回归保护）；Manual Serial UI Smoke A~F 与 Hardware Smoke NOT RUN 政策；16 题问答；28 步计划落库。**Serial UI 未实现**；下一步动作 = T010 Part B — Implementation。
 
 
 ## 3. 下一任务
@@ -149,3 +149,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-07 | **T010 启动：Part A Learning / Test Design（docs-only）**——Serial 语义/framing/timeout/矩阵落库；**发现 ISSUE-003（QtSerialPort 未安装，OPEN）**；T010 标记 IN PROGRESS，M5 保持进行中（T009 ✅ / T010 ⬜） |
 | 2026-09-07 | **T010 Part A Implementation 启动即停**：安装后重实证 FAIL——用户称 Qt Serial Port 已补装，但 6.11.1 kit 的 include/cmake package/DLL 均不存在，InstallationLog.txt 无今日记录（mtime Sep 1）。按规则（一步失败即停）停止 Implementation；ISSUE-003 追加证据与用户自查清单，保持 OPEN |
 | 2026-09-07 | **T010 Part A 完成**：正确 kit 五步实证 PASS（ISSUE-003 RESOLVED：根因=初次补装落错 MSVC kit）→ 全 Implementation。`SerialTransactionSession` + `encodeReadHoldingRegistersRequest` + `SerialPortAdapter` 落地；SERIAL-A01~A16+I01+I02 全绿；RED=15 处 undefined reference；修复 PE-4（QSerialPort errorOccurred 反馈风暴 → QueuedConnection+suppress）与 PE-5（A07 真实行为 CrcError/ProtocolError 双场景）。ctest 18/18、clean 106 targets 零警告、Core Zero Qt、deploy minimal-PATH PASS。**Part A = DONE，T010 整体 IN PROGRESS**；LKGC = `b31233b` |
+| 2026-09-08 | **T010 Part B 启动：Learning / Test Design（docs-only）**——Controller Serial API/状态、Connect/Disconnect/Clear 语义、Read Once replace=1、hardware-free seam、UI-S01~S09+SERIAL-I02/I03 矩阵、discovery 安全规则、Qt6SerialPort provenance 计划、Manual/Hardware Smoke 政策落库；T010 保持 IN PROGRESS，Serial UI 未实现 |

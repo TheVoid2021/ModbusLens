@@ -1,6 +1,6 @@
 # T010 — Serial Mode
 
-> 状态：**IN PROGRESS**｜Part A（Serial Transaction Runtime + QtSerialPort Adapter）：**DONE ✅**（Learning / Test Design + Implementation + 全量验证；ISSUE-003 RESOLVED）｜Part B（Serial UI Integration + Hardware/No-Hardware Smoke）：⬜ Not Started
+> 状态：**IN PROGRESS**｜Part A（Serial Transaction Runtime + QtSerialPort Adapter）：**DONE ✅**（ISSUE-003 RESOLVED）｜Part B（Serial UI Integration + Hardware/No-Hardware Smoke）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**
 > 前置确认：T008 DONE、T009 DONE、LKGC = `bb0a652` 之前的代码提交 `d473d36`（LKGC）、T010 未开始、ISSUE-001/002 RESOLVED。
 > **ISSUE-003 RESOLVED ✅**（2026-09-07）：Qt Serial Port 已补装到正确 MinGW kit（五步实证全过，根因=多 kit 错位）。
 
@@ -346,3 +346,198 @@ ISSUE-003：RESOLVED ✅（closure evidence 见 Issue 文档）
 | 归档 docs-only | `<docs-only HEAD>` | LKGC 哈希回填 |
 
 > LKGC = `b31233b`；Part B 未开始。
+---
+
+# Part B — Serial UI Integration + Hardware/No-Hardware Smoke：Learning / Test Design（2026-09-08，docs-only）
+
+> 本章为 Part B 设计定案；**Implementation ⬜ 未开始**。红线：本阶段 `src/`、`tests/`、`CMakeLists.txt`、`scripts/` 零修改。全部设计基于已核验的真实 Part A API（SerialPortAdapter.h：`startTransaction(portName, baudRate, slave, start, qty, timeout) -> bool`、`closePort()`、`hasActiveTransaction()`、`isPortOpen()`、signals `transactionCompleted(TransactionAnalysis)` / `transportError(QString)`）。
+
+## SB-0 压缩后状态复核
+
+git log/status 复核：T009 DONE、T010 Part A DONE、LKGC=`b31233b`、HEAD=`072ce16`、ISSUE-003 RESOLVED、工作区干净——与此一致。
+
+## SB-1 Part B 核心目标与数据链
+
+Part B 只完成：Serial Port discovery + Connect/Disconnect + FC03 Read Once + Transport error presentation + existing Dashboard integration + standalone deployment + manual no/some-hardware smoke。最终链路：
+
+```text
+QSerialPort -> SerialPortAdapter -> SerialTransactionSession -> T004 Codec
+-> T007 Analyzer -> T007 Statistics -> AnalysisController
+-> 现有 TransactionListModel -> 现有 QML Dashboard
+```
+
+**禁止第二套 Serial Dashboard / 第二套 Transaction model / Serial 专用统计器。**
+
+## SB-2 Serial Controls Scope（UI 只加这些）
+
+Refresh Ports / Port ComboBox / Baud ComboBox / Connect / Disconnect / Slave Address / Start Address / Quantity / Timeout / Read Holding Registers Once。**固定 8N1 + No Flow Control**（UI 显示静态 "8N1"，无 parity/stop/flow 选择器、无 custom baud editor、无 Auto Poll/Monitoring/Interval/Thread/Queue/Multi-slave scheduler）。
+
+## SB-3 默认值与 Baud 选项
+
+Baud=9600（选项固定 9600/19200/38400/57600/115200）、Slave=1、Start=0、Quantity=2、Timeout=1000ms。
+
+## SB-4 Serial Port Discovery（只 enumerate，绝不自动 open）
+
+`AnalysisController` 提供：`Q_PROPERTY(QStringList serialPortNames READ serialPortNames NOTIFY serialPortsChanged)` + `Q_INVOKABLE void refreshSerialPorts()`。来源**必须**是 `QSerialPortInfo::availablePorts()`（不扫注册表/不手排 COM1~256/不调 PowerShell）；QML 不直接接触 QSerialPortInfo。**此前 probe 看到的 2 个串口设备只是 discovery evidence，不证明它们是 Modbus 设备**——自动化与应用启动只能 enumerate；任何形式的自动 open/write/发请求一律禁止；真实打开只能来自用户明确操作。
+
+## SB-5 Controller Serial State / Commands（命名沿现有风格）
+
+```cpp
+Q_PROPERTY(bool serialConnected READ serialConnected NOTIFY serialConnChanged)
+Q_PROPERTY(bool serialBusy READ serialBusy NOTIFY serialStatusChanged)
+Q_PROPERTY(bool hasSerialError READ hasSerialError NOTIFY serialErrorChanged)
+Q_PROPERTY(QString serialErrorMessage READ serialErrorMessage NOTIFY serialErrorChanged)
+Q_PROPERTY(QStringList serialPortNames READ serialPortNames NOTIFY serialPortsChanged)
+
+Q_INVOKABLE void refreshSerialPorts();
+Q_INVOKABLE void connectSerial(const QString& portName, int baudRate);
+Q_INVOKABLE void disconnectSerial();
+Q_INVOKABLE void readHoldingRegistersOnce(int slaveAddress, int startAddress,
+                                          int quantity, int timeoutMs);
+```
+
+语义红线：**Replay parse error ≠ Serial transport error**——两个独立 error state（沿用 T009 最小增量，不重构既有错误系统）。不把 `QSerialPort*` 暴露给 QML；QML 不 import QtSerialPort（C++ module）。
+
+## SB-6 输入边界 C++ 再验证（防 narrowing）
+
+QML 可用 SpinBox/Validator，但 C++ Controller 必须在任何 cast 前验证：slave 1~247、start 0~65535、quantity 1~125、timeoutMs > 0、baud ∈ {9600,19200,38400,57600,115200}。非法 → setSerialError + 返回（不写 port、不建 transaction）。`slave=-1 / start=70000 / quantity=126` 不得"先 cast 再让 Core 背锅"。
+
+## SB-7 Connect 的 source 语义（与 T009 原子规则同构）
+
+**成功 Connect = 显式来源切换**：`modeLabel="Serial Mode"`、`sourceLabel="<portName> @ <baud>"`（如 `COM3 @ 9600`，无长路径）、**清空旧 Simulator/Replay active batch**（statistics 空 / rowCount 0 / rate=— / avg=—）——禁止 "Header=Serial Mode 但列表还是 Replay rows" 混合态。**失败 Connect = 原子保留**：旧 statistics/rows/mode/source 全部不动，仅 hasSerialError=true + message（对应 UI-S02）。
+
+## SB-8 Disconnect vs Clear
+
+`disconnectSerial()`：pending 事务 → session cancel；close port；serialConnected=false、serialBusy=false；**不清最后一次 Serial transaction result**——Disconnect 是关 transport 不是删诊断结果；Header 保持 Serial Mode/COM3 @ 9600。`clearResults()` 延续统一语义：清 statistics+rows+（serial error），**只清结果不切来源、也不强制断连接**（Clear ≠ Disconnect，职责分离，对应 UI-S08）。
+
+## SB-9 Read Once 前置与启动
+
+前置：`serialConnected==true && serialBusy==false`，否则 setSerialError（**不得构造 TransactionStatus::Timeout、不得建 row**）。启动成功（adapter 接受）：serialBusy=true；**清除旧 serial error**；**保留上一条 completed result 同屏**（直到新结果 replace——等待期 UI 显示 "Reading..."）；此时才保存 pending metadata：`pendingSerialAddress_`（functionCode 恒 0x03）；transport failure/cancel 清 pending metadata——旧 metadata 不得污染下一事务。
+
+## SB-10 Read Once 完成：active batch = 1（replace 语义）
+
+五种结果都是合法 TransactionAnalysis。完成时：pending metadata + analysis → 构造 **1 个** TransactionListEntry；`summarizeTransactions({analysis})` → **replace** 当前 batch（**禁止 append**，rowCount 恒 1，对应 UI-S07）。
+
+Success（elapsed 25）：Observed=1/Completed=1/Pending=0/Success=1/Rate=100.0%/Avg=25.0。Timeout（elapsed 1000）：Observed=1/Completed=1/Timeout=1/**Rate=0.0（合法值，非 nullopt）**/Avg=—（hasAverageSuccessLatency=false）。
+
+## SB-11 Transport Error 只进 error UI
+
+Open failed/Permission denied/Port busy/Write failed/Fatal serial error/USB 断开 → **只** serial error UI；pending 则 cancel + serialBusy=false；**不得生成 Timeout/ProtocolError/CrcError、不得发布新 row**；旧 completed batch 保持。与 Transaction row 的 Timeout/CRC Error/Protocol Error 是两类东西，UI 上必须可区分（label 前缀 "Serial transport error:"）。
+
+## SB-12 Hardware-free Controller Mapping Seam（关键测试缝）
+
+自动化不能依赖真实 COM，但要证明 "Serial TransactionAnalysis → 现有 Dashboard" 映射正确。**定案：非 Q_INVOKABLE 的 C++ 应用层发布 helper**：
+
+```cpp
+// C++-side entry point（与 applySnapshot/setTransactionEntries 同风格，不进 QML）：
+void publishSerialResult(const QString& sourceLabel, int deviceAddress,
+                         const modbuslens::core::TransactionAnalysis& analysis);
+// 内部：1 entry + summarizeTransactions({analysis}) replace batch；
+//       modeLabel="Serial Mode"；sourceLabel=入参；clearSerialError；serialBusy=false。
+```
+
+生产路径：`connectSerial` 成功时存 `serialSourceLabel_="<port> @ <baud>"`；adapter.transactionCompleted → `publishSerialResult(serialSourceLabel_, pendingSerialAddress_, analysis)`。**测试直接构造 TransactionAnalysis fixture 调该 helper**（Success 25ms / Timeout 1000ms）——与 T008 "Demo 禁伪造 status" 不冲突：T008 是产品业务链必须真实跑 Core；此处只验证"已得到的 Core result 如何映射 Qt UI"，Serial Core 正确性已由 A01~A16 锁定。**不建** ISerialTransport framework / 通用 DI framework / IFrameSource。
+
+## SB-13 Source Switching 全景（原子性矩阵）
+
+| 切换 | 行为 |
+| --- | --- |
+| Run Demo Batch（Serial 已连） | cancel pending（如有）→ close port → serialConnected/Busy=false → 发布 Demo → mode/source=Simulator → **清 serial error**（后台 COM 不得在 Simulator Mode 仍占用） |
+| loadReplayFile | 先完整 read/parse/analyze——**Replay 失败不动 Serial 任何状态**（不关、不切、不毁 batch）；只有全部成功后：cancel pending→close→发布 Replay→mode/source=Replay → 清 serial error |
+| Connect Serial 成功 | 清旧 batch → Serial Mode/新 sourceLabel |
+| Connect Serial 失败 | 旧 source/batch 原样保留，仅 serial error |
+
+## SB-14 QML Serial Panel（轻量 GroupBox）
+
+`GroupBox "Serial Controls"`：Port ComboBox + Refresh / Baud ComboBox / Connect / Disconnect（RowLayout）；Slave/Start/Quantity/Timeout 四个 SpinBox + "8N1" 静态文本；`Read Holding Registers Once` 按钮。Enable 规则：Port/Baud ComboBox connected 时 disabled；Connect enabled = !serialConnected && 有选中 port；Disconnect enabled = serialConnected；Read Once enabled = serialConnected && !serialBusy；输入字段 busy 时 disabled；busy 时显示 "Reading..."。无动画 framework。
+
+## SB-15 Serial Error UI
+
+现有 Replay error label 保持；**新增独立 Serial error label**（`hasSerialError` 可见 + 前缀 "Serial transport error:"）——轻量 Label，无 MessageBox/Toast/Notification center。与 Transaction row 视觉可区分。
+
+## SB-16 测试矩阵（UI-S01~S09 + PE-4 回归）
+
+| Test ID | 场景 | Expected | 优先 |
+| --- | --- | --- | --- |
+| UI-S01 | 初始状态 | serialConnected=false、serialBusy=false、hasSerialError=false；refreshSerialPorts() 不 crash；serialPortNames 可读 | P1 |
+| UI-S02 | 先 Demo/Replay golden，再 connectSerial(不存在 port) | hasSerialError=true；旧 statistics/rows/mode/source 全部不变；无新 TransactionStatus row | **P0** |
+| UI-S03 | 未连接时 readHoldingRegistersOnce | serial error；row/statistics/source 不变；**不得 Timeout** | **P0** |
+| UI-S04 | 非法输入（slave=0 / start=65536 / quantity=126 / timeout=0 各取代表） | 拒绝；不 narrowing、不写 port、不建 transaction | P1 |
+| UI-S05 | seam：publishSerialResult("COM_TEST @ 9600", 1, Success 25ms) | mode=Serial Mode；sourceLabel=COM_TEST @ 9600；rowCount=1（Success 25ms）；statistics 1/1/0、rate=1.0、avg=25.0 | **P0** |
+| UI-S06 | seam：publishSerialResult(…, Timeout 1000ms) | rowCount=1（Timeout）；successRate has=true value=0.0；avg has=false | **P0** |
+| UI-S07 | seam：publish Success → publish Timeout | rowCount 仍 1（不 2）；statistics 只表最新 | **P0** |
+| UI-S08 | Serial result 存在 → clearResults() | all counts=0、rowCount=0；mode/source 仍 Serial；连接状态不因 Clear 改变 | P1 |
+| UI-S09 | failed connect（error=true）→ 成功 source switch（runDemoBatch） | hasSerialError=false、message 空（过时 transport error 不得常驻） | P1 |
+| SERIAL-I02（PE-4 回归） | QSignalSpy 计 transportError：open 不存在 port + processEvents | 信号数**有界=1**；adapter not open、session Idle、no crash | **P0**（补进 adapter 测试——Part A 现测仅断言有信号，未断言有界） |
+| SERIAL-I03 | 主动 disconnect 静默（hardware-free 等价：未打开 port 上 closePort() + processEvents） | 无 transportError 信号；无 crash | P1（真实已打开态无法无硬件稳定制造——文档注明限制，不造假） |
+
+Port discovery 断言纪律：不得断言 count==2 或任何机器 COM 数量；只断言无 crash、列表可读、有条目时 portName 非空、refresh 不导致任何 open。
+
+## SB-17 QML Smoke / CMake Link Graph / Deployment 计划
+
+- QML smoke：Serial UI 加入后 `--qml-smoke-test` 必须继续 exit=0（无 ReferenceError/TypeError/binding loop/missing type；QSerialPort 不进 QML）。
+- **CMake link graph（Implementation 后记录）**：`modbuslens`（app）真实链接 `Qt6::SerialPort`（通过 SerialPortAdapter 并接入 qml module SOURCES）；**modbuslens_core 继续 Zero Qt、零 SerialPort 链接（红线）**。
+- **Deployment**：重跑 deploy_windows.bat → build/deploy/Qt6SerialPort.dll 由 windeployqt **自动**部署（不手工复制）；**必须做 provenance**：deploy 副本 SHA256 == `D:\QT\6.11.1\mingw_64\bin\Qt6SerialPort.dll`（本机存在 MSVC 第二套 D:\QTDesign——ISSUE-003 回归保护，不得混入）；minimal-PATH `--qml-smoke-test` exit=0 + 普通窗口启动（ISSUE-002 不回退）。
+
+## SB-18 Manual Smoke 与 Hardware Smoke 政策
+
+- **Manual Serial UI Smoke（无硬件也可 PASS）**：A deploy app 启动；B Serial Controls 正常显示；C Refresh Ports 可点无 crash（只验证列表显示，**禁止 open 任何未知 COM**）；D Simulator Demo 正常；E Replay demo_v1.mlog 正常；F 按钮 enable/disable 合理（disconnected 态）。Agent 不操作真实端口 → 用户人工执行；PASS 前不得自报。
+- **Hardware Smoke 独立记录**：只有用户明确确认拥有"安全可用的 USB-RS485 + Modbus slave + COM + baud/slave/寄存器参数"才执行真实 Connect+Read Once。否则记录 `Hardware Smoke = NOT RUN, Reason = hardware unavailable`——**不伪报**；也**不为了测试随便 open probe 发现的两个 COM**。T010 软件完成不依赖 Hardware Smoke PASS。即使未来只有 adapter 无 slave，也不假定 Read 必 Timeout（echo 等行为未知）——无已知 slave 不做强预期 hardware assertion。
+
+## SB-19 Knowledge I Must Be Able To Explain（16 题）
+
+**SB-Q1 为什么 QML 不直接使用 QSerialPort？** ADR001 分层：Qt 硬件对象只在 App/Controller 层；QML 只面对可绑定 plain properties；也是"三模式共享 UI"的前提。
+**SB-Q2 为什么 discovery 可自动、open 不可自动？** enumerate 是只读元数据；open 是独占真实设备资源，可能向真实从站发数据——必须由用户明确意图触发（安全边界）。
+**SB-Q3 为什么 Connect failure 不切 source？** 与 T009 失败加载同一 atomic rule：失败的转换不得产生混合 source state。
+**SB-Q4 为什么 successful Connect 清旧 batch？** Dashboard 语义="当前 active batch"；连接后旧 Demo/Replay 结果与当前来源无关，保留会造成 Header/batch 不一致的混合态。
+**SB-Q5 为什么 Disconnect 保留最后结果？** Disconnect 关的是 transport 不是诊断结论；诊断事实不因"线拔了"失效。
+**SB-Q6 为什么 Clear ≠ Disconnect？** 正交动作：Clear=删结果；Disconnect=关连接。合并会造成"想清屏却断设备"或反之。
+**SB-Q7 为什么 Read Once 是 replace=1 非 append？** 与 Simulator/Replay 的 replace semantics 统一；history 是独立未来任务。
+**SB-Q8 为什么 Timeout transaction 与 Port Open Failure 完全不同？** 前者是合法 Modbus 诊断（请求已上总线、无响应）；后者是本地 transport 事实（请求根本未发出）。混淆 = 错误归因。
+**SB-Q9 为什么 Serial statistics 仍走 summarizeTransactions？** 一份统计逻辑只有一个 owner；1 元素 batch 同路径（UI-S05/06 锁定）。
+**SB-Q10 为什么 0% 是合法值非 nullopt？** completed>0 时 rate 必然有值；"没有成功"≠"没有数据"；invariant C 只跟 completed 挂钩。
+**SB-Q11 为什么 range validation 必须在 C++ cast 前？** int→uint8_t/uint16_t narrowing 是静默 UB 源；QML validator 可被绕过，C++ 是最后防线。
+**SB-Q12 为什么不做 Auto Poll？** v1 是手动诊断工具；轮询引入并发事务/队列/UI 生命周期问题；当前"一次一事务"语义更可控（Part A Busy rule 的直接延伸）。
+**SB-Q13 为什么 hardware-free seam 不算伪造？** seam 只验证 "Core result → UI 映射"（presentation adapter 正确性），输入类型由 A01~A16 锁定正确性；T008 禁令针对产品业务链冒充。
+**SB-Q14 为什么不能自动打开 detected COM？** probe 发现的端口身份未知；自动 open+write 可能向未授权设备发控制信号——工业安全底线。
+**SB-Q15 为什么 deploy 必须验证 Qt6SerialPort.dll provenance？** 本机曾因 MSVC/MinGW 多 kit 错位阻塞整个任务（ISSUE-003）；DLL 混入不同 ABI 工具链产物会产生 ISSUE-002 同类运行期崩溃。
+**SB-Q16 三模式最后真正共享什么？** ModbusRtuFrame/Codec/analyzeFunction03Transaction/summarizeTransactions/TransactionListModel/Dashboard——来源各异的三条链路在同一模型层收敛。
+
+## SB-20 Implementation Plan（28 步）
+
+1. 基于真实 SerialPortAdapter API 定案 Controller wiring（adapter 成员 + 信号连接 + handler）
+2. serial port list/state/error properties
+3. refresh/connect/disconnect commands
+4. read once command（前置 + range validation）
+5. pending metadata（accept 后保存、失败/取消清除）
+6. publishSerialResult seam（1 entry + summarizeTransactions replace）
+7. Statistics/Model 复用 + source switching rules（SB-13 矩阵）
+8. QML Serial Controls（GroupBox + enable 规则 + Reading... 状态）
+9. UI-S01~S09 tests（RED）
+10. SERIAL-I02（PE-4 有界回归）+ SERIAL-I03 写入 adapter 测试
+11. RED 证据
+12. GREEN（Controller + adapter 扩展 + QML）
+13. clean build 0 warnings
+14. full ctest（记录 target/test 数）
+15. qml smoke
+16. Core Zero Qt（core 零 SerialPort）
+17. app 真实链接 Qt6::SerialPort（link graph 记录）
+18. deploy_windows.bat 重跑
+19. Qt6SerialPort.dll provenance（SHA256 vs D:\QT MinGW bin）
+20. minimal-PATH smoke
+21. Manual Serial UI Smoke → WAITING FOR USER（A~F）
+22. Hardware Smoke（SB-18 政策）
+23. docs 归档（T010 档案 Implementation 章）
+24. code/config commit（用户 Manual Smoke 前为 LKGC candidate）
+25. 用户确认后 LKGC 正式推进
+26. docs-only hash backfill
+27. 不开始 T011
+28. 不 git push
+
+## SB-21 PROJECT_STATUS（本阶段执行）
+
+Current Task=T010；Current Part=Part B — Serial UI Integration + Hardware/No-Hardware Smoke；Current Phase=Learning / Test Design；Next Action=T010 Part B — Implementation；Next Task After=T011；T010 overall=IN PROGRESS；M5=IN PROGRESS（T009 ✅ / T010 Part A ✅ / Part B ⬜）。
+
+## SB-22 docs-only 验证（本阶段执行）
+
+`git diff --check`；`src/tests/CMakeLists.txt/scripts` 零修改；docs-only commit；LKGC 保持 `b31233b`；不得 push。
