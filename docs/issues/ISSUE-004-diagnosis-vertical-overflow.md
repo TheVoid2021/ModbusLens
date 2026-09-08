@@ -108,3 +108,49 @@ B. **Recent Transactions ListView 滚动时，四条 delegate 绘制到 viewport
 ### 状态
 
 **Fix Candidate — Awaiting Manual Verification（第三次）。** 用户肉眼确认"Diagnosis 内部滚动 + 纵向 scrollbar 真实出现 + 任何文字不出边框 + Transactions 不覆盖 heading"之前，不得 RESOLVED。
+
+## r4 取证结论 + Workspace Layout Fix（2026-09-08）
+
+### 有效取证结论（append-only，保留此前全部失败记录）
+
+用户提供的 runtime geometry evidence（debug overlay 读数）：
+
+```text
+groupH=280 colH=245 flickH=133 flickCH=214 flickCY=81 contentH=214 contentIH=214 bLen=267 bVis=true
+```
+
+证明：**Diagnosis 滚动机制本身已正确**——viewport 非零（133）、contentHeight(214) > viewport height、contentY 可变化（81）、baseline 正文状态与数据正常。"动态正文不可见"的根因（GroupBox contentItem 下 ColumnLayout 未填充 → Layout.* 失效 → viewport≈0）已由 `diagnosisColumn.anchors.fill: parent` 验证修复。**Diagnosis viewport 不再是主 blocker。**
+
+### 新 blocker：纵向 workspace 分配
+
+前几轮为 Diagnosis 设置的固定/偏固定高度（~280px）在 Root ColumnLayout 纵向串联中持续侵占 Recent Transactions 的垂直空间——即使最大化、golden 仅 4 条 transaction，列表仍在很矮的窗口中滚动。这是 dashboard **workspace 结构**问题，不是继续调 Diagnosis scroll 参数能解决的。
+
+### 修复：Horizontal SplitView（用户定案结构落地）
+
+- Root ColumnLayout：Header/控制条/Serial Controls/Statistics 原样保留；之后 `SplitView { orientation: Qt.Horizontal; Layout.fillWidth/fillHeight }` 承接**全部剩余高度**。
+- 左 pane = Diagnosis（`SplitView.fillHeight: true; minimumWidth 300; preferredWidth 400`）：**删除全部纵向 min/preferred/max 高度控制与状态驱动高度**；内部保留已验证的 anchors.fill ColumnLayout + Flickable（childrenRect 高度、AsNeeded scrollbar、PlainText、clip）。
+- 右 pane = Recent Transactions（`SplitView.fillWidth: true; fillHeight; minimumWidth 520`）：heading 为 ListView sibling；ListView `clip: true + StopAtBounds`；delegate/model/roles/行高不变。
+- 根布局不滚；Diagnosis/Transactions 各滚各的；SplitView 默认 handle 可拖动调整比例。
+- Diagnosis 空态（No diagnosis run yet）令 pane 稳定存在、不再因无内容或 groupBox 高度逻辑跳动。
+- ApplicationWindow `minimumWidth: 1000; minimumHeight: 700`（符合实际工具有效布局，非拍脑袋——1000=左 pane 300+handle+右 pane 520 保底）。
+- 移除全部 DBG overlay/Label/Timer/probe（grep DBG/geoProbe/TEMP 计数 0）。
+- **未 commit**（按本轮 Git 指示保持 working tree，等 Layout PASS 后再定最终 fix commit）。
+
+### 状态
+
+**REOPENED → Fix Candidate / Awaiting Manual Verification（workspace 版面）**。用户确认：A 左右布局合理、B golden 4 条 transaction 最大窗口基本一次可见、C Diagnosis 长文本内部滚动、D Transactions 内部滚动、E 无 overflow，五项全过方可 RESOLVED。
+
+## RESOLVED — Manual Layout Verification PASS（2026-09-08）
+
+用户人工确认（9 项证据）：Diagnosis 与 Recent Transactions 左右布局、Diagnosis baseline 正常、独立 vertical scrollbar、内容不越 pane、Transactions 不再被挤到窗口底部、golden 4 transactions 一次可见、delegate 不覆盖 heading、两 viewport 互不干扰、SplitView 布局可接受。
+
+**最终架构**：Horizontal SplitView workspace——左 Diagnosis（全高 pane、内部 Flickable 独立滚动、clip 安全网）、右 Recent Transactions（fillWidth + ListView clip/StopAtBounds 独立滚动）；root 不滚。
+
+**完整根因轨迹（append-only 下的演进结论）**：
+1. 局部 overflow（Diagnosis implicitHeight 无界挤压下方内容 + 无全局滚动）；
+2. 动态正文 viewport 失效（GroupBox contentItem 非 Layout 容器 → 子项 Layout.* 被忽略 → Flickable viewport≈0 → "内容不可见"；`anchors.fill` 修复，runtime geometry 实证：flickH=133、contentH=214、contentY 可变化）；
+3. 最终收敛为 workspace vertical allocation defect（固定高度 Diagnosis 在纵向串联中侵占 Transactions）→ SplitView 定案。
+
+**状态：RESOLVED ✅。** 视觉样式/颜色/spacing 归 Final Integration / UI polish，不在本 issue 范围。本档案保留前三轮全部失败过程记录（工程过程证据）。
+
+- Fix commit：`85699ff`（fix(T011): use split workspace for diagnosis and transactions，最新 Part B LKGC candidate）
