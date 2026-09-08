@@ -576,3 +576,11 @@ Current Task=T011；Current Part=Part B — LLM Diagnosis Integration；Current 
 **A. 双层 stale guard**：单一 `activeBatchRevision_` 无法覆盖"同 batch 内 Cancel 后 restart"场景（#1 晚到回调与 #2 同 revision）。最终引入 `aiRequestGeneration_`（uint64）：每次新 Ask ++、记录 requestId + captured batchRevision；completion 必须**同时**满足 `requestId == activeAiRequestId_` 且 `capturedBatchRevision == activeBatchRevision_` 才更新 UI。invalidate request id 的时机：cancelAiDiagnosis / clearDiagnosis / active batch change / 新 Ask AI。≠ 复杂 async framework——就是两个整数 + 两个比较。
 
 **B. AI output 是 untrusted plain text**：QML 渲染 AI content 必须显式 `textFormat: Text.PlainText`（禁 AutoText/RichText/MarkdownText）；fake 返回 `<b>Protocol Error</b>` 时 UI 应显示字面量标签而非粗体富文本；无 HTML sanitizer（根本不启用 rich rendering）。
+
+## Part B Implementation 追加记录（2026-09-08）
+
+- **ISSUE-004 全轨迹已 RESOLVED**（局部 overflow → viewport 失效 → workspace 纵向分配缺陷 → Horizontal SplitView 定案，用户 Manual Layout Verification PASS；详见 docs/issues/ISSUE-004）。
+- **用户 Manual AI UI Smoke = PASS**（A~I 九项人工证据：AI panel/Provider/Model 状态显示、未配置 Token 不触发请求、Demo→Baseline 正确、Clear Diagnosis 只清派生、Replay 同 semantic、Serial 无回归、SplitView 拖动与双 viewport 独立滚动无回归）。
+- 自动化基线（维持）：clean 126 targets 零警告；ctest 20/20（DIAG-A10 + AI-B01~B13 + UI-AI01~AI11）；qml smoke；deploy/provenance/TLS/minimal-PATH 全过。
+- **Live ModelScope Smoke = WAITING FOR USER**（用户本机设 MODELSCOPE_API_KEY → Run Demo → Baseline → Ask AI；Token 不得外发）。
+- 状态：T011 Part B = IN PROGRESS（Live 过才 DONE）；verified LKGC 仍 `06ef801`；最新 code candidate = `85699ff`（`f087275` 已弃用）。

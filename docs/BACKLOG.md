@@ -87,3 +87,4 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-08 | **T011 启动：Part A Learning / Test Design（docs-only）**——AI/Core 责任边界与规则基线定案；T011 标记 IN PROGRESS，Diagnosis 未实现 |
 | 2026-09-08 | **T011 Part A 完成**（`06ef801` 新 LKGC）：deterministic baseline 落地 + DIAG/UI-D 全绿；**用户 Manual Baseline Smoke PASS**；T011 保持 IN PROGRESS（Part B 未开始） |
 | 2026-09-08 | **T011 Part B 启动：Learning / Test Design（docs-only）**——ModelScope/凭据/prompt/客户端/stale guard 全套定案；网络代码未实现 |
+| 2026-09-08 | **T011 Part B Implementation 完成（自动化 GREEN）**：AI-B01~B13+UI-AI01~AI11 全绿；ISSUE-004 RESOLVED（SplitView workspace）；**用户 Manual AI UI Smoke PASS（A~I）**；Live ModelScope Smoke = WAITING；T011 保持 IN PROGRESS |

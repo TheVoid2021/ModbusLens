@@ -20,3 +20,8 @@
 ## 下一步（待用户指令，不自动开始）
 
 - T011 Part B — Implementation（34 步：prompt builder→parser→client→fake server→AI-B→Controller revision/cancel→UI-AI→QML→deploy/TLS/provenance→Manual AI UI Smoke→可选 Live ModelScope Smoke——无真 token 时如实记 NOT RUN）。不开始 T012。
+## 追加（同日）· Implementation 完成与 Manual AI UI Smoke PASS
+
+- Implementation（code `85699ff`，含 ISSUE-004 SplitView workspace 修复；弃 f087275）：client/prompt builder/Controller 双 stale guard/QML Flickable+SplitView 面板；ctest 20/20、clean 126 零警告、deploy/provenance/TLS/minimal-PATH 全过。
+- 有效取证：runtime geometry 实证 Diagnosis 滚动机制（flickH=133/contentH=214/contentY 可变）→ blocker 重分类为 workspace allocation → SplitView 定案 → 用户 Layout PASS + Manual AI UI Smoke PASS（A~I）。
+- **Live ModelScope Smoke = WAITING FOR USER**；T011 Part B/T011/M6 仍 IN PROGRESS；verified LKGC `06ef801`；候选 `85699ff` 待 Live PASS 推进。
