@@ -29,14 +29,21 @@ class SerialTransactionAdapter : public QObject
 public:
     explicit SerialTransactionAdapter(QObject* parent = nullptr);
 
-    // Open/configure the port (8N1 + caller baud), begin one FC03 transaction
-    // and write the request wire. Returns false and emits transportError() on
-    // any immediate transport/usage failure (open failed, session busy or
-    // invalid begin, write failed) — in those cases the session is cancelled
-    // and nothing is left pending. Success means the response will arrive via
-    // transactionCompleted() or a transportError() signal later.
-    bool startTransaction(const QString& portName, int baudRate,
-                          std::uint8_t slaveAddress, std::uint16_t startAddress,
+    // ---- Transport lifecycle (T010 Part B evolution) ----
+    // Open and configure the port ONLY (8N1 + caller baud). No Modbus state
+    // is touched. On failure returns false, emits a BOUNDED transportError()
+    // (exactly one user-visible emission — see PE-4) and leaves the port
+    // closed. Never fabricates a TransactionStatus.
+    bool openPort(const QString& portName, qint32 baudRate);
+
+    // ---- Transaction lifecycle (T010 Part B evolution) ----
+    // REQUIRES an already-open port (see openPort): runs exactly ONE FC03
+    // transaction and writes the request wire. Returns false + a bounded
+    // transportError() on any failure (port closed, busy, invalid begin,
+    // write failed) — the session is never left half-pending and no
+    // TransactionStatus is invented. Success means the result arrives via
+    // transactionCompleted() or a transportError() later.
+    bool startTransaction(std::uint8_t slaveAddress, std::uint16_t startAddress,
                           std::uint16_t quantity,
                           std::chrono::milliseconds timeout);
 
@@ -44,8 +51,9 @@ public:
     [[nodiscard]] bool isPortOpen() const;
 
 public slots:
-    // Local close: cancels any pending transaction WITHOUT emitting a
-    // transaction result (a user-requested close is not a Modbus diagnosis).
+    // Intentional disconnect: cancels any pending transaction WITHOUT
+    // emitting a transaction result or a transport error (a user close is
+    // neither a Modbus diagnosis nor a transport failure).
     void closePort();
 
 signals:
@@ -64,9 +72,9 @@ private:
     QTimer timeoutTimer_;
     QElapsedTimer elapsed_;
     modbuslens::core::SerialTransactionSession session_;
-    // Breaks the errorOccurred feedback loop (see T010 archive): closing an
-    // already-failed port re-emits DeviceNotFoundError forever, so once a
+    // Breaks the errorOccurred feedback loop (see T010 archive PE-4): closing
+    // an already-failed port re-emits DeviceNotFoundError forever, so once a
     // fatal error is handled, further emissions are ignored until the next
-    // startTransaction.
+    // openPort/start attempt.
     bool suppressPortErrors_ = false;
 };

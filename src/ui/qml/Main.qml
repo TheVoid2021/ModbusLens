@@ -96,6 +96,121 @@ ApplicationWindow {
             Layout.fillWidth: true
         }
 
+        // Serial controls (T010 Part B) — one lightweight GroupBox, no new
+        // page, no second dashboard. QSerialPort never appears in QML.
+        GroupBox {
+            title: qsTr("Serial Controls")
+            Layout.fillWidth: true
+
+            ColumnLayout {
+                Layout.fillWidth: true
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: qsTr("Port") }
+                    ComboBox {
+                        id: serialPortCombo
+                        model: analysisController.serialPortNames
+                        enabled: !analysisController.serialConnected
+                        Layout.preferredWidth: 140
+                    }
+                    Button {
+                        text: qsTr("Refresh Ports")
+                        onClicked: analysisController.refreshSerialPorts()
+                    }
+                    Label { text: qsTr("Baud") }
+                    ComboBox {
+                        id: serialBaudCombo
+                        model: [9600, 19200, 38400, 57600, 115200]
+                        currentIndex: 0
+                        enabled: !analysisController.serialConnected
+                        Layout.preferredWidth: 110
+                    }
+                    Label {
+                        text: qsTr("8N1")
+                        color: "#606060"
+                        font.pixelSize: 11
+                    }
+                    Button {
+                        text: qsTr("Connect")
+                        enabled: !analysisController.serialConnected
+                                 && serialPortCombo.currentIndex >= 0
+                        onClicked: analysisController.connectSerial(
+                            serialPortCombo.currentText,
+                            Number(serialBaudCombo.currentText))
+                    }
+                    Button {
+                        text: qsTr("Disconnect")
+                        enabled: analysisController.serialConnected
+                        onClicked: analysisController.disconnectSerial()
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: qsTr("Slave") }
+                    SpinBox {
+                        id: serialSlaveSpin
+                        from: 1
+                        to: 247
+                        value: 1
+                        enabled: !analysisController.serialBusy
+                    }
+                    Label { text: qsTr("Start") }
+                    SpinBox {
+                        id: serialStartSpin
+                        from: 0
+                        to: 65535
+                        value: 0
+                        enabled: !analysisController.serialBusy
+                    }
+                    Label { text: qsTr("Quantity") }
+                    SpinBox {
+                        id: serialQuantitySpin
+                        from: 1
+                        to: 125
+                        value: 2
+                        enabled: !analysisController.serialBusy
+                    }
+                    Label { text: qsTr("Timeout (ms)") }
+                    SpinBox {
+                        id: serialTimeoutSpin
+                        from: 100
+                        to: 10000
+                        value: 1000
+                        enabled: !analysisController.serialBusy
+                    }
+                    Button {
+                        text: analysisController.serialBusy
+                              ? qsTr("Reading...") : qsTr("Read Holding Registers Once")
+                        enabled: analysisController.serialConnected
+                                 && !analysisController.serialBusy
+                        onClicked: analysisController.readHoldingRegistersOnce(
+                            serialSlaveSpin.value,
+                            serialStartSpin.value,
+                            serialQuantitySpin.value,
+                            serialTimeoutSpin.value)
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+        }
+
+        // Serial transport error (separate lane from Replay error and from
+        // Transaction rows — a transport failure is never a Modbus status).
+        Label {
+            visible: analysisController.hasSerialError
+            text: analysisController.serialErrorMessage
+            color: "#B03030"
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
+        }
+
         // Statistics area
         RowLayout {
             Layout.fillWidth: true

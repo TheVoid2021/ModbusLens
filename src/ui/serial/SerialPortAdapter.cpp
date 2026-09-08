@@ -43,13 +43,13 @@ SerialTransactionAdapter::SerialTransactionAdapter(QObject* parent)
             Qt::QueuedConnection);
 }
 
-bool SerialTransactionAdapter::startTransaction(
-    const QString& portName, int baudRate, std::uint8_t slaveAddress,
-    std::uint16_t startAddress, std::uint16_t quantity,
-    std::chrono::milliseconds timeout)
+bool SerialTransactionAdapter::openPort(const QString& portName, qint32 baudRate)
 {
+    // Reject a port switch while a transaction runs: the transaction owns
+    // the wire for its whole lifetime.
     if (hasActiveTransaction()) {
-        emit transportError(QStringLiteral("Serial busy: a transaction is already pending"));
+        emit transportError(
+            QStringLiteral("Serial busy: a transaction is already pending"));
         return false;
     }
 
@@ -57,16 +57,32 @@ bool SerialTransactionAdapter::startTransaction(
     port_.setPortName(portName);
     port_.setBaudRate(baudRate);
     if (!port_.open(QIODevice::ReadWrite)) {
+        // Synchronous single report; the queued errorOccurred feedback that
+        // follows is suppressed by the PE-4 guard (bounded at exactly one
+        // user-visible emission — locked by SERIAL-I02).
         emit transportError(
             QStringLiteral("Serial open failed: %1").arg(port_.errorString()));
+        return false;
+    }
+    return true;
+}
+
+bool SerialTransactionAdapter::startTransaction(
+    std::uint8_t slaveAddress, std::uint16_t startAddress,
+    std::uint16_t quantity, std::chrono::milliseconds timeout)
+{
+    if (!port_.isOpen()) {
+        emit transportError(QStringLiteral("Serial not connected: open a port first"));
+        return false;
+    }
+    if (hasActiveTransaction()) {
+        emit transportError(QStringLiteral("Serial busy: a transaction is already pending"));
         return false;
     }
 
     const auto begin = session_.beginReadHoldingRegisters(
         slaveAddress, startAddress, quantity, timeout);
-    const auto* beginError = std::get_if<modbuslens::core::SerialTransactionError>(&begin);
-    if (beginError != nullptr) {
-        port_.close();
+    if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
         emit transportError(QStringLiteral("Serial begin failed: invalid request"));
         return false;
     }
@@ -77,6 +93,8 @@ bool SerialTransactionAdapter::startTransaction(
         static_cast<qint64>(start.requestWire.size()));
     if (written != static_cast<qint64>(start.requestWire.size())) {
         // Write failure is a local transport fact — never a 1000ms Timeout.
+        // The port is unusable after a failed write: close it and let the
+        // controller re-sync from isPortOpen().
         cancelPending();
         emit transportError(
             QStringLiteral("Serial write failed: %1").arg(port_.errorString()));

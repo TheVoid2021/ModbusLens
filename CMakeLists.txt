@@ -60,12 +60,16 @@ qt_add_qml_module(modbuslens
         src/ui/AnalysisController.cpp
         src/ui/TransactionListModel.h
         src/ui/TransactionListModel.cpp
+        src/ui/serial/SerialPortAdapter.h
+        src/ui/serial/SerialPortAdapter.cpp
 )
 target_include_directories(modbuslens PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui")
+# T010 Part B link graph: the APP (via the serial adapter inside
+# AnalysisController) links Qt6::SerialPort — modbuslens_core stays Zero Qt.
 target_link_libraries(modbuslens PRIVATE
-    modbuslens_core Qt6::Qml Qt6::Quick Qt6::QuickControls2)
+    modbuslens_core Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::SerialPort)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(modbuslens PRIVATE -Wall -Wextra)
@@ -190,12 +194,15 @@ if(BUILD_TESTING)
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
         src/ui/TransactionListModel.h
-        src/ui/TransactionListModel.cpp)
+        src/ui/TransactionListModel.cpp
+        src/ui/serial/SerialPortAdapter.h
+        src/ui/serial/SerialPortAdapter.cpp)
     target_include_directories(modbuslens_ui_bridge_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_compile_definitions(modbuslens_ui_bridge_tests PRIVATE
         MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog")
-    target_link_libraries(modbuslens_ui_bridge_tests PRIVATE modbuslens_core Qt6::Qml Qt6::Test)
+    target_link_libraries(modbuslens_ui_bridge_tests PRIVATE
+        modbuslens_core Qt6::Qml Qt6::SerialPort Qt6::Test)
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(modbuslens_ui_bridge_tests PRIVATE -Wall -Wextra)

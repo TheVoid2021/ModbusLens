@@ -8,9 +8,11 @@
 #include <QUrl>
 #include <QVariant>
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 
+#include "core/analysis/TransactionAnalysis.h"
 #include "ui/AnalysisController.h"
 #include "ui/TransactionListModel.h"
 
@@ -88,6 +90,28 @@ private slots:
     void r07_sourceReplace();
     // UI-R08 (P1): clearResults empties results but keeps the source.
     void r08_clearKeepsSource();
+
+    // ---- T010 Part B: serial UI integration ----
+    // UI-S01 (P1): initial serial state + safe discovery.
+    void s01_initialSerialState();
+    // UI-S02 (P0): failed connect preserves the whole old batch/source.
+    void s02_failedConnectAtomicPreservation();
+    // UI-S03 (P0): read while disconnected errors without a Timeout.
+    void s03_readWhileDisconnected();
+    // UI-S04 (P1): out-of-range inputs are rejected before narrowing.
+    void s04_inputValidation();
+    // UI-S05 (P0): serial Success maps to the shared dashboard.
+    void s05_publishSerialSuccess();
+    // UI-S06 (P0): serial Timeout maps with a VALID 0% rate and no avg.
+    void s06_publishSerialTimeout();
+    // UI-S07 (P0): serial results replace, never append (always 1 row).
+    void s07_serialReplace();
+    // UI-S08 (P1): clearResults empties serial results but keeps source.
+    void s08_clearSerialResults();
+    // UI-S09 (P1): a successful source switch clears a stale serial error.
+    void s09_serialErrorRecovery();
+    // UI-S10 (P1): stale completion without pending metadata is ignored.
+    void s10_staleCompletionGuard();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -522,6 +546,234 @@ void UiBridgeTest::r08_clearKeepsSource()
     QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
 }
 
+
+// ---- T010 Part B test implementations ----
+
+namespace {
+
+using ms = std::chrono::milliseconds;
+
+modbuslens::core::TransactionAnalysis makeAnalysis(
+    modbuslens::core::TransactionStatus status, long long elapsedMs,
+    std::optional<std::uint8_t> exceptionCode = std::nullopt)
+{
+    return modbuslens::core::TransactionAnalysis{
+        .status = status,
+        .elapsed = ms{elapsedMs},
+        .exceptionCode = exceptionCode,
+    };
+}
+
+} // namespace
+
+void UiBridgeTest::s01_initialSerialState()
+{
+    AnalysisController controller;
+    QVERIFY(!controller.serialConnected());
+    QVERIFY(!controller.serialBusy());
+    QVERIFY(!controller.hasSerialError());
+    QVERIFY(controller.serialErrorMessage().isEmpty());
+
+    controller.refreshSerialPorts(); // must never crash, never open anything
+    const QStringList names = controller.serialPortNames();
+    for (const QString& name : names) {
+        QVERIFY(!name.isEmpty());
+    }
+    QVERIFY(!controller.hasSerialError()); // empty list is NOT an error
+}
+
+void UiBridgeTest::s02_failedConnectAtomicPreservation()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    const auto rowsBefore = controller.transactionModel()->rowCount();
+    const auto observedBefore = controller.observedCount();
+    QVERIFY(rowsBefore > 0);
+
+    controller.connectSerial(
+        QStringLiteral("MODBUSLENS_TEST_NONEXISTENT_PORT"), 9600);
+
+    QVERIFY(controller.hasSerialError());
+    QVERIFY(!controller.serialErrorMessage().isEmpty());
+    QVERIFY(!controller.serialConnected());
+    // The ENTIRE old source state survives the failed connect.
+    QCOMPARE(controller.observedCount(), observedBefore);
+    QCOMPARE(controller.transactionModel()->rowCount(), rowsBefore);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+}
+
+void UiBridgeTest::s03_readWhileDisconnected()
+{
+    AnalysisController controller;
+    controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+
+    QVERIFY(controller.hasSerialError());
+    QCOMPARE(controller.observedCount(), 0);
+    QCOMPARE(controller.transactionModel()->rowCount(), 0);
+    QVERIFY(!controller.serialBusy()); // no Timeout, no pending, no rows
+    // Source untouched.
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
+}
+
+void UiBridgeTest::s04_inputValidation()
+{
+    AnalysisController controller;
+    // Each of these must be rejected BEFORE any narrowing cast.
+    controller.readHoldingRegistersOnce(0, 0, 2, 1000);       // slave 0
+    QVERIFY(controller.hasSerialError());
+    controller.readHoldingRegistersOnce(1, 65536, 2, 1000);   // start 65536
+    QVERIFY(controller.hasSerialError());
+    controller.readHoldingRegistersOnce(1, 0, 126, 1000);     // quantity 126
+    QVERIFY(controller.hasSerialError());
+    controller.readHoldingRegistersOnce(1, 0, 2, 0);          // timeout 0
+    QVERIFY(controller.hasSerialError());
+    // Unsupported baud on the connect path is rejected the same way.
+    controller.connectSerial(QStringLiteral("COM1"), 12345);
+    QVERIFY(controller.hasSerialError());
+
+    // Nothing was ever written, connected or transacted.
+    QVERIFY(!controller.serialConnected());
+    QVERIFY(!controller.serialBusy());
+    QCOMPARE(controller.transactionModel()->rowCount(), 0);
+    QCOMPARE(controller.observedCount(), 0);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
+}
+
+void UiBridgeTest::s05_publishSerialSuccess()
+{
+    AnalysisController controller;
+    controller.publishSerialResult(
+        QStringLiteral("COM_TEST @ 9600"), 1,
+        makeAnalysis(modbuslens::core::TransactionStatus::Success, 25));
+
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Serial Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
+
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    const auto idx = controller.transactionModel()->index(0, 0);
+    QCOMPARE(controller.transactionModel()
+                 ->data(idx, TransactionListModel::StatusTextRole)
+                 .toString(),
+             QStringLiteral("Success"));
+    QCOMPARE(controller.transactionModel()
+                 ->data(idx, TransactionListModel::ElapsedMsRole),
+             QVariant{qint64{25}});
+    QCOMPARE(controller.transactionModel()
+                 ->data(idx, TransactionListModel::DeviceAddressRole),
+             QVariant{1});
+    QCOMPARE(controller.transactionModel()
+                 ->data(idx, TransactionListModel::FunctionCodeRole),
+             QVariant{3});
+
+    QCOMPARE(controller.observedCount(), 1);
+    QCOMPARE(controller.completedCount(), 1);
+    QCOMPARE(controller.pendingCount(), 0);
+    QCOMPARE(controller.successCount(), 1);
+    QVERIFY(controller.hasSuccessRate());
+    QVERIFY(qFuzzyCompare(controller.successRate(), 1.0));
+    QVERIFY(controller.hasAverageSuccessLatency());
+    QVERIFY(qFuzzyCompare(controller.averageSuccessLatencyMs(), 25.0));
+    QVERIFY(!controller.hasSerialError());
+}
+
+void UiBridgeTest::s06_publishSerialTimeout()
+{
+    AnalysisController controller;
+    controller.publishSerialResult(
+        QStringLiteral("COM_TEST @ 9600"), 1,
+        makeAnalysis(modbuslens::core::TransactionStatus::Timeout, 1000));
+
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    const auto idx = controller.transactionModel()->index(0, 0);
+    QCOMPARE(controller.transactionModel()
+                 ->data(idx, TransactionListModel::StatusTextRole)
+                 .toString(),
+             QStringLiteral("Timeout"));
+
+    QCOMPARE(controller.observedCount(), 1);
+    QCOMPARE(controller.completedCount(), 1);
+    QCOMPARE(controller.timeoutCount(), 1);
+    QCOMPARE(controller.successCount(), 0);
+    // 0% is a VALID rate (has=true), only the average is absent.
+    QVERIFY(controller.hasSuccessRate());
+    QVERIFY(qFuzzyCompare(controller.successRate(), 0.0));
+    QVERIFY(!controller.hasAverageSuccessLatency());
+}
+
+void UiBridgeTest::s07_serialReplace()
+{
+    AnalysisController controller;
+    controller.publishSerialResult(
+        QStringLiteral("COM_TEST @ 9600"), 1,
+        makeAnalysis(modbuslens::core::TransactionStatus::Success, 25));
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+
+    controller.publishSerialResult(
+        QStringLiteral("COM_TEST @ 9600"), 1,
+        makeAnalysis(modbuslens::core::TransactionStatus::Timeout, 1000));
+
+    // Replace, never append: still exactly one row, latest-only statistics.
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    QCOMPARE(controller.observedCount(), 1);
+    QCOMPARE(controller.successCount(), 0);
+    QCOMPARE(controller.timeoutCount(), 1);
+}
+
+void UiBridgeTest::s08_clearSerialResults()
+{
+    AnalysisController controller;
+    controller.publishSerialResult(
+        QStringLiteral("COM_TEST @ 9600"), 1,
+        makeAnalysis(modbuslens::core::TransactionStatus::Success, 25));
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+
+    controller.clearResults();
+
+    QCOMPARE(controller.observedCount(), 0);
+    QCOMPARE(controller.transactionModel()->rowCount(), 0);
+    QVERIFY(!controller.hasSuccessRate());
+    QVERIFY(!controller.hasAverageSuccessLatency());
+    QVERIFY(!controller.hasSerialError());
+    // Source identity survives a Clear (Clear != Disconnect).
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Serial Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
+}
+
+void UiBridgeTest::s09_serialErrorRecovery()
+{
+    AnalysisController controller;
+    controller.connectSerial(
+        QStringLiteral("MODBUSLENS_TEST_NONEXISTENT_PORT"), 9600);
+    QVERIFY(controller.hasSerialError());
+
+    controller.runDemoBatch();
+
+    // A successful source switch must not leave the stale error behind.
+    QVERIFY(!controller.hasSerialError());
+    QVERIFY(controller.serialErrorMessage().isEmpty());
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+}
+
+void UiBridgeTest::s10_staleCompletionGuard()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    const auto rowsBefore = controller.transactionModel()->rowCount();
+    const auto observedBefore = controller.observedCount();
+
+    // A late serial completion with NO pending metadata (source has moved
+    // on) must be ignored entirely.
+    controller.handleSerialTransactionCompleted(
+        makeAnalysis(modbuslens::core::TransactionStatus::Success, 25));
+
+    QCOMPARE(controller.transactionModel()->rowCount(), rowsBefore);
+    QCOMPARE(controller.observedCount(), observedBefore);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+}
 } // namespace
 
 QTEST_GUILESS_MAIN(UiBridgeTest)
