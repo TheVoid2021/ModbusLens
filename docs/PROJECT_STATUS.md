@@ -9,7 +9,7 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 ✅ DONE / T012 未开始；按 BACKLOG 既有定义 M6=T011+T012，不得提前关闭）** |
-| Last Known Good Commit | **`85699ff`**（T011 Part B 最新 code/config 基线：AI implementation + Horizontal SplitView workspace 修复；clean 126 零警告 + ctest 20/20 + qml smoke + deploy/provenance/TLS/minimal-PATH + **Manual Layout Verification / Manual AI UI Smoke / Live ModelScope Smoke 三重人工 PASS**；当前 HEAD 为其后的 docs-only 完成提交，不改变 LKGC。历史值：`06ef801`（T011A）、`33ed197`（T010）） |
+| Last Known Good Commit | **`bb3f3b4`**（ISSUE-005 修复：AI timeout cancellation deterministic——单一 QTimer owner/AbortReason 分类/文案解耦/production 90s；clean 126 零警告 + ctest 20/20 + qml smoke + deploy/provenance/minimal-PATH + **真实 27B Live ModelScope Regression Smoke PASS**；当前 HEAD 为其后的 docs-only 归档提交，不改变 LKGC。历史值：`85699ff`（T011B）、`06ef801`（T011A）） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 114 targets） |
 | Test 状态 | ✅ **19/19 通过**（ctest：17 项协议/UI + `serial` 21 + `serial_adapter` 5 + `diagnosis` 10；ui_bridge 40 函数含 UI-S01~S10、UI-D01~D08） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
@@ -158,3 +158,5 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-08 | **T011 Part B Implementation 完成（自动化全 GREEN）**：ModelScope client/prompt builder/Controller 双 stale guard/QML AI 面板落地；AI-B01~B13 + UI-AI01~AI11 全绿（ctest 20/20、clean 126 零警告）；ISSUE-004（Diagnosis 纵向 overflow→SplitView workspace 修复）建档 RESOLVED 全程（用户三次失败证据 + Manual Layout Verification PASS）；code candidate = `85699ff` |
 | 2026-09-08 | **用户 Manual AI UI Smoke = PASS（A~I 九项）**：AI 面板/未配置不发请求/Baseline/Clear 分工/Replay 同 semantic/Serial 无回归/SplitView 独立滚动无回归。**Live ModelScope Smoke = WAITING FOR USER**；T011 Part B / T011 / M6 保持 IN PROGRESS；verified LKGC 仍 `06ef801`（候选 `85699ff` 待 Live PASS 后推进） |
 | 2026-09-08 | **用户 Live ModelScope Smoke = PASS**（真实 ModelScope API-Inference + Qwen/Qwen3.5-27B；attempt#1 insufficient balance 失败历史保留、attempt#2 成功；live 输出四段结构并正确引用 deterministic facts；non-blocking over-inference 质量观察记录；AI is interpreter not detector 真实证明）。**T011 Part B DONE → T011 整体 DONE**。verified LKGC = `85699ff`（Git 实际核验）；HEAD = docs-only 完成提交。M6 按既有定义保持进行中（T012 未完成） |
+| 2026-09-08 | **[ISSUE-005] Ask AI 显示"操作被取消"**：Live 中 OperationCanceledError（本地 abort）经 errorString 泄漏至 UI；双 timeout owner 竞态定性 |
+| 2026-09-08 | **ISSUE-005 修复并 RESOLVED**：AiAbortReason 归属 + 单一 QTimer owner（90s）+ OperationCanceledError 按 reason 分类 + UI 文案与 errorString 解耦；自动化全绿后**用户真实 27B Live Regression Smoke = PASS**（不再出现"操作被取消"）；verified LKGC 推进至 `bb3f3b4`（新 code fix commit）；docs-only 归档不再次推进 |

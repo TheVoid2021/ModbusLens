@@ -89,3 +89,4 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-08 | **T011 Part B 启动：Learning / Test Design（docs-only）**——ModelScope/凭据/prompt/客户端/stale guard 全套定案；网络代码未实现 |
 | 2026-09-08 | **T011 Part B Implementation 完成（自动化 GREEN）**：AI-B01~B13+UI-AI01~AI11 全绿；ISSUE-004 RESOLVED（SplitView workspace）；**用户 Manual AI UI Smoke PASS（A~I）**；Live ModelScope Smoke = WAITING；T011 保持 IN PROGRESS |
 | 2026-09-08 | **T011 Part B 完成 → T011 整体 DONE**：Live ModelScope Smoke PASS（Qwen/Qwen3.5-27B 真实验证）；verified LKGC `85699ff`；M6 保持进行中（T012 未完成）；T012 转 Ready |
+| 2026-09-08 | ISSUE-005（AI"操作被取消"泄漏）RESOLVED：AiAbortReason 归属 + 单一 timeout owner 90s + 文案解耦；Live 27B Regression Smoke PASS；verified LKGC `bb3f3b4` |
