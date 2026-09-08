@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # BUILD_TESTING is defined by include(CTest), defaults to ON.
 include(CTest)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 SerialPort Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 SerialPort Network Test)
 qt_standard_project_setup()
 
 # ------------------------------------------------------------------- core ----
@@ -64,14 +64,19 @@ qt_add_qml_module(modbuslens
         src/ui/TransactionListModel.cpp
         src/ui/serial/SerialPortAdapter.h
         src/ui/serial/SerialPortAdapter.cpp
+        src/ui/ai/ModelScopeDiagnosisClient.h
+        src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/DiagnosisPromptBuilder.h
+        src/ui/ai/DiagnosisPromptBuilder.cpp
 )
 target_include_directories(modbuslens PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui")
-# T010 Part B link graph: the APP (via the serial adapter inside
-# AnalysisController) links Qt6::SerialPort — modbuslens_core stays Zero Qt.
+# Link graph (T010 Part B + T011 Part B): the APP links Qt6::SerialPort
+# (serial adapter) and Qt6::Network (ModelScope client) — modbuslens_core
+# stays Zero Qt / Zero Network.
 target_link_libraries(modbuslens PRIVATE
-    modbuslens_core Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::SerialPort)
+    modbuslens_core Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::SerialPort Qt6::Network)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(modbuslens PRIVATE -Wall -Wextra)
@@ -193,18 +198,23 @@ if(BUILD_TESTING)
     add_test(NAME statistics_integration COMMAND modbuslens_statistics_integration_tests)
 
     add_executable(modbuslens_ui_bridge_tests tests/test_ui_bridge.cpp
+        tests/fake_chat_completions_server.cpp
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
         src/ui/TransactionListModel.h
         src/ui/TransactionListModel.cpp
         src/ui/serial/SerialPortAdapter.h
-        src/ui/serial/SerialPortAdapter.cpp)
+        src/ui/serial/SerialPortAdapter.cpp
+        src/ui/ai/ModelScopeDiagnosisClient.h
+        src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/DiagnosisPromptBuilder.h
+        src/ui/ai/DiagnosisPromptBuilder.cpp)
     target_include_directories(modbuslens_ui_bridge_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_compile_definitions(modbuslens_ui_bridge_tests PRIVATE
         MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog")
     target_link_libraries(modbuslens_ui_bridge_tests PRIVATE
-        modbuslens_core Qt6::Qml Qt6::SerialPort Qt6::Test)
+        modbuslens_core Qt6::Qml Qt6::SerialPort Qt6::Network Qt6::Test)
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(modbuslens_ui_bridge_tests PRIVATE -Wall -Wextra)
@@ -277,6 +287,27 @@ if(BUILD_TESTING)
 
     add_test(NAME diagnosis COMMAND modbuslens_diagnosis_tests)
 
+    # AI (T011 Part B): prompt builder + ModelScope client against a local
+    # fake Chat Completions endpoint — never the public internet.
+    add_executable(modbuslens_ai_tests
+        tests/test_ai_client.cpp
+        tests/fake_chat_completions_server.cpp
+        src/ui/ai/ModelScopeDiagnosisClient.h
+        src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/DiagnosisPromptBuilder.h
+        src/ui/ai/DiagnosisPromptBuilder.cpp)
+    target_include_directories(modbuslens_ai_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(modbuslens_ai_tests PRIVATE
+        modbuslens_core Qt6::Network Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_ai_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME ai_client COMMAND modbuslens_ai_tests)
+
     # QML load smoke: runs the REAL app executable in diagnostic mode — it
     # loads the actual shipped QML module, verifies instantiation, and exits
     # without entering the event loop (T008 Part A rule A).
@@ -284,7 +315,7 @@ if(BUILD_TESTING)
         COMMAND modbuslens --qml-smoke-test)
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis qml_smoke PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client qml_smoke PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

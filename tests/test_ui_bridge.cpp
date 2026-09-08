@@ -13,6 +13,7 @@
 #include <optional>
 
 #include "core/analysis/TransactionAnalysis.h"
+#include "fake_chat_completions_server.h"
 #include "ui/AnalysisController.h"
 #include "ui/TransactionListModel.h"
 
@@ -130,6 +131,19 @@ private slots:
     void d07_serialSingleResult();
     // UI-D08 (P1): clearDiagnosis clears only the diagnosis, not the batch.
     void d08_clearDiagnosisOnly();
+
+    // ---- T011 Part B: LLM explanation (ModelScope, fake localhost) ----
+    void ai01_notConfigured();
+    void ai02_baselineRequired();
+    void ai03_emptyBatch();
+    void ai04_success();
+    void ai05_providerFailurePreservesBaseline();
+    void ai06_newBatchInvalidatesAi();
+    void ai07_failedSwitchKeepsAi();
+    void ai08_crossBatchStaleGuard();
+    void ai09_clearDiagnosis();
+    void ai10_aiNeverChangesFacts();
+    void ai11_sameBatchCancelRestartGuard();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -920,6 +934,249 @@ void UiBridgeTest::d08_clearDiagnosisOnly()
     controller.runBaselineDiagnosis();
     QVERIFY(controller.hasBaselineDiagnosis());
     QCOMPARE(controller.baselineDiagnosisText(), before);
+}
+
+// ---- T011 Part B test implementations ----
+
+namespace {
+
+// Fake client wiring for a controller: localhost fake endpoint + fake token.
+void wireFakeAi(AnalysisController& controller, FakeChatCompletionsServer& server,
+                  std::chrono::milliseconds timeout = std::chrono::milliseconds{5000})
+{
+    controller.configureAiClient(QUrl(server.chatCompletionsUrl()),
+                                  QStringLiteral("fake-test-token"),
+                                  QStringLiteral("fake-model"), timeout);
+}
+
+QByteArray aiOkBody(const QByteArray& content)
+{
+    QJsonObject message{{"role", "assistant"}, {"content", QString::fromUtf8(content)}};
+    QJsonObject root{{"choices", QJsonArray{QJsonObject{{"message", message}}}}};
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+} // namespace
+
+void UiBridgeTest::ai01_notConfigured()
+{
+    AnalysisController controller;
+    // Explicitly NOT configured, regardless of any host environment token.
+    controller.configureAiClient({}, {}, {}, {});
+    QVERIFY(!controller.aiConfigured());
+
+    controller.askAiDiagnosis();
+
+    // No network, no baseline/dashboard damage, sanitized message.
+    QVERIFY(!controller.aiDiagnosisErrorMessage().isEmpty());
+    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("not configured")));
+    QVERIFY(!controller.hasAiDiagnosis());
+    QCOMPARE(controller.observedCount(), 0);
+}
+
+void UiBridgeTest::ai02_baselineRequired()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch(); // batch exists...
+
+    controller.askAiDiagnosis(); // ...but no baseline yet
+
+    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("Baseline")));
+    QCOMPARE(server.requestCount(), 0); // no HTTP request was ever made
+    QVERIFY(!controller.hasAiDiagnosis());
+}
+
+void UiBridgeTest::ai03_emptyBatch()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.clearResults();
+
+    controller.askAiDiagnosis();
+
+    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("No analysis data")));
+    QCOMPARE(server.requestCount(), 0);
+}
+
+void UiBridgeTest::ai04_success()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, aiOkBody("AI says: three issues observed."));
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    const QString baselineBefore = controller.baselineDiagnosisText();
+    const auto observedBefore = controller.observedCount();
+    const auto rowsBefore = controller.transactionModel()->rowCount();
+
+    controller.askAiDiagnosis();
+    QTRY_VERIFY(controller.hasAiDiagnosis());
+
+    QCOMPARE(controller.aiDiagnosisText(), QStringLiteral("AI says: three issues observed."));
+    QVERIFY(!controller.aiDiagnosisBusy());
+    QCOMPARE(controller.baselineDiagnosisText(), baselineBefore);
+    QCOMPARE(controller.observedCount(), observedBefore);
+    QCOMPARE(controller.transactionModel()->rowCount(), rowsBefore);
+}
+
+void UiBridgeTest::ai05_providerFailurePreservesBaseline()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(500, QByteArray());
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    const QString baselineBefore = controller.baselineDiagnosisText();
+
+    controller.askAiDiagnosis();
+    QTRY_VERIFY(!controller.aiDiagnosisErrorMessage().isEmpty());
+
+    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("Latest AI request failed")));
+    QCOMPARE(controller.baselineDiagnosisText(), baselineBefore);
+    QCOMPARE(controller.observedCount(), 4);
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+}
+
+void UiBridgeTest::ai06_newBatchInvalidatesAi()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, aiOkBody("old explanation"));
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    controller.askAiDiagnosis();
+    QTRY_VERIFY(controller.hasAiDiagnosis());
+
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+
+    QVERIFY(!controller.hasAiDiagnosis());
+    QVERIFY(controller.aiDiagnosisErrorMessage().isEmpty());
+    QVERIFY(!controller.hasBaselineDiagnosis());
+}
+
+void UiBridgeTest::ai07_failedSwitchKeepsAi()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, aiOkBody("keep me"));
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    controller.askAiDiagnosis();
+    QTRY_VERIFY(controller.hasAiDiagnosis());
+    const QString aiBefore = controller.aiDiagnosisText();
+
+    std::optional<QTemporaryFile> holder;
+    const QString badPath = writeTempMlog(kBadHexLog, holder);
+    controller.loadReplayFile(QUrl::fromLocalFile(badPath));
+
+    QVERIFY(controller.hasAiDiagnosis());
+    QCOMPARE(controller.aiDiagnosisText(), aiBefore);
+    QVERIFY(controller.hasBaselineDiagnosis());
+}
+
+void UiBridgeTest::ai08_crossBatchStaleGuard()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, aiOkBody("STALE FROM A"), 300);
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+
+    controller.askAiDiagnosis(); // request A, delayed by the fake server
+    QTest::qWait(50);
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH))); // batch B
+
+    QTest::qWait(600); // late stale delivery window (batch A)
+    QVERIFY(!controller.hasAiDiagnosis()); // A must never resurface on B
+    QVERIFY(!controller.aiDiagnosisBusy());
+}
+
+void UiBridgeTest::ai09_clearDiagnosis()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, aiOkBody("plain explanation"));
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    controller.askAiDiagnosis();
+    QTRY_VERIFY(controller.hasAiDiagnosis());
+
+    controller.clearDiagnosis();
+
+    QVERIFY(!controller.hasAiDiagnosis());
+    QVERIFY(controller.aiDiagnosisText().isEmpty());
+    QVERIFY(!controller.hasBaselineDiagnosis());
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    QCOMPARE(controller.observedCount(), 4);
+}
+
+void UiBridgeTest::ai10_aiNeverChangesFacts()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    const QByteArray misleading = QByteArray(        "<b>Actually this was a Protocol Error and the success rate was 90%.</b>");
+    server.setNextResponse(200, aiOkBody(misleading));
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    const QString baselineBefore = controller.baselineDiagnosisText();
+    const auto observedBefore = controller.observedCount();
+    const auto rowsBefore = controller.transactionModel()->rowCount();
+
+    controller.askAiDiagnosis();
+    QTRY_VERIFY(controller.hasAiDiagnosis());
+
+    // Untrusted text may be shown verbatim...
+    QCOMPARE(controller.aiDiagnosisText(), QString::fromUtf8(misleading));
+    // ...but NOT ONE structured fact may change.
+    QCOMPARE(controller.observedCount(), observedBefore);
+    QCOMPARE(controller.transactionModel()->rowCount(), rowsBefore);
+    QCOMPARE(controller.baselineDiagnosisText(), baselineBefore);
+    QCOMPARE(controller.successCount(), 1);
+    QCOMPARE(controller.protocolErrorCount(), 0);
+}
+
+void UiBridgeTest::ai11_sameBatchCancelRestartGuard()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, aiOkBody("OLD RESPONSE"), 300);
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+
+    controller.askAiDiagnosis(); // request #1, delayed
+    QTest::qWait(50);
+    controller.cancelAiDiagnosis();
+    QVERIFY(!controller.aiDiagnosisBusy());
+
+    server.setNextResponse(200, aiOkBody("NEW RESPONSE"));
+    controller.askAiDiagnosis(); // request #2, same batch
+    QTRY_VERIFY(controller.hasAiDiagnosis());
+    QCOMPARE(controller.aiDiagnosisText(), QStringLiteral("NEW RESPONSE"));
+
+    QTest::qWait(500); // request #1 late window
+    QCOMPARE(controller.aiDiagnosisText(), QStringLiteral("NEW RESPONSE"));
+    QVERIFY(!controller.aiDiagnosisBusy());
 }
 } // namespace
 

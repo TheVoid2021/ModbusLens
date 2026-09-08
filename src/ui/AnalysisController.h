@@ -15,6 +15,7 @@
 #include "core/diagnosis/DiagnosisContext.h"
 #include "core/diagnosis/RuleBasedDiagnosis.h"
 #include "ui/TransactionListModel.h"
+#include "ui/ai/ModelScopeDiagnosisClient.h"
 #include "ui/serial/SerialPortAdapter.h"
 
 // Application-layer adapter between modbuslens_core and QML (ADR001).
@@ -50,6 +51,12 @@ class AnalysisController : public QObject
     Q_PROPERTY(QStringList serialPortNames READ serialPortNames NOTIFY serialPortsChanged)
     Q_PROPERTY(bool hasBaselineDiagnosis READ hasBaselineDiagnosis NOTIFY diagnosisChanged)
     Q_PROPERTY(QString baselineDiagnosisText READ baselineDiagnosisText NOTIFY diagnosisChanged)
+    Q_PROPERTY(bool aiConfigured READ aiConfigured NOTIFY aiStateChanged)
+    Q_PROPERTY(bool aiDiagnosisBusy READ aiDiagnosisBusy NOTIFY aiStateChanged)
+    Q_PROPERTY(bool hasAiDiagnosis READ hasAiDiagnosis NOTIFY aiStateChanged)
+    Q_PROPERTY(QString aiDiagnosisText READ aiDiagnosisText NOTIFY aiStateChanged)
+    Q_PROPERTY(QString aiDiagnosisErrorMessage READ aiDiagnosisErrorMessage NOTIFY aiStateChanged)
+    Q_PROPERTY(QString aiModelName READ aiModelName NOTIFY aiStateChanged)
 
 public:
     explicit AnalysisController(QObject* parent = nullptr);
@@ -93,8 +100,18 @@ public:
     // Clears ONLY the diagnosis result — statistics, rows, the active
     // diagnosis batch and the source stay untouched (Clear Diagnosis !=
     // Clear Results). The NEXT run re-derives the same report from the
-    // still-present batch.
+    // still-present batch. With Part B this also clears the AI explanation
+    // and aborts any in-flight AI request.
     Q_INVOKABLE void clearDiagnosis();
+
+    // ---- T011 Part B: LLM explanation (ModelScope) ----
+    // Explicit user action ONLY: no code path ever calls this implicitly.
+    // C++ re-validates every precondition (configured + baseline present +
+    // non-empty batch + not busy) regardless of the QML button state.
+    Q_INVOKABLE void askAiDiagnosis();
+    // User control, not a diagnostic failure: aborts the request and keeps
+    // any previous same-batch explanation visible.
+    Q_INVOKABLE void cancelAiDiagnosis();
 
     [[nodiscard]] int observedCount() const;
     [[nodiscard]] int pendingCount() const;
@@ -123,6 +140,22 @@ public:
 
     [[nodiscard]] bool hasBaselineDiagnosis() const;
     [[nodiscard]] QString baselineDiagnosisText() const;
+
+    [[nodiscard]] bool aiConfigured() const;
+    [[nodiscard]] bool aiDiagnosisBusy() const;
+    [[nodiscard]] bool hasAiDiagnosis() const;
+    [[nodiscard]] QString aiDiagnosisText() const;
+    [[nodiscard]] QString aiDiagnosisErrorMessage() const;
+    [[nodiscard]] QString aiModelName() const;
+
+    // C++-side test seam (never reaches QML): adopts an explicit client
+    // configuration. Tests point it at a localhost fake endpoint with a
+    // fake token; production wiring (constructor) uses the official
+    // endpoint + process-environment token. An empty endpoint clears the
+    // configured state (UI-AI01: "not configured" path).
+    void configureAiClient(const QUrl& endpoint, const QString& apiKey,
+                           const QString& modelId,
+                           std::chrono::milliseconds timeout);
 
     // C++-side data entry points (not Q_INVOKABLE): Part B's demo flow and
     // tests call these; QML only reads.
@@ -153,12 +186,19 @@ signals:
     void serialErrorChanged();
     void serialPortsChanged();
     void diagnosisChanged();
+    void aiStateChanged();
 
 private slots:
     // Serial transport errors are NOT Modbus diagnoses: sync state from the
     // adapter, drop pending metadata, surface the message — and touch
     // NOTHING in statistics/rows/mode/source.
     void handleSerialTransportError(const QString& message);
+    // AI reply handlers enforce the two-dimensional stale guard: a delivery
+    // is applied only when BOTH its request generation and its captured
+    // batch revision still match the controller's current state.
+    void handleAiSucceeded(std::uint64_t requestId, const QString& text);
+    void handleAiFailed(std::uint64_t requestId, AiDiagnosisErrorCode code,
+                        const QString& sanitizedMessage);
 
 private:
     void setReplayError(const QString& message);
@@ -167,6 +207,11 @@ private:
     void clearSerialError();
     void teardownSerialTransport(); // adapter close + state reset (silent)
     void clearDiagnosisState();     // baseline diagnosis only (not the batch)
+    void setAiError(const QString& message);
+    // All derived views of a changed batch die together: baseline, AI result
+    // and AI error are cleared, an in-flight AI request is aborted and its
+    // identity invalidated, and activeBatchRevision_ is bumped.
+    void invalidateAiForBatchChange();
 
     modbuslens::core::TransactionStatisticsSnapshot statistics_;
     TransactionListModel transactionModel_;
@@ -194,4 +239,22 @@ private:
     std::vector<modbuslens::core::DiagnosisTransaction> activeDiagnosisTransactions_;
     bool hasBaselineDiagnosis_ = false;
     QString baselineDiagnosisText_;
+
+    // ---- T011 Part B ----
+    // Two-dimensional async validity (see T011 archive PB-S):
+    //   batchRevision — "still the same analysis batch?"
+    //   requestGeneration — "still the latest AI request?"
+    std::uint64_t activeBatchRevision_ = 0;
+    std::uint64_t aiRequestGeneration_ = 0;
+    std::optional<std::uint64_t> activeAiRequestId_;
+    std::optional<std::uint64_t> requestBatchRevision_;
+
+    ModelScopeDiagnosisClient aiClient_;
+
+    bool aiConfigured_ = false;
+    bool aiDiagnosisBusy_ = false;
+    bool hasAiDiagnosis_ = false;
+    QString aiDiagnosisText_;
+    QString aiDiagnosisErrorMessage_;
+    QString aiModelName_;
 };

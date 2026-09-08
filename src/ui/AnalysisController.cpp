@@ -5,8 +5,11 @@
 #include "core/protocol/ModbusRtuCodec.h"
 #include "core/replay/ReplayAnalysis.h"
 #include "core/replay/ReplayLog.h"
+#include "core/diagnosis/DiagnosisContext.h"
+#include "core/diagnosis/RuleBasedDiagnosis.h"
 #include "core/simulator/SimulatedSlave.h"
 #include "core/simulator/SimulationFault.h"
+#include "ui/ai/DiagnosisPromptBuilder.h"
 
 #include <QDebug>
 #include <QFile>
@@ -126,6 +129,19 @@ AnalysisController::AnalysisController(QObject* parent)
             this, &AnalysisController::handleSerialTransactionCompleted);
     connect(&serialAdapter_, &SerialTransactionAdapter::transportError,
             this, &AnalysisController::handleSerialTransportError);
+
+    // AI (T011 Part B): production config comes from the process environment
+    // ONLY (BYOK). QML never sees the token — just aiConfigured.
+    ModelScopeClientConfig productionConfig;
+    if (buildModelScopeProductionConfig(productionConfig)) {
+        aiClient_.configure(productionConfig);
+        aiConfigured_ = true;
+        aiModelName_ = productionConfig.modelId;
+    }
+    connect(&aiClient_, &ModelScopeDiagnosisClient::diagnosisSucceeded,
+            this, &AnalysisController::handleAiSucceeded);
+    connect(&aiClient_, &ModelScopeDiagnosisClient::diagnosisFailed,
+            this, &AnalysisController::handleAiFailed);
 }
 
 int AnalysisController::observedCount() const
@@ -393,6 +409,180 @@ QString AnalysisController::baselineDiagnosisText() const
     return baselineDiagnosisText_;
 }
 
+bool AnalysisController::aiConfigured() const
+{
+    return aiConfigured_;
+}
+
+bool AnalysisController::aiDiagnosisBusy() const
+{
+    return aiDiagnosisBusy_;
+}
+
+bool AnalysisController::hasAiDiagnosis() const
+{
+    return hasAiDiagnosis_;
+}
+
+QString AnalysisController::aiDiagnosisText() const
+{
+    return aiDiagnosisText_;
+}
+
+QString AnalysisController::aiDiagnosisErrorMessage() const
+{
+    return aiDiagnosisErrorMessage_;
+}
+
+QString AnalysisController::aiModelName() const
+{
+    return aiModelName_;
+}
+
+void AnalysisController::configureAiClient(const QUrl& endpoint,
+                                           const QString& apiKey,
+                                           const QString& modelId,
+                                           std::chrono::milliseconds timeout)
+{
+    // C++-side test seam (never QML): explicit adoption of a client config.
+    // An empty endpoint clears the configured state ("not configured" path).
+    if (endpoint.isEmpty()) {
+        aiConfigured_ = false;
+        aiModelName_.clear();
+        emit aiStateChanged();
+        return;
+    }
+    aiClient_.configure(ModelScopeClientConfig{
+        .endpoint = endpoint,
+        .apiKey = apiKey,
+        .modelId = modelId,
+        .timeout = timeout,
+    });
+    aiConfigured_ = true;
+    aiModelName_ = modelId;
+    emit aiStateChanged();
+}
+
+void AnalysisController::setAiError(const QString& message)
+{
+    aiDiagnosisErrorMessage_ =
+        QStringLiteral("Latest AI request failed: %1").arg(message);
+    emit aiStateChanged();
+}
+
+void AnalysisController::handleAiSucceeded(std::uint64_t requestId,
+                                           const QString& text)
+{
+    // Two-dimensional stale guard: the delivery is applied only when BOTH
+    // dimensions still match — same analysis batch AND latest AI request.
+    if (!activeAiRequestId_.has_value() || requestId != *activeAiRequestId_) {
+        return;
+    }
+    if (!requestBatchRevision_.has_value()
+        || *requestBatchRevision_ != activeBatchRevision_) {
+        return;
+    }
+    activeAiRequestId_.reset();
+    requestBatchRevision_.reset();
+    aiDiagnosisBusy_ = false;
+    hasAiDiagnosis_ = true;
+    aiDiagnosisText_ = text;
+    aiDiagnosisErrorMessage_.clear();
+    emit aiStateChanged();
+}
+
+void AnalysisController::handleAiFailed(std::uint64_t requestId,
+                                        AiDiagnosisErrorCode code,
+                                        const QString& sanitizedMessage)
+{
+    if (!activeAiRequestId_.has_value() || requestId != *activeAiRequestId_) {
+        return;
+    }
+    if (!requestBatchRevision_.has_value()
+        || *requestBatchRevision_ != activeBatchRevision_) {
+        return;
+    }
+    activeAiRequestId_.reset();
+    requestBatchRevision_.reset();
+    aiDiagnosisBusy_ = false;
+    // A failed attempt keeps a previous same-batch explanation (if any):
+    // error and result may legitimately coexist.
+    Q_UNUSED(code);
+    setAiError(sanitizedMessage);
+}
+
+void AnalysisController::cancelAiDiagnosis()
+{
+    if (!aiDiagnosisBusy_ && !activeAiRequestId_.has_value()) {
+        return;
+    }
+    // Invalidate identity FIRST, then abort — a late finished() delivery can
+    // never write UI state again (UI-AI11).
+    ++aiRequestGeneration_;
+    activeAiRequestId_.reset();
+    requestBatchRevision_.reset();
+    aiClient_.cancel();
+    aiDiagnosisBusy_ = false;
+    emit aiStateChanged();
+}
+
+void AnalysisController::askAiDiagnosis()
+{
+    // C++ re-validates every precondition (the QML button is only UX).
+    if (!aiConfigured_) {
+        setAiError(QStringLiteral(
+            "ModelScope API token is not configured. "
+            "Set MODELSCOPE_API_KEY and restart the app."));
+        return;
+    }
+    if (activeDiagnosisTransactions_.empty()) {
+        setAiError(QStringLiteral("No analysis data available."));
+        return;
+    }
+    if (!hasBaselineDiagnosis_) {
+        setAiError(QStringLiteral("Run Baseline Diagnosis first."));
+        return;
+    }
+    if (aiDiagnosisBusy_) {
+        return;
+    }
+
+    // Prompt is derived ONLY from structured deterministic facts.
+    const auto context = modbuslens::core::buildDiagnosisContext(
+        activeDiagnosisTransactions_);
+    const auto report = modbuslens::core::diagnoseTransactions(context);
+    const auto prompt = buildDiagnosisPrompt(context, report);
+
+    ++aiRequestGeneration_;
+    activeAiRequestId_ = aiRequestGeneration_;
+    requestBatchRevision_ = activeBatchRevision_;
+    aiDiagnosisBusy_ = true;
+    aiDiagnosisErrorMessage_.clear(); // clear the LATEST error, keep old text
+    emit aiStateChanged();
+    aiClient_.requestDiagnosis(prompt.systemInstructions, prompt.userPrompt,
+                               aiRequestGeneration_);
+}
+
+void AnalysisController::invalidateAiForBatchChange()
+{
+    // Backing state goes consistent BEFORE any notification (§36): bump the
+    // batch revision, abort any in-flight AI request and invalidate its
+    // identity, then clear every derived view (AI result/error + baseline).
+    ++activeBatchRevision_;
+    if (aiDiagnosisBusy_ || activeAiRequestId_.has_value()) {
+        ++aiRequestGeneration_;
+        activeAiRequestId_.reset();
+        requestBatchRevision_.reset();
+        aiClient_.cancel();
+    }
+    aiDiagnosisBusy_ = false;
+    hasAiDiagnosis_ = false;
+    aiDiagnosisText_.clear();
+    aiDiagnosisErrorMessage_.clear();
+    clearDiagnosisState();
+    emit aiStateChanged();
+}
+
 void AnalysisController::clearDiagnosisState()
 {
     hasBaselineDiagnosis_ = false;
@@ -403,7 +593,21 @@ void AnalysisController::clearDiagnosisState()
 void AnalysisController::clearDiagnosis()
 {
     // Diagnosis-only clear: the batch, rows, statistics and source all stay.
+    // Part B: this also drops the AI explanation and aborts an in-flight AI
+    // request (identity invalidation first). The batch revision does NOT
+    // change — the deterministic facts did not change.
+    if (aiDiagnosisBusy_ || activeAiRequestId_.has_value()) {
+        ++aiRequestGeneration_;
+        activeAiRequestId_.reset();
+        requestBatchRevision_.reset();
+        aiClient_.cancel();
+    }
+    aiDiagnosisBusy_ = false;
+    hasAiDiagnosis_ = false;
+    aiDiagnosisText_.clear();
+    aiDiagnosisErrorMessage_.clear();
     clearDiagnosisState();
+    emit aiStateChanged();
 }
 
 void AnalysisController::runBaselineDiagnosis()
@@ -498,7 +702,7 @@ void AnalysisController::connectSerial(const QString& portName, int baudRate)
         std::span<const modbuslens::core::TransactionAnalysis>{}));
     transactionModel_.setEntries({});
     activeDiagnosisTransactions_.clear();
-    clearDiagnosisState();
+    invalidateAiForBatchChange();
 
     serialSourceLabel_ = QStringLiteral("%1 @ %2").arg(portName).arg(baudRate);
     modeLabel_ = QStringLiteral("Serial Mode");
@@ -594,7 +798,7 @@ void AnalysisController::publishSerialResult(
             .analysis = analysis,
         },
     };
-    clearDiagnosisState();
+    invalidateAiForBatchChange();
     modeLabel_ = QStringLiteral("Serial Mode");
     sourceLabel_ = sourceLabel;
     serialBusy_ = false;
@@ -771,7 +975,7 @@ void AnalysisController::runDemoBatch()
     transactionModel_.setEntries(std::move(entries));
     statistics_ = std::move(snapshot);
     activeDiagnosisTransactions_ = std::move(diagnosisTransactions);
-    clearDiagnosisState();
+    invalidateAiForBatchChange();
     modeLabel_ = QStringLiteral("Simulator Mode");
     sourceLabel_ = QStringLiteral("Deterministic Demo");
     clearReplayError();
@@ -789,7 +993,7 @@ void AnalysisController::clearResults()
         std::span<const modbuslens::core::TransactionAnalysis>{}));
     transactionModel_.setEntries({});
     activeDiagnosisTransactions_.clear();
-    clearDiagnosisState();
+    invalidateAiForBatchChange();
     clearReplayError();
     clearSerialError();
 }
@@ -865,7 +1069,7 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     transactionModel_.setEntries(std::move(entries));
     statistics_ = batch.statistics;
     activeDiagnosisTransactions_ = std::move(diagnosisTransactions);
-    clearDiagnosisState();
+    invalidateAiForBatchChange();
     modeLabel_ = QStringLiteral("Replay Mode");
     // Presentation keeps the basename only; the full path never enters the UI.
     sourceLabel_ = QFileInfo(filePath).fileName();

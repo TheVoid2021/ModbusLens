@@ -348,15 +348,31 @@ ApplicationWindow {
             color: "#D0D0D0"
         }
 
-        // Diagnosis area (T011 Part A: deterministic baseline ONLY — no AI,
-        // no provider, no prompt lives here)
+        // Diagnosis area (T011 Part A + B). Bounded height (ISSUE-004):
+        // diagnosis content — especially long AI explanations — grows
+        // INSIDE a vertical ScrollView instead of pushing the transaction
+        // list out of the window. Controls stay fixed at the top.
         GroupBox {
+            id: diagnosisGroup
             title: qsTr("Diagnosis")
             Layout.fillWidth: true
+            Layout.minimumHeight: 170
+            Layout.maximumHeight: 320
+            // Final containment safety net (ISSUE-004): no Diagnosis child
+            // may EVER paint below the GroupBox border — worst case is a
+            // clipped text, never pollution of Recent Transactions.
+            clip: true
+            Layout.preferredHeight: (analysisController.hasBaselineDiagnosis
+                                     || analysisController.hasAiDiagnosis
+                                     || analysisController.aiDiagnosisBusy) ? 280 : 170
 
             ColumnLayout {
+                id: diagnosisColumn
                 Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: 4
 
+                // Fixed control rows — never scroll away.
                 RowLayout {
                     Layout.fillWidth: true
                     Button {
@@ -373,21 +389,107 @@ ApplicationWindow {
                 }
 
                 Label {
-                    text: qsTr("Deterministic Baseline")
+                    text: qsTr("AI Explanation")
                     font.bold: true
-                    visible: analysisController.hasBaselineDiagnosis
                 }
                 Label {
-                    visible: analysisController.hasBaselineDiagnosis
-                    text: analysisController.baselineDiagnosisText
-                    textFormat: Text.PlainText
-                    wrapMode: Text.Wrap
+                    text: analysisController.aiConfigured
+                          ? qsTr("Provider: ModelScope — Model: %1").arg(analysisController.aiModelName)
+                          : qsTr("Provider: ModelScope — Not configured")
+                    color: "#606060"
+                    font.pixelSize: 11
+                }
+                RowLayout {
                     Layout.fillWidth: true
+                    Button {
+                        text: qsTr("Ask AI")
+                        enabled: analysisController.aiConfigured
+                                 && analysisController.hasBaselineDiagnosis
+                                 && !analysisController.aiDiagnosisBusy
+                        onClicked: analysisController.askAiDiagnosis()
+                    }
+                    Button {
+                        text: qsTr("Cancel")
+                        enabled: analysisController.aiDiagnosisBusy
+                        onClicked: analysisController.cancelAiDiagnosis()
+                    }
+                    Label {
+                        visible: analysisController.aiDiagnosisBusy
+                        text: qsTr("Requesting...")
+                        color: "#6080a0"
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                    }
                 }
-                Label {
-                    visible: !analysisController.hasBaselineDiagnosis
-                    text: qsTr("No diagnosis run yet")
-                    color: "#909090"
+
+                // Scrollable diagnosis content: baseline, AI error and the
+                // untrusted AI explanation (strict plain text).
+                Flickable {
+                    id: diagnosisFlick
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    // Crucial: allow the ColumnLayout to SHRINK this item to
+                    // the remaining GroupBox space — its implicit height must
+                    // never become the viewport minimum.
+                    Layout.minimumHeight: 0
+
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    flickableDirection: Flickable.VerticalFlick
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                    }
+
+                    // Explicit content extent: width = viewport width,
+                    // height ONLY from the content colum's own height. The
+                    // viewport height is whatever the parent layout leaves
+                    // after the fixed controls — never the content height.
+                    contentWidth: width
+                    contentHeight: diagnosisContent.implicitHeight
+
+                    Column {
+                        id: diagnosisContent
+                        width: diagnosisFlick.width
+                        spacing: 6
+
+                        Label {
+                            text: qsTr("Deterministic Baseline")
+                            font.bold: true
+                            width: parent.width
+                            wrapMode: Text.Wrap
+                            visible: analysisController.hasBaselineDiagnosis
+                        }
+                        Label {
+                            visible: analysisController.hasBaselineDiagnosis
+                            text: analysisController.baselineDiagnosisText
+                            textFormat: Text.PlainText
+                            wrapMode: Text.Wrap
+                            width: parent.width
+                        }
+                        Label {
+                            visible: analysisController.aiDiagnosisErrorMessage !== ""
+                            text: analysisController.aiDiagnosisErrorMessage
+                            color: "#B03030"
+                            wrapMode: Text.Wrap
+                            width: parent.width
+                        }
+                        Label {
+                            visible: analysisController.hasAiDiagnosis
+                            text: analysisController.aiDiagnosisText
+                            textFormat: Text.PlainText
+                            wrapMode: Text.Wrap
+                            width: parent.width
+                        }
+                        Label {
+                            visible: !analysisController.hasBaselineDiagnosis
+                                     && !analysisController.hasAiDiagnosis
+                            text: qsTr("No diagnosis run yet")
+                            color: "#909090"
+                            width: parent.width
+                            wrapMode: Text.Wrap
+                        }
+                    }
                 }
             }
         }
@@ -402,11 +504,17 @@ ApplicationWindow {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: 120
 
             ListView {
                 id: transactionList
 
                 anchors.fill: parent
+                // Viewport containment (ISSUE-004): delegates must NEVER
+                // paint outside the list — no covering the heading or the
+                // Diagnosis box at any scroll position.
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
                 model: analysisController.transactionModel
                 spacing: 4
 
