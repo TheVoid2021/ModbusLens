@@ -23,6 +23,12 @@
 - git 状态/log 复核一致（LKGC `b31233b` / HEAD `072ce16`）；工作区最终仅 docs 变更。
 - `git diff --check` PASS；`src/tests/CMakeLists.txt/scripts` 零修改；docs-only commit；LKGC 保持 `b31233b`。
 
+## 追加（同日）· Part B Implementation 与用户确认
+
+- Implementation 完成（`33ed197`，新 LKGC）：Adapter API 拆分 + Controller serial 全套 + QML Serial Controls；UI-S01~S10 + SERIAL-I02/I03/I05 全绿；ctest 18/18、clean 108 targets 零警告、qml smoke、deploy provenance（Qt6SerialPort.dll SHA256=MinGW bin）+ minimal-PATH smoke PASS。
+- **用户 Manual Serial UI Smoke = PASS（A~F）**；**Hardware Smoke = NOT RUN（hardware unavailable）**。
+- **T010 Part B DONE → T010 整体 DONE → M5（T009+T010）CLOSED**。LKGC=`33ed197`；docs-only 确认提交不再次推进。未 push；未开始 T011。
+
 ## 下一步（待用户指令，不自动开始）
 
 - T010 Part B — Implementation（28 步，见 SB-20）；Manual Serial UI Smoke A~F 将 WAITING FOR USER；Hardware Smoke 按 SB-18 政策。

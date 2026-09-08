@@ -1,6 +1,7 @@
 # T010 — Serial Mode
 
-> 状态：**IN PROGRESS**｜Part A（Serial Transaction Runtime + QtSerialPort Adapter）：**DONE ✅**（ISSUE-003 RESOLVED）｜Part B（Serial UI Integration + Hardware/No-Hardware Smoke）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**
+> 状态：**DONE ✅（2026-09-08）**｜Part A：**DONE ✅**｜Part B：**DONE ✅**（Implementation + Manual Serial UI Smoke PASS + Hardware Smoke NOT RUN/hardware unavailable）
+> T010 整体 DONE；**M5 关闭**；下一任务：T011 AI Diagnosis（未开始）。
 > 前置确认：T008 DONE、T009 DONE、LKGC = `bb0a652` 之前的代码提交 `d473d36`（LKGC）、T010 未开始、ISSUE-001/002 RESOLVED。
 > **ISSUE-003 RESOLVED ✅**（2026-09-07）：Qt Serial Port 已补装到正确 MinGW kit（五步实证全过，根因=多 kit 错位）。
 
@@ -540,4 +541,60 @@ Current Task=T010；Current Part=Part B — Serial UI Integration + Hardware/No-
 
 ## SB-22 docs-only 验证（本阶段执行）
 
-`git diff --check`；`src/tests/CMakeLists.txt/scripts` 零修改；docs-only commit；LKGC 保持 `b31233b`；不得 push。
+`git diff --check`；`src/tests/CMakeLists.txt/scripts` 零修改；docs-only commit；LKGC 保持 `b31233b`；不得 push。# T010 Part B Implementation 归档章（追加内容）
+
+---
+
+# Part B — Implementation（2026-09-08）
+
+## Implementation
+
+- **Adapter API 演进（transport/transaction 拆分）**：`openPort(portName, qint32 baudRate)`（只开/配 8N1；PE-4 有界 error 规则保留——failed open 恰 1 个 user-visible transportError）；`startTransaction(slave, start, qty, timeout)`（要求 port 已开；未开/繁忙/write 失败拒绝，不造 TransactionStatus；write 失败关 port，Controller 事后从 isPortOpen 同步）；`closePort()`（主动断开静默：cancel+close，无 transportError）。旧合体 API 无外部稳定消费者，直接演进，adapter tests 同步重写（不保留重复接口）。
+- **AnalysisController 接管唯一 SerialPortAdapter**（成员持有；QML 不可见；应用层再无第二个 QSerialPort）：ctor 连接 transactionCompleted → handleSerialTransactionCompleted、transportError → handleSerialTransportError。
+  - `refreshSerialPorts()`：QSerialPortInfo::availablePorts 只 enumerate，绝无 open/write/probe；空列表不是 error。
+  - `connectSerial(portName, baud)`：空名/baud 白名单（5 档）先行校验 → adapter.openPort → **成功才**原子切换（清旧 batch、mode=Serial/sourceLabel="<port> @ <baud>"、清 serial error）；失败=旧 statistics/rows/mode/source 全保留（handleSerialTransportError 只动 serial error/connected）。
+  - `disconnectSerial()`：teardownSerialTransport（adapter closePort 静默 + connected/busy=false + pending metadata 清空）；保留最后结果与 Serial source 身份（Clear≠Disconnect）。
+  - `readHoldingRegistersOnce`：**cast 前 range 校验**（slave 1~247、start 0~65535、qty 1~125、timeout>0）→ 前置 connected&&!busy → adapter.startTransaction 接受后才 `pendingSerialAddress_` 保存 + serialBusy=true + 清旧 error；等待期旧结果保留（Reading...）。
+  - `publishSerialResult(sourceLabel, deviceAddress, analysis)`（非 Q_INVOKABLE seam）：1 entry + summarizeTransactions({analysis}) replace；mode=Serial/source=入参；serialBusy=false；清 serial error。
+  - `handleSerialTransactionCompleted`：**stale guard**——无 pending metadata 直接丢弃（UI-S10），有则转 publishSerialResult 后清 metadata。
+  - `handleSerialTransportError`：busy=false、pending 清空、connected=adapter.isPortOpen()、setSerialError("Serial transport error: ...")——statistics/rows/mode/source 一律不动。
+  - Source switching（SB-13）：runDemoBatch 开头 teardownSerialTransport（Simulator Mode 无后台 COM）+ 成功后清 serial error；loadReplayFile 成功路径**先 teardown 再发布**（Replay 失败时 Serial 原样保留）；clearResults 追加清 serial error（不断连、不切来源）。
+- **QML Serial Controls**（GroupBox，无新页面/第二套 Dashboard）：Port ComboBox（model=serialPortNames）+ Refresh / Baud ComboBox（5 档固定）+ 静态 "8N1" / Connect（!connected && 有选中 port）/ Disconnect（connected）/ Slave·Start·Quantity·Timeout SpinBox / Read Holding Registers Once（connected && !busy；busy 显示 "Reading..."）；独立 Serial error label（hasSerialError 可见，Transport error 与 Transaction row 视觉可分）。QML 不 import QtSerialPort。
+- **CMake link graph**：modbuslens(exe) 与 modbuslens_ui_bridge_tests 编译 SerialPortAdapter.cpp 并链接 `Qt6::SerialPort`（仅此两 target）；modbuslens_core 仍 Zero Qt。
+
+## Files Changed
+
+- 修改：`src/ui/serial/SerialPortAdapter.{h,cpp}`（API 演进）、`src/ui/AnalysisController.{h,cpp}`（serial 全套）、`src/ui/qml/Main.qml`（Serial Controls）、`tests/test_serial_adapter.cpp`（I01~I05 重写）、`tests/test_ui_bridge.cpp`（+UI-S01~S10）、`CMakeLists.txt`（link graph）
+
+## Verification
+
+```text
+RED：old startTransaction 定义与头文件失配编译错误 + 12 个 Controller undefined reference
+GREEN：cmake --build exit=0
+serial 21/21；serial_adapter 5/5（I01 invalid open / I02 有界恰1 / I03 主动关闭静默 /
+       I04 fresh idle / I05 未开口 start 拒绝）；ui_bridge 32/32（+UI-S01~S10）
+ctest --preset debug-local：100% tests passed, 0 tests failed out of 18
+clean build（--clean-first）：108 targets，编译 warning/error 0
+qml smoke（真实 exe，含 Serial UI）：--qml-smoke-test exit=0，无 ReferenceError/TypeError/binding loop
+Core Zero Qt：src/core 无 Qt include
+link graph：Qt6::SerialPort 仅 modbuslens 与 ui_bridge_tests 两 target；core 零 Qt
+deploy_windows.bat：exit=0；Qt6SerialPort.dll 由 windeployqt 自动部署
+provenance：SHA256(build/deploy/Qt6SerialPort.dll)=7c070c3e…==SHA256(D:\QT\6.11.1\mingw_64\bin\Qt6SerialPort.dll)；
+           本机 D:\QTDesign MSVC 目录已不存在（按实际环境记录）；ISSUE-003 无回归
+minimal-PATH：set PATH=System32 下 ModbusLens.exe --qml-smoke-test exit=0；ISSUE-002 无回归
+```
+
+## Result
+
+- **Manual Serial UI Smoke = PASS**（用户人工 A~F：Serial Controls 显示 / Refresh 无 crash 且不自动开任何 COM / Port 列表枚举正常且无数量假设 / Simulator Demo 回归 4-4-0 全对 / Replay golden 回归正常 / disconnected 态按钮 enable 合理）。
+- **Hardware Smoke = NOT RUN，Reason = hardware unavailable**（无用户确认的安全 Modbus RS485 硬件参数；按 SB-18 政策不伪报；期间未 open 任何未知 COM）。
+- **T010 Part B = DONE；T010 overall = DONE。M5 按 BACKLOG 既有定义（T009+T010）CLOSED。**
+
+## Git Commit
+
+| 提交 | 哈希 | 说明 |
+| --- | --- | --- |
+| Part B Implementation（code/config） | `33ed197` | `T010(Part B): integrate serial controls into the analysis dashboard`（**新 LKGC**） |
+| 用户确认归档（docs-only） | `<docs-only HEAD>` | Manual Serial UI Smoke PASS 回填 |
+
+> LKGC = `33ed197`；下一任务 T011（未开始）。
