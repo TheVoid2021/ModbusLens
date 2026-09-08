@@ -1,6 +1,7 @@
 # T011 — AI Diagnosis
 
-> 状态：**IN PROGRESS**｜Part A（Diagnosis Context + Rule-based Baseline）：**DONE ✅**｜Part B（LLM Diagnosis Integration）：**Learning / Test Design ✅（docs-only，Provider=ModelScope API-Inference）→ Implementation ⬜**
+> 状态：**DONE ✅（2026-09-08）**｜Part A：**DONE ✅**｜Part B：**DONE ✅**（Provider=ModelScope API-Inference；live verified model Qwen/Qwen3.5-27B；Manual AI UI Smoke + Live ModelScope Smoke 双 PASS）
+> T011 整体 DONE；下一任务：T012 Agent Tools（未开始；M6 按既有定义保持 IN PROGRESS）。
 > T011 整体 IN PROGRESS；M6 按既有定义保持 IN PROGRESS（T012 未完成）。
 > 前置确认：T008/T009/T010 DONE、M5 CLOSED、LKGC = `33ed197`、HEAD = `caa449c`、T011 未开始。M6 = AI 诊断与 Agent 工具（T011, T012），按 BACKLOG 既有名称与范围，不自行重命名。
 
@@ -584,3 +585,13 @@ Current Task=T011；Current Part=Part B — LLM Diagnosis Integration；Current 
 - 自动化基线（维持）：clean 126 targets 零警告；ctest 20/20（DIAG-A10 + AI-B01~B13 + UI-AI01~AI11）；qml smoke；deploy/provenance/TLS/minimal-PATH 全过。
 - **Live ModelScope Smoke = WAITING FOR USER**（用户本机设 MODELSCOPE_API_KEY → Run Demo → Baseline → Ask AI；Token 不得外发）。
 - 状态：T011 Part B = IN PROGRESS（Live 过才 DONE）；verified LKGC 仍 `06ef801`；最新 code candidate = `85699ff`（`f087275` 已弃用）。
+
+## Part B 最终验收归档（2026-09-08）：T011 Part B = DONE → T011 整体 = DONE
+
+- **Manual AI UI Smoke = PASS**（A~I 全项；SplitView workspace 双 pane 独立可用、Provider/Model 显示、Baseline/Clear 分工、Replay/Simulator/Serial 无回归、PlainText、双独立滚动）。
+- **Live ModelScope Smoke = PASS**（真实 Provider=ModelScope API-Inference；**live verified model = Qwen/Qwen3.5-27B**）：Run Demo → Baseline → Ask AI → 真实 HTTPS → 真实 explanation 返回显示，输出四段结构（SUMMARY / OBSERVED FACTS / POSSIBLE EXPLANATIONS / SUGGESTED CHECKS）并正确引用 deterministic facts（4 transactions、Device 0x01、FC 0x03、Success 1/Exception 1/Code 0x02/CRC 1/Timeout 1、latency 17ms..1000ms）+ 排查建议（RS485 布线/屏蔽/终端、波特率/校验配置、寄存器地址/文档、电气干扰环境）。**端到端链路（Context→Prompt→ModelScope→Parser→Controller→QML）实证。**
+- **Live attempt #1 = BLOCKED（insufficient balance）→ #2 = PASS**：FAILED attempt 历史 append-only 保留；它同时人工证明了 provider failure 不破坏 Deterministic Baseline / Dashboard statistics / Transaction rows，之后条件恢复重试成功。真实 Token 未提供、未记录（绝不得记录真实 MODELSCOPE_API_KEY）。
+- **Non-blocking LLM quality observation（不阻塞验收，Final Integration/prompt polish 再议）**：真实模型曾输出 "Inconsistent results imply intermittent signal integrity problems rather than permanent configuration errors"——当同时存在 CRC/Timeout/Exception 0x02 多种独立 findings 时，这属于解释性 over-inference（"rather than" 过强比较），确定性诊断本身无错误。记录为 prompt polish 候选项。
+- **AI is interpreter, not detector — live proof**：live 中 AI 散文出现不够严谨因果措辞，而 TransactionStatus/Exception Code/Statistics/Transaction rows/DiagnosisReport/Baseline 全部不受影响——真实环境证明 "AI can be wrong in prose without corrupting protocol facts"（已入 INTERVIEW_NOTES）。
+- **ISSUE-004 = RESOLVED**（全轨迹：局部 overflow → viewport 失效 → workspace 纵向分配缺陷 → Horizontal SplitView 定案）。
+- 最终 verified LKGC（前置核验成立）：`85699ff`。

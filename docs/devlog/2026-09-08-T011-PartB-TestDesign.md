@@ -25,3 +25,9 @@
 - Implementation（code `85699ff`，含 ISSUE-004 SplitView workspace 修复；弃 f087275）：client/prompt builder/Controller 双 stale guard/QML Flickable+SplitView 面板；ctest 20/20、clean 126 零警告、deploy/provenance/TLS/minimal-PATH 全过。
 - 有效取证：runtime geometry 实证 Diagnosis 滚动机制（flickH=133/contentH=214/contentY 可变）→ blocker 重分类为 workspace allocation → SplitView 定案 → 用户 Layout PASS + Manual AI UI Smoke PASS（A~I）。
 - **Live ModelScope Smoke = WAITING FOR USER**；T011 Part B/T011/M6 仍 IN PROGRESS；verified LKGC `06ef801`；候选 `85699ff` 待 Live PASS 推进。
+
+## 追加（同日）· Live ModelScope Smoke PASS 与 T011 整体 DONE
+
+- **用户 Live ModelScope Smoke = PASS**：真实 ModelScope API-Inference + Qwen/Qwen3.5-27B——Run Demo→Baseline→Ask AI 端到端返回四段式 explanation 并正确引用 deterministic facts。attempt#1（insufficient balance）失败历史保留且其本身构成 provider-failure-不破坏-baseline 的证据；attempt#2 成功。Token 从未外发。
+- **Non-blocking 质量观察**：模型曾以 "rather than" 措辞做出超出事实范围的因果偏好（存在 CRC+Timeout+Exception 多重独立 findings 时）——确定性诊断无错，属 prompt polish 候选项。
+- **T011 Part B = DONE → T011 整体 = DONE**；ISSUE-004 RESOLVED 全轨迹；verified LKGC = `85699ff`（Git 核验）；docs-only 完成提交不推进 LKGC。M6 保持进行中（T012 未完成）。未 push，未开始 T012。

@@ -8,15 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 Part A ✅ / Part B Learning+Test Design；T012 未开始）** |
-| Last Known Good Commit | **`06ef801`**（T011 Part A 代码提交：clean build 114 targets 零警告 + ctest 19/19 + qml smoke + Core Zero Qt + deploy/minimal-PATH smoke + provenance + **用户 Manual Baseline Smoke PASS** 多重验证；当前 HEAD 为其后的 docs-only 确认提交，不改变 LKGC。历史值：`33ed197`（T010）、`b31233b`（T010A）） |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 ✅ DONE / T012 未开始；按 BACKLOG 既有定义 M6=T011+T012，不得提前关闭）** |
+| Last Known Good Commit | **`85699ff`**（T011 Part B 最新 code/config 基线：AI implementation + Horizontal SplitView workspace 修复；clean 126 零警告 + ctest 20/20 + qml smoke + deploy/provenance/TLS/minimal-PATH + **Manual Layout Verification / Manual AI UI Smoke / Live ModelScope Smoke 三重人工 PASS**；当前 HEAD 为其后的 docs-only 完成提交，不改变 LKGC。历史值：`06ef801`（T011A）、`33ed197`（T010）） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 114 targets） |
 | Test 状态 | ✅ **19/19 通过**（ctest：17 项协议/UI + `serial` 21 + `serial_adapter` 5 + `diagnosis` 10；ui_bridge 40 函数含 UI-S01~S10、UI-D01~D08） |
-| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · **T010** |
-| 当前任务（Current Task） | **T011 AI Diagnosis**（IN PROGRESS——Part B 未开始） |
-| 最近完成任务（Last Completed Task） | **T010 Serial Mode**（Part A + Part B 全部 DONE，用户 Manual Serial UI Smoke 确认；Hardware Smoke = NOT RUN/hardware unavailable） |
-| 当前阶段（Current Phase） | **Part B — LLM Diagnosis Integration：Learning / Test Design**（docs-only；Provider = ModelScope API-Inference；Implementation ⬜） |
-| 下一步动作（Next Action） | **T011 Part B — Implementation** |
+| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
+| 当前任务（Current Task） | **None**（无进行中任务） |
+| 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（Part A + Part B 全部 DONE；Manual AI UI Smoke + Live ModelScope Smoke 双 PASS；live model Qwen/Qwen3.5-27B） |
+| 当前阶段（Current Phase） | —（T011 DONE；T012 待启动） |
+| 下一步动作（Next Action） | **T012 Agent Tools — Learning / Test Design** |
 | 下一 Part（Next Part） | **Part B — Serial UI Integration + Hardware/No-Hardware Smoke** |
 | 下一 Part（Next Part） | **Part B — LLM Diagnosis Integration** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
@@ -42,7 +42,7 @@
 
 ## 2. 当前任务
 
-- **T011 AI Diagnosis — IN PROGRESS（Part A = DONE ✅；Part B: LLM Diagnosis Integration，Phase: Learning / Test Design，docs-only）**：Part B 设计定案（[T011 档案](tasks/T011-ai-diagnosis.md) PB-A~PB-R）——**Provider 定案 ModelScope API-Inference**（OpenAI-compatible Chat Completions 仅表协议兼容、绝不用 OpenAI SDK/Responses API/OPENAI_API_KEY；endpoint `https://api-inference.modelscope.cn/v1/chat/completions`）；候选 model `Qwen/Qwen3.5-27B`（+ MODBUSLENS_MODELSCOPE_MODEL override + 用户 live probe 政策）；credential = `MODELSCOPE_API_KEY` 仅 process env（BYOK 定性入档、QML 不见 Token、生产 endpoint 禁 override、测试 seam 注入）；client 定案 ModelScopeDiagnosisClient（App 层 Qt6Network、Idle/Requesting、one-shot 无会话）；Baseline First 前置（empty batch 不调 API）+ structured-facts-only prompt（bounded 20 + 确定性选择 + system authority 指令 + plain text 768）；raw choices/message/content parser + reasoning_content 忽略 + InvalidResponse 契约；错误分类 11 值与 HTTP mapping；zero retry / stream=false / 30s timeout / cancel 静默；**activeBatchRevision（P0 stale guard）** 与 AI invalidation 全套（失败切换保留、clearDiagnosis 扩展语义）；localhost fake HTTP server（随机端口、fake token 硬约束）；矩阵 AI-B01~B12 + UI-AI01~AI10 落库；**QtNetwork kit 预检已提前实证 PASS**（headers/package/DLL + 仓库外 probe 四步过、runtime sslBuild=yes）；30 题问答；34 步计划。**网络代码未实现**；下一步动作 = T011 Part B — Implementation。
+- **None**。T011 AI Diagnosis 已整体 DONE（Part A 规则基线 + Part B ModelScope LLM 集成；Manual AI UI Smoke 与 Live ModelScope Smoke 双 PASS；ISSUE-004 布局全轨迹 RESOLVED）。下一步：启动 T012 Agent Tools（见 §3 与 BACKLOG）。
 
 
 ## 3. 下一任务
@@ -157,3 +157,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-08 | **T011 Part B 启动：Learning / Test Design（docs-only）**——ModelScope 定案/凭据边界/prompt 与客户端设计/矩阵 AI-B01~B12+UI-AI01~AI10 落库；QtNetwork kit probe 已实证（sslBuild=yes）；T011 保持 IN PROGRESS，网络代码未实现 |
 | 2026-09-08 | **T011 Part B Implementation 完成（自动化全 GREEN）**：ModelScope client/prompt builder/Controller 双 stale guard/QML AI 面板落地；AI-B01~B13 + UI-AI01~AI11 全绿（ctest 20/20、clean 126 零警告）；ISSUE-004（Diagnosis 纵向 overflow→SplitView workspace 修复）建档 RESOLVED 全程（用户三次失败证据 + Manual Layout Verification PASS）；code candidate = `85699ff` |
 | 2026-09-08 | **用户 Manual AI UI Smoke = PASS（A~I 九项）**：AI 面板/未配置不发请求/Baseline/Clear 分工/Replay 同 semantic/Serial 无回归/SplitView 独立滚动无回归。**Live ModelScope Smoke = WAITING FOR USER**；T011 Part B / T011 / M6 保持 IN PROGRESS；verified LKGC 仍 `06ef801`（候选 `85699ff` 待 Live PASS 后推进） |
+| 2026-09-08 | **用户 Live ModelScope Smoke = PASS**（真实 ModelScope API-Inference + Qwen/Qwen3.5-27B；attempt#1 insufficient balance 失败历史保留、attempt#2 成功；live 输出四段结构并正确引用 deterministic facts；non-blocking over-inference 质量观察记录；AI is interpreter not detector 真实证明）。**T011 Part B DONE → T011 整体 DONE**。verified LKGC = `85699ff`（Git 实际核验）；HEAD = docs-only 完成提交。M6 按既有定义保持进行中（T012 未完成） |
