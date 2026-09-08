@@ -8,17 +8,18 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / **M5 ✅ CLOSED**（按 BACKLOG 既有定义 M5=T009+T010，两任务全部 DONE）；**M6 待启动**（T011/T012） |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 Part A Learning+Test Design；T012 未开始）** |
 | Last Known Good Commit | **`33ed197`**（T010 Part B 代码提交：clean build 108 targets 零警告 + ctest 18/18 + qml smoke + Core Zero Qt + deploy/minimal-PATH smoke + Qt6SerialPort.dll provenance + **用户 Manual Serial UI Smoke PASS** 多重验证；当前 HEAD 为其后的 docs-only 确认提交，不改变 LKGC。历史值：`b31233b`（T010A）、`d473d36`（T009）） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 108 targets） |
 | Test 状态 | ✅ **18/18 通过**（ctest：16 项协议/UI + `serial` 21 函数 + `serial_adapter` 5 函数；ui_bridge 32 函数含 UI-S01~S10） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · **T010** |
-| 当前任务（Current Task） | **None**（无进行中任务） |
+| 当前任务（Current Task） | **T011 AI Diagnosis**（IN PROGRESS——Part B 未开始） |
 | 最近完成任务（Last Completed Task） | **T010 Serial Mode**（Part A + Part B 全部 DONE，用户 Manual Serial UI Smoke 确认；Hardware Smoke = NOT RUN/hardware unavailable） |
-| 当前阶段（Current Phase） | —（T010 DONE；M5 已关闭，T011 待启动） |
-| 下一步动作（Next Action） | **Start T011 AI Diagnosis** |
+| 当前阶段（Current Phase） | **Part A — Diagnosis Context + Rule-based Baseline：Learning / Test Design**（docs-only；Implementation ⬜） |
+| 下一步动作（Next Action） | **T011 Part A — Implementation** |
 | 下一 Part（Next Part） | **Part B — Serial UI Integration + Hardware/No-Hardware Smoke** |
-| 下一任务（Next Task After T010） | **T011 AI Diagnosis** |
+| 下一 Part（Next Part） | **Part B — LLM Diagnosis Integration** |
+| 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -41,15 +42,12 @@
 
 ## 2. 当前任务
 
-- **None**。T010 Serial Mode 已整体 DONE（Part A + Part B，用户 Manual Serial UI Smoke 确认；Hardware Smoke 按政策记为 NOT RUN/hardware unavailable）。三模式（Simulator/Replay/Serial）现已全部走同一套协议核心与 Dashboard。下一步：启动 T011 AI Diagnosis（见 §3 与 BACKLOG）。
+- **T011 AI Diagnosis — IN PROGRESS（Part A: Diagnosis Context + Rule-based Baseline，Phase: Learning / Test Design，docs-only）**：核心原则"AI 不产生协议事实"定案（CRC/Frame/一致性/异常码/Timeout/统计的 authority 永远是 deterministic Core；AI 只解释）；Rule-based Baseline 全规则定案（NoData≠Healthy、Healthy 三条件、Pending 不计 failure、Timeout/CRC 只述事实不宣 root cause、Exception 按 code 升序分组 + 0x01~0x04 标准映射、Mixed 保留多 finding 不建 health score、固定 finding 顺序仅 presentation 序）；数据模型定案（DiagnosisTransaction/DiagnosisContext+buildDiagnosisContext 复用 summarizeTransactions/DiagnosisFinding{code,severity,count,exceptionCode,actions}/DiagnosisReport）；Controller API 定案（runBaselineDiagnosis/clearDiagnosis + activeDiagnosisTransactions_ 与 batch 同源；新 batch/clear/connect 成功 invalidate，失败切换保留）；矩阵 DIAG-A01~A10 + UI-D01~D07、20 题问答、23 步计划落库（[T011 档案](tasks/T011-ai-diagnosis.md)）。§6 前置检查结论：Controller 现未保留结构化 batch，Implementation 需新增。Part B 原则提前锁定（不自动调 LLM、Secrets 规则、不做 Agent、prompt injection 边界预告）。**Diagnosis 未实现**；下一步动作 = T011 Part A — Implementation。
 
 
 ## 3. 下一任务
 
-- **T011 — AI Diagnosis**（详见 [BACKLOG](BACKLOG.md)）：诊断模块：确定性规则引擎（不依赖 LLM）+ 报告导出；可选 LLM 自然语言解释（可插拔、缺失不影响）。依赖 T007；在 T010 完成后启动。
-## 3. 下一任务
-
-- **T010 — Serial Mode**（详见 [BACKLOG](BACKLOG.md)）：QtSerialPort 采集、t3.5 帧切分、环形缓冲；com0com/socat 虚拟串口对集成测试；真机核对清单。依赖 T009（未完成）；在 T009 完成后启动。
+- **T012 — Agent Tools**（详见 [BACKLOG](BACKLOG.md)）：只读 Agent 工具集——读日志摘要/统计/报告；架构强制无写 API（类型层面不存在）。依赖 T007/T008/T011 输出；在 T011 完成后启动。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -153,3 +151,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-08 | **T010 Part B 启动：Learning / Test Design（docs-only）**——Controller Serial API/状态、Connect/Disconnect/Clear 语义、Read Once replace=1、hardware-free seam、UI-S01~S09+SERIAL-I02/I03 矩阵、discovery 安全规则、Qt6SerialPort provenance 计划、Manual/Hardware Smoke 政策落库；T010 保持 IN PROGRESS，Serial UI 未实现 |
 | 2026-09-08 | **T010 Part B Implementation 完成（自动化全 GREEN）**：Adapter API 拆分、Controller serial 全套、UI-S01~S10、QML Serial Controls；ctest 18/18、clean 108 targets 零警告、Qt6SerialPort provenance 验证、deploy+minimal-PATH PASS。LKGC candidate = `33ed197`；Manual Serial UI Smoke = WAITING FOR USER |
 | 2026-09-08 | **用户 Manual Serial UI Smoke = PASS（A~F）**：控件显示/Refresh 无 crash 不自动 open/枚举正常/Demo 回归/Replay 回归/按钮 enable 合理。**Hardware Smoke = NOT RUN（hardware unavailable）**。**T010 Part B DONE → T010 整体 DONE → M5 CLOSED（按 BACKLOG 定义 T009+T010）**。LKGC = `33ed197`；HEAD = docs-only 确认提交。T011 未开始 |
+| 2026-09-08 | **T011 启动：Part A Learning / Test Design（docs-only）**——AI 与 Core 责任边界、规则基线全套、DIAG/UI-D 矩阵落库；T011 标记 IN PROGRESS，M6 转进行中，Diagnosis 未实现 |
