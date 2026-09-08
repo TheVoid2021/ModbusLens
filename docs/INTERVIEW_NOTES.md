@@ -59,6 +59,7 @@
 - 事务配对的启发式算法与广播/超时处理（T007）
 - 线程模型：采集线程 ↔ 分析线程如何传递数据不丢帧（T005+ 首个数据源落地时）
 - 虚拟串口对如何做集成测试、t3.5 帧切分实现（T010）
+- ✅ 已可答（T011 Part A，见任务档案）："AI is interpreter, not detector"——确定性事实与概率性解释的分层（LLM 禁改 TransactionStatus/统计/自动行动）、Deterministic Rule Baseline 的生存价值（无网/无 key 可诊断）、DiagnosisContext 自洽快照与 summarizeTransactions 单一规则、NoData≠Healthy / Pending≠failure / 0% 是合法 rate 的语义细节、Exception 按 code 分组与 0x01~0x04 标准映射、为什么不建 health score（异质问题不可压缩成单数）、finding 顺序≠根因排序、诊断失效模型（batch 变则诊断清、失败切换保留）、回译（presentation formatter 只翻译 Core report）、结构化 active batch 与 UI 只读分离、"prompt injection 边界与 secrets 规则"的预告式设计
 - 只读 Agent 的架构边界如何强制（类型层面无写 API）（T012）
 - 无锁队列/环形缓冲的使用场景与取舍（T008/T010+）
 

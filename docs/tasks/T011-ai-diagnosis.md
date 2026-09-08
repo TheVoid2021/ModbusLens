@@ -1,6 +1,7 @@
 # T011 — AI Diagnosis
 
-> 状态：**IN PROGRESS**｜Part A（Diagnosis Context + Rule-based Baseline）：**Learning / Test Design ✅（docs-only）→ Implementation ⬜**｜Part B（LLM Diagnosis Integration）：⬜ Not Started
+> 状态：**IN PROGRESS**｜Part A（Diagnosis Context + Rule-based Baseline）：**DONE ✅**（Learning / Test Design + Implementation + Manual Baseline Smoke PASS）｜Part B（LLM Diagnosis Integration）：⬜ Not Started
+> T011 整体 IN PROGRESS；M6 按既有定义保持 IN PROGRESS（T012 未完成）。
 > 前置确认：T008/T009/T010 DONE、M5 CLOSED、LKGC = `33ed197`、HEAD = `caa449c`、T011 未开始。M6 = AI 诊断与 Agent 工具（T011, T012），按 BACKLOG 既有名称与范围，不自行重命名。
 
 ## Goal
@@ -289,4 +290,75 @@ Part A Learning / Test Design 完成：AI 与 Core 责任边界定案、数据�
 | --- | --- | --- |
 | Part A Learning / Test Design | 见 `git log` | `T011(Part A): 诊断语境与规则基线 — Learning / Test Design（docs-only）` |
 
-> LKGC 维持 `33ed197` 不变（docs-only 不推进）。
+> LKGC 维持 `33ed197` 不变（docs-only 不推进）。# T011 Part A 完成归档章（追加内容）
+
+---
+
+# Part A — Implementation（2026-09-08）
+
+## Implementation
+
+- **Pure Diagnosis Core（src/core/diagnosis/，Zero Qt）**：`DiagnosisContext.{h,cpp}`（DiagnosisTransaction 三字段纯事实 / DiagnosisContext / buildDiagnosisContext：复制事务、提取 analyses、`summarizeTransactions` 唯一统计规则 → 自洽 snapshot）；`RuleBasedDiagnosis.{h,cpp}`（FindingCode 七值 / Severity 三级 / ActionCode 十二值 / Finding / Report；diagnoseTransactions 纯函数）。规则实现：空批仅 NoData(Info)；Healthy 三条件（completed>0 且 success==completed 且 pending==0；唯一状态性 finding）；Protocol=Error；CRC/Timeout 仅述事实 + 定案 actions（顺序锁定）；Exception 按 code 升序分组 + 0x01~0x04 标准映射（code-less Exception 防御性跳过）；Mixed 多 finding、无 health score；finding 全序 Protocol→CRC→Timeout→Exception→Pending→Healthy/NoData（仅 presentation 序）。
+- **Controller 集成**：`activeDiagnosisTransactions_`（std::vector\<DiagnosisTransaction\>）三条发布路径同源（Demo makeEntry 同批、Replay outcome 映射、Serial 单条）；五处成功 batch 变化统一 `clearDiagnosisState()`（Demo/Replay 成功、Serial 完成、connect 成功清批、clearResults），失败切换保留；backing state 先一致再发信号（无"新 stats+旧诊断"可见态）。`runBaselineDiagnosis()`（buildContext→diagnose→format，空批=有效 NoData 报告）/`clearDiagnosis()`（只清诊断，d08 锁"再跑恢复同文本"）+ `hasBaselineDiagnosis`/`baselineDiagnosisText`。
+- **Presenter**：Controller 匿名 namespace `formatDiagnosisReport`——只翻译 report（finding/action phrase + Suggested checks 按 enum 声明序确定性去重）；不重判/不重数/不宣称 root cause/无 "AI says"。
+- **QML**：Diagnosis GroupBox（Run Baseline Diagnosis / Clear Diagnosis / "Deterministic Baseline" / hasBaselineDiagnosis 双态显示）——命名明确非 "AI Diagnosis"。
+- **测试**：`tests/test_diagnosis.cpp` DIAG-A01~A10（结构化断言 code/severity/count/exceptionCode/action 顺序，Core 不用 QString 测试）；ui_bridge 扩 UI-D01~D08（40 函数总）。
+
+## Files Changed
+
+- 新增：`src/core/diagnosis/DiagnosisContext.{h,cpp}`、`RuleBasedDiagnosis.{h,cpp}`、`tests/test_diagnosis.cpp`
+- 修改：`src/ui/AnalysisController.{h,cpp}`（diagnosis 全套 + 三 publish 同源）、`src/ui/qml/Main.qml`（Diagnosis 面板）、`tests/test_ui_bridge.cpp`（+UI-D01~D08）、`CMakeLists.txt`（core 源 + `diagnosis` test target）
+
+## Problems Encountered
+
+- **PE-6（真实过程事故，已修复）**：heredoc 转义层把 formatter 四个 QString 字面量的 `\n` 写成了真实换行（编译错 "QStringLiteral was not declared"/"expected '}' at end of input"）。修复：用 ASCII 码（chr(92)/chr(10)）拼接 old/new 串，免疫 bash/python 两层转义；写 C++ 字面量内换行一律自查。
+- RED 证据：`buildDiagnosisContext`/`diagnoseTransactions` undefined reference（真实链接失败）。
+- amend 说明：code commit 初版漏暂存 tests/test_ui_bridge.cpp（UI-D 测试），按 Git 修订策略 1（仅 amend 当前任务最新未 push 提交）amend 并入——最终 code commit = `06ef801`。
+
+## Verification
+
+```text
+RED：buildDiagnosisContext / diagnoseTransactions undefined reference
+GREEN：core 后 diagnosis 10/10；Controller 后 ui_bridge 40/40（含 UI-D01~D08）
+ctest --preset debug-local：100% tests passed, 0 tests failed out of 19（+diagnosis）
+clean build（--clean-first）：114 targets，warning/error 命中 0
+qml smoke（真实 exe，含 Diagnosis 面板）：--qml-smoke-test exit=0
+Core Zero Qt：src/core/diagnosis 无 Qt include
+无 LLM/AI 痕迹：grep OpenAI|Anthropic|Gemini|API_KEY|Bearer|QNetworkAccessManager|endpoint|prompt|tool call|embedding
+  → 仅 2 处注释性日常词义命中（"endpoint"=从站端点、"no provider, no prompt"=面板注释）；零 AI/HTTP/key 产品实现
+ISSUE-001 复查：get_if 全部具名 local
+deploy_windows.bat：exit=0；Qt6SerialPort provenance SHA256 仍 == MinGW bin；minimal-PATH --qml-smoke-test exit=0
+**用户 Manual Baseline Smoke = PASS（A~E）**：golden 三 findings 正确（CRC 1/Timeout 1/Exception 0x02 各 1）
+  无 Healthy/Protocol Error 误报、未宣称 root cause（无 bad cable/device offline）、
+  Clear Diagnosis 与 Clear Results 分工正确、无 stale diagnosis、
+  Replay 的 finding semantics 与 Simulator golden 一致、Serial Controls 无回归（无需硬件）
+```
+
+## Result
+
+**T011 Part A = DONE（2026-09-08）。** 架构结论（本任务核心命题）：
+
+```text
+Deterministic Core
+     ↓
+DiagnosisContext（自洽事实快照）
+     ↓
+Rule-based Diagnosis（观察 + 结构化排查建议，永不宣称 root cause）
+     ↓
+Human-readable baseline（Presentation 层翻译，永不反写事实）
+
+AI is interpreter, not detector.
+```
+
+Part A 实现零 HTTP/provider/API Key/LLM client/prompt/Agent/tool calling（grep 佐证）——断网/无 key/无 provider 时诊断能力完整可用（项目第一原则）。
+
+**T011 overall 仍 IN PROGRESS**（Part B — LLM Diagnosis Integration 未开始）；**M6 按 BACKLOG 既有定义继续 IN PROGRESS**（T012 未完成，不提前关闭）。
+
+## Git Commit
+
+| 提交 | 哈希 | 说明 |
+| --- | --- | --- |
+| Part A Implementation（code/config） | `06ef801` | `T011(Part A): add deterministic diagnosis baseline`（**新 LKGC**） |
+| 用户确认归档（docs-only） | `<docs-only HEAD>` | Manual Baseline Smoke PASS 回填 |
+
+> LKGC = `06ef801`；Part B 未开始；T012 未开始。

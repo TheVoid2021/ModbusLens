@@ -8,15 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 Part A Learning+Test Design；T012 未开始）** |
-| Last Known Good Commit | **`33ed197`**（T010 Part B 代码提交：clean build 108 targets 零警告 + ctest 18/18 + qml smoke + Core Zero Qt + deploy/minimal-PATH smoke + Qt6SerialPort.dll provenance + **用户 Manual Serial UI Smoke PASS** 多重验证；当前 HEAD 为其后的 docs-only 确认提交，不改变 LKGC。历史值：`b31233b`（T010A）、`d473d36`（T009）） |
-| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 108 targets） |
-| Test 状态 | ✅ **18/18 通过**（ctest：16 项协议/UI + `serial` 21 函数 + `serial_adapter` 5 函数；ui_bridge 32 函数含 UI-S01~S10） |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 Part A ✅ / Part B 未开始；T012 未开始）** |
+| Last Known Good Commit | **`06ef801`**（T011 Part A 代码提交：clean build 114 targets 零警告 + ctest 19/19 + qml smoke + Core Zero Qt + deploy/minimal-PATH smoke + provenance + **用户 Manual Baseline Smoke PASS** 多重验证；当前 HEAD 为其后的 docs-only 确认提交，不改变 LKGC。历史值：`33ed197`（T010）、`b31233b`（T010A）） |
+| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 114 targets） |
+| Test 状态 | ✅ **19/19 通过**（ctest：17 项协议/UI + `serial` 21 + `serial_adapter` 5 + `diagnosis` 10；ui_bridge 40 函数含 UI-S01~S10、UI-D01~D08） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · **T010** |
 | 当前任务（Current Task） | **T011 AI Diagnosis**（IN PROGRESS——Part B 未开始） |
 | 最近完成任务（Last Completed Task） | **T010 Serial Mode**（Part A + Part B 全部 DONE，用户 Manual Serial UI Smoke 确认；Hardware Smoke = NOT RUN/hardware unavailable） |
-| 当前阶段（Current Phase） | **Part A — Diagnosis Context + Rule-based Baseline：Learning / Test Design**（docs-only；Implementation ⬜） |
-| 下一步动作（Next Action） | **T011 Part A — Implementation** |
+| 当前阶段（Current Phase） | **Part A — Diagnosis Context + Rule-based Baseline：DONE ✅** |
+| 下一步动作（Next Action） | **T011 Part B — Learning / Test Design** |
 | 下一 Part（Next Part） | **Part B — Serial UI Integration + Hardware/No-Hardware Smoke** |
 | 下一 Part（Next Part） | **Part B — LLM Diagnosis Integration** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
@@ -42,7 +42,7 @@
 
 ## 2. 当前任务
 
-- **T011 AI Diagnosis — IN PROGRESS（Part A: Diagnosis Context + Rule-based Baseline，Phase: Learning / Test Design，docs-only）**：核心原则"AI 不产生协议事实"定案（CRC/Frame/一致性/异常码/Timeout/统计的 authority 永远是 deterministic Core；AI 只解释）；Rule-based Baseline 全规则定案（NoData≠Healthy、Healthy 三条件、Pending 不计 failure、Timeout/CRC 只述事实不宣 root cause、Exception 按 code 升序分组 + 0x01~0x04 标准映射、Mixed 保留多 finding 不建 health score、固定 finding 顺序仅 presentation 序）；数据模型定案（DiagnosisTransaction/DiagnosisContext+buildDiagnosisContext 复用 summarizeTransactions/DiagnosisFinding{code,severity,count,exceptionCode,actions}/DiagnosisReport）；Controller API 定案（runBaselineDiagnosis/clearDiagnosis + activeDiagnosisTransactions_ 与 batch 同源；新 batch/clear/connect 成功 invalidate，失败切换保留）；矩阵 DIAG-A01~A10 + UI-D01~D07、20 题问答、23 步计划落库（[T011 档案](tasks/T011-ai-diagnosis.md)）。§6 前置检查结论：Controller 现未保留结构化 batch，Implementation 需新增。Part B 原则提前锁定（不自动调 LLM、Secrets 规则、不做 Agent、prompt injection 边界预告）。**Diagnosis 未实现**；下一步动作 = T011 Part A — Implementation。
+- **T011 AI Diagnosis — IN PROGRESS（Part A = DONE ✅；Part B 未开始）**：Part A 交付（[T011 档案](tasks/T011-ai-diagnosis.md) Implementation 章）——`src/core/diagnosis/`（Zero Qt）：DiagnosisContext/buildDiagnosisContext（summarizeTransactions 唯一统计规则、自洽 snapshot）+ RuleBasedDiagnosis 全规则（空批仅 NoData、Healthy 三条件、Protocol=Error、CRC/Timeout 只述事实、Exception 按 code 分组 + 0x01~0x04 映射、固定 finding/action 序）；Controller 三发布路径同源维护 activeDiagnosisTransactions_、五处成功变化统一 clearDiagnosisState（失败切换保留）、runBaselineDiagnosis/clearDiagnosis + formatter（只翻译 report 不宣称 root cause）；QML Diagnosis 面板（Deterministic Baseline 命名）；DIAG-A01~A10 + UI-D01~D08 全绿；ctest 19/19、clean 114 targets 零警告、qml smoke/deploy/provenance/minimal-PATH 全过；产品代码零 HTTP/provider/API Key/LLM client/prompt/Agent/tool calling（grep 佐证）；**用户 Manual Baseline Smoke = PASS（A~E）**；架构结论落档：`AI is interpreter, not detector.`。**下一步动作 = T011 Part B — Learning / Test Design（LLM Diagnosis Integration）**。
 
 
 ## 3. 下一任务
@@ -152,3 +152,5 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-08 | **T010 Part B Implementation 完成（自动化全 GREEN）**：Adapter API 拆分、Controller serial 全套、UI-S01~S10、QML Serial Controls；ctest 18/18、clean 108 targets 零警告、Qt6SerialPort provenance 验证、deploy+minimal-PATH PASS。LKGC candidate = `33ed197`；Manual Serial UI Smoke = WAITING FOR USER |
 | 2026-09-08 | **用户 Manual Serial UI Smoke = PASS（A~F）**：控件显示/Refresh 无 crash 不自动 open/枚举正常/Demo 回归/Replay 回归/按钮 enable 合理。**Hardware Smoke = NOT RUN（hardware unavailable）**。**T010 Part B DONE → T010 整体 DONE → M5 CLOSED（按 BACKLOG 定义 T009+T010）**。LKGC = `33ed197`；HEAD = docs-only 确认提交。T011 未开始 |
 | 2026-09-08 | **T011 启动：Part A Learning / Test Design（docs-only）**——AI 与 Core 责任边界、规则基线全套、DIAG/UI-D 矩阵落库；T011 标记 IN PROGRESS，M6 转进行中，Diagnosis 未实现 |
+| 2026-09-08 | **T011 Part A Implementation 完成（自动化全 GREEN）**：deterministic diagnosis baseline 落地（core Zero Qt + Controller 同源 diagnosis batch + QML 面板）；DIAG-A01~A10 + UI-D01~D08 全绿；ctest 19/19、clean 114 targets 零警告；产品代码零 LLM/HTTP/key（grep 佐证）；LKGC candidate = `06ef801`；Manual Baseline Smoke = WAITING FOR USER |
+| 2026-09-08 | **用户 Manual Baseline Smoke = PASS（A~E）**：golden 三 findings 正确、无 root-cause 宣称、Clear 职责分工正确、Replay/Simulator finding 一致、Serial 无回归。**T011 Part A = DONE；T011 整体 IN PROGRESS（Part B 未开始）；M6 保持 IN PROGRESS**。LKGC = `06ef801`；HEAD = docs-only 确认提交 |
