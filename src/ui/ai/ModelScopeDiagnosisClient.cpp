@@ -61,8 +61,8 @@ AiDiagnosisErrorCode mapReplyError(QNetworkReply::NetworkError error)
     switch (error) {
     case QNetworkReply::AuthenticationRequiredError:
         return AiDiagnosisErrorCode::Unauthorized;
-    case QNetworkReply::OperationCanceledError:
-        return AiDiagnosisErrorCode::Timeout; // our timer aborts; cancel() is silent
+    // OperationCanceledError is handled by the explicit abort-reason branch
+    // before this mapper (ISSUE-005) — never fuzz through here.
     case QNetworkReply::ProtocolInvalidOperationError:
         return AiDiagnosisErrorCode::ProviderRequestError; // e.g. rejected redirect
     default:
@@ -138,25 +138,26 @@ void ModelScopeDiagnosisClient::requestDiagnosis(const QString& systemPrompt,
     // token to another origin).
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::SameOriginRedirectPolicy);
-    request.setTransferTimeout(
-        static_cast<int>(std::min<std::chrono::milliseconds>(
-            config_.timeout, std::chrono::milliseconds{INT_MAX}).count()));
+    // NOTE (ISSUE-005): NO QNetworkRequest::setTransferTimeout here — the
+    // QTimer below is the SINGLE timeout owner. Dual native-transfer-timeout
+    // + QTimer ownership made "which timeout aborted" racy and leaked the
+    // localized OperationCanceledError text into the UI.
 
     reply_ = network_->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply_, &QNetworkReply::finished, this, &ModelScopeDiagnosisClient::handleFinished);
     currentRequestId_ = requestId;
     busy_ = true;
-    cancelFlag_ = false;
+    abortReason_ = AiAbortReason::None;
     timeoutTimer_->start(static_cast<int>(std::min<std::chrono::milliseconds>(
         config_.timeout, std::chrono::milliseconds{INT_MAX}).count()));
 }
 
-void ModelScopeDiagnosisClient::cancel()
+void ModelScopeDiagnosisClient::cancel(AiAbortReason reason)
 {
     if (!busy_) {
         return;
     }
-    cancelFlag_ = true;   // the following finished() will stay silent
+    abortReason_ = reason; // recorded BEFORE the abort (ISSUE-005 ownership)
     timeoutTimer_->stop();
     busy_ = false;
     if (reply_) {
@@ -186,10 +187,13 @@ void ModelScopeDiagnosisClient::handleTimeout()
     }
     const std::uint64_t requestId = currentRequestId_;
     timeoutTimer_->stop();
+    abortReason_ = AiAbortReason::Timeout; // BEFORE the abort (ISSUE-005)
     if (reply_) {
         reply_->abort();
     }
-    fail(requestId, AiDiagnosisErrorCode::Timeout, QStringLiteral("request timed out"));
+    // Deliver the business-level Timeout immediately; the subsequent
+    // finished() callback sees busy_ == false and stays silent.
+    fail(requestId, AiDiagnosisErrorCode::Timeout, QStringLiteral("AI request timed out"));
 }
 
 void ModelScopeDiagnosisClient::handleFinished()
@@ -206,12 +210,6 @@ void ModelScopeDiagnosisClient::handleFinished()
     busy_ = false;
     currentRequestId_ = 0;
 
-    if (cancelFlag_) {
-        cancelFlag_ = false;
-        reply->deleteLater();
-        return; // user cancel: silent, no signal
-    }
-
     const int httpStatus =
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (httpStatus > 0 && (httpStatus < 200 || httpStatus >= 300)) {
@@ -223,14 +221,32 @@ void ModelScopeDiagnosisClient::handleFinished()
         emit diagnosisFailed(requestId, code, message);
         return;
     }
-    if (httpStatus == 0 && reply->error() != QNetworkReply::NoError) {
-        // No HTTP status at all: a transport-level failure.
-        const auto code = mapReplyError(reply->error());
-        const QString detail = reply->errorString().isEmpty()
-                                   ? QStringLiteral("network error")
-                                   : reply->errorString();
+    // Transport cancellation (ISSUE-005): OperationCanceledError alone
+    // cannot say WHO aborted — classify by the recorded abort reason. Only
+    // an unexpected cancellation becomes a user-visible network error; the
+    // Qt localized errorString is never user-facing wording.
+    if (httpStatus == 0
+        && reply->error() == QNetworkReply::OperationCanceledError) {
+        if (abortReason_ == AiAbortReason::Timeout) {
+            reply->deleteLater();
+            emit diagnosisFailed(requestId, AiDiagnosisErrorCode::Timeout,
+                                 QStringLiteral("AI request timed out"));
+            return;
+        }
+        if (abortReason_ != AiAbortReason::None) {
+            reply->deleteLater();
+            return; // local intentional abort: silent, no signal
+        }
         reply->deleteLater();
-        emit diagnosisFailed(requestId, code, detail);
+        emit diagnosisFailed(requestId, AiDiagnosisErrorCode::NetworkError,
+                             QStringLiteral("AI request was cancelled unexpectedly"));
+        return;
+    }
+    if (httpStatus == 0 && reply->error() != QNetworkReply::NoError) {
+        // No HTTP status at all: a non-cancellation transport failure.
+        const auto code = mapReplyError(reply->error());
+        reply->deleteLater();
+        emit diagnosisFailed(requestId, code, QStringLiteral("network error"));
         return;
     }
 
@@ -276,9 +292,13 @@ bool buildModelScopeProductionConfig(ModelScopeClientConfig& out)
     if (model.trimmed().isEmpty()) {
         model = kCandidateModel;
     }
+    // 90 s production timeout (ISSUE-005): a non-streaming cloud LLM
+    // inference is not an interactive millisecond request — live evidence
+    // showed the 27B model can exceed 30 s under load. Tests still inject
+    // 50~100 ms timeouts for fast coverage.
     out.endpoint = kOfficialEndpoint;
     out.apiKey = apiKey;
     out.modelId = model;
-    out.timeout = std::chrono::milliseconds{30000};
+    out.timeout = std::chrono::milliseconds{90000};
     return true;
 }

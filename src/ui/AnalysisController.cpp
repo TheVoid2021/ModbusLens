@@ -521,7 +521,7 @@ void AnalysisController::cancelAiDiagnosis()
     ++aiRequestGeneration_;
     activeAiRequestId_.reset();
     requestBatchRevision_.reset();
-    aiClient_.cancel();
+    aiClient_.cancel(AiAbortReason::UserCancel);
     aiDiagnosisBusy_ = false;
     emit aiStateChanged();
 }
@@ -573,7 +573,7 @@ void AnalysisController::invalidateAiForBatchChange()
         ++aiRequestGeneration_;
         activeAiRequestId_.reset();
         requestBatchRevision_.reset();
-        aiClient_.cancel();
+        aiClient_.cancel(AiAbortReason::BatchInvalidated);
     }
     aiDiagnosisBusy_ = false;
     hasAiDiagnosis_ = false;
@@ -600,7 +600,7 @@ void AnalysisController::clearDiagnosis()
         ++aiRequestGeneration_;
         activeAiRequestId_.reset();
         requestBatchRevision_.reset();
-        aiClient_.cancel();
+        aiClient_.cancel(AiAbortReason::DiagnosisCleared);
     }
     aiDiagnosisBusy_ = false;
     hasAiDiagnosis_ = false;

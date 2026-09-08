@@ -413,6 +413,9 @@ void AiClientTest::b12_timeout()
     QVERIFY(spy.wait(3000));
     QCOMPARE(spy.at(0).at(1).toInt(),
              static_cast<int>(AiDiagnosisErrorCode::Timeout));
+    // ISSUE-005: business wording — never Qt's localized operation-canceled
+    // errorString.
+    QCOMPARE(spy.at(0).at(2).toString(), QStringLiteral("AI request timed out"));
     QVERIFY(!client.isBusy());
 }
 

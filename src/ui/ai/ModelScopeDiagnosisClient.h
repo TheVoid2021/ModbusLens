@@ -9,6 +9,21 @@
 #include <chrono>
 #include <cstdint>
 
+// Why an abort happened (ISSUE-005): QNetworkReply::OperationCanceledError
+// alone cannot tell WHO aborted — the transfer timeout, the QTimer, a user
+// cancel or a stale-request teardown all surface as the same network error.
+// The owner of every abort records the reason FIRST; the finished() mapping
+// then classifies the cancellation instead of leaking Qt's localized
+// "operation canceled" string into the UI.
+enum class AiAbortReason {
+    None,
+    UserCancel,
+    Timeout,
+    BatchInvalidated,
+    DiagnosisCleared,
+    SupersededRequest,
+};
+
 // T011 Part B error taxonomy (app layer). Cancelled is deliberately NOT an
 // error: it is a silent control path. Controller precondition rejections
 // (NotConfigured / NoData / BaselineRequired / Busy) are raised by the
@@ -70,9 +85,11 @@ public:
     void requestDiagnosis(const QString& systemPrompt, const QString& userPrompt,
                           std::uint64_t requestId);
 
-    // Aborts the in-flight request WITHOUT emitting any signal (a cancel is
-    // user control, not a diagnostic failure).
-    void cancel();
+    // Aborts the in-flight request. UserCancel/BatchInvalidated/
+    // DiagnosisCleared/SupersededRequest aborts stay SILENT (no signal);
+    // the reason exists so the finished() callback of an internally aborted
+    // reply can be classified correctly (ISSUE-005).
+    void cancel(AiAbortReason reason = AiAbortReason::UserCancel);
 
     [[nodiscard]] bool isBusy() const;
     [[nodiscard]] QString modelName() const;
@@ -98,7 +115,7 @@ private:
 
     std::uint64_t currentRequestId_ = 0;
     bool busy_ = false;
-    bool cancelFlag_ = false;
+    AiAbortReason abortReason_ = AiAbortReason::None;
 };
 
 // Production configuration assembly (app layer): official endpoint +
