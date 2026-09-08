@@ -565,3 +565,14 @@ Current Task=T011；Current Part=Part B — LLM Diagnosis Integration；Current 
 ## PB-R docs-only 验证（本阶段执行）
 
 `git diff --check`；src/tests/CMakeLists.txt/scripts 零修改；docs-only commit；LKGC 保持 `06ef801`；不得 push、不得 amend `06ef801`、不得开始 Implementation。
+## PB-S Implementation Design Amendments（2026-09-08 追加，P0）
+
+**A. 双层 stale guard**：单一 `activeBatchRevision_` 无法覆盖"同 batch 内 Cancel 后 restart"场景（#1 晚到回调与 #2 同 revision）。最终引入 `aiRequestGeneration_`（uint64）：每次新 Ask ++、记录 requestId + captured batchRevision；completion 必须**同时**满足 `requestId == activeAiRequestId_` 且 `capturedBatchRevision == activeBatchRevision_` 才更新 UI。invalidate request id 的时机：cancelAiDiagnosis / clearDiagnosis / active batch change / 新 Ask AI。≠ 复杂 async framework——就是两个整数 + 两个比较。
+
+**B. AI output 是 untrusted plain text**：QML 渲染 AI content 必须显式 `textFormat: Text.PlainText`（禁 AutoText/RichText/MarkdownText）；fake 返回 `<b>Protocol Error</b>` 时 UI 应显示字面量标签而非粗体富文本；无 HTML sanitizer（根本不启用 rich rendering）。
+
+## PB-S Implementation Design Amendments（2026-09-08 追加，P0）
+
+**A. 双层 stale guard**：单一 `activeBatchRevision_` 无法覆盖"同 batch 内 Cancel 后 restart"场景（#1 晚到回调与 #2 同 revision）。最终引入 `aiRequestGeneration_`（uint64）：每次新 Ask ++、记录 requestId + captured batchRevision；completion 必须**同时**满足 `requestId == activeAiRequestId_` 且 `capturedBatchRevision == activeBatchRevision_` 才更新 UI。invalidate request id 的时机：cancelAiDiagnosis / clearDiagnosis / active batch change / 新 Ask AI。≠ 复杂 async framework——就是两个整数 + 两个比较。
+
+**B. AI output 是 untrusted plain text**：QML 渲染 AI content 必须显式 `textFormat: Text.PlainText`（禁 AutoText/RichText/MarkdownText）；fake 返回 `<b>Protocol Error</b>` 时 UI 应显示字面量标签而非粗体富文本；无 HTML sanitizer（根本不启用 rich rendering）。
