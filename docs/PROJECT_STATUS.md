@@ -8,15 +8,15 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 Part A ✅ / Part B 未开始；T012 未开始）** |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 Part A ✅ / Part B Learning+Test Design；T012 未开始）** |
 | Last Known Good Commit | **`06ef801`**（T011 Part A 代码提交：clean build 114 targets 零警告 + ctest 19/19 + qml smoke + Core Zero Qt + deploy/minimal-PATH smoke + provenance + **用户 Manual Baseline Smoke PASS** 多重验证；当前 HEAD 为其后的 docs-only 确认提交，不改变 LKGC。历史值：`33ed197`（T010）、`b31233b`（T010A）） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 114 targets） |
 | Test 状态 | ✅ **19/19 通过**（ctest：17 项协议/UI + `serial` 21 + `serial_adapter` 5 + `diagnosis` 10；ui_bridge 40 函数含 UI-S01~S10、UI-D01~D08） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · **T010** |
 | 当前任务（Current Task） | **T011 AI Diagnosis**（IN PROGRESS——Part B 未开始） |
 | 最近完成任务（Last Completed Task） | **T010 Serial Mode**（Part A + Part B 全部 DONE，用户 Manual Serial UI Smoke 确认；Hardware Smoke = NOT RUN/hardware unavailable） |
-| 当前阶段（Current Phase） | **Part A — Diagnosis Context + Rule-based Baseline：DONE ✅** |
-| 下一步动作（Next Action） | **T011 Part B — Learning / Test Design** |
+| 当前阶段（Current Phase） | **Part B — LLM Diagnosis Integration：Learning / Test Design**（docs-only；Provider = ModelScope API-Inference；Implementation ⬜） |
+| 下一步动作（Next Action） | **T011 Part B — Implementation** |
 | 下一 Part（Next Part） | **Part B — Serial UI Integration + Hardware/No-Hardware Smoke** |
 | 下一 Part（Next Part） | **Part B — LLM Diagnosis Integration** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
@@ -42,7 +42,7 @@
 
 ## 2. 当前任务
 
-- **T011 AI Diagnosis — IN PROGRESS（Part A = DONE ✅；Part B 未开始）**：Part A 交付（[T011 档案](tasks/T011-ai-diagnosis.md) Implementation 章）——`src/core/diagnosis/`（Zero Qt）：DiagnosisContext/buildDiagnosisContext（summarizeTransactions 唯一统计规则、自洽 snapshot）+ RuleBasedDiagnosis 全规则（空批仅 NoData、Healthy 三条件、Protocol=Error、CRC/Timeout 只述事实、Exception 按 code 分组 + 0x01~0x04 映射、固定 finding/action 序）；Controller 三发布路径同源维护 activeDiagnosisTransactions_、五处成功变化统一 clearDiagnosisState（失败切换保留）、runBaselineDiagnosis/clearDiagnosis + formatter（只翻译 report 不宣称 root cause）；QML Diagnosis 面板（Deterministic Baseline 命名）；DIAG-A01~A10 + UI-D01~D08 全绿；ctest 19/19、clean 114 targets 零警告、qml smoke/deploy/provenance/minimal-PATH 全过；产品代码零 HTTP/provider/API Key/LLM client/prompt/Agent/tool calling（grep 佐证）；**用户 Manual Baseline Smoke = PASS（A~E）**；架构结论落档：`AI is interpreter, not detector.`。**下一步动作 = T011 Part B — Learning / Test Design（LLM Diagnosis Integration）**。
+- **T011 AI Diagnosis — IN PROGRESS（Part A = DONE ✅；Part B: LLM Diagnosis Integration，Phase: Learning / Test Design，docs-only）**：Part B 设计定案（[T011 档案](tasks/T011-ai-diagnosis.md) PB-A~PB-R）——**Provider 定案 ModelScope API-Inference**（OpenAI-compatible Chat Completions 仅表协议兼容、绝不用 OpenAI SDK/Responses API/OPENAI_API_KEY；endpoint `https://api-inference.modelscope.cn/v1/chat/completions`）；候选 model `Qwen/Qwen3.5-27B`（+ MODBUSLENS_MODELSCOPE_MODEL override + 用户 live probe 政策）；credential = `MODELSCOPE_API_KEY` 仅 process env（BYOK 定性入档、QML 不见 Token、生产 endpoint 禁 override、测试 seam 注入）；client 定案 ModelScopeDiagnosisClient（App 层 Qt6Network、Idle/Requesting、one-shot 无会话）；Baseline First 前置（empty batch 不调 API）+ structured-facts-only prompt（bounded 20 + 确定性选择 + system authority 指令 + plain text 768）；raw choices/message/content parser + reasoning_content 忽略 + InvalidResponse 契约；错误分类 11 值与 HTTP mapping；zero retry / stream=false / 30s timeout / cancel 静默；**activeBatchRevision（P0 stale guard）** 与 AI invalidation 全套（失败切换保留、clearDiagnosis 扩展语义）；localhost fake HTTP server（随机端口、fake token 硬约束）；矩阵 AI-B01~B12 + UI-AI01~AI10 落库；**QtNetwork kit 预检已提前实证 PASS**（headers/package/DLL + 仓库外 probe 四步过、runtime sslBuild=yes）；30 题问答；34 步计划。**网络代码未实现**；下一步动作 = T011 Part B — Implementation。
 
 
 ## 3. 下一任务
@@ -154,3 +154,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-08 | **T011 启动：Part A Learning / Test Design（docs-only）**——AI 与 Core 责任边界、规则基线全套、DIAG/UI-D 矩阵落库；T011 标记 IN PROGRESS，M6 转进行中，Diagnosis 未实现 |
 | 2026-09-08 | **T011 Part A Implementation 完成（自动化全 GREEN）**：deterministic diagnosis baseline 落地（core Zero Qt + Controller 同源 diagnosis batch + QML 面板）；DIAG-A01~A10 + UI-D01~D08 全绿；ctest 19/19、clean 114 targets 零警告；产品代码零 LLM/HTTP/key（grep 佐证）；LKGC candidate = `06ef801`；Manual Baseline Smoke = WAITING FOR USER |
 | 2026-09-08 | **用户 Manual Baseline Smoke = PASS（A~E）**：golden 三 findings 正确、无 root-cause 宣称、Clear 职责分工正确、Replay/Simulator finding 一致、Serial 无回归。**T011 Part A = DONE；T011 整体 IN PROGRESS（Part B 未开始）；M6 保持 IN PROGRESS**。LKGC = `06ef801`；HEAD = docs-only 确认提交 |
+| 2026-09-08 | **T011 Part B 启动：Learning / Test Design（docs-only）**——ModelScope 定案/凭据边界/prompt 与客户端设计/矩阵 AI-B01~B12+UI-AI01~AI10 落库；QtNetwork kit probe 已实证（sslBuild=yes）；T011 保持 IN PROGRESS，网络代码未实现 |
