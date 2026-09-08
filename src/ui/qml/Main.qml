@@ -9,6 +9,8 @@ ApplicationWindow {
 
     width: 1024
     height: 720
+    minimumWidth: 1000
+    minimumHeight: 700
     visible: true
     title: qsTr("ModbusLens")
 
@@ -348,209 +350,214 @@ ApplicationWindow {
             color: "#D0D0D0"
         }
 
-        // Diagnosis area (T011 Part A + B). Bounded height (ISSUE-004):
-        // diagnosis content — especially long AI explanations — grows
-        // INSIDE a vertical ScrollView instead of pushing the transaction
-        // list out of the window. Controls stay fixed at the top.
-        GroupBox {
-            id: diagnosisGroup
-            title: qsTr("Diagnosis")
-            Layout.fillWidth: true
-            Layout.minimumHeight: 170
-            Layout.maximumHeight: 320
-            // Final containment safety net (ISSUE-004): no Diagnosis child
-            // may EVER paint below the GroupBox border — worst case is a
-            // clipped text, never pollution of Recent Transactions.
-            clip: true
-            Layout.preferredHeight: (analysisController.hasBaselineDiagnosis
-                                     || analysisController.hasAiDiagnosis
-                                     || analysisController.aiDiagnosisBusy) ? 280 : 170
-
-            ColumnLayout {
-                id: diagnosisColumn
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: 4
-
-                // Fixed control rows — never scroll away.
-                RowLayout {
-                    Layout.fillWidth: true
-                    Button {
-                        text: qsTr("Run Baseline Diagnosis")
-                        onClicked: analysisController.runBaselineDiagnosis()
-                    }
-                    Button {
-                        text: qsTr("Clear Diagnosis")
-                        onClicked: analysisController.clearDiagnosis()
-                    }
-                    Item {
-                        Layout.fillWidth: true
-                    }
-                }
-
-                Label {
-                    text: qsTr("AI Explanation")
-                    font.bold: true
-                }
-                Label {
-                    text: analysisController.aiConfigured
-                          ? qsTr("Provider: ModelScope — Model: %1").arg(analysisController.aiModelName)
-                          : qsTr("Provider: ModelScope — Not configured")
-                    color: "#606060"
-                    font.pixelSize: 11
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    Button {
-                        text: qsTr("Ask AI")
-                        enabled: analysisController.aiConfigured
-                                 && analysisController.hasBaselineDiagnosis
-                                 && !analysisController.aiDiagnosisBusy
-                        onClicked: analysisController.askAiDiagnosis()
-                    }
-                    Button {
-                        text: qsTr("Cancel")
-                        enabled: analysisController.aiDiagnosisBusy
-                        onClicked: analysisController.cancelAiDiagnosis()
-                    }
-                    Label {
-                        visible: analysisController.aiDiagnosisBusy
-                        text: qsTr("Requesting...")
-                        color: "#6080a0"
-                    }
-                    Item {
-                        Layout.fillWidth: true
-                    }
-                }
-
-                // Scrollable diagnosis content: baseline, AI error and the
-                // untrusted AI explanation (strict plain text).
-                Flickable {
-                    id: diagnosisFlick
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    // Crucial: allow the ColumnLayout to SHRINK this item to
-                    // the remaining GroupBox space — its implicit height must
-                    // never become the viewport minimum.
-                    Layout.minimumHeight: 0
-
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    flickableDirection: Flickable.VerticalFlick
-                    ScrollBar.vertical: ScrollBar {
-                        policy: ScrollBar.AsNeeded
-                    }
-
-                    // Explicit content extent: width = viewport width,
-                    // height ONLY from the content colum's own height. The
-                    // viewport height is whatever the parent layout leaves
-                    // after the fixed controls — never the content height.
-                    contentWidth: width
-                    contentHeight: diagnosisContent.implicitHeight
-
-                    Column {
-                        id: diagnosisContent
-                        width: diagnosisFlick.width
-                        spacing: 6
-
-                        Label {
-                            text: qsTr("Deterministic Baseline")
-                            font.bold: true
-                            width: parent.width
-                            wrapMode: Text.Wrap
-                            visible: analysisController.hasBaselineDiagnosis
-                        }
-                        Label {
-                            visible: analysisController.hasBaselineDiagnosis
-                            text: analysisController.baselineDiagnosisText
-                            textFormat: Text.PlainText
-                            wrapMode: Text.Wrap
-                            width: parent.width
-                        }
-                        Label {
-                            visible: analysisController.aiDiagnosisErrorMessage !== ""
-                            text: analysisController.aiDiagnosisErrorMessage
-                            color: "#B03030"
-                            wrapMode: Text.Wrap
-                            width: parent.width
-                        }
-                        Label {
-                            visible: analysisController.hasAiDiagnosis
-                            text: analysisController.aiDiagnosisText
-                            textFormat: Text.PlainText
-                            wrapMode: Text.Wrap
-                            width: parent.width
-                        }
-                        Label {
-                            visible: !analysisController.hasBaselineDiagnosis
-                                     && !analysisController.hasAiDiagnosis
-                            text: qsTr("No diagnosis run yet")
-                            color: "#909090"
-                            width: parent.width
-                            wrapMode: Text.Wrap
-                        }
-                    }
-                }
-            }
-        }
-
-        // Recent transactions area
-        Label {
-            text: qsTr("Recent Transactions")
-            font.pixelSize: 16
-            font.bold: true
-        }
-
-        Item {
+        // ------------------------------------------------------------------
+        // Lower workspace (ISSUE-004 workspace layout fix): a horizontal
+        // SplitView gives the whole remaining height to the two panes.
+        // Root layout does NOT scroll; Diagnosis scrolls inside its own
+        // viewport; Recent Transactions scroll inside its own ListView.
+        // ------------------------------------------------------------------
+        SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumHeight: 120
+            orientation: Qt.Horizontal
 
-            ListView {
-                id: transactionList
-
-                anchors.fill: parent
-                // Viewport containment (ISSUE-004): delegates must NEVER
-                // paint outside the list — no covering the heading or the
-                // Diagnosis box at any scroll position.
+            // ---- LEFT: Diagnosis pane ----
+            GroupBox {
+                id: diagnosisGroup
+                title: qsTr("Diagnosis")
+                SplitView.fillHeight: true
+                SplitView.minimumWidth: 300
+                SplitView.preferredWidth: 400
+                // Containment safety net (ISSUE-004): no Diagnosis child
+                // may EVER paint outside this pane.
                 clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                model: analysisController.transactionModel
-                spacing: 4
 
-                delegate: Rectangle {
-                    width: ListView.view.width
-                    height: 36
-                    color: "#FAFAFA"
-                    radius: 4
+                ColumnLayout {
+                    id: diagnosisColumn
+                    // Proven fix (ISSUE-004 r4): fill the GroupBox content
+                    // area so Layout.fillHeight inside this column means
+                    // the real remaining height.
+                    anchors.fill: parent
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 4
 
+                    // Fixed control rows.
                     RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: 6
-
-                        Label { text: qsTr("Device %1").arg(model.deviceAddress); Layout.preferredWidth: 90 }
-                        Label {
-                            text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
-                            Layout.preferredWidth: 60
+                        Layout.fillWidth: true
+                        Button {
+                            text: qsTr("Run Baseline Diagnosis")
+                            onClicked: analysisController.runBaselineDiagnosis()
                         }
-                        Label { text: model.statusText; Layout.preferredWidth: 120 }
-                        Label { text: model.elapsedMs + qsTr(" ms"); Layout.preferredWidth: 90 }
+                        Button {
+                            text: qsTr("Clear Diagnosis")
+                            onClicked: analysisController.clearDiagnosis()
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    Label {
+                        text: qsTr("AI Explanation")
+                        font.bold: true
+                    }
+                    Label {
+                        text: analysisController.aiConfigured
+                              ? qsTr("Provider: ModelScope — Model: %1").arg(analysisController.aiModelName)
+                              : qsTr("Provider: ModelScope — Not configured")
+                        color: "#606060"
+                        font.pixelSize: 11
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Button {
+                            text: qsTr("Ask AI")
+                            enabled: analysisController.aiConfigured
+                                     && analysisController.hasBaselineDiagnosis
+                                     && !analysisController.aiDiagnosisBusy
+                            onClicked: analysisController.askAiDiagnosis()
+                        }
+                        Button {
+                            text: qsTr("Cancel")
+                            enabled: analysisController.aiDiagnosisBusy
+                            onClicked: analysisController.cancelAiDiagnosis()
+                        }
                         Label {
-                            text: model.hasExceptionCode
-                                  ? qsTr("Code 0x%1").arg(
-                                        ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
-                                  : qsTr("—")
-                            color: "#803030"
+                            visible: analysisController.aiDiagnosisBusy
+                            text: qsTr("Requesting...")
+                            color: "#6080a0"
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    // Growing content: vertical viewport with explicit
+                    // content extent (verified scrolling mechanics).
+                    Flickable {
+                        id: diagnosisFlick
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 0
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        flickableDirection: Flickable.VerticalFlick
+                        ScrollBar.vertical: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                        }
+                        contentWidth: width
+                        contentHeight: diagnosisContent.childrenRect.height
+
+                        Column {
+                            id: diagnosisContent
+                            width: diagnosisFlick.width
+                            spacing: 6
+
+                            Label {
+                                text: qsTr("Deterministic Baseline")
+                                font.bold: true
+                                width: parent.width
+                                wrapMode: Text.Wrap
+                                visible: analysisController.hasBaselineDiagnosis
+                            }
+                            Label {
+                                visible: analysisController.hasBaselineDiagnosis
+                                text: analysisController.baselineDiagnosisText
+                                textFormat: Text.PlainText
+                                wrapMode: Text.Wrap
+                                width: parent.width
+                            }
+                            Label {
+                                visible: analysisController.aiDiagnosisErrorMessage !== ""
+                                text: analysisController.aiDiagnosisErrorMessage
+                                color: "#B03030"
+                                wrapMode: Text.Wrap
+                                width: parent.width
+                            }
+                            Label {
+                                visible: analysisController.hasAiDiagnosis
+                                text: analysisController.aiDiagnosisText
+                                textFormat: Text.PlainText
+                                wrapMode: Text.Wrap
+                                width: parent.width
+                            }
+                            Label {
+                                visible: !analysisController.hasBaselineDiagnosis
+                                         && !analysisController.hasAiDiagnosis
+                                text: qsTr("No diagnosis run yet")
+                                color: "#909090"
+                                width: parent.width
+                                wrapMode: Text.Wrap
+                            }
                         }
                     }
                 }
             }
 
-            Label {
-                anchors.centerIn: parent
-                visible: transactionList.count === 0
-                text: qsTr("No transactions yet")
-                color: "#909090"
+            // ---- RIGHT: Recent Transactions pane (primary data view) ----
+            ColumnLayout {
+                SplitView.fillWidth: true
+                SplitView.fillHeight: true
+                SplitView.minimumWidth: 520
+                spacing: 6
+
+                Label {
+                    text: qsTr("Recent Transactions")
+                    font.pixelSize: 16
+                    font.bold: true
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: 120
+
+                    ListView {
+                        id: transactionList
+                        anchors.fill: parent
+                        // Viewport containment (ISSUE-004): delegates must
+                        // NEVER paint outside the list.
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: analysisController.transactionModel
+                        spacing: 4
+
+                        delegate: Rectangle {
+                            width: ListView.view.width
+                            height: 36
+                            color: "#FAFAFA"
+                            radius: 4
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 6
+
+                                Label { text: qsTr("Device %1").arg(model.deviceAddress); Layout.preferredWidth: 90 }
+                                Label {
+                                    text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
+                                    Layout.preferredWidth: 60
+                                }
+                                Label { text: model.statusText; Layout.preferredWidth: 120 }
+                                Label { text: model.elapsedMs + qsTr(" ms"); Layout.preferredWidth: 90 }
+                                Label {
+                                    text: model.hasExceptionCode
+                                          ? qsTr("Code 0x%1").arg(
+                                                ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
+                                          : qsTr("—")
+                                    color: "#803030"
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: transactionList.count === 0
+                        text: qsTr("No transactions yet")
+                        color: "#909090"
+                    }
+                }
             }
         }
     }
