@@ -31,6 +31,8 @@ add_library(modbuslens_core STATIC
     src/core/replay/ReplayLog.cpp
     src/core/replay/ReplayAnalysis.cpp
     src/core/serial/SerialTransactionSession.cpp
+    src/core/diagnosis/DiagnosisContext.cpp
+    src/core/diagnosis/RuleBasedDiagnosis.cpp
 )
 target_include_directories(modbuslens_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -265,6 +267,16 @@ if(BUILD_TESTING)
 
     add_test(NAME serial_adapter COMMAND modbuslens_serial_adapter_tests)
 
+    # Diagnosis (T011 Part A): deterministic rule-based baseline tests.
+    add_executable(modbuslens_diagnosis_tests tests/test_diagnosis.cpp)
+    target_link_libraries(modbuslens_diagnosis_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_diagnosis_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME diagnosis COMMAND modbuslens_diagnosis_tests)
+
     # QML load smoke: runs the REAL app executable in diagnostic mode — it
     # loads the actual shipped QML module, verifies instantiation, and exits
     # without entering the event loop (T008 Part A rule A).
@@ -272,7 +284,7 @@ if(BUILD_TESTING)
         COMMAND modbuslens --qml-smoke-test)
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter qml_smoke PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis qml_smoke PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

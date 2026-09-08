@@ -12,6 +12,8 @@
 #include <optional>
 
 #include "core/analysis/TransactionStatistics.h"
+#include "core/diagnosis/DiagnosisContext.h"
+#include "core/diagnosis/RuleBasedDiagnosis.h"
 #include "ui/TransactionListModel.h"
 #include "ui/serial/SerialPortAdapter.h"
 
@@ -46,6 +48,8 @@ class AnalysisController : public QObject
     Q_PROPERTY(bool hasSerialError READ hasSerialError NOTIFY serialErrorChanged)
     Q_PROPERTY(QString serialErrorMessage READ serialErrorMessage NOTIFY serialErrorChanged)
     Q_PROPERTY(QStringList serialPortNames READ serialPortNames NOTIFY serialPortsChanged)
+    Q_PROPERTY(bool hasBaselineDiagnosis READ hasBaselineDiagnosis NOTIFY diagnosisChanged)
+    Q_PROPERTY(QString baselineDiagnosisText READ baselineDiagnosisText NOTIFY diagnosisChanged)
 
 public:
     explicit AnalysisController(QObject* parent = nullptr);
@@ -81,6 +85,17 @@ public:
     Q_INVOKABLE void readHoldingRegistersOnce(int slaveAddress, int startAddress,
                                               int quantity, int timeoutMs);
 
+    // ---- T011 Part A: deterministic baseline diagnosis ----
+    // Diagnoses the CURRENT structured active batch through the rule core.
+    // An empty batch is a VALID input and yields a NoData report (the state
+    // "diagnosis says no data" is distinct from "no diagnosis run yet").
+    Q_INVOKABLE void runBaselineDiagnosis();
+    // Clears ONLY the diagnosis result — statistics, rows, the active
+    // diagnosis batch and the source stay untouched (Clear Diagnosis !=
+    // Clear Results). The NEXT run re-derives the same report from the
+    // still-present batch.
+    Q_INVOKABLE void clearDiagnosis();
+
     [[nodiscard]] int observedCount() const;
     [[nodiscard]] int pendingCount() const;
     [[nodiscard]] int completedCount() const;
@@ -105,6 +120,9 @@ public:
     [[nodiscard]] bool hasSerialError() const;
     [[nodiscard]] QString serialErrorMessage() const;
     [[nodiscard]] QStringList serialPortNames() const;
+
+    [[nodiscard]] bool hasBaselineDiagnosis() const;
+    [[nodiscard]] QString baselineDiagnosisText() const;
 
     // C++-side data entry points (not Q_INVOKABLE): Part B's demo flow and
     // tests call these; QML only reads.
@@ -134,6 +152,7 @@ signals:
     void serialStatusChanged();
     void serialErrorChanged();
     void serialPortsChanged();
+    void diagnosisChanged();
 
 private slots:
     // Serial transport errors are NOT Modbus diagnoses: sync state from the
@@ -147,6 +166,7 @@ private:
     void setSerialError(const QString& message);
     void clearSerialError();
     void teardownSerialTransport(); // adapter close + state reset (silent)
+    void clearDiagnosisState();     // baseline diagnosis only (not the batch)
 
     modbuslens::core::TransactionStatisticsSnapshot statistics_;
     TransactionListModel transactionModel_;
@@ -167,4 +187,11 @@ private:
     QString serialErrorMessage_;
     QString serialSourceLabel_;                       // "COM3 @ 9600"
     std::optional<std::uint8_t> pendingSerialAddress_; // only while reading
+
+    // T011 Part A: the STRUCTURED active batch for diagnosis — same source
+    // as rows + statistics on every successful publish (never reconstructed
+    // from the presentation model).
+    std::vector<modbuslens::core::DiagnosisTransaction> activeDiagnosisTransactions_;
+    bool hasBaselineDiagnosis_ = false;
+    QString baselineDiagnosisText_;
 };

@@ -112,6 +112,24 @@ private slots:
     void s09_serialErrorRecovery();
     // UI-S10 (P1): stale completion without pending metadata is ignored.
     void s10_staleCompletionGuard();
+
+    // ---- T011 Part A: deterministic baseline diagnosis ----
+    // UI-D01 (P0): demo batch -> baseline contains the three failure facts.
+    void d01_demoBaseline();
+    // UI-D02 (P0): clearResults invalidates the diagnosis.
+    void d02_clearResultsInvalidates();
+    // UI-D03 (P0): a new successful batch invalidates the diagnosis.
+    void d03_newBatchInvalidates();
+    // UI-D04 (P1): a failed source switch keeps the diagnosis.
+    void d04_failedSwitchKeeps();
+    // UI-D05 (P1): diagnosing an empty batch is a VALID NoData report.
+    void d05_emptyDiagnosis();
+    // UI-D06 (P0): Simulator golden and Replay golden yield identical text.
+    void d06_sameFactsSameBaseline();
+    // UI-D07 (P1): serial Timeout maps to a lone Timeout finding.
+    void d07_serialSingleResult();
+    // UI-D08 (P1): clearDiagnosis clears only the diagnosis, not the batch.
+    void d08_clearDiagnosisOnly();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -773,6 +791,135 @@ void UiBridgeTest::s10_staleCompletionGuard()
     QCOMPARE(controller.observedCount(), observedBefore);
     QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+}
+
+// ---- T011 Part A test implementations ----
+
+void UiBridgeTest::d01_demoBaseline()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+
+    QVERIFY(controller.hasBaselineDiagnosis());
+    const QString text = controller.baselineDiagnosisText();
+    QVERIFY(text.contains(QStringLiteral("CRC integrity errors")));
+    QVERIFY(text.contains(QStringLiteral("No-response timeouts")));
+    QVERIFY(text.contains(QStringLiteral("Device exception 0x02")));
+    QVERIFY(!text.contains(QStringLiteral("Healthy")));
+    QVERIFY(!text.contains(QStringLiteral("Protocol")));
+}
+
+void UiBridgeTest::d02_clearResultsInvalidates()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    QVERIFY(controller.hasBaselineDiagnosis());
+
+    controller.clearResults();
+
+    QVERIFY(!controller.hasBaselineDiagnosis());
+    QVERIFY(controller.baselineDiagnosisText().isEmpty());
+    QCOMPARE(controller.transactionModel()->rowCount(), 0);
+}
+
+void UiBridgeTest::d03_newBatchInvalidates()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    QVERIFY(controller.hasBaselineDiagnosis());
+
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+
+    // New successful batch: the old diagnosis must be gone.
+    QVERIFY(!controller.hasBaselineDiagnosis());
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+}
+
+void UiBridgeTest::d04_failedSwitchKeeps()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    const QString before = controller.baselineDiagnosisText();
+
+    std::optional<QTemporaryFile> holder;
+    const QString badPath = writeTempMlog(kBadHexLog, holder);
+    QVERIFY(!badPath.isEmpty());
+    controller.loadReplayFile(QUrl::fromLocalFile(badPath));
+
+    // Failed load => batch unchanged => diagnosis unchanged.
+    QVERIFY(controller.hasBaselineDiagnosis());
+    QCOMPARE(controller.baselineDiagnosisText(), before);
+}
+
+void UiBridgeTest::d05_emptyDiagnosis()
+{
+    AnalysisController controller;
+    controller.clearResults();
+    QVERIFY(!controller.hasBaselineDiagnosis());
+
+    controller.runBaselineDiagnosis();
+
+    // Diagnosis says NoData is distinct from no diagnosis run yet.
+    QVERIFY(controller.hasBaselineDiagnosis());
+    QVERIFY(controller.baselineDiagnosisText().contains(
+        QStringLiteral("No analysis data available")));
+}
+
+void UiBridgeTest::d06_sameFactsSameBaseline()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    const QString demoText = controller.baselineDiagnosisText();
+    QVERIFY(!demoText.isEmpty());
+
+    controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+    controller.runBaselineDiagnosis();
+    const QString replayText = controller.baselineDiagnosisText();
+
+    // Identical protocol facts => identical deterministic baseline.
+    QCOMPARE(replayText, demoText);
+}
+
+void UiBridgeTest::d07_serialSingleResult()
+{
+    AnalysisController controller;
+    controller.publishSerialResult(
+        QStringLiteral("COM_TEST @ 9600"), 1,
+        makeAnalysis(modbuslens::core::TransactionStatus::Timeout, 1000));
+    controller.runBaselineDiagnosis();
+
+    QVERIFY(controller.hasBaselineDiagnosis());
+    const QString text = controller.baselineDiagnosisText();
+    QVERIFY(text.contains(QStringLiteral("No-response timeouts")));
+    QVERIFY(!text.contains(QStringLiteral("CRC")));
+    QVERIFY(!text.contains(QStringLiteral("Device exception")));
+    QVERIFY(!text.contains(QStringLiteral("Protocol")));
+    QVERIFY(!text.contains(QStringLiteral("Healthy")));
+}
+
+void UiBridgeTest::d08_clearDiagnosisOnly()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    const QString before = controller.baselineDiagnosisText();
+
+    controller.clearDiagnosis();
+
+    // Diagnosis gone, dashboard untouched (Clear Diagnosis != Clear Results).
+    QVERIFY(!controller.hasBaselineDiagnosis());
+    QVERIFY(controller.baselineDiagnosisText().isEmpty());
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    QCOMPARE(controller.observedCount(), 4);
+
+    controller.runBaselineDiagnosis();
+    QVERIFY(controller.hasBaselineDiagnosis());
+    QCOMPARE(controller.baselineDiagnosisText(), before);
 }
 } // namespace
 

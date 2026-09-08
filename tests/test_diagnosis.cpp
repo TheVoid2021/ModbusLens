@@ -1,0 +1,273 @@
+#include <QtTest>
+
+#include <chrono>
+#include <cstdint>
+#include <optional>
+#include <vector>
+
+#include "core/analysis/TransactionAnalysis.h"
+#include "core/diagnosis/DiagnosisContext.h"
+#include "core/diagnosis/RuleBasedDiagnosis.h"
+
+using modbuslens::core::DiagnosisActionCode;
+using modbuslens::core::DiagnosisContext;
+using modbuslens::core::DiagnosisFinding;
+using modbuslens::core::DiagnosisFindingCode;
+using modbuslens::core::DiagnosisReport;
+using modbuslens::core::DiagnosisSeverity;
+using modbuslens::core::DiagnosisTransaction;
+using modbuslens::core::TransactionAnalysis;
+using modbuslens::core::TransactionStatus;
+using modbuslens::core::buildDiagnosisContext;
+using modbuslens::core::diagnoseTransactions;
+
+namespace {
+
+using ms = std::chrono::milliseconds;
+
+DiagnosisTransaction tx(std::uint8_t address, TransactionStatus status,
+                        long long elapsedMs,
+                        std::optional<std::uint8_t> exceptionCode = std::nullopt)
+{
+    return DiagnosisTransaction{
+        .deviceAddress = address,
+        .functionCode = 0x03,
+        .analysis = TransactionAnalysis{
+            .status = status,
+            .elapsed = ms{elapsedMs},
+            .exceptionCode = exceptionCode,
+        },
+    };
+}
+
+DiagnosisContext contextOf(std::initializer_list<DiagnosisTransaction> transactions)
+{
+    std::vector<DiagnosisTransaction> input{transactions};
+    return buildDiagnosisContext(input);
+}
+
+} // namespace
+
+class DiagnosisTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // DIAG-A01 (P0): empty context -> exactly one NoData finding, no Healthy.
+    void a01_empty();
+    // DIAG-A02 (P0): all success -> Healthy with the success count.
+    void a02_allSuccess();
+    // DIAG-A03 (P0): one Timeout -> TimeoutObserved + 4 checks, no Healthy.
+    void a03_timeout();
+    // DIAG-A04 (P0): one CrcError -> CrcErrorObserved + settings/wiring/noise.
+    void a04_crc();
+    // DIAG-A05 (P0): Exception 0x02 -> code carried + register map check.
+    void a05_exception02();
+    // DIAG-A06 (P0): ProtocolError -> Error severity + consistency checks.
+    void a06_protocol();
+    // DIAG-A07 (P0): mixed golden -> three failure findings, fixed order,
+    // statistics derived via summarizeTransactions.
+    void a07_mixedGolden();
+    // DIAG-A08 (P1): exception grouping (0x02,0x03,0x02), ascending order.
+    void a08_exceptionGrouping();
+    // DIAG-A09 (P1): only Pending -> PendingObserved, no Healthy.
+    void a09_pending();
+    // DIAG-A10 (P1): determinism — same context, identical reports.
+    void a10_determinism();
+};
+
+void DiagnosisTest::a01_empty()
+{
+    const DiagnosisContext empty = contextOf({});
+    QVERIFY(empty.transactions.empty());
+    QCOMPARE(empty.statistics.observedCount, std::size_t{0});
+
+    const DiagnosisReport report = diagnoseTransactions(empty);
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    const DiagnosisFinding expected{
+        .code = DiagnosisFindingCode::NoData,
+        .severity = DiagnosisSeverity::Info,
+        .affectedCount = 0,
+        .exceptionCode = std::nullopt,
+        .recommendedActions = {},
+    };
+    QCOMPARE(report.findings[0], expected);
+}
+
+void DiagnosisTest::a02_allSuccess()
+{
+    const auto context = contextOf({
+        tx(0x01, TransactionStatus::Success, 25),
+        tx(0x01, TransactionStatus::Success, 30),
+    });
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    QCOMPARE(report.findings[0].code, DiagnosisFindingCode::Healthy);
+    QCOMPARE(report.findings[0].severity, DiagnosisSeverity::Info);
+    QCOMPARE(report.findings[0].affectedCount, std::size_t{2});
+    QVERIFY(report.findings[0].recommendedActions.empty());
+}
+
+void DiagnosisTest::a03_timeout()
+{
+    const auto context = contextOf({tx(0x01, TransactionStatus::Timeout, 1000)});
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    const auto& f = report.findings[0];
+    QCOMPARE(f.code, DiagnosisFindingCode::TimeoutObserved);
+    QCOMPARE(f.severity, DiagnosisSeverity::Warning);
+    QCOMPARE(f.affectedCount, std::size_t{1});
+    QVERIFY(!f.exceptionCode.has_value());
+    const std::vector<DiagnosisActionCode> expectedActions = {
+        DiagnosisActionCode::CheckDevicePower,
+        DiagnosisActionCode::CheckSlaveAddress,
+        DiagnosisActionCode::CheckSerialSettings,
+        DiagnosisActionCode::CheckWiring,
+    };
+    QCOMPARE(f.recommendedActions, expectedActions);
+}
+
+void DiagnosisTest::a04_crc()
+{
+    const auto context = contextOf({tx(0x01, TransactionStatus::CrcError, 17)});
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    const auto& f = report.findings[0];
+    QCOMPARE(f.code, DiagnosisFindingCode::CrcErrorObserved);
+    QCOMPARE(f.affectedCount, std::size_t{1});
+    const std::vector<DiagnosisActionCode> expectedActions = {
+        DiagnosisActionCode::CheckSerialSettings,
+        DiagnosisActionCode::CheckWiring,
+        DiagnosisActionCode::CheckNoiseAndGrounding,
+    };
+    QCOMPARE(f.recommendedActions, expectedActions);
+}
+
+void DiagnosisTest::a05_exception02()
+{
+    const auto context = contextOf({
+        tx(0x01, TransactionStatus::Exception, 18, std::uint8_t{0x02}),
+    });
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    const auto& f = report.findings[0];
+    QCOMPARE(f.code, DiagnosisFindingCode::ExceptionObserved);
+    QCOMPARE(f.severity, DiagnosisSeverity::Warning);
+    QCOMPARE(f.affectedCount, std::size_t{1});
+    QVERIFY(f.exceptionCode.has_value());
+    QCOMPARE(*f.exceptionCode, std::uint8_t{0x02});
+    const std::vector<DiagnosisActionCode> expectedActions = {
+        DiagnosisActionCode::CheckRegisterMap,
+    };
+    QCOMPARE(f.recommendedActions, expectedActions);
+}
+
+void DiagnosisTest::a06_protocol()
+{
+    const auto context = contextOf({tx(0x01, TransactionStatus::ProtocolError, 30)});
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    const auto& f = report.findings[0];
+    QCOMPARE(f.code, DiagnosisFindingCode::ProtocolErrorObserved);
+    QCOMPARE(f.severity, DiagnosisSeverity::Error);
+    QCOMPARE(f.affectedCount, std::size_t{1});
+    const std::vector<DiagnosisActionCode> expectedActions = {
+        DiagnosisActionCode::InspectProtocolConsistency,
+        DiagnosisActionCode::CheckDeviceDocumentation,
+    };
+    QCOMPARE(f.recommendedActions, expectedActions);
+}
+
+void DiagnosisTest::a07_mixedGolden()
+{
+    // The T008/T009 golden facts: Success / Exception 0x02 / Crc / Timeout.
+    const auto context = contextOf({
+        tx(0x01, TransactionStatus::Success, 25),
+        tx(0x01, TransactionStatus::Exception, 18, std::uint8_t{0x02}),
+        tx(0x01, TransactionStatus::CrcError, 17),
+        tx(0x01, TransactionStatus::Timeout, 1000),
+    });
+
+    // Context self-consistency: statistics derived ONLY from the batch.
+    QCOMPARE(context.statistics.observedCount, std::size_t{4});
+    QCOMPARE(context.statistics.completedCount, std::size_t{4});
+    QCOMPARE(context.statistics.pendingCount, std::size_t{0});
+    QCOMPARE(context.statistics.successCount, std::size_t{1});
+    QCOMPARE(context.statistics.exceptionCount, std::size_t{1});
+    QCOMPARE(context.statistics.crcErrorCount, std::size_t{1});
+    QCOMPARE(context.statistics.timeoutCount, std::size_t{1});
+    QCOMPARE(context.statistics.protocolErrorCount, std::size_t{0});
+    QVERIFY(context.statistics.successRate.has_value());
+    QCOMPARE(*context.statistics.successRate, 0.25);
+    QVERIFY(context.statistics.averageSuccessLatencyMs.has_value());
+    QCOMPARE(*context.statistics.averageSuccessLatencyMs, 25.0);
+
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    // No Healthy in a mixed batch; three independent failure findings in
+    // the archived fixed order: CRC -> Timeout -> Exception.
+    QCOMPARE(report.findings.size(), std::size_t{3});
+    QCOMPARE(report.findings[0].code, DiagnosisFindingCode::CrcErrorObserved);
+    QCOMPARE(report.findings[1].code, DiagnosisFindingCode::TimeoutObserved);
+    QCOMPARE(report.findings[2].code, DiagnosisFindingCode::ExceptionObserved);
+    for (const auto& f : report.findings) {
+        QCOMPARE(f.affectedCount, std::size_t{1});
+    }
+}
+
+void DiagnosisTest::a08_exceptionGrouping()
+{
+    const auto context = contextOf({
+        tx(0x01, TransactionStatus::Exception, 10, std::uint8_t{0x02}),
+        tx(0x01, TransactionStatus::Exception, 10, std::uint8_t{0x03}),
+        tx(0x01, TransactionStatus::Exception, 10, std::uint8_t{0x02}),
+    });
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    QCOMPARE(report.findings.size(), std::size_t{2});
+    // Ascending by exception code: 0x02 first, then 0x03.
+    QCOMPARE(report.findings[0].exceptionCode, std::optional<std::uint8_t>{0x02});
+    QCOMPARE(report.findings[0].affectedCount, std::size_t{2});
+    QCOMPARE(report.findings[1].exceptionCode, std::optional<std::uint8_t>{0x03});
+    QCOMPARE(report.findings[1].affectedCount, std::size_t{1});
+    // Per-code standard recommendation mapping.
+    QCOMPARE(report.findings[0].recommendedActions,
+             std::vector<DiagnosisActionCode>{DiagnosisActionCode::CheckRegisterMap});
+    QCOMPARE(report.findings[1].recommendedActions,
+             std::vector<DiagnosisActionCode>{DiagnosisActionCode::CheckRequestParameters});
+}
+
+void DiagnosisTest::a09_pending()
+{
+    const auto context = contextOf({tx(0x01, TransactionStatus::Pending, 10)});
+    QCOMPARE(context.statistics.pendingCount, std::size_t{1});
+
+    const DiagnosisReport report = diagnoseTransactions(context);
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    QCOMPARE(report.findings[0].code, DiagnosisFindingCode::PendingObserved);
+    QCOMPARE(report.findings[0].severity, DiagnosisSeverity::Info);
+    QCOMPARE(report.findings[0].affectedCount, std::size_t{1});
+    QCOMPARE(report.findings[0].recommendedActions,
+             std::vector<DiagnosisActionCode>{DiagnosisActionCode::WaitForCompletion});
+}
+
+void DiagnosisTest::a10_determinism()
+{
+    const auto context = contextOf({
+        tx(0x01, TransactionStatus::Success, 25),
+        tx(0x01, TransactionStatus::Exception, 18, std::uint8_t{0x02}),
+        tx(0x01, TransactionStatus::CrcError, 17),
+        tx(0x01, TransactionStatus::Timeout, 1000),
+    });
+    const auto first = diagnoseTransactions(context);
+    const auto second = diagnoseTransactions(context);
+    QVERIFY(first == second);
+}
+
+QTEST_GUILESS_MAIN(DiagnosisTest)
+#include "test_diagnosis.moc"

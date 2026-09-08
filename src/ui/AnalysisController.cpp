@@ -235,6 +235,127 @@ namespace {
 
 constexpr std::array<int, 5> kSupportedSerialBauds = {9600, 19200, 38400, 57600, 115200};
 
+// ---- T011 Part A: deterministic baseline presentation formatter ----
+// Translates a DiagnosisReport (facts + structured codes) into readable
+// text. ONLY translates — never re-judges statuses, never re-counts, never
+// re-runs rules, never claims a root cause, never labels itself "AI".
+
+QString findingPhrase(const modbuslens::core::DiagnosisFinding& finding)
+{
+    using namespace modbuslens::core;
+    switch (finding.code) {
+    case DiagnosisFindingCode::Healthy:
+        return QStringLiteral("All %1 observed transactions completed successfully")
+            .arg(finding.affectedCount);
+    case DiagnosisFindingCode::PendingObserved:
+        return QStringLiteral("Pending transactions: %1").arg(finding.affectedCount);
+    case DiagnosisFindingCode::ExceptionObserved:
+        return QStringLiteral("Device exception 0x%1: %2")
+            .arg(QString::number(finding.exceptionCode.value_or(0), 16)
+                     .toUpper()
+                     .rightJustified(2, QLatin1Char('0')))
+            .arg(finding.affectedCount);
+    case DiagnosisFindingCode::CrcErrorObserved:
+        return QStringLiteral("CRC integrity errors: %1").arg(finding.affectedCount);
+    case DiagnosisFindingCode::TimeoutObserved:
+        return QStringLiteral("No-response timeouts: %1").arg(finding.affectedCount);
+    case DiagnosisFindingCode::ProtocolErrorObserved:
+        return QStringLiteral("Protocol inconsistencies: %1").arg(finding.affectedCount);
+    case DiagnosisFindingCode::NoData:
+        return QStringLiteral("No analysis data available");
+    }
+    return {};
+}
+
+QString actionPhrase(modbuslens::core::DiagnosisActionCode action)
+{
+    using namespace modbuslens::core;
+    switch (action) {
+    case DiagnosisActionCode::WaitForCompletion:
+        return QStringLiteral("Wait for in-flight transactions to complete");
+    case DiagnosisActionCode::CheckDevicePower:
+        return QStringLiteral("Verify device power");
+    case DiagnosisActionCode::CheckSlaveAddress:
+        return QStringLiteral("Verify slave address");
+    case DiagnosisActionCode::CheckSerialSettings:
+        return QStringLiteral("Check serial settings");
+    case DiagnosisActionCode::CheckWiring:
+        return QStringLiteral("Inspect wiring");
+    case DiagnosisActionCode::CheckNoiseAndGrounding:
+        return QStringLiteral("Inspect wiring and grounding/noise");
+    case DiagnosisActionCode::CheckFunctionSupport:
+        return QStringLiteral("Verify the requested function is supported");
+    case DiagnosisActionCode::CheckRegisterMap:
+        return QStringLiteral("Verify register map");
+    case DiagnosisActionCode::CheckRequestParameters:
+        return QStringLiteral("Check request parameters");
+    case DiagnosisActionCode::CheckDeviceHealth:
+        return QStringLiteral("Check device health");
+    case DiagnosisActionCode::CheckDeviceDocumentation:
+        return QStringLiteral("Consult device documentation");
+    case DiagnosisActionCode::InspectProtocolConsistency:
+        return QStringLiteral("Inspect protocol and response consistency");
+    }
+    return {};
+}
+
+QString formatDiagnosisReport(const modbuslens::core::DiagnosisReport& report)
+{
+    // A lone NoData report = "diagnosis was RUN on an empty batch" — a
+    // different state from "no diagnosis has been run yet".
+    if (report.findings.size() == 1
+        && report.findings.front().code
+            == modbuslens::core::DiagnosisFindingCode::NoData) {
+        return QStringLiteral("No analysis data available");
+    }
+
+    QString text;
+    text += QStringLiteral("Deterministic findings:\n");
+    for (const auto& finding : report.findings) {
+        text += QStringLiteral("- ") + findingPhrase(finding) + QLatin1Char('\n');
+    }
+
+    // Suggested checks: union of all findings' actions, deduplicated in the
+    // fixed enum declaration order (deterministic — never unordered).
+    constexpr std::array<modbuslens::core::DiagnosisActionCode, 12> kActionOrder = {
+        modbuslens::core::DiagnosisActionCode::WaitForCompletion,
+        modbuslens::core::DiagnosisActionCode::CheckDevicePower,
+        modbuslens::core::DiagnosisActionCode::CheckSlaveAddress,
+        modbuslens::core::DiagnosisActionCode::CheckSerialSettings,
+        modbuslens::core::DiagnosisActionCode::CheckWiring,
+        modbuslens::core::DiagnosisActionCode::CheckNoiseAndGrounding,
+        modbuslens::core::DiagnosisActionCode::CheckFunctionSupport,
+        modbuslens::core::DiagnosisActionCode::CheckRegisterMap,
+        modbuslens::core::DiagnosisActionCode::CheckRequestParameters,
+        modbuslens::core::DiagnosisActionCode::CheckDeviceHealth,
+        modbuslens::core::DiagnosisActionCode::CheckDeviceDocumentation,
+        modbuslens::core::DiagnosisActionCode::InspectProtocolConsistency,
+    };
+    const auto hasAction = [&report](modbuslens::core::DiagnosisActionCode action) {
+        for (const auto& finding : report.findings) {
+            for (const auto candidate : finding.recommendedActions) {
+                if (candidate == action) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    QStringList checkLines;
+    for (const auto action : kActionOrder) {
+        if (hasAction(action)) {
+            checkLines << actionPhrase(action);
+        }
+    }
+    if (!checkLines.isEmpty()) {
+        text += QStringLiteral("\nSuggested checks:\n");
+        for (const auto& line : checkLines) {
+            text += QStringLiteral("- ") + line + QLatin1Char('\n');
+        }
+    }
+    return text;
+}
+
 } // namespace
 
 bool AnalysisController::serialConnected() const
@@ -260,6 +381,41 @@ QString AnalysisController::serialErrorMessage() const
 QStringList AnalysisController::serialPortNames() const
 {
     return serialPortNames_;
+}
+
+bool AnalysisController::hasBaselineDiagnosis() const
+{
+    return hasBaselineDiagnosis_;
+}
+
+QString AnalysisController::baselineDiagnosisText() const
+{
+    return baselineDiagnosisText_;
+}
+
+void AnalysisController::clearDiagnosisState()
+{
+    hasBaselineDiagnosis_ = false;
+    baselineDiagnosisText_.clear();
+    emit diagnosisChanged();
+}
+
+void AnalysisController::clearDiagnosis()
+{
+    // Diagnosis-only clear: the batch, rows, statistics and source all stay.
+    clearDiagnosisState();
+}
+
+void AnalysisController::runBaselineDiagnosis()
+{
+    // Presentation is generated ONLY from the rule core's report — the
+    // controller never re-judges statuses or hand-counts here.
+    const auto context = modbuslens::core::buildDiagnosisContext(
+        activeDiagnosisTransactions_);
+    const auto report = modbuslens::core::diagnoseTransactions(context);
+    baselineDiagnosisText_ = formatDiagnosisReport(report);
+    hasBaselineDiagnosis_ = true;
+    emit diagnosisChanged();
 }
 
 void AnalysisController::setSerialError(const QString& message)
@@ -341,6 +497,8 @@ void AnalysisController::connectSerial(const QString& portName, int baudRate)
     applySnapshot(summarizeTransactions(
         std::span<const modbuslens::core::TransactionAnalysis>{}));
     transactionModel_.setEntries({});
+    activeDiagnosisTransactions_.clear();
+    clearDiagnosisState();
 
     serialSourceLabel_ = QStringLiteral("%1 @ %2").arg(portName).arg(baudRate);
     modeLabel_ = QStringLiteral("Serial Mode");
@@ -429,6 +587,14 @@ void AnalysisController::publishSerialResult(
 
     transactionModel_.setEntries({std::move(entry)});
     statistics_ = std::move(snapshot);
+    activeDiagnosisTransactions_ = {
+        modbuslens::core::DiagnosisTransaction{
+            .deviceAddress = static_cast<std::uint8_t>(deviceAddress),
+            .functionCode = 0x03,
+            .analysis = analysis,
+        },
+    };
+    clearDiagnosisState();
     modeLabel_ = QStringLiteral("Serial Mode");
     sourceLabel_ = sourceLabel;
     serialBusy_ = false;
@@ -484,9 +650,13 @@ void AnalysisController::runDemoBatch()
 
     std::vector<modbuslens::core::TransactionAnalysis> analyses;
     std::vector<TransactionListEntry> entries;
+    std::vector<modbuslens::core::DiagnosisTransaction> diagnosisTransactions;
     analyses.reserve(4);
     entries.reserve(4);
+    diagnosisTransactions.reserve(4);
 
+    // One batch, three same-source views: rows, statistics and the
+    // structured diagnosis input all come from the VERY same analyses.
     auto makeEntry = [&](const modbuslens::core::ModbusRtuFrame& request,
                          const modbuslens::core::TransactionAnalysis& analysis) {
         entries.push_back(TransactionListEntry{
@@ -495,6 +665,11 @@ void AnalysisController::runDemoBatch()
             .status = analysis.status,
             .elapsedMs = analysis.elapsed.count(),
             .exceptionCode = analysis.exceptionCode,
+        });
+        diagnosisTransactions.push_back(modbuslens::core::DiagnosisTransaction{
+            .deviceAddress = request.address,
+            .functionCode = request.functionCode,
+            .analysis = analysis,
         });
     };
 
@@ -589,10 +764,14 @@ void AnalysisController::runDemoBatch()
         makeEntry(request, analyses.back());
     }
 
-    // Atomic batch publish: model + snapshot from same source.
+    // Atomic batch publish: model + snapshot from same source. Backing state
+    // (diagnosis batch + invalidated diagnosis) is made consistent BEFORE
+    // any notification so QML can never observe new-stats + old-diagnosis.
     auto snapshot = modbuslens::core::summarizeTransactions(analyses);
     transactionModel_.setEntries(std::move(entries));
     statistics_ = std::move(snapshot);
+    activeDiagnosisTransactions_ = std::move(diagnosisTransactions);
+    clearDiagnosisState();
     modeLabel_ = QStringLiteral("Simulator Mode");
     sourceLabel_ = QStringLiteral("Deterministic Demo");
     clearReplayError();
@@ -609,6 +788,8 @@ void AnalysisController::clearResults()
     applySnapshot(summarizeTransactions(
         std::span<const modbuslens::core::TransactionAnalysis>{}));
     transactionModel_.setEntries({});
+    activeDiagnosisTransactions_.clear();
+    clearDiagnosisState();
     clearReplayError();
     clearSerialError();
 }
@@ -654,7 +835,9 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     // No second list model; the shared dashboard renders whatever batch is
     // current, no matter which source produced it.
     std::vector<TransactionListEntry> entries;
+    std::vector<modbuslens::core::DiagnosisTransaction> diagnosisTransactions;
     entries.reserve(batch.transactions.size());
+    diagnosisTransactions.reserve(batch.transactions.size());
     for (const auto& outcome : batch.transactions) {
         entries.push_back(TransactionListEntry{
             .deviceAddress = static_cast<int>(outcome.deviceAddress),
@@ -662,6 +845,11 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
             .status = outcome.analysis.status,
             .elapsedMs = outcome.analysis.elapsed.count(),
             .exceptionCode = outcome.analysis.exceptionCode,
+        });
+        diagnosisTransactions.push_back(modbuslens::core::DiagnosisTransaction{
+            .deviceAddress = outcome.deviceAddress,
+            .functionCode = outcome.functionCode,
+            .analysis = outcome.analysis,
         });
     }
 
@@ -676,6 +864,8 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     teardownSerialTransport();
     transactionModel_.setEntries(std::move(entries));
     statistics_ = batch.statistics;
+    activeDiagnosisTransactions_ = std::move(diagnosisTransactions);
+    clearDiagnosisState();
     modeLabel_ = QStringLiteral("Replay Mode");
     // Presentation keeps the basename only; the full path never enters the UI.
     sourceLabel_ = QFileInfo(filePath).fileName();

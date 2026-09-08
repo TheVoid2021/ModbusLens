@@ -348,6 +348,50 @@ ApplicationWindow {
             color: "#D0D0D0"
         }
 
+        // Diagnosis area (T011 Part A: deterministic baseline ONLY — no AI,
+        // no provider, no prompt lives here)
+        GroupBox {
+            title: qsTr("Diagnosis")
+            Layout.fillWidth: true
+
+            ColumnLayout {
+                Layout.fillWidth: true
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        text: qsTr("Run Baseline Diagnosis")
+                        onClicked: analysisController.runBaselineDiagnosis()
+                    }
+                    Button {
+                        text: qsTr("Clear Diagnosis")
+                        onClicked: analysisController.clearDiagnosis()
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+
+                Label {
+                    text: qsTr("Deterministic Baseline")
+                    font.bold: true
+                    visible: analysisController.hasBaselineDiagnosis
+                }
+                Label {
+                    visible: analysisController.hasBaselineDiagnosis
+                    text: analysisController.baselineDiagnosisText
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+                Label {
+                    visible: !analysisController.hasBaselineDiagnosis
+                    text: qsTr("No diagnosis run yet")
+                    color: "#909090"
+                }
+            }
+        }
+
         // Recent transactions area
         Label {
             text: qsTr("Recent Transactions")
