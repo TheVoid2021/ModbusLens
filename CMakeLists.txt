@@ -308,6 +308,24 @@ if(BUILD_TESTING)
 
     add_test(NAME ai_client COMMAND modbuslens_ai_tests)
 
+    # Agent tools (T012 Part A): read-only tool layer — offline, zero
+    # network, zero provider; pure dispatcher + deterministic snapshots.
+    add_executable(modbuslens_agent_tools_tests
+        tests/test_agent_tools.cpp
+        src/ui/agent/AgentToolContext.h
+        src/ui/agent/AgentTools.h
+        src/ui/agent/AgentTools.cpp)
+    target_include_directories(modbuslens_agent_tools_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(modbuslens_agent_tools_tests PRIVATE
+        modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_agent_tools_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME agent_tools COMMAND modbuslens_agent_tools_tests)
+
     # QML load smoke: runs the REAL app executable in diagnostic mode — it
     # loads the actual shipped QML module, verifies instantiation, and exits
     # without entering the event loop (T008 Part A rule A).
@@ -315,7 +333,7 @@ if(BUILD_TESTING)
         COMMAND modbuslens --qml-smoke-test)
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client qml_smoke PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools qml_smoke PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()
