@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A IMPLEMENTED / AWAITING REVIEW（`9921efd`，2026-09-09，自动验证全绿）；Part B NOT STARTED**；Learning 定案经 Implementation Review Refinements R1~R4 修正落档
+- **状态**：IN PROGRESS — **Part A IMPLEMENTED / AWAITING REVIEW（最新 candidate `797269a`，2026-09-09；P0 Review 修复已完成、自动验证全绿）；Part B NOT STARTED**；Learning 定案经 Implementation Review Refinements R1~R4 修正落档
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -200,6 +200,8 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - 若 #1 返回标准 tool_calls → 本地执行一个最小 fake/deterministic Tool Result，发 **Request #2**：assistant tool_call + role=tool result → 验证 provider 接受 tool result 并返回 final assistant content。
 仍要求：届时用户明确授权、不自动 retry、不换模型、不超过 2 个请求、不打印 token、不把真实请求 secret 写入 docs。
 
+**措辞边界审计（2026-09-09 Review）**：Part A 的正确表述为 **read-only deterministic tool query layer, offline and zero-network**；`QJsonObject` 仅存在于 arguments / serialization adapter boundary（dispatcher 参数与 tool-result DTO），文档与代码注释不得将 Part A 描述为 "Pure C++ / Zero Qt"。
+
 ## Test Design（本轮只设计；实现时 RED→GREEN）
 
 ### AGENT-Axx — Tool layer（P0/P1）
@@ -272,6 +274,16 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - 零公网 / 零 token / 零 quota（Part A 无任何网络代码路径）。
 - T011 production code（client/prompt/QML pipeline）**零 diff**。
 
+## Part A Review Fix（2026-09-09，P0 deterministic semantic）
+
+- **Review 发现**：`get_recent_anomalies` 以 `status != Success` 定义 anomaly —— 把 `Pending`（未完成）误算为异常，违背 T011 contract（Pending ≠ failure）。
+- **修复**：显式 anomaly whitelist `{Exception, CrcError, Timeout, ProtocolError}`（helper `isAnomalyStatus`，不引入新 Failure/Anomaly enum）；Success 与 Pending 一律排除。latest-20 在 anomaly 序列上选取（尾部 Pending 不消耗 20 名额），仍原序返回。
+- **RED 证据**：新测试对旧过滤逻辑 → A02 FAIL（Compared values are not the same）；GREEN：whitelist 恢复后全过。
+- **测试**：A02 扩充六状态 batch（entries 恰为 4 类、无 Pending/Success）+ 44 条复合 batch（10 Success + 10 Pending + 21 Crc + 3 尾 Pending → Crc #22..#41，total=21，truncated=true）；A03 追加未知异常码 0x7E → exception_name absent。A01/A04~A09 未删未弱化。
+- **exception_name audit**：实现仅标准 0x01~0x04 deterministic mapping，未知码 absent，无推测文案 —— 结论：无需修改，测试已锁定。
+- **Qt 措辞边界**：Part A = read-only deterministic tool query layer, offline and zero-network；QtCore JSON confined to arguments/serialization boundary（档案/ADR/CMake 注释已同步）。
+- **验证**：clean 131 targets 零警告；ctest 21/21。
+
 ## Verification
 
 本轮为 Learning/Test Design：无构建、无测试（docs-only）。Implementation 的验证计划（Part A 离线 TDD；Part B fake-server + 授权 Live Tool-Calling Probe + Live Agent Smoke；clean build/ctest 全绿/Manual Demo 三问答）已写入本档案 Test Design 与 Demo Acceptance，待用户批准后执行。
@@ -279,6 +291,7 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 ## Git Commit
 
 - code/test（Part A，LKGC candidate，未经人工审核、未推进 LKGC）：`9921efd` `T012(Part A): read-only agent tool layer — dispatcher + validation + JSON DTO`
+- code/test（Part A Review P0 fix，**最新 LKGC candidate**，未推进）：`797269a` `fix(T012): Pending is not an anomaly — whitelist filter in get_recent_anomalies`
 - docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`、`40177a2`（Learning 哈希回填）；Part A 归档 docs commit 随本档案更新提交（哈希回填于 PROJECT_STATUS 变更记录）
 
 ## Potential Interview Questions

@@ -41,3 +41,4 @@ T012 引入用户自由提问 + 模型按需调用**只读 tools** 读取已确�
 - 参数命名 D-A2 细化：batch-scoped ordinal 一律称 `transaction_number`（不称 transaction_id——不存在真正稳定 ID，措辞不得暗示持久性）。
 - D-A2 新增要件：tools 只读 **immutable AgentToolContext snapshot**（run 启动时一次构建，const& 注入 dispatcher）；revision guard 仍属 runtime（Part B），两者的职责分离在本 ADR 内固化。
 - D-A1 细化：`get_recent_anomalies` 的 "recent" 语义锁定为 latest-20（原序返回、truncated 标志），消除"最早 20 条"歧义。
+- 措辞边界：Agent layer 是 **offline / zero-network**，并非 Zero Qt——QtCore JSON 仅存在于 arguments / serialization adapter boundary；档案与代码注释不得声称 Part A 为 "Pure C++ / Zero Qt"。

@@ -94,6 +94,8 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-09 | **ISSUE-006 RESOLVED**：evidence-scope guard 落地（`01841b1`，取消 small_sample 阈值→Evidence Scope Guard）+ AI-B14~B17 + 用户 Manual UI Regression Smoke PASS + 经授权 Live ModelScope Smoke 五项全 PASS；verified **LKGC = `01841b1`** |
 | 2026-09-09 | **T012 Learning / Test Design 完成（docs-only）**：三工具/dispatcher/transaction_id/loop 上限/revision 绑定/注入边界/UI scope/Part A·B 拆分全部定案（T012 档案 TD-1~TD-11）；ADR002 新建；AGENT-A/B 测试矩阵与 Demo 三问答定稿；Implementation 待用户批准 |
 | 2026-09-09 | **T012 Part A IMPLEMENTED（`9921efd`）**：read-only tool layer（AgentToolContext/dispatcher/typed results/JSON DTO）+ AGENT-A01~A09；ctest 21/21；T011 零改动；LKGC candidate，待用户审核推进；Part B NOT STARTED |
+| 2026-09-09 | **T012 Part A Review fix（`797269a`）**：Pending 不算法 anomaly（whitelist 筛选 + latest-20 按 anomaly 序列）；A02/A03 扩充；ctest 21/21；**最新 Part A candidate = `797269a`，LKGC 未推进** |
+
 
 
 
