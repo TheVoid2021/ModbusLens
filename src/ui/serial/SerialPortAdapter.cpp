@@ -49,7 +49,7 @@ bool SerialTransactionAdapter::openPort(const QString& portName, qint32 baudRate
     // the wire for its whole lifetime.
     if (hasActiveTransaction()) {
         emit transportError(
-            QStringLiteral("Serial busy: a transaction is already pending"));
+            QStringLiteral("串口忙：已有事务进行中"));
         return false;
     }
 
@@ -61,7 +61,7 @@ bool SerialTransactionAdapter::openPort(const QString& portName, qint32 baudRate
         // follows is suppressed by the PE-4 guard (bounded at exactly one
         // user-visible emission — locked by SERIAL-I02).
         emit transportError(
-            QStringLiteral("Serial open failed: %1").arg(port_.errorString()));
+            QStringLiteral("串口打开失败：%1").arg(port_.errorString()));
         return false;
     }
     return true;
@@ -72,18 +72,18 @@ bool SerialTransactionAdapter::startTransaction(
     std::uint16_t quantity, std::chrono::milliseconds timeout)
 {
     if (!port_.isOpen()) {
-        emit transportError(QStringLiteral("Serial not connected: open a port first"));
+        emit transportError(QStringLiteral("串口未连接：请先打开串口"));
         return false;
     }
     if (hasActiveTransaction()) {
-        emit transportError(QStringLiteral("Serial busy: a transaction is already pending"));
+        emit transportError(QStringLiteral("串口忙：已有事务进行中"));
         return false;
     }
 
     const auto begin = session_.beginReadHoldingRegisters(
         slaveAddress, startAddress, quantity, timeout);
     if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
-        emit transportError(QStringLiteral("Serial begin failed: invalid request"));
+        emit transportError(QStringLiteral("串口请求无效"));
         return false;
     }
     const auto& start = std::get<modbuslens::core::SerialRequestStart>(begin);
@@ -97,7 +97,7 @@ bool SerialTransactionAdapter::startTransaction(
         // controller re-sync from isPortOpen().
         cancelPending();
         emit transportError(
-            QStringLiteral("Serial write failed: %1").arg(port_.errorString()));
+            QStringLiteral("串口写入失败：%1").arg(port_.errorString()));
         return false;
     }
 
@@ -166,7 +166,7 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
         session_.cancel();
         timeoutTimer_.stop();
         emit transportError(
-            QStringLiteral("Serial port error: %1").arg(port_.errorString()));
+            QStringLiteral("串口错误：%1").arg(port_.errorString()));
     }
     port_.close();
     elapsed_.invalidate();

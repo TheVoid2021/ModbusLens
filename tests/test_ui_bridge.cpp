@@ -191,7 +191,7 @@ void UiBridgeTest::a04_modelRolesForSuccessEntry()
     const QModelIndex index = model.index(0, 0);
     QCOMPARE(model.data(index, TransactionListModel::DeviceAddressRole), QVariant{1});
     QCOMPARE(model.data(index, TransactionListModel::FunctionCodeRole), QVariant{3});
-    QCOMPARE(model.data(index, TransactionListModel::StatusTextRole), QStringLiteral("Success"));
+    QCOMPARE(model.data(index, TransactionListModel::StatusTextRole), QStringLiteral("成功"));
     QCOMPARE(model.data(index, TransactionListModel::ElapsedMsRole), QVariant{qint64{25}});
     QCOMPARE(model.data(index, TransactionListModel::HasExceptionCodeRole), QVariant{false});
     // Safe placeholder: 0, but business logic must use hasExceptionCode.
@@ -204,7 +204,7 @@ void UiBridgeTest::a05_exceptionEntry()
     model.setEntries({exceptionEntry()});
 
     const QModelIndex index = model.index(0, 0);
-    QCOMPARE(model.data(index, TransactionListModel::StatusTextRole), QStringLiteral("Exception"));
+    QCOMPARE(model.data(index, TransactionListModel::StatusTextRole), QStringLiteral("异常"));
     QCOMPARE(model.data(index, TransactionListModel::HasExceptionCodeRole), QVariant{true});
     QCOMPARE(model.data(index, TransactionListModel::ExceptionCodeRole), QVariant{2});
     QCOMPARE(model.data(index, TransactionListModel::ElapsedMsRole), QVariant{qint64{18}});
@@ -259,9 +259,12 @@ void UiBridgeTest::b02_demoTransactionRows()
     QVERIFY(model != nullptr);
     QCOMPARE(model->rowCount(), 4);
 
-    struct Row { const char* status; qint64 elapsed; };
+    struct Row { QString status; qint64 elapsed; };
     const Row expected[] = {
-        {"Success", 25}, {"Exception", 18}, {"CRC Error", 17}, {"Timeout", 1000}
+        {QStringLiteral("成功"), 25},
+        {QStringLiteral("异常"), 18},
+        {QStringLiteral("CRC 错误"), 17},
+        {QStringLiteral("超时"), 1000}
     };
     for (int row = 0; row < 4; ++row) {
         const auto idx = model->index(row, 0);
@@ -394,7 +397,7 @@ void UiBridgeTest::r01_goldenReplay()
     AnalysisController controller;
     controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
 
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("回放模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
     QVERIFY(!controller.hasReplayError());
     QVERIFY(controller.replayErrorMessage().isEmpty());
@@ -421,12 +424,12 @@ void UiBridgeTest::r02_goldenReplayRows()
     auto* model = controller.transactionModel();
     QCOMPARE(model->rowCount(), 4);
 
-    struct Row { const char* status; qint64 elapsed; bool hasException; int exception; };
+    struct Row { QString status; qint64 elapsed; bool hasException; int exception; };
     const Row expected[] = {
-        {"Success", 25, false, 0},
-        {"Exception", 18, true, 2},
-        {"CRC Error", 17, false, 0},
-        {"Timeout", 1000, false, 0},
+        {QStringLiteral("成功"), 25, false, 0},
+        {QStringLiteral("异常"), 18, true, 2},
+        {QStringLiteral("CRC 错误"), 17, false, 0},
+        {QStringLiteral("超时"), 1000, false, 0},
     };
     for (int row = 0; row < 4; ++row) {
         const auto idx = model->index(row, 0);
@@ -457,13 +460,13 @@ void UiBridgeTest::r03_parseErrorPreservesState()
 
     // Error is visible and human-readable (line + phrase).
     QVERIFY(controller.hasReplayError());
-    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("line")));
-    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("invalid hex")));
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("第 2 行")));
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("十六进制数据无效")));
 
     // The WHOLE previous successful state is preserved (rule A).
     QCOMPARE(controller.observedCount(), observedBefore);
     QCOMPARE(controller.transactionModel()->rowCount(), rowsBefore);
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("回放模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
     QVERIFY(controller.hasSuccessRate());
 }
@@ -480,12 +483,12 @@ void UiBridgeTest::r04_executionError()
 
     QVERIFY(controller.hasReplayError());
     // 0-based core index 0 -> human-readable "transaction 1".
-    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("transaction 1")));
-    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("invalid request data")));
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("事务 1")));
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("请求数据无效")));
 
     // Old batch and source stay (rule A).
     QCOMPARE(controller.transactionModel()->rowCount(), 4);
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("回放模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
 }
 
@@ -501,13 +504,13 @@ void UiBridgeTest::r05_fileOpenFailure()
     controller.loadReplayFile(QUrl::fromLocalFile(missing));
 
     QVERIFY(controller.hasReplayError());
-    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("load failed")));
+    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("回放加载失败")));
 
     // Demo batch + Simulator source preserved (rule A).
     QCOMPARE(controller.observedCount(), 4);
     QCOMPARE(controller.transactionModel()->rowCount(), 4);
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
-    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("模拟器模式"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("确定性演示"));
 }
 
 void UiBridgeTest::r06_errorRecovery()
@@ -524,7 +527,7 @@ void UiBridgeTest::r06_errorRecovery()
     controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
     QVERIFY(!controller.hasReplayError());
     QVERIFY(controller.replayErrorMessage().isEmpty());
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("回放模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
     QCOMPARE(controller.transactionModel()->rowCount(), 4);
     QCOMPARE(controller.observedCount(), 4);
@@ -537,17 +540,17 @@ void UiBridgeTest::r07_sourceReplace()
     controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
     QVERIFY(!controller.hasReplayError());
     QCOMPARE(controller.transactionModel()->rowCount(), 4);
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("回放模式"));
 
     controller.runDemoBatch();
     QCOMPARE(controller.transactionModel()->rowCount(), 4);
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
-    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("模拟器模式"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("确定性演示"));
     QVERIFY(!controller.hasReplayError());
 
     controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
     QCOMPARE(controller.transactionModel()->rowCount(), 4);
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("回放模式"));
     QVERIFY(!controller.hasReplayError());
 }
 
@@ -574,7 +577,7 @@ void UiBridgeTest::r08_clearKeepsSource()
     QVERIFY(controller.replayErrorMessage().isEmpty());
 
     // Source identity survives the clear (only runDemoBatch switches it).
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Replay Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("回放模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
 }
 
@@ -631,8 +634,8 @@ void UiBridgeTest::s02_failedConnectAtomicPreservation()
     // The ENTIRE old source state survives the failed connect.
     QCOMPARE(controller.observedCount(), observedBefore);
     QCOMPARE(controller.transactionModel()->rowCount(), rowsBefore);
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
-    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("模拟器模式"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("确定性演示"));
 }
 
 void UiBridgeTest::s03_readWhileDisconnected()
@@ -645,7 +648,7 @@ void UiBridgeTest::s03_readWhileDisconnected()
     QCOMPARE(controller.transactionModel()->rowCount(), 0);
     QVERIFY(!controller.serialBusy()); // no Timeout, no pending, no rows
     // Source untouched.
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("模拟器模式"));
 }
 
 void UiBridgeTest::s04_inputValidation()
@@ -669,7 +672,7 @@ void UiBridgeTest::s04_inputValidation()
     QVERIFY(!controller.serialBusy());
     QCOMPARE(controller.transactionModel()->rowCount(), 0);
     QCOMPARE(controller.observedCount(), 0);
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("模拟器模式"));
 }
 
 void UiBridgeTest::s05_publishSerialSuccess()
@@ -679,7 +682,7 @@ void UiBridgeTest::s05_publishSerialSuccess()
         QStringLiteral("COM_TEST @ 9600"), 1,
         makeAnalysis(modbuslens::core::TransactionStatus::Success, 25));
 
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Serial Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("串口模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
 
     QCOMPARE(controller.transactionModel()->rowCount(), 1);
@@ -687,7 +690,7 @@ void UiBridgeTest::s05_publishSerialSuccess()
     QCOMPARE(controller.transactionModel()
                  ->data(idx, TransactionListModel::StatusTextRole)
                  .toString(),
-             QStringLiteral("Success"));
+             QStringLiteral("成功"));
     QCOMPARE(controller.transactionModel()
                  ->data(idx, TransactionListModel::ElapsedMsRole),
              QVariant{qint64{25}});
@@ -721,7 +724,7 @@ void UiBridgeTest::s06_publishSerialTimeout()
     QCOMPARE(controller.transactionModel()
                  ->data(idx, TransactionListModel::StatusTextRole)
                  .toString(),
-             QStringLiteral("Timeout"));
+             QStringLiteral("超时"));
 
     QCOMPARE(controller.observedCount(), 1);
     QCOMPARE(controller.completedCount(), 1);
@@ -768,7 +771,7 @@ void UiBridgeTest::s08_clearSerialResults()
     QVERIFY(!controller.hasAverageSuccessLatency());
     QVERIFY(!controller.hasSerialError());
     // Source identity survives a Clear (Clear != Disconnect).
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Serial Mode"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("串口模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
 }
 
@@ -784,8 +787,8 @@ void UiBridgeTest::s09_serialErrorRecovery()
     // A successful source switch must not leave the stale error behind.
     QVERIFY(!controller.hasSerialError());
     QVERIFY(controller.serialErrorMessage().isEmpty());
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
-    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("模拟器模式"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("确定性演示"));
     QCOMPARE(controller.transactionModel()->rowCount(), 4);
 }
 
@@ -803,8 +806,8 @@ void UiBridgeTest::s10_staleCompletionGuard()
 
     QCOMPARE(controller.transactionModel()->rowCount(), rowsBefore);
     QCOMPARE(controller.observedCount(), observedBefore);
-    QCOMPARE(controller.modeLabel(), QStringLiteral("Simulator Mode"));
-    QCOMPARE(controller.sourceLabel(), QStringLiteral("Deterministic Demo"));
+    QCOMPARE(controller.modeLabel(), QStringLiteral("模拟器模式"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("确定性演示"));
 }
 
 // ---- T011 Part A test implementations ----
@@ -817,11 +820,11 @@ void UiBridgeTest::d01_demoBaseline()
 
     QVERIFY(controller.hasBaselineDiagnosis());
     const QString text = controller.baselineDiagnosisText();
-    QVERIFY(text.contains(QStringLiteral("CRC integrity errors")));
-    QVERIFY(text.contains(QStringLiteral("No-response timeouts")));
-    QVERIFY(text.contains(QStringLiteral("Device exception 0x02")));
-    QVERIFY(!text.contains(QStringLiteral("Healthy")));
-    QVERIFY(!text.contains(QStringLiteral("Protocol")));
+    QVERIFY(text.contains(QStringLiteral("CRC 错误")));
+    QVERIFY(text.contains(QStringLiteral("无响应超时")));
+    QVERIFY(text.contains(QStringLiteral("设备异常 0x02")));
+    QVERIFY(!text.contains(QStringLiteral("全部")));
+    QVERIFY(!text.contains(QStringLiteral("协议错误")));
 }
 
 void UiBridgeTest::d02_clearResultsInvalidates()
@@ -880,7 +883,7 @@ void UiBridgeTest::d05_emptyDiagnosis()
     // Diagnosis says NoData is distinct from no diagnosis run yet.
     QVERIFY(controller.hasBaselineDiagnosis());
     QVERIFY(controller.baselineDiagnosisText().contains(
-        QStringLiteral("No analysis data available")));
+        QStringLiteral("暂无可分析数据")));
 }
 
 void UiBridgeTest::d06_sameFactsSameBaseline()
@@ -909,11 +912,11 @@ void UiBridgeTest::d07_serialSingleResult()
 
     QVERIFY(controller.hasBaselineDiagnosis());
     const QString text = controller.baselineDiagnosisText();
-    QVERIFY(text.contains(QStringLiteral("No-response timeouts")));
+    QVERIFY(text.contains(QStringLiteral("无响应超时")));
     QVERIFY(!text.contains(QStringLiteral("CRC")));
-    QVERIFY(!text.contains(QStringLiteral("Device exception")));
-    QVERIFY(!text.contains(QStringLiteral("Protocol")));
-    QVERIFY(!text.contains(QStringLiteral("Healthy")));
+    QVERIFY(!text.contains(QStringLiteral("设备异常")));
+    QVERIFY(!text.contains(QStringLiteral("协议错误")));
+    QVERIFY(!text.contains(QStringLiteral("全部")));
 }
 
 void UiBridgeTest::d08_clearDiagnosisOnly()
@@ -969,7 +972,7 @@ void UiBridgeTest::ai01_notConfigured()
 
     // No network, no baseline/dashboard damage, sanitized message.
     QVERIFY(!controller.aiDiagnosisErrorMessage().isEmpty());
-    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("not configured")));
+    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("未配置")));
     QVERIFY(!controller.hasAiDiagnosis());
     QCOMPARE(controller.observedCount(), 0);
 }
@@ -984,7 +987,7 @@ void UiBridgeTest::ai02_baselineRequired()
 
     controller.askAiDiagnosis(); // ...but no baseline yet
 
-    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("Baseline")));
+    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("基线诊断")));
     QCOMPARE(server.requestCount(), 0); // no HTTP request was ever made
     QVERIFY(!controller.hasAiDiagnosis());
 }
@@ -999,7 +1002,7 @@ void UiBridgeTest::ai03_emptyBatch()
 
     controller.askAiDiagnosis();
 
-    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("No analysis data")));
+    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("暂无可分析数据")));
     QCOMPARE(server.requestCount(), 0);
 }
 
@@ -1040,7 +1043,7 @@ void UiBridgeTest::ai05_providerFailurePreservesBaseline()
     controller.askAiDiagnosis();
     QTRY_VERIFY(!controller.aiDiagnosisErrorMessage().isEmpty());
 
-    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("Latest AI request failed")));
+    QVERIFY(controller.aiDiagnosisErrorMessage().contains(QStringLiteral("最近一次 AI 请求失败")));
     QCOMPARE(controller.baselineDiagnosisText(), baselineBefore);
     QCOMPARE(controller.observedCount(), 4);
     QCOMPARE(controller.transactionModel()->rowCount(), 4);

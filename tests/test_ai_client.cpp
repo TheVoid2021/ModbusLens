@@ -107,7 +107,9 @@ void AiClientTest::b01_promptAuthority()
     QVERIFY(system.contains(QStringLiteral("Do not recalculate")));
     QVERIFY(system.contains(QStringLiteral("contradict")));
     QVERIFY(system.contains(QStringLiteral("root cause")));
-    QVERIFY(system.contains(QStringLiteral("plain-text")));
+    QVERIFY(system.contains(QStringLiteral("plain text")));
+    QVERIFY(system.contains(QStringLiteral("Simplified Chinese")));
+    QVERIFY(system.contains(QStringLiteral("Markdown")));
 
     // Deterministic facts present, incl. the exception code.
     const QString user = prompt.userPrompt;
@@ -415,7 +417,7 @@ void AiClientTest::b12_timeout()
              static_cast<int>(AiDiagnosisErrorCode::Timeout));
     // ISSUE-005: business wording — never Qt's localized operation-canceled
     // errorString.
-    QCOMPARE(spy.at(0).at(2).toString(), QStringLiteral("AI request timed out"));
+    QCOMPARE(spy.at(0).at(2).toString(), QStringLiteral("AI 请求超时"));
     QVERIFY(!client.isBusy());
 }
 

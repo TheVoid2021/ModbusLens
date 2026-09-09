@@ -54,63 +54,64 @@ modbuslens::core::ModbusRtuFrame makeFc03Read(
 
 QString parseErrorMessage(const modbuslens::core::ReplayParseError& error)
 {
-    const char* phrase = "invalid replay log";
+    // Chinese phrases are QStringLiteral (UTF-16 from source) — never a
+    // const char* + QLatin1String combo, which would mojibake UTF-8 bytes.
+    QString phrase = QStringLiteral("回放日志无效");
     switch (error.code) {
     case modbuslens::core::ReplayParseErrorCode::MissingHeader:
-        phrase = "log header is missing";
+        phrase = QStringLiteral("缺少日志头");
         break;
     case modbuslens::core::ReplayParseErrorCode::UnsupportedVersion:
-        phrase = "unsupported log version";
+        phrase = QStringLiteral("日志版本不受支持");
         break;
     case modbuslens::core::ReplayParseErrorCode::InvalidHeader:
-        phrase = "invalid log header";
+        phrase = QStringLiteral("日志头无效");
         break;
     case modbuslens::core::ReplayParseErrorCode::InvalidRecord:
-        phrase = "invalid record";
+        phrase = QStringLiteral("记录无效");
         break;
     case modbuslens::core::ReplayParseErrorCode::InvalidElapsed:
-        phrase = "invalid elapsed value";
+        phrase = QStringLiteral("耗时值无效");
         break;
     case modbuslens::core::ReplayParseErrorCode::InvalidHex:
-        phrase = "invalid hex data";
+        phrase = QStringLiteral("十六进制数据无效");
         break;
     case modbuslens::core::ReplayParseErrorCode::MissingRequest:
-        phrase = "request field is empty";
+        phrase = QStringLiteral("请求字段为空");
         break;
     case modbuslens::core::ReplayParseErrorCode::InvalidResponseField:
-        phrase = "invalid response field";
+        phrase = QStringLiteral("响应字段无效");
         break;
     }
     // lineNumber == 0 means "no specific offending line" (e.g. a log with no
     // header at all) — never render a meaningless "line 0".
     if (error.lineNumber == 0) {
-        return QStringLiteral("Replay parse error: %1")
-            .arg(QLatin1String(phrase));
+        return QStringLiteral("回放解析错误：%1").arg(phrase);
     }
-    return QStringLiteral("Replay parse error at line %1: %2")
+    return QStringLiteral("回放解析错误（第 %1 行）：%2")
         .arg(error.lineNumber)
-        .arg(QLatin1String(phrase));
+        .arg(phrase);
 }
 
 QString executionErrorMessage(
     const modbuslens::core::ReplayExecutionError& error)
 {
-    const char* phrase = "replay analysis failed";
+    QString phrase = QStringLiteral("回放分析失败");
     switch (error.code) {
     case modbuslens::core::ReplayExecutionErrorCode::InvalidRequestWire:
-        phrase = "invalid request wire data";
+        phrase = QStringLiteral("请求报文无效");
         break;
     case modbuslens::core::ReplayExecutionErrorCode::InvalidRequestFunction:
-        phrase = "unsupported function code in request";
+        phrase = QStringLiteral("请求功能码不受支持");
         break;
     case modbuslens::core::ReplayExecutionErrorCode::InvalidRequestData:
-        phrase = "invalid request data";
+        phrase = QStringLiteral("请求数据无效");
         break;
     }
     // Core indexing is 0-based; humans count transactions from 1.
-    return QStringLiteral("Replay analysis error at transaction %1: %2")
+    return QStringLiteral("回放分析错误（事务 %1）：%2")
         .arg(error.transactionIndex + 1)
-        .arg(QLatin1String(phrase));
+        .arg(phrase);
 }
 
 } // namespace
@@ -261,24 +262,24 @@ QString findingPhrase(const modbuslens::core::DiagnosisFinding& finding)
     using namespace modbuslens::core;
     switch (finding.code) {
     case DiagnosisFindingCode::Healthy:
-        return QStringLiteral("All %1 observed transactions completed successfully")
+        return QStringLiteral("全部 %1 笔通信均成功")
             .arg(finding.affectedCount);
     case DiagnosisFindingCode::PendingObserved:
-        return QStringLiteral("Pending transactions: %1").arg(finding.affectedCount);
+        return QStringLiteral("进行中的通信：%1").arg(finding.affectedCount);
     case DiagnosisFindingCode::ExceptionObserved:
-        return QStringLiteral("Device exception 0x%1: %2")
+        return QStringLiteral("设备异常 0x%1：%2")
             .arg(QString::number(finding.exceptionCode.value_or(0), 16)
                      .toUpper()
                      .rightJustified(2, QLatin1Char('0')))
             .arg(finding.affectedCount);
     case DiagnosisFindingCode::CrcErrorObserved:
-        return QStringLiteral("CRC integrity errors: %1").arg(finding.affectedCount);
+        return QStringLiteral("CRC 错误：%1").arg(finding.affectedCount);
     case DiagnosisFindingCode::TimeoutObserved:
-        return QStringLiteral("No-response timeouts: %1").arg(finding.affectedCount);
+        return QStringLiteral("无响应超时：%1").arg(finding.affectedCount);
     case DiagnosisFindingCode::ProtocolErrorObserved:
-        return QStringLiteral("Protocol inconsistencies: %1").arg(finding.affectedCount);
+        return QStringLiteral("协议错误：%1").arg(finding.affectedCount);
     case DiagnosisFindingCode::NoData:
-        return QStringLiteral("No analysis data available");
+        return QStringLiteral("暂无可分析数据");
     }
     return {};
 }
@@ -288,29 +289,29 @@ QString actionPhrase(modbuslens::core::DiagnosisActionCode action)
     using namespace modbuslens::core;
     switch (action) {
     case DiagnosisActionCode::WaitForCompletion:
-        return QStringLiteral("Wait for in-flight transactions to complete");
+        return QStringLiteral("等待当前通信完成");
     case DiagnosisActionCode::CheckDevicePower:
-        return QStringLiteral("Verify device power");
+        return QStringLiteral("检查设备供电");
     case DiagnosisActionCode::CheckSlaveAddress:
-        return QStringLiteral("Verify slave address");
+        return QStringLiteral("核对从站地址");
     case DiagnosisActionCode::CheckSerialSettings:
-        return QStringLiteral("Check serial settings");
+        return QStringLiteral("检查串口参数");
     case DiagnosisActionCode::CheckWiring:
-        return QStringLiteral("Inspect wiring");
+        return QStringLiteral("检查 RS485 接线");
     case DiagnosisActionCode::CheckNoiseAndGrounding:
-        return QStringLiteral("Inspect wiring and grounding/noise");
+        return QStringLiteral("检查接地与线路干扰");
     case DiagnosisActionCode::CheckFunctionSupport:
-        return QStringLiteral("Verify the requested function is supported");
+        return QStringLiteral("确认设备是否支持该功能码");
     case DiagnosisActionCode::CheckRegisterMap:
-        return QStringLiteral("Verify register map");
+        return QStringLiteral("核对寄存器地址表");
     case DiagnosisActionCode::CheckRequestParameters:
-        return QStringLiteral("Check request parameters");
+        return QStringLiteral("核对请求参数");
     case DiagnosisActionCode::CheckDeviceHealth:
-        return QStringLiteral("Check device health");
+        return QStringLiteral("检查设备运行状态");
     case DiagnosisActionCode::CheckDeviceDocumentation:
-        return QStringLiteral("Consult device documentation");
+        return QStringLiteral("查阅设备通信文档");
     case DiagnosisActionCode::InspectProtocolConsistency:
-        return QStringLiteral("Inspect protocol and response consistency");
+        return QStringLiteral("检查请求与响应的协议一致性");
     }
     return {};
 }
@@ -322,11 +323,11 @@ QString formatDiagnosisReport(const modbuslens::core::DiagnosisReport& report)
     if (report.findings.size() == 1
         && report.findings.front().code
             == modbuslens::core::DiagnosisFindingCode::NoData) {
-        return QStringLiteral("No analysis data available");
+        return QStringLiteral("暂无可分析数据");
     }
 
     QString text;
-    text += QStringLiteral("Deterministic findings:\n");
+    text += QStringLiteral("诊断结果：\n");
     for (const auto& finding : report.findings) {
         text += QStringLiteral("- ") + findingPhrase(finding) + QLatin1Char('\n');
     }
@@ -364,7 +365,7 @@ QString formatDiagnosisReport(const modbuslens::core::DiagnosisReport& report)
         }
     }
     if (!checkLines.isEmpty()) {
-        text += QStringLiteral("\nSuggested checks:\n");
+        text += QStringLiteral("\n建议检查：\n");
         for (const auto& line : checkLines) {
             text += QStringLiteral("- ") + line + QLatin1Char('\n');
         }
@@ -466,7 +467,7 @@ void AnalysisController::configureAiClient(const QUrl& endpoint,
 void AnalysisController::setAiError(const QString& message)
 {
     aiDiagnosisErrorMessage_ =
-        QStringLiteral("Latest AI request failed: %1").arg(message);
+        QStringLiteral("最近一次 AI 请求失败：%1").arg(message);
     emit aiStateChanged();
 }
 
@@ -531,16 +532,16 @@ void AnalysisController::askAiDiagnosis()
     // C++ re-validates every precondition (the QML button is only UX).
     if (!aiConfigured_) {
         setAiError(QStringLiteral(
-            "ModelScope API token is not configured. "
-            "Set MODELSCOPE_API_KEY and restart the app."));
+            "未配置 ModelScope API 令牌（MODELSCOPE_API_KEY），"
+            " 请设置后重启应用。"));
         return;
     }
     if (activeDiagnosisTransactions_.empty()) {
-        setAiError(QStringLiteral("No analysis data available."));
+        setAiError(QStringLiteral("暂无可分析数据。"));
         return;
     }
     if (!hasBaselineDiagnosis_) {
-        setAiError(QStringLiteral("Run Baseline Diagnosis first."));
+        setAiError(QStringLiteral("请先运行基线诊断。"));
         return;
     }
     if (aiDiagnosisBusy_) {
@@ -656,7 +657,7 @@ void AnalysisController::handleSerialTransportError(const QString& message)
     serialBusy_ = false;
     pendingSerialAddress_.reset();
     serialConnected_ = serialAdapter_.isPortOpen();
-    setSerialError(QStringLiteral("Serial transport error: %1").arg(message));
+    setSerialError(QStringLiteral("串口传输错误：%1").arg(message));
     emit serialConnChanged();
     emit serialStatusChanged();
 }
@@ -679,12 +680,12 @@ void AnalysisController::refreshSerialPorts()
 void AnalysisController::connectSerial(const QString& portName, int baudRate)
 {
     if (portName.isEmpty()) {
-        setSerialError(QStringLiteral("Serial error: empty port name"));
+        setSerialError(QStringLiteral("串口错误：串口名为空"));
         return;
     }
     if (std::find(kSupportedSerialBauds.begin(), kSupportedSerialBauds.end(), baudRate)
         == kSupportedSerialBauds.end()) {
-        setSerialError(QStringLiteral("Serial error: unsupported baud rate"));
+        setSerialError(QStringLiteral("串口错误：波特率不受支持"));
         return;
     }
 
@@ -705,7 +706,7 @@ void AnalysisController::connectSerial(const QString& portName, int baudRate)
     invalidateAiForBatchChange();
 
     serialSourceLabel_ = QStringLiteral("%1 @ %2").arg(portName).arg(baudRate);
-    modeLabel_ = QStringLiteral("Serial Mode");
+    modeLabel_ = QStringLiteral("串口模式");
     sourceLabel_ = serialSourceLabel_;
     serialConnected_ = true;
     serialBusy_ = false;
@@ -730,27 +731,27 @@ void AnalysisController::readHoldingRegistersOnce(
     // and a silent uint8_t/uint16_t wrap here would be undefined-behavior
     // territory the Core must never be handed.
     if (slaveAddress < 1 || slaveAddress > 247) {
-        setSerialError(QStringLiteral("Serial error: slave address must be 1..247"));
+        setSerialError(QStringLiteral("串口错误：从站地址须在 1..247 之间"));
         return;
     }
     if (startAddress < 0 || startAddress > 65535) {
-        setSerialError(QStringLiteral("Serial error: start address must be 0..65535"));
+        setSerialError(QStringLiteral("串口错误：起始地址须在 0..65535 之间"));
         return;
     }
     if (quantity < 1 || quantity > 125) {
-        setSerialError(QStringLiteral("Serial error: quantity must be 1..125"));
+        setSerialError(QStringLiteral("串口错误：寄存器数量须在 1..125 之间"));
         return;
     }
     if (timeoutMs <= 0) {
-        setSerialError(QStringLiteral("Serial error: timeout must be > 0 ms"));
+        setSerialError(QStringLiteral("串口错误：超时时间须大于 0 ms"));
         return;
     }
     if (!serialConnected_) {
-        setSerialError(QStringLiteral("Serial error: port not connected"));
+        setSerialError(QStringLiteral("串口错误：串口未连接"));
         return;
     }
     if (serialBusy_) {
-        setSerialError(QStringLiteral("Serial error: a transaction is already in progress"));
+        setSerialError(QStringLiteral("串口错误：已有事务进行中"));
         return;
     }
 
@@ -799,7 +800,7 @@ void AnalysisController::publishSerialResult(
         },
     };
     invalidateAiForBatchChange();
-    modeLabel_ = QStringLiteral("Serial Mode");
+    modeLabel_ = QStringLiteral("串口模式");
     sourceLabel_ = sourceLabel;
     serialBusy_ = false;
     clearSerialError();
@@ -976,8 +977,8 @@ void AnalysisController::runDemoBatch()
     statistics_ = std::move(snapshot);
     activeDiagnosisTransactions_ = std::move(diagnosisTransactions);
     invalidateAiForBatchChange();
-    modeLabel_ = QStringLiteral("Simulator Mode");
-    sourceLabel_ = QStringLiteral("Deterministic Demo");
+    modeLabel_ = QStringLiteral("模拟器模式");
+    sourceLabel_ = QStringLiteral("确定性演示");
     clearReplayError();
     clearSerialError();
     emit statisticsChanged();
@@ -1003,14 +1004,14 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     using namespace modbuslens::core;
 
     if (!fileUrl.isLocalFile()) {
-        setReplayError(QStringLiteral("Replay load failed: not a local file"));
+        setReplayError(QStringLiteral("回放加载失败：不是本地文件"));
         return;
     }
 
     const QString filePath = fileUrl.toLocalFile();
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
-        setReplayError(QStringLiteral("Replay load failed: cannot open file"));
+        setReplayError(QStringLiteral("回放加载失败：无法打开文件"));
         return;
     }
 
@@ -1070,7 +1071,7 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     statistics_ = batch.statistics;
     activeDiagnosisTransactions_ = std::move(diagnosisTransactions);
     invalidateAiForBatchChange();
-    modeLabel_ = QStringLiteral("Replay Mode");
+    modeLabel_ = QStringLiteral("回放模式");
     // Presentation keeps the basename only; the full path never enters the UI.
     sourceLabel_ = QFileInfo(filePath).fileName();
     clearReplayError();

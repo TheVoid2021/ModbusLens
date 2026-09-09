@@ -53,7 +53,7 @@ QString sanitizeProviderMessage(const QByteArray& body)
             }
         }
     }
-    return QStringLiteral("provider error (no sanitized message)");
+    return QStringLiteral("模型服务错误（无可用错误信息）");
 }
 
 AiDiagnosisErrorCode mapReplyError(QNetworkReply::NetworkError error)
@@ -102,12 +102,12 @@ void ModelScopeDiagnosisClient::requestDiagnosis(const QString& systemPrompt,
                                                  std::uint64_t requestId)
 {
     if (busy_) {
-        fail(requestId, AiDiagnosisErrorCode::Busy, QStringLiteral("already busy"));
+        fail(requestId, AiDiagnosisErrorCode::Busy, QStringLiteral("已有请求进行中"));
         return;
     }
     if (!isConfigured()) {
         fail(requestId, AiDiagnosisErrorCode::NotConfigured,
-             QStringLiteral("ModelScope client is not configured"));
+             QStringLiteral("ModelScope 客户端未配置"));
         return;
     }
 
@@ -193,7 +193,7 @@ void ModelScopeDiagnosisClient::handleTimeout()
     }
     // Deliver the business-level Timeout immediately; the subsequent
     // finished() callback sees busy_ == false and stays silent.
-    fail(requestId, AiDiagnosisErrorCode::Timeout, QStringLiteral("AI request timed out"));
+    fail(requestId, AiDiagnosisErrorCode::Timeout, QStringLiteral("AI 请求超时"));
 }
 
 void ModelScopeDiagnosisClient::handleFinished()
@@ -230,7 +230,7 @@ void ModelScopeDiagnosisClient::handleFinished()
         if (abortReason_ == AiAbortReason::Timeout) {
             reply->deleteLater();
             emit diagnosisFailed(requestId, AiDiagnosisErrorCode::Timeout,
-                                 QStringLiteral("AI request timed out"));
+                                 QStringLiteral("AI 请求超时"));
             return;
         }
         if (abortReason_ != AiAbortReason::None) {
@@ -239,14 +239,14 @@ void ModelScopeDiagnosisClient::handleFinished()
         }
         reply->deleteLater();
         emit diagnosisFailed(requestId, AiDiagnosisErrorCode::NetworkError,
-                             QStringLiteral("AI request was cancelled unexpectedly"));
+                             QStringLiteral("AI 请求意外中止"));
         return;
     }
     if (httpStatus == 0 && reply->error() != QNetworkReply::NoError) {
         // No HTTP status at all: a non-cancellation transport failure.
         const auto code = mapReplyError(reply->error());
         reply->deleteLater();
-        emit diagnosisFailed(requestId, code, QStringLiteral("network error"));
+        emit diagnosisFailed(requestId, code, QStringLiteral("网络错误"));
         return;
     }
 
@@ -257,7 +257,7 @@ void ModelScopeDiagnosisClient::handleFinished()
     const QJsonDocument document = QJsonDocument::fromJson(body);
     if (!document.isObject() || !document.object().value(QLatin1String("choices")).isArray()) {
         emit diagnosisFailed(requestId, AiDiagnosisErrorCode::InvalidResponse,
-                             QStringLiteral("malformed response"));
+                             QStringLiteral("响应格式无效"));
         return;
     }
     const QJsonArray choices = document.object().value(QLatin1String("choices")).toArray();
@@ -279,7 +279,7 @@ void ModelScopeDiagnosisClient::handleFinished()
         }
     }
     emit diagnosisFailed(requestId, AiDiagnosisErrorCode::InvalidResponse,
-                         QStringLiteral("no usable final content in response"));
+                         QStringLiteral("响应中无可用内容"));
 }
 
 bool buildModelScopeProductionConfig(ModelScopeClientConfig& out)

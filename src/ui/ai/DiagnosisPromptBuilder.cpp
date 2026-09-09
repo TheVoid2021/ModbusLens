@@ -117,7 +117,10 @@ DiagnosisPrompt buildDiagnosisPrompt(
         "Do not claim access to information that is not supplied.\n"
         "Do not propose automatic actions.\n"
         "Do not re-analyze raw Modbus packets.\n"
-        "Return a concise plain-text explanation with sections: Summary, Observed facts, Possible explanations, Suggested checks.\n"
+        "Return the explanation in concise Simplified Chinese.\n"
+        "Keep protocol terms in English as-is: Modbus, RTU, CRC, function codes, register addresses, exception codes.\n"
+        "Do not use Markdown formatting. Use plain text only.\n"
+        "Structure the explanation with sections: 概述, 观测事实, 可能原因, 建议检查.\n"
         "Keep the answer concise (roughly 250 words or less).");
 
     const auto& stats = context.statistics;

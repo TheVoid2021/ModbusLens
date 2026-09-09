@@ -8,17 +8,17 @@ QString statusText(modbuslens::core::TransactionStatus status)
 {
     switch (status) {
     case modbuslens::core::TransactionStatus::Pending:
-        return QStringLiteral("Pending");
+        return QStringLiteral("进行中");
     case modbuslens::core::TransactionStatus::Success:
-        return QStringLiteral("Success");
+        return QStringLiteral("成功");
     case modbuslens::core::TransactionStatus::Exception:
-        return QStringLiteral("Exception");
+        return QStringLiteral("异常");
     case modbuslens::core::TransactionStatus::CrcError:
-        return QStringLiteral("CRC Error");
+        return QStringLiteral("CRC 错误");
     case modbuslens::core::TransactionStatus::Timeout:
-        return QStringLiteral("Timeout");
+        return QStringLiteral("超时");
     case modbuslens::core::TransactionStatus::ProtocolError:
-        return QStringLiteral("Protocol Error");
+        return QStringLiteral("协议错误");
     }
     return QStringLiteral("Unknown");
 }

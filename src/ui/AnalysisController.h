@@ -218,8 +218,8 @@ private:
 
     bool hasReplayError_ = false;
     QString replayErrorMessage_;
-    QString modeLabel_ = QStringLiteral("Simulator Mode");
-    QString sourceLabel_ = QStringLiteral("Deterministic Demo");
+    QString modeLabel_ = QStringLiteral("模拟器模式");
+    QString sourceLabel_ = QStringLiteral("确定性演示");
 
     // T010 Part B: the SINGLE serial adapter owned by the app layer (never a
     // second QSerialPort anywhere; QML never sees this object).

@@ -20,10 +20,10 @@ ApplicationWindow {
 
     FileDialog {
         id: replayFileDialog
-        title: qsTr("Load Replay Log")
+        title: qsTr("加载回放日志")
         nameFilters: [
-            qsTr("ModbusLens Replay Logs (*.mlog)"),
-            qsTr("All Files (*)")
+            qsTr("ModbusLens 回放日志 (*.mlog)"),
+            qsTr("所有文件 (*)")
         ]
         onAccepted: analysisController.loadReplayFile(selectedFile)
     }
@@ -72,15 +72,15 @@ ApplicationWindow {
             Layout.fillWidth: true
 
             Button {
-                text: qsTr("Run Demo Batch")
+                text: qsTr("运行演示批次")
                 onClicked: analysisController.runDemoBatch()
             }
             Button {
-                text: qsTr("Load Replay...")
+                text: qsTr("加载回放...")
                 onClicked: replayFileDialog.open()
             }
             Button {
-                text: qsTr("Clear")
+                text: qsTr("清空结果")
                 palette.buttonText: "#303030"
                 onClicked: analysisController.clearResults()
             }
@@ -101,7 +101,7 @@ ApplicationWindow {
         // Serial controls (T010 Part B) — one lightweight GroupBox, no new
         // page, no second dashboard. QSerialPort never appears in QML.
         GroupBox {
-            title: qsTr("Serial Controls")
+            title: qsTr("串口控制")
             Layout.fillWidth: true
 
             ColumnLayout {
@@ -109,7 +109,7 @@ ApplicationWindow {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Label { text: qsTr("Port") }
+                    Label { text: qsTr("串口") }
                     ComboBox {
                         id: serialPortCombo
                         model: analysisController.serialPortNames
@@ -117,10 +117,10 @@ ApplicationWindow {
                         Layout.preferredWidth: 140
                     }
                     Button {
-                        text: qsTr("Refresh Ports")
+                        text: qsTr("刷新串口")
                         onClicked: analysisController.refreshSerialPorts()
                     }
-                    Label { text: qsTr("Baud") }
+                    Label { text: qsTr("波特率") }
                     ComboBox {
                         id: serialBaudCombo
                         model: [9600, 19200, 38400, 57600, 115200]
@@ -134,7 +134,7 @@ ApplicationWindow {
                         font.pixelSize: 11
                     }
                     Button {
-                        text: qsTr("Connect")
+                        text: qsTr("连接")
                         enabled: !analysisController.serialConnected
                                  && serialPortCombo.currentIndex >= 0
                         onClicked: analysisController.connectSerial(
@@ -142,7 +142,7 @@ ApplicationWindow {
                             Number(serialBaudCombo.currentText))
                     }
                     Button {
-                        text: qsTr("Disconnect")
+                        text: qsTr("断开")
                         enabled: analysisController.serialConnected
                         onClicked: analysisController.disconnectSerial()
                     }
@@ -153,7 +153,7 @@ ApplicationWindow {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Label { text: qsTr("Slave") }
+                    Label { text: qsTr("从站地址") }
                     SpinBox {
                         id: serialSlaveSpin
                         from: 1
@@ -161,7 +161,7 @@ ApplicationWindow {
                         value: 1
                         enabled: !analysisController.serialBusy
                     }
-                    Label { text: qsTr("Start") }
+                    Label { text: qsTr("起始地址") }
                     SpinBox {
                         id: serialStartSpin
                         from: 0
@@ -169,7 +169,7 @@ ApplicationWindow {
                         value: 0
                         enabled: !analysisController.serialBusy
                     }
-                    Label { text: qsTr("Quantity") }
+                    Label { text: qsTr("寄存器数量") }
                     SpinBox {
                         id: serialQuantitySpin
                         from: 1
@@ -177,7 +177,7 @@ ApplicationWindow {
                         value: 2
                         enabled: !analysisController.serialBusy
                     }
-                    Label { text: qsTr("Timeout (ms)") }
+                    Label { text: qsTr("超时 (ms)") }
                     SpinBox {
                         id: serialTimeoutSpin
                         from: 100
@@ -187,7 +187,7 @@ ApplicationWindow {
                     }
                     Button {
                         text: analysisController.serialBusy
-                              ? qsTr("Reading...") : qsTr("Read Holding Registers Once")
+                              ? qsTr("读取中...") : qsTr("读取保持寄存器")
                         enabled: analysisController.serialConnected
                                  && !analysisController.serialBusy
                         onClicked: analysisController.readHoldingRegistersOnce(
@@ -220,9 +220,9 @@ ApplicationWindow {
 
             Repeater {
                 model: [
-                    { label: qsTr("Observed"), value: analysisController.observedCount },
-                    { label: qsTr("Completed"), value: analysisController.completedCount },
-                    { label: qsTr("Pending"), value: analysisController.pendingCount }
+                    { label: qsTr("已观测"), value: analysisController.observedCount },
+                    { label: qsTr("已完成"), value: analysisController.completedCount },
+                    { label: qsTr("进行中"), value: analysisController.pendingCount }
                 ]
 
                 delegate: Rectangle {
@@ -259,7 +259,7 @@ ApplicationWindow {
                     spacing: 2
 
                     Label {
-                        text: qsTr("Success Rate")
+                        text: qsTr("成功率")
                         color: "#606060"
                     }
                     Label {
@@ -283,7 +283,7 @@ ApplicationWindow {
                     spacing: 2
 
                     Label {
-                        text: qsTr("Avg Latency")
+                        text: qsTr("平均延迟")
                         color: "#606060"
                     }
                     Label {
@@ -308,11 +308,11 @@ ApplicationWindow {
 
             Repeater {
                 model: [
-                    { label: qsTr("Success"), value: analysisController.successCount, color: "#306030" },
-                    { label: qsTr("Exception"), value: analysisController.exceptionCount, color: "#806000" },
-                    { label: qsTr("CRC Error"), value: analysisController.crcErrorCount, color: "#803030" },
-                    { label: qsTr("Timeout"), value: analysisController.timeoutCount, color: "#604080" },
-                    { label: qsTr("Protocol Error"), value: analysisController.protocolErrorCount, color: "#606060" },
+                    { label: qsTr("成功"), value: analysisController.successCount, color: "#306030" },
+                    { label: qsTr("异常"), value: analysisController.exceptionCount, color: "#806000" },
+                    { label: qsTr("CRC 错误"), value: analysisController.crcErrorCount, color: "#803030" },
+                    { label: qsTr("超时"), value: analysisController.timeoutCount, color: "#604080" },
+                    { label: qsTr("协议错误"), value: analysisController.protocolErrorCount, color: "#606060" },
                 ]
 
                 delegate: Rectangle {
@@ -364,7 +364,7 @@ ApplicationWindow {
             // ---- LEFT: Diagnosis pane ----
             GroupBox {
                 id: diagnosisGroup
-                title: qsTr("Diagnosis")
+                title: qsTr("诊断")
                 SplitView.fillHeight: true
                 SplitView.minimumWidth: 300
                 SplitView.preferredWidth: 400
@@ -386,11 +386,11 @@ ApplicationWindow {
                     RowLayout {
                         Layout.fillWidth: true
                         Button {
-                            text: qsTr("Run Baseline Diagnosis")
+                            text: qsTr("运行基线诊断")
                             onClicked: analysisController.runBaselineDiagnosis()
                         }
                         Button {
-                            text: qsTr("Clear Diagnosis")
+                            text: qsTr("清除诊断")
                             onClicked: analysisController.clearDiagnosis()
                         }
                         Item {
@@ -399,33 +399,33 @@ ApplicationWindow {
                     }
 
                     Label {
-                        text: qsTr("AI Explanation")
+                        text: qsTr("AI 解释")
                         font.bold: true
                     }
                     Label {
                         text: analysisController.aiConfigured
-                              ? qsTr("Provider: ModelScope — Model: %1").arg(analysisController.aiModelName)
-                              : qsTr("Provider: ModelScope — Not configured")
+                              ? qsTr("模型服务：ModelScope — 模型：%1").arg(analysisController.aiModelName)
+                              : qsTr("模型服务：ModelScope — 未配置")
                         color: "#606060"
                         font.pixelSize: 11
                     }
                     RowLayout {
                         Layout.fillWidth: true
                         Button {
-                            text: qsTr("Ask AI")
+                            text: qsTr("生成 AI 解释")
                             enabled: analysisController.aiConfigured
                                      && analysisController.hasBaselineDiagnosis
                                      && !analysisController.aiDiagnosisBusy
                             onClicked: analysisController.askAiDiagnosis()
                         }
                         Button {
-                            text: qsTr("Cancel")
+                            text: qsTr("取消")
                             enabled: analysisController.aiDiagnosisBusy
                             onClicked: analysisController.cancelAiDiagnosis()
                         }
                         Label {
                             visible: analysisController.aiDiagnosisBusy
-                            text: qsTr("Requesting...")
+                            text: qsTr("请求中...")
                             color: "#6080a0"
                         }
                         Item {
@@ -455,7 +455,7 @@ ApplicationWindow {
                             spacing: 6
 
                             Label {
-                                text: qsTr("Deterministic Baseline")
+                                text: qsTr("确定性基线诊断")
                                 font.bold: true
                                 width: parent.width
                                 wrapMode: Text.Wrap
@@ -485,7 +485,7 @@ ApplicationWindow {
                             Label {
                                 visible: !analysisController.hasBaselineDiagnosis
                                          && !analysisController.hasAiDiagnosis
-                                text: qsTr("No diagnosis run yet")
+                                text: qsTr("尚未运行诊断")
                                 color: "#909090"
                                 width: parent.width
                                 wrapMode: Text.Wrap
@@ -503,7 +503,7 @@ ApplicationWindow {
                 spacing: 6
 
                 Label {
-                    text: qsTr("Recent Transactions")
+                    text: qsTr("最近通信记录")
                     font.pixelSize: 16
                     font.bold: true
                 }
@@ -533,7 +533,7 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.margins: 6
 
-                                Label { text: qsTr("Device %1").arg(model.deviceAddress); Layout.preferredWidth: 90 }
+                                Label { text: qsTr("设备 %1").arg(model.deviceAddress); Layout.preferredWidth: 90 }
                                 Label {
                                     text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
                                     Layout.preferredWidth: 60
@@ -542,7 +542,7 @@ ApplicationWindow {
                                 Label { text: model.elapsedMs + qsTr(" ms"); Layout.preferredWidth: 90 }
                                 Label {
                                     text: model.hasExceptionCode
-                                          ? qsTr("Code 0x%1").arg(
+                                          ? qsTr("异常码 0x%1").arg(
                                                 ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
                                           : qsTr("—")
                                     color: "#803030"
@@ -554,7 +554,7 @@ ApplicationWindow {
                     Label {
                         anchors.centerIn: parent
                         visible: transactionList.count === 0
-                        text: qsTr("No transactions yet")
+                        text: qsTr("暂无通信记录")
                         color: "#909090"
                     }
                 }
