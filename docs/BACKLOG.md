@@ -90,4 +90,6 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-08 | **T011 Part B Implementation 完成（自动化 GREEN）**：AI-B01~B13+UI-AI01~AI11 全绿；ISSUE-004 RESOLVED（SplitView workspace）；**用户 Manual AI UI Smoke PASS（A~I）**；Live ModelScope Smoke = WAITING；T011 保持 IN PROGRESS |
 | 2026-09-08 | **T011 Part B 完成 → T011 整体 DONE**：Live ModelScope Smoke PASS（Qwen/Qwen3.5-27B 真实验证）；verified LKGC `85699ff`；M6 保持进行中（T012 未完成）；T012 转 Ready |
 | 2026-09-09 | **UI Localization Pass（独立 pass）完成**：code/config commit `9e79558` = verified LKGC；**用户 Manual Localization Smoke PASS**。non-blocking 记录：深色主题下部分 Label/Diagnosis 正文对比度偏低 → 归入 T013 统一处理（本次不实现、不扩 scope） |
+| 2026-09-09 | **AI Explanation Polish Review（独立 follow-up，非 T012）**：ISSUE-006 OPEN——AI 解释措辞过度归因的根因（模型先验/system 约束缺口/0x02 语义与小样本未下发）与最小方案（仅 DiagnosisPromptBuilder：system Attribution discipline + user `small_sample=true`≤10；测试 AI-B14/B15）已记录；**Implementation 待用户批准**；T011 历史不改写 |
+
 | 2026-09-08 | ISSUE-005（AI"操作被取消"泄漏）RESOLVED：AiAbortReason 归属 + 单一 timeout owner 90s + 文案解耦；Live 27B Regression Smoke PASS；verified LKGC `bb3f3b4` |
