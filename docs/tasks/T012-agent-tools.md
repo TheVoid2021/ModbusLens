@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A ✅ DONE（verified LKGC `797269a`）；Part B IN PROGRESS：Gate 0 ✅ PROVEN（native round trip 实证）→ Phase 1 IMPLEMENTED / AWAITING REVIEW（candidate `da453a7`）；Phase 2 NOT STARTED**
+- **状态**：IN PROGRESS — **Part A ✅ DONE（verified LKGC `797269a`）；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 IMPLEMENTED / AWAITING REVIEW（latest candidate `2becc41`，含 Review P0 fix）；Phase 2 NOT STARTED**
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -301,6 +301,7 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - code/test（Part A，LKGC candidate，未经人工审核、未推进 LKGC）：`9921efd` `T012(Part A): read-only agent tool layer — dispatcher + validation + JSON DTO`
 - code/test（Part A Review P0 fix，**最新 LKGC candidate**，未推进）：`797269a` `fix(T012): Pending is not an anomaly — whitelist filter in get_recent_anomalies` → **verified LKGC（用户 Review PASS 后推进）**
 - code/test（Part B Phase 1，**最新 LKGC candidate**，未推进）：`da453a7` `T012(Part B Phase 1): native tool-calling agent runtime — FSM + provider adapter`
+- code/test（Part B Phase 1 Review P0 fix，**最新 Phase 1 candidate**，未推进）：`2becc41` `fix(T012): single batch-identity source — remove duplicated AgentRunRequest revision`
 - docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`、`40177a2`（Learning 哈希回填）；Part A 归档 docs commit 随本档案更新提交（哈希回填于 PROJECT_STATUS 变更记录）
 
 ## Potential Interview Questions
@@ -309,6 +310,15 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 
 
 
+
+## Part B Phase 1 Review Fix（2026-09-09，用户 Review P0）
+
+- **发现（state identity duplication）**：`AgentRunRequest.capturedBatchRevision` 与 `AgentToolContext.capturedBatchRevision` 重复——可合法构造 context=A、request=B，使 stale guard 对 B 通过而 Tool facts 属于 A。**不变量**：AgentToolContext = facts + statistics + captured batch identity，三者一体。
+- **修复（`2becc41`）**：删除 request 字段（类型层消灭非法分裂态）；`start()` 以 `request.context.capturedBatchRevision` 为唯一来源；runGeneration 保留（同 batch supersede 职责不变）；双 guard 最终形态：`capturedBatchRevision_ == currentBatchRevision_` AND `runGeneration_ == currentAgentGeneration_`。
+- **Final Answer Usability Contract audit**：无 tool_calls 且 content 缺失/空/whitespace → provider **InvalidResponse**（绝不 emit 空 answer 的 runCompleted）。（audit 发现旧代码误归 local MalformedToolCall，已修正。）
+- **tool_calls 与 content 同时存在**：优先 Tool Calling（message shape 是 authority，不依赖 finish_reason；usable tool_calls 表示模型仍在请求外部观察）。
+- **测试**：B19（context rev=41 即 run 身份；mid-flight 切换 discаrd）/ B20（空 content→InvalidResponse）/ B21（tool_calls+content 双存在→工具优先、结果回传、final 消费）。**RED= B20 在旧实现失败；修复后全绿**。B01~B18 未删未弱化。
+- **验证**：clean 142 targets 零警告；ctest 22/22；零公网。候选链：`da453a7` → **`2becc41`（最新 Phase 1 candidate）**；verified LKGC 未推进。
 
 ## Part B Phase 1 — Native Agent Runtime（2026-09-09，IMPLEMENTED / AWAITING REVIEW）
 

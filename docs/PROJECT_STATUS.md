@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T012 Part B Phase 1 IMPLEMENTED / AWAITING REVIEW（candidate `da453a7`；Gate 0 ✅ PROVEN）** |
+| 当前任务（Current Task） | **T012 Part B Phase 1 IMPLEMENTED / AWAITING REVIEW（latest candidate `2becc41`；含 Review P0 fix）** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
 | 当前阶段（Current Phase） | T012 Part B Phase 1（Native Agent Runtime）落地：RED→GREEN、AGENT-B01~B18、ctest 22/22 → 待用户 review；Phase 2（Controller+QML）NOT STARTED |
-| 下一步动作（Next Action） | **T012 Part B Phase 1 人工 review（`da453a7`）；通过后 Phase 2（Controller Agent Integration + QML Agent UI，需再批准）** |
+| 下一步动作（Next Action） | **T012 Part B Phase 1 最终 Review（`2becc41`）；通过后 Phase 2（Controller Agent Integration + QML Agent UI，需再批准）** |
 | 下一 Part（Next Part） | **T012 Part B — Agent Runtime + UI（Live Tool-Calling Probe 先行，需用户授权）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -171,6 +171,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-09 | **T012 Part B Gate 0 Probe — Request #1 PASS**：真实 ModelScope（Qwen/Qwen3.5-27B）返回标准 native tool_calls（name=get_session_summary / arguments={} / id 完整 / finish_reason=tool_calls, HTTP 200）——原生路径成立；累计真实请求 2（首轮 Probe 脚本本地解析 bug 消耗 1，如实记录）；**tool round trip（Request #2）待用户追加授权**；临时脚本已删除、零 production code |
 | 2026-09-09 | **T012 Part B Gate 0 — 完成 ✅ PROVEN**：追加授权后 Request #2（assistant tool_calls 原样 + role=tool + tool_call_id 完全匹配 + synthetic result）→ HTTP 200、finish_reason=stop、final content 正确引用 observed=4/timeout=1——**Native Tool Calling round trip 全链实证**（累计真实请求 3，红线内；Attempt 历史如实保留）；临时脚本删除、零 production code；Path A（原生 tools）成立，无需 Hermes |
 | 2026-09-09 | **T012 Part B Phase 1 Implementation 完成（自动化全 GREEN）**：AgentRuntime（双硬上限 3/3、整批 validate-then-execute、双层 stale guard、supersede/cancel）+ ModelScopeAgentClient（native tool calling，ISSUE-005 契约复刻）+ AgentPromptBuilder（三工具固定 schema）+ Part A validate-only/snapshot builder 增量；RED=47 处 undefined；ctest 22/22、clean 142 零警告；T011 与 Part A 语义零改动；**candidate = `da453a7`（LKGC 未推进，待 review）**；Phase 2 NOT STARTED |
+| 2026-09-09 | **T012 Part B Phase 1 Review P0 fix（`2becc41`）**：删除 AgentRunRequest 重复 revision（AgentToolContext 为 batch 身份单一来源；类型层消灭 context=A/request=B 分裂态）；空 final content→provider InvalidResponse（绝不空答案）；tool_calls 优先于 content（message shape 权威）；新增 B19/B20/B21（RED=B20 旧实现失败）；clean 142 零警告、ctest 22/22；**最新 Phase 1 candidate = `2becc41`（LKGC 未推进）** |
+
 
 
 
