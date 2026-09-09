@@ -58,9 +58,11 @@ agent::AgentRunRequest runRequest(const QString& question,
                                   const agent::AgentToolContext& context,
                                   std::uint64_t generation)
 {
+    // The context IS the snapshot identity: no second revision field exists
+    // on the request (Phase 1 review fix) — a run can never be told a
+    // revision that disagrees with its facts.
     return agent::AgentRunRequest{.userQuestion = question,
                                   .context = context,
-                                  .capturedBatchRevision = context.capturedBatchRevision,
                                   .runGeneration = generation};
 }
 
@@ -151,6 +153,9 @@ private slots:
     void b16_agentNeverChangesDeterministicFacts();
     void b17_noApiKeyAgentUnavailable();
     void b18_questionValidation();
+    void b19_runUsesContextRevisionAsSoleBatchIdentity();
+    void b20_emptyFinalContentIsInvalidResponse();
+    void b21_toolCallsTakePrecedenceOverContent();
 };
 
 void AgentRuntimeTest::b01_directFinalAnswerZeroTools()
@@ -556,6 +561,68 @@ void AgentRuntimeTest::b18_questionValidation()
         QVERIFY(!h.runtime.isBusy());
     }
     QCOMPARE(h.completed.count(), 0);
+}
+
+void AgentRuntimeTest::b19_runUsesContextRevisionAsSoleBatchIdentity()
+{
+    Harness h;
+    h.server.setNextResponse(
+        200, completionBody(finalMessage(QStringLiteral("LATE")), QStringLiteral("stop")),
+        300);
+    // Context revision = 41 IS the run's batch identity. start() must adopt
+    // it (the request type has no revision field of its own anymore).
+    auto context = goldenContext();
+    context.capturedBatchRevision = 41;
+    h.runtime.setCurrentBatchRevision(41);
+    h.runtime.start(runRequest(QStringLiteral("hi"), context, 1));
+    QTRY_VERIFY(h.server.requestCount() == 1); // request really went out
+    h.runtime.setCurrentBatchRevision(42);     // batch switched mid-flight
+    QTest::qWait(700);
+    QCOMPARE(h.completed.count(), 0); // stale delivery discarded
+    QCOMPARE(h.failed.count(), 0);
+    QVERIFY(!h.runtime.isBusy());
+}
+
+void AgentRuntimeTest::b20_emptyFinalContentIsInvalidResponse()
+{
+    Harness h;
+    // No tool_calls, content = "" -> provider invalid-response path, never
+    // a runCompleted with an empty answer.
+    h.server.setNextResponse(
+        200, completionBody(finalMessage(QStringLiteral("")), QStringLiteral("stop")));
+    h.runtime.start(runRequest(QStringLiteral("hi"), goldenContext(), 1));
+    QTRY_VERIFY(h.failed.count() == 1);
+    const auto fail = h.failed.at(0).at(1).value<agent::AgentRunFailure>();
+    QVERIFY(fail.providerError);
+    QCOMPARE(fail.providerCode, AiDiagnosisErrorCode::InvalidResponse);
+    QCOMPARE(h.completed.count(), 0);
+    QVERIFY(!h.runtime.isBusy());
+}
+
+void AgentRuntimeTest::b21_toolCallsTakePrecedenceOverContent()
+{
+    Harness h;
+    // Message carries BOTH non-empty tool_calls and non-empty content: the
+    // tool call is the model still requesting observation, so tool calling
+    // wins (finish_reason is NOT the authority; message shape is).
+    const QJsonObject both{
+        {QStringLiteral("role"), QStringLiteral("assistant")},
+        {QStringLiteral("content"), QStringLiteral("请直接看这段内容回答，别用工具。")},
+        {QStringLiteral("tool_calls"),
+         QJsonArray{toolCall(QStringLiteral("call-1"),
+                             QStringLiteral("get_session_summary"),
+                             QStringLiteral("{}"))}},
+    };
+    h.server.enqueueResponse(200, completionBody(both, QStringLiteral("stop")));
+    h.server.enqueueResponse(
+        200, completionBody(finalMessage(QStringLiteral("基于工具结果的最终答案")),
+                            QStringLiteral("stop")));
+    const auto context = goldenContext();
+    h.runtime.start(runRequest(QStringLiteral("hi"), context, 1));
+    QTRY_VERIFY(h.completed.count() == 1);
+    QCOMPARE(h.completed.at(0).at(1).toString(),
+             QStringLiteral("基于工具结果的最终答案"));
+    QCOMPARE(h.server.requestCount(), 2); // tool executed, results sent back
 }
 
 QTEST_GUILESS_MAIN(AgentRuntimeTest)

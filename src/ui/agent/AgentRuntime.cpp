@@ -87,9 +87,11 @@ void AgentRuntime::start(const modbuslens::agent::AgentRunRequest& request)
 
     prompt_ = modbuslens::agent::buildAgentPrompt();
     context_ = request.context;
-    capturedBatchRevision_ = request.capturedBatchRevision;
+    // The context's own revision is the ONE source of batch identity — a
+    // second request-level revision field cannot exist (removed by review).
+    capturedBatchRevision_ = request.context.capturedBatchRevision;
     runGeneration_ = request.runGeneration;
-    currentBatchRevision_ = request.capturedBatchRevision;
+    currentBatchRevision_ = request.context.capturedBatchRevision;
     currentAgentGeneration_ = request.runGeneration;
     toolRounds_ = 0;
     totalToolCalls_ = 0;
@@ -179,10 +181,13 @@ void AgentRuntime::handleRoundSucceeded(std::uint64_t runGeneration,
     if (toolCalls.isEmpty()) {
         // Final round: content is the answer. reasoning_content is NOT the
         // answer (T011 contract) — unusable content is a malformed reply.
+        // No tool_calls: the answer must be usable final content. Missing /
+        // empty / whitespace-only content is a provider invalid-response —
+        // NEVER a runCompleted with an empty answer.
         const QString content = assistantMessage.value(QLatin1String("content")).toString();
         if (content.trimmed().isEmpty()) {
-            failLocal(AgentRunLocalError::MalformedToolCall,
-                      localErrorMessage(AgentRunLocalError::MalformedToolCall));
+            failProvider(AiDiagnosisErrorCode::InvalidResponse,
+                         QStringLiteral("响应中无可用最终回答"));
             return;
         }
         finishCompleted(content);

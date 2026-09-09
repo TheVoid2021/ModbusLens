@@ -51,7 +51,10 @@ struct AgentRunFailure {
 struct AgentRunRequest {
     QString userQuestion;
     AgentToolContext context;      // immutable per-run snapshot (self-consistent)
-    std::uint64_t capturedBatchRevision{};
+    // The context IS the full snapshot identity — including which batch it
+    // belongs to. There is deliberately NO second revision field here (Phase
+    // 1 review fix): a run can never be told a revision that disagrees with
+    // its facts.
     std::uint64_t runGeneration{};
 };
 
