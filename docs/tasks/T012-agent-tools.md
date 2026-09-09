@@ -247,7 +247,7 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 
 ## Git Commit
 
-- docs-only：`T012: Agent Tools — Learning / Test Design（docs-only）`（哈希待 commit 后回填 PROJECT_STATUS 变更记录；LKGC 保持 `01841b1`）。
+- docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`（LKGC 保持 `01841b1`，未推进）。
 
 ## Potential Interview Questions
 
