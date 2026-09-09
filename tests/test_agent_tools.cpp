@@ -158,6 +158,41 @@ void AgentToolsTest::a02_recentAnomaliesOnlyFailuresAndLatest20()
     QCOMPARE(json.value("evidence_scope").toString(),
              QStringLiteral("current_observed_batch"));
 
+    // Six-status batch: PENDING IS NOT AN ANOMALY (T011 contract — a
+    // pending transaction has neither succeeded nor failed). Entries must
+    // contain exactly Exception/CrcError/Timeout/ProtocolError.
+    {
+        const std::vector<core::DiagnosisTransaction> six = {
+            tx(0x01, core::TransactionStatus::Success, 10),
+            tx(0x01, core::TransactionStatus::Pending, 100),
+            tx(0x01, core::TransactionStatus::Exception, 18, std::uint8_t{0x02}),
+            tx(0x01, core::TransactionStatus::CrcError, 17),
+            tx(0x01, core::TransactionStatus::Timeout, 1000),
+            tx(0x01, core::TransactionStatus::ProtocolError, 8),
+        };
+        const auto sixCore = core::buildDiagnosisContext(six);
+        const agent::AgentToolContext sixCtx{
+            .transactions = sixCore.transactions,
+            .statistics = sixCore.statistics,
+            .capturedBatchRevision = 1};
+        const auto sixResult = agent::dispatchAgentTool(
+            sixCtx, "get_recent_anomalies", QJsonObject{});
+        const auto* sixAnom =
+            std::get_if<agent::RecentAnomaliesResult>(&sixResult);
+        QVERIFY(sixAnom != nullptr);
+        QCOMPARE(sixAnom->totalAnomalyCount, std::size_t{4});
+        QVERIFY(!sixAnom->truncated);
+        QCOMPARE(sixAnom->entries.size(), std::size_t{4});
+        QCOMPARE(sixAnom->entries[0].transactionNumber, std::size_t{3});
+        QCOMPARE(sixAnom->entries[1].transactionNumber, std::size_t{4});
+        QCOMPARE(sixAnom->entries[2].transactionNumber, std::size_t{5});
+        QCOMPARE(sixAnom->entries[3].transactionNumber, std::size_t{6});
+        for (const auto& entry : sixAnom->entries) {
+            QVERIFY(entry.status != core::TransactionStatus::Pending);
+            QVERIFY(entry.status != core::TransactionStatus::Success);
+        }
+    }
+
     // > 20 anomalies: ONLY the latest 20, keeping ORIGINAL order.
     // Batch: 1 Success + 29 CrcError -> 29 anomalies -> latest 20 = #11..30.
     std::vector<core::DiagnosisTransaction> batch;
@@ -187,6 +222,48 @@ void AgentToolsTest::a02_recentAnomaliesOnlyFailuresAndLatest20()
     QCOMPARE(bigJson.value("total_anomaly_count").toInt(), 29);
     QCOMPARE(bigJson.value("returned_count").toInt(), 20);
     QCOMPARE(bigJson.value("truncated").toBool(), true);
+
+    // Latest-20 is selected over the ANOMALY sequence, NOT over the raw
+    // transaction sequence: trailing Pending entries never consume the
+    // anomaly budget and never appear in the result. Batch layout:
+    //   #1..10 Success, #11..20 Pending, #21..41 CrcError (21 anomalies),
+    //   #42..44 Pending.  Correct latest-20 = Crc #22..#41.
+    //   (A wrong "last 20 transactions then filter" would start at #25
+    //    and miss #22..#24.)
+    {
+        std::vector<core::DiagnosisTransaction> mixed;
+        for (int i = 0; i < 10; ++i) {
+            mixed.push_back(tx(0x01, core::TransactionStatus::Success, 5));
+        }
+        for (int i = 0; i < 10; ++i) {
+            mixed.push_back(tx(0x01, core::TransactionStatus::Pending, 60));
+        }
+        for (int i = 0; i < 21; ++i) {
+            mixed.push_back(tx(0x01, core::TransactionStatus::CrcError, 20 + i));
+        }
+        for (int i = 0; i < 3; ++i) {
+            mixed.push_back(tx(0x01, core::TransactionStatus::Pending, 70));
+        }
+        const auto mixedCore = core::buildDiagnosisContext(mixed);
+        const agent::AgentToolContext mixedCtx{
+            .transactions = mixedCore.transactions,
+            .statistics = mixedCore.statistics,
+            .capturedBatchRevision = 1};
+        const auto mixedResult = agent::dispatchAgentTool(
+            mixedCtx, "get_recent_anomalies", QJsonObject{});
+        const auto* mixedAnom =
+            std::get_if<agent::RecentAnomaliesResult>(&mixedResult);
+        QVERIFY(mixedAnom != nullptr);
+        QCOMPARE(mixedAnom->totalAnomalyCount, std::size_t{21});
+        QVERIFY(mixedAnom->truncated);
+        QCOMPARE(mixedAnom->entries.size(), std::size_t{20});
+        QCOMPARE(mixedAnom->entries.front().transactionNumber, std::size_t{22});
+        QCOMPARE(mixedAnom->entries.back().transactionNumber, std::size_t{41});
+        for (const auto& entry : mixedAnom->entries) {
+            QCOMPARE(entry.status, core::TransactionStatus::CrcError);
+            QVERIFY(entry.status != core::TransactionStatus::Pending);
+        }
+    }
 }
 
 void AgentToolsTest::a03_transactionDetailByNumber()
@@ -228,6 +305,28 @@ void AgentToolsTest::a03_transactionDetailByNumber()
     const QJsonObject json1 = agent::toJsonObject(*detail1);
     QVERIFY(!json1.contains("exception_code"));
     QVERIFY(!json1.contains("exception_name"));
+
+    // Unknown exception code (0x7E): the fact is reported, the NAME is
+    // deliberately ABSENT — never guessed, no invented prose.
+    const std::vector<core::DiagnosisTransaction> unknownBatch = {
+        tx(0x03, core::TransactionStatus::Exception, 8, std::uint8_t{0x7E}),
+    };
+    const auto unknownCore = core::buildDiagnosisContext(unknownBatch);
+    const agent::AgentToolContext unknownCtx{
+        .transactions = unknownCore.transactions,
+        .statistics = unknownCore.statistics,
+        .capturedBatchRevision = 1};
+    const auto unknownResult = agent::dispatchAgentTool(
+        unknownCtx, "get_transaction_detail",
+        QJsonObject{{QStringLiteral("transaction_number"), 1}});
+    const auto* unknown =
+        std::get_if<agent::TransactionDetailResult>(&unknownResult);
+    QVERIFY(unknown != nullptr);
+    QVERIFY(unknown->exceptionCode.has_value());
+    QCOMPARE(*unknown->exceptionCode, std::uint8_t{0x7E});
+    const QJsonObject unknownJson = agent::toJsonObject(*unknown);
+    QCOMPARE(unknownJson.value("exception_code").toInt(), 0x7E);
+    QVERIFY(!unknownJson.contains("exception_name")); // never guessed
 }
 
 void AgentToolsTest::a04_transactionNotFound()

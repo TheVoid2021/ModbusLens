@@ -309,7 +309,8 @@ if(BUILD_TESTING)
     add_test(NAME ai_client COMMAND modbuslens_ai_tests)
 
     # Agent tools (T012 Part A): read-only tool layer — offline, zero
-    # network, zero provider; pure dispatcher + deterministic snapshots.
+    # network, zero provider; explicit dispatcher + deterministic snapshots
+    # (QtCore JSON exists only at the arguments/serialization boundary).
     add_executable(modbuslens_agent_tools_tests
         tests/test_agent_tools.cpp
         src/ui/agent/AgentToolContext.h

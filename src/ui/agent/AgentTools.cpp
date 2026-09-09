@@ -24,9 +24,23 @@ using modbuslens::core::TransactionStatus;
 
 constexpr std::string_view kEvidenceScope = "current_observed_batch";
 
-bool isNonSuccess(TransactionStatus status)
+// T011 deterministic contract: Pending means "not finished yet" — it is
+// neither Success nor a completed failure, and it is NOT an anomaly.
+// The anomaly whitelist is exactly the four completed failure statuses
+// (same semantic as the T011 baseline failure definition).
+bool isAnomalyStatus(TransactionStatus status)
 {
-    return status != TransactionStatus::Success;
+    switch (status) {
+    case TransactionStatus::Exception:
+    case TransactionStatus::CrcError:
+    case TransactionStatus::Timeout:
+    case TransactionStatus::ProtocolError:
+        return true;
+    case TransactionStatus::Success:
+    case TransactionStatus::Pending:
+        return false;
+    }
+    return false;
 }
 
 SessionSummaryResult makeSessionSummary(const AgentToolContext& context)
@@ -61,11 +75,11 @@ AnomalyEntry makeAnomalyEntry(std::size_t transactionNumber,
 
 RecentAnomaliesResult makeRecentAnomalies(const AgentToolContext& context)
 {
-    // 1-based ordinals of every non-Success transaction, in batch order.
+    // 1-based ordinals of every whitelisted anomaly transaction, in batch order.
     std::vector<std::size_t> anomalyOrdinals;
     anomalyOrdinals.reserve(context.transactions.size());
     for (std::size_t i = 0; i < context.transactions.size(); ++i) {
-        if (isNonSuccess(context.transactions[i].analysis.status)) {
+        if (isAnomalyStatus(context.transactions[i].analysis.status)) {
             anomalyOrdinals.push_back(i + 1);
         }
     }

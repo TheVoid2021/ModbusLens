@@ -70,7 +70,7 @@ struct AnomalyEntry {
 };
 
 struct RecentAnomaliesResult {
-    std::size_t totalAnomalyCount{}; // all status != Success
+    std::size_t totalAnomalyCount{}; // all whitelisted anomaly statuses
     bool truncated{};                // total > kMaxRecentAnomalies
     // Latest 20 anomalies in ORIGINAL batch order (R2 — never reversed,
     // never randomly sampled). returned_count == entries.size().
