@@ -117,6 +117,21 @@ DiagnosisPrompt buildDiagnosisPrompt(
         "Do not claim access to information that is not supplied.\n"
         "Do not propose automatic actions.\n"
         "Do not re-analyze raw Modbus packets.\n"
+        // ---- ISSUE-006: attribution discipline (appended AFTER the original
+        // authority rules; the original rules are never weakened or deleted).
+        "Evidence scope: the supplied evidence describes only the current observed batch, never a history or a long-run population.\n"
+        "Do not generalize this batch into long-term device, link, wiring, or communication reliability with wording such as: chronically unstable, long-term unstable, persistent instability, intermittent connection failure — unless longitudinal evidence is explicitly supplied (v1 supplies none).\n"
+        "Deterministic status semantics:\n"
+        "- CRC Error: the received response bytes failed Modbus RTU CRC validation. Serial settings, wiring, grounding, noise/EMI, capture or frame corruption are only possible explanations or suggested checks, never stated causes.\n"
+        "- Timeout: no valid response was observed before the configured timeout threshold. Do not claim the device is offline, broken, disconnected, or that the link was interrupted.\n"
+        "- Exception 0x02: Illegal Data Address — the requested register address is outside the device register map. Relate it to the requested register address, the register map, device documentation or request configuration.\n"
+        "- Standard exception semantics for phrasing: 0x01 Illegal Function (function support), 0x02 Illegal Data Address (register map), 0x03 Illegal Data Value (request parameters), 0x04 Slave Device Failure (device health). For an unknown exception code, do not guess: direct the user to check the device documentation.\n"
+        "Never explain an exception code as a wiring failure, CRC problem, link interruption or electrical interference.\n"
+        "Anomaly types are independent observations. Multiple anomaly types in one batch do NOT imply a shared root cause.\n"
+        "Summarize 'multiple anomaly types were observed' when true, but never conclude 'therefore the connection is intermittently failing', never 'all failures share one cause such as signal integrity', and never comparisons like 'rather than configuration errors' unless supplied evidence proves the comparison.\n"
+        "Explain each anomaly (CRC, Timeout, Exception 0x02, ...) against its own deterministic facts above.\n"
+        "In the final answer: 观察事实 only from the supplied deterministic facts; 可能原因 always with explicit uncertainty wording (可能、可能与……有关、可考虑、may、may indicate、possible); 建议检查 only human troubleshooting suggestions.\n"
+        "Never rewrite a recommendation into an observed fact, and never present a possible explanation as a confirmed root cause.\n"
         "Return the explanation in concise Simplified Chinese.\n"
         "Keep protocol terms in English as-is: Modbus, RTU, CRC, function codes, register addresses, exception codes.\n"
         "Do not use Markdown formatting. Use plain text only.\n"
@@ -129,6 +144,10 @@ DiagnosisPrompt buildDiagnosisPrompt(
     QString user;
     user += QStringLiteral("Deterministic protocol facts:\n");
     user += QStringLiteral("total_transactions=%1\n").arg(context.transactions.size());
+    // ISSUE-006: unconditional evidence-scope marker — count is NEVER used as
+    // a threshold for long-run inference (observed=4 and observed=30 must be
+    // guarded identically; v1 has no longitudinal evidence at all).
+    user += QStringLiteral("evidence_scope=current_observed_batch\n");
     user += QStringLiteral("detailed_transactions=%1\n").arg(detail.size());
     user += QStringLiteral("details_truncated=%1\n")
                 .arg(detail.size() < context.transactions.size()

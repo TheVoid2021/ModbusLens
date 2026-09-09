@@ -93,6 +93,11 @@ private slots:
     void b11_cancel();
     void b12_timeout();
     void b13_requestIdentityGuard();
+    // ---- ISSUE-006: attribution discipline (prompt contract locks) ----
+    void b14_promptAttributionDiscipline();
+    void b15_evidenceScopeNotCountBased();
+    void b16_exception02Semantics();
+    void b17_mixedFailureIndependence();
 };
 
 void AiClientTest::b01_promptAuthority()
@@ -455,6 +460,139 @@ void AiClientTest::b13_requestIdentityGuard()
         QVERIFY2(text != QStringLiteral("OLD RESPONSE"), "stale text surfaced");
     }
     QVERIFY(sawNew);
+}
+
+// ---- ISSUE-006: attribution discipline tests ----
+// These lock the PROMPT CONTRACT only: they prove the deterministic builder
+// emits the evidence-scope marker, per-status semantics and independence
+// guards. They intentionally do NOT attempt to prove "the LLM will obey" —
+// that is Live-Smoke territory (human judgment + quota authorization).
+
+void AiClientTest::b14_promptAttributionDiscipline()
+{
+    // Mixed golden: 1 Success + 1 CRC + 1 Timeout + 1 Exception 0x02.
+    const DiagnosisContext context = goldenContext();
+    const DiagnosisPrompt prompt = buildDiagnosisPrompt(
+        context, diagnoseTransactions(context));
+
+    const QString system = prompt.systemInstructions;
+    const QString user = prompt.userPrompt;
+
+    // Original authority rules still present (never weakened).
+    QVERIFY(system.contains(QStringLiteral("authoritative")));
+    // Evidence scope: current batch only, no long-run generalization.
+    QVERIFY(system.contains(QStringLiteral("current observed batch")));
+    QVERIFY(system.contains(QStringLiteral("long-term")));
+    // Per-status deterministic semantics (uncertainty rules).
+    QVERIFY(system.contains(QStringLiteral("failed Modbus RTU CRC validation")));
+    QVERIFY(system.contains(QStringLiteral("only possible explanations or suggested checks, never stated causes")));
+    QVERIFY(system.contains(QStringLiteral("no valid response was observed")));
+    QVERIFY(system.contains(QStringLiteral("Do not claim the device is offline")));
+    // Exception semantics.
+    QVERIFY(system.contains(QStringLiteral("Illegal Data Address")));
+    // Mixed-failure independence.
+    QVERIFY(system.contains(QStringLiteral("independent observations")));
+    QVERIFY(system.contains(QStringLiteral("shared root cause")));
+    // Facts / possible explanations / suggested checks separation.
+    QVERIFY(system.contains(QStringLiteral("observed facts")));
+    QVERIFY(system.contains(QStringLiteral("possible explanations")));
+    QVERIFY(system.contains(QStringLiteral("suggested checks")));
+    QVERIFY(system.contains(QStringLiteral("uncertainty wording")));
+
+    // User facts remain the real deterministic facts.
+    QVERIFY(user.contains(QStringLiteral("evidence_scope=current_observed_batch")));
+    QVERIFY(user.contains(QStringLiteral("observed=4")));
+    QVERIFY(user.contains(QStringLiteral("completed=4")));
+    QVERIFY(user.contains(QStringLiteral("success_rate")));
+    QVERIFY(user.contains(QStringLiteral("exception_code=0x02")));
+    QVERIFY(user.contains(QStringLiteral("baseline findings")));
+}
+
+void AiClientTest::b15_evidenceScopeNotCountBased()
+{
+    // Case A: observed = 4 (the golden demo batch).
+    const DiagnosisPrompt promptA = buildDiagnosisPrompt(
+        goldenContext(), diagnoseTransactions(goldenContext()));
+    QVERIFY(promptA.userPrompt.contains(
+        QStringLiteral("evidence_scope=current_observed_batch")));
+
+    // Case B: observed = 30 (25 CRC + 5 Success, same shape as b02).
+    std::vector<DiagnosisTransaction> batch;
+    for (int i = 0; i < 5; ++i) {
+        batch.push_back(tx(0x01, TransactionStatus::Success, 20 + i));
+    }
+    for (int i = 0; i < 25; ++i) {
+        batch.push_back(tx(0x01, TransactionStatus::CrcError, 10 + i));
+    }
+    const DiagnosisContext contextB = buildDiagnosisContext(batch);
+    const DiagnosisPrompt promptB = buildDiagnosisPrompt(
+        contextB, diagnoseTransactions(contextB));
+    QVERIFY(promptB.userPrompt.contains(QStringLiteral("total_transactions=30")));
+    QVERIFY(promptB.userPrompt.contains(
+        QStringLiteral("evidence_scope=current_observed_batch")));
+
+    // The guard is NOT count-based: no threshold artifact anywhere.
+    QVERIFY(!promptA.userPrompt.contains(QStringLiteral("small_sample")));
+    QVERIFY(!promptB.userPrompt.contains(QStringLiteral("small_sample")));
+    // The long-run generalization ban is in the static system instruction,
+    // so both cases are guarded identically by the same rule.
+    QVERIFY(promptA.systemInstructions.contains(
+        QStringLiteral("Do not generalize this batch into long-term")));
+    QVERIFY(promptB.systemInstructions == promptA.systemInstructions);
+}
+
+void AiClientTest::b16_exception02Semantics()
+{
+    // A lone Exception 0x02 transaction.
+    const std::vector<DiagnosisTransaction> lone = {
+        tx(0x01, TransactionStatus::Exception, 18, std::uint8_t{0x02}),
+    };
+    const DiagnosisPrompt prompt = buildDiagnosisPrompt(
+        buildDiagnosisContext(lone),
+        diagnoseTransactions(buildDiagnosisContext(lone)));
+
+    // 0x02 must be anchored to Illegal Data Address / register map.
+    const QString system = prompt.systemInstructions;
+    QVERIFY(system.contains(QStringLiteral("Illegal Data Address")));
+    QVERIFY(system.contains(QStringLiteral("register map")));
+
+    // Every system line that names Illegal Data Address must stay on
+    // address/register-map semantics — no physical-layer root cause there.
+    const QStringList lines = system.split(QLatin1Char('\n'));
+    bool sawSemanticsLine = false;
+    for (const QString& line : lines) {
+        if (line.contains(QStringLiteral("Illegal Data Address"))) {
+            sawSemanticsLine = true;
+            QVERIFY(!line.contains(QStringLiteral("interference")));
+            QVERIFY(!line.contains(QStringLiteral("wiring")));
+            QVERIFY(!line.contains(QStringLiteral("CRC")));
+        }
+    }
+    QVERIFY(sawSemanticsLine);
+
+    // The user facts carry the exception code itself.
+    QVERIFY(prompt.userPrompt.contains(QStringLiteral("exception=1")));
+    QVERIFY(prompt.userPrompt.contains(QStringLiteral("exception_code=0x02")));
+}
+
+void AiClientTest::b17_mixedFailureIndependence()
+{
+    // CRC + Timeout + Exception 0x02 in ONE batch.
+    const DiagnosisContext context = goldenContext();
+    const DiagnosisPrompt prompt = buildDiagnosisPrompt(
+        context, diagnoseTransactions(context));
+
+    const QString system = prompt.systemInstructions;
+    QVERIFY(system.contains(QStringLiteral("independent observations")));
+    QVERIFY(system.contains(QStringLiteral("shared root cause")));
+    QVERIFY(system.contains(QStringLiteral("never conclude")));
+    QVERIFY(system.contains(QStringLiteral("rather than configuration errors")));
+
+    // The three anomaly facts stay three independent facts.
+    const QString user = prompt.userPrompt;
+    QVERIFY(user.contains(QStringLiteral("crc_error=1")));
+    QVERIFY(user.contains(QStringLiteral("timeout=1")));
+    QVERIFY(user.contains(QStringLiteral("exception_code=0x02")));
 }
 
 QTEST_GUILESS_MAIN(AiClientTest)
