@@ -97,6 +97,8 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-09 | **T012 Part A Review fix（`797269a`）**：Pending 不算法 anomaly（whitelist 筛选 + latest-20 按 anomaly 序列）；A02/A03 扩充；ctest 21/21；**最新 Part A candidate = `797269a`，LKGC 未推进** |
 | 2026-09-09 | **用户 T012 Part A Review = PASS** → **Part A = DONE**；verified LKGC 推进至 `797269a`；Part B NOT STARTED（Probe 待授权） |
 | 2026-09-09 | **T012 Part B Gate 0（Probe）**：Request #1 实证 ModelScope 原生 tool_calls（PASS）；累计 2 次真实请求已达本轮授权上限；round-trip Request #2 待用户追加授权 |
+| 2026-09-09 | **T012 Part B Gate 0 ✅ PROVEN**：Request #2 round trip PASS（role=tool 接受、id 匹配、final 引用 observed=4/timeout=1）——Qwen/Qwen3.5-27B native tool calling 全链实证；累计 3 次真实请求；Agent Runtime Implementation 待批准 |
+
 
 
 

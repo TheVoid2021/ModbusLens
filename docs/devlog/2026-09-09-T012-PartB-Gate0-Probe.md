@@ -16,3 +16,12 @@
 ## 问题与决策点(供用户)
 
 Request #2 需要 **1 次追加真实请求**;你批准后再执行(方案已在档案中,不做任何设计变更)。
+
+
+## 追加（晚些）— Request #2 PASS，Gate 0 完成 ✅
+
+- 经用户追加授权（1 次），执行 Request #2（不重发 #1；assistant tool_calls 按归档证据原样回传，tool_call_id `call_fda63adb045c484a81392be5` 完全匹配，role=tool 携带 synthetic deterministic result）：
+  - HTTP 200；`finish_reason="stop"`；无再次 tool 请求；final content = "根据当前 session summary 数据：- **事务总数**：4 条 (observed_count: 4) - **Timeout 次数**：1 次 (timeout_count: 1)" —— 正确消费 observed=4 与 timeout=1。
+- **ModelScope Native Tool Calling Round Trip = PROVEN**（`tools → tool_calls → local tool result → role=tool → final answer` 全链）→ Part B 采用原生路径（Path A），无需 Hermes fallback。
+- 真实请求历史（Attempts 如实保留）：#1 provider 200 但本地脚本解析 bug 未落盘 → #2 Request #1 重跑 PROVEN → #3 Request #2 PASS。累计 = 3（本轮总授权红线）。
+- 状态：Gate 0 = PASS（Provider Capability Gate）≠ Part B Implementation PASS；Agent Runtime / QML Agent UI 未开始。LKGC 仍 `797269a`。

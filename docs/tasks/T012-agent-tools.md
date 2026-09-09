@@ -307,7 +307,7 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 见"Learning 阶段面试问答"15 题（含要点，实现后按真实证据补充）。
 
 
-## Part B Gate 0 — ModelScope Native Tool-Calling Capability Probe（2026-09-09，进行中，round trip 待授权）
+## Part B Gate 0 — ModelScope Native Tool-Calling Capability Probe（2026-09-09，✅ PROVEN）
 
 > 依据 §R4 预算与用户 Gate 0 授权执行；本轮**不是** Agent Runtime，只验证真实 Provider contract。总真实请求已达授权上限 2，未超。
 
@@ -325,6 +325,19 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - 修复脚本解析 bug 后第二次运行仅发 Request #1（PROBE_BUDGET=1 硬限制，脚本内强制不发第三个请求）→ 成功捕获上述证据。
 - **累计真实请求 = 2 = 已到红线**。`tool result round trip（Request #2：原 assistant tool_calls + role=tool + tool_call_id 完全匹配 + synthetic deterministic result → final content）` **尚未执行**。
 - 决策树（用户红线）：Request #2 需**用户追加授权 1 次真实请求**；未授权前任何人不执行。临时脚本已删除，working tree clean，零 production code。
+
+### Request #2（assistant tool_calls + role=tool → final content）结果：**PASS**（追加授权后执行，唯一新增真实请求；累计 3 = 红线内）
+
+- message sequence（sanitized shape，4 条）：system（同 #1）→ user（同 #1 中文问题）→ assistant（`tool_calls` 按归档证据原样：id=`call_fda63adb045c484a81392be5` / type=function / name=`get_session_summary` / arguments=`"{}"`）→ `{"role":"tool","tool_call_id":"call_fda63adb045c484a81392be5","content":<synthetic deterministic summary JSON>}`；仍携带同一 tools schema 与 stream=false。
+- synthetic tool result（capability probe data，非正式 AgentTools/Controller 产物）：`{"observed_count":4,"completed_count":4,"pending_count":0,"success_count":1,"crc_error_count":1,"timeout_count":1,"exception_count":1,"protocol_error_count":0,"success_rate":0.25,"evidence_scope":"current_observed_batch"}`（无 root cause/自然语言/secret/路径）。
+- 结果：HTTP **200**；`finish_reason="stop"`（未再次要求工具）；tool_call_id 完全匹配被接受；返回 usable final content：
+  > 根据当前 session summary 数据：
+  > - **事务总数**：4 条 (observed_count: 4)
+  > - **Timeout 次数**：1 次 (timeout_count: 1)
+- 六项判定全过（provider 接受 / assistant history 接受 / role=tool 接受 / id round trip 接受 / usable final content / final 真实使用 observed=4 与 timeout=1）。
+- **最终结论：ModelScope Native Tool Calling Round Trip = PROVEN** —— 当前 endpoint + Qwen/Qwen3.5-27B 真实支持 `tools → tool_calls → local tool result → role=tool → final answer` 完整链路。可行性路径 = TD-4 路径 A（原生 tools），无需 Hermes fallback。
+- 真实请求历史（Attempt 记录，不改写）：Attempt #1（Provider HTTP 200，本地 probe 脚本解析 bug，证据未落盘）→ Attempt #2（Request #1 重跑，native tool_calls PROVEN）→ Attempt #3（Request #2，round trip PASS）。累计真实请求 = 3。
+- 注：本 Gate 通过 ≠ T012 Part B Implementation PASS；仅为 Provider Capability Gate PASS。
 
 ### Request #2 方案（待授权后立即执行，不变更设计）
 

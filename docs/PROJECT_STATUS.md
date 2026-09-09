@@ -16,7 +16,7 @@
 | 当前任务（Current Task） | **T012 Agent Tools — Part A ✅ DONE（用户 Review PASS；verified LKGC `797269a`）/ Part B NOT STARTED** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
 | 当前阶段（Current Phase） | T012 Part A DONE；Part B（Model Tool Calling Capability Probe→Agent Runtime+UI）NOT STARTED，待用户批准 |
-| 下一步动作（Next Action） | **T012 Part B Gate 0：Request #2 tool-result round trip 需用户追加授权（1 次真实请求；总预算红线 2 已按 Gates 执行，追加即至多 3 次累计，需明确批准）** |
+| 下一步动作（Next Action） | **T012 Part B — Native Tool-Calling Agent Runtime（Gate 0 ✅ PROVEN：Qwen/Qwen3.5-27B native round trip 实证）；Implementation 待用户批准** |
 | 下一 Part（Next Part） | **T012 Part B — Agent Runtime + UI（Live Tool-Calling Probe 先行，需用户授权）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -169,6 +169,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-09 | **T012 Part A Review P0 fix（`797269a`）**：`get_recent_anomalies` 原以 `status != Success` 把 Pending 误算 anomaly → 改显式 whitelist {Exception/CrcError/Timeout/ProtocolError}；latest-20 绑定 anomaly 序列（尾部 Pending 不占名额）；RED=A02 对旧逻辑 FAIL、GREEN=白名单全过；A02/A03 扩充锁定 + 0x7E exception_name absent；Qt 措辞边界入档；clean 131 零警告、ctest 21/21；**最新 Part A candidate = `797269a`（LKGC 仍 `01841b1`）**；Part B NOT STARTED |
 | 2026-09-09 | **用户 T012 Part A Review = PASS（12 项确认）**：Pending semantic fix / whitelist / latest-20 按 anomaly 序列 / 未知异常码不猜 / offline+Qt 边界 / AGENT-A01~A09 / clean / ctest 21/21 / T011 零修改。**T012 Part A = DONE**；`797269a` 经 RED-GREEN+矩阵+clean+ctest+人工 Review 全链验证 → **新 verified LKGC = `797269a`**；Part B NOT STARTED；M6 IN PROGRESS |
 | 2026-09-09 | **T012 Part B Gate 0 Probe — Request #1 PASS**：真实 ModelScope（Qwen/Qwen3.5-27B）返回标准 native tool_calls（name=get_session_summary / arguments={} / id 完整 / finish_reason=tool_calls, HTTP 200）——原生路径成立；累计真实请求 2（首轮 Probe 脚本本地解析 bug 消耗 1，如实记录）；**tool round trip（Request #2）待用户追加授权**；临时脚本已删除、零 production code |
+| 2026-09-09 | **T012 Part B Gate 0 — 完成 ✅ PROVEN**：追加授权后 Request #2（assistant tool_calls 原样 + role=tool + tool_call_id 完全匹配 + synthetic result）→ HTTP 200、finish_reason=stop、final content 正确引用 observed=4/timeout=1——**Native Tool Calling round trip 全链实证**（累计真实请求 3，红线内；Attempt 历史如实保留）；临时脚本删除、零 production code；Path A（原生 tools）成立，无需 Hermes |
+
 
 
 
