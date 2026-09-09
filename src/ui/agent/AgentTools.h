@@ -119,6 +119,16 @@ AgentToolResult dispatchAgentTool(const AgentToolContext& context,
                                   std::string_view toolName,
                                   const QJsonObject& arguments);
 
+// T012 Part B Phase 1 seam: VALIDATE-ONLY twin of the dispatcher (same
+// rules, no result produced). The runtime validates the WHOLE tool-call
+// batch before executing ANY of it (transaction-like semantics, no partial
+// execution); the dispatcher then re-validates internally and executes.
+// Returns std::nullopt when the call is valid; otherwise the error that the
+// dispatcher would produce.
+std::optional<AgentToolErrorCode> validateAgentToolCall(
+    const AgentToolContext& context, AgentToolName tool,
+    const QJsonObject& arguments);
+
 // Provider-independent serialization (JSON-ready DTOs). The Part B provider
 // adapter only copies these objects into its wire messages.
 QJsonObject toJsonObject(const SessionSummaryResult& result);

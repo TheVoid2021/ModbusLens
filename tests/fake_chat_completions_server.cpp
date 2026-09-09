@@ -7,10 +7,24 @@ void FakeChatCompletionsServer::setNextResponse(int statusCode,
                                                 int delayMs,
                                                 std::function<void()> onReceived)
 {
-    nextStatus_ = statusCode;
-    nextBody_ = body;
-    nextDelayMs_ = delayMs;
+    clearScript();
+    lastScripted_ = ScriptedResponse{statusCode, body, delayMs};
     onReceived_ = std::move(onReceived);
+}
+
+void FakeChatCompletionsServer::enqueueResponse(int statusCode,
+                                                const QByteArray& body,
+                                                int delayMs)
+{
+    script_.push(ScriptedResponse{statusCode, body, delayMs});
+    lastScripted_ = script_.back();
+}
+
+void FakeChatCompletionsServer::clearScript()
+{
+    while (!script_.empty()) {
+        script_.pop();
+    }
 }
 
 void FakeChatCompletionsServer::onNewConnection()
@@ -77,18 +91,31 @@ void FakeChatCompletionsServer::onNewConnection()
             }
         }
         lastRequest_.body = body;
+        requests_.push_back(lastRequest_);
         ++requestCount_;
         if (onReceived_) {
             onReceived_();
         }
         emit requestReceived();
 
-        // Scripted response (optionally delayed). Capture THIS connection's
-        // socket (not the shared member, which the next connection
-        // overwrites) so a delayed response can only ever be written to the
-        // wire it answers.
-        const int status = nextStatus_;
-        const QByteArray payload = nextBody_;
+        // Scripted response (optionally delayed): pop the FIFO queue, replay
+        // the last scripted one once drained (http 200 with an empty object
+        // body is the default when nothing was ever scripted).
+        ScriptedResponse scripted{};
+        if (!script_.empty()) {
+            scripted = script_.front();
+            script_.pop();
+        } else if (requestCount_ <= 1 && lastScripted_.body.isEmpty()
+                   && lastScripted_.statusCode == 0) {
+            scripted = ScriptedResponse{200, "{}", 0};
+        } else {
+            scripted = lastScripted_;
+        }
+        // Capture THIS connection's socket (not the shared member, which the
+        // next connection overwrites) so a delayed response can only ever be
+        // written to the wire it answers.
+        const int status = scripted.statusCode;
+        const QByteArray payload = scripted.body;
         QTcpSocket* target = socket_;
         const auto responder = [target, status, payload] {
             if (target->state() != QAbstractSocket::ConnectedState) {
@@ -108,8 +135,8 @@ void FakeChatCompletionsServer::onNewConnection()
                 target->deleteLater();
             });
         };
-        if (nextDelayMs_ > 0) {
-            QTimer::singleShot(nextDelayMs_, target, responder);
+        if (scripted.delayMs > 0) {
+            QTimer::singleShot(scripted.delayMs, target, responder);
         } else {
             responder();
         }

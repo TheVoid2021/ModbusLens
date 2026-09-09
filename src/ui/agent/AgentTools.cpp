@@ -349,3 +349,33 @@ QJsonObject toJsonObject(const AgentToolError& error)
 }
 
 } // namespace modbuslens::agent
+
+namespace modbuslens::agent {
+
+std::optional<AgentToolErrorCode> validateAgentToolCall(
+    const AgentToolContext& context, AgentToolName tool,
+    const QJsonObject& arguments)
+{
+    switch (tool) {
+    case AgentToolName::GetSessionSummary:
+    case AgentToolName::GetRecentAnomalies:
+        return arguments.isEmpty()
+                   ? std::nullopt
+                   : std::optional{AgentToolErrorCode::InvalidArguments};
+    case AgentToolName::GetTransactionDetail: {
+        std::size_t number = 0;
+        bool rangeViolation = false;
+        if (!validatedTransactionNumber(arguments, context, number,
+                                        rangeViolation)) {
+            return AgentToolErrorCode::InvalidArguments;
+        }
+        if (rangeViolation) {
+            return AgentToolErrorCode::TransactionNotFound;
+        }
+        return std::nullopt;
+    }
+    }
+    return AgentToolErrorCode::UnknownTool;
+}
+
+} // namespace modbuslens::agent

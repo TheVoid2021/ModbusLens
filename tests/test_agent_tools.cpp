@@ -80,6 +80,7 @@ private slots:
     void a07_readOnlyWhitelistEnforced();
     void a08_deterministicRepeatedExecution();
     void a09_snapshotIsolation();
+    void a10_snapshotBuilderSelfConsistency();
 };
 
 void AgentToolsTest::a01_sessionSummaryGolden()
@@ -519,6 +520,35 @@ void AgentToolsTest::a09_snapshotIsolation()
             QJsonObject{{QStringLiteral("transaction_number"), 4}}));
     QCOMPARE(summaryA2Bytes, summaryABytes);
     QCOMPARE(detailA2Bytes, detailABytes);
+}
+
+void AgentToolsTest::a10_snapshotBuilderSelfConsistency()
+{
+    // T012 Phase 1 P0 seam: the production builder must derive statistics
+    // from the VERY SAME copied transactions via the canonical summarizer —
+    // a snapshot whose transactions came from batch A and statistics from
+    // batch B must be unrepresentable through this API.
+    const std::vector<core::DiagnosisTransaction> batch = {
+        tx(0x01, core::TransactionStatus::Success, 25),
+        tx(0x01, core::TransactionStatus::CrcError, 17),
+        tx(0x01, core::TransactionStatus::Timeout, 1000),
+        tx(0x01, core::TransactionStatus::Exception, 18, std::uint8_t{0x02}),
+    };
+    const agent::AgentToolContext context =
+        agent::makeAgentToolContext(batch, 42);
+
+    QCOMPARE(context.capturedBatchRevision, std::uint64_t{42});
+    QCOMPARE(context.transactions, batch);
+    // statistics == canonical summarizer output for the SAME transactions.
+    const auto canonical = core::buildDiagnosisContext(batch);
+    QCOMPARE(context.statistics, canonical.statistics);
+    // And the tool layer answers from this snapshot exactly like the golden.
+    const auto summary = agent::dispatchAgentTool(context, "get_session_summary",
+                                                  QJsonObject{});
+    const auto* s = std::get_if<agent::SessionSummaryResult>(&summary);
+    QVERIFY(s != nullptr);
+    QCOMPARE(s->transactionCount, std::size_t{4});
+    QCOMPARE(s->timeoutCount, std::size_t{1});
 }
 
 QTEST_GUILESS_MAIN(AgentToolsTest)

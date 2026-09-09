@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <vector>
 
 #include "core/analysis/TransactionStatistics.h"
@@ -24,5 +25,15 @@ struct AgentToolContext {
 
     bool operator==(const AgentToolContext&) const = default;
 };
+
+// Production snapshot builder (T012 Part B Phase 1 contract, P0): the
+// statistics held inside the context are ALWAYS re-derived from the SAME
+// copied transactions via the canonical summarizer — never taken from a
+// presentation cache, QML model or a different batch's snapshot. This makes
+// every AgentToolContext self-consistent by construction (tool facts for
+// one run can never mix transactions of batch A with statistics of batch B).
+AgentToolContext makeAgentToolContext(
+    std::span<const modbuslens::core::DiagnosisTransaction> transactions,
+    std::uint64_t capturedBatchRevision);
 
 } // namespace modbuslens::agent
