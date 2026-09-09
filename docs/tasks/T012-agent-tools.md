@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Learning / Test Design 完成（2026-09-09，docs-only）；Implementation 待用户审核批准**
+- **状态**：IN PROGRESS — **Part A IMPLEMENTED / AWAITING REVIEW（`9921efd`，2026-09-09，自动验证全绿）；Part B NOT STARTED**；Learning 定案经 Implementation Review Refinements R1~R4 修正落档
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -177,6 +177,29 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - **Part B — Agent Runtime + UI（网络）**：Live Tool-Calling Probe（需授权）→ 按 TD-4 路径 A/B 实现 provider messages 组装、Agent loop FSM、round limit、run 绑定 stale guard（TD-6）、Controller Q_PROPERTY/API、QML Agent 区、测试 AGENT-B01~B14（fake server）。
 - 拆分收益：Part A 纯确定性、无外部依赖，先把"工具层事实保真"锁死；Part B 的风险集中在新协议（probe 先行）。
 
+
+
+## Implementation Review Refinements（2026-09-09，Part A Implementation 前经用户批准追加）
+
+> 以下四条是对 Learning 定案的**细化修订**，原 TD 小节一字不改（历史保留）；冲突处以本节为准。
+
+**R1 — transaction_number（修订 TD-2）**：不把 batch 内 1-based 行序伪装成稳定 ID。工具命名与参数一律 `transaction_number`（JSON 参数 `{"transaction_number": 3}`）；定义 = captured active batch 内 1-based ordinal，仅在当前 captured batch 有意义、batch 替换即失效、不持久化、不跨 session、不作数据库/全局 identity。与用户问题"第 3 条事务发生了什么"直接对应。禁止使用 `transaction_id` 命名（当前代码不存在真正稳定 ID，核验依旧成立）。
+
+**R2 — recent = latest anomalies（修订 TD-1-ToolB）**：上限仍 `MAX_RECENT_ANOMALIES = 20`（与 T011 bounded policy 一致），selection semantics 锁定为：
+1. 从 captured batch 筛选 `status != Success`；
+2. anomaly_count ≤ 20 → 全部返回；
+3. > 20 → **取最后 20 条**异常；
+4. 返回仍保持原 batch 顺序（不倒序、不 random sampling）。
+结果字段：`total_anomaly_count`（全部异常数）、`returned_count`、`truncated`、`anomalies[]`。
+
+**R3 — Immutable AgentToolContext（新增 TD，P0）**：Agent run 开始时由上层对当前 active deterministic batch 创建**一次性 snapshot**（结构含 structured transactions + statistics + captured activeBatchRevision）。dispatcher 接收 `const AgentToolContext&`；三个 tool 只查询该 snapshot，绝不回读 Controller live mutable state——保证单 run 内 Tool facts 自洽（Tool #1 与 Tool #2 不可能读到不同 batch）。职责分工：Part A snapshot 解决"单 run 内 facts 自洽"；Part B activeBatchRevision guard 解决"该 run 结果是否仍允许发布到 UI"。两者不同，不互相替代。
+
+**R4 — Live Tool-Calling Probe 预算（修订 TD-4 末段）**：最多 **2 个**真实 provider requests（非固定 1 个）：
+- Request #1：question + tools → 验证 provider 是否接受 tools 并返回标准 tool_calls；
+- 若 #1 已证明 unsupported → 立即停止（总请求数 = 1）；
+- 若 #1 返回标准 tool_calls → 本地执行一个最小 fake/deterministic Tool Result，发 **Request #2**：assistant tool_call + role=tool result → 验证 provider 接受 tool result 并返回 final assistant content。
+仍要求：届时用户明确授权、不自动 retry、不换模型、不超过 2 个请求、不打印 token、不把真实请求 secret 写入 docs。
+
 ## Test Design（本轮只设计；实现时 RED→GREEN）
 
 ### AGENT-Axx — Tool layer（P0/P1）
@@ -241,13 +264,22 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - 更新：`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/INTERVIEW_NOTES.md`、`docs/devlog/2026-09-09-T012-Learning.md`。
 - **未修改**：`src/`、`tests/`、`CMakeLists.txt`、`scripts/`（本轮纪律）。
 
+## Part A Verification（2026-09-09，真实记录）
+
+- **RED**：test_agent_tools.cpp（AGENT-A01~A09）先于实现落库 + CMake target wiring 后构建 → 链接失败 10 处 undefined reference（dispatchAgentTool / toJsonObject 全家族）——真实 RED 证据。
+- **GREEN**：AgentTools.cpp 实现后 `agent_tools` ctest 通过（9 函数，0.67s）。
+- clean 全量重建 131 targets **零警告**；ctest **21/21**（原 20 + agent_tools）。
+- 零公网 / 零 token / 零 quota（Part A 无任何网络代码路径）。
+- T011 production code（client/prompt/QML pipeline）**零 diff**。
+
 ## Verification
 
 本轮为 Learning/Test Design：无构建、无测试（docs-only）。Implementation 的验证计划（Part A 离线 TDD；Part B fake-server + 授权 Live Tool-Calling Probe + Live Agent Smoke；clean build/ctest 全绿/Manual Demo 三问答）已写入本档案 Test Design 与 Demo Acceptance，待用户批准后执行。
 
 ## Git Commit
 
-- docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`（LKGC 保持 `01841b1`，未推进）。
+- code/test（Part A，LKGC candidate，未经人工审核、未推进 LKGC）：`9921efd` `T012(Part A): read-only agent tool layer — dispatcher + validation + JSON DTO`
+- docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`、`40177a2`（Learning 哈希回填）；Part A 归档 docs commit 随本档案更新提交（哈希回填于 PROJECT_STATUS 变更记录）
 
 ## Potential Interview Questions
 
