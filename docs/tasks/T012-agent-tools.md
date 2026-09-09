@@ -305,3 +305,27 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 ## Potential Interview Questions
 
 见"Learning 阶段面试问答"15 题（含要点，实现后按真实证据补充）。
+
+
+## Part B Gate 0 — ModelScope Native Tool-Calling Capability Probe（2026-09-09，进行中，round trip 待授权）
+
+> 依据 §R4 预算与用户 Gate 0 授权执行；本轮**不是** Agent Runtime，只验证真实 Provider contract。总真实请求已达授权上限 2，未超。
+
+### Request #1（question + tools → native tool_calls）结果：**PASS 证据确凿**
+
+- sanitized request shape：endpoint `https://api-inference.modelscope.cn/v1/chat/completions`；model `Qwen/Qwen3.5-27B`；`stream=false`；`tools=[{"type":"function","function":{"name":"get_session_summary","description":"读取当前 observed batch 的确定性统计摘要。","parameters":{"type":"object","properties":{},"additionalProperties":false}}}]`（仅暴露一个无参工具，减少变量）。
+- HTTP status：**200**。
+- assistant message：`finish_reason="tool_calls"`；`message.tool_calls` 存在，恰一项：`{function: {name: "get_session_summary", arguments: "{}"}, id: "call_fda63adb045c484a81392be5", type: "function"}`；`message.content = ""`（工具轮无正文，符合标准 shape）。
+- `arguments="{}"` 为合法空 JSON object — 与无参 schema 一致。
+- 结论：**ModelScope API-Inference 接受 `tools` 字段并返回标准 native `tool_calls`**（TD-4 的"路径 A：原生"成立）。未出现拒绝/忽略/malformed/未知名。
+
+### 预算与脚本事件（如实记录，Review 轨迹）
+
+- 第一次运行：我的 Probe 脚本存在本地解析 bug（对字符串 payload 做了双重 JSON 转换），provider 已返回 200 但证据未落盘——该请求为真实请求（#1）。已如实保留事件，不掩盖。
+- 修复脚本解析 bug 后第二次运行仅发 Request #1（PROBE_BUDGET=1 硬限制，脚本内强制不发第三个请求）→ 成功捕获上述证据。
+- **累计真实请求 = 2 = 已到红线**。`tool result round trip（Request #2：原 assistant tool_calls + role=tool + tool_call_id 完全匹配 + synthetic deterministic result → final content）` **尚未执行**。
+- 决策树（用户红线）：Request #2 需**用户追加授权 1 次真实请求**；未授权前任何人不执行。临时脚本已删除，working tree clean，零 production code。
+
+### Request #2 方案（待授权后立即执行，不变更设计）
+
+history = [system, user, assistant(tool_calls 原样), {role:"tool", tool_call_id:"call_fda63adb045c484a81392be5", content:<synthetic deterministic summary JSON>}]，仍携带同一 tools schema；判定标准见 Gate 0 指令第 8 节（六项全过才判完整 native path PROVEN）。
