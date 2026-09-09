@@ -1,7 +1,7 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-| Last Known Good Commit | **`9e79558`**（UI Localization Pass：全用户可见 UI 简体中文化 + AI 输出语言约束（Simplified Chinese/术语保留英文/no Markdown）；clean 126 targets 零警告 + ctest 20/20 + qml smoke + deploy/minimal-PATH + **Manual Localization Smoke PASS（用户人工确认 9 项，含真实 ModelScope 中文输出与 PlainText 渲染）**。历史值：`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
+| Last Known Good Commit | **`01841b1`**（ISSUE-006 修复：evidence-scope guard against AI over-attribution——system 追加 Evidence Scope/状态正例语义/混合错误独立性/Facts-Explanations-Checks 纪律 + user `evidence_scope=current_observed_batch`（含取消 small_sample 阈值的设计修订）；clean 126 零警告 + ctest 20/20（AI-B14~B17 新增）+ 用户 Manual UI Regression Smoke PASS + 经授权 Live ModelScope Smoke 五项验收全 PASS（1 次最小配额）。历史值：`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
 
 ## 状态面板
 
@@ -58,7 +58,7 @@
 | K3 | `Could NOT find WrapVulkanHeaders`（configure 提示） | 无（Qt Widgets 不依赖；仅影响未来 QtQuick/RHI 功能） | 记录观察，不处理 |
 | K4 | ~~**[ISSUE-002] Explorer 启动 modbuslens.exe 失败**~~ **[RESOLVED ✅]**（无法定位输入点 `_ZNSt3pmr20get_default_resourceEv` 于 Qt6Gui.dll） | 仅影响"不经终端直接双击启动"场景；终端前置正确 PATH 后启动正常；**正确 runtime 下用户已人工确认 UI 12/12 正常** | **已解决（T008.1）**：`scripts/deploy_windows.bat` 生成 build/deploy 独立目录（runtime provenance SHA256=编译器 bin VERIFIED + minimal-PATH smoke PASS）；**用户 Explorer 双击确认 PASS**。ISSUE-002 置 RESOLVED |
 | K5 | ~~**[ISSUE-003] 本机 Qt 6.11.1 未安装 QtSerialPort 组件**~~ **[RESOLVED ✅]**（首次补装落错 MSVC kit `D:\QTDesign`，随后装到正确 MinGW kit；五步实证+临时 CMake probe 全过） | 曾阻塞 T010 Part A 的 Qt adapter/SERIAL-I01 | 已解决；T010 Part A 全绿交付 |
-| K6 | [ISSUE-006](issues/ISSUE-006-ai-explanation-overattribution.md) AI 解释过度归因——4 笔小样本（1 CRC + 1 Timeout + 1 Exception 0x02）被渲染为“链路稳定性差/协议混乱/往往源于物理层/间歇中断”等确定语气结论 | 确定性数据零损坏（AI 仅解释文本，PlainText 透传）；措辞可能误导排查方向、违背“possible cause ≠ certain cause”产品原则 | **OPEN**：Review 完成（根因分析 A~F 结论：E 模型先验为直接来源，D system 约束缺口 + C 0x02 语义/小样本未下发为可控来源）；最小方案=仅改 DiagnosisPromptBuilder（system 追加 Attribution discipline 段 + user prompt `small_sample=true`(≤10)）；测试 AI-B14/B15 设计完成；**待用户批准 Implementation**；不重开 T011、不改历史档案 |
+| K6 | [ISSUE-006](issues/ISSUE-006-ai-explanation-overattribution.md) AI 解释过度归因——4 笔小样本（1 CRC + 1 Timeout + 1 Exception 0x02）被渲染为“链路稳定性差/协议混乱/往往源于物理层/间歇中断”等确定语气结论 | 确定性数据零损坏；措辞可能误导排查方向、违背“possible cause ≠ certain cause”产品原则 | **RESOLVED ✅**：evidence-scope guard + 状态正例语义 + 混合错误独立性 + Facts/Explanations/Checks 纪律；AI-B14~B17；用户 Manual UI Regression Smoke PASS + 经授权 Live ModelScope Smoke 五项验收全 PASS；verified LKGC = `01841b1` |
 
 ## 5. 开发环境
 
@@ -163,5 +163,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-09 | **UI Localization Pass 实现完成（自动化全 GREEN）**：QML 42 处静态文案 + TransactionListModel 六状态 + AnalysisController 模式/来源标签（含 .h 默认初始值）/基线格式/12 条建议动作/全错误文案 + SerialPortAdapter/ModelScopeDiagnosisClient 消息 + DiagnosisPromptBuilder 输出语言约束（简体中文、术语保留英文、no Markdown/plain text）；replay 短语 const char*+QLatin1String 乱码隐患结构性修正（QStringLiteral）；presentation 测试断言同步更新（Core 语义与 Core 测试零改动）；clean 126 targets 零警告、ctest 20/20、qml smoke、deploy+minimal-PATH PASS；code candidate = `9e79558`；Manual Localization Smoke = WAITING FOR USER |
 | 2026-09-09 | **用户 Manual Localization Smoke = PASS（9 项人工确认）**：三模式文案中文化/专业实体（CRC/RS485/FC03/8N1/COM/ModelScope/Qwen/0x02/0x03/ms）正确保留/统计与诊断面板文案自然/Baseline 中文正确/Replay 文件名不翻译/真实 ModelScope AI 解释以简体中文为主且 PlainText 渲染/布局无截断无回归。**Localization Pass 归档完成**；verified LKGC = `9e79558`；HEAD = docs-only 确认提交。**T011 仍 DONE；ISSUE-004/005 仍 RESOLVED；M6 保持 IN PROGRESS；T012 NOT STARTED** |
 | 2026-09-09 | **AI Explanation Polish Review（docs-only，非 T012）**：核验过度归因措辞（“链路稳定性较差/协议状态混乱/往往源于物理层/暗示间歇性中断”）来源——A/B/F 经核验无措辞责任，C/D 为可控缺口（0x02 语义与小样本事实未下发、system 缺正例语义），E 模型先验为直接来源；**ISSUE-006 建档 OPEN**（最小方案：DiagnosisPromptBuilder system Attribution discipline 段 + user small_sample 标注；回归测试 AI-B14/B15 设计）；本轮不修改 production code、不调用真实 ModelScope、不消耗 quota、不推进 LKGC、T012 保持 NOT STARTED |
+| 2026-09-09 | **ISSUE-006 Implementation 完成（自动化 GREEN）**：生产改动仅 DiagnosisPromptBuilder——Evidence Scope Guard（无条件 evidence_scope=current_observed_batch；**取消原 small_sample<=10 阈值设计**：count 不能论证长期代表性）+ system 三条状态正例语义（CRC/Timeout/0x02=Illegal Data Address）+ 0x01~0x04 语义表 + Mixed Error Independence + Facts/Explanations/Checks 纪律（原 authority 规则一字未动）；新增 AI-B14~B17；clean 126 零警告、ctest 20/20、deploy+minimal-PATH PASS；code/test candidate = `01841b1`（**不推进 LKGC**）；用户 Manual UI Regression Smoke = PASS（10 项） |
+| 2026-09-09 | **经授权 Live ModelScope Smoke = PASS（1 次最小配额，真实 production path，Qwen/Qwen3.5-27B）**：五项验收全过——A 无长期/持续性外推（明确限 current_observed_batch）；B CRC 仅“可能与 serial settings/wiring/grounding/EMI 有关”；C Timeout 无 offline/broken；D 0x02 正确解释为 Illegal Data Address 并优先核对 register map/文档；E 明确“独立观察、不意味着 shared root cause”。**ISSUE-006 RESOLVED**；verified LKGC 推进至 `01841b1`；HEAD = docs-only 归档。T011 仍 DONE；T012/T013 NOT STARTED；M6 IN PROGRESS |
+
 
 | 2026-09-08 | **ISSUE-005 修复并 RESOLVED**：AiAbortReason 归属 + 单一 QTimer owner（90s）+ OperationCanceledError 按 reason 分类 + UI 文案与 errorString 解耦；自动化全绿后**用户真实 27B Live Regression Smoke = PASS**（不再出现"操作被取消"）；verified LKGC 推进至 `bb3f3b4`（新 code fix commit）；docs-only 归档不再次推进 |

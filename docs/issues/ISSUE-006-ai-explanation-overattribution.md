@@ -1,8 +1,8 @@
 # ISSUE-006: AI 解释过度归因 — 单批小样本推出链路长期不稳定 / 共通根因
 
-- **状态**：OPEN（Review 完成，方案待批准，Implementation 未开始）
+- **状态**：**RESOLVED**（2026-09-09；Implementation + automated tests + 用户 Manual UI Regression Smoke PASS + 经授权的 Live ModelScope Smoke 五项验收全 PASS；verified LKGC = `01841b1`）
 - **发现日期**：2026-09-09（Manual/Live ModelScope Smoke 中人工观察，T011 档案已记 non-blocking 观察，见 `docs/tasks/T011-ai-diagnosis.md` §594 行）
-- **关联**：T011 Part B（T011 本身 DONE，本 Issue 为独立 follow-up，**不重写 T011 历史**）；不影响 LKGC `9e79558` / T012 NOT STARTED / M6 IN PROGRESS
+- **关联**：T011 Part B（T011 本身 DONE，本 Issue 为独立 follow-up，**不重写 T011 历史**）；实现于 commit `01841b1`（code/test），归档于独立 docs-only commit
 
 ---
 
@@ -92,6 +92,8 @@ Never conclude with '链路不稳定'/'链路质量差' unless the supplied fact
 
 ### 6.2 user prompt 增加小样本事实标注（动态、确定性）
 
+> **⬆ 2026-09-09 设计修订（用户批准 Implementation 时明确推翻本节）**：不实施 `<=10 → small_sample=true` 阈值。transaction count 本身不能证明数据具有长期代表性——observed=30/100 若仍来自同一 batch，同样不得外推长期稳定性。最终实施为 §10 的 **Evidence Scope Guard**（无条件 `evidence_scope=current_observed_batch` + system 短语禁令）。本节原文保留以记录设计演进。
+
 在 `total_transactions=%1` 之后追加一行，仅当 `total_transactions <= 10`（新匿名常量 `kSmallSampleThreshold = 10`）：
 
 ```
@@ -131,3 +133,31 @@ UI 层不需要新测试：点 ①②③④⑤的治理发生在"AI 生成文本
 - **否定式规则不足以塑造先验**：只说"不要宣称 root cause"挡不住"往往源于物理层"；必须给出**每种状态唯一允许的事实表述**（正例），模型才知道边界内的语言空间长什么样。
 - **Severity 是风险分级不是因果强度**：进 prompt 的 `severity=Warning/Error` 若不被解释，可能被模型当证据组合器使用。
 - 与 ISSUE-005 同构的治理哲学：**行为约束放在离生成点最近的确定性位置**（ISSUE-005 是 timeout owner + abort reason，本 Issue 是 prompt 文本），而不是在输出端修补。
+
+## 10. Implementation（2026-09-09，经用户批准）
+
+Production 改动仅 `src/ui/ai/DiagnosisPromptBuilder.cpp`（+19 行，App 层 prompt 文本）；Core/Client/Controller/QML/enums/API 零改动。
+
+- **Evidence Scope Guard（替代 §6.2 的 small_sample 阈值）**：
+  - user prompt 无条件追加 `evidence_scope=current_observed_batch`（机器可读稳定文本，聚合事实行之后）。
+  - system instruction 追加：`The supplied evidence describes only the current observed batch, never a history or a long-run population.` + `Do not generalize this batch into long-term device, link, wiring, or communication reliability with wording such as: chronically unstable, long-term unstable, persistent instability, intermittent connection failure — unless longitudinal evidence is explicitly supplied (v1 supplies none).`
+  - **为什么取消 <=10 阈值**：count 本身不能论证长期代表性（30/100 笔若仍是一次 session 依旧不可外推）；guard 必须无条件绑定"证据范围"这一数学事实，而非数量门槛。
+- **Deterministic Status Semantics**（system，正例语义）：
+  - CRC = 接收字节未通过 Modbus RTU CRC 校验；serial settings/wiring/grounding/noise/EMI/capture 仅为 possible explanations or suggested checks、never stated causes。
+  - Timeout = 超时阈值前未观察到有效响应；禁称 offline/broken/disconnected/link interrupted。
+  - 0x02 = Illegal Data Address（寄存器地址超出设备寄存器表）；关联 requested register address / register map / device documentation / request configuration。
+  - 0x01~0x04 标准语义表（0x01 Illegal Function→function support；0x02 Illegal Data Address→register map；0x03 Illegal Data Value→request parameters；0x04 Slave Device Failure→device health）；未知码不猜、查设备文档。
+  - 独立禁令句：Never explain an exception code as a wiring failure, CRC problem, link interruption or electrical interference.
+- **Mixed Error Independence**：anomaly types 是独立观察；多类异常不推出 shared root cause；禁"therefore intermittently failing / all failures from signal integrity / rather than configuration errors"式比较。
+- **Facts / Explanations / Checks**：观察事实仅来自 deterministic facts；可能原因必须显式不确定措辞（可能/may/may indicate/possible）；建议检查仅为人工排查项；不反写。
+- 原有 authority 规则一字未动（追加在其后）；user prompt 其余 deterministic facts 结构不变。
+
+## 11. Verification & Result（2026-09-09）
+
+- **Automated**：clean 全量重建 126 targets 零警告；ctest **20/20**；新增 AI-B14（attribution discipline 全要素）、AI-B15（evidence scope 非计数：4tx/30tx 双 case、无 small_sample 痕迹）、AI-B16（0x02 语义行不含 interference/wiring/CRC）、AI-B17（mixed 独立：crc_error=1/timeout=1/exception_code=0x02 + shared root cause 禁令）；既存 AI-B01~B13 + ai10 全部保留 PASS；测试期零公网/零 token/零 quota（localhost fake only）。
+- **用户 Manual UI Regression Smoke = PASS（10 项）**：启动/三模式既有流程/mixed golden 加载/Statistics 与 Baseline 与修改前一致/Recent Transactions/Diagnosis 无布局回归/PlainText/中文无回归/无崩溃截断。
+- **Live ModelScope Smoke = PASS（经用户授权，最小配额：1 次真实请求，完整 production path：Controller→PromptBuilder→Client→真实 endpoint→QML PlainText）**，模型 Qwen/Qwen3.5-27B：
+  - 五项验收全过：A Evidence Scope（"当前批次共 4 次…观察到 multiple anomaly types""evidence_scope 限于 current_observed_batch"，无长期/持续性/间歇结论）；B CRC（"表示接收到的响应字节校验失败，可能与 serial settings、wiring、grounding 或 EMI 有关"——possible 语气）；C Timeout（"在 configured timeout threshold 前未收到有效响应，可能与链路延迟有关"，无 offline/broken）；D 0x02（"对应 Illegal Data Address，可能与 request configuration 中的 register address 超出设备 register map 有关"，建议优先对照设备文档验证 register addresses）；E Mixed（"Anomaly types 是独立观察…不意味着 shared root cause"）。
+  - 结构：中文为主、术语保留（Modbus RTU/CRC/Illegal Data Address/0x02/register map）、PlainText、四段语义清晰。
+- **verified code/test commit = `01841b1` = 新 LKGC**（principle：LKGC 只在 Manual + Live 双 PASS 后推进；docs-only 归档不推进）。
+- T011 仍 DONE（本 Issue 只做引用，不合并回 T011 历史）；T012/T013 NOT STARTED；M6 IN PROGRESS。
