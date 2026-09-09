@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A IMPLEMENTED / AWAITING REVIEW（最新 candidate `797269a`，2026-09-09；P0 Review 修复已完成、自动验证全绿）；Part B NOT STARTED**；Learning 定案经 Implementation Review Refinements R1~R4 修正落档
+- **状态**：IN PROGRESS — **Part A ✅ DONE（2026-09-09，用户人工/架构 Review 12 项 = PASS，verified LKGC = `797269a`）；Part B NOT STARTED**；Learning 定案经 Implementation Review Refinements R1~R4 修正落档
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -274,6 +274,14 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - 零公网 / 零 token / 零 quota（Part A 无任何网络代码路径）。
 - T011 production code（client/prompt/QML pipeline）**零 diff**。
 
+## Part A Final Acceptance（2026-09-09，用户 Review = PASS）
+
+- 用户人工/架构 Review 12 项确认（Pending fix / whitelist 四态 / Success·Pending 非 anomaly / latest-20 按 anomaly 序列 / 未知异常码不猜 / offline+Qt 边界 / AGENT-A01~A09 / clean / ctest 21/21 / T011 零修改）。
+- **T012 Part A = DONE**；T012 overall = IN PROGRESS；Part B = NOT STARTED；M6 = IN PROGRESS。
+- **verified LKGC = `797269a`**（经由 RED/GREEN → AGENT-A01~A09 → clean build → ctest 21/21 → 人工语义 Review 全链验证的 Part A code baseline）。
+- Review 轨迹保留（不改写历史）：初版 `9921efd` 用 `status != Success` 导致 Pending 被误纳 anomalies → Review 发现 → `797269a` 改为显式 anomaly whitelist。一句话总结：**"non-Success is not equivalent to anomaly"**。
+- Part A 架构最终结论：AgentToolContext = 单次 Agent run 的 deterministic snapshot；三工具只查询该 snapshot；Part A 不含 Agent loop / ModelScope / HTTP / tool-calling parser / UI / Controller Agent 集成 / Provider / API key —— 本质是 deterministic read-only tool/query layer。
+
 ## Part A Review Fix（2026-09-09，P0 deterministic semantic）
 
 - **Review 发现**：`get_recent_anomalies` 以 `status != Success` 定义 anomaly —— 把 `Pending`（未完成）误算为异常，违背 T011 contract（Pending ≠ failure）。
@@ -291,7 +299,7 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 ## Git Commit
 
 - code/test（Part A，LKGC candidate，未经人工审核、未推进 LKGC）：`9921efd` `T012(Part A): read-only agent tool layer — dispatcher + validation + JSON DTO`
-- code/test（Part A Review P0 fix，**最新 LKGC candidate**，未推进）：`797269a` `fix(T012): Pending is not an anomaly — whitelist filter in get_recent_anomalies`
+- code/test（Part A Review P0 fix，**最新 LKGC candidate**，未推进）：`797269a` `fix(T012): Pending is not an anomaly — whitelist filter in get_recent_anomalies` → **verified LKGC（用户 Review PASS 后推进）**
 - docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`、`40177a2`（Learning 哈希回填）；Part A 归档 docs commit 随本档案更新提交（哈希回填于 PROJECT_STATUS 变更记录）
 
 ## Potential Interview Questions

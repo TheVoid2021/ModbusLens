@@ -1,7 +1,7 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-| Last Known Good Commit | **`01841b1`**（ISSUE-006 修复：evidence-scope guard against AI over-attribution——system 追加 Evidence Scope/状态正例语义/混合错误独立性/Facts-Explanations-Checks 纪律 + user `evidence_scope=current_observed_batch`（含取消 small_sample 阈值的设计修订）；clean 126 零警告 + ctest 20/20（AI-B14~B17 新增）+ 用户 Manual UI Regression Smoke PASS + 经授权 Live ModelScope Smoke 五项验收全 PASS（1 次最小配额）。历史值：`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
+| Last Known Good Commit | **`797269a`**（T012 Part A 完成：read-only agent tool layer + Pending anomaly whitelist 修复；RED→GREEN、AGENT-A01~A09、clean 131 零警告、ctest 21/21、**用户人工/架构 Review = PASS（12 项确认）**。历史值：`01841b1`（ISSUE-006）、`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
 
 ## 状态面板
 
@@ -9,14 +9,14 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 ✅ DONE / T012 未开始；按 BACKLOG 既有定义 M6=T011+T012，不得提前关闭）** |
-| Last Known Good Commit | **`bb3f3b4`**（ISSUE-005 修复：AI timeout cancellation deterministic——单一 QTimer owner/AbortReason 分类/文案解耦/production 90s；clean 126 零警告 + ctest 20/20 + qml smoke + deploy/provenance/minimal-PATH + **真实 27B Live ModelScope Regression Smoke PASS**；当前 HEAD 为其后的 docs-only 归档提交，不改变 LKGC。历史值：`85699ff`（T011B）、`06ef801`（T011A）） |
-| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 126 targets） |
-| Test 状态 | ✅ **20/20 通过**（ctest 20 个测试目标全绿；ui_bridge 49 函数——UI-A01~A06 / UI-B01~B06 / UI-R01~R08 / UI-S01~S10 / UI-D01~D08 / UI-AI01~AI11，均含本地化后中文断言） |
+| Last Known Good Commit | **`797269a`**（T012 Part A 完成：read-only agent tool layer + Pending anomaly whitelist 修复；RED→GREEN、AGENT-A01~A09、clean 131 零警告、ctest 21/21、**用户人工/架构 Review = PASS（12 项确认）**。历史值：`01841b1`（ISSUE-006）、`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
+| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 131 targets） |
+| Test 状态 | ✅ **21/21 通过**（ctest 21 个测试目标全绿（T012 Part A 新增 agent_tools：AGENT-A01~A09）；ui_bridge 49 函数——UI-A01~A06 / UI-B01~B06 / UI-R01~R08 / UI-S01~S10 / UI-D01~D08 / UI-AI01~AI11）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T012 Agent Tools — Part A IMPLEMENTED / AWAITING REVIEW（Review P0 fix `797269a`）** |
+| 当前任务（Current Task） | **T012 Agent Tools — Part A ✅ DONE（用户 Review PASS；verified LKGC `797269a`）/ Part B NOT STARTED** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
-| 当前阶段（Current Phase） | T012 Part A 落地（RED→GREEN，AGENT-A01~A09，ctest 21/21）→ 待用户审核；Part B NOT STARTED |
-| 下一步动作（Next Action） | **T012 Part A 人工审核（`9921efd`）；批准后进入 Part B（Live Tool-Calling Probe 需用户授权，最多 2 请求）** |
+| 当前阶段（Current Phase） | T012 Part A DONE；Part B（Model Tool Calling Capability Probe→Agent Runtime+UI）NOT STARTED，待用户批准 |
+| 下一步动作（Next Action） | **T012 Part B — Model Tool Calling Capability Probe（需用户授权，最多 2 个真实请求）；未批准不前动** |
 | 下一 Part（Next Part） | **T012 Part B — Agent Runtime + UI（Live Tool-Calling Probe 先行，需用户授权）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -167,6 +167,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-09 | **T012 启动：Agent Tools — Learning / Test Design（docs-only，`03deffd`）**：三工具（get_session_summary/get_recent_anomalies/get_transaction_detail）v1 冻结；transaction_id=1-based batch 序号定案；dispatcher 定案（否决 registry）；ModelScope tool-calling contract 核验（Qwen3 官方支持、Provider 透传未证实 → Implementation 前需授权 Live Probe）；loop FSM + max 3 rounds；run 绑定 activeBatchRevision + 独立 agentRequestGeneration；AGENT-A01~A08 + B01~B14 矩阵（14 项 P0）；Part A/B 拆分推荐；ADR002 新建；**零 production/tests/CMake 改动、零 quota**；T012 IN PROGRESS，Implementation 待批准 |
 | 2026-09-09 | **T012 Part A Implementation 完成（自动化全 GREEN）**：`src/ui/agent/` 落地——不可变 AgentToolContext（R3）+ 三工具白名单 dispatcher + typed results + 参数全量校验 + provider-independent JSON DTO（transaction_number/ latest-20 原序/ exception_name 0x01~0x04/ evidence_scope）；RED=10 处 undefined reference；AGENT-A01~A09 全绿；clean 131 targets 零警告、ctest 21/21；T011 零 diff；**code candidate = `9921efd`（LKGC 未推进，待用户审核）**；Part B NOT STARTED |
 | 2026-09-09 | **T012 Part A Review P0 fix（`797269a`）**：`get_recent_anomalies` 原以 `status != Success` 把 Pending 误算 anomaly → 改显式 whitelist {Exception/CrcError/Timeout/ProtocolError}；latest-20 绑定 anomaly 序列（尾部 Pending 不占名额）；RED=A02 对旧逻辑 FAIL、GREEN=白名单全过；A02/A03 扩充锁定 + 0x7E exception_name absent；Qt 措辞边界入档；clean 131 零警告、ctest 21/21；**最新 Part A candidate = `797269a`（LKGC 仍 `01841b1`）**；Part B NOT STARTED |
+| 2026-09-09 | **用户 T012 Part A Review = PASS（12 项确认）**：Pending semantic fix / whitelist / latest-20 按 anomaly 序列 / 未知异常码不猜 / offline+Qt 边界 / AGENT-A01~A09 / clean / ctest 21/21 / T011 零修改。**T012 Part A = DONE**；`797269a` 经 RED-GREEN+矩阵+clean+ctest+人工 Review 全链验证 → **新 verified LKGC = `797269a`**；Part B NOT STARTED；M6 IN PROGRESS |
+
 
 
 

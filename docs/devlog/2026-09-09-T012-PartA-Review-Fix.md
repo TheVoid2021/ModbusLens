@@ -20,3 +20,10 @@
 ## 关联档案
 
 - 任务：[T012-agent-tools](../../tasks/T012-agent-tools.md)（Review Fix 段 + Git Commit 回填）；ADR：[ADR002](../../adr/ADR002-readonly-tool-agent-architecture.md)。
+
+
+## 追加（2026-09-09 晚些）— Part A Final Acceptance
+
+- **用户人工/架构 Review = PASS（12 项确认）** → **T012 Part A = DONE**；verified LKGC 推进至 **`797269a`**（该 commit 经 RED/GREEN、AGENT-A01~A09、clean 131 零警告、ctest 21/21、人工语义 Review 全链验证）。
+- Review 轨迹保留：初版 `9921efd` 的 `status != Success` 缺陷 → Review 发现 → `797269a` 显式 whitelist。总结语入档：**"non-Success is not equivalent to anomaly"**。
+- T012 overall = IN PROGRESS；Part B = NOT STARTED（Next Action = Model Tool Calling Capability Probe，需用户授权，未批准不前动）；M6 = IN PROGRESS。
