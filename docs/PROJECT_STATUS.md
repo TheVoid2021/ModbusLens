@@ -13,12 +13,11 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 126 targets） |
 | Test 状态 | ✅ **20/20 通过**（ctest 20 个测试目标全绿；ui_bridge 49 函数——UI-A01~A06 / UI-B01~B06 / UI-R01~R08 / UI-S01~S10 / UI-D01~D08 / UI-AI01~AI11，均含本地化后中文断言） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **None**（无进行中任务） |
-| 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（Part A + Part B 全部 DONE；Manual AI UI Smoke + Live ModelScope Smoke 双 PASS；live model Qwen/Qwen3.5-27B） |
-| 当前阶段（Current Phase） | —（T011 DONE；T012 待启动） |
-| 下一步动作（Next Action） | **T012 Agent Tools — Learning / Test Design** |
-| 下一 Part（Next Part） | **Part B — Serial UI Integration + Hardware/No-Hardware Smoke** |
-| 下一 Part（Next Part） | **Part B — LLM Diagnosis Integration** |
+| 当前任务（Current Task） | **T012 Agent Tools — Learning / Test Design（docs-only，本轮；Implementation 待用户批准）** |
+| 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
+| 当前阶段（Current Phase） | T012 Learning / Test Design 完成（三工具/dispatcher/loop/guard/矩阵已定案）→ Implementation 待批准 |
+| 下一步动作（Next Action） | **T012 Part A Implementation（Read-only Tool Layer，零网络 TDD）— 待用户批准** |
+| 下一 Part（Next Part） | **T012 Part B — Agent Runtime + UI（Live Tool-Calling Probe 先行，需用户授权）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
@@ -165,6 +164,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-09 | **AI Explanation Polish Review（docs-only，非 T012）**：核验过度归因措辞（“链路稳定性较差/协议状态混乱/往往源于物理层/暗示间歇性中断”）来源——A/B/F 经核验无措辞责任，C/D 为可控缺口（0x02 语义与小样本事实未下发、system 缺正例语义），E 模型先验为直接来源；**ISSUE-006 建档 OPEN**（最小方案：DiagnosisPromptBuilder system Attribution discipline 段 + user small_sample 标注；回归测试 AI-B14/B15 设计）；本轮不修改 production code、不调用真实 ModelScope、不消耗 quota、不推进 LKGC、T012 保持 NOT STARTED |
 | 2026-09-09 | **ISSUE-006 Implementation 完成（自动化 GREEN）**：生产改动仅 DiagnosisPromptBuilder——Evidence Scope Guard（无条件 evidence_scope=current_observed_batch；**取消原 small_sample<=10 阈值设计**：count 不能论证长期代表性）+ system 三条状态正例语义（CRC/Timeout/0x02=Illegal Data Address）+ 0x01~0x04 语义表 + Mixed Error Independence + Facts/Explanations/Checks 纪律（原 authority 规则一字未动）；新增 AI-B14~B17；clean 126 零警告、ctest 20/20、deploy+minimal-PATH PASS；code/test candidate = `01841b1`（**不推进 LKGC**）；用户 Manual UI Regression Smoke = PASS（10 项） |
 | 2026-09-09 | **经授权 Live ModelScope Smoke = PASS（1 次最小配额，真实 production path，Qwen/Qwen3.5-27B）**：五项验收全过——A 无长期/持续性外推（明确限 current_observed_batch）；B CRC 仅“可能与 serial settings/wiring/grounding/EMI 有关”；C Timeout 无 offline/broken；D 0x02 正确解释为 Illegal Data Address 并优先核对 register map/文档；E 明确“独立观察、不意味着 shared root cause”。**ISSUE-006 RESOLVED**；verified LKGC 推进至 `01841b1`；HEAD = docs-only 归档。T011 仍 DONE；T012/T013 NOT STARTED；M6 IN PROGRESS |
+| 2026-09-09 | **T012 启动：Agent Tools — Learning / Test Design（docs-only）**：三工具（get_session_summary/get_recent_anomalies/get_transaction_detail）v1 冻结；transaction_id=1-based batch 序号定案；dispatcher 定案（否决 registry）；ModelScope tool-calling contract 核验（Qwen3 官方支持、Provider 透传未证实 → Implementation 前需授权 Live Probe）；loop FSM + max 3 rounds；run 绑定 activeBatchRevision + 独立 agentRequestGeneration；AGENT-A01~A08 + B01~B14 矩阵（14 项 P0）；Part A/B 拆分推荐；ADR002 新建；**零 production/tests/CMake 改动、零 quota**；T012 IN PROGRESS，Implementation 待批准 |
+
 
 
 | 2026-09-08 | **ISSUE-005 修复并 RESOLVED**：AiAbortReason 归属 + 单一 QTimer owner（90s）+ OperationCanceledError 按 reason 分类 + UI 文案与 errorString 解耦；自动化全绿后**用户真实 27B Live Regression Smoke = PASS**（不再出现"操作被取消"）；verified LKGC 推进至 `bb3f3b4`（新 code fix commit）；docs-only 归档不再次推进 |
