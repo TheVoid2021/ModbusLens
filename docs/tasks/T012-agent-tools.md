@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A ✅ DONE（2026-09-09，用户人工/架构 Review 12 项 = PASS，verified LKGC = `797269a`）；Part B NOT STARTED**；Learning 定案经 Implementation Review Refinements R1~R4 修正落档
+- **状态**：IN PROGRESS — **Part A ✅ DONE（verified LKGC `797269a`）；Part B IN PROGRESS：Gate 0 ✅ PROVEN（native round trip 实证）→ Phase 1 IMPLEMENTED / AWAITING REVIEW（candidate `da453a7`）；Phase 2 NOT STARTED**
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -300,12 +300,24 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 
 - code/test（Part A，LKGC candidate，未经人工审核、未推进 LKGC）：`9921efd` `T012(Part A): read-only agent tool layer — dispatcher + validation + JSON DTO`
 - code/test（Part A Review P0 fix，**最新 LKGC candidate**，未推进）：`797269a` `fix(T012): Pending is not an anomaly — whitelist filter in get_recent_anomalies` → **verified LKGC（用户 Review PASS 后推进）**
+- code/test（Part B Phase 1，**最新 LKGC candidate**，未推进）：`da453a7` `T012(Part B Phase 1): native tool-calling agent runtime — FSM + provider adapter`
 - docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`、`40177a2`（Learning 哈希回填）；Part A 归档 docs commit 随本档案更新提交（哈希回填于 PROJECT_STATUS 变更记录）
 
 ## Potential Interview Questions
 
 见"Learning 阶段面试问答"15 题（含要点，实现后按真实证据补充）。
 
+
+
+
+## Part B Phase 1 — Native Agent Runtime（2026-09-09，IMPLEMENTED / AWAITING REVIEW）
+
+- **实现范围**（全部本地 fake server 自动验证，零真实调用）：AgentRuntime（有界 FSM + MAX_TOOL_ROUNDS=3 与 MAX_TOTAL_TOOL_CALLS=3 双硬上限、整批 validate-then-execute、错误契约 7 本地码 + provider 复用 AiDiagnosisErrorCode、双层 stale guard seam、cancel/supersede、run 内消息不跨 run）；ModelScopeAgentClient（native tool calling round：完整 assistant message 返回，ISSUE-005 安全契约复刻，共享 T011 值类型，T011 client 零改动）；AgentPromptBuilder（独立只读 system instruction + 固定三工具 schema additionalProperties=false）。
+- **Part A 增量（语义不变）**：validateAgentToolCall（validate-only 孪生）+ makeAgentToolContext（自洽 snapshot builder：statistics 从同一份 copied transactions 经 summarizeTransactions 重算，P0）。
+- **测试**：AGENT-B01~B18 + a10。**RED = 47 处 undefined reference；GREEN = 全过**。
+- **验证**：clean 142 targets 零警告；ctest 22/22（新增 agent_runtime）；零公网/零 quota/fake token；AGENT-B 覆盖：direct-final/one-tool/multi-calls/双 limit/malformed/unknown/dup-id/not-found/revision-stale×2/supersede/cancel/provider 失败/injection 无法造写能力/facts 零改动/未配置/question 校验。
+- **Known issue（测试基建，已修并留档）**：测试 Harness 初版忘记 server.start() → 全部网络用例表现为 NetworkError + requestCount==0；定位方法论：requestCount==0 意味着连接从未发生，先查服务器生命周期而非协议解析。
+- **T011/Part A 保真**：DiagnosisPromptBuilder/ModelScopeDiagnosisClient/QML 零 diff；Pending != anomaly 语义未动；单飞互斥契约冻结（Phase 2 由 Controller 绑按钮，runtime 层 start-supersede 已实现同批新 run 优先）。
 
 ## Part B Gate 0 — ModelScope Native Tool-Calling Capability Probe（2026-09-09，✅ PROVEN）
 
