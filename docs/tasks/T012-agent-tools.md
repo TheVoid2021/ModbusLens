@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（LKGC `b322cc3`）→ Phase 2 LEARNING / INTEGRATION PLAN COMPLETE — AWAITING IMPLEMENTATION APPROVAL**
+- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（LKGC `b322cc3`）→ Phase 2 IMPLEMENTED / AWAITING MANUAL UI REVIEW（candidate `d781ab0`）**
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -303,6 +303,7 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - code/test（Part B Phase 1，**最新 LKGC candidate**，未推进）：`da453a7` `T012(Part B Phase 1): native tool-calling agent runtime — FSM + provider adapter`
 - code/test（Part B Phase 1 Review P0 fix，**最新 Phase 1 candidate**，未推进）：`2becc41` `fix(T012): single batch-identity source — remove duplicated AgentRunRequest revision`
 - code/test（Part B Phase 1 Final Review fix，**最新 Phase 1 candidate**，未推进）：`b322cc3` `fix(T012): start() never normalizes the live batch revision — preflight stale guard` → **verified LKGC（Phase 1 最终 Review PASS 后推进）**
+- code/test（Part B Phase 2，**最新 Phase 2 candidate**，未推进）：`d781ab0` `T012(Part B Phase 2): Controller + QML Agent integration`
 - docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`、`40177a2`（Learning 哈希回填）；Part A 归档 docs commit 随本档案更新提交（哈希回填于 PROJECT_STATUS 变更记录）
 
 ## Potential Interview Questions
@@ -332,6 +333,15 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 
 ## Part B Phase 2 — Learning / Integration Plan（2026-09-10，docs-only；Implementation 待批准）
 
+## Part B Phase 2 — Implementation 归档（2026-09-10，IMPLEMENTED / AWAITING MANUAL UI REVIEW）
+
+- **口径修正**（Implementation 前按用户要求复核）：active batch publication paths 真实 callsite = **5**（connectSerial 成功清批 / publishSerialResult / runDemoBatch / clearResults / loadReplayFile 成功；constructor 初始空批不入列）。Generation 措辞校准：Controller 不要求其 `agentRequestGeneration_` 与 Runtime internal `currentAgentGeneration_` 数值同步；production path 不调用 `setCurrentAgentGeneration(...)`。
+- **code/test commit `d781ab0`**：Controller 集成（ownership=controller parents `agentClient_`+`agentRuntime_`；**同一份 validated ModelScopeClientConfig 同源配置两个 client**（configureAiClient 即共享 seam，aiConfigured 与 Agent 配置永不漂移）；properties 全部 derived（agentBusy=runtime.isBusy()，cloudAiBusy=aiBusy||agentBusy，`cloudAiChanged` 在每个 busy 转变点同步发射）；askAgent 前置四级 guard（AI-busy/自 busy/空批 NoData/未配置——全部零 provider 请求；question 校验归 Runtime authority）；快照唯一合法链（makeAgentToolContext 自洽）；`agentRequestGeneration_` 单调 ++ 允许 gap）；**Batch-change ordering**：++revision → setCurrentBatchRevision(new) → `agentRuntime_.invalidateForBatchChange()`（新最小 seam：busy → ++internal generation + cancel(BatchInvalidated) + Idle，零用户可见信号）→ 清 Agent answer/error → emit）；single-flight 双向后端 guard + QML 按钮 cloudAiBusy 禁用；answer/error 语义按 Learning 定案（accepted 清 error 保 old answer / failure 保 old answer / UserCancel 静默 / batch 变全清）。
+- **QML**：仅左 Diagnosis pane 内追加「Agent 问答（只读诊断）」：TextArea(2~4 行 wrap,中文 placeholder)+ [询问 Agent][取消][分析中...]；answer 为 PlainText/wrap/selectable、error 红标——全部在既有 Flickable 滚动内容里，ISSUE-004 架构零推翻、无固定大高、无第二层 ScrollView；AI 解释按钮同时受 `cloudAiBusy` 禁用。
+- **测试**：`tests/test_agent_integration.cpp` UI-AG01~AG20（localhost fake server，零公网零配额；AG18 由既有 qml_smoke ctest 承载并在测试内注记）。**RED 证据 = 对未接线 Controller 构建新测试 → 编译失败（`class AnalysisController has no member named agentBusy/askAgent/…`）**；GREEN = 21 个集成函数全过（首次跑 AG11 时序断言过早 = requestCount 0，修复为 QTRY 等待首个请求上线路）。
+- **回归**：agent_runtime B01~B22、agent_tools A01~A10、ui_bridge、ai_client、qml_smoke 全绿；clean 全量重建 0 警告；ctest **23/23**；deploy_windows.bat + minimal-PATH smoke PASS。
+- 本 commit 为 **Phase 2 LKGC candidate（未推进）**——Phase 2 包含真实 UI，需人工 UI Review；Live Agent Smoke（真实 ModelScope）未执行。
+
 ### 1. Current Controller state map（真实成员核验）
 - deterministic batch state：`activeDiagnosisTransactions_`（std::vector<core::DiagnosisTransaction>）、`statistics_`（TransactionStatisticsSnapshot）、`transactionModel_`（TransactionListModel）、`activeBatchRevision_`（uint64；唯一 ++ 点 = `invalidateAiForBatchChange()`）。
 - Baseline Diagnosis state：`hasBaselineDiagnosis_` / `baselineDiagnosisText_`；清理由 `clearDiagnosisState()`。
@@ -345,8 +355,8 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 ### 3. Snapshot construction contract（唯一合法链）
 `activeDiagnosisTransactions_`（copy）→ `makeAgentToolContext(copied transactions, activeBatchRevision_)`（statistics 由 canonical summarizer 从同一份拷贝重算，自洽）→ `AgentRunRequest{question, context, runGeneration}` → `agentRuntime_.start(...)`。禁止复制 presentation statistics 塞进 context；禁止从 QML rows / statusText / labels / sourceLabel 反推事实。
 
-### 4. Active batch publication paths（真实 6 处，全部经 invalidateAiForBatchChange）
-connectSerial 成功清批 / publishSerialResult / runDemoBatch / clearResults / loadReplayFile 成功（+ constructor 初始空批）。failed Replay / failed Serial connect 不触碰批，**不推进 revision**（原子语义保持不变）。
+### 4. Active batch publication paths（真实核验 = **5 处** callsite，全部经 invalidateAiForBatchChange）
+connectSerial 成功清批 / publishSerialResult / runDemoBatch / clearResults / loadReplayFile 成功（`invalidateAiForBatchChange()` 是唯一 `++activeBatchRevision_` 点；constructor 初始空批不拨 revision 不入列）。failed Replay / failed Serial connect 不触碰批，**不推进 revision**（原子语义保持不变）。
 
 ### 5. Runtime live revision sync（定案）
 在 `invalidateAiForBatchChange()` 尾部（`++activeBatchRevision_` 之后）增加：`agentRuntime_.setCurrentBatchRevision(activeBatchRevision_)`。于是 Runtime current revision 永远代表 Controller 当前 active batch identity；Ask Agent 时快照自带 revision，preflight 双重兜底。
@@ -384,8 +394,11 @@ QML TextArea 仅作 draft；`askAgent(question)` 一次复制 QString 入 AgentR
 - E. Cancel：busy 清、old answer/error 不变；Cancelled 不写红 errorText。
 - F. batch change：answer+error+busy 全清（静默）。
 
-### 14. Generation ownership（定案）
-Controller 持 `agentRequestGeneration_`（uint64，单调 ++）为唯一 run 编号来源：每次合法新 run `++agentRequestGeneration_` → 构造 AgentRunRequest.runGeneration → start（Runtime 内部 currentAgentGeneration_=runGeneration 同步保留）；cancelAgent / batch invalidation 各自使 generation 失效（Runtime 内部自增）。不把 Controller 猜号与 Runtime 自编号并存；无第三套 token。
+### 14. Generation ownership（定案，措辞已校准）
+- `Controller.agentRequestGeneration_` = accepted Agent run ID generator（每次真正准备提交的合法新 run 前置 ++；允许 gap）。
+- `AgentRunRequest.runGeneration` = this run identity。
+- `AgentRuntime.currentAgentGeneration_` = Runtime **内部** validity guard（start 采用 request.runGeneration；cancel / batch invalidation 由 Runtime 内部自增失效）。
+- **Controller 不要求自己的 counter 与 Runtime internal current generation 在 idle/cancel 后数值同步**；production path 不得调用 `setCurrentAgentGeneration(...)` 人为同步；无第三套 token。
 
 ### 15. Cancel semantics（定案）
 cancelAgent 只取消 Agent（runtime.cancel()：++gen + UserCancel abort；Controller 不触碰 Ask AI）；Cancel AI 只取消 AI。UserCancel 与 BatchInvalidated 永不混成同一个 UI 错误（后者静默）。
