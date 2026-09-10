@@ -25,3 +25,10 @@
 
 - Controller+QML Agent 集成落地（owns client+runtime/同源双配置/全 derived 状态/四级前置/批切换 ordering seam/invalidateForBatchChange 新最小 seam/single-flight 双向/answer-error 语义）；左 pane Agent 问答 UI；UI-AG01~AG20 全绿（RED=未接线 Controller 编译失败，AG11 时序断言修正一次）；ctest 23/23、clean 0 警告、deploy+minimal-PATH PASS。
 - **Phase 2 candidate = `d781ab0`（未推进 verified LKGC）**；Manual UI Review（A~J）待用户。
+
+
+## 追加（Live Smoke）— Final Real Live Agent Smoke = FAIL（2026-09-10）
+
+- 唯一授权 run：Qwen/Qwen3.5-27B + 正式 endpoint；约 12s 内 UI 报「工具调用次数已达上限。」（ToolCallLimitExceeded），无 final answer；无第二 run、无 retry、无 Ask AI；请求数不可直接观测但 Runtime 累计上限保证 ≤3（<4 授权上限）。
+- 判定：Live E2E = FAIL（模型工具调用行为超出 v1 TOTAL_TOOL_CALLS=3 上限），防护按契约工作；facts 零变化。候选改进（仅记录待用户决策）：指令约束每轮单工具 / 调上限 / 保持 v1。
+- d781ab0 未推进 LKGC（仍 b322cc3）。

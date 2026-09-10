@@ -176,6 +176,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-09 | **用户 T012 Part B Phase 1 Final Review = PASS → Phase 1 封版**：`b322cc3` 升级为 **新 verified LKGC**（A01~A10+B01~B22/clean 142/ctest 22/22/三轮 Review 全链）；Identity Model 入档（snapshot/live/run/generation 四身份）；Phase 2 ST-A requirement 与 Controller contract 预告；T011 production 零改动 |
 | 2026-09-10 | **T012 Part B Phase 2 Learning / Integration Plan 完成（docs-only）**：Controller 状态图/发布路径 6 处核验；Agent ownership（Controller parents client+runtime）；snapshot 唯一合法链；batch-change invalidation 最小 seam（`AgentRuntime::invalidateForBatchChange`，静默立即失效）；single-flight derived `cloudAiBusy`（UI+backend 双 guard）；Agent 不绑 Baseline；NoData 本地拒绝；answer/error/cancel/generation 语义定案；QML 左 pane 最小 UI + ISSUE-004 防回归；UI-AG01~AG18 矩阵（P0×13/P1×5）；register-address limitation 入 Backlog；零代码改动 |
 | 2026-09-10 | **T012 Part B Phase 2 Implementation 完成（自动化全 GREEN，`d781ab0`）**：Controller+QML Agent 集成（同一 config 双 client/全 derived 状态/四级前置/批切换 ordering seam/single-flight 双向/answer-error 语义）+ 新 Runtime invalidate seam；口径修正（5 处发布路径；generation 措辞）；UI-AG01~AG20 全绿（RED=未接线 Controller 编译失败）；clean 0 警告、ctest 23/23、deploy+minimal-PATH PASS；**candidate 未推进（待 Manual UI Review）** |
+| 2026-09-10 | **T012 Part B Phase 2 Final Real Live Agent Smoke = FAIL（证据入档）**：唯一授权 run（Qwen/Qwen3.5-27B，真实 endpoint）约 12s 内触发 ToolCallLimitExceeded（UI「工具调用次数已达上限。」）→ 无 final answer；崩溃级零问题、facts 零变化、防护按契约工作；请求数不可直接观测（硬上限保证 ≤3，远低于 4；无第二 run/retry/Ask AI）；待用户决策（prompt 收紧 / 上限调整 / 保持 v1）；H Cancel 未执行（自动证据 UI-AG08+B13 承担）；**d781ab0 未推进 LKGC** |
+
 
 
 

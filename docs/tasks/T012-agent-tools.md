@@ -333,6 +333,17 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 
 ## Part B Phase 2 — Learning / Integration Plan（2026-09-10，docs-only；Implementation 待批准）
 
+## Part B Phase 2 — Final Real Live Agent Smoke Evidence（2026-09-10，FAIL）
+
+- **时间/模型**：2026-09-10；`Qwen/Qwen3.5-27B`（环境实际值，未更换）；正式 endpoint（api-inference.modelscope.cn，v1/chat/completions）。
+- **scenario（唯一 run，用户指定问题原文）**：
+  > 请先读取本批次摘要，再查看最近异常；如果发现异常码事务，请进一步查看该事务详情。然后只基于当前 observed batch，用较详细的简体中文纯文本说明：本批次有哪些异常、每类异常分别代表什么、应该优先检查什么。不同异常视为独立观察，不要推断共同根因，不要泛化为长期链路不稳定，也不要执行任何写操作。
+- **可观察证据**：点击「询问 Agent」一次后，「分析中.../busy」状态短暂出现，约 12 秒后 run 终止，UI 显示本地错误文案 **「工具调用次数已达上限。」**（ToolCallLimitExceeded）；Agent 按钮恢复可用、`agentBusy=false`；**无 final answer 产生**；Deterministic facts 全部未变（statistics/rows/baseline 无变化）。
+- **exact tool-call sequence**：not externally observable in deployed UI（生产无工具调用日志/时间线；按禁令未加任何观察代码、未做 MITM/proxy）。
+- **request count**：not directly observable in deployed UI；由 Runtime 硬上限保证本轮真实请求数 **≤3**（累计超 3 个 tool calls 必在第 4 个执行前拒绝；单 run 单请求链 ≥1），**远低于 4 上限，无第二 run、无 retry、无 Ask AI**。
+- **判定**：**Final Live Agent E2E = FAIL**——唯一授权的 run 未产生 usable final answer，直接触发已设计的 ToolCallLimitExceeded 防护（该防护本身按契约正确工作：整批拒绝、零部分执行、UI 紧凑文案、facts 零变化）。失败层 = 模型行为（该长指令令模型倾向并行/多轮工具调用，超出 TOTAL_TOOL_CALLS=3 的 v1 上限），非 provider/网络/崩溃。
+- **处置（等用户决策，未自行改动）**：候选改进方向（仅记录）：①调整 Agent system instruction 鼓励“每轮只调用一个工具”；②场景化提高 TOTAL_TOOL_CALLS/ROUND 上限；③保持现状并以文档说明 v1 上限语义。均属 T012 收尾或 T013 polish 决策。**H（Cancel 动态）未在本次执行**（用户指定不点取消；已有 UI-AG08 + B13 自动证据）。
+
 ## Part B Phase 2 — Implementation 归档（2026-09-10，IMPLEMENTED / AWAITING MANUAL UI REVIEW）
 
 - **口径修正**（Implementation 前按用户要求复核）：active batch publication paths 真实 callsite = **5**（connectSerial 成功清批 / publishSerialResult / runDemoBatch / clearResults / loadReplayFile 成功；constructor 初始空批不入列）。Generation 措辞校准：Controller 不要求其 `agentRequestGeneration_` 与 Runtime internal `currentAgentGeneration_` 数值同步；production path 不调用 `setCurrentAgentGeneration(...)`。

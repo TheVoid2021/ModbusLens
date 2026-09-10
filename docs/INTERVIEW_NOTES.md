@@ -69,6 +69,8 @@
 - ✅ 已可答（T012 Part B Phase 1，见 docs/tasks/T012-agent-tools.md + ADR002）：四种身份分离的最终定案（snapshot identity / live identity / run identity / generation，双条件消费、无第三套版本）；"snapshot identity 不得覆盖 live-world identity"与"重复身份元数据使不一致态可表达"两条实战教训（删字段 vs 加校验：类型层消灭非法态）；stale 三窗口防御（start 前零请求 / 工具执行后 batch 切换丢弃 / 迟到交付丢弃）；bounded Agent FSM 的双 3 上限与整批 validate-then-execute（无部分执行）；ModelScope native tool calling 全链（Gate 0 实证）上的 Runtime/adapter 分层与 fake-server 多回合脚本测试法
 - ✅ 已可答（T012 Part B Phase 2 Learning，见 docs/tasks/T012-agent-tools.md Phase 2 段）：derived state 代替第三份 mutable bool（cloudAiBusy = aiBusy || agentBusy，UI+backend 双 guard 防竞态）；batch-change invalidation seam 的设计理由（seam 只改 live revision 不终止请求 → 加最小 invalidateForBatchChange 静默终止，三类 abort reason 的 UI 语义分家：UserCancel/BatchInvalidated/Superseded）；stale-start preflight 与 ST-A（stale 尝试必须零副作用且不打扰在途 run）；snapshot 唯一合法链在集成层的贯彻（copy→makeAgentToolContext→request，禁止展示层反推）；single-flight 产品定案（busy 禁用 + backend Busy；runtime supersede 降级为 defensive capability）
 - ✅ 已可答（T012 Part B Phase 2 实现，见 docs/tasks/T012-agent-tools.md Phase 2 Implementation 段）：同一 validated config 喂两个 cloud client（测试 seam 与生产构造共用，杜绝 aiConfigured 与 Agent 配置漂移）；derived busy 状态在 Qt property 里的落地（NOTIFY 信号在每个 busy 转变点同步发射 cloudAiChanged，避免第三份 mutable bool）；批切换的 ordering 契约（revision++ → seam 先行 → 静默 terminate → 清呈现）与"abort 邻域迟到回调零发布"的确定性测试写法（不用 sleep 竞态）；集成层 stale start 不可表达时的诚实处理（runtime 层 B22 保契约、controller 层测 seam 同步不误杀新 run）
+- ✅ 已可答（T012 Live Agent Smoke 教训，见 docs/tasks/T012-agent-tools.md Live Smoke 证据段）：工具调用上限在真实生产中被触发的完整证据链（模型长指令→并行/多轮工具→ToolCallLimitExceeded 防护按契约整批拒绝→零 facts 变化、无崩溃）；设计上限的取舍复盘（TOTAL_TOOL_CALLS=3 在多步探查场景下的张力与三个候选改进）
+
 
 
 
