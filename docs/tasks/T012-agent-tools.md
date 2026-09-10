@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A ✅ DONE（verified LKGC `797269a`）；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 IMPLEMENTED / AWAITING FINAL REVIEW（latest candidate `b322cc3`，含两轮 Review P0 fix）；Phase 2 NOT STARTED**
+- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（用户 Final Review = PASS；verified LKGC 推进至 `b322cc3`）；Phase 2 NOT STARTED**
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -302,7 +302,7 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - code/test（Part A Review P0 fix，**最新 LKGC candidate**，未推进）：`797269a` `fix(T012): Pending is not an anomaly — whitelist filter in get_recent_anomalies` → **verified LKGC（用户 Review PASS 后推进）**
 - code/test（Part B Phase 1，**最新 LKGC candidate**，未推进）：`da453a7` `T012(Part B Phase 1): native tool-calling agent runtime — FSM + provider adapter`
 - code/test（Part B Phase 1 Review P0 fix，**最新 Phase 1 candidate**，未推进）：`2becc41` `fix(T012): single batch-identity source — remove duplicated AgentRunRequest revision`
-- code/test（Part B Phase 1 Final Review fix，**最新 Phase 1 candidate**，未推进）：`b322cc3` `fix(T012): start() never normalizes the live batch revision — preflight stale guard`
+- code/test（Part B Phase 1 Final Review fix，**最新 Phase 1 candidate**，未推进）：`b322cc3` `fix(T012): start() never normalizes the live batch revision — preflight stale guard` → **verified LKGC（Phase 1 最终 Review PASS 后推进）**
 - docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`、`40177a2`（Learning 哈希回填）；Part A 归档 docs commit 随本档案更新提交（哈希回填于 PROJECT_STATUS 变更记录）
 
 ## Potential Interview Questions
@@ -329,6 +329,22 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - **测试基建**：所有正常 run fixture 显式建立 live world（`setCurrentBatchRevision(ctx.capturedBatchRevision)` 后再 start）——外部世界先发布 revision，Agent run 再捕获 snapshot。
 - **新测试 B22（RED→GREEN）**：live=42、snapshot=41 → start 后 `requestCount==0`、不 busy、无 completed/failed/cancelled；随后 revision=42 的 run 正常完成（证明 start 未把 current 改回 41）。**RED = 旧实现下 B22 FAIL（旧代码错误发出了网络请求）**；修复后 B01~B22 全绿；B10/B11/B19 回归 PASS。
 - **验证**：clean 142 targets 零警告；ctest 22/22；零公网。候选链：`da453a7` → `2becc41` → **`b322cc3`（最新 Phase 1 candidate）**。
+
+## Part B Phase 1 — Final Acceptance（2026-09-09，用户 Review = PASS，封版）
+
+- **Phase 1 = DONE**；verified LKGC 由 `797269a` 推进至 **`b322cc3`**（最新经 RED/GREEN + A01~A10 + B01~B22 + clean build + full ctest 22/22 + 多轮架构 Review 的 code/test baseline）。
+- **Acceptance evidence（22 项）**：Gate 0 native tool calling PROVEN；bounded FSM；fixed read-only tool schema；strict tool-call validation；immutable AgentToolContext snapshot；statistics 与 snapshot 同源；captured batch identity 单源；live current revision 仅外部可写；run generation guard；stale-before-start 零请求；mid-run stale discard；same-batch supersession；cancellation；final-content validation；tool_calls precedence；round/call 双 3 上限；prompt-injection/write-tool denial；A01~A10、B01~B22、clean build、ctest 22/22、diff-check；T011 production pipeline 零改动。
+- **Review 历史保留（三阶段，不伪装一次正确）**：`da453a7`（初始 Runtime implementation）→ `2becc41`（删 duplicated request revision + final-response 防御）→ `b322cc3`（captured/live world 分离 + stale-before-start B22）。
+- **核心工程经验**：A. snapshot identity 不得覆盖 live-world identity；B. duplicated identity metadata 制造可表达的不一致态；C. stale snapshot 绝不产生 provider request。
+- **最终 Identity Model**（定案）：
+  - `AgentToolContext.capturedBatchRevision` = snapshot identity（facts+statistics+batch 一体）。
+  - `AgentRuntime.currentBatchRevision_`（setCurrentBatchRevision）= live active-batch identity（仅外部 controller seam 更新）。
+  - `AgentRunRequest.runGeneration` = 本次 run identity。
+  - `AgentRuntime.currentAgentGeneration_` = 最新有效 run identity。
+  - 任何 provider delivery 消费/发布前必须同时满足：`capturedBatchRevision == currentBatchRevision` AND `runGeneration == currentAgentGeneration`；**不得引入第三套 revision/generation**。
+- **Phase 2 Integration Notes（非阻塞，本轮不返工）**：
+  - ST-A（Phase 2 integration test requirement）：Run A in flight 时，stale start（context revision != live revision）必须：零 HTTP、不 cancel/supersede Run A、不改 current generation、Run A 在自身 revision/generation 仍有效时可照常完成。
+  - Controller contract（只记录不实现）：每次真实 active batch publication 必须同步 `activeBatchRevision → setCurrentBatchRevision`；Ask Agent = 拷贝 activeDiagnosisTransactions → `makeAgentToolContext(transactions, activeBatchRevision)` → AgentRunRequest。禁止从 QML rows/statusText/statistics labels 反推 Agent facts。
 
 ## Part B Phase 1 — Native Agent Runtime（2026-09-09，IMPLEMENTED / AWAITING REVIEW）
 

@@ -1,7 +1,7 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-| Last Known Good Commit | **`797269a`**（T012 Part A 完成：read-only agent tool layer + Pending anomaly whitelist 修复；RED→GREEN、AGENT-A01~A09、clean 131 零警告、ctest 21/21、**用户人工/架构 Review = PASS（12 项确认）**。历史值：`01841b1`（ISSUE-006）、`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
+| Last Known Good Commit | **`b322cc3`**（T012 Part B Phase 1 完成：native tool-calling Agent Runtime——FSM/双 3 上限/整批 validate-then-execute/双 guard（captured revision + run generation）/stale 三窗口/preflight 零请求/injection 否认；Gate 0 native round trip PROVEN → Phase 1 用户 Final Review PASS；clean 142 零警告、ctest 22/22（AGENT-A01~A10 + B01~B22）。历史值：`797269a`（T012 Part A）、`01841b1`（ISSUE-006）、`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
 
 ## 状态面板
 
@@ -9,15 +9,15 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 ✅ DONE / T012 未开始；按 BACKLOG 既有定义 M6=T011+T012，不得提前关闭）** |
-| Last Known Good Commit | **`797269a`**（T012 Part A 完成：read-only agent tool layer + Pending anomaly whitelist 修复；RED→GREEN、AGENT-A01~A09、clean 131 零警告、ctest 21/21、**用户人工/架构 Review = PASS（12 项确认）**。历史值：`01841b1`（ISSUE-006）、`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
+| Last Known Good Commit | **`b322cc3`**（T012 Part B Phase 1 完成：native tool-calling Agent Runtime——FSM/双 3 上限/整批 validate-then-execute/双 guard（captured revision + run generation）/stale 三窗口/preflight 零请求/injection 否认；Gate 0 native round trip PROVEN → Phase 1 用户 Final Review PASS；clean 142 零警告、ctest 22/22（AGENT-A01~A10 + B01~B22）。历史值：`797269a`（T012 Part A）、`01841b1`（ISSUE-006）、`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T012 Part B Phase 1 IMPLEMENTED / AWAITING FINAL REVIEW（latest candidate `b322cc3`；含两轮 Review P0 fix）** |
+| 当前任务（Current Task） | **T012 Part B Phase 1 ✅ DONE（用户 Final Review PASS；verified LKGC `b322cc3`）** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
-| 当前阶段（Current Phase） | T012 Part B Phase 1（Native Agent Runtime）落地：RED→GREEN、AGENT-B01~B18、ctest 22/22 → 待用户 review；Phase 2（Controller+QML）NOT STARTED |
-| 下一步动作（Next Action） | **T012 Part B Phase 1 Final Review（`b322cc3`）；通过后 Phase 2（Controller Agent Integration + QML Agent UI，需再批准）** |
-| 下一 Part（Next Part） | **T012 Part B — Agent Runtime + UI（Live Tool-Calling Probe 先行，需用户授权）** |
+| 当前阶段（Current Phase） | T012 Part B Phase 1 封版（Gate 0 PROVEN + Native Agent Runtime DONE）；Phase 2（Controller+QML Integration）NOT STARTED |
+| 下一步动作（Next Action） | **T012 Part B Phase 2 — Controller + QML Integration：Learning / Integration Plan（待用户批准，不自动开始）** |
+| 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
@@ -173,6 +173,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-09 | **T012 Part B Phase 1 Implementation 完成（自动化全 GREEN）**：AgentRuntime（双硬上限 3/3、整批 validate-then-execute、双层 stale guard、supersede/cancel）+ ModelScopeAgentClient（native tool calling，ISSUE-005 契约复刻）+ AgentPromptBuilder（三工具固定 schema）+ Part A validate-only/snapshot builder 增量；RED=47 处 undefined；ctest 22/22、clean 142 零警告；T011 与 Part A 语义零改动；**candidate = `da453a7`（LKGC 未推进，待 review）**；Phase 2 NOT STARTED |
 | 2026-09-09 | **T012 Part B Phase 1 Review P0 fix（`2becc41`）**：删除 AgentRunRequest 重复 revision（AgentToolContext 为 batch 身份单一来源；类型层消灭 context=A/request=B 分裂态）；空 final content→provider InvalidResponse（绝不空答案）；tool_calls 优先于 content（message shape 权威）；新增 B19/B20/B21（RED=B20 旧实现失败）；clean 142 零警告、ctest 22/22；**最新 Phase 1 candidate = `2becc41`（LKGC 未推进）** |
 | 2026-09-09 | **T012 Part B Phase 1 Final Review fix（`b322cc3`）**：captured-vs-current seam 分离——start() 不再写 currentBatchRevision_（live world 唯一更新点=setCurrentBatchRevision）；新增 start preflight stale guard（stale snapshot 零请求零信号）+ B22（RED=旧实现发出请求）；fixture 显式建立 live world；B01~B22 全绿、clean 142 零警告、ctest 22/22；**最新 Phase 1 candidate = `b322cc3`（LKGC 未推进）** |
+| 2026-09-09 | **用户 T012 Part B Phase 1 Final Review = PASS → Phase 1 封版**：`b322cc3` 升级为 **新 verified LKGC**（A01~A10+B01~B22/clean 142/ctest 22/22/三轮 Review 全链）；Identity Model 入档（snapshot/live/run/generation 四身份）；Phase 2 ST-A requirement 与 Controller contract 预告；T011 production 零改动 |
+
 
 
 
