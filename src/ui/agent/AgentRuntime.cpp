@@ -70,6 +70,13 @@ void AgentRuntime::start(const modbuslens::agent::AgentRunRequest& request)
                            localErrorMessage(AgentRunLocalError::InvalidQuestion)));
         return;
     }
+    // PREFLIGHT stale guard (final review P0): a snapshot that is already
+    // stale when the run starts must produce NOTHING — no provider request,
+    // no signal, no state change. The live world (currentBatchRevision_) is
+    // owned by the controller seam alone; start() never normalizes it.
+    if (request.context.capturedBatchRevision != currentBatchRevision_) {
+        return; // silent no-op (existing stale policy)
+    }
     if (!client_->isConfigured()) {
         emit runFailed(request.runGeneration,
                        modbuslens::agent::AgentRunFailure::fromProvider(
@@ -91,7 +98,10 @@ void AgentRuntime::start(const modbuslens::agent::AgentRunRequest& request)
     // second request-level revision field cannot exist (removed by review).
     capturedBatchRevision_ = request.context.capturedBatchRevision;
     runGeneration_ = request.runGeneration;
-    currentBatchRevision_ = request.context.capturedBatchRevision;
+    // NOTE: currentBatchRevision_ is NEVER written here. It belongs to the
+    // external live world and is updated ONLY through setCurrentBatchRevision
+    // (Phase 2 controller mirror). Writing it here would confuse snapshot
+    // identity with live world identity (final review P0).
     currentAgentGeneration_ = request.runGeneration;
     toolRounds_ = 0;
     totalToolCalls_ = 0;
