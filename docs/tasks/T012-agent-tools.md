@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A ✅ DONE（verified LKGC `797269a`）；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 IMPLEMENTED / AWAITING REVIEW（latest candidate `2becc41`，含 Review P0 fix）；Phase 2 NOT STARTED**
+- **状态**：IN PROGRESS — **Part A ✅ DONE（verified LKGC `797269a`）；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 IMPLEMENTED / AWAITING FINAL REVIEW（latest candidate `b322cc3`，含两轮 Review P0 fix）；Phase 2 NOT STARTED**
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -302,6 +302,7 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - code/test（Part A Review P0 fix，**最新 LKGC candidate**，未推进）：`797269a` `fix(T012): Pending is not an anomaly — whitelist filter in get_recent_anomalies` → **verified LKGC（用户 Review PASS 后推进）**
 - code/test（Part B Phase 1，**最新 LKGC candidate**，未推进）：`da453a7` `T012(Part B Phase 1): native tool-calling agent runtime — FSM + provider adapter`
 - code/test（Part B Phase 1 Review P0 fix，**最新 Phase 1 candidate**，未推进）：`2becc41` `fix(T012): single batch-identity source — remove duplicated AgentRunRequest revision`
+- code/test（Part B Phase 1 Final Review fix，**最新 Phase 1 candidate**，未推进）：`b322cc3` `fix(T012): start() never normalizes the live batch revision — preflight stale guard`
 - docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`、`40177a2`（Learning 哈希回填）；Part A 归档 docs commit 随本档案更新提交（哈希回填于 PROJECT_STATUS 变更记录）
 
 ## Potential Interview Questions
@@ -319,6 +320,15 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - **tool_calls 与 content 同时存在**：优先 Tool Calling（message shape 是 authority，不依赖 finish_reason；usable tool_calls 表示模型仍在请求外部观察）。
 - **测试**：B19（context rev=41 即 run 身份；mid-flight 切换 discаrd）/ B20（空 content→InvalidResponse）/ B21（tool_calls+content 双存在→工具优先、结果回传、final 消费）。**RED= B20 在旧实现失败；修复后全绿**。B01~B18 未删未弱化。
 - **验证**：clean 142 targets 零警告；ctest 22/22；零公网。候选链：`da453a7` → **`2becc41`（最新 Phase 1 candidate）**；verified LKGC 未推进。
+
+## Part B Phase 1 Final Review Fix（2026-09-09，captured-vs-current seam P0）
+
+- **发现**：`start()` 把 `currentBatchRevision_` 初始化为 `request.context.capturedBatchRevision`——把 snapshot identity 写进 live world，混淆两者（live revision 只能由外部 Controller 更新）。
+- **修复（`b322cc3`）**：`capturedBatchRevision_` 唯一来源 = context；`currentBatchRevision_` 唯一更新点 = `setCurrentBatchRevision()`（Phase 2 seam）；start() 不再写 current。
+- **Start preflight stale guard**：发第一条 provider 请求前检查 captured==current；不等则 run 已 stale → 静默 no-op（零 HTTP、零信号、不 busy）。不变量：**stale snapshot 绝不能产生 provider request**。
+- **测试基建**：所有正常 run fixture 显式建立 live world（`setCurrentBatchRevision(ctx.capturedBatchRevision)` 后再 start）——外部世界先发布 revision，Agent run 再捕获 snapshot。
+- **新测试 B22（RED→GREEN）**：live=42、snapshot=41 → start 后 `requestCount==0`、不 busy、无 completed/failed/cancelled；随后 revision=42 的 run 正常完成（证明 start 未把 current 改回 41）。**RED = 旧实现下 B22 FAIL（旧代码错误发出了网络请求）**；修复后 B01~B22 全绿；B10/B11/B19 回归 PASS。
+- **验证**：clean 142 targets 零警告；ctest 22/22；零公网。候选链：`da453a7` → `2becc41` → **`b322cc3`（最新 Phase 1 candidate）**。
 
 ## Part B Phase 1 — Native Agent Runtime（2026-09-09，IMPLEMENTED / AWAITING REVIEW）
 
