@@ -68,6 +68,16 @@ qt_add_qml_module(modbuslens
         src/ui/ai/ModelScopeDiagnosisClient.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
         src/ui/ai/DiagnosisPromptBuilder.cpp
+        src/ui/agent/AgentToolContext.h
+        src/ui/agent/AgentToolContext.cpp
+        src/ui/agent/AgentTools.h
+        src/ui/agent/AgentTools.cpp
+        src/ui/agent/AgentPromptBuilder.h
+        src/ui/agent/AgentPromptBuilder.cpp
+        src/ui/agent/ModelScopeAgentClient.h
+        src/ui/agent/ModelScopeAgentClient.cpp
+        src/ui/agent/AgentRuntime.h
+        src/ui/agent/AgentRuntime.cpp
 )
 target_include_directories(modbuslens PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -208,7 +218,17 @@ if(BUILD_TESTING)
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
-        src/ui/ai/DiagnosisPromptBuilder.cpp)
+        src/ui/ai/DiagnosisPromptBuilder.cpp
+        src/ui/agent/AgentToolContext.h
+        src/ui/agent/AgentToolContext.cpp
+        src/ui/agent/AgentTools.h
+        src/ui/agent/AgentTools.cpp
+        src/ui/agent/AgentPromptBuilder.h
+        src/ui/agent/AgentPromptBuilder.cpp
+        src/ui/agent/ModelScopeAgentClient.h
+        src/ui/agent/ModelScopeAgentClient.cpp
+        src/ui/agent/AgentRuntime.h
+        src/ui/agent/AgentRuntime.cpp)
     target_include_directories(modbuslens_ui_bridge_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_compile_definitions(modbuslens_ui_bridge_tests PRIVATE
@@ -355,6 +375,45 @@ if(BUILD_TESTING)
 
     add_test(NAME agent_runtime COMMAND modbuslens_agent_runtime_tests)
 
+    # Agent Controller integration (T012 Part B Phase 2): full Controller +
+    # AgentRuntime + T011 pipeline over the localhost fake server.
+    add_executable(modbuslens_agent_integration_tests
+        tests/test_agent_integration.cpp
+        tests/fake_chat_completions_server.cpp
+        src/ui/AnalysisController.h
+        src/ui/AnalysisController.cpp
+        src/ui/TransactionListModel.h
+        src/ui/TransactionListModel.cpp
+        src/ui/serial/SerialPortAdapter.h
+        src/ui/serial/SerialPortAdapter.cpp
+        src/ui/ai/ModelScopeDiagnosisClient.h
+        src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/DiagnosisPromptBuilder.h
+        src/ui/ai/DiagnosisPromptBuilder.cpp
+        src/ui/agent/AgentToolContext.h
+        src/ui/agent/AgentToolContext.cpp
+        src/ui/agent/AgentTools.h
+        src/ui/agent/AgentTools.cpp
+        src/ui/agent/AgentPromptBuilder.h
+        src/ui/agent/AgentPromptBuilder.cpp
+        src/ui/agent/ModelScopeAgentClient.h
+        src/ui/agent/ModelScopeAgentClient.cpp
+        src/ui/agent/AgentRuntime.h
+        src/ui/agent/AgentRuntime.cpp)
+    target_include_directories(modbuslens_agent_integration_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(modbuslens_agent_integration_tests PRIVATE
+        MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog")
+    target_link_libraries(modbuslens_agent_integration_tests PRIVATE
+        modbuslens_core Qt6::Qml Qt6::SerialPort Qt6::Network Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_agent_integration_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME agent_integration COMMAND modbuslens_agent_integration_tests)
+
     # QML load smoke: runs the REAL app executable in diagnostic mode — it
     # loads the actual shipped QML module, verifies instantiation, and exits
     # without entering the event loop (T008 Part A rule A).
@@ -362,7 +421,7 @@ if(BUILD_TESTING)
         COMMAND modbuslens --qml-smoke-test)
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime qml_smoke PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

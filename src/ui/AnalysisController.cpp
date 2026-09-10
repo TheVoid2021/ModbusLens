@@ -114,10 +114,41 @@ QString executionErrorMessage(
         .arg(phrase);
 }
 
+QString agentFailureText(const modbuslens::agent::AgentRunFailure& failure)
+{
+    using modbuslens::agent::AgentRunLocalError;
+    if (failure.providerError) {
+        switch (failure.providerCode) {
+        case AiDiagnosisErrorCode::NotConfigured: return QStringLiteral("ModelScope 未配置。");
+        case AiDiagnosisErrorCode::NetworkError: return QStringLiteral("网络错误，Agent 请求失败。");
+        case AiDiagnosisErrorCode::Timeout: return QStringLiteral("AI 请求超时。");
+        case AiDiagnosisErrorCode::Unauthorized: return QStringLiteral("ModelScope 未授权（Unauthorized）。");
+        case AiDiagnosisErrorCode::RateLimited: return QStringLiteral("ModelScope 请求受限（RateLimited）。");
+        case AiDiagnosisErrorCode::ProviderRequestError: return QStringLiteral("模型服务请求错误。");
+        case AiDiagnosisErrorCode::ServerError: return QStringLiteral("模型服务端错误。");
+        case AiDiagnosisErrorCode::InvalidResponse: return QStringLiteral("模型响应格式无效。");
+        case AiDiagnosisErrorCode::Busy: return QStringLiteral("已有请求进行中。");
+        default: return QStringLiteral("Agent 请求失败。");
+        }
+    }
+    switch (failure.localError) {
+    case AgentRunLocalError::InvalidQuestion: return QStringLiteral("问题不能为空，且最多 1000 字符。");
+    case AgentRunLocalError::UnknownTool: return QStringLiteral("Agent 尝试调用不存在的工具。");
+    case AgentRunLocalError::MalformedToolCall: return QStringLiteral("模型返回的工具调用格式无效。");
+    case AgentRunLocalError::InvalidArguments: return QStringLiteral("模型返回的工具参数无效。");
+    case AgentRunLocalError::TransactionNotFound: return QStringLiteral("模型请求的事务不存在。");
+    case AgentRunLocalError::ToolRoundLimitExceeded: return QStringLiteral("工具调用轮次已达上限。");
+    case AgentRunLocalError::ToolCallLimitExceeded: return QStringLiteral("工具调用次数已达上限。");
+    }
+    return QStringLiteral("Agent 运行失败。");
+}
+
 } // namespace
 
 AnalysisController::AnalysisController(QObject* parent)
-    : QObject(parent)
+    : QObject(parent),
+      agentClient_(this),
+      agentRuntime_(&agentClient_, this)
 {
     // Same source of truth as T007: an empty batch produces the zeroed
     // snapshot with undefined successRate/latency (hasX == false).
@@ -135,7 +166,11 @@ AnalysisController::AnalysisController(QObject* parent)
     // ONLY (BYOK). QML never sees the token — just aiConfigured.
     ModelScopeClientConfig productionConfig;
     if (buildModelScopeProductionConfig(productionConfig)) {
+        // ONE validated config source feeds BOTH cloud clients (UI-AG19):
+        // aiConfigured_==true can never coexist with an unconfigured Agent
+        // client.
         aiClient_.configure(productionConfig);
+        agentClient_.configure(productionConfig);
         aiConfigured_ = true;
         aiModelName_ = productionConfig.modelId;
     }
@@ -143,6 +178,12 @@ AnalysisController::AnalysisController(QObject* parent)
             this, &AnalysisController::handleAiSucceeded);
     connect(&aiClient_, &ModelScopeDiagnosisClient::diagnosisFailed,
             this, &AnalysisController::handleAiFailed);
+    connect(&agentRuntime_, &AgentRuntime::runCompleted,
+            this, &AnalysisController::handleAgentCompleted);
+    connect(&agentRuntime_, &AgentRuntime::runFailed,
+            this, &AnalysisController::handleAgentFailed);
+    connect(&agentRuntime_, &AgentRuntime::runCancelled,
+            this, &AnalysisController::handleAgentCancelled);
 }
 
 int AnalysisController::observedCount() const
@@ -440,6 +481,114 @@ QString AnalysisController::aiModelName() const
     return aiModelName_;
 }
 
+bool AnalysisController::agentBusy() const
+{
+    return agentRuntime_.isBusy();
+}
+
+bool AnalysisController::hasAgentAnswer() const
+{
+    return hasAgentAnswer_;
+}
+
+QString AnalysisController::agentAnswerText() const
+{
+    return agentAnswerText_;
+}
+
+QString AnalysisController::agentErrorText() const
+{
+    return agentErrorText_;
+}
+
+bool AnalysisController::agentAvailable() const
+{
+    return aiConfigured_;
+}
+
+bool AnalysisController::cloudAiBusy() const
+{
+    // Derived single-flight state: the runtime IS the busy truth for Agent,
+    // aiDiagnosisBusy_ is the truth for Ask AI. No third mutable bool.
+    return aiDiagnosisBusy_ || agentRuntime_.isBusy();
+}
+
+void AnalysisController::askAgent(const QString& question)
+{
+    // Backend single-flight guards (the QML button state is only UX).
+    if (aiDiagnosisBusy_) {
+        agentErrorText_ = QStringLiteral("AI 解释请求进行中，暂不能发起 Agent 问答。");
+        emit agentStateChanged();
+        return;
+    }
+    if (agentRuntime_.isBusy()) {
+        agentErrorText_ = QStringLiteral("已有 Agent 请求进行中。");
+        emit agentStateChanged();
+        return;
+    }
+    if (activeDiagnosisTransactions_.empty()) {
+        agentErrorText_ = QStringLiteral("当前没有可分析的事务数据。");
+        emit agentStateChanged();
+        return;
+    }
+    if (!agentClient_.isConfigured()) {
+        agentErrorText_ = QStringLiteral("ModelScope 未配置，无法使用 Agent 问答。");
+        emit agentStateChanged();
+        return;
+    }
+
+    // Accepted run. The snapshot comes ONLY from the structured active batch
+    // (self-consistent statistics re-derived by makeAgentToolContext) — never
+    // from QML rows / statusText / statistics labels.
+    ++agentRequestGeneration_;
+    const auto context = modbuslens::agent::makeAgentToolContext(
+        activeDiagnosisTransactions_, activeBatchRevision_);
+    agentErrorText_.clear(); // accepted run clears the previous error; old answer stays
+    agentRuntime_.start(modbuslens::agent::AgentRunRequest{
+        .userQuestion = question,
+        .context = context,
+        .runGeneration = agentRequestGeneration_,
+    });
+    emit agentStateChanged();
+    emit cloudAiChanged();
+}
+
+void AnalysisController::cancelAgent()
+{
+    if (agentRuntime_.isBusy()) {
+        agentRuntime_.cancel(); // runCancelled slot refreshes UI state
+    }
+}
+
+void AnalysisController::handleAgentCompleted(std::uint64_t /*runGeneration*/,
+                                              const QString& answer)
+{
+    hasAgentAnswer_ = true;
+    agentAnswerText_ = answer;
+    agentErrorText_.clear();
+    emit agentStateChanged();
+    emit cloudAiChanged();
+}
+
+void AnalysisController::handleAgentFailed(
+    std::uint64_t /*runGeneration*/,
+    const modbuslens::agent::AgentRunFailure& failure)
+{
+    // A failed attempt keeps a previous same-batch answer (T011 keep-old-text
+    // style); only the error text is replaced. Facts never change here.
+    agentErrorText_ = agentFailureText(failure);
+    emit agentStateChanged();
+    emit cloudAiChanged();
+}
+
+void AnalysisController::handleAgentCancelled(std::uint64_t /*runGeneration*/)
+{
+    // User cancel: no red error. Old answer/error stay; only busy clears
+    // (the runtime already invalidated the generation).
+    emit agentStateChanged();
+    emit cloudAiChanged();
+}
+
 void AnalysisController::configureAiClient(const QUrl& endpoint,
                                            const QString& apiKey,
                                            const QString& modelId,
@@ -450,15 +599,19 @@ void AnalysisController::configureAiClient(const QUrl& endpoint,
     if (endpoint.isEmpty()) {
         aiConfigured_ = false;
         aiModelName_.clear();
+        aiClient_.configure(ModelScopeClientConfig{});
+        agentClient_.configure(ModelScopeClientConfig{});
         emit aiStateChanged();
         return;
     }
-    aiClient_.configure(ModelScopeClientConfig{
+    const ModelScopeClientConfig config{
         .endpoint = endpoint,
         .apiKey = apiKey,
         .modelId = modelId,
         .timeout = timeout,
-    });
+    };
+    aiClient_.configure(config);
+    agentClient_.configure(config);
     aiConfigured_ = true;
     aiModelName_ = modelId;
     emit aiStateChanged();
@@ -490,6 +643,7 @@ void AnalysisController::handleAiSucceeded(std::uint64_t requestId,
     aiDiagnosisText_ = text;
     aiDiagnosisErrorMessage_.clear();
     emit aiStateChanged();
+    emit cloudAiChanged();
 }
 
 void AnalysisController::handleAiFailed(std::uint64_t requestId,
@@ -510,6 +664,7 @@ void AnalysisController::handleAiFailed(std::uint64_t requestId,
     // error and result may legitimately coexist.
     Q_UNUSED(code);
     setAiError(sanitizedMessage);
+    emit cloudAiChanged();
 }
 
 void AnalysisController::cancelAiDiagnosis()
@@ -525,11 +680,17 @@ void AnalysisController::cancelAiDiagnosis()
     aiClient_.cancel(AiAbortReason::UserCancel);
     aiDiagnosisBusy_ = false;
     emit aiStateChanged();
+    emit cloudAiChanged();
 }
 
 void AnalysisController::askAiDiagnosis()
 {
     // C++ re-validates every precondition (the QML button is only UX).
+    if (agentRuntime_.isBusy()) {
+        setAiError(QStringLiteral("Agent 问答进行中，暂不能生成 AI 解释。"));
+        emit cloudAiChanged();
+        return;
+    }
     if (!aiConfigured_) {
         setAiError(QStringLiteral(
             "未配置 ModelScope API 令牌（MODELSCOPE_API_KEY），"
@@ -560,6 +721,7 @@ void AnalysisController::askAiDiagnosis()
     aiDiagnosisBusy_ = true;
     aiDiagnosisErrorMessage_.clear(); // clear the LATEST error, keep old text
     emit aiStateChanged();
+    emit cloudAiChanged();
     aiClient_.requestDiagnosis(prompt.systemInstructions, prompt.userPrompt,
                                aiRequestGeneration_);
 }
@@ -570,6 +732,14 @@ void AnalysisController::invalidateAiForBatchChange()
     // batch revision, abort any in-flight AI request and invalidate its
     // identity, then clear every derived view (AI result/error + baseline).
     ++activeBatchRevision_;
+    // Agent ordering (Phase 2 contract): live revision becomes the NEW value
+    // BEFORE any invalidate/callback can race, then the in-flight run dies
+    // silently and all Agent presentation is cleared.
+    agentRuntime_.setCurrentBatchRevision(activeBatchRevision_);
+    agentRuntime_.invalidateForBatchChange();
+    hasAgentAnswer_ = false;
+    agentAnswerText_.clear();
+    agentErrorText_.clear();
     if (aiDiagnosisBusy_ || activeAiRequestId_.has_value()) {
         ++aiRequestGeneration_;
         activeAiRequestId_.reset();
@@ -582,6 +752,8 @@ void AnalysisController::invalidateAiForBatchChange()
     aiDiagnosisErrorMessage_.clear();
     clearDiagnosisState();
     emit aiStateChanged();
+    emit agentStateChanged();
+    emit cloudAiChanged();
 }
 
 void AnalysisController::clearDiagnosisState()
@@ -609,6 +781,7 @@ void AnalysisController::clearDiagnosis()
     aiDiagnosisErrorMessage_.clear();
     clearDiagnosisState();
     emit aiStateChanged();
+    emit cloudAiChanged();
 }
 
 void AnalysisController::runBaselineDiagnosis()

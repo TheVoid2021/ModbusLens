@@ -138,6 +138,20 @@ void AgentRuntime::setCurrentBatchRevision(std::uint64_t revision)
     currentBatchRevision_ = revision;
 }
 
+void AgentRuntime::invalidateForBatchChange()
+{
+    if (!isBusy()) {
+        return; // no active run: no-op (ST-A stays intact)
+    }
+    // Invalidate the generation BEFORE the abort so any in-flight callback
+    // is already stale when it arrives; cancel with BatchInvalidated; back
+    // to Idle. NO user-visible signal — batch invalidation is silent and
+    // must never surface as a red Cancelled error.
+    ++currentAgentGeneration_;
+    state_ = State::Idle;
+    client_->cancel(AiAbortReason::BatchInvalidated);
+}
+
 void AgentRuntime::setCurrentAgentGeneration(std::uint64_t generation)
 {
     currentAgentGeneration_ = generation;

@@ -15,6 +15,9 @@
 #include "core/diagnosis/DiagnosisContext.h"
 #include "core/diagnosis/RuleBasedDiagnosis.h"
 #include "ui/TransactionListModel.h"
+#include "ui/agent/AgentRuntime.h"
+#include "ui/agent/AgentToolContext.h"
+#include "ui/agent/ModelScopeAgentClient.h"
 #include "ui/ai/ModelScopeDiagnosisClient.h"
 #include "ui/serial/SerialPortAdapter.h"
 
@@ -57,6 +60,12 @@ class AnalysisController : public QObject
     Q_PROPERTY(QString aiDiagnosisText READ aiDiagnosisText NOTIFY aiStateChanged)
     Q_PROPERTY(QString aiDiagnosisErrorMessage READ aiDiagnosisErrorMessage NOTIFY aiStateChanged)
     Q_PROPERTY(QString aiModelName READ aiModelName NOTIFY aiStateChanged)
+    Q_PROPERTY(bool agentBusy READ agentBusy NOTIFY agentStateChanged)
+    Q_PROPERTY(bool hasAgentAnswer READ hasAgentAnswer NOTIFY agentStateChanged)
+    Q_PROPERTY(QString agentAnswerText READ agentAnswerText NOTIFY agentStateChanged)
+    Q_PROPERTY(QString agentErrorText READ agentErrorText NOTIFY agentStateChanged)
+    Q_PROPERTY(bool agentAvailable READ agentAvailable NOTIFY aiStateChanged)
+    Q_PROPERTY(bool cloudAiBusy READ cloudAiBusy NOTIFY cloudAiChanged)
 
 public:
     explicit AnalysisController(QObject* parent = nullptr);
@@ -113,6 +122,13 @@ public:
     // any previous same-batch explanation visible.
     Q_INVOKABLE void cancelAiDiagnosis();
 
+    // ---- T012 Part B Phase 2: read-only Agent (Controller integration) ----
+    // Single-flight: accepted only while no cloud LLM workflow is busy.
+    // The question validator stays in the Runtime (backend authority); this
+    // layer only decides batch/config/busy preconditions and snapshots.
+    Q_INVOKABLE void askAgent(const QString& question);
+    Q_INVOKABLE void cancelAgent();
+
     [[nodiscard]] int observedCount() const;
     [[nodiscard]] int pendingCount() const;
     [[nodiscard]] int completedCount() const;
@@ -147,6 +163,13 @@ public:
     [[nodiscard]] QString aiDiagnosisText() const;
     [[nodiscard]] QString aiDiagnosisErrorMessage() const;
     [[nodiscard]] QString aiModelName() const;
+
+    [[nodiscard]] bool agentBusy() const;
+    [[nodiscard]] bool hasAgentAnswer() const;
+    [[nodiscard]] QString agentAnswerText() const;
+    [[nodiscard]] QString agentErrorText() const;
+    [[nodiscard]] bool agentAvailable() const;
+    [[nodiscard]] bool cloudAiBusy() const;
 
     // C++-side test seam (never reaches QML): adopts an explicit client
     // configuration. Tests point it at a localhost fake endpoint with a
@@ -187,6 +210,8 @@ signals:
     void serialPortsChanged();
     void diagnosisChanged();
     void aiStateChanged();
+    void agentStateChanged();
+    void cloudAiChanged();
 
 private slots:
     // Serial transport errors are NOT Modbus diagnoses: sync state from the
@@ -199,6 +224,10 @@ private slots:
     void handleAiSucceeded(std::uint64_t requestId, const QString& text);
     void handleAiFailed(std::uint64_t requestId, AiDiagnosisErrorCode code,
                         const QString& sanitizedMessage);
+    void handleAgentCompleted(std::uint64_t runGeneration, const QString& answer);
+    void handleAgentFailed(std::uint64_t runGeneration,
+                           const modbuslens::agent::AgentRunFailure& failure);
+    void handleAgentCancelled(std::uint64_t runGeneration);
 
 private:
     void setReplayError(const QString& message);
@@ -257,4 +286,16 @@ private:
     QString aiDiagnosisText_;
     QString aiDiagnosisErrorMessage_;
     QString aiModelName_;
+
+    // ---- T012 Part B Phase 2: read-only Agent ----
+    // Same provider config source as T011 (configured together); the
+    // runtime owns all Agent async validity. NO second agentBusy_ bool —
+    // agentBusy() derives straight from the runtime. hasAgentAnswer_ holds
+    // answer presentation only (facts live in the structured batch).
+    ModelScopeAgentClient agentClient_;
+    AgentRuntime agentRuntime_;
+    std::uint64_t agentRequestGeneration_ = 0;
+    bool hasAgentAnswer_ = false;
+    QString agentAnswerText_;
+    QString agentErrorText_;
 };

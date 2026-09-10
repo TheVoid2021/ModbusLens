@@ -83,6 +83,14 @@ public:
     // can never write the answer afterwards).
     void cancel();
 
+    // Batch invalidation seam (Phase 2): the live active batch changed, so
+    // the in-flight run is already answering the WRONG batch. No-op when
+    // idle; otherwise invalidate the generation BEFORE the abort, cancel
+    // the client with BatchInvalidated and return to Idle. Deliberately NO
+    // user-visible signal (runCancelled/runFailed are not emitted) — batch
+    // invalidation is silent, unlike UserCancel.
+    void invalidateForBatchChange();
+
     [[nodiscard]] bool isBusy() const;
 
     // Phase 2 controller seams. Tests drive them directly; the production

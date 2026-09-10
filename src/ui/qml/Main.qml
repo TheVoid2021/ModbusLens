@@ -415,7 +415,7 @@ ApplicationWindow {
                             text: qsTr("生成 AI 解释")
                             enabled: analysisController.aiConfigured
                                      && analysisController.hasBaselineDiagnosis
-                                     && !analysisController.aiDiagnosisBusy
+                                     && !analysisController.cloudAiBusy
                             onClicked: analysisController.askAiDiagnosis()
                         }
                         Button {
@@ -426,6 +426,42 @@ ApplicationWindow {
                         Label {
                             visible: analysisController.aiDiagnosisBusy
                             text: qsTr("请求中...")
+                            color: "#6080a0"
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    // ---- T012 Phase 2: Agent 问答（只读诊断）----
+                    Label {
+                        text: qsTr("Agent 问答（只读诊断）")
+                        font.bold: true
+                    }
+                    TextArea {
+                        id: agentQuestionInput
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 72
+                        placeholderText: qsTr("例如：本批次主要有什么异常？")
+                        wrapMode: TextArea.Wrap
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Button {
+                            text: qsTr("询问 Agent")
+                            enabled: analysisController.agentAvailable
+                                     && !analysisController.cloudAiBusy
+                                     && agentQuestionInput.text.trim() !== ""
+                            onClicked: analysisController.askAgent(agentQuestionInput.text)
+                        }
+                        Button {
+                            text: qsTr("取消")
+                            enabled: analysisController.agentBusy
+                            onClicked: analysisController.cancelAgent()
+                        }
+                        Label {
+                            visible: analysisController.agentBusy
+                            text: qsTr("分析中...")
                             color: "#6080a0"
                         }
                         Item {
@@ -478,6 +514,20 @@ ApplicationWindow {
                             Label {
                                 visible: analysisController.hasAiDiagnosis
                                 text: analysisController.aiDiagnosisText
+                                textFormat: Text.PlainText
+                                wrapMode: Text.Wrap
+                                width: parent.width
+                            }
+                            Label {
+                                visible: analysisController.agentErrorText !== ""
+                                text: analysisController.agentErrorText
+                                color: "#B03030"
+                                wrapMode: Text.Wrap
+                                width: parent.width
+                            }
+                            Label {
+                                visible: analysisController.hasAgentAnswer
+                                text: analysisController.agentAnswerText
                                 textFormat: Text.PlainText
                                 wrapMode: Text.Wrap
                                 width: parent.width
