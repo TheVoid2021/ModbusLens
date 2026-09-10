@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T012 Part B Phase 1 ✅ DONE（用户 Final Review PASS；verified LKGC `b322cc3`）** |
+| 当前任务（Current Task） | **T012 Part B Phase 2 — Learning / Integration Plan COMPLETE（docs-only）；Implementation 待批准** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
-| 当前阶段（Current Phase） | T012 Part B Phase 1 封版（Gate 0 PROVEN + Native Agent Runtime DONE）；Phase 2（Controller+QML Integration）NOT STARTED |
-| 下一步动作（Next Action） | **T012 Part B Phase 2 — Controller + QML Integration：Learning / Integration Plan（待用户批准，不自动开始）** |
+| 当前阶段（Current Phase） | T012 Part B Phase 2：Controller+QML Integration 的 Learning / Integration Plan 完成（状态模型/失效/seam/API/UI/UI-AG01~18 全部定案）→ Implementation 待批准 |
+| 下一步动作（Next Action） | **T012 Part B Phase 2 Implementation（Controller + QML，按 UI-AG01~AG18 矩阵）— 待用户批准** |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -174,6 +174,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-09 | **T012 Part B Phase 1 Review P0 fix（`2becc41`）**：删除 AgentRunRequest 重复 revision（AgentToolContext 为 batch 身份单一来源；类型层消灭 context=A/request=B 分裂态）；空 final content→provider InvalidResponse（绝不空答案）；tool_calls 优先于 content（message shape 权威）；新增 B19/B20/B21（RED=B20 旧实现失败）；clean 142 零警告、ctest 22/22；**最新 Phase 1 candidate = `2becc41`（LKGC 未推进）** |
 | 2026-09-09 | **T012 Part B Phase 1 Final Review fix（`b322cc3`）**：captured-vs-current seam 分离——start() 不再写 currentBatchRevision_（live world 唯一更新点=setCurrentBatchRevision）；新增 start preflight stale guard（stale snapshot 零请求零信号）+ B22（RED=旧实现发出请求）；fixture 显式建立 live world；B01~B22 全绿、clean 142 零警告、ctest 22/22；**最新 Phase 1 candidate = `b322cc3`（LKGC 未推进）** |
 | 2026-09-09 | **用户 T012 Part B Phase 1 Final Review = PASS → Phase 1 封版**：`b322cc3` 升级为 **新 verified LKGC**（A01~A10+B01~B22/clean 142/ctest 22/22/三轮 Review 全链）；Identity Model 入档（snapshot/live/run/generation 四身份）；Phase 2 ST-A requirement 与 Controller contract 预告；T011 production 零改动 |
+| 2026-09-10 | **T012 Part B Phase 2 Learning / Integration Plan 完成（docs-only）**：Controller 状态图/发布路径 6 处核验；Agent ownership（Controller parents client+runtime）；snapshot 唯一合法链；batch-change invalidation 最小 seam（`AgentRuntime::invalidateForBatchChange`，静默立即失效）；single-flight derived `cloudAiBusy`（UI+backend 双 guard）；Agent 不绑 Baseline；NoData 本地拒绝；answer/error/cancel/generation 语义定案；QML 左 pane 最小 UI + ISSUE-004 防回归；UI-AG01~AG18 矩阵（P0×13/P1×5）；register-address limitation 入 Backlog；零代码改动 |
+
 
 
 

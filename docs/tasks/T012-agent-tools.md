@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（用户 Final Review = PASS；verified LKGC 推进至 `b322cc3`）；Phase 2 NOT STARTED**
+- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（LKGC `b322cc3`）→ Phase 2 LEARNING / INTEGRATION PLAN COMPLETE — AWAITING IMPLEMENTATION APPROVAL**
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -329,6 +329,123 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - **测试基建**：所有正常 run fixture 显式建立 live world（`setCurrentBatchRevision(ctx.capturedBatchRevision)` 后再 start）——外部世界先发布 revision，Agent run 再捕获 snapshot。
 - **新测试 B22（RED→GREEN）**：live=42、snapshot=41 → start 后 `requestCount==0`、不 busy、无 completed/failed/cancelled；随后 revision=42 的 run 正常完成（证明 start 未把 current 改回 41）。**RED = 旧实现下 B22 FAIL（旧代码错误发出了网络请求）**；修复后 B01~B22 全绿；B10/B11/B19 回归 PASS。
 - **验证**：clean 142 targets 零警告；ctest 22/22；零公网。候选链：`da453a7` → `2becc41` → **`b322cc3`（最新 Phase 1 candidate）**。
+
+## Part B Phase 2 — Learning / Integration Plan（2026-09-10，docs-only；Implementation 待批准）
+
+### 1. Current Controller state map（真实成员核验）
+- deterministic batch state：`activeDiagnosisTransactions_`（std::vector<core::DiagnosisTransaction>）、`statistics_`（TransactionStatisticsSnapshot）、`transactionModel_`（TransactionListModel）、`activeBatchRevision_`（uint64；唯一 ++ 点 = `invalidateAiForBatchChange()`）。
+- Baseline Diagnosis state：`hasBaselineDiagnosis_` / `baselineDiagnosisText_`；清理由 `clearDiagnosisState()`。
+- T011 AI state：`aiConfigured_` / `aiDiagnosisBusy_` / `hasAiDiagnosis_` / `aiDiagnosisText_` / `aiDiagnosisErrorMessage_` / `aiRequestGeneration_` / `activeAiRequestId_` / `requestBatchRevision_` / `aiClient_`（ModelScopeDiagnosisClient，唯一 owner）/ `aiModelName_`。
+- 运行中取消/失效：`cancelAiDiagnosis()`（++aiRequestGeneration_ + client.cancel(UserCancel)）；`invalidateAiForBatchChange()`（++activeBatchRevision_ + T011 AI abort(BatchInvalidated) + 清 AI 与 baseline + emit）。
+
+### 2. Agent ownership（定案）
+- AnalysisController parents/owns：`ModelScopeAgentClient agentClient_` + `AgentRuntime agentRuntime_(&agentClient_)`（沿项目现有 QObject 父字所有权风格）。
+- 禁止：全局 singleton / static Agent / 第二个 Controller / 独立线程 / service process。AgentRuntime 与 QML 零直接关系——QML 只调 Controller。
+
+### 3. Snapshot construction contract（唯一合法链）
+`activeDiagnosisTransactions_`（copy）→ `makeAgentToolContext(copied transactions, activeBatchRevision_)`（statistics 由 canonical summarizer 从同一份拷贝重算，自洽）→ `AgentRunRequest{question, context, runGeneration}` → `agentRuntime_.start(...)`。禁止复制 presentation statistics 塞进 context；禁止从 QML rows / statusText / labels / sourceLabel 反推事实。
+
+### 4. Active batch publication paths（真实 6 处，全部经 invalidateAiForBatchChange）
+connectSerial 成功清批 / publishSerialResult / runDemoBatch / clearResults / loadReplayFile 成功（+ constructor 初始空批）。failed Replay / failed Serial connect 不触碰批，**不推进 revision**（原子语义保持不变）。
+
+### 5. Runtime live revision sync（定案）
+在 `invalidateAiForBatchChange()` 尾部（`++activeBatchRevision_` 之后）增加：`agentRuntime_.setCurrentBatchRevision(activeBatchRevision_)`。于是 Runtime current revision 永远代表 Controller 当前 active batch identity；Ask Agent 时快照自带 revision，preflight 双重兜底。
+
+### 6. Batch-change invalidation（P0，定案）
+- 真实 Phase 1 行为核验：`setCurrentBatchRevision` 只更新 seam；busy run 不被立即终止（下一交付才 stale-discard）——产品要求「立即失效 + UI busy promptly clear」不满足。
+- 最小 integration seam（Implementation 时加入 Runtime，不改 FSM）：`AgentRuntime::invalidateForBatchChange()`：busy → `++currentAgentGeneration_`、`client_->cancel(BatchInvalidated)`（静默）、state→Idle、**零用户可见信号**（不 emit runCancelled / runFailed）。
+- Controller 侧（invalidateAiForBatchChange 内，与 T011 同模板）：revision++ → set seam → agentRuntime_.invalidateForBatchChange() → 清 agentBusy / agentAnswer / agentError + emit agentStateChanged。效果：旧 answer/error 立即失效、UI 不残留「运行中」、无 Cancelled 红错误、旧迟到交付静默。
+
+### 7. ST-A（正式纳入 Phase 2 矩阵）
+Phase 1 preflight 已满足（位于 supersede 之前）：stale start → 零 HTTP、不 cancel/supersede Run A、不动 generation、Run A 身份有效时照常完成。Phase 2 以 **UI-AG12** 在 Controller 集成层锁定。
+
+### 8. Ask AI / Ask Agent single-flight（定案）
+- derived state：`cloudAiBusy = aiDiagnosisBusy_ || agentBusy_`（不允许第三份 mutable bool）。
+- UI guard：Ask AI 按钮 enabled 需 `!cloudAiBusy && 原有前置`；Ask Agent 按钮同。backend guard：`askAiDiagnosis()` 入口 `if (agentBusy_) → setAiError(Agent 进行中)`；`askAgent()` 入口 `if (aiDiagnosisBusy_) → 本地拒绝`。双 guard 锁定（UI-AG06/07）。Baseline Diagnosis 不是 cloud workflow，不在互斥内。
+
+### 9. Agent 不绑 Baseline（定案）
+Ask Agent 不要求先 Run Baseline（Agent 事实源 = AgentToolContext + read-only tools，非 baselineDiagnosisText）；Agent 不覆盖/修改 Baseline；T011 Ask AI 的 BaselineRequired contract 一字不变。
+
+### 10. NoData policy（定案）
+active batch 为空 → Controller 本地拒绝、零 provider 请求；agentErrorText 显示现有简洁中文文案「当前没有可分析的事务数据。」；属本地 precondition 提示，**不**映射为 provider/network error。
+
+### 11. Agent Controller-facing API（定案，随项目风格）
+- `Q_INVOKABLE void askAgent(const QString& question);` / `Q_INVOKABLE void cancelAgent();`
+- properties：`agentBusy` / `hasAgentAnswer` / `agentAnswerText` / `agentErrorText` / `agentAvailable`（=aiConfigured_ 同源）+ `cloudAiBusy`（derived，供 UI enabled 绑定）；统一 `agentStateChanged` 信号。不加 chat history / message list / conversation model / session db。
+
+### 12. Question ownership
+QML TextArea 仅作 draft；`askAgent(question)` 一次复制 QString 入 AgentRunRequest，run 期间用户继续编辑不影响进行中 run。无跨 run conversation memory。
+
+### 13. Previous answer/error semantics（定案，与 T011 同构）
+- A. accepted new run（preflight/configured/busy 全过）：清 agentErrorText；**保留** old answer（同 batch 上一解释不丢；T011 keep-old-text 风格）。
+- B. invalid question：zero request；agentErrorText=输入提示（如「问题不能为空。」）；old answer 保留。
+- C. NotConfigured：agentErrorText=未配置提示；deterministic/baseline 不受影响；agentAvailable=false 按钮禁用。
+- D. provider error：agentErrorText=分类文案；batch/statistics/baseline 不变；old answer（若有）保留。
+- E. Cancel：busy 清、old answer/error 不变；Cancelled 不写红 errorText。
+- F. batch change：answer+error+busy 全清（静默）。
+
+### 14. Generation ownership（定案）
+Controller 持 `agentRequestGeneration_`（uint64，单调 ++）为唯一 run 编号来源：每次合法新 run `++agentRequestGeneration_` → 构造 AgentRunRequest.runGeneration → start（Runtime 内部 currentAgentGeneration_=runGeneration 同步保留）；cancelAgent / batch invalidation 各自使 generation 失效（Runtime 内部自增）。不把 Controller 猜号与 Runtime 自编号并存；无第三套 token。
+
+### 15. Cancel semantics（定案）
+cancelAgent 只取消 Agent（runtime.cancel()：++gen + UserCancel abort；Controller 不触碰 Ask AI）；Cancel AI 只取消 AI。UserCancel 与 BatchInvalidated 永不混成同一个 UI 错误（后者静默）。
+
+### 16. Agent error mapping
+local/user input（InvalidQuestion/NoData/NotConfigured/**Busy**）→ 简洁中文提示；tool/runtime（UnknownTool/MalformedToolCall/InvalidArguments/TransactionNotFound/RoundCallLimit）→ Agent 运行失败文案（绝不允许包装成「设备故障」）；provider/network（Unauthorized/RateLimited/ServerError/Timeout/NetworkError/InvalidResponse）→ 现有 provider 文案风格。任何情况不得改写 TransactionStatus/statistics/baseline。
+
+### 17. QML 布局约束
+严格继承 ISSUE-004：root 不滚动；Horizontal SplitView；左 Diagnosis pane(min≈300/pref≈400/fillHeight/clip/内部 Flickable)；右 Recent Transactions 独立 ListView(clip+StopAtBounds)。不推翻结构。
+
+### 18. Agent UI 最小设计
+仅左 pane 现有滚动内容追加：「Agent 问答」Label + TextArea(2~4 行、wrap、简体中文 placeholder) + [询问 Agent][取消] + Answer（**Text.PlainText**、wrap、selectable）。禁止 Markdown/RichText/气泡/历史/sidebar/新页/新 SplitView/嵌套整页滚动。
+
+### 19. 长答案与 ISSUE-004 防回归
+不给 Answer 固定大高；整个 Agent 区由 Diagnosis pane 内 Flickable 承载。测试：长答案不撑大 root、不挤掉顶部 controls、不覆盖右 transactions、右 ListView 边界保持。不新增第二层抢滚轮的大 ScrollView。
+
+### 20. 语言与 T013 polish note
+遵守 docs/06_UI_LANGUAGE_POLICY（简体中文为主；CRC/RS485/FC03/COM/ModelScope/Qwen/0x02/ms 保留；Answer PlainText）。**T013 polish note**：模型偶尔吐出 evidence_scope / multiple anomaly types / shared root cause 等英文短语——属最终自然语言 polish，非 Phase 2 blocker。
+
+### 21. Tool-call timeline
+Phase 2 不做 tool timeline（减少 UI/state surface；工程证据由 tests/docs/Gate 0 承担）。
+
+### 22. Phase 2 自动测试矩阵（UI-AG01~AG18）
+| ID | 断言 | P |
+| --- | --- | --- |
+| UI-AG01 | initial wiring/properties（agentBusy=false 等） | P0 |
+| UI-AG02 | askAgent 构建 context 自活 batch；snapshot statistics 与同批 transactions 自洽（summarizer 口径） | P0 |
+| UI-AG03 | AgentRunRequest 携带当前 activeBatchRevision | P0 |
+| UI-AG04 | Agent success → answer 发布；statistics/rows 不变 | P0 |
+| UI-AG05 | provider failure → agentErrorText；baseline/facts 不变 | P0 |
+| UI-AG06 | Ask AI busy → askAgent backend 拒绝且零 Agent 请求 | P0 |
+| UI-AG07 | Agent busy → askAiDiagnosis backend 拒绝且零 AI 请求 | P0 |
+| UI-AG08 | cancelAgent → busy 清；无 Cancelled 红错误；迟到最后忽略 | P0 |
+| UI-AG09 | 首次请求在途 batch 变 → 旧 run 失效；answer/error 清；迟到忽略 | P0 |
+| UI-AG10 | tool 执行后 batch 变 → final 不发布 | P0 |
+| UI-AG11 | same-batch 二次 Ask：v1 后端 Busy 拒绝（按钮 disabled） | P1 |
+| UI-AG12 | ST-A：Run A 在途 + stale start → no-op；Run A 不受影响并可完成 | P0 |
+| UI-AG13 | NoData：零 provider 请求 + 本地提示 | P0 |
+| UI-AG14 | 空/全空白问题：零 provider 请求 | P0 |
+| UI-AG15 | Agent 全程不改 TransactionStatus/statistics/baseline | P0 |
+| UI-AG16 | 新 batch 清除旧 Agent answer/error | P0 |
+| UI-AG17 | failed Replay/Serial connect（batch 未变）不清 Agent answer/error（沿用原子语义） | P1 |
+| UI-AG18 | QML smoke：绑定无 ReferenceError/binding loop；长答案入 Flickable | P0 |
+
+### 23. Same-batch 第二次 Ask 产品定案
+v1：Agent busy 时按钮 disabled + backend Busy 拒绝（最符合现有 Controller style；防 double-click/quota/新旧答案竞争）。Phase 1 Runtime supersede 保留为 defensive capability，Controller 不主动利用。
+
+### 24. Manual UI Smoke（Implementation 后 A~J）
+1000x700 不溢出 / Demo 后控件正常 / Baseline 可跑 / Ask AI 可跑 / 中文输入 / 长答案左栏滚动 / 右栏独立滚动 / Cancel 合理 / 切换模式旧答案不残留 / 无 key 时核心全可用。
+
+### 25. Live Agent Smoke（未来，另行授权）
+Implementation+自动测试+QML smoke+manual smoke 全过后单独申请授权；建议 1 个真实 scenario（问题 → 原生 tool round(s) → 回答）；请求预算届时另行明确。现在不申请不执行。
+
+### 26. 「哪个寄存器有问题」能力边界（v1 known limitation）
+核验：DiagnosisTransaction = {deviceAddress, functionCode, analysis}，无 FC03 startAddress/quantity → Agent 只可答「第 N 条事务为 Exception 0x02 = Illegal Data Address」，**不可**可靠回答具体哪个寄存器地址；禁止 LLM 从 0x02 凭空猜地址。记入 Backlog 为 T013/T015 review candidate，本 Phase 不扩充 transaction data model。
+
+### 27. Phase 2 exact implementation scope
+src/ui/agent：AgentRuntime::invalidateForBatchChange()（最小 seam）+ 对应 runtime tests；AnalysisController：agentClient_/agentRuntime_ ownership、askAgent/cancelAgent、agent 属性与信号、invalidateAiForBatchChange 扩展（seam 同步+agent 无效化）、single-flight 双层 guard、NoData/输入预检；Main.qml：左 pane Agent 区（§18）；tests/test_ui_bridge：UI-AG01~AG18（fake server/injected seam，零真实网络）；CMake：ui_bridge/agent_runtime 目标接线。
+### 28. Explicit no-go list
+不改 T011 语义与测试；不建 chat history/message model/session db；不做 write tools/自动动作/寄存器写；不做 Hermes/MCP/RAG/memory/multi-agent；不上真实 endpoint；不推翻 ISSUE-004 布局；不扩 transaction data model。
 
 ## Part B Phase 1 — Final Acceptance（2026-09-09，用户 Review = PASS，封版）
 

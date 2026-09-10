@@ -1,0 +1,21 @@
+# Devlog 2026-09-10 — T012 Part B Phase 2: Controller + QML Integration（Learning / Integration Plan）
+
+## 今日工作（严格 docs-only）
+
+- **Phase 2 Learning / Integration Plan 完成并归档**（零 src/tests/CMake/QML 改动；零真实 ModelScope）：
+  - **Controller 状态图**（真实成员核验）：deterministic batch = `activeDiagnosisTransactions_` + `statistics_` + `transactionModel_` + `activeBatchRevision_`；Baseline = `hasBaselineDiagnosis_` / `baselineDiagnosisText_`；T011 AI = `aiConfigured_ / aiDiagnosisBusy_ / hasAiDiagnosis_ / aiDiagnosisText_ / aiDiagnosisErrorMessage_ / aiRequestGeneration_ / activeAiRequestId_ / requestBatchRevision_ / aiClient_ / aiModelName_`。
+  - **批次发布路径全面核验（6 处全部真批变）**：connectSerial 成功清批 / publishSerialResult / runDemoBatch / clearResults / loadReplayFile 成功 —— 每一处经 `invalidateAiForBatchChange()` 做 `++activeBatchRevision_`；failed Replay / failed Serial connect 不触碰批与 revision（原子语义保持）。
+  - **AgentRuntime seam 行为实测**：`setCurrentBatchRevision` 仅更新 live seam——busy run 不被立即终止，到下一交付时经 `isStale` 静默回 Idle（T011 备答）。定案 Phase 2 最小 seam：新增 `AgentRuntime::invalidateForBatchChange()`（busy → ++currentAgentGeneration_ + client.cancel(BatchInvalidated) + Idle；零用户可见信号），使"batch 切换 → 立即失效 + UI busy promptly clear"成立。
+  - **ST-A 实证**：Phase 1 preflight 位于 supersede 之前——stale start 直接 return：零 HTTP、不 cancel/supersede Run A、不动 generation。Phase 2 以 UI-AG12 集成锁定。
+  - **定案清单**（详见 T012 档案 Phase 2 段）：Agent ownership=Controller parents `ModelScopeAgentClient agentClient_` + `AgentRuntime agentRuntime_`；snapshot 唯一合法链（copy → makeAgentToolContext → summarizeTransactions 同源自洽）；revision 同步点=invalidateAiForBatchChange 尾部（++ 后 set seam + invalidate agent）；single-flight = derived `cloudAiBusy = aiDiagnosisBusy_ || agentBusy_`（UI guard + backend guard 双层，不引入第三 bool）；Ask Agent 不绑 Baseline（T011 BaselineRequired 不变）；NoData=本地拒绝零云端请求；answer/error 规则与 T011 同构（accepted 清 error 保 old answer；invalid question 仅覆盖 error；provider error 保 old answer；Cancel 清 busy 不写红 error；batch change 清 answer+error+busy）；generation 由 Controller `agentRequestGeneration_` 单调唯一来源（Runtime 内部 current 同步保留）；cancelAgent 只取消 Agent（UserCancel），Cancel AI 只取消 AI，BatchInvalidated 静默；UI=Diagnosis pane 内「Agent 问答」TextArea(2~4 行中文 placeholder)+询问/取消+PlainText answer（ISSUE-004 布局零推翻、长答案走 pane 内 Flickable）；tool timeline v1 不做；产品定案=Agent busy 时按钮 disabled + backend Busy 拒绝（Runtime supersede 保留为 defensive，Controller 不主动利用）。
+  - **UI-AG01~AG18 测试矩阵**定稿（P0×13 / P1×5，覆盖 wiring/snapshot 自洽/revision/success/failure/single-flight 双向/cancel/batch 变更×2/supersede 定案/ST-A/NoData/输入校验/事实零改动/旧 answer 清除/source-error 不误伤/QML smoke）。
+  - **能力边界记录**：「哪个寄存器有问题」——当前 detail facts 无 FC03 startAddress/quantity，Agent 只可答 0x02=Illegal Data Address 与事务编号，**不可**回答具体寄存器地址；记 T013/T015 candidate，本阶段不扩数据模型。
+  - Manual UI Smoke（A~J 十项）与未来 Live Agent Smoke（1 个 scenario，预算另行授权）范围入档；T013 polish note（模型偶尔吐出 evidence_scope / multiple anomaly types / shared root cause 英文短语）记录。
+
+## 关联档案
+
+- 任务：[T012-agent-tools](../../tasks/T012-agent-tools.md)（Phase 2 Learning / Integration Plan 段）；ADR：[ADR002](../../adr/ADR002-readonly-tool-agent-architecture.md)（Phase 2 integration seam 细化）；状态：[PROJECT_STATUS](../../PROJECT_STATUS.md)。
+
+## 提交
+
+- docs-only：随本 devlog 的 Phase 2 Learning 归档提交（LKGC 保持 `b322cc3`，不推进；未 push）。

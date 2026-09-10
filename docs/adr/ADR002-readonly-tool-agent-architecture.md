@@ -49,3 +49,10 @@ T012 引入用户自由提问 + 模型按需调用**只读 tools** 读取已确�
 - `AgentToolContext.capturedBatchRevision` = snapshot identity；`AgentRuntime.currentBatchRevision`（setCurrentBatchRevision）= live active-batch identity；`AgentRunRequest.runGeneration` = this run identity；`AgentRuntime.currentAgentGeneration` = latest valid run identity。
 - Provider delivery 消费/发布条件：`capturedBatchRevision == currentBatchRevision` AND `runGeneration == currentAgentGeneration`；无第三套 revision/generation。
 - 三条工程经验固化：snapshot identity 不得覆盖 live-world identity；重复 identity 元数据使不一致态可表达（已在类型层删除 request 级 revision）；stale snapshot 零 provider request（start preflight + mid-run discard + late delivery discard 三窗口）。
+
+
+## Phase 2 Integration Seam 细化（2026-09-10，Learning 定案）
+
+- D-A3 的 Controller 接线：active batch 每次真实变化（唯一 ++ 点 `invalidateAiForBatchChange`）同步 `agentRuntime_.setCurrentBatchRevision(activeBatchRevision_)` 并调用新增最小 seam `AgentRuntime::invalidateForBatchChange()`（busy → ++currentAgentGeneration_ + client.cancel(BatchInvalidated) + Idle，零用户可见信号）——batch 切换对 Agent 立即、静默失效。
+- Single-flight（cloud workflow 层）：derived `cloudAiBusy = aiDiagnosisBusy_ || agentBusy_`；UI guard + backend guard 双层；Baseline 不属于互斥。
+- snapshot 唯一合法链（Controller）：copy activeDiagnosisTransactions_ → makeAgentToolContext(copy, activeBatchRevision_) → AgentRunRequest；禁止 QML/展示层反推事实。
