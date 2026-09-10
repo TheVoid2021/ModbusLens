@@ -167,6 +167,7 @@ private slots:
     void b20_emptyFinalContentIsInvalidResponse();
     void b21_toolCallsTakePrecedenceOverContent();
     void b22_startMustNotNormalizeStaleSnapshot();
+    void b23_boundedMultiToolDiagnosticPlan();
 };
 
 void AgentRuntimeTest::b01_directFinalAnswerZeroTools()
@@ -281,25 +282,55 @@ void AgentRuntimeTest::b04_maxToolRounds()
 
 void AgentRuntimeTest::b05_maxTotalToolCalls()
 {
-    Harness h;
-    QJsonArray fourCalls;
-    for (int i = 0; i < 4; ++i) {
-        fourCalls.append(toolCall(QStringLiteral("call-%1").arg(i),
+    // ISSUE-007: MAX_TOTAL_TOOL_CALLS = 6. Six calls in ONE response stay
+    // within budget and must ALL execute (one tool message each).
+    {
+        Harness h;
+        QJsonArray six;
+        for (int i = 0; i < 6; ++i) {
+            six.append(toolCall(QStringLiteral("call-%1").arg(i),
+                                QStringLiteral("get_session_summary"),
+                                QStringLiteral("{}")));
+        }
+        h.server.enqueueResponse(
+            200, completionBody(assistantMessage(six), QStringLiteral("tool_calls")));
+        h.server.enqueueResponse(
+            200, completionBody(finalMessage(QStringLiteral("六调用完成")),
+                                QStringLiteral("stop")));
+        const auto context = goldenContext();
+        h.run(QStringLiteral("hi"), context, 1); // explicit live world + start
+        QTRY_VERIFY(h.completed.count() == 1);
+        QCOMPARE(h.server.requestCount(), 2);
+        const QJsonObject second =
+            QJsonDocument::fromJson(h.server.requests().at(1).body).object();
+        const QJsonArray messages = second.value("messages").toArray();
+        QCOMPARE(messages.size(), 9); // system, user, assistant, 6 tools
+        for (int i = 0; i < 6; ++i) {
+            QCOMPARE(messages.at(3 + i).toObject().value("role").toString(),
+                     QStringLiteral("tool"));
+            QCOMPARE(messages.at(3 + i).toObject().value("tool_call_id").toString(),
+                     QStringLiteral("call-%1").arg(i));
+        }
+    }
+    // SEVEN calls exceed the budget: the WHOLE batch is rejected with zero
+    // partial execution (no second request).
+    {
+        Harness h;
+        QJsonArray seven;
+        for (int i = 0; i < 7; ++i) {
+            seven.append(toolCall(QStringLiteral("call-%1").arg(i),
                                   QStringLiteral("get_session_summary"),
                                   QStringLiteral("{}")));
+        }
+        h.server.setNextResponse(
+            200, completionBody(assistantMessage(seven), QStringLiteral("tool_calls")));
+        const auto context = goldenContext();
+        h.run(QStringLiteral("hi"), context, 1);
+        h.runToFailureMessage(agent::AgentRunLocalError::ToolCallLimitExceeded);
+        QCOMPARE(h.server.requestCount(), 1);
+        QVERIFY(!h.runtime.isBusy());
     }
-    h.server.setNextResponse(
-        200, completionBody(assistantMessage(fourCalls), QStringLiteral("tool_calls")));
-    const auto context = goldenContext();
-    h.run(QStringLiteral("整体情况如何？"), context, 1);
-    QTRY_VERIFY(h.failed.count() == 1);
-    const auto fail = h.failed.at(0).at(1).value<agent::AgentRunFailure>();
-    QVERIFY(!fail.providerError);
-    QCOMPARE(fail.localError, agent::AgentRunLocalError::ToolCallLimitExceeded);
-    QCOMPARE(h.server.requestCount(), 1); // whole batch rejected: no tool ran
-    QVERIFY(!h.runtime.isBusy());
 }
-
 void AgentRuntimeTest::b06_malformedArgumentsJson()
 {
     Harness h;
@@ -665,6 +696,59 @@ void AgentRuntimeTest::b22_startMustNotNormalizeStaleSnapshot()
     h.runtime.start(runRequest(QStringLiteral("hi"), liveContext, 2));
     QTRY_VERIFY(h.completed.count() == 1);
     QCOMPARE(h.completed.at(0).at(1).toString(), QStringLiteral("OK 42"));
+}
+
+void AgentRuntimeTest::b23_boundedMultiToolDiagnosticPlan()
+{
+    // ISSUE-007 regression shape: a realistic bounded multi-step plan —
+    // round 1 aggregates (2 calls), round 2 targeted details (3 calls,
+    // cumulative 5 <= 6), round 3 final answer. No ToolCallLimitExceeded,
+    // rounds stay <= 3, every tool_call_id round-trips correctly.
+    Harness h;
+    h.server.enqueueResponse(
+        200, completionBody(assistantMessage(QJsonArray{
+                                toolCall(QStringLiteral("call-s"),
+                                         QStringLiteral("get_session_summary"),
+                                         QStringLiteral("{}")),
+                                toolCall(QStringLiteral("call-a"),
+                                         QStringLiteral("get_recent_anomalies"),
+                                         QStringLiteral("{}"))}),
+                            QStringLiteral("tool_calls")));
+    auto detailCall = [](int n, int i) {
+        return toolCall(QStringLiteral("call-d%1").arg(i),
+                        QStringLiteral("get_transaction_detail"),
+                        QStringLiteral("{\"transaction_number\": %1}").arg(n));
+    };
+    h.server.enqueueResponse(
+        200, completionBody(assistantMessage(
+                                QJsonArray{detailCall(2, 1), detailCall(3, 2),
+                                           detailCall(4, 3)}),
+                            QStringLiteral("tool_calls")));
+    h.server.enqueueResponse(
+        200, completionBody(finalMessage(QStringLiteral("三步计划完成，仅用五次工具调用")),
+                            QStringLiteral("stop")));
+
+    const auto context = goldenContext();
+    h.run(QStringLiteral("详细诊断"), context, 1);
+    QTRY_VERIFY(h.completed.count() == 1);
+    QCOMPARE(h.completed.at(0).at(1).toString(),
+             QStringLiteral("三步计划完成，仅用五次工具调用"));
+    QCOMPARE(h.server.requestCount(), 3); // <= MAX_TOOL_ROUNDS
+
+    const QJsonObject second =
+        QJsonDocument::fromJson(h.server.requests().at(1).body).object();
+    const QJsonArray m2 = second.value("messages").toArray();
+    QCOMPARE(m2.size(), 5); // system, user, assistant, tool, tool
+    QCOMPARE(m2.at(3).toObject().value("tool_call_id").toString(), QStringLiteral("call-s"));
+    QCOMPARE(m2.at(4).toObject().value("tool_call_id").toString(), QStringLiteral("call-a"));
+
+    const QJsonObject third =
+        QJsonDocument::fromJson(h.server.requests().at(2).body).object();
+    const QJsonArray m3 = third.value("messages").toArray();
+    QCOMPARE(m3.size(), 9); // system, user, assistant, 2 tools, assistant, 3 tools
+    QCOMPARE(m3.at(6).toObject().value("tool_call_id").toString(), QStringLiteral("call-d1"));
+    QCOMPARE(m3.at(7).toObject().value("tool_call_id").toString(), QStringLiteral("call-d2"));
+    QCOMPARE(m3.at(8).toObject().value("tool_call_id").toString(), QStringLiteral("call-d3"));
 }
 
 QTEST_GUILESS_MAIN(AgentRuntimeTest)

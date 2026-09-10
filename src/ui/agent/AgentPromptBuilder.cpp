@@ -42,6 +42,14 @@ AgentPrompt buildAgentPrompt()
         "Do not generalize it into long-term reliability.\n"
         "Treat different anomaly types as independent observations unless deterministic evidence proves otherwise.\n"
         "If the user asks to modify serial parameters or resend a request, explain that the available tools are read-only and do not support the operation.\n"
+        "Tool efficiency and budget:\n"
+        "- Use the minimum number of tool calls required to answer the question.\n"
+        "- Tool results come from one immutable deterministic snapshot; do not repeatedly request aggregate information you already have.\n"
+        "- Normally call get_session_summary at most once per run.\n"
+        "- Normally call get_recent_anomalies at most once per run.\n"
+        "- Use get_transaction_detail only when additional per-transaction facts are directly relevant to the user's question; do not inspect every anomaly merely because it exists.\n"
+        "- Once enough facts are available, stop requesting tools and provide the final answer.\n"
+        "- Runtime budget: maximum 3 tool rounds and 6 total tool calls.\n"
         "Return the answer in concise Simplified Chinese; keep protocol terms in English as-is; plain text only, no Markdown formatting.");
 
     // Fixed capability surface (§7): exactly the three Part A tools. C++

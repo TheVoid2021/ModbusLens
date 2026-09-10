@@ -61,7 +61,11 @@ struct AgentRunRequest {
 // Bounds (Learning TD-5 + Phase 1 spec §5/§11).
 constexpr int kMaxAgentQuestionChars = 1000;
 constexpr int kMaxAgentToolRounds = 3;
-constexpr int kMaxAgentTotalToolCalls = 3;
+// ISSUE-007: a natural multi-step read-only diagnosis (aggregates + a few
+// targeted details) exhausts 3 total calls. Rounds stay 3 (loop-depth guard);
+// total calls rise to 6 — local read-only queries against ONE immutable
+// snapshot, no privilege expansion.
+constexpr int kMaxAgentTotalToolCalls = 6;
 
 } // namespace modbuslens::agent
 
