@@ -32,3 +32,9 @@
 - 唯一授权 run：Qwen/Qwen3.5-27B + 正式 endpoint；约 12s 内 UI 报「工具调用次数已达上限。」（ToolCallLimitExceeded），无 final answer；无第二 run、无 retry、无 Ask AI；请求数不可直接观测但 Runtime 累计上限保证 ≤3（<4 授权上限）。
 - 判定：Live E2E = FAIL（模型工具调用行为超出 v1 TOTAL_TOOL_CALLS=3 上限），防护按契约工作；facts 零变化。候选改进（仅记录待用户决策）：指令约束每轮单工具 / 调上限 / 保持 v1。
 - d781ab0 未推进 LKGC（仍 b322cc3）。
+
+
+## 追加（ISSUE-007）— 修复完成 `e922c19`
+
+- Live FAIL → ISSUE-007 建档（RCA 可证/不可证分离；budget 3→6 + planning discipline；否决 one-per-round）；B05 新边界（6 过/7 拒零执行）+ B23（5 calls 多步计划）RED→GREEN；clean 147 零警告、ctest 23/23。
+- **新 Phase 2 candidate = `e922c19`**；verified LKGC 仍 `b322cc3`；Live Re-Smoke 待用户授权。

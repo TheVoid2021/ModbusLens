@@ -1,0 +1,47 @@
+# ISSUE-007: Live Agent tool budget exhaustion on valid multi-step diagnosis
+
+- **状态**：FIXED / AWAITING LIVE RE-VALIDATION（2026-09-10；Live 复验经用户授权后方可 RESOLVED）
+- **发现**：T012 Part B Phase 2 Final Real Live Agent Smoke（Qwen/Qwen3.5-27B，正式 endpoint，唯一授权 run）
+- **关联**：T012 Phase 2（candidate `d781ab0`→fix `?`）；ISSUE-006（Attribution discipline 保持不弱化）
+
+## 1. 现象
+
+唯一授权的真实 Agent run 在获得 final answer 之前，UI 显示本地错误「工具调用次数已达上限。」（`ToolCallLimitExceeded`），run 终止。约 12 秒、无崩溃、facts 零变化。
+
+## 2. RCA —— 已证明事实 vs 不可证明事实（严格分离）
+
+**已证明**：
+- 真实 run 在 final answer 前触发 `ToolCallLimitExceeded`；
+- 当时 hard limits = `MAX_TOOL_ROUNDS=3` / `MAX_TOTAL_TOOL_CALLS=3`；
+- 因此 provider 在该 run 中请求的工具调用总数超过了当时 total budget（累计 >3）；
+- bounded Runtime 防护按契约工作：整批拒绝、zero partial execution、agentBusy 回 false、deterministic statistics/rows/baseline 未变、无 crash、无 QML 损坏、无 false action。
+
+**不可证明（禁止写成事实）**：
+- 具体调用顺序（exact tool-call sequence 在 deployed UI 不可观察；按禁令未加任何调试设施）；例如"模型重复调用 summary"或"一次调用四个 detail"均为推测，不得记载为事实。
+
+**RCA 定案**：一个合法、自然的 multi-step 只读诊断问题（先摘要+异常概览，再针对少量异常事务取详情）暴露出 `MAX_TOTAL_TOOL_CALLS=3` 对该类 bounded read-only diagnosis **过于严格**。这是 **Agent orchestration / planning budget issue**——不是 Modbus Core、deterministic data、provider outage 或 QML 问题。
+
+## 3. 解决方案（经用户批准）
+
+1. **上限调整**：`MAX_TOOL_ROUNDS = 3` 保持（严格限制 provider-loop 深度）；`MAX_TOTAL_TOOL_CALLS = 3 → 6`（允许 aggregates + 少量 targeted details；全部 read-only、单 immutable snapshot、bounded result——无权限扩张）。禁止提高 rounds、取消 limit、无限、自动 retry。
+2. **Prompt planning discipline**（只改独立 Agent system instruction，不动 T011）：最小化工具调用、不得重复请求已获得的聚合信息、summary/anomalies 通常各至多一次、detail 只在直接相关时调用、足够事实后立即给 final、运行时预算 3 rounds/6 calls。通用 policy，不硬编码 demo 四事务 / transaction #2 / 0x02 / smoke 问题。
+3. **否决 one-tool-per-round**：Phase 1 的 multiple tool calls 是完整支持且已测试的能力；只读 immutable snapshot 上并行/批量调用合法；强制一轮一个会人为增加 round trips 与延迟并废弃已有能力。
+4. 既有 authority 规则（deterministic 工具结果权威 / 不得重释 CRC·status·异常码·统计 / evidence_scope / 混合异常独立 / 只读边界 / no false action claims / ISSUE-006 全部约束）**一字未弱化**。
+
+## 4. 自动验证（离线回归，零真实请求）
+
+- `AGENT-B05`（重写新边界）：**6 calls 一个响应 → 全部执行**（tool_call_id 逐一回传）；**7 calls → ToolCallLimitExceeded 且整批零部分执行**（requestCount==1）。
+- `AGENT-B23`（新增，Live-failure regression shape）：round1=summary+anomalies（2 calls）→ round2=detail(2)/detail(3)/detail(4)（累计 5 ≤6）→ round3=final。无超限、ids 正确、final 发布、rounds=3 ≤ 上限。
+- `AGENT-B04` 保持：第 4 个 tool round → ToolRoundLimitExceeded 不变（round guard 未被 total 调整破坏）。
+- 全量：agent_runtime B01~B23、agent_tools A01~A10、agent_integration UI-AG01~AG20、ai_client、ui_bridge、qml_smoke；clean 0 警告；ctest 23/23。
+- **RED 证据**：新 B05/B23 在旧上限 3 下运行 → B05 FAIL（6 calls 被拒）、B23 FAIL（累计 5 被拒）——精确命中旧失败形状；改上限+prompt 后 GREEN。
+
+## 5. 复验要求
+
+Issued 状态在**下一次经用户明确授权的 Live Agent Re-Smoke** PASS 后才 RESOLVED。本轮零真实 ModelScope 调用。
+
+## 6. 教训
+
+- Hard budget 必须在"模型可用计划空间"与"资源上界"之间试调：真实模型在多步探查指令下自然使用 ≥4 次只读调用,3 的 total 上界把合法计划排除在外。
+- 只读 + immutable snapshot + bounded result 从根本上改变了"提高本地调用上限"的风险面——它不增加写权限与状态面。
+- 上线前无法观察 exact sequence 属已知盲区(按设计无工具日志);RCA 只依赖可证事实(budget exceeded + guards intact)完成修复,不靠猜 sequence。

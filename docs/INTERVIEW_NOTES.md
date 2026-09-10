@@ -70,6 +70,8 @@
 - ✅ 已可答（T012 Part B Phase 2 Learning，见 docs/tasks/T012-agent-tools.md Phase 2 段）：derived state 代替第三份 mutable bool（cloudAiBusy = aiBusy || agentBusy，UI+backend 双 guard 防竞态）；batch-change invalidation seam 的设计理由（seam 只改 live revision 不终止请求 → 加最小 invalidateForBatchChange 静默终止，三类 abort reason 的 UI 语义分家：UserCancel/BatchInvalidated/Superseded）；stale-start preflight 与 ST-A（stale 尝试必须零副作用且不打扰在途 run）；snapshot 唯一合法链在集成层的贯彻（copy→makeAgentToolContext→request，禁止展示层反推）；single-flight 产品定案（busy 禁用 + backend Busy；runtime supersede 降级为 defensive capability）
 - ✅ 已可答（T012 Part B Phase 2 实现，见 docs/tasks/T012-agent-tools.md Phase 2 Implementation 段）：同一 validated config 喂两个 cloud client（测试 seam 与生产构造共用，杜绝 aiConfigured 与 Agent 配置漂移）；derived busy 状态在 Qt property 里的落地（NOTIFY 信号在每个 busy 转变点同步发射 cloudAiChanged，避免第三份 mutable bool）；批切换的 ordering 契约（revision++ → seam 先行 → 静默 terminate → 清呈现）与"abort 邻域迟到回调零发布"的确定性测试写法（不用 sleep 竞态）；集成层 stale start 不可表达时的诚实处理（runtime 层 B22 保契约、controller 层测 seam 同步不误杀新 run）
 - ✅ 已可答（T012 Live Agent Smoke 教训，见 docs/tasks/T012-agent-tools.md Live Smoke 证据段）：工具调用上限在真实生产中被触发的完整证据链（模型长指令→并行/多轮工具→ToolCallLimitExceeded 防护按契约整批拒绝→零 facts 变化、无崩溃）；设计上限的取舍复盘（TOTAL_TOOL_CALLS=3 在多步探查场景下的张力与三个候选改进）
+- ✅ 已可答（ISSUE-007，见 docs/issues/ISSUE-007-live-agent-tool-budget-exhaustion.md）：硬预算与模型计划空间之间的试调方法论（只读+immutable snapshot 使"提高本地查询上限"不扩权；rounds 守 loop 深度、total 守查询总量两者不可混）；RCA 的事実/推测纪律（exact sequence 不可观察时只引用可证事实，禁止把猜序写成事实）；one-tool-per-round 被否决的理由（多调用能力已测、并行使 latency 最优化）
+
 
 
 

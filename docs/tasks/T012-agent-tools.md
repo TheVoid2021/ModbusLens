@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（LKGC `b322cc3`）→ Phase 2 IMPLEMENTED / AWAITING MANUAL UI REVIEW（candidate `d781ab0`）**
+- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（LKGC `b322cc3`）→ Phase 2 IMPLEMENTED / ISSUE-007 FIXED / AWAITING LIVE RE-VALIDATION（new candidate `e922c19`）**
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -304,6 +304,7 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - code/test（Part B Phase 1 Review P0 fix，**最新 Phase 1 candidate**，未推进）：`2becc41` `fix(T012): single batch-identity source — remove duplicated AgentRunRequest revision`
 - code/test（Part B Phase 1 Final Review fix，**最新 Phase 1 candidate**，未推进）：`b322cc3` `fix(T012): start() never normalizes the live batch revision — preflight stale guard` → **verified LKGC（Phase 1 最终 Review PASS 后推进）**
 - code/test（Part B Phase 2，**最新 Phase 2 candidate**，未推进）：`d781ab0` `T012(Part B Phase 2): Controller + QML Agent integration`
+- code/test（ISSUE-007 fix，**最新 Phase 2 candidate**，未推进）：`e922c19` `fix(T012): ISSUE-007 — raise agent total tool budget 3→6 + planning discipline`
 - docs-only：`03deffd` `T012: Agent Tools — Learning / Test Design（docs-only）`、`40177a2`（Learning 哈希回填）；Part A 归档 docs commit 随本档案更新提交（哈希回填于 PROJECT_STATUS 变更记录）
 
 ## Potential Interview Questions
@@ -332,6 +333,14 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - **验证**：clean 142 targets 零警告；ctest 22/22；零公网。候选链：`da453a7` → `2becc41` → **`b322cc3`（最新 Phase 1 candidate）**。
 
 ## Part B Phase 2 — Learning / Integration Plan（2026-09-10，docs-only；Implementation 待批准）
+
+## ISSUE-007 — Fix 归档（2026-09-10，FIXED / AWAITING LIVE RE-VALIDATION）
+
+- 建档案：`docs/issues/ISSUE-007-live-agent-tool-budget-exhaustion.md`。RCA 严格分离已证明事实（budget exceeded + guards intact + facts 零变化）与不可证明事实（exact sequence 在 deployed UI 不可观察，禁止写成事实）。
+- 修复（code/test commit `e922c19`）：`MAX_TOOL_ROUNDS=3` 保持；`MAX_TOTAL_TOOL_CALLS 3→6`（只读/immutable snapshot/bounded result——不扩权）；Agent system instruction 增加通用 Tool Efficiency / Budget contract（不硬编码 demo/事务号/0x02/smoke 问题；T011 prompt 与 ISSUE-006 权威规则零弱化）；否决 one-tool-per-round（既有 multi-call 能力完整保留）。
+- 测试：B05 重写新边界（6 calls 全部执行且 id 回传；7 calls → ToolCallLimitExceeded 零部分执行）；新增 B23（2+3=5 calls 累计 ≤6 的多步合法计划 → final 发布；rounds=3 不破坏 B04 轮守卫）。**RED=新测试在旧上限 3 下 B05/B23 双 FAIL**；GREEN=修复后全过。
+- 验证：clean 147 files 全量重建 0 警告；ctest **23/23**（B01~B23/A01~A10/UI-AG01~AG20/T011 回归全绿）；零真实 ModelScope（Live 复验待用户再授权）。
+- **新 Phase 2 candidate = `e922c19`**（未推进）；verified LKGC 仍 `b322cc3`。
 
 ## Part B Phase 2 — Final Real Live Agent Smoke Evidence（2026-09-10，FAIL）
 

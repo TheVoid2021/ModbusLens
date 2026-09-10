@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T012 Part B Phase 2 IMPLEMENTED / AWAITING MANUAL UI REVIEW（candidate `d781ab0`）** |
+| 当前任务（Current Task） | **T012 Part B Phase 2 IMPLEMENTED / ISSUE-007 FIXED / AWAITING LIVE RE-VALIDATION（candidate `e922c19`）** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
-| 当前阶段（Current Phase） | T012 Part B Phase 2 实现落地（Controller+QML，UI-AG01~20 全绿，ctest 23/23）→ 待用户 Manual UI Review |
-| 下一步动作（Next Action） | **T012 Part B Phase 2 Manual UI Review（A~J 手工检查项已入档）— 待用户验收** |
+| 当前阶段（Current Phase） | T012 Part B Phase 2：ISSUE-007（Live tool budget 3→6 + planning discipline）已修复；离线回归全绿；待用户授权的 Live Re-Smoke |
+| 下一步动作（Next Action） | **T012 Part B Phase 2 Live Agent Re-Smoke — 待用户明确授权（≤4 请求预算届时另定）** |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -58,6 +58,7 @@
 | K4 | ~~**[ISSUE-002] Explorer 启动 modbuslens.exe 失败**~~ **[RESOLVED ✅]**（无法定位输入点 `_ZNSt3pmr20get_default_resourceEv` 于 Qt6Gui.dll） | 仅影响"不经终端直接双击启动"场景；终端前置正确 PATH 后启动正常；**正确 runtime 下用户已人工确认 UI 12/12 正常** | **已解决（T008.1）**：`scripts/deploy_windows.bat` 生成 build/deploy 独立目录（runtime provenance SHA256=编译器 bin VERIFIED + minimal-PATH smoke PASS）；**用户 Explorer 双击确认 PASS**。ISSUE-002 置 RESOLVED |
 | K5 | ~~**[ISSUE-003] 本机 Qt 6.11.1 未安装 QtSerialPort 组件**~~ **[RESOLVED ✅]**（首次补装落错 MSVC kit `D:\QTDesign`，随后装到正确 MinGW kit；五步实证+临时 CMake probe 全过） | 曾阻塞 T010 Part A 的 Qt adapter/SERIAL-I01 | 已解决；T010 Part A 全绿交付 |
 | K6 | [ISSUE-006](issues/ISSUE-006-ai-explanation-overattribution.md) AI 解释过度归因——4 笔小样本（1 CRC + 1 Timeout + 1 Exception 0x02）被渲染为“链路稳定性差/协议混乱/往往源于物理层/间歇中断”等确定语气结论 | 确定性数据零损坏；措辞可能误导排查方向、违背“possible cause ≠ certain cause”产品原则 | **RESOLVED ✅**：evidence-scope guard + 状态正例语义 + 混合错误独立性 + Facts/Explanations/Checks 纪律；AI-B14~B17；用户 Manual UI Regression Smoke PASS + 经授权 Live ModelScope Smoke 五项验收全 PASS；verified LKGC = `01841b1` |
+| K7 | [ISSUE-007](issues/ISSUE-007-live-agent-tool-budget-exhaustion.md) Live Agent tool budget exhaustion（MAX_TOTAL_TOOL_CALLS=3 对多步只读诊断过严，真实 run 触发 ToolCallLimitExceeded） | 合法多步问题无法完成一次诊断（超限即安全终止） | **FIXED / AWAITING LIVE RE-VALIDATION**（`e922c19`：total 3→6 + planning discipline；rounds=3 不变；待用户授权 Live Re-Smoke 后 RESOLVED） |
 
 ## 5. 开发环境
 
@@ -177,6 +178,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-10 | **T012 Part B Phase 2 Learning / Integration Plan 完成（docs-only）**：Controller 状态图/发布路径 6 处核验；Agent ownership（Controller parents client+runtime）；snapshot 唯一合法链；batch-change invalidation 最小 seam（`AgentRuntime::invalidateForBatchChange`，静默立即失效）；single-flight derived `cloudAiBusy`（UI+backend 双 guard）；Agent 不绑 Baseline；NoData 本地拒绝；answer/error/cancel/generation 语义定案；QML 左 pane 最小 UI + ISSUE-004 防回归；UI-AG01~AG18 矩阵（P0×13/P1×5）；register-address limitation 入 Backlog；零代码改动 |
 | 2026-09-10 | **T012 Part B Phase 2 Implementation 完成（自动化全 GREEN，`d781ab0`）**：Controller+QML Agent 集成（同一 config 双 client/全 derived 状态/四级前置/批切换 ordering seam/single-flight 双向/answer-error 语义）+ 新 Runtime invalidate seam；口径修正（5 处发布路径；generation 措辞）；UI-AG01~AG20 全绿（RED=未接线 Controller 编译失败）；clean 0 警告、ctest 23/23、deploy+minimal-PATH PASS；**candidate 未推进（待 Manual UI Review）** |
 | 2026-09-10 | **T012 Part B Phase 2 Final Real Live Agent Smoke = FAIL（证据入档）**：唯一授权 run（Qwen/Qwen3.5-27B，真实 endpoint）约 12s 内触发 ToolCallLimitExceeded（UI「工具调用次数已达上限。」）→ 无 final answer；崩溃级零问题、facts 零变化、防护按契约工作；请求数不可直接观测（硬上限保证 ≤3，远低于 4；无第二 run/retry/Ask AI）；待用户决策（prompt 收紧 / 上限调整 / 保持 v1）；H Cancel 未执行（自动证据 UI-AG08+B13 承担）；**d781ab0 未推进 LKGC** |
+| 2026-09-10 | **ISSUE-007 建档并修复（`e922c19`）**：Live FAIL → RCA（可证/不可证严格分离）→ MAX_TOTAL_TOOL_CALLS 3→6（rounds 保持 3）+ Agent Tool Efficiency/Budget prompt 纪律 → B05 重写（6 过/7 拒零执行）+ 新 B23（5 calls 多步计划）；RED=新测试在旧上限双 FAIL；clean 147 零警告、ctest 23/23；**新 Phase 2 candidate = `e922c19`（LKGC 未推进，待 Live Re-Smoke）**；ISSUE-007 = FIXED / AWAITING LIVE RE-VALIDATION |
+
 
 
 
