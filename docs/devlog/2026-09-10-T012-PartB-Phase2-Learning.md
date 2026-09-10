@@ -38,3 +38,9 @@
 
 - Live FAIL → ISSUE-007 建档（RCA 可证/不可证分离；budget 3→6 + planning discipline；否决 one-per-round）；B05 新边界（6 过/7 拒零执行）+ B23（5 calls 多步计划）RED→GREEN；clean 147 零警告、ctest 23/23。
 - **新 Phase 2 candidate = `e922c19`**；verified LKGC 仍 `b322cc3`；Live Re-Smoke 待用户授权。
+
+
+## 追加（Live Re-Validation PASS）— ISSUE-007 修复被真实证明 ✅
+
+- 经授权唯一 run、同一问题原文：约 60s 产出 usable final answer；零 ToolCall/ToolRound 超限；facts/rows/baseline 不变、无 crash；0x02=Illegal Data Address（编号/耗时对）、CRC/Timeout possible 语气、混合独立、明确"仅限本批次样本"、无 false action、无具体地址编造（逐项验收在 ISSUE-007 §7）。
+- exact tool sequence / request count = not externally observable（政策如实）。ISSUE-007 = LIVE RE-VALIDATION PASS / AWAITING USER FINAL CLOSURE；candidate `e922c19` 未推进（LKGC `b322cc3`）。

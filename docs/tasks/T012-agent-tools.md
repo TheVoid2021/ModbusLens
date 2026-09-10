@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（LKGC `b322cc3`）→ Phase 2 IMPLEMENTED / ISSUE-007 FIXED / AWAITING LIVE RE-VALIDATION（new candidate `e922c19`）**
+- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（LKGC `b322cc3`）→ Phase 2 IMPLEMENTED / ISSUE-007 LIVE RE-VALIDATION PASS / AWAITING USER FINAL CLOSURE（candidate `e922c19`）**
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -333,6 +333,13 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - **验证**：clean 142 targets 零警告；ctest 22/22；零公网。候选链：`da453a7` → `2becc41` → **`b322cc3`（最新 Phase 1 candidate）**。
 
 ## Part B Phase 2 — Learning / Integration Plan（2026-09-10，docs-only；Implementation 待批准）
+
+## ISSUE-007 — Live Re-Validation PASS（2026-09-10，经授权唯一 run）
+
+- 同一 scenario 与**一字未改**的问题原文；唯一一次点击；约 60s 出 final answer；**ToolCallLimitExceeded / ToolRoundLimitExceeded 均未触发**；agentBusy 回 false；facts/rows/baseline 零变化；无 crash/QML 错误。
+- answer 原文与逐项验收见 ISSUE-007 文档 §7；要点：数字一致（4 笔/25%）、0x02=Illegal Data Address（编号/耗时与真实批次一致）、CRC/Timeout possible 语气、混合异常独立、明确"仅限本批次样本"、无 false action、无具体寄存器地址编造。
+- exact tool sequence 与 exact request count 按政策记录为 **not externally observable**（runtime 硬界：rounds≤3、request≤4）。
+- ISSUE-007 状态 = LIVE RE-VALIDATION PASS / AWAITING USER FINAL CLOSURE（用户最终确认后才 RESOLVED；T012 不自行 DONE）。candidate `e922c19` 未推进 LKGC。
 
 ## ISSUE-007 — Fix 归档（2026-09-10，FIXED / AWAITING LIVE RE-VALIDATION）
 

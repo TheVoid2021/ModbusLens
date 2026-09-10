@@ -105,6 +105,8 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-10 | **T012 Part B Phase 2 Learning / Integration Plan 完成（docs-only）**：invalidate seam/single-flight/NoData/generation/cancel/UI/UI-AG01~18 全部定案；register-address limitation 记为 T013/T015 candidate；Implementation 待批准 |
 | 2026-09-10 | **T012 Part B Phase 2 IMPLEMENTED（`d781ab0` candidate）**：Controller+QML 集成 + UI-AG01~AG20；ctest 23/23；待用户 Manual UI Review 推进 LKGC |
 | 2026-09-10 | **ISSUE-007 修复（`e922c19`）**：MAX_TOTAL_TOOL_CALLS 3→6 + planning discipline + B05/B23；ctest 23/23；Phase 2 candidate 刷新，待 Live Re-Smoke |
+| 2026-09-10 | **ISSUE-007 Live Re-Validation = PASS**（同一问题唯一 run；60s 产出合规 final answer，零超限）；ISSUE-007 与 Phase 2 待用户最终 closure |
+
 
 
 
