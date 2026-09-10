@@ -1,6 +1,6 @@
 # ISSUE-007: Live Agent tool budget exhaustion on valid multi-step diagnosis
 
-- **状态**：LIVE RE-VALIDATION PASS / AWAITING USER FINAL CLOSURE（2026-09-10；用户最终确认后才 RESOLVED）
+- **状态**：**RESOLVED**（2026-09-10；用户 Final Review = PASS。同题 Live Re-Validation PASS；完整 Live FAIL → RCA → fix → re-validate 历史保留，不改写）
 - **发现**：T012 Part B Phase 2 Final Real Live Agent Smoke（Qwen/Qwen3.5-27B，正式 endpoint，唯一授权 run）
 - **关联**：T012 Phase 2（candidate `d781ab0`→fix `?`）；ISSUE-006（Attribution discipline 保持不弱化）
 
@@ -54,3 +54,10 @@ Issued 状态在**下一次经用户明确授权的 Live Agent Re-Smoke** PASS �
 - final answer 一致性摘要：本批次 4 笔事务、成功率 25%（模型主动写出的数字均与事实一致）；Exception 0x02 = Illegal Data Address（事务编号 2、功能码 3、18 ms——编号/耗时与 demo 批次真实顺序一致）；CRC = 17 ms 校验失败描述为链路层完整性问题（possible 语气）；Timeout = 1000 ms 判定超时且"可能因为…"式可能原因；三类异常明示为独立问题场景；"当前观察结果仅限本批次样本，不等同于长期系统稳定性表现"；无 false action claim；**未编造任何具体寄存器地址**（仅建议核对地址范围/规格书/映射表）。
 - exact tool sequence / exact Provider request count：**not externally observable**（production 无工具日志，按禁令未加设施）；runtime 不可超过 rounds=3 与 4 次 Provider request 的硬界（本轮受控与授权上限一致）。
 - F 长答案：本次 answer 明显超出单屏（约 900+ 字），左 pane 内部滚动机制承载（ISSUE-004 结构）；用户人工视觉复核待记录。
+
+
+## 8. Final Closure（2026-09-10，RESOLVED）
+
+- 历史不改写保留：第一次 Live = 同一合法 multi-step diagnostic scenario 触发 ToolCallLimitExceeded（Live FAIL）；RCA = MAX_TOTAL_TOOL_CALLS=3 对自然 bounded multi-step diagnosis 过严（**guards 本身工作正确，非 Provider bug、非 core issue**）；修复 = rounds=3 不变、total 3→6 + 通用 Tool Efficiency/Planning Discipline；第二次 Live = **完全相同问题原文** → usable final answer、无 ToolCall/ToolRound 超限。
+- exact tool sequence / exact request count 与本档案 §1/§7 一致：production 下 not externally observable；本档案不编造 sequence。
+- 验证链：离线 B05 新边界 + B23 多步计划（RED→GREEN）+ clean 147 零警告 + ctest 23/23 + 同题真实 Live PASS + 用户 Final Review。

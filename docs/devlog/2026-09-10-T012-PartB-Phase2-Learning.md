@@ -44,3 +44,8 @@
 
 - 经授权唯一 run、同一问题原文：约 60s 产出 usable final answer；零 ToolCall/ToolRound 超限；facts/rows/baseline 不变、无 crash；0x02=Illegal Data Address（编号/耗时对）、CRC/Timeout possible 语气、混合独立、明确"仅限本批次样本"、无 false action、无具体地址编造（逐项验收在 ISSUE-007 §7）。
 - exact tool sequence / request count = not externally observable（政策如实）。ISSUE-007 = LIVE RE-VALIDATION PASS / AWAITING USER FINAL CLOSURE；candidate `e922c19` 未推进（LKGC `b322cc3`）。
+
+
+## 追加（Final Closure）— T012 / M6 DONE ✅
+
+- 用户 Final Review = PASS：ISSUE-007 RESOLVED；Phase 2 DONE；T012 DONE；M6 DONE；verified LKGC 推进至 **`e922c19`**；T013 polish notes 与 register-address limitation 入档，NOT STARTED。

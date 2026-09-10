@@ -56,3 +56,10 @@ T012 引入用户自由提问 + 模型按需调用**只读 tools** 读取已确�
 - D-A3 的 Controller 接线：active batch 每次真实变化（唯一 ++ 点 `invalidateAiForBatchChange`）同步 `agentRuntime_.setCurrentBatchRevision(activeBatchRevision_)` 并调用新增最小 seam `AgentRuntime::invalidateForBatchChange()`（busy → ++currentAgentGeneration_ + client.cancel(BatchInvalidated) + Idle，零用户可见信号）——batch 切换对 Agent 立即、静默失效。
 - Single-flight（cloud workflow 层）：derived `cloudAiBusy = aiDiagnosisBusy_ || agentBusy_`；UI guard + backend guard 双层；Baseline 不属于互斥。
 - snapshot 唯一合法链（Controller）：copy activeDiagnosisTransactions_ → makeAgentToolContext(copy, activeBatchRevision_) → AgentRunRequest；禁止 QML/展示层反推事实。
+
+
+## T012 Final Architecture（2026-09-10，closure 追加）
+
+- 最终链路：QML Question → AnalysisController → active structured batch → makeAgentToolContext → immutable snapshot → AgentRuntime → ModelScope/Qwen native tool_calls → strict C++ validation → AgentToolDispatcher → 三个 read-only deterministic tools → role=tool → final answer → Controller → PlainText QML。
+- Final Safety Model：MAX_TOOL_ROUNDS=3（loop 深度）、MAX_TOTAL_TOOL_CALLS=6（本地只读查询总量，ISSUE-007）；先 parse/validate/budget 后执行、零部分执行；capturedBatchRevision/currentBatchRevision + runGeneration/currentAgentGeneration 双条件消费发布。
+- Authority boundary 终版：Agent 是 read → reason → explain；deterministic Core 仍是 CRC/TransactionStatus/Timeout/ProtocolError/异常码/统计/延时的唯一 authority（与 ADR002 D-A1/D-A2/D-A3 一致，无一弱化）。

@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：IN PROGRESS — **Part A ✅ DONE；Part B IN PROGRESS：Gate 0 ✅ PROVEN → Phase 1 ✅ DONE（LKGC `b322cc3`）→ Phase 2 IMPLEMENTED / ISSUE-007 LIVE RE-VALIDATION PASS / AWAITING USER FINAL CLOSURE（candidate `e922c19`）**
+- **状态**：**T012 DONE（2026-09-10，用户 Final Review = PASS；verified LKGC 推进至 `e922c19`；M6 DONE）**——Part A ✅ / Gate 0 ✅ PROVEN / Phase 1 ✅ / Phase 2 ✅；ISSUE-007 RESOLVED；T013 NOT STARTED（不自动开始）
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -265,6 +265,18 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - 新增（docs-only）：`docs/tasks/T012-agent-tools.md`（本档案）、`docs/adr/ADR002-readonly-tool-agent-architecture.md`。
 - 更新：`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/INTERVIEW_NOTES.md`、`docs/devlog/2026-09-09-T012-Learning.md`。
 - **未修改**：`src/`、`tests/`、`CMakeLists.txt`、`scripts/`（本轮纪律）。
+
+## T012 Final Acceptance（2026-09-10，用户 Final Review = PASS，closure）
+
+- **验收证据链**：Part A A01~A10 PASS；Gate 0 真实 ModelScope native（tools → tool_calls → role=tool → final answer）PROVEN；Phase 1 B01~B23 PASS；Phase 2 UI-AG01~AG20 PASS；full ctest 23/23；QML smoke PASS；Offline Manual UI Smoke PASS；**Real Agent Live Re-Smoke PASS（此前失败的同一 scenario 已真实 re-validated）**。
+- **最终 Agent 架构**（归档链）：QML Question → AnalysisController → active structured batch → makeAgentToolContext → immutable snapshot → AgentRuntime → ModelScope/Qwen → native tool_calls → strict C++ validation → AgentToolDispatcher → read-only deterministic tools（get_session_summary / get_recent_anomalies / get_transaction_detail(transaction_number)，仅只读）→ role=tool → Qwen final answer → Controller → PlainText QML。
+- **Authority boundary（终版）**：Agent/LLM 不是 detector；deterministic Core 唯一负责 CRC correctness / TransactionStatus / Timeout / ProtocolError / exception code / statistics / latency；Agent = read → reason → explain；不能 write register / change serial / resend / modify files / control device。
+- **Final Safety / Runtime Model**：MAX_TOOL_ROUNDS=3、MAX_TOTAL_TOOL_CALLS=6；multiple tool calls allowed；全部调用先 parse → 先 validate → 先 budget check → 再执行；任何 invalid batch zero partial execution；batch identity = capturedBatchRevision vs currentBatchRevision；run identity = runGeneration vs currentAgentGeneration；仅 same batch AND latest valid run 可消费/发布。
+- **Live Re-Validation 证据（第二次 Live）**：同题 YES / one run YES / ToolCallLimitExceeded NO / ToolRoundLimitExceeded NO / final answer YES / agentBusy final false / statistics·rows·Baseline unchanged / no false actions / no register hallucination / no long-term generalization；exact sequence 与 request count = not externally observable（不猜，详见 ISSUE-007）。
+- **F Long-answer closure**：Live answer ≈900+ 汉字，实际承载于 Diagnosis pane internal Flickable（无 root expansion / 右栏 overlap / crash / QML error）；加 Offline layout smoke 与自动 QML 测试 —— T012 layout acceptance = sufficient。细节留 T013 UI polish（dark-theme contrast / typography hierarchy / long-text visual refinement / scrollbar feel / AI 术语 polish）。**不再为 F 执行真实 Provider run。**
+- **T013 Language Polish Notes（非阻塞，不 reopen T012 / ISSUE-006/007）**：真实文案中「Exception（功能码异常）」「链路层完整性」「传输层无响应」未破坏 facts，但建议更精确 Modbus transaction 术语；evidence_scope / multiple anomaly types / shared root cause 的中文化 polish 一并在 T013。
+- **Register-address limitation（保留）**：detail 无 FC03 startAddress/quantity → Agent 可答 0x02=Illegal Data Address + 建议核对 register map，**不可**答具体寄存器地址 → T013/T015 candidate，不扩数据模型。
+- **verified LKGC = `e922c19`**（自动回归 + full ctest + QML smoke + 真实 Provider Live Re-Validation + 用户 Final Review 全链）。docs-only closure commit 不再推进。
 
 ## Part A Verification（2026-09-09，真实记录）
 
