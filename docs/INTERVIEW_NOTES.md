@@ -72,6 +72,8 @@
 - ✅ 已可答（T012 Live Agent Smoke 教训，见 docs/tasks/T012-agent-tools.md Live Smoke 证据段）：工具调用上限在真实生产中被触发的完整证据链（模型长指令→并行/多轮工具→ToolCallLimitExceeded 防护按契约整批拒绝→零 facts 变化、无崩溃）；设计上限的取舍复盘（TOTAL_TOOL_CALLS=3 在多步探查场景下的张力与三个候选改进）
 - ✅ 已可答（ISSUE-007，见 docs/issues/ISSUE-007-live-agent-tool-budget-exhaustion.md）：硬预算与模型计划空间之间的试调方法论（只读+immutable snapshot 使"提高本地查询上限"不扩权；rounds 守 loop 深度、total 守查询总量两者不可混）；RCA 的事実/推测纪律（exact sequence 不可观察时只引用可证事实，禁止把猜序写成事实）；one-tool-per-round 被否决的理由（多调用能力已测、并行使 latency 最优化）
 - ✅ 已可答（ISSUE-007 完整故事，见 docs/issues/ISSUE-007-live-agent-tool-budget-exhaustion.md + T012 Final Acceptance）：第一次真实 Live E2E 未顺利通过——合法 multi-step query 触发 tool-call hard budget，但系统正确 fail closed（无死循环/无崩溃/零事实污染）；随后区分 provider round budget（rounds=3 不动）与 local read-only tool-call budget（3→6）并加 planning efficiency instruction；同一问题原文真实 re-validation PASS——bounded agent orchestration trade-off 的完整工程案例（含"不可观察 sequence 时 RCA 只依赖可证事实"的纪律）
+- ✅ 已可答（T012 Post-Closure Stabilization，见 docs/issues/ISSUE-008 ~ 009）："closure 后真实使用回归"的工程常态与处置纪律（REOPENED/STABILIZATION 状态表达、不回退 LKGC、先 RCA 后实施）；fail closed 与可诊断性的张力（空 content → InvalidResponse 可见，但观察者无从知道"为什么空"——离线 RCA 的证明边界，hypothesis 与 evidence 显式标注）；额度/限流类问题"无稳定机器特征就不建专门枚举"的克制（合并 UX 文案 + 留待证据）；configured ≠ healthy 的 UI 语义审计
+
 
 
 

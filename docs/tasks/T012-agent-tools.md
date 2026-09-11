@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：**T012 DONE（2026-09-10，用户 Final Review = PASS；verified LKGC 推进至 `e922c19`；M6 DONE）**——Part A ✅ / Gate 0 ✅ PROVEN / Phase 1 ✅ / Phase 2 ✅；ISSUE-007 RESOLVED；T013 NOT STARTED（不自动开始）
+- **状态**：**T012 REOPENED / STABILIZATION（2026-09-10，Post-Closure 真实使用回归发现 ISSUE-008/009）**——Part A ✅ / Gate 0 ✅ / Phase 1 ✅ / Phase 2 ✅ 保持；verified LKGC 不回退（仍 `e922c19`）；M6 转回 IN PROGRESS；T013 NOT STARTED
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -265,6 +265,15 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - 新增（docs-only）：`docs/tasks/T012-agent-tools.md`（本档案）、`docs/adr/ADR002-readonly-tool-agent-architecture.md`。
 - 更新：`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/INTERVIEW_NOTES.md`、`docs/devlog/2026-09-09-T012-Learning.md`。
 - **未修改**：`src/`、`tests/`、`CMakeLists.txt`、`scripts/`（本轮纪律）。
+
+## Post-Closure Stabilization Review（2026-09-10，docs-only，实施待批准）
+
+- 用户继续真实使用约 15 类自然语言问题，发现两个新问题——**ISSUE-008**（合法 0x02 问题最终显示「模型响应格式无效」）与 **ISSUE-009**（额度不足时 Agent 出现「分析中…约 1 秒→busy 消失」却无持久可见错误提示）。
+- **ISSUE-008 RCA（代码级已证）**：可见文案来自 Runtime 的「无 tool_calls 且 content 空/纯空白 → provider InvalidResponse」路径 + Controller 映射「模型响应格式无效。」——链路工作正确、fail closed；**未知**的只是该次 provider 响应为何空 content（reasoning 消耗同一 `max_tokens=768` 输出预算 = hypothesis only / not proven）。
+- **ISSUE-009 RCA**：逐层核验 8 类 provider 错误均会写 agentErrorText 且 QML 可见——**无既证静默路径**；最可能断点为额度不足时 provider 的超表响应形态（hypothesis）；顶部「模型服务：ModelScope — 模型：%1」真实语义 = configured（≠ healthy、≠ quota available）；不建 QuotaExceeded 枚举（quota/rate-limit 当前无稳定区分证据）；推荐文案 6 条 + 顶部改「模型配置：」方案 B 已定案待实施。
+- Test design：扩展 B20（纯空白 content）→ 新 **AGENT-B24**（reasoning-only 不升级为 answer）；UI-AG21（429→持久可见文案）、UI-AG22（sanitized 真实 quota shape 回归 fixture）；B20 已锁空 content，不重复编号。
+- **Live Diagnostic 判定**：两 Issue 均属"无法离线确定真实响应形状" → 各需**最多 1 次 user-authorized sanitized diagnostic reproduction**（本阶段不执行）。
+- 状态变更：T012 = REOPENED / STABILIZATION；M6 = IN PROGRESS；T013 = NOT STARTED；ISSUE-008/009 = OPEN；verified LKGC `e922c19` 不回退。
 
 ## T012 Final Acceptance（2026-09-10，用户 Final Review = PASS，closure）
 
