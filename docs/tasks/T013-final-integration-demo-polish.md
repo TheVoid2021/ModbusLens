@@ -1,6 +1,6 @@
 # T013 — Final Integration & Demo Polish
 
-- **状态**：IN PROGRESS — **Phase A = FINAL POLISH AUDIT / AWAITING USER IMPLEMENTATION SCOPE REVIEW（2026-09-11，docs-only）**
+- **状态**：IN PROGRESS — **Phase B = IMPLEMENTED / AWAITING MANUAL VISUAL REVIEW（2026-09-11；candidate `aea1e64`；Human Visual Review 与用户 Final Review 未完成）**
 - **背景**：T011/T012 及 Post-Closure Stabilization 全部完成（LKGC `3572cf7`）。T013 不是第二轮产品开发——只做 UI visual polish、用户术语 polish、最终 Demo 流程、README/部署/演示证据一致性与面试表达就绪。
 
 ---
@@ -111,6 +111,15 @@ P2（有余力/进 backlog）：V4 statistics 分层、V8 交易列表可扫读�
 ## 13. Explicit No-Go List
 
 FC06/FC10；startAddress/quantity enrichment；write-register Tool；自动设备控制；新协议/新模式；RAG/MCP/multi-agent；chat history；database；新 Provider；active quota polling；复杂 settings 页；Agent Runtime 重设计；Core 重设计；QML 架构级重写（含任何推翻 ISSUE-004 SplitView 的方案）。
+
+## 15. Phase B Implementation 记录（2026-09-11，`aea1e64` candidate）
+
+- 已实施（production 仅样式与 prompt 措辞）：V1（主题色常量，候选值标 HUMAN VISUAL REVIEW REQUIRED）/V2（三块 accent 条）/V3（24/16/13/11 层级）/V5（busy/error 加粗+状态色）/V6（诊断区 ScrollBar AlwaysOn）/V7（三个长文 label lineHeight 1.35）。ISSUE-004 架构零改动。
+- Prompt 术语 polish：T011+T012 各追加两行指引（Modbus 异常响应/CRC 校验失败/响应超时/非法数据地址+核对寄存器范围；当前观测批次/观察到多种异常/共同根因）；authority 文本逐字未动。
+- 测试：ai_client b01 增断言；agent_runtime 新增 b26（术语契约+read-only authority+3 工具 schema）。视觉为 review-driven（无自动化 RED seam，未伪造）。
+- 验证：clean 147 零警告；ctest 23/23（含 qml_smoke）；deploy+minimal-PATH PASS；零真实调用。
+- README 与 05_DEMO_GUIDE 整体重写（golden 数字 4/4/0·1/1/1/1/0·25%·25ms 全一致；Offline fallback；截图状态表；权限红线）随 docs-only commit 提交。
+- Screenshot 状态 A~E 与 Manual Visual Checklist 已备（见 §10 与 DEMO_GUIDE §5）；最终截图由用户自行截取。
 
 ## 14. 状态与 Git 记录
 

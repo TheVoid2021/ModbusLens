@@ -1,81 +1,66 @@
 # 05 — 演示指南（Demo Guide）
 
-> 状态：规划稿 v0.1。目前工程只有空窗口骨架；下列演示场景在 M3（三种模式）落地后可用，T004–T006 将逐步实现。
-> 演示是每轮面试/评审的核心环节：**先 Simulator 保底，再 Replay 加分，最后 Serial 现场秀**。
+> 状态：**T013 重写版**（与当前真实产品一致；§7 保留历史规划稿存档）。
+> 演示是每轮面试/评审的核心环节：**先 Simulator 保底，再 Replay 加分，最后（可选）Serial 说明**。所有步骤都不要求真实硬件。
 
 ## 1. 演示总原则
 
-- **30 秒内开始**：环境检查（一条命令跑测试）→ 启动 → 点选模式 → 数据流动起来。
-- **一条主线讲完**：流量 → 事务 → 统计 → 诊断报告，四种模式共用同一条主线。
-- **先彩排再用真机**：任何真实硬件演示之前必须先用 Simulator 完整走一遍。
-- **演示=验收**：每个演示步骤对应 04_TEST_STRATEGY 里的 E2E 验收点。
+- **30 秒内开始**：`ctest --preset debug-local` 全绿 → 启动 `modbuslens.exe` → 运行演示批次。
+- **一条主线**：流量 → 事务 → 统计 → 诊断 →（可选）解释，三种模式共享同一确定性核心。
+- **先彩排后真机**：任何真实硬件演示之前必须先用 Simulator 完整走一遍。
+- **演示=验收**：关键口径对应 04_TEST_STRATEGY 的自动测试（ctest 23/23）。
 
-## 2. Demo A — Simulator（无硬件，保底演示）
+## 2. 最终 3~5 分钟面试 Demo 主线（10 步）
 
-**目标**：在零外设环境下展示完整诊断闭环。
+1. **启动** ModbusLens（无 API Key 也能完整演示到第 6 步）。
+2. **Simulator golden batch**：点击「运行演示批次」——固定 4 事务：1 Success（25 ms）/ 1 Exception 0x02（18 ms）/ 1 CRC Error（17 ms）/ 1 Timeout（1000 ms）。
+3. **Dashboard**：讲解统计口径 —— Observed=4 / Completed=4 / Pending=0；Success=1 / Exception=1 / CRC=1 / Timeout=1 / Protocol=0；Success Rate=**25%**；Avg Success Latency=**25 ms**。
+4. **Run Baseline Diagnosis**：演示**无 Key、无 LLM 时核心诊断仍可用**——"AI is interpreter, not detector" 的现场证明（发现 3 类异常 + 建议检查项，均为确定性输出）。
+5. **Replay demo_v1.mlog**：加载回放文件，展示同一通信证据可重复分析（统计与 Simulator 完全同口径）。
+6. **Serial explanation**：展示串口控制面板（串口枚举 / 波特率 / 起始地址 / 寄存器数量 / 读取保持寄存器），说明真实场景经 USB-RS485 接 Modbus RTU 设备（不要求现场硬件）。
+7. **Ask AI**（需配置 Key）：deterministic facts → one-shot 自然语言解释。
+8. **Ask Agent**（需配置 Key）：输入"本批次主要有什么异常？"→ question → native tool calling → 只读工具 → final answer（展示真实工具路径）。
+9. **权限边界**：明确 Agent **不能** 改串口设置、写寄存器、重发请求、控制设备（写能力在类型层面不存在）。
+10. **（可选 20~30s）ISSUE-007 故事**：真实 Live 多步诊断 → tool budget fail closed → RCA → total-call budget 3→6 + planning discipline → 同题真实 re-validation PASS。
 
-```text
-1. 启动 ModbusLens，选择 Simulator Mode
-2. 加载默认场景：1 主站轮询 + 3 从站（含寄存器预置数据）
-3. 开始采集 → 实时帧列表滚动、事务统计面板增长
-4. 注入异常（脚本按钮）：
-   a. 从站 2 超时（连续 5 次无响应）
-   b. 从站 3 偶发 CRC 错误 / 返回异常码 0x02
-5. 打开诊断报告：超时突增、错误率、问题从站被规则命中并给出可读说明
-6. （M7）请求 Agent 用自然语言解释这份报告（可跳过，用于展示亮点）
-```
+**演示纪律**：Audit/Implementation 阶段不得为 Demo 消耗真实 quota；真实 Live 已有一份历史证据可直接引用。
 
-**验收点**：统计数字与注入事件吻合；重复运行同一场景结果一致（确定性）。
+## 3. Offline Demo Fallback
 
-## 3. Demo B — Replay（离线复盘）
+无 API Key / 无额度 / 无网络 / 无硬件时，仍可完整展示：启动 → Simulator golden（2~3）→ Baseline（4）→ Replay（5）→ Serial 说明（6）。这样主线 60% 不依赖任何外部条件。
 
-**目标**：展示"历史日志 → 诊断结论"的复盘能力。
+## 4. 演示前检查清单（Checklist）
 
-```text
-1. 准备 demo/sample_logs/ 下的示例 MLog 日志（T003 定义格式）
-2. 选择 Replay Mode，导入日志
-3. 播放：时间轴拖动到故障时段（约 40 s 处）、调速
-4. 展示与 Demo A 相同的统计/报告视图，结论口径一致
-```
+- [ ] `ctest --preset debug-local` 23/23 全绿
+- [ ] clean build 0 警告
+- [ ] `scripts\deploy_windows.bat` 后 minimal-PATH 冒烟 PASS
+- [ ] Simulator golden 批次数字与本文档完全一致（4/4/0 · 1/1/1/1/0 · 25% · 25 ms）
+- [ ] Demo 界面不出现任何 API Key / Authorization / 绝对路径 / 调试信息
+- [ ] 窗口在 1000x700 与常规大尺寸各走一遍
 
-**验收点**：同一段故障流量在 Replay 中产出的报告，与 Simulator 注入同一故障时的结论一致（口径一致性护栏的演示版）。
+## 5. Screenshot 状态准备（供用户自行截取 3~5 张）
 
-## 4. Demo C — Serial（真机压轴）
+| 状态 | 前置动作 | 应显示 | 不应显示 |
+| --- | --- | --- | --- |
+| A. Simulator Dashboard | 运行演示批次 | 四事务列表 + 9 项统计卡 | — |
+| B. Baseline Diagnosis | A 后运行基线诊断 | 诊断结果 + 建议检查 | 任何 AI 正文 |
+| C. Agent 问答 | （配置 Key）输入问题并询问 | 问题 + 最终回答（PlainText） | 工具调用/调试信息 |
+| D. Replay | 加载 demo_v1.mlog | 模式=回放、来源 demo_v1.mlog、同口径统计 | — |
+| E. Serial controls | 视图滚动至串口面板 | 串口/波特率/地址/数量/读取按钮 | 真实串口号（无硬件时为空） |
 
-**目标**：真实设备接入，展示旁路监听能力。
+禁止出现：API key、Authorization、个人绝对路径、账户状态、临时日志、调试 UI。
 
-```text
-1. 硬件：USB-RS485 转接器 ×2（一主一从）或 1 个 + 真实 Modbus 设备（电表/温控/开发板）
-2. 接线检查：A/B 极性、两端终端电阻 120Ω、波特率与校验一致（默认 9600-8E1）
-3. 选择 Serial Mode：枚举串口 → 配置参数 → 打开
-4. 主站轮询真实从站，ModbusLens 旁路观察到全部流量并实时解析
-5. 拔插/断开制造现场故障（短路后恢复、摘掉终端电阻），展示诊断规则命中
-```
+## 6. 权限红线（全演示过程）
 
-**安全红线**：演示过程中 ModbusLens 只监听，**绝不下发任何写操作**；主站是外部工具或另一台设备。
+ModbusLens 的 Agent/AI 只读；演示过程中**绝不下发任何写操作**；主站请求只来自内置演示或外部工具。
 
-## 5. 演示前检查清单（Checklist）
+## 7. 历史规划稿 v0.1（存档，不作演示依据）
 
-- [ ] `ctest --preset <active>` 全绿
-- [ ] Simulator Demo A 完整走一遍（彩排）
-- [ ] 日志样例/演示脚本已在 `demo/` 目录就位
-- [ ] Serial 场景：驱动装好、串口号确定、线缆 A/B 与终端电阻确认
-- [ ] Linux 下当前用户在 `dialout` 组（否则无权限开串口）
-- [ ] 备用方案：真机失败时立刻切回 Simulator/Replay，不冷场
+> 以下为项目初期的规划设想（多从站轮询、旁路监听、时间轴播放等），与当前真实产品不一致，存档备查：
 
-## 6. demo/ 目录约定
+<details>
+<summary>展开历史规划稿摘要</summary>
 
-```text
-demo/
-├── README.md             # 本目录说明
-├── scripts/              # 演示辅助脚本（一键启动、场景切换）
-├── sample_logs/          # 示例 MLog 日志（Demo B 用）
-└── checklists/           # 真机演示清单按设备归档
-```
+原 v0.1 Demo A/B/C 设想：1 主站轮询 + 3 从站场景与异常注入、Replay 时间轴拖动、双 USB-RS485 旁路监听、9600-8E1 等。真实产品为：Simulator 4 事务黄金演示、Replay 批处理式离线回放（无时间轴）、Serial 8N1 单次 FC03 读（可配置波特率）。以 §2 为准。
 
-演示素材与源码分离；素材随对应任务（T003–T006）落地。
-
-
-## 7. T013 更新（2026-09-11 附加，策划稿归档）
-
-> 注：本文档 §1~§6 为规划稿 v0.1，描述的是历史设想（多从站轮询/旁路监听等），**已成为过时表述**；真实产品为：Simulator 4 事务黄金演示、Replay `demo_v1.mlog`、Serial 单次 FC03 读（8N1、可配波特率）。完整审计与最终面试主线见 [T013 任务档案](tasks/T013-final-integration-demo-polish.md)（§6 十步主线、§7 golden 数据、§10 截图计划）。T013 Implementation 批准后本文件整体重写。
+</details>

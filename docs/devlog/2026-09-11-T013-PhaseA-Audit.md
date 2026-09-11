@@ -18,3 +18,11 @@
 ## 关联档案
 
 - 任务：[T013-final-integration-demo-polish](../../tasks/T013-final-integration-demo-polish.md)。
+
+
+## 追加（Phase B）— Implementation 完成 ✅（`aea1e64`）
+
+- V1~V7 样式级落地（主题常量/三块 accent/层级/busy·error 加粗/ScrollBar AlwaysOn/lineHeight 1.35）——ISSUE-004 架构零改动，色值候选标 HUMAN VISUAL REVIEW REQUIRED。
+- Prompt 术语 polish（两行指引×双 prompt；authority 逐字未动）；b01 断言补充 + b26 新契约。
+- README 与 05_DEMO_GUIDE 重写（golden 4/4/0·1/1/1/1/0·25%·25ms 一致；Offline fallback；截图状态表）。
+- 验证：clean 147 零警告；ctest 23/23；deploy+minimal-PATH PASS；零真实调用。**T013 AWAITING MANUAL VISUAL REVIEW**；candidate `aea1e64` 未推进 LKGC。

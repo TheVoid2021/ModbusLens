@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T013 — Final Integration & Demo Polish：Phase A FINAL POLISH AUDIT / AWAITING USER IMPLEMENTATION SCOPE REVIEW（docs-only）** |
+| 当前任务（Current Task） | **T013 — Phase B IMPLEMENTED / AWAITING MANUAL VISUAL REVIEW（candidate `aea1e64`）** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
-| 当前阶段（Current Phase） | T013 Phase A 审计完成（UI 视觉 10 项 / 术语 / Demo 主线 / golden 一致性 / README·部署 / 截图 / 面试线 / 8 项实现集）→ 待用户批准 Implementation |
-| 下一步动作（Next Action） | **T013 Implementation 待用户批准（建议 8 项集：README 重写 / DEMO_GUIDE 重写 / V1~V3 / 部署验收链 / V5~V7 / 术语 polish）** |
+| 当前阶段（Current Phase） | T013 Phase B 落地（V1~V7 样式 + 术语 polish + README/DEMO_GUIDE 重写，ctest 23/23、deploy+minimal-PATH PASS）→ 待 Human Visual Review |
+| 下一步动作（Next Action） | **T013 Human Visual Review（10 项 Manual Visual Checklist）— 待用户本人确认** |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -185,6 +185,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-10 | **Phase 3 Offline Hardening（`95ad9e7` candidate）**：8 类 provider 错误持久中文文案 + 顶部「模型配置：」+ B20 whitespace/B24 reasoning-only/B25 非 string/ag21 429 全链路/ag22 malformed-200 可见；RED=ag05/21/22 旧文案失败，B20/24/25 coverage-only；clean 0 警告、ctest 23/23、deploy+minimal-PATH；**ISSUE-008/009 保持 OPEN（不声称根因修复）**；LKGC 未推进 |
 | 2026-09-10 | **T012 Stabilization Final Review Closure = PASS**：B20 全族覆盖验证（新 LF/CRLF case 由 test-only `3572cf7` 补齐，coverage-only）；enum 语义审计（A provider-path / B local-state 分离）；**verified LKGC 推进 `e922c19` → `3572cf7`**；ISSUE-008/009 = OPEN + MONITORING/NON-BLOCKING（历史 exact RCA 未证明、不阻塞）；T012 DONE / M6 DONE；T013 NOT STARTED |
 | 2026-09-11 | **T013 Phase A Final Polish Audit 完成（docs-only）**：UI 视觉审计 V1~V10（P0×3/P1×4/P2×1/HUMAN）×；术语审计（AI 输出英文卡槽中文化建议）；面试 10 步 Demo 主线设计；golden 数据一致性（无分歧，README/DEMO_GUIDE 过时）；README 15 项 gap 全列；部署已达标仅需重验链；截图 4~5 张计划；面试 19 故事 + 真实 limitations；**建议实现集 8 项** + no-go 清单；T013 IN PROGRESS，Implementation 待批准 |
+| 2026-09-11 | **T013 Phase B Implementation（`aea1e64` candidate）**：V1~V7 样式级 + 术语 polish（authority 不动）+ README/DEMO_GUIDE 重写（golden 一致）；clean 147 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH PASS；零真实调用；**T013 AWAITING MANUAL VISUAL REVIEW（未 Final Close）**；LKGC 未推进 |
+
 
 
 

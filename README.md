@@ -1,78 +1,102 @@
 # ModbusLens — 工业通信智能诊断平台
 
-一个用于工业现场 Modbus 通信**监听、分析与诊断**的桌面软件，也是一份完整的、开发过程全程可追溯的秋招软件工程项目。
+ModbusLens 是一个用于工业现场 **Modbus RTU 通信监听、分析与诊断** 的 C++20 / Qt6 桌面软件：把难以阅读的原始通信，转成可解释的事务、统计与自然语言诊断。它同时是一份开发过程全程可追溯的秋招软件工程项目。
 
-## 三种运行模式（共享同一套分析核心）
+## Why ModbusLens
 
-| 模式 | 说明 | 适用场景 |
-| --- | --- | --- |
-| **Simulator Mode** | 内置虚拟从站，无需任何硬件即可产生 Modbus 流量 | 开发调试、初学演示、无设备环境 |
-| **Replay Mode** | 读取历史通信日志，离线回放并分析 | 事后排障、故障复盘 |
-| **Serial Mode** | 通过真实串口连接 Modbus RTU 设备在线采集 | 现场诊断 |
+Modbus RTU 通信故障（无响应、CRC 错误、异常码）很难从原始字节快速定位和解释。ModbusLens 用一个共享的确定性分析核心，把三类数据源归一成同一套 **事务 → 统计 → 诊断** 视图，再以可选的 LLM 层做只读的自然语言解释——**核心诊断永远不依赖 LLM**。
 
-三种模式共用同一套 **协议解析 → 事务分析 → 统计 → 诊断** 核心逻辑，保证结果口径一致、逻辑只实现一次。
+## Features
 
-## 技术栈
+- **Simulator Mode**：内置虚拟从站，零硬件产生确定性的 Modbus 流量（黄金演示：4 笔事务）。
+- **Replay Mode**：加载 `.mlog` 历史日志离线重新分析（便于开发、测试、演示与复盘）。
+- **Serial Mode**：通过真实串口（USB-RS485）连接 Modbus RTU 设备，单次读取保持寄存器并分析。
+- **确定性事务分析**：CRC 校验、超时、异常码、成功率的完整统计口径三模式一致。
+- **Baseline Diagnosis**：确定性规则基线诊断（无需 API Key、无需网络即可输出结构化发现与建议检查项）。
+- **AI Diagnosis**：一键请求 LLM 对已确定事实做自然语言解释。
+- **只读 Agent**：用户自由提问，模型按需调用三个只读工具读取确定性事实后回答。
 
-- C++20
-- Qt 6（Widgets；后续按需 QtCharts / Qt SerialPort / Qt Network）
-- CMake（Presets）+ CTest
-- 后续任务引入 HTTP 服务与只读 LLM Agent（可选增强，核心功能不依赖）
-
-## 目录结构
+## Architecture
 
 ```text
-ModbusLens/
-├── src/          # 应用源码（后续按 app/core/io/ui 分层）
-├── tests/        # 单元与集成测试（CTest 驱动）
-├── demo/         # 演示素材：脚本、示例日志、演示清单
-├── docs/         # 全部项目文档（唯一事实来源）
-│   ├── tasks/    # 每个任务的完整过程档案
-│   ├── issues/   # 技术问题定位与解决记录
-│   ├── adr/      # 架构决策记录
-│   └── devlog/   # 开发日志
-├── CMakeLists.txt
-└── CMakePresets.json
+Transport (Simulator / Replay / Serial)
+        ↓
+deterministic Modbus Core（协议解析 / 事务分析 / 统计 / 规则诊断，Zero Qt）
+        ↓
+App / Controller 层（QML ↔ C++ 边界）
+        ↓
+QML UI（统计卡 / 事务列表 / 诊断面板）
+        ↑
+即可选：AI Diagnosis / read-only Agent（ModelScope · Qwen）
 ```
 
-## 快速开始
+核心原则：**AI is interpreter, not detector** —— CRC 正确性、TransactionStatus、Timeout、异常码、统计与延时全部由 deterministic Core 决定；LLM 只解释，不产生协议事实。
 
-环境要求与各平台安装方法见 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)。
+## AI vs Agent
+
+| | AI Diagnosis（Ask AI） | Agent（Ask Agent） |
+| --- | --- | --- |
+| 形态 | 一次请求，解释当前 deterministic facts | 用户自由提问 + 本地只读工具查询 |
+| 工具 | 无 | 3 个 read-only tools（原生 tool calling） |
+| 运行时 | 简单单发 | 有界 FSM（最多 3 轮工具 / 6 次工具调用） |
+
+三个只读工具：
+
+- `get_session_summary()` —— 当前批次确定性统计摘要
+- `get_recent_anomalies()` —— 最近 20 条异常（Exception/CRC/Timeout/ProtocolError）
+- `get_transaction_detail(transaction_number)` —— 指定事务的确定性详情
+
+## Safety / Authority
+
+LLM（AI 与 Agent 同规则）**不能**：修改串口设置、写寄存器、重发请求、修改文件、控制设备、改写任何 deterministic 事实。写能力在类型层面不存在（架构强制，非约定）。工具调用全部经过白名单、参数校验与预算硬上限；多轮回答受 batch revision 与 run generation 双重时效保护。
+
+## Demo
+
+黄金演示批次（Simulator 与 Replay `demo_v1.mlog` 同口径）：
+
+- 4 transactions：1 Success · 1 Exception 0x02 · 1 CRC Error · 1 Timeout · 0 Protocol Error
+- Success Rate = **25%** · Avg Success Latency = **25 ms**
+
+三步演示：运行演示批次 → 运行基线诊断 → （可选）Ask AI / Ask Agent。
+
+## Build & Run
+
+环境要求见 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)。
 
 ```bash
-# 本机（Windows + Qt 6.11.1 MinGW，使用机器专属 preset）
-cmake --preset debug-local
+cmake --preset debug-local      # 或 debug（Qt 位于系统默认位置）
 cmake --build --preset debug-local
 ctest --preset debug-local
 ./build/debug/modbuslens.exe
-
-# 其他平台（Qt 位于系统默认位置）
-cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug
 ```
 
-> 若 Qt 不在系统默认位置，为 configure 追加 `-DCMAKE_PREFIX_PATH=<Qt6 安装前缀>`。
+独立部署（无需 Qt 开发环境）：
 
-## 文档导航
+```bash
+scripts\deploy_windows.bat    # 产出 build/deploy/ModbusLens.exe + 全部运行时依赖
+```
 
-- 📋 项目状态（**先看这个**）：[docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
-- 🗺 任务清单与里程碑：[docs/BACKLOG.md](docs/BACKLOG.md)
-- 🏛 项目章程：[docs/00_PROJECT_CHARTER.md](docs/00_PROJECT_CHARTER.md)
-- 📐 需求基线：[docs/01_REQUIREMENTS.md](docs/01_REQUIREMENTS.md)
-- 🧱 架构设计：[docs/02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md)
-- 📖 Modbus 知识库：[docs/03_MODBUS_LEARNING.md](docs/03_MODBUS_LEARNING.md)
-- 🧪 测试策略：[docs/04_TEST_STRATEGY.md](docs/04_TEST_STRATEGY.md)
-- 🎬 演示指南：[docs/05_DEMO_GUIDE.md](docs/05_DEMO_GUIDE.md)
-- 💬 面试素材：[docs/INTERVIEW_NOTES.md](docs/INTERVIEW_NOTES.md)
-- 🔧 开发规约（AI 代理必读）：[AGENTS.md](AGENTS.md)
+## ModelScope configuration
 
-## 当前状态
+API Key 是**可选的**增强配置：设置环境变量 `MODELSCOPE_API_KEY`（可选 `MODBUSLENS_MODELSCOPE_MODEL`）后启用 AI/Agent。无 Key 时 Simulator / Replay / Serial / 统计 / Baseline Diagnosis 全部照常工作。
 
-项目已完成 **M1 里程碑（工程引导与文档体系，T001 + T001.1）**；下一任务是 **T002 Modbus CRC16**（M2 协议核心第一步）。详情见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 与 [docs/BACKLOG.md](docs/BACKLOG.md)。
+> 不要把真实 Key 写入仓库文档或示例值。
 
-## 开发原则速览
+## Testing
 
-1. 全程可追溯：每个任务留下"为什么 → 怎么做 → 改了哪些文件 → 遇到什么问题 → 如何解决 → 如何验证"的完整档案。
-2. 平台可移植：所有项目状态存储在 Git 仓库的 Markdown 文件中，随时可移交给任何 AI Coding 平台。
-3. 核心不依赖 LLM：诊断分析是确定性逻辑；Agent 仅作只读增强。
+- 自动测试：ctest **23/23**（协议/CRC/事务/统计/回放/串口/诊断/AI 客户端/Agent 工具/Agent Runtime/UI 桥接/集成），全部通过 **localhost fake provider**，零真实网络、零 quota 消耗。
+- QML 加载 smoke、独立部署 + minimal-PATH 冒烟均纳入验证链。
+- 真实 Provider 验证为**一次性历史证据**（native tool calling 全链、同题 Live re-validation），不构成生产 SLA 或工业认证。
+
+## Limitations
+
+- v1 聚焦 FC03（读保持寄存器）；无 FC06/FC10 等写功能。
+- Agent 详情不含 FC03 startAddress/quantity —— 可确定 `0x02 = Illegal Data Address` 并建议核对寄存器映射，但不能回答"具体哪个寄存器地址有问题"。
+- 无 write tools、无 RAG/MCP/multi-agent、无对话历史。
+- API Key 采用桌面级进程环境配置（portfolio-scale 设计，非多租户产品）。
+
+## Project History / Engineering Notes
+
+- 项目状态：见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
+- 任务档案 / Issue / ADR / 每日 devlog：见 [docs/](docs/)
+- 面试素材：见 [docs/INTERVIEW_NOTES.md](docs/INTERVIEW_NOTES.md)
