@@ -168,6 +168,8 @@ private slots:
     void b21_toolCallsTakePrecedenceOverContent();
     void b22_startMustNotNormalizeStaleSnapshot();
     void b23_boundedMultiToolDiagnosticPlan();
+    void b24_reasoningOnlyIsNotAnswer();
+    void b25_nonStringContentFailsClosed();
 };
 
 void AgentRuntimeTest::b01_directFinalAnswerZeroTools()
@@ -628,18 +630,24 @@ void AgentRuntimeTest::b19_runUsesContextRevisionAsSoleBatchIdentity()
 
 void AgentRuntimeTest::b20_emptyFinalContentIsInvalidResponse()
 {
-    Harness h;
-    // No tool_calls, content = "" -> provider invalid-response path, never
-    // a runCompleted with an empty answer.
-    h.server.setNextResponse(
-        200, completionBody(finalMessage(QStringLiteral("")), QStringLiteral("stop")));
-    h.run(QStringLiteral("hi"), goldenContext(), 1);
-    QTRY_VERIFY(h.failed.count() == 1);
-    const auto fail = h.failed.at(0).at(1).value<agent::AgentRunFailure>();
-    QVERIFY(fail.providerError);
-    QCOMPARE(fail.providerCode, AiDiagnosisErrorCode::InvalidResponse);
-    QCOMPARE(h.completed.count(), 0);
-    QVERIFY(!h.runtime.isBusy());
+    // No tool_calls + unusable content (empty OR whitespace-only) -> the
+    // provider invalid-response path; never a runCompleted with an empty /
+    // whitespace answer. Whitespace cases are the Phase 3 ISSUE-008
+    // extension (coverage gap for the already-correct contract).
+    const char* whitespaceCases[] = {"", " ", "  ", "	", "  	 "};
+    for (const char* ws : whitespaceCases) {
+        Harness h;
+        h.server.setNextResponse(
+            200, completionBody(finalMessage(QString::fromUtf8(ws)), QStringLiteral("stop")));
+        const auto context = goldenContext();
+        h.run(QStringLiteral("hi"), context, 1);
+        QTRY_VERIFY(h.failed.count() == 1);
+        const auto fail = h.failed.at(0).at(1).value<agent::AgentRunFailure>();
+        QVERIFY(fail.providerError);
+        QCOMPARE(fail.providerCode, AiDiagnosisErrorCode::InvalidResponse);
+        QCOMPARE(h.completed.count(), 0);
+        QVERIFY(!h.runtime.isBusy());
+    }
 }
 
 void AgentRuntimeTest::b21_toolCallsTakePrecedenceOverContent()
@@ -749,6 +757,52 @@ void AgentRuntimeTest::b23_boundedMultiToolDiagnosticPlan()
     QCOMPARE(m3.at(6).toObject().value("tool_call_id").toString(), QStringLiteral("call-d1"));
     QCOMPARE(m3.at(7).toObject().value("tool_call_id").toString(), QStringLiteral("call-d2"));
     QCOMPARE(m3.at(8).toObject().value("tool_call_id").toString(), QStringLiteral("call-d3"));
+}
+
+void AgentRuntimeTest::b24_reasoningOnlyIsNotAnswer()
+{
+    // Final assistant message with non-empty reasoning_content and NO
+    // usable content / tool_calls: reasoning must NEVER be promoted to the
+    // user-facing final answer (T011 contract). Result: provider
+    // InvalidResponse, zero runCompleted.
+    Harness h;
+    const QJsonObject msg{
+        {QStringLiteral("role"), QStringLiteral("assistant")},
+        {QStringLiteral("content"), QStringLiteral("")},
+        {QStringLiteral("reasoning_content"),
+         QStringLiteral("hidden chain of thought that must not surface")},
+    };
+    h.server.setNextResponse(
+        200, completionBody(msg, QStringLiteral("stop")));
+    const auto context = goldenContext();
+    h.run(QStringLiteral("hi"), context, 1);
+    QTRY_VERIFY(h.failed.count() == 1);
+    const auto fail = h.failed.at(0).at(1).value<agent::AgentRunFailure>();
+    QVERIFY(fail.providerError);
+    QCOMPARE(fail.providerCode, AiDiagnosisErrorCode::InvalidResponse);
+    QCOMPARE(h.completed.count(), 0); // reasoning never leaks into an answer
+}
+
+void AgentRuntimeTest::b25_nonStringContentFailsClosed()
+{
+    // Characterization: Qt QJsonValue::toString() stringifies numbers, so a
+    // numeric `content` would be RENDERED as an answer by the old parser.
+    // The FAIL-CLOSED contract: any non-string content on the final round
+    // is an unusable paid answer -> provider InvalidResponse.
+    Harness h;
+    const QJsonObject msg{
+        {QStringLiteral("role"), QStringLiteral("assistant")},
+        {QStringLiteral("content"), 123},
+    };
+    h.server.setNextResponse(
+        200, completionBody(msg, QStringLiteral("stop")));
+    const auto context = goldenContext();
+    h.run(QStringLiteral("hi"), context, 1);
+    QTRY_VERIFY(h.failed.count() == 1);
+    const auto fail = h.failed.at(0).at(1).value<agent::AgentRunFailure>();
+    QVERIFY(fail.providerError);
+    QCOMPARE(fail.providerCode, AiDiagnosisErrorCode::InvalidResponse);
+    QCOMPARE(h.completed.count(), 0);
 }
 
 QTEST_GUILESS_MAIN(AgentRuntimeTest)

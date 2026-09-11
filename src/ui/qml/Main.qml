@@ -404,8 +404,8 @@ ApplicationWindow {
                     }
                     Label {
                         text: analysisController.aiConfigured
-                              ? qsTr("模型服务：ModelScope — 模型：%1").arg(analysisController.aiModelName)
-                              : qsTr("模型服务：ModelScope — 未配置")
+                              ? qsTr("模型配置：ModelScope — 模型：%1").arg(analysisController.aiModelName)
+                              : qsTr("模型配置：ModelScope — 未配置")
                         color: "#606060"
                         font.pixelSize: 11
                     }

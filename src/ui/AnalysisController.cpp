@@ -119,14 +119,14 @@ QString agentFailureText(const modbuslens::agent::AgentRunFailure& failure)
     using modbuslens::agent::AgentRunLocalError;
     if (failure.providerError) {
         switch (failure.providerCode) {
-        case AiDiagnosisErrorCode::NotConfigured: return QStringLiteral("ModelScope 未配置。");
-        case AiDiagnosisErrorCode::NetworkError: return QStringLiteral("网络错误，Agent 请求失败。");
-        case AiDiagnosisErrorCode::Timeout: return QStringLiteral("AI 请求超时。");
-        case AiDiagnosisErrorCode::Unauthorized: return QStringLiteral("ModelScope 未授权（Unauthorized）。");
-        case AiDiagnosisErrorCode::RateLimited: return QStringLiteral("ModelScope 请求受限（RateLimited）。");
-        case AiDiagnosisErrorCode::ProviderRequestError: return QStringLiteral("模型服务请求错误。");
-        case AiDiagnosisErrorCode::ServerError: return QStringLiteral("模型服务端错误。");
-        case AiDiagnosisErrorCode::InvalidResponse: return QStringLiteral("模型响应格式无效。");
+        case AiDiagnosisErrorCode::NotConfigured: return QStringLiteral("ModelScope 尚未配置，请先配置 API Key 和模型。");
+        case AiDiagnosisErrorCode::Unauthorized: return QStringLiteral("ModelScope API Key 无效或没有访问权限。");
+        case AiDiagnosisErrorCode::RateLimited: return QStringLiteral("ModelScope 请求受限或额度不足，请检查账户状态后重试。");
+        case AiDiagnosisErrorCode::Timeout: return QStringLiteral("模型请求超时，请稍后重试。");
+        case AiDiagnosisErrorCode::NetworkError: return QStringLiteral("无法连接到 ModelScope，请检查网络连接。");
+        case AiDiagnosisErrorCode::ProviderRequestError: return QStringLiteral("ModelScope 请求失败，请稍后重试。");
+        case AiDiagnosisErrorCode::ServerError: return QStringLiteral("ModelScope 服务暂时不可用，请稍后重试。");
+        case AiDiagnosisErrorCode::InvalidResponse: return QStringLiteral("模型返回了无法处理的响应格式。");
         case AiDiagnosisErrorCode::Busy: return QStringLiteral("已有请求进行中。");
         default: return QStringLiteral("Agent 请求失败。");
         }

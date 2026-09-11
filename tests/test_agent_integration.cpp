@@ -103,6 +103,8 @@ private slots:
     void ag18_qmlSmokeCoveredByCtest(); // qml_smoke carries AG18 (no-op marker)
     void ag19_providerConfigSeam();
     void ag20_batchInvalidationOrderingSafety();
+    void ag21_http429ProviderFailureVisible();
+    void ag22_malformedHttp200Visible();
 
 private:
     struct H {
@@ -229,7 +231,7 @@ void AgentIntegrationTest::ag05_providerFailureErrorShownFactsUnchanged()
     h.server.setNextResponse(500, QByteArray());
     h.controller.askAgent(QStringLiteral("情况如何？"));
     QTRY_VERIFY(!h.controller.agentErrorText().isEmpty());
-    QVERIFY(h.controller.agentErrorText().contains(QStringLiteral("服务端错误")));
+    QVERIFY(h.controller.agentErrorText().contains(QStringLiteral("ModelScope 服务暂时不可用")));
     QVERIFY(!h.controller.hasAgentAnswer());
     QCOMPARE(h.controller.baselineDiagnosisText(), baselineBefore);
     QCOMPARE(h.controller.observedCount(), 4);
@@ -531,6 +533,55 @@ void AgentIntegrationTest::ag20_batchInvalidationOrderingSafety()
     QTest::qWait(700); // abort-neighborhood callbacks land in this window
     QVERIFY(!h.controller.hasAgentAnswer());
     QVERIFY(h.controller.agentErrorText().isEmpty());
+}
+
+void AgentIntegrationTest::ag21_http429ProviderFailureVisible()
+{
+    // Full propagation: fake 429 -> client RateLimited -> runtime runFailed
+    // -> controller agentErrorText non-empty PERSISTENT text, busy false.
+    H h;
+    h.clearConfig();
+    h.wireFake();
+    h.controller.runDemoBatch();
+    h.server.setNextResponse(429,
+        QByteArray("{\"error\":{\"message\":\"rate limited\"}}"));
+    h.controller.askAgent(QStringLiteral("情况如何？"));
+    QTRY_VERIFY(!h.controller.agentBusy());
+    QCOMPARE(h.controller.agentErrorText(),
+             QStringLiteral("ModelScope 请求受限或额度不足，请检查账户状态后重试。"));
+    QVERIFY(!h.controller.hasAgentAnswer());
+    // Lifecycle: the error persists after busy ends; ONLY a new accepted
+    // run clears it.
+    QTest::qWait(120);
+    QVERIFY(!h.controller.agentErrorText().isEmpty());
+    h.server.setNextResponse(200,
+        completionBody(finalMessage(QStringLiteral("新回答")), QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("再问一次"));
+    QTRY_VERIFY(h.controller.hasAgentAnswer());
+    QVERIFY(h.controller.agentErrorText().isEmpty()); // cleared by accepted run
+}
+
+void AgentIntegrationTest::ag22_malformedHttp200Visible()
+{
+    // HTTP 200 but NO usable content and NO tool calls -> InvalidResponse
+    // must reach the user as a persistent visible error, never silence.
+    H h;
+    h.clearConfig();
+    h.wireFake();
+    h.controller.runDemoBatch();
+    const QJsonObject unusable{
+        {QStringLiteral("role"), QStringLiteral("assistant")},
+        {QStringLiteral("content"), QStringLiteral("")},
+        {QStringLiteral("reasoning_content"),
+         QStringLiteral("must never surface")},
+    };
+    h.server.setNextResponse(200, completionBody(unusable, QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("情况如何？"));
+    QTRY_VERIFY(!h.controller.agentBusy());
+    QVERIFY(!h.controller.agentErrorText().isEmpty());
+    QVERIFY(h.controller.agentErrorText().contains(
+        QStringLiteral("模型返回了无法处理的响应格式")));
+    QVERIFY(!h.controller.hasAgentAnswer()); // reasoning never promoted
 }
 
 QTEST_GUILESS_MAIN(AgentIntegrationTest)
