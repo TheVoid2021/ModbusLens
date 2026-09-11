@@ -634,7 +634,7 @@ void AgentRuntimeTest::b20_emptyFinalContentIsInvalidResponse()
     // provider invalid-response path; never a runCompleted with an empty /
     // whitespace answer. Whitespace cases are the Phase 3 ISSUE-008
     // extension (coverage gap for the already-correct contract).
-    const char* whitespaceCases[] = {"", " ", "  ", "	", "  	 "};
+    const char* whitespaceCases[] = {"", " ", "  ", "\t", "\n", "   \r\n ", "\t \n "};
     for (const char* ws : whitespaceCases) {
         Harness h;
         h.server.setNextResponse(
