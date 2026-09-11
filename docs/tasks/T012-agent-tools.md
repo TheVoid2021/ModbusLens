@@ -1,6 +1,6 @@
 # T012 — Agent Tools（read-only tool agent）
 
-- **状态**：**T012 REOPENED / STABILIZATION（2026-09-10，Post-Closure 真实使用回归发现 ISSUE-008/009）**——Part A ✅ / Gate 0 ✅ / Phase 1 ✅ / Phase 2 ✅ 保持；verified LKGC 不回退（仍 `e922c19`）；M6 转回 IN PROGRESS；T013 NOT STARTED
+- **状态**：**T012 DONE（2026-09-10 Final Review Closure；Post-Closure Stabilization DONE）**——Part A ✅ / Gate 0 ✅ / Phase 1 ✅ / Phase 2 ✅；ISSUE-008/009 = OPEN + MONITORING/NON-BLOCKING（历史 exact root cause 未证明，不阻塞 closure）；verified LKGC 推进至 `3572cf7`；M6 DONE；T013 NOT STARTED
 - **关联**：FR-AG-01/02/03；ADR002（本轮新建）；T011（pipeline 保持独立）
 
 ---
@@ -278,6 +278,13 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - **ISSUE-008 = NOT REPRODUCED**：同一问题原文唯一 run 成功（3 rounds：r1 tool_calls×2、r2 tool_calls×1、r3 final content 714 字符 usable，全程 HTTP 200、reasoning 存在且与 usable content 共存、usage 对象存在）。原失败的精确 producer 仍 unknown（①~④）；output-budget hypothesis 未被支持、未被排除。用户此前真实失败不被否定（成功一次不能否定失败）。
 - **ISSUE-009 = BLOCKED / PRECONDITION NOT AVAILABLE**：ISSUE-008 run 成功证明当前额度可用；无额度真实状态本刻不可获得；按规则不伪造、不替代、零额外请求。silent-UX 断点仍 unknown；UX 修复（§4 文案持久可见）不依赖断点证据，可先行。
 - 状态不变：ISSUE-008/009 OPEN；T012 REOPENED/STABILIZATION；M6 IN PROGRESS；T013 NOT STARTED；LKGC `e922c19` 不回退。
+
+## Stabilization Final Closure（2026-09-10，用户 Final Review PASS）
+
+- B20 exact coverage verified（含 LF-only 与 CRLF+周围空格，test-only 补入 `3572cf7`；首次即 PASS = coverage gap，如实）。
+- Enum terminology audit 完成：AiDiagnosisErrorCode 拆分为 A（provider/request-path 8 项，必须可见）与 B（local configuration/precondition/runtime：NotConfigured/InvalidConfiguration/NoData/BaselineRequired/Busy），文档不统称。
+- 五条工程结论（面试素材）：① 问题不復现时不为了"关闭 Issue"反复重试 Provider；② 区分 root-cause evidence 与 defensive contract hardening；③ InvalidResponse 原 contract 本已 fail closed，新测试主要填补 coverage gap；④ Provider failure UX 用 localhost fake HTTP 做 deterministic integration regression（ag21/ag22）；⑤ 历史 quota silent failure 的 exact breakpoint 未证明 → 保 MONITORING 而不伪造 RCA。
+- **verified LKGC 推进 `e922c19` → `3572cf7`**（`95ad9e7` 硬化 + `3572cf7` test-only 补齐，全链：targeted/full ctest 23/23/qml smoke/clean 0 警告）。ISSUE-008/009 保持 OPEN（MONITORING/NON-BLOCKING），不阻塞 T012/M6 closure。T013 NOT STARTED。
 
 ## Post-Closure Stabilization Review（2026-09-10，docs-only，实施待批准）
 

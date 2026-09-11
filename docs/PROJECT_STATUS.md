@@ -1,22 +1,22 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-| Last Known Good Commit | **`e922c19`**（T012 Part B Phase 2 / ISSUE-007 修复：MAX_TOTAL_TOOL_CALLS 3→6 + Agent planning discipline——Live FAIL → RCA → 离线 RED→GREEN（B05/B23）→ 同题真实 Live Re-Validation PASS → 用户 Final Review PASS；T011/T012/M6 全部 DONE。历史值：`b322cc3`（T012 Phase 1）、`797269a`（T012 Part A）、`01841b1`（ISSUE-006）、`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
+| Last Known Good Commit | **`3572cf7`**（T012 Post-Closure Stabilization 完成：provider failure UX hardening（8 类文案/顶部「模型配置：」/ag21·22 集成契约）+ B20 whitespace 全族 test-only 补齐；ISSUE-008/009 = OPEN + MONITORING/NON-BLOCKING（历史 exact root cause 未证明，不阻塞 closure）；T012/M6 DONE；T013 NOT STARTED。历史值：`e922c19`（ISSUE-007 修复 + Live Re-Validation）、`b322cc3`、`797269a`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 
 ## 状态面板
 
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅；**M6 进行中（T011 ✅ / T012 Post-Closure 稳定化：ISSUE-008/009 OPEN）**；T013 未开始 |
-| Last Known Good Commit | **`e922c19`**（T012 Part B Phase 2 / ISSUE-007 修复：MAX_TOTAL_TOOL_CALLS 3→6 + Agent planning discipline——Live FAIL → RCA → 离线 RED→GREEN（B05/B23）→ 同题真实 Live Re-Validation PASS → 用户 Final Review PASS；T011/T012/M6 全部 DONE。历史值：`b322cc3`（T012 Phase 1）、`797269a`（T012 Part A）、`01841b1`（ISSUE-006）、`9e79558`（UI Localization）、`bb3f3b4`（ISSUE-005）、`85699ff`（T011B）、`06ef801`（T011A）） |
+| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅ / **M6 ✅ DONE（T011 + T012 及 Stabilization 完成；ISSUE-008/009 MONITORING/NON-BLOCKING）**；T013 未开始 |
+| Last Known Good Commit | **`3572cf7`**（T012 Post-Closure Stabilization 完成：provider failure UX hardening（8 类文案/顶部「模型配置：」/ag21·22 集成契约）+ B20 whitespace 全族 test-only 补齐；ISSUE-008/009 = OPEN + MONITORING/NON-BLOCKING（历史 exact root cause 未证明，不阻塞 closure）；T012/M6 DONE；T013 NOT STARTED。历史值：`e922c19`（ISSUE-007 修复 + Live Re-Validation）、`b322cc3`、`797269a`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T012 Agent Tools REOPENED / STABILIZATION（Post-Closure 回归：ISSUE-008/009 OPEN；实施与 Live Diagnostic 待批准）** |
+| 当前任务（Current Task） | **T012 Agent Tools ✅ DONE（Post-Closure Stabilization ✅ DONE；ISSUE-008/009 MONITORING/NON-BLOCKING）** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
-| 当前阶段（Current Phase） | T012 稳定化：ISSUE-008（InvalidResponse 空 content RCA 完成）+ ISSUE-009（provider failure 静默 UX RCA 完成）docs-only 定案；Implementation 待批准 |
-| 下一步动作（Next Action） | **ISSUE-008/009 修复实施 +（若批准）各最多 1 次 sanitized Live Diagnostic — 待用户批准** |
+| 当前阶段（Current Phase） | T012 完成（Stabilization 关闭；两个历史问题 MONITORING，不阻塞）；**T013 未开始** |
+| 下一步动作（Next Action） | **T013 — Final Integration & Demo Polish（待用户批准，不自动开始）** |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -183,6 +183,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-10 | **T012 Post-Closure Stabilization Review（docs-only）**：真实使用回归发现 ISSUE-008（合法 0x02 问题 → InvalidResponse 空 content；RCA=fail-closed 正确、根因形态未知需诊断）与 ISSUE-009（额度不足 → busy 消失无持久提示；RCA=无既证静默路径、疑 provider 超表形态）均建档 OPEN；test design（B20 扩展/B24/UI-AG21·22）+ 文案方案定案；T012 REOPENED / M6 转 IN PROGRESS；LKGC `e922c19` 不回退 |
 | 2026-09-10 | **Sanitized Live Diagnostic Evidence（授权）**：ISSUE-008 = NOT REPRODUCED（同题唯一 run 成功，3 rounds，sanitized metadata 归档；原失败 producer 仍 unknown，budget hypothesis 未证实未排除）；ISSUE-009 = BLOCKED / PRECONDITION NOT AVAILABLE（ISSUE-008 成功证明当前额度可用，零额外请求）；临时插桩完全恢复（src 零 diff）；ISSUE-008/009 保持 OPEN |
 | 2026-09-10 | **Phase 3 Offline Hardening（`95ad9e7` candidate）**：8 类 provider 错误持久中文文案 + 顶部「模型配置：」+ B20 whitespace/B24 reasoning-only/B25 非 string/ag21 429 全链路/ag22 malformed-200 可见；RED=ag05/21/22 旧文案失败，B20/24/25 coverage-only；clean 0 警告、ctest 23/23、deploy+minimal-PATH；**ISSUE-008/009 保持 OPEN（不声称根因修复）**；LKGC 未推进 |
+| 2026-09-10 | **T012 Stabilization Final Review Closure = PASS**：B20 全族覆盖验证（新 LF/CRLF case 由 test-only `3572cf7` 补齐，coverage-only）；enum 语义审计（A provider-path / B local-state 分离）；**verified LKGC 推进 `e922c19` → `3572cf7`**；ISSUE-008/009 = OPEN + MONITORING/NON-BLOCKING（历史 exact RCA 未证明、不阻塞）；T012 DONE / M6 DONE；T013 NOT STARTED |
+
 
 
 

@@ -23,3 +23,9 @@
 ## 追加（Phase 3）— Offline Defensive Hardening ✅（`95ad9e7`）
 
 - 8 类 provider 文案契约 + 「模型配置：」+ B20/B24/B25 + ag21/ag22；真实 RED=ag05/21/22 文案，其余 coverage-only；ctest 23/23、clean 0 警告、deploy+minimal-PATH。ISSUE-008/009 OPEN（根因均未声称已修）；candidate `95ad9e7` 未推进。
+
+
+## 追加（Final Closure）— T012 / M6 DONE ✅
+
+- B20 全族覆盖 verify（test-only `3572cf7` 补齐 LF/CRLF）；enum 语义审计 A/B 分层；五条工程结论入 T012 档案（不重试关闭 Issue / evidence vs hardening / fail-closed 原有契约 / fake HTTP 集成回归 / 不伪造 RCA）。
+- **verified LKGC：`e922c19` → `3572cf7`**；ISSUE-008/009 = OPEN + MONITORING/NON-BLOCKING；T012 DONE、M6 DONE、T013 NOT STARTED。未 push、零真实请求。

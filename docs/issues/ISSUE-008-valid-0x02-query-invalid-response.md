@@ -1,6 +1,6 @@
 # ISSUE-008: Valid 0x02 Agent query can end in InvalidResponse
 
-- **状态**：OPEN（2026-09-10 发现；RCA 完成；修复与 Live Diagnostic 待授权）
+- **状态**：OPEN — **Disposition：MONITORING / NON-BLOCKING**（2026-09-10 Final Review；不阻塞 T012/M6 closure；历史 exact producer 未证明，保持监控）
 - **发现**：用户在正常 Simulator Demo batch 连续测试约 15 类自然语言问题（其余 14 类正常），其中合法问题——「异常码 0x02 在这个批次里代表什么？我下一步应该优先检查什么？请区分'已知事实'和'建议检查项'。」——最终 UI 显示「模型响应格式无效」。
 - **关联**：T012（Post-Closure Stabilization）；定案：**不是 Provider bug、不是 Prompt bug；根因形态 = final round 无可用 content，被正确 fail closed 为 InvalidResponse（具体触发原因未知，见 §2）**。
 
@@ -95,3 +95,10 @@
 - Desired final-answer contract = **AUTOMATED / HARDENED**：B20 扩展 whitespace 全族、新 B24（reasoning-only 不升级）、新 B25（非 string content fails closed）。其中 B20/B24/B25 首次即 PASS——如实记录为 **coverage gap only**（既有契约已正确），未声称 TDD RED。ag22 集成锁：HTTP 200 + 无可用 content/tool_calls → InvalidResponse 必见。
 - Historical exact producer 仍 **UNKNOWN**（Client ①~③ / Runtime ④）；Same-scenario rerun 此前已 NOT REPRODUCED。
 - **ISSUE-008 保持 OPEN**。
+
+
+## 13. Final Disposition（2026-09-10，MONITORING / NON-BLOCKING）
+
+- Desired final-answer contract = **HARDENED / AUTOMATED PASS**（B20 最终覆盖含 ""、空格、双空格、tab、LF-only、CRLF+周围空格、混合 tab/LF/空格；B24 reasoning-only；B25 非 string；ag22 malformed-200 可见）。
+- Historical failure = **NOT REPRODUCED**；Historical exact producer = **UNKNOWN**（Client ①~③ / Runtime ④ 保持开放可能）。
+- Future policy：仅当问题**自然再次发生**且用户**另行批准 diagnostic** 时才继续取证；不主动重复请求寻找 failure。

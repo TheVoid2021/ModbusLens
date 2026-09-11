@@ -73,6 +73,8 @@
 - ✅ 已可答（ISSUE-007，见 docs/issues/ISSUE-007-live-agent-tool-budget-exhaustion.md）：硬预算与模型计划空间之间的试调方法论（只读+immutable snapshot 使"提高本地查询上限"不扩权；rounds 守 loop 深度、total 守查询总量两者不可混）；RCA 的事実/推测纪律（exact sequence 不可观察时只引用可证事实，禁止把猜序写成事实）；one-tool-per-round 被否决的理由（多调用能力已测、并行使 latency 最优化）
 - ✅ 已可答（ISSUE-007 完整故事，见 docs/issues/ISSUE-007-live-agent-tool-budget-exhaustion.md + T012 Final Acceptance）：第一次真实 Live E2E 未顺利通过——合法 multi-step query 触发 tool-call hard budget，但系统正确 fail closed（无死循环/无崩溃/零事实污染）；随后区分 provider round budget（rounds=3 不动）与 local read-only tool-call budget（3→6）并加 planning efficiency instruction；同一问题原文真实 re-validation PASS——bounded agent orchestration trade-off 的完整工程案例（含"不可观察 sequence 时 RCA 只依赖可证事实"的纪律）
 - ✅ 已可答（T012 Post-Closure Stabilization，见 docs/issues/ISSUE-008 ~ 009）："closure 后真实使用回归"的工程常态与处置纪律（REOPENED/STABILIZATION 状态表达、不回退 LKGC、先 RCA 后实施）；fail closed 与可诊断性的张力（空 content → InvalidResponse 可见，但观察者无从知道"为什么空"——离线 RCA 的证明边界，hypothesis 与 evidence 显式标注）；额度/限流类问题"无稳定机器特征就不建专门枚举"的克制（合并 UX 文案 + 留待证据）；configured ≠ healthy 的 UI 语义审计
+- ✅ 已可答（T012 Stabilization Final，见 docs/tasks/T012-agent-tools.md Stabilization Final Closure）：真实问题不可复现时的工程闭环五讲——不为了关闭 Issue 反复重试 Provider；区分 root-cause evidence 与 defensive contract hardening；"契约本已 fail closed、测试只补 coverage gap"的诚实陈述；provider failure UX 用 localhost fake HTTP 做 deterministic integration regression；历史 silent breakpoint 未证明即保 MONITORING 而不伪造 RCA
+
 
 
 

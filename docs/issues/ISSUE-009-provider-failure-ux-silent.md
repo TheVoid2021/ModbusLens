@@ -1,6 +1,6 @@
 # ISSUE-009: Provider quota/request failure is not surfaced to the user
 
-- **状态**：OPEN（2026-09-10 发现；RCA 完成；修复与 Live Diagnostic 待授权）
+- **状态**：OPEN — **Disposition：MONITORING / NON-BLOCKING**（2026-09-10 Final Review；不阻塞 closure；历史 silent breakpoint 未证明，保持监控）
 - **发现**：当 ModelScope API 没有可用额度时，点击 Agent → 「分析中...」约 1 秒 → busy 消失 → **没有持久可见错误提示**。用户无法判断是额度不足 / Provider 拒绝 / 网络问题 / 模型问题。
 - **关联**：T012（Post-Closure Stabilization）；shared ModelScope provider failure UX（T011 同类检查见 §6）。
 
@@ -84,3 +84,17 @@
 - Known provider-failure visibility contract = **HARDENED / AUTOMATED PASS**：8 类 provider 错误全部非空、持久可见中文文案（§5 六条 + NotConfigured/ProviderRequestError）已落地；ag21 锁定“429 → RateLimited → runFailed → busy false + agentErrorText 持久保留、仅 accepted run 才清”；顶部改「模型配置：」。
 - Historical quota silent failure exact breakpoint = **NOT REPRODUCED / UNKNOWN**；Live quota reproduction count = 0（precondition unavailable）。**本阶段不声称根因已修复**。
 - **ISSUE-009 保持 OPEN**（等待未来真实 quota 状态自然出现时验证）。
+
+
+## 12. Enum Terminology Audit（2026-09-10 Final Review）
+
+同一 AiDiagnosisErrorCode 实际承担两类语义，文档必须区分（不重构 enum）：
+- **A. provider/request-path failures**（对用户必须可见）：NetworkError / Timeout / Unauthorized / RateLimited / ProviderRequestError / ServerError / InvalidResponse。
+- **B. local configuration / precondition / runtime states**：NotConfigured（配置预检）、InvalidConfiguration、NoData、BaselineRequired（T011 专用前置）、Busy（本地单飞）。这些并非"Provider 失败"，不得统称。
+
+## 13. Final Disposition（2026-09-10，MONITORING / NON-BLOCKING）
+
+- Known provider failure visibility = **HARDENED / AUTOMATED PASS**（ag21 429 全链路+lifetime；ag22 malformed-200 可见；8 条中文文案；顶部「模型配置：」）。
+- 429 integration = PASS；Malformed HTTP-200 visible failure = PASS。
+- Historical quota reproduction count = **0**；Historical silent breakpoint = **UNKNOWN**。
+- Future policy：真实账户**自然出现** quota/request-limited 状态时，可作为 Live re-validation opportunity；**不得人为耗尽额度**。
