@@ -132,6 +132,8 @@ DiagnosisPrompt buildDiagnosisPrompt(
         "Explain each anomaly (CRC, Timeout, Exception 0x02, ...) against its own deterministic facts above.\n"
         "In the final answer: 观察事实 only from the supplied deterministic facts; 可能原因 always with explicit uncertainty wording (可能、可能与……有关、可考虑、may、may indicate、possible); 建议检查 only human troubleshooting suggestions.\n"
         "Never rewrite a recommendation into an observed fact, and never present a possible explanation as a confirmed root cause.\n"
+        "User-facing terminology: describe a device Exception as 'Modbus 异常响应', a CRC Error as 'CRC 校验失败', a Timeout as '响应超时'; describe Exception 0x02 as '非法数据地址' and add that the register address range / register mapping should be checked; avoid unfounded layer jargon such as '链路层完整性', '传输层无响应', '功能码异常'.\n"
+        "Express internal evidence fields naturally in Chinese in the answer: evidence scope as '当前观测批次', multiple anomaly types as '观察到多种异常', a shared root cause as '共同根因'.\n"
         "Return the explanation in concise Simplified Chinese.\n"
         "Keep protocol terms in English as-is: Modbus, RTU, CRC, function codes, register addresses, exception codes.\n"
         "Do not use Markdown formatting. Use plain text only.\n"

@@ -7,6 +7,17 @@ import ModbusLens
 ApplicationWindow {
     id: root
 
+    // T013 Phase B visual polish: theme constants (candidate values;
+    // HUMAN VISUAL REVIEW REQUIRED for final color acceptance). Style
+    // only — no layout / semantic change.
+    readonly property color metaSecondary: "#9AA3B2"   // was #606060
+    readonly property color metaPlaceholder: "#8F97A3" // was #909090
+    readonly property color busyInfo: "#6FA8D8"        // was #6080a0
+    readonly property color errorText: "#E0685C"       // was #B03030
+    readonly property color accentBaseline: "#4FC3A1"
+    readonly property color accentAi: "#7C9FE8"
+    readonly property color accentAgent: "#F0B35C"
+
     width: 1024
     height: 720
     minimumWidth: 1000
@@ -130,7 +141,7 @@ ApplicationWindow {
                     }
                     Label {
                         text: qsTr("8N1")
-                        color: "#606060"
+                        color: root.metaSecondary
                         font.pixelSize: 11
                     }
                     Button {
@@ -398,9 +409,18 @@ ApplicationWindow {
                         }
                     }
 
-                    Label {
-                        text: qsTr("AI 解释")
-                        font.bold: true
+                    RowLayout {
+                        spacing: 5
+                        Rectangle {
+                            width: 3
+                            height: 14
+                            color: root.accentAi
+                        }
+                        Label {
+                            text: qsTr("AI 解释")
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
                     }
                     Label {
                         text: analysisController.aiConfigured
@@ -426,7 +446,8 @@ ApplicationWindow {
                         Label {
                             visible: analysisController.aiDiagnosisBusy
                             text: qsTr("请求中...")
-                            color: "#6080a0"
+                            color: root.busyInfo
+                            font.bold: true
                         }
                         Item {
                             Layout.fillWidth: true
@@ -434,9 +455,18 @@ ApplicationWindow {
                     }
 
                     // ---- T012 Phase 2: Agent 问答（只读诊断）----
-                    Label {
-                        text: qsTr("Agent 问答（只读诊断）")
-                        font.bold: true
+                    RowLayout {
+                        spacing: 5
+                        Rectangle {
+                            width: 3
+                            height: 14
+                            color: root.accentAgent
+                        }
+                        Label {
+                            text: qsTr("Agent 问答（只读诊断）")
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
                     }
                     TextArea {
                         id: agentQuestionInput
@@ -462,7 +492,8 @@ ApplicationWindow {
                         Label {
                             visible: analysisController.agentBusy
                             text: qsTr("分析中...")
-                            color: "#6080a0"
+                            color: root.busyInfo
+                            font.bold: true
                         }
                         Item {
                             Layout.fillWidth: true
@@ -480,7 +511,7 @@ ApplicationWindow {
                         boundsBehavior: Flickable.StopAtBounds
                         flickableDirection: Flickable.VerticalFlick
                         ScrollBar.vertical: ScrollBar {
-                            policy: ScrollBar.AsNeeded
+                            policy: ScrollBar.AlwaysOn
                         }
                         contentWidth: width
                         contentHeight: diagnosisContent.childrenRect.height
@@ -490,24 +521,34 @@ ApplicationWindow {
                             width: diagnosisFlick.width
                             spacing: 6
 
-                            Label {
-                                text: qsTr("确定性基线诊断")
-                                font.bold: true
+                            RowLayout {
+                                spacing: 5
                                 width: parent.width
-                                wrapMode: Text.Wrap
                                 visible: analysisController.hasBaselineDiagnosis
+                                Rectangle {
+                                    width: 3
+                                    height: 14
+                                    color: root.accentBaseline
+                                }
+                                Label {
+                                    text: qsTr("确定性基线诊断")
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                }
                             }
                             Label {
                                 visible: analysisController.hasBaselineDiagnosis
                                 text: analysisController.baselineDiagnosisText
                                 textFormat: Text.PlainText
                                 wrapMode: Text.Wrap
+                                lineHeight: 1.35
                                 width: parent.width
                             }
                             Label {
                                 visible: analysisController.aiDiagnosisErrorMessage !== ""
                                 text: analysisController.aiDiagnosisErrorMessage
-                                color: "#B03030"
+                                color: root.errorText
+                                font.bold: true
                                 wrapMode: Text.Wrap
                                 width: parent.width
                             }
@@ -516,12 +557,14 @@ ApplicationWindow {
                                 text: analysisController.aiDiagnosisText
                                 textFormat: Text.PlainText
                                 wrapMode: Text.Wrap
+                                lineHeight: 1.35
                                 width: parent.width
                             }
                             Label {
                                 visible: analysisController.agentErrorText !== ""
                                 text: analysisController.agentErrorText
-                                color: "#B03030"
+                                color: root.errorText
+                                font.bold: true
                                 wrapMode: Text.Wrap
                                 width: parent.width
                             }
@@ -530,13 +573,14 @@ ApplicationWindow {
                                 text: analysisController.agentAnswerText
                                 textFormat: Text.PlainText
                                 wrapMode: Text.Wrap
+                                lineHeight: 1.35
                                 width: parent.width
                             }
                             Label {
                                 visible: !analysisController.hasBaselineDiagnosis
                                          && !analysisController.hasAiDiagnosis
                                 text: qsTr("尚未运行诊断")
-                                color: "#909090"
+                                color: root.metaPlaceholder
                                 width: parent.width
                                 wrapMode: Text.Wrap
                             }

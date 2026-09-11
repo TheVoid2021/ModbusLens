@@ -50,6 +50,8 @@ AgentPrompt buildAgentPrompt()
         "- Use get_transaction_detail only when additional per-transaction facts are directly relevant to the user's question; do not inspect every anomaly merely because it exists.\n"
         "- Once enough facts are available, stop requesting tools and provide the final answer.\n"
         "- Runtime budget: maximum 3 tool rounds and 6 total tool calls.\n"
+        "User-facing terminology: describe a device Exception as 'Modbus 异常响应', a CRC Error as 'CRC 校验失败', a Timeout as '响应超时'; describe Exception 0x02 as '非法数据地址' and add that the register address range / register mapping should be checked; avoid unfounded layer jargon such as '链路层完整性', '传输层无响应', '功能码异常'.\n"
+        "Express internal evidence fields naturally in Chinese in the answer: evidence scope as '当前观测批次', multiple anomaly types as '观察到多种异常', a shared root cause as '共同根因'.\n"
         "Return the answer in concise Simplified Chinese; keep protocol terms in English as-is; plain text only, no Markdown formatting.");
 
     // Fixed capability surface (§7): exactly the three Part A tools. C++

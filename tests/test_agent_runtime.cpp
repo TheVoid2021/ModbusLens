@@ -170,6 +170,7 @@ private slots:
     void b23_boundedMultiToolDiagnosticPlan();
     void b24_reasoningOnlyIsNotAnswer();
     void b25_nonStringContentFailsClosed();
+    void b26_agentPromptTerminologyContract();
 };
 
 void AgentRuntimeTest::b01_directFinalAnswerZeroTools()
@@ -803,6 +804,25 @@ void AgentRuntimeTest::b25_nonStringContentFailsClosed()
     QVERIFY(fail.providerError);
     QCOMPARE(fail.providerCode, AiDiagnosisErrorCode::InvalidResponse);
     QCOMPARE(h.completed.count(), 0);
+}
+
+void AgentRuntimeTest::b26_agentPromptTerminologyContract()
+{
+    // T013 terminology polish contract: guidance strings present, the
+    // read-only / authority block untouched (no brittle whole-string
+    // equality), and the fixed three-tool schema surface intact.
+    const auto prompt = modbuslens::agent::buildAgentPrompt();
+    const QString system = prompt.systemInstructions;
+    QVERIFY(system.contains(QStringLiteral("Modbus 异常响应")));
+    QVERIFY(system.contains(QStringLiteral("CRC 校验失败")));
+    QVERIFY(system.contains(QStringLiteral("响应超时")));
+    QVERIFY(system.contains(QStringLiteral("当前观测批次")));
+    QVERIFY(system.contains(QStringLiteral("共同根因")));
+    // Authority / read-only semantics preserved.
+    QVERIFY(system.contains(QStringLiteral("Deterministic tool results are authoritative")));
+    QVERIFY(system.contains(QStringLiteral("read-only")));
+    // Fixed capability surface unchanged: exactly three tools.
+    QCOMPARE(prompt.toolSchemas.size(), 3);
 }
 
 QTEST_GUILESS_MAIN(AgentRuntimeTest)

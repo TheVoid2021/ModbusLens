@@ -115,6 +115,12 @@ void AiClientTest::b01_promptAuthority()
     QVERIFY(system.contains(QStringLiteral("plain text")));
     QVERIFY(system.contains(QStringLiteral("Simplified Chinese")));
     QVERIFY(system.contains(QStringLiteral("Markdown")));
+    // T013 terminology polish: user-facing language guidance present, and
+    // the authority block stays intact.
+    QVERIFY(system.contains(QStringLiteral("Modbus 异常响应")));
+    QVERIFY(system.contains(QStringLiteral("当前观测批次")));
+    QVERIFY(system.contains(QStringLiteral("共同根因")));
+    QVERIFY(system.contains(QStringLiteral("authoritative")));
 
     // Deterministic facts present, incl. the exception code.
     const QString user = prompt.userPrompt;
