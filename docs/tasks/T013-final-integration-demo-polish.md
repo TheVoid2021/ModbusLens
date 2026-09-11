@@ -125,3 +125,9 @@ FC06/FC10；startAddress/quantity enrichment；write-register Tool；自动设�
 
 - 本 Phase A 仅 docs。T013=IN PROGRESS；Phase A=FINAL POLISH AUDIT / AWAITING USER IMPLEMENTATION SCOPE REVIEW；M6 保持 DONE；ISSUE-008/009 保持 OPEN+MONITORING/NON-BLOCKING；verified LKGC `3572cf7` 不动。
 - 后续：用户批准 8 项实现集后进入 T013 Implementation。
+## 16. Phase C Remediation（2026-09-11）— Manual Visual Review FAIL 归档
+
+- **Manual Visual Review（用户）结果**：A Theme/text contrast=FAIL；B secondary text=PASS（但 control density 需 polish）；C Baseline/AI/Agent distinction=FAIL；D title hierarchy=FAIL；E Recent Transactions table usability=FAIL（表头缺失 + Exception 0x02 行引起列位移——真实模型列：设备/功能码/状态/耗时/异常码）；F scrollbar=FAIL（track 粗/thumb 不明显）；G long-text line spacing=PASS；H layout independence=PASS；I 1000x700=PASS；J large window=PASS。busy/error visual = **NOT FULLY EXERCISED**（不记为 FAIL/PASS）。
+- 用户决策：fixed **LIGHT** presentation（不做 dark/light 开关）；Baseline/AI/Agent 改 TabBar+StackLayout 分页；table 加固定表头与稳定列宽；scrollbar 轻量化；按钮密度收敛；Diagnosis 标题放大；lineHeight 1.35 保留（G=PASS 不折腾）。
+- Phase B candidate `aea1e64` = superseded（未通过 Manual Visual Review），不 amend、保留历史。
+
