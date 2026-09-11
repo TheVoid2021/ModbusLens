@@ -66,3 +66,9 @@
 ## 8. 状态
 
 - 修复未开始；诊断不执行（待授权）。T012 = REOPENED / STABILIZATION；M6 = IN PROGRESS；verified LKGC `e922c19` 不回退。
+
+
+## 9. Live Diagnostic Evidence（2026-09-10）
+
+- **PRECONDITION NOT AVAILABLE / BLOCKED**：本阶段 ISSUE-008 的授权 run 成功完成（3 个真实 Provider 请求全部通过并产出 usable answer）——这直接证明**当前账户额度可用**；"无可用额度的真实状态"在本刻不可获得，且按规则不得伪造 quota 响应冒充 Live evidence、不得用其它错误替代。因此 ISSUE-009 本次未发出额外请求。
+- 结果：silent-UX 的精确断点仍为 **unknown**（Case A~E 均未排除）；等待未来真实 quota 状态出现时，再以 1 次授权 run 做 sanitized 诊断，或在 Implementation 阶段先落地§4 文案与 UI-AG21（无论断点如何,此刻 make provider failure persistently visible 的 UX 修复本身不依赖断点证据）。

@@ -60,3 +60,25 @@
 ## 7. 状态
 
 - 修复未开始（Budget 调整/重试集群 在用户批准前一律不实施）。T012 = REOPENED / STABILIZATION；M6 = IN PROGRESS；verified LKGC `e922c19` 不回退。
+
+
+## 9. Correction（2026-09-10，append-only，不 rewrite 原 RCA）
+
+- 实际 InvalidResponse producer 数量 = **4**：
+  A. ModelScopeAgentClient：① choices 缺失/非 array；② choices 空或 choices[0] 非 object；③ choices[0].message 非 object。
+  B. AgentRuntime：④ 无 usable tool_calls 且 final content 缺失/null/空/纯 whitespace → InvalidResponse。
+  - tool_calls 非空时 content 被忽略、Tool Calling 优先——这是 **precedence rule**，不是第 5 个 InvalidResponse producer。
+- 原措辞"本次 0x02 最可能进入路径④"修正为：**本次真实 InvalidResponse 的精确 producer 目前 unknown；可证明范围为上述 ①~④ 之一**。Controller 的中文映射只能证明最终 error class，不能区分 ①~④。
+
+
+## 10. Live Diagnostic Evidence（2026-09-10，经授权唯一 reproduction）
+
+- 条件：build/debug 生产同基线（仅临时 sanitized 插桩，三文件，Live 后 `git checkout` 完全恢复，src 对 HEAD 零 diff）；与原失败**完全相同的问句**、相同 Simulator Demo batch、仅一次点击。
+- **结果：NOT REPRODUCED** —— 同一问题本次成功产出 usable final answer（约 60s；含「已知事实/建议检查项」区分、0x02=Illegal Data Address、transaction_number 2、18ms、25%、独立异常与单点观测 disclaimer）。
+- **sanitized per-round metadata（临时观测日志，仅元数据；无正文/无 reasoning 正文/无 key）**：
+  - round1：HTTP=200，body=1180B，keys=choices/created/id/model/object/system_fingerprint/usage，choices=1，finish_reason=tool_calls，message keys=content/function_calls/reasoning_content/role/tool_calls，content present/rlen=0/tlen=0，tool_calls=2，reasoning present/194，usage 对象存在。
+  - round2：HTTP=200，body=1142B，同 keys，finish_reason=tool_calls，content rlen=0，tool_calls=1，reasoning present/306，usage 对象存在。
+  - round3（final）：HTTP=200，body=3023B，finish_reason=stop，content present/rlen=714/tlen=714（usable），tool_calls 空，reasoning present/786，usage 对象存在（completion/prompt/total_tokens）。
+- **精确 producer 判定**：本次未触发 InvalidResponse（Client ①/②/③ 与 Runtime ④ 都未被命中）——用户此前真实失败的精确 producer 仍为 **unknown（范围 ①~④）**。
+- **Output-budget hypothesis 状态**：未被支持、未被排除。本次 final 轮 reasoning present/786 与 usable content/714 共存，说明"reasoning 存在"本身不必然导致空 content。
+- **结论**：成功一次不能否定此前真实失败；ISSUE-008 保持 OPEN，"/等待用户 Review 后走 Implementation（届时 B20 扩展 + AGENT-B24 照计划实施）。

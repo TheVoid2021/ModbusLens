@@ -11,3 +11,10 @@
 ## 关联档案
 
 - [ISSUE-008](../../issues/ISSUE-008-valid-0x02-query-invalid-response.md)；[ISSUE-009](../../issues/ISSUE-009-provider-failure-ux-silent.md)；[T012 任务](../../tasks/T012-agent-tools.md)（Post-Closure Stabilization 段）。
+
+
+## 追加（Sanitized Live Diagnostic）— Evidence captured ✅
+
+- ISSUE-008：同题唯一 run → **NOT REPRODUCED**（3 rounds/HTTP 200/final content 714 可用/reasoning 与 content 共存/usage 对象存在；producer 仍 unknown ①~④；budget hypothesis 未证实未排除）。
+- ISSUE-009：**BLOCKED / PRECONDITION NOT AVAILABLE**（008 成功=额度可用；零额外请求；不伪造不替代）。
+- 临时插桩完全 `git checkout` 恢复：src/tests/CMake/QML 相对 HEAD 零 diff。ISSUE-008/009 OPEN；LKGC `e922c19`；未 push。

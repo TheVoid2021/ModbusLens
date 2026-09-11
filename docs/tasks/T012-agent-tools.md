@@ -266,6 +266,13 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - 更新：`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/INTERVIEW_NOTES.md`、`docs/devlog/2026-09-09-T012-Learning.md`。
 - **未修改**：`src/`、`tests/`、`CMakeLists.txt`、`scripts/`（本轮纪律）。
 
+## Post-Closure Stabilization — Sanitized Live Diagnostic Evidence（2026-09-10）
+
+- 授权范围：ISSUE-008 最多 1 次真实 reproduction；ISSUE-009 最多 1 次真实 quota/request-failure reproduction；临时插桩仅 sanitized metadata（HTTP body 元数据/keys/长度/reasoning presence/usage 存在性），无任何正文、reasoning 正文、key、Authorization；Live 后 `git checkout` 完全恢复——**src/tests/CMake/QML 相对 HEAD 零 diff**。
+- **ISSUE-008 = NOT REPRODUCED**：同一问题原文唯一 run 成功（3 rounds：r1 tool_calls×2、r2 tool_calls×1、r3 final content 714 字符 usable，全程 HTTP 200、reasoning 存在且与 usable content 共存、usage 对象存在）。原失败的精确 producer 仍 unknown（①~④）；output-budget hypothesis 未被支持、未被排除。用户此前真实失败不被否定（成功一次不能否定失败）。
+- **ISSUE-009 = BLOCKED / PRECONDITION NOT AVAILABLE**：ISSUE-008 run 成功证明当前额度可用；无额度真实状态本刻不可获得；按规则不伪造、不替代、零额外请求。silent-UX 断点仍 unknown；UX 修复（§4 文案持久可见）不依赖断点证据，可先行。
+- 状态不变：ISSUE-008/009 OPEN；T012 REOPENED/STABILIZATION；M6 IN PROGRESS；T013 NOT STARTED；LKGC `e922c19` 不回退。
+
 ## Post-Closure Stabilization Review（2026-09-10，docs-only，实施待批准）
 
 - 用户继续真实使用约 15 类自然语言问题，发现两个新问题——**ISSUE-008**（合法 0x02 问题最终显示「模型响应格式无效」）与 **ISSUE-009**（额度不足时 Agent 出现「分析中…约 1 秒→busy 消失」却无持久可见错误提示）。

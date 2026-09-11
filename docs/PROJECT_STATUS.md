@@ -181,6 +181,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-10 | **ISSUE-007 Live Re-Validation = PASS（经授权唯一 run）**：同一问题原文重跑 → 约 60s 产出 usable final answer，无 ToolCall/ToolRound 超限；facts 零变化、无 crash；0x02/CRC/Timeout/独立性/无编址/无 false action 逐项通过；evaluation tool sequence 与 request count = not externally observable（按政策）；**ISSUE-007 待用户最终 closure**；candidate `e922c19` 未推进 LKGC |
 | 2026-09-10 | **用户 T012 Final Review = PASS → Closure**：ISSUE-007 RESOLVED；Phase 2 DONE；T012 DONE；M6 DONE；**verified LKGC 推进至 `e922c19`**（自动回归 + ctest 23/23 + QML smoke + Offline Manual UI Smoke + 同题真实 Live Re-Validation PASS + 用户 Final Review）；T013 记录 polish 事项，NOT STARTED |
 | 2026-09-10 | **T012 Post-Closure Stabilization Review（docs-only）**：真实使用回归发现 ISSUE-008（合法 0x02 问题 → InvalidResponse 空 content；RCA=fail-closed 正确、根因形态未知需诊断）与 ISSUE-009（额度不足 → busy 消失无持久提示；RCA=无既证静默路径、疑 provider 超表形态）均建档 OPEN；test design（B20 扩展/B24/UI-AG21·22）+ 文案方案定案；T012 REOPENED / M6 转 IN PROGRESS；LKGC `e922c19` 不回退 |
+| 2026-09-10 | **Sanitized Live Diagnostic Evidence（授权）**：ISSUE-008 = NOT REPRODUCED（同题唯一 run 成功，3 rounds，sanitized metadata 归档；原失败 producer 仍 unknown，budget hypothesis 未证实未排除）；ISSUE-009 = BLOCKED / PRECONDITION NOT AVAILABLE（ISSUE-008 成功证明当前额度可用，零额外请求）；临时插桩完全恢复（src 零 diff）；ISSUE-008/009 保持 OPEN |
+
 
 
 
