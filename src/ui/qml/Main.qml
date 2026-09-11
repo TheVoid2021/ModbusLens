@@ -7,16 +7,22 @@ import ModbusLens
 ApplicationWindow {
     id: root
 
-    // T013 Phase B visual polish: theme constants (candidate values;
-    // HUMAN VISUAL REVIEW REQUIRED for final color acceptance). Style
-    // only — no layout / semantic change.
-    readonly property color metaSecondary: "#9AA3B2"   // was #606060
-    readonly property color metaPlaceholder: "#8F97A3" // was #909090
-    readonly property color busyInfo: "#6FA8D8"        // was #6080a0
-    readonly property color errorText: "#E0685C"       // was #B03030
-    readonly property color accentBaseline: "#4FC3A1"
-    readonly property color accentAi: "#7C9FE8"
-    readonly property color accentAgent: "#F0B35C"
+    // T013 Phase C: FIXED LIGHT presentation palette (user-approved
+    // direction). No dark/light switch; final hexes keep HUMAN VISUAL
+    // REVIEW REQUIRED status until the user re-reviews.
+    readonly property color pageBackground: "#FFFFFF"
+    readonly property color surface: "#FFFFFF"
+    readonly property color surfaceAlt: "#F5F7FA"
+    readonly property color textPrimary: "#1B1F26"
+    readonly property color textSecondary: "#4A5568"
+    readonly property color border: "#D8DDE4"
+    readonly property color separator: "#EDF0F4"
+    readonly property color baselineAccent: "#0F8A6D"
+    readonly property color aiAccent: "#2F6FB7"
+    readonly property color agentAccent: "#C88719"
+    readonly property color errorAccent: "#C0392B"
+    readonly property color busyAccent: "#2F6FB7"
+    readonly property color scrollThumb: "#B6BDC8"
 
     width: 1024
     height: 720
@@ -24,6 +30,18 @@ ApplicationWindow {
     minimumHeight: 700
     visible: true
     title: qsTr("ModbusLens")
+
+    palette.window: root.pageBackground
+    palette.windowText: root.textPrimary
+    palette.text: root.textPrimary
+    palette.base: root.surface
+    palette.alternateBase: root.surfaceAlt
+    palette.button: root.surfaceAlt
+    palette.buttonText: root.textPrimary
+    palette.highlight: root.aiAccent
+    palette.highlightedText: "#FFFFFF"
+    palette.mid: root.border
+    background: Rectangle { color: root.pageBackground }
 
     AnalysisController {
         id: analysisController
@@ -141,7 +159,7 @@ ApplicationWindow {
                     }
                     Label {
                         text: qsTr("8N1")
-                        color: root.metaSecondary
+                        color: root.textSecondary
                         font.pixelSize: 11
                     }
                     Button {
@@ -373,216 +391,269 @@ ApplicationWindow {
             orientation: Qt.Horizontal
 
             // ---- LEFT: Diagnosis pane ----
-            GroupBox {
-                id: diagnosisGroup
-                title: qsTr("诊断")
+            Rectangle {
                 SplitView.fillHeight: true
                 SplitView.minimumWidth: 300
                 SplitView.preferredWidth: 400
-                // Containment safety net (ISSUE-004): no Diagnosis child
-                // may EVER paint outside this pane.
+                color: root.surface
+                border.color: root.border
+                border.width: 1
+                radius: 6
                 clip: true
 
                 ColumnLayout {
-                    id: diagnosisColumn
-                    // Proven fix (ISSUE-004 r4): fill the GroupBox content
-                    // area so Layout.fillHeight inside this column means
-                    // the real remaining height.
                     anchors.fill: parent
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: 4
+                    anchors.margins: 12
+                    spacing: 8
 
-                    // Fixed control rows.
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Button {
-                            text: qsTr("运行基线诊断")
-                            onClicked: analysisController.runBaselineDiagnosis()
-                        }
-                        Button {
-                            text: qsTr("清除诊断")
-                            onClicked: analysisController.clearDiagnosis()
-                        }
-                        Item {
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    RowLayout {
-                        spacing: 5
-                        Rectangle {
-                            width: 3
-                            height: 14
-                            color: root.accentAi
-                        }
-                        Label {
-                            text: qsTr("AI 解释")
-                            font.pixelSize: 13
-                            font.bold: true
-                        }
-                    }
                     Label {
-                        text: analysisController.aiConfigured
-                              ? qsTr("模型配置：ModelScope — 模型：%1").arg(analysisController.aiModelName)
-                              : qsTr("模型配置：ModelScope — 未配置")
-                        color: "#606060"
-                        font.pixelSize: 11
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Button {
-                            text: qsTr("生成 AI 解释")
-                            enabled: analysisController.aiConfigured
-                                     && analysisController.hasBaselineDiagnosis
-                                     && !analysisController.cloudAiBusy
-                            onClicked: analysisController.askAiDiagnosis()
-                        }
-                        Button {
-                            text: qsTr("取消")
-                            enabled: analysisController.aiDiagnosisBusy
-                            onClicked: analysisController.cancelAiDiagnosis()
-                        }
-                        Label {
-                            visible: analysisController.aiDiagnosisBusy
-                            text: qsTr("请求中...")
-                            color: root.busyInfo
-                            font.bold: true
-                        }
-                        Item {
-                            Layout.fillWidth: true
-                        }
+                        text: qsTr("诊断")
+                        font.pixelSize: 18
+                        font.bold: true
+                        color: root.textPrimary
                     }
 
-                    // ---- T012 Phase 2: Agent 问答（只读诊断）----
-                    RowLayout {
-                        spacing: 5
-                        Rectangle {
-                            width: 3
-                            height: 14
-                            color: root.accentAgent
-                        }
-                        Label {
-                            text: qsTr("Agent 问答（只读诊断）")
-                            font.pixelSize: 13
-                            font.bold: true
-                        }
-                    }
-                    TextArea {
-                        id: agentQuestionInput
+                    TabBar {
+                        id: diagnosisTabs
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 72
-                        placeholderText: qsTr("例如：本批次主要有什么异常？")
-                        wrapMode: TextArea.Wrap
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Button {
-                            text: qsTr("询问 Agent")
-                            enabled: analysisController.agentAvailable
-                                     && !analysisController.cloudAiBusy
-                                     && agentQuestionInput.text.trim() !== ""
-                            onClicked: analysisController.askAgent(agentQuestionInput.text)
-                        }
-                        Button {
-                            text: qsTr("取消")
-                            enabled: analysisController.agentBusy
-                            onClicked: analysisController.cancelAgent()
-                        }
-                        Label {
-                            visible: analysisController.agentBusy
-                            text: qsTr("分析中...")
-                            color: root.busyInfo
-                            font.bold: true
-                        }
-                        Item {
-                            Layout.fillWidth: true
-                        }
+                        TabButton { text: qsTr("基线诊断") }
+                        TabButton { text: qsTr("AI 解释") }
+                        TabButton { text: qsTr("Agent 问答") }
                     }
 
-                    // Growing content: vertical viewport with explicit
-                    // content extent (verified scrolling mechanics).
-                    Flickable {
-                        id: diagnosisFlick
+                    StackLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumHeight: 0
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-                        flickableDirection: Flickable.VerticalFlick
-                        ScrollBar.vertical: ScrollBar {
-                            policy: ScrollBar.AlwaysOn
-                        }
-                        contentWidth: width
-                        contentHeight: diagnosisContent.childrenRect.height
+                        currentIndex: diagnosisTabs.currentIndex
 
-                        Column {
-                            id: diagnosisContent
-                            width: diagnosisFlick.width
+                        // ---- Tab 1: Baseline ----
+                        ColumnLayout {
                             spacing: 6
-
                             RowLayout {
-                                spacing: 5
-                                width: parent.width
-                                visible: analysisController.hasBaselineDiagnosis
-                                Rectangle {
-                                    width: 3
-                                    height: 14
-                                    color: root.accentBaseline
+                                spacing: 6
+                                Button {
+                                    text: qsTr("运行基线诊断")
+                                    onClicked: analysisController.runBaselineDiagnosis()
+                                }
+                                Button {
+                                    text: qsTr("清除诊断")
+                                    onClicked: analysisController.clearDiagnosis()
+                                }
+                                Item { Layout.fillWidth: true }
+                            }
+                            Flickable {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.minimumHeight: 0
+                                clip: true
+                                boundsBehavior: Flickable.StopAtBounds
+                                flickableDirection: Flickable.VerticalFlick
+                                ScrollBar.vertical: ScrollBar {
+                                    policy: ScrollBar.AlwaysOn
+                                    width: 8
+                                    minimumSize: 0.15
+                                    background: Rectangle { color: "transparent" }
+                                    contentItem: Rectangle {
+                                        implicitWidth: 8
+                                        implicitHeight: 8
+                                        radius: 4
+                                        color: root.scrollThumb
+                                    }
+                                }
+                                contentWidth: width
+                                contentHeight: baselineContent.childrenRect.height
+
+                                Column {
+                                    id: baselineContent
+                                    width: parent.width
+                                    spacing: 6
+
+                                    Label {
+                                        visible: analysisController.hasBaselineDiagnosis
+                                        text: analysisController.baselineDiagnosisText
+                                        textFormat: Text.PlainText
+                                        wrapMode: Text.Wrap
+                                        lineHeight: 1.35
+                                        width: parent.width
+                                        color: root.textPrimary
+                                    }
+                                    Label {
+                                        visible: !analysisController.hasBaselineDiagnosis
+                                        text: qsTr("尚未运行基线诊断")
+                                        color: root.textSecondary
+                                        width: parent.width
+                                        wrapMode: Text.Wrap
+                                    }
+                                }
+                            }
+                        }
+
+                        // ---- Tab 2: AI 解释 ----
+                        ColumnLayout {
+                            spacing: 6
+                            Label {
+                                text: analysisController.aiConfigured
+                                      ? qsTr("模型配置：ModelScope — 模型：%1").arg(analysisController.aiModelName)
+                                      : qsTr("模型配置：ModelScope — 未配置")
+                                color: root.textSecondary
+                                font.pixelSize: 12
+                            }
+                            RowLayout {
+                                spacing: 6
+                                Button {
+                                    text: qsTr("生成 AI 解释")
+                                    enabled: analysisController.aiConfigured
+                                             && analysisController.hasBaselineDiagnosis
+                                             && !analysisController.cloudAiBusy
+                                    onClicked: analysisController.askAiDiagnosis()
+                                }
+                                Button {
+                                    text: qsTr("取消")
+                                    enabled: analysisController.aiDiagnosisBusy
+                                    onClicked: analysisController.cancelAiDiagnosis()
                                 }
                                 Label {
-                                    text: qsTr("确定性基线诊断")
-                                    font.pixelSize: 13
+                                    visible: analysisController.aiDiagnosisBusy
+                                    text: qsTr("请求中...")
+                                    color: root.busyAccent
                                     font.bold: true
                                 }
+                                Item { Layout.fillWidth: true }
                             }
-                            Label {
-                                visible: analysisController.hasBaselineDiagnosis
-                                text: analysisController.baselineDiagnosisText
-                                textFormat: Text.PlainText
-                                wrapMode: Text.Wrap
-                                lineHeight: 1.35
-                                width: parent.width
+                            Flickable {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.minimumHeight: 0
+                                clip: true
+                                boundsBehavior: Flickable.StopAtBounds
+                                flickableDirection: Flickable.VerticalFlick
+                                ScrollBar.vertical: ScrollBar {
+                                    policy: ScrollBar.AlwaysOn
+                                    width: 8
+                                    minimumSize: 0.15
+                                    background: Rectangle { color: "transparent" }
+                                    contentItem: Rectangle {
+                                        implicitWidth: 8
+                                        implicitHeight: 8
+                                        radius: 4
+                                        color: root.scrollThumb
+                                    }
+                                }
+                                contentWidth: width
+                                contentHeight: aiContent.childrenRect.height
+
+                                Column {
+                                    id: aiContent
+                                    width: parent.width
+                                    spacing: 6
+
+                                    Label {
+                                        visible: analysisController.aiDiagnosisErrorMessage !== ""
+                                        text: analysisController.aiDiagnosisErrorMessage
+                                        color: root.errorAccent
+                                        font.bold: true
+                                        wrapMode: Text.Wrap
+                                        width: parent.width
+                                    }
+                                    Label {
+                                        visible: analysisController.hasAiDiagnosis
+                                        text: analysisController.aiDiagnosisText
+                                        textFormat: Text.PlainText
+                                        wrapMode: Text.Wrap
+                                        lineHeight: 1.35
+                                        width: parent.width
+                                        color: root.textPrimary
+                                    }
+                                    Label {
+                                        visible: !analysisController.hasAiDiagnosis
+                                                 && analysisController.aiDiagnosisErrorMessage === ""
+                                        text: qsTr("尚未生成 AI 解释")
+                                        color: root.textSecondary
+                                        width: parent.width
+                                        wrapMode: Text.Wrap
+                                    }
+                                }
                             }
-                            Label {
-                                visible: analysisController.aiDiagnosisErrorMessage !== ""
-                                text: analysisController.aiDiagnosisErrorMessage
-                                color: root.errorText
-                                font.bold: true
-                                wrapMode: Text.Wrap
-                                width: parent.width
+                        }
+
+                        // ---- Tab 3: Agent 问答 ----
+                        ColumnLayout {
+                            spacing: 6
+                            TextArea {
+                                id: agentQuestionInput
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 68
+                                placeholderText: qsTr("例如：本批次主要有什么异常？")
+                                wrapMode: TextArea.Wrap
                             }
-                            Label {
-                                visible: analysisController.hasAiDiagnosis
-                                text: analysisController.aiDiagnosisText
-                                textFormat: Text.PlainText
-                                wrapMode: Text.Wrap
-                                lineHeight: 1.35
-                                width: parent.width
+                            RowLayout {
+                                spacing: 6
+                                Button {
+                                    text: qsTr("询问 Agent")
+                                    enabled: analysisController.agentAvailable
+                                             && !analysisController.cloudAiBusy
+                                             && agentQuestionInput.text.trim() !== ""
+                                    onClicked: analysisController.askAgent(agentQuestionInput.text)
+                                }
+                                Button {
+                                    text: qsTr("取消")
+                                    enabled: analysisController.agentBusy
+                                    onClicked: analysisController.cancelAgent()
+                                }
+                                Label {
+                                    visible: analysisController.agentBusy
+                                    text: qsTr("分析中...")
+                                    color: root.busyAccent
+                                    font.bold: true
+                                }
+                                Item { Layout.fillWidth: true }
                             }
-                            Label {
-                                visible: analysisController.agentErrorText !== ""
-                                text: analysisController.agentErrorText
-                                color: root.errorText
-                                font.bold: true
-                                wrapMode: Text.Wrap
-                                width: parent.width
-                            }
-                            Label {
-                                visible: analysisController.hasAgentAnswer
-                                text: analysisController.agentAnswerText
-                                textFormat: Text.PlainText
-                                wrapMode: Text.Wrap
-                                lineHeight: 1.35
-                                width: parent.width
-                            }
-                            Label {
-                                visible: !analysisController.hasBaselineDiagnosis
-                                         && !analysisController.hasAiDiagnosis
-                                text: qsTr("尚未运行诊断")
-                                color: root.metaPlaceholder
-                                width: parent.width
-                                wrapMode: Text.Wrap
+                            Flickable {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.minimumHeight: 0
+                                clip: true
+                                boundsBehavior: Flickable.StopAtBounds
+                                flickableDirection: Flickable.VerticalFlick
+                                ScrollBar.vertical: ScrollBar {
+                                    policy: ScrollBar.AlwaysOn
+                                    width: 8
+                                    minimumSize: 0.15
+                                    background: Rectangle { color: "transparent" }
+                                    contentItem: Rectangle {
+                                        implicitWidth: 8
+                                        implicitHeight: 8
+                                        radius: 4
+                                        color: root.scrollThumb
+                                    }
+                                }
+                                contentWidth: width
+                                contentHeight: agentContent.childrenRect.height
+
+                                Column {
+                                    id: agentContent
+                                    width: parent.width
+                                    spacing: 6
+
+                                    Label {
+                                        visible: analysisController.agentErrorText !== ""
+                                        text: analysisController.agentErrorText
+                                        color: root.errorAccent
+                                        font.bold: true
+                                        wrapMode: Text.Wrap
+                                        width: parent.width
+                                    }
+                                    Label {
+                                        visible: analysisController.hasAgentAnswer
+                                        text: analysisController.agentAnswerText
+                                        textFormat: Text.PlainText
+                                        wrapMode: Text.Wrap
+                                        lineHeight: 1.35
+                                        width: parent.width
+                                        color: root.textPrimary
+                                    }
+                                }
                             }
                         }
                     }
@@ -590,66 +661,104 @@ ApplicationWindow {
             }
 
             // ---- RIGHT: Recent Transactions pane (primary data view) ----
-            ColumnLayout {
+            Rectangle {
                 SplitView.fillWidth: true
                 SplitView.fillHeight: true
                 SplitView.minimumWidth: 520
-                spacing: 6
+                color: root.surface
+                border.color: root.border
+                border.width: 1
+                radius: 6
+                clip: true
 
-                Label {
-                    text: qsTr("最近通信记录")
-                    font.pixelSize: 16
-                    font.bold: true
-                }
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 8
 
-                Item {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumHeight: 120
+                    Label {
+                        text: qsTr("最近通信记录")
+                        font.pixelSize: 18
+                        font.bold: true
+                        color: root.textPrimary
+                    }
 
-                    ListView {
-                        id: transactionList
-                        anchors.fill: parent
-                        // Viewport containment (ISSUE-004): delegates must
-                        // NEVER paint outside the list.
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-                        model: analysisController.transactionModel
-                        spacing: 4
+                    // Fixed header row matching the delegate column widths
+                    // (stable-column contract — Phase C).
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Label { text: qsTr("设备"); Layout.preferredWidth: 80; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
+                        Label { text: qsTr("功能码"); Layout.preferredWidth: 70; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
+                        Label { text: qsTr("状态"); Layout.preferredWidth: 90; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
+                        Label { text: qsTr("耗时"); Layout.preferredWidth: 80; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
+                        Label { text: qsTr("异常码"); Layout.preferredWidth: 84; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
+                    }
 
-                        delegate: Rectangle {
-                            width: ListView.view.width
-                            height: 36
-                            color: "#FAFAFA"
-                            radius: 4
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 120
 
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.margins: 6
+                        ListView {
+                            id: transactionList
+                            anchors.fill: parent
+                            // Viewport containment (ISSUE-004): delegates must
+                            // NEVER paint outside the list.
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: analysisController.transactionModel
+                            spacing: 4
 
-                                Label { text: qsTr("设备 %1").arg(model.deviceAddress); Layout.preferredWidth: 90 }
-                                Label {
-                                    text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
-                                    Layout.preferredWidth: 60
-                                }
-                                Label { text: model.statusText; Layout.preferredWidth: 120 }
-                                Label { text: model.elapsedMs + qsTr(" ms"); Layout.preferredWidth: 90 }
-                                Label {
-                                    text: model.hasExceptionCode
-                                          ? qsTr("异常码 0x%1").arg(
-                                                ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
-                                          : qsTr("—")
-                                    color: "#803030"
+                            delegate: Rectangle {
+                                width: ListView.view.width
+                                height: 36
+                                color: root.surfaceAlt
+                                radius: 4
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 6
+                                    spacing: 6
+
+                                    Label {
+                                        text: qsTr("设备 %1").arg(model.deviceAddress)
+                                        Layout.preferredWidth: 80
+                                        elide: Text.ElideRight
+                                    }
+                                    Label {
+                                        text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
+                                        Layout.preferredWidth: 70
+                                    }
+                                    Label {
+                                        text: model.statusText
+                                        Layout.preferredWidth: 90
+                                        elide: Text.ElideRight
+                                    }
+                                    Label {
+                                        text: model.elapsedMs + qsTr(" ms")
+                                        Layout.preferredWidth: 80
+                                        elide: Text.ElideRight
+                                    }
+                                    Label {
+                                        text: model.hasExceptionCode
+                                              ? qsTr("异常码 0x%1").arg(
+                                                    ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
+                                              : qsTr("—")
+                                        color: model.hasExceptionCode ? root.errorAccent : root.textSecondary
+                                        Layout.preferredWidth: 84
+                                        elide: Text.ElideRight
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    Label {
-                        anchors.centerIn: parent
-                        visible: transactionList.count === 0
-                        text: qsTr("暂无通信记录")
-                        color: "#909090"
+                        Label {
+                            anchors.centerIn: parent
+                            visible: transactionList.count === 0
+                            text: qsTr("暂无通信记录")
+                            color: root.textSecondary
+                        }
                     }
                 }
             }
