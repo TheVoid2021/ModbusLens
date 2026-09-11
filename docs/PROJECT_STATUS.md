@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T013 — Phase C REMEDIATION（Manual Visual Review FAIL 已归档；Light Tabbed UI 待实施）** |
+| 当前任务（Current Task） | **T013 — Phase C IMPLEMENTED / AWAITING MANUAL VISUAL RE-REVIEW（candidate `5a2f60c`）** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
-| 当前阶段（Current Phase） | T013 Phase C：Manual Visual Review FAIL（A/C/D/E/F FAIL；G/H/I/J PASS）→ Light 主题 + TabBar 三页 + 稳定表格 + scrollbar 改造实施中 |
-| 下一步动作（Next Action） | **T013 Human Visual Review（10 项 Manual Visual Checklist）— 待用户本人确认** |
+| 当前阶段（Current Phase） | T013 Phase C 落地（Light + TabBar 三页 + 稳定表格 + 轻 scrollbar；ctest 23/23、deploy+minimal-PATH）→ 待用户 Manual Visual Re-Review |
+| 下一步动作（Next Action） | **T013 Manual Visual Re-Review（A~K 清单 + 三场景）— 待用户本人确认** |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -187,6 +187,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-11 | **T013 Phase A Final Polish Audit 完成（docs-only）**：UI 视觉审计 V1~V10（P0×3/P1×4/P2×1/HUMAN）×；术语审计（AI 输出英文卡槽中文化建议）；面试 10 步 Demo 主线设计；golden 数据一致性（无分歧，README/DEMO_GUIDE 过时）；README 15 项 gap 全列；部署已达标仅需重验链；截图 4~5 张计划；面试 19 故事 + 真实 limitations；**建议实现集 8 项** + no-go 清单；T013 IN PROGRESS，Implementation 待批准 |
 | 2026-09-11 | **T013 Phase B Implementation（`aea1e64` candidate）**：V1~V7 样式级 + 术语 polish（authority 不动）+ README/DEMO_GUIDE 重写（golden 一致）；clean 147 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH PASS；零真实调用；**T013 AWAITING MANUAL VISUAL REVIEW（未 Final Close）**；LKGC 未推进 |
 | 2026-09-11 | **T013 Manual Visual Review = FAIL（用户）**：A/C/D/E/F 不通过（其中 E=交易表可用性；busy/error=NOT FULLY EXERCISED）；G/H/I/J 通过；**方向定案=fixed Light + TabBar 三页 + 稳定表格**；Phase B candidate `aea1e64` superseded（历史保留）；进入 Phase C Remediation |
+| 2026-09-11 | **T013 Phase C Remediation 完成（`5a2f60c` candidate）**：Light 主题 + TabBar 三页 + 稳定表格/表头 + 轻 scrollbar；clean 147 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH PASS；零真实调用；**T013 AWAITING MANUAL VISUAL RE-REVIEW**；Phase B `aea1e64` superseded；LKGC 未推进 |
+
 
 
 

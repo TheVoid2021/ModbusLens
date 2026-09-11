@@ -1,6 +1,6 @@
 # T013 — Final Integration & Demo Polish
 
-- **状态**：IN PROGRESS — **Phase B = IMPLEMENTED / AWAITING MANUAL VISUAL REVIEW（2026-09-11；candidate `aea1e64`；Human Visual Review 与用户 Final Review 未完成）**
+- **状态**：IN PROGRESS — **Phase C = IMPLEMENTED / AWAITING MANUAL VISUAL RE-REVIEW（2026-09-11；candidate `5a2f60c`；Phase B `aea1e64` 已定格为 superseded）**
 - **背景**：T011/T012 及 Post-Closure Stabilization 全部完成（LKGC `3572cf7`）。T013 不是第二轮产品开发——只做 UI visual polish、用户术语 polish、最终 Demo 流程、README/部署/演示证据一致性与面试表达就绪。
 
 ---
@@ -130,4 +130,12 @@ FC06/FC10；startAddress/quantity enrichment；write-register Tool；自动设�
 - **Manual Visual Review（用户）结果**：A Theme/text contrast=FAIL；B secondary text=PASS（但 control density 需 polish）；C Baseline/AI/Agent distinction=FAIL；D title hierarchy=FAIL；E Recent Transactions table usability=FAIL（表头缺失 + Exception 0x02 行引起列位移——真实模型列：设备/功能码/状态/耗时/异常码）；F scrollbar=FAIL（track 粗/thumb 不明显）；G long-text line spacing=PASS；H layout independence=PASS；I 1000x700=PASS；J large window=PASS。busy/error visual = **NOT FULLY EXERCISED**（不记为 FAIL/PASS）。
 - 用户决策：fixed **LIGHT** presentation（不做 dark/light 开关）；Baseline/AI/Agent 改 TabBar+StackLayout 分页；table 加固定表头与稳定列宽；scrollbar 轻量化；按钮密度收敛；Diagnosis 标题放大；lineHeight 1.35 保留（G=PASS 不折腾）。
 - Phase B candidate `aea1e64` = superseded（未通过 Manual Visual Review），不 amend、保留历史。
+## 17. Phase C Implementation 记录（2026-09-11，`5a2f60c` candidate）
+
+- Light 主题落地（白 surface/#1B1F26 正文/#4A5568 二级/浅 border；ApplicationWindow 显式 palette+background；无 theme 开关）。
+- Diagnosis 信息架构：18px 标题 + TabBar（基线诊断/AI 解释/Agent 问答）+ StackLayout 三页；各页独立 Flickable + 8px 细 scrollbar（AlwaysOn/minimumSize 0.15/浅 thumb）。
+- 右表：固定表头（设备/功能码/状态/耗时/异常码，源自真实 roles）+ delegate 同宽（80/70/90/80/84）→ 0x02 行不再位移（异常码仅占固定列，errorAccent）；elide 防扩列。
+- 密度收敛 + lineHeight 1.35 保留 + busy/error light 对比（语义不变，视觉仍待人工复验）。
+- 验证：clean 147 零警告；ctest 23/23；deploy+minimal-PATH PASS；零真实调用。
+- Screenshot 状态与 Manual Re-Review 清单更新（10+ 项）由 docs commit 随附。
 
