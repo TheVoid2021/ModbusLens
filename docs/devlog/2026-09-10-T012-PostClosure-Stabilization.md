@@ -18,3 +18,8 @@
 - ISSUE-008：同题唯一 run → **NOT REPRODUCED**（3 rounds/HTTP 200/final content 714 可用/reasoning 与 content 共存/usage 对象存在；producer 仍 unknown ①~④；budget hypothesis 未证实未排除）。
 - ISSUE-009：**BLOCKED / PRECONDITION NOT AVAILABLE**（008 成功=额度可用；零额外请求；不伪造不替代）。
 - 临时插桩完全 `git checkout` 恢复：src/tests/CMake/QML 相对 HEAD 零 diff。ISSUE-008/009 OPEN；LKGC `e922c19`；未 push。
+
+
+## 追加（Phase 3）— Offline Defensive Hardening ✅（`95ad9e7`）
+
+- 8 类 provider 文案契约 + 「模型配置：」+ B20/B24/B25 + ag21/ag22；真实 RED=ag05/21/22 文案，其余 coverage-only；ctest 23/23、clean 0 警告、deploy+minimal-PATH。ISSUE-008/009 OPEN（根因均未声称已修）；candidate `95ad9e7` 未推进。

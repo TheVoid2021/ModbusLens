@@ -82,3 +82,16 @@
 - **精确 producer 判定**：本次未触发 InvalidResponse（Client ①/②/③ 与 Runtime ④ 都未被命中）——用户此前真实失败的精确 producer 仍为 **unknown（范围 ①~④）**。
 - **Output-budget hypothesis 状态**：未被支持、未被排除。本次 final 轮 reasoning present/786 与 usable content/714 共存，说明"reasoning 存在"本身不必然导致空 content。
 - **结论**：成功一次不能否定此前真实失败；ISSUE-008 保持 OPEN，"/等待用户 Review 后走 Implementation（届时 B20 扩展 + AGENT-B24 照计划实施）。
+
+
+## 11. Correction（2026-09-10 Phase 3，append-only）
+
+- 表述校正：「本次证据使某 producer 更可能」不成立且已被撤回。正确表述：**同一问题在同一 Demo 场景下一次成功完成，因此该历史 failure 不是已证明的 prompt-deterministic / always-reproducible failure；历史 InvalidResponse 的 exact producer 仍为 unknown，范围保持 Client ①~③ 或 Runtime ④。**
+- 单位澄清：§10 中 response body 长度 = **bytes**；content/reasoning_content 长度 = 代码实际读取的 QString 字符数（UTF-16 code units 口径，非 tokens）；**只有 usage 对象中的真实 token 字段才称为 tokens**；字符串长度绝不与 max_tokens 比较。
+
+
+## 12. Phase 3 Hardening（2026-09-10）
+
+- Desired final-answer contract = **AUTOMATED / HARDENED**：B20 扩展 whitespace 全族、新 B24（reasoning-only 不升级）、新 B25（非 string content fails closed）。其中 B20/B24/B25 首次即 PASS——如实记录为 **coverage gap only**（既有契约已正确），未声称 TDD RED。ag22 集成锁：HTTP 200 + 无可用 content/tool_calls → InvalidResponse 必见。
+- Historical exact producer 仍 **UNKNOWN**（Client ①~③ / Runtime ④）；Same-scenario rerun 此前已 NOT REPRODUCED。
+- **ISSUE-008 保持 OPEN**。

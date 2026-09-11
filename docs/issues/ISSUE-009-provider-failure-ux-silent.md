@@ -72,3 +72,15 @@
 
 - **PRECONDITION NOT AVAILABLE / BLOCKED**：本阶段 ISSUE-008 的授权 run 成功完成（3 个真实 Provider 请求全部通过并产出 usable answer）——这直接证明**当前账户额度可用**；"无可用额度的真实状态"在本刻不可获得，且按规则不得伪造 quota 响应冒充 Live evidence、不得用其它错误替代。因此 ISSUE-009 本次未发出额外请求。
 - 结果：silent-UX 的精确断点仍为 **unknown**（Case A~E 均未排除）；等待未来真实 quota 状态出现时，再以 1 次授权 run 做 sanitized 诊断，或在 Implementation 阶段先落地§4 文案与 UI-AG21（无论断点如何,此刻 make provider failure persistently visible 的 UX 修复本身不依赖断点证据）。
+
+
+## 10. Correction（2026-09-10 Phase 3，append-only）
+
+- 明确：**Live quota reproduction count = 0；precondition = unavailable**（ISSUE-008 的成功 run 证明当时额度可用；按纪律未伪造、未替代）。任何"已复现 quota failure"的表述无效。
+
+
+## 11. Phase 3 Hardening（2026-09-10）
+
+- Known provider-failure visibility contract = **HARDENED / AUTOMATED PASS**：8 类 provider 错误全部非空、持久可见中文文案（§5 六条 + NotConfigured/ProviderRequestError）已落地；ag21 锁定“429 → RateLimited → runFailed → busy false + agentErrorText 持久保留、仅 accepted run 才清”；顶部改「模型配置：」。
+- Historical quota silent failure exact breakpoint = **NOT REPRODUCED / UNKNOWN**；Live quota reproduction count = 0（precondition unavailable）。**本阶段不声称根因已修复**。
+- **ISSUE-009 保持 OPEN**（等待未来真实 quota 状态自然出现时验证）。

@@ -182,6 +182,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-10 | **用户 T012 Final Review = PASS → Closure**：ISSUE-007 RESOLVED；Phase 2 DONE；T012 DONE；M6 DONE；**verified LKGC 推进至 `e922c19`**（自动回归 + ctest 23/23 + QML smoke + Offline Manual UI Smoke + 同题真实 Live Re-Validation PASS + 用户 Final Review）；T013 记录 polish 事项，NOT STARTED |
 | 2026-09-10 | **T012 Post-Closure Stabilization Review（docs-only）**：真实使用回归发现 ISSUE-008（合法 0x02 问题 → InvalidResponse 空 content；RCA=fail-closed 正确、根因形态未知需诊断）与 ISSUE-009（额度不足 → busy 消失无持久提示；RCA=无既证静默路径、疑 provider 超表形态）均建档 OPEN；test design（B20 扩展/B24/UI-AG21·22）+ 文案方案定案；T012 REOPENED / M6 转 IN PROGRESS；LKGC `e922c19` 不回退 |
 | 2026-09-10 | **Sanitized Live Diagnostic Evidence（授权）**：ISSUE-008 = NOT REPRODUCED（同题唯一 run 成功，3 rounds，sanitized metadata 归档；原失败 producer 仍 unknown，budget hypothesis 未证实未排除）；ISSUE-009 = BLOCKED / PRECONDITION NOT AVAILABLE（ISSUE-008 成功证明当前额度可用，零额外请求）；临时插桩完全恢复（src 零 diff）；ISSUE-008/009 保持 OPEN |
+| 2026-09-10 | **Phase 3 Offline Hardening（`95ad9e7` candidate）**：8 类 provider 错误持久中文文案 + 顶部「模型配置：」+ B20 whitespace/B24 reasoning-only/B25 非 string/ag21 429 全链路/ag22 malformed-200 可见；RED=ag05/21/22 旧文案失败，B20/24/25 coverage-only；clean 0 警告、ctest 23/23、deploy+minimal-PATH；**ISSUE-008/009 保持 OPEN（不声称根因修复）**；LKGC 未推进 |
+
 
 
 

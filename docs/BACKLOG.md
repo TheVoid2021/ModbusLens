@@ -109,6 +109,8 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-10 | **用户 T012 Final Review = PASS**：ISSUE-007 RESOLVED；T012 DONE；**M6 DONE**；verified LKGC = `e922c19`；T013 NOT STARTED |
 | 2026-09-10 | **T012 Post-Closure Stabilization Review（docs-only）**：ISSUE-008/009 建档 OPEN（RCA + test design + 文案方案定案）；T012 REOPENED；M6 转 IN PROGRESS；LKGC `e922c19` 不回退 |
 | 2026-09-10 | **Sanitized Live Diagnostic Evidence**：ISSUE-008 NOT REPRODUCED（成功率样例 3 rounds 入档）；ISSUE-009 PRECONDITION NOT AVAILABLE；插桩恢复零 diff；两 Issue 仍 OPEN 待 Implementation 批准 |
+| 2026-09-10 | **Phase 3 Offline Hardening（`95ad9e7`）**：Provider failure UX 契约 + defensive tests；ctest 23/23；ISSUE-008/009 仍 OPEN；新 LKGC candidate 未推进 |
+
 
 
 

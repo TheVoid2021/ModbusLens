@@ -266,6 +266,12 @@ T012 第一次允许**用户自由文本**进入 prompt。边界：
 - 更新：`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/INTERVIEW_NOTES.md`、`docs/devlog/2026-09-09-T012-Learning.md`。
 - **未修改**：`src/`、`tests/`、`CMakeLists.txt`、`scripts/`（本轮纪律）。
 
+## Post-Closure Stabilization — Phase 3 Offline Hardening（2026-09-10，`95ad9e7` candidate）
+
+- 已实施（离线，零真实调用）：8 类 provider 错误文案契约 + 顶部「模型配置：」+ B20 whitespace 扩展 + B24 reasoning-only + B25 非 string content + ag21 全链路 429 传播/lifetime + ag22 malformed-200 可见。RED 事实：ag05/ag21/ag22 旧文案失败（真 RED）；B20/B24/B25 首次即 PASS（coverage gap，如实）。
+- 纪律声明：不声称找到 ISSUE-008/009 历史现场根因；quota 断点 NOT REPRODUCED；两 Issue 保持 OPEN。
+- 验证：clean 0 警告、ctest 23/23、qml smoke、deploy+minimal-PATH PASS。新 LKGC candidate = `95ad9e7`（未推进；verified 仍 `e922c19`）。
+
 ## Post-Closure Stabilization — Sanitized Live Diagnostic Evidence（2026-09-10）
 
 - 授权范围：ISSUE-008 最多 1 次真实 reproduction；ISSUE-009 最多 1 次真实 quota/request-failure reproduction；临时插桩仅 sanitized metadata（HTTP body 元数据/keys/长度/reasoning presence/usage 存在性），无任何正文、reasoning 正文、key、Authorization；Live 后 `git checkout` 完全恢复——**src/tests/CMake/QML 相对 HEAD 零 diff**。
