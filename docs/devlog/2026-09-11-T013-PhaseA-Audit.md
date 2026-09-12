@@ -38,3 +38,8 @@
 ## 追加（Phase D）— Re-Review 修复 ✅（`a25d63c`）
 
 - Phase C Re-Review FAIL(R1 串口空态/R2 Tab 边框/R3 表格对齐)归档;OS probe=0 活动端口 → R1 定性"无端口+缺空态"(非枚举 bug)。修复:串口 overlay"未检测到串口"、Tab 恒可见边框(#98A2B3 active border+加粗)、表格单列几何 owner(shared widths+Row spacing0)。ctest 23/23;deploy+minimal-PATH PASS;零真实调用;待用户 Manual Visual Re-Review(A~D)。
+
+
+## 追加（Phase E）— Qt-side 取证与第 2 轮修复 ✅
+
+- Phase D Re-Review FAIL/PARTIAL(A 串口空态视觉 UNRESOLVED;D 表格宽度浪费;B/C PASS)。生产同 runtime 受控 probe:QSerialPortInfo::availablePorts() count=**0**(两次点击) → 非应用 bug、机器 serial availability 变化(假设级)。原生 style 忽略自定义+ReferenceError → main.cpp QQuickStyle Fusion(警告 0)。修复:串口框保持可读(空 model+overlay、不整体 disabled、Connect 仍 disabled);表格按比例列宽(15/15/20/18/余量,min 保护,单一 owner)。

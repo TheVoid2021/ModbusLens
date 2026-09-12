@@ -151,4 +151,10 @@ FC06/FC10；startAddress/quantity enrichment；write-register Tool；自动设�
 - R3 表格对齐:transactionsPane 单列几何 owner(80/70/90/80 + leadingColumnsWidth);表头与行用 Row{spacing:0}+共享精确宽度+同 leftPadding 6;异常码列填充余量(同源计算);同视口坐标系 → 五列垂直对齐与行内容无关;elide 防扩列。
 - 验证:clean 147 零警告;ctest 23/23;deploy+minimal-PATH PASS;零真实调用。Semantics freeze 保持(Core/Agent/Prompt 零 diff)。
 - 下一次 Manual Re-Review 仅 A~D 四项(串口空态/Tab 边框/列对齐回归/1000x700 回归)。
+## 20. Phase E Remediation（2026-09-11）— Phase D Re-Review FAIL/PARTIAL 归档
+
+- 人工结果:A Serial Refresh=UNRESOLVED/FAIL(显示"未检测到串口"且框整体 heavily disabled 灰、用户称此前见过两串口);B Tab border=PASS; C table alignment=PASS; D 水平空间利用=FAIL(五列集中于左侧,右侧大面积空白);E 无其他新增。
+- **Qt-side 真证**:在 production 相同 Qt6.11.1 MinGW runtime 上受控 probe(临时 qInfo,已 git checkout 恢复):刷新点击两次 → `QSerialPortInfo::availablePorts()` size = **0**。<10>.NET=0 与 OS/PnP 仅辅助,生产事实以 Qt API 为准。→ "以前有两个、现在为零"= 机器 serial availability 变化(此前物理/虚拟 COM 当前不存在),hypothesis only、无 root-cause 断言;不存在应用链路 regression。
+- 额外发现:实际运行 log 显示原生 Windows style **忽略** ScrollBar/TabButton 的 background/contentItem 自定义(且 TabButton `checked` 引用报 ReferenceError)→ 在 main.cpp 显式 `QQuickStyle::setStyle("Fusion")` 使定制生效(警告清零)。这解释为何 Phase D 的某些定制此前未真正渲染。
+- 修复方向:A 保留真实空 model+“未检测到串口”overlay,ComboBox 不再整体 disabled(自定义可读背景/文本,Connect 仍 disabled);D 表格改为单一 owner 的按比例列宽(15/15/20/18/最后余量,含最小宽度保护),表头与行同一几何来源。
 
