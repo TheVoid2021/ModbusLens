@@ -43,3 +43,8 @@
 ## 追加（Phase E）— Qt-side 取证与第 2 轮修复 ✅
 
 - Phase D Re-Review FAIL/PARTIAL(A 串口空态视觉 UNRESOLVED;D 表格宽度浪费;B/C PASS)。生产同 runtime 受控 probe:QSerialPortInfo::availablePorts() count=**0**(两次点击) → 非应用 bug、机器 serial availability 变化(假设级)。原生 style 忽略自定义+ReferenceError → main.cpp QQuickStyle Fusion(警告 0)。修复:串口框保持可读(空 model+overlay、不整体 disabled、Connect 仍 disabled);表格按比例列宽(15/15/20/18/余量,min 保护,单一 owner)。
+
+
+## 追加（Final Closure）— T013 / M7 DONE ✅
+
+- 用户 Manual Visual Re-Review = PASS（Serial/Transactions/Tabs/Fusion 全局回归/General 五项确认）→ **T013 DONE**；verified LKGC `3572cf7` → **`99f17d6`**。Phase A~D 全部历史（含两次 FAIL）保留。M6 保持 DONE、M7 DONE。ISSUE-008/009 MONITORING。零真实请求。未 push。

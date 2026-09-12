@@ -1,22 +1,22 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-| Last Known Good Commit | **`3572cf7`**（T012 Post-Closure Stabilization 完成：provider failure UX hardening（8 类文案/顶部「模型配置：」/ag21·22 集成契约）+ B20 whitespace 全族 test-only 补齐；ISSUE-008/009 = OPEN + MONITORING/NON-BLOCKING（历史 exact root cause 未证明，不阻塞 closure）；T012/M6 DONE；T013 NOT STARTED。历史值：`e922c19`（ISSUE-007 修复 + Live Re-Validation）、`b322cc3`、`797269a`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
+| Last Known Good Commit | **`99f17d6`**（T013 Final Integration & Demo 完成：Fusion style + 串口空态可读性 + 比例列宽表格；clean 0 警告 + ctest 23/23 + qml smoke + deploy/minimal-PATH + runtime warning check + **用户 Manual Visual Re-Review PASS（五项人工确认）**。历史值：`3572cf7`（T013 前）、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 
 ## 状态面板
 
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M2 ✅ / M3 ✅ / M4 ✅ / M5 ✅ / **M6 ✅ DONE（T011 + T012 及 Stabilization 完成；ISSUE-008/009 MONITORING/NON-BLOCKING）**；T013 未开始 |
-| Last Known Good Commit | **`3572cf7`**（T012 Post-Closure Stabilization 完成：provider failure UX hardening（8 类文案/顶部「模型配置：」/ag21·22 集成契约）+ B20 whitespace 全族 test-only 补齐；ISSUE-008/009 = OPEN + MONITORING/NON-BLOCKING（历史 exact root cause 未证明，不阻塞 closure）；T012/M6 DONE；T013 NOT STARTED。历史值：`e922c19`（ISSUE-007 修复 + Live Re-Validation）、`b322cc3`、`797269a`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
+| 当前 Milestone（Current Milestone） | M1~M6 ✅；**M7 ✅ DONE（T013 Final Integration & Demo 完成，用户视觉 PASS）**；全部里程碑完成 |
+| Last Known Good Commit | **`99f17d6`**（T013 Final Integration & Demo 完成：Fusion style + 串口空态可读性 + 比例列宽表格；clean 0 警告 + ctest 23/23 + qml smoke + deploy/minimal-PATH + runtime warning check + **用户 Manual Visual Re-Review PASS（五项人工确认）**。历史值：`3572cf7`（T013 前）、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T013 — Phase E IMPLEMENTED / AWAITING MANUAL VISUAL RE-REVIEW（candidate `99f17d6`）** |
+| 当前任务（Current Task） | **T013 Final Integration & Demo ✅ DONE（用户 Manual Visual Re-Review PASS；verified LKGC `99f17d6`）** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
-| 当前阶段（Current Phase） | T013 Phase C 落地（Light + TabBar 三页 + 稳定表格 + 轻 scrollbar；ctest 23/23、deploy+minimal-PATH）→ 待用户 Manual Visual Re-Review |
-| 下一步动作（Next Action） | **T013 Manual Visual Re-Review（A~K 清单 + 三场景）— 待用户本人确认** |
+| 当前阶段（Current Phase） | T013 完成（Phase A~E 全链；M7 DONE）；暂无新任务（等待用户下一步指示） |
+| 下一步动作（Next Action） | **等待用户指示（项目主线任务 M1~M7 全部完成）** |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -192,6 +192,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-11 | **T013 Phase D Remediation 完成（`a25d63c` candidate）**：串口空态（OS probe=0 端口取证→仅 QML overlay）/Tab 选中恒可见边框/表格单列几何 owner 对齐；clean 147 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH PASS；零真实调用；**待用户 Manual Visual Re-Review（仅 A~D）**；LKGC 未推进 |
 | 2026-09-11 | **T013 Phase D Re-Review = FAIL/PARTIAL（用户）**：A 串口空态视觉 UNRESOLVED（生产 Qt API 取证 QSerialPortInfo count=0——机器 serial availability 变化，非链路 bug）；D 表格水平空间浪费；B/C PASS。另发现原生 style 忽略自定义（Fusion style 修正）。a25d63c 定格 superseded；进入 Phase E |
 | 2026-09-11 | **T013 Phase E 完成（`99f17d6` candidate）**：Qt 同 runtime 取证（QSerialPortInfo count=0）+ Fusion style（定制警告清零）+ 串口可读空态 + 表格比例列宽；clean 147 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH PASS；零真实调用；**待用户 Manual Visual Re-Review（A/B/C）**；LKGC 未推进 |
+| 2026-09-11 | **用户 Manual Visual Re-Review = PASS（五项确认）→ T013 Final Closure**：Phase E 视觉通过；**verified LKGC 推进 `3572cf7` → `99f17d6`**（clean/ctest 23/23/qml/deploy/minimal-PATH/runtime 警告检查/人工视觉全链）；Phase A~D 历史与 FAIL 记录保留；M6 保持 DONE；ISSUE-008/009 MONITORING 不变；零真实请求 |
+
 
 
 

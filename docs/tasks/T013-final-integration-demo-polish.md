@@ -1,6 +1,6 @@
 # T013 — Final Integration & Demo Polish
 
-- **状态**：IN PROGRESS — **Phase E = IMPLEMENTED / AWAITING MANUAL VISUAL RE-REVIEW（2026-09-11；candidate `99f17d6`；`a25d63c`/`5a2f60c`/`aea1e64` 均定格 superseded）**
+- **状态**：**T013 DONE（2026-09-11 Final Closure；Phase E = IMPLEMENTED / AUTOMATED VERIFICATION PASS / MANUAL VISUAL RE-REVIEW PASS；verified LKGC 推进至 `99f17d6`）**
 - **背景**：T011/T012 及 Post-Closure Stabilization 全部完成（LKGC `3572cf7`）。T013 不是第二轮产品开发——只做 UI visual polish、用户术语 polish、最终 Demo 流程、README/部署/演示证据一致性与面试表达就绪。
 
 ---
@@ -165,4 +165,10 @@ FC06/FC10；startAddress/quantity enrichment；write-register Tool；自动设�
 - 表格:15/15/20/18/余量 比例列宽,单一 owner(tableUsableWidth)+最小宽度保护;表头与行共享;大窗口均衡填充。
 - 验证:clean 147 零警告;ctest 23/23;deploy+minimal-PATH PASS;零真实调用。
 - 人工复查仅 A(串口,先报 Qt count=N)/B(表格对齐+宽度利用)/C(回归:Tab border 仍 PASS、1000x700、Simulator/Replay)。
+## 22. T013 Final Closure（2026-09-11）
+
+- **用户 Manual Visual Re-Review = PASS（五项人工确认）**：Serial(Qt count=0/未检测到串口清晰/控件可读/Refresh 正常/无自动 Connect)；Recent Transactions(五列对齐/0x02 不动列/右 pane 空间利用正常)；Tabs(切换+selected border+AI/Agent 人工检查)；Fusion 全局回归(Button/ComboBox/SpinBox/GroupBox/ScrollBar 无异常)；General(1000x700/Simulator/Replay 正常)。
+- **verified LKGC = `99f17d6`**（clean 0 警告 + ctest 23/23 + qml smoke + deploy + minimal-PATH + runtime warning check + diff-check + 人工视觉 PASS 全链）。`959bbc7` 与本次 closure docs commit 均为 docs-only，不再推进。
+- Phase A/B/C/D 全部历史保留：包括两次 Manual Review FAIL（Phase B 深色方案、Phase C R1/R2/R3、Phase D A/D）与 superseded candidates（aea1e64/5a2f60c/a25d63c）——不改写、不删除。
+- M6 保持 DONE；ISSUE-008/009 保持 OPEN + MONITORING/NON-BLOCKING（未因 T013 closure 自行关闭）。本轮真实 ModelScope 请求 = 0。
 
