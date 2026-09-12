@@ -425,4 +425,278 @@ CRC Error 单独一档，因为它是"物理线路上最真实的现场故障信
 
 ---
 
-*Part 2 完。后续 Part 不在本阶段创建。*
+*Part 2 完。后续 Part 不在本阶段创建。*---
+
+# Part 3 — Transaction / Statistics（T007 Part A + Part B）
+
+> 与代码互核：`TransactionStatus` 六值；`TransactionAnalysis{status, elapsed, optional exceptionCode}`；`TransactionStatisticsSnapshot` 字段与四不变量（头文件注释 explicit）；`summarizeTransactions(std::span<const TransactionAnalysis>)` 纯函数；STAT-B01~B08 语义注释与 STAT-I01 集成（Success elapsed=15ms → rate 0.25 / avg 15.0）。
+
+---
+
+## 3.1 中文术语表（首次出现的中文解释）
+
+- **Transaction（事务）**：一次 Request→Response 的通信过程（不是单条帧）。
+- **TransactionAnalysis**：对单次事务的确定性分析结果（status/elapsed/exceptionCode）。
+- **Statistics（统计）**：对一批事务的聚合描述。
+- **Snapshot（快照）**：一次根据当前输入计算出的完整结果，不是持续累加器。
+- **Observed（已观测）**：进入分析的事务总数。
+- **Pending（进行中）**：尚未产生最终结果、仍在等待。**不属于已完成、也不算失败。**
+- **Completed（已完成）**：已产生最终结果的事务（Success/Exception/CrcError/Timeout/ProtocolError 五类的并集）。
+- **Success Rate（成功率）**：successCount ÷ completedCount。
+- **Latency（延迟/耗时）**：一条事务自请求到结果判定的 elapsed。
+- **Invariant（不变量）**：任何合法 Snapshot 都必须满足的关系，不是建议。
+- **Optional（可选值）**：有值或无值（std::optional）；"无值"与"0"是不同的语义。
+
+---
+
+## 3.2 TransactionAnalysis 最终模型
+
+```cpp
+enum class TransactionStatus { Pending, Success, Exception, CrcError, Timeout, ProtocolError };
+struct TransactionAnalysis {
+    TransactionStatus status{};
+    std::chrono::milliseconds elapsed{0};
+    std::optional<std::uint8_t> exceptionCode;   // 仅 Exception 有值
+};
+```
+
+- **elapsed**：六种状态一律保留调用方提供的原值（Timeout 时它同时是"等了多久"的证据，Pending 时是"已等待"）。
+- **exceptionCode**：只有 `Exception` 有值；其余状态一律 nullopt（"成功"不可能携带异常码）。
+- **定位**：`TransactionAnalysis` 是一条事务的确定性事实——**不是** UI row、不是展示字符串、不是 AI diagnosis、不是 statistics。
+
+---
+
+## 3.3 Statistics Snapshot 的职责与形态
+
+- Part A：一个 Transaction → 一个 TransactionAnalysis。
+- Part B：一批 TransactionAnalysis → 一个 `TransactionStatisticsSnapshot`。
+- Snapshot 只回答："当前这一批事务呈现什么统计特征？"——它是纯函数输出，输入一批事务、重新计算一次完整快照。
+- 它**不是**：database、History Store、StatisticsManager、实时 accumulator、Session Manager、图表、QML Model。
+
+**为什么用纯函数全量重算（把 accumulator 排除在 v1 外）**：
+- 输入输出明确、零隐藏状态 → 单测简单（一次输入一次快照）；
+- Replay 可对任意历史批次重新计算；
+- Controller 可对当前 active batch 重算；
+- 消灭 reset/remove/rollback/history-sync/thread-safety 等整套问题；
+- 当前产品规模没有消费者需要可变累加器（mutable accumulator 留在无意义侧）。
+
+---
+
+## 3.4 Snapshot 真实字段（逐一中文化）
+
+| 字段 | 中文 | 含义 |
+| --- | --- | --- |
+| observedCount | 已观测总数 | = 输入事务总数 |
+| pendingCount | 进行中数 | status==Pending 的条数 |
+| completedCount | 已完成数 | 五类终态之和 |
+| successCount | 成功数 | Success 条数 |
+| exceptionCount | 异常数 | Exception 条数 |
+| crcErrorCount | CRC 错误数 | CrcError 条数 |
+| timeoutCount | 超时数 | Timeout 条数 |
+| protocolErrorCount | 协议错误数 | ProtocolError 条数 |
+| successRate | 成功率（optional） | completed>0 才有值 |
+| averageSuccessLatencyMs | 平均成功延迟（optional） | success>0 才有值 |
+
+---
+
+## 3.5 observed / pending / completed
+
+- `observedCount = 输入事务总数`。
+- `pendingCount = status==Pending 的数量`。
+- `completedCount = Success + Exception + CrcError + Timeout + ProtocolError`（Pending 不属于 completed）。
+- 例：Success=1 与 Pending=99 → observed=100、pending=99、completed=1（**不是 100**）。
+
+---
+
+## 3.6 Success Rate 精确定义（v1）
+
+```
+successRate = successCount / completedCount     // Pending 绝不进分母
+```
+
+- 例：Success=8、Exception=1、Timeout=1、Pending=90 → observed=100、completed=10、successRate=**8/10=80%**（不是 8/100=8%）。
+- 为什么 Pending 不能提前算失败：它还没有结果；把它算进分母等于把"还没发生"判成"已经失败"，会系统性低估成功率。
+
+---
+
+## 3.7 completed=0 与 success=0 的边界（nullopt vs 0.0）
+
+- **Case A：completedCount==0**（空输入，或全 Pending）→ `successRate = nullopt`（无值）：没有任何完成事务，"成功率"在数学上无定义。**不得显示为 0%。**
+- **Case B：completedCount>0 且 successCount==0**（全是 Exception/Crc/Timeout/Protocol）→ `successRate = 0.0`：事务已完成、但确实无一成功。
+- **nullopt 与 0.0 是完全不同的语义**：前者"还没有可计算的样本"，后者"有样本且成功为零"。UI 用 hasSuccessRate 分流（"无值"显示 `—`，"有值 0"显示 `0.0%`）。
+
+---
+
+## 3.8 Average Success Latency（只成功延迟）
+
+- `averageSuccessLatencyMs = 仅 Success 事务 elapsed 的平均值`。
+- 例：Success 10ms、Success 30ms、Timeout 1000ms、Exception 200ms → **(10+30)/2 = 20ms**，不是 (10+30+1000+200)/4。
+- 为什么 Timeout 的 1000ms 不进入"成功响应平均延迟"：它是"没有响应"的等待时长，度量对象与"成功响应耗时"不是同一事件。
+- `successCount==0` → `averageSuccessLatencyMs = nullopt`。
+
+---
+
+## 3.9 四个 Invariants（任何合法快照都必须满足）
+
+- **A.** `observedCount == pendingCount + completedCount`
+- **B.** `completedCount == success + exception + crcError + timeout + protocolError`
+- **C.** `successRate.has_value()` **iff** `completedCount > 0`
+- **D.** `averageSuccessLatencyMs.has_value()` **iff** `successCount > 0`
+
+锁定方式：STAT-B08 在 mixed batch 上断言 A~D（测试注释 documented）。
+
+---
+
+## 3.10 summarizeTransactions（真实 API 与流程）
+
+```cpp
+TransactionStatisticsSnapshot summarizeTransactions(
+    std::span<const TransactionAnalysis> transactions);
+```
+
+```
+TransactionAnalysis batch
+  ↓ 遍历 status
+  ↓ 累加 success/exception/crcError/timeout/protocolError/pending
+  ↓ completedCount = 五类之和; observedCount = 总数
+  ↓ successRate         = success / completed        (completed>0 才有)
+  ↓ averageSuccessLatencyMs = 平均(Success.elapsed)   (success>0 才有)
+  ↓ 返回 Snapshot
+```
+
+**依赖方向**：Protocol → Transaction Analysis → Statistics（TransactionAnalysis 绝不反向依赖 Statistics）。Statistics 只消费"已经确定的 status"：它不决定 TransactionStatus，只计数。
+
+---
+
+## 3.11 为什么 exhaustive switch 而非 map/字符串
+
+- 固定 enum + 固定字段是最好的 v1 形态：六状态显式分支，每个 case 直接对应一个字段累加。
+- map<TransactionStatus,...>/字符串比较/Strategy framework：状态只有六个、消费方只有计数——框架是过度设计。
+- 未来新增 TransactionStatus 时，缺 case 直接编译告警，**暴露必须同步修改 Statistics 的位置**（这叫 fail-at-compile,不叫失败运行）。
+
+---
+
+## 3.12 Tests（真实语义核验）
+
+- **STAT-B01 Empty**：全 0 + 两个 nullopt（不是假 0）。
+- **STAT-B02 All Success**：rate=1.0 + avg latency。
+- **STAT-B03 Mixed Completed**：五类 count 正确；Timeout elapsed 不进入成功平均。
+- **STAT-B04 Pending Excluded**：rate 分母不含 Pending（1.0 而非 1/3）。
+- **STAT-B05 All Pending**：rate nullopt、avg nullopt。
+- **STAT-B06 Completed But No Success**：rate 恰为 0.0（非 nullopt）、avg nullopt。
+- **STAT-B07 Success Latency Isolation**：只有 Success elapsed 参与平均。
+- **STAT-B08 Invariants**：A~D 在 mixed batch 上断言。
+- **STAT-I01 Integration**：真实链路（模拟从站读请求 → analyzer ×4 → summarize）—— real 代码核实：Success elapsed**=15ms**；最终 observed=4/completed=4/success=1/exception=1/crc=1/timeout=1/protocol=0/rate=0.25/avg=**15.0**（test_statistics_integration.cpp 断言）。
+
+---
+
+## 3.13 区分两个 Golden Batch（不要混）
+
+| | A. Statistics Integration Test（STAT-I01） | B. T008 Demo Batch（产品演示） |
+| --- | --- | --- |
+| Success elapsed | **15 ms** | **25 ms** |
+| Exception | 有（集成自造） | 18 ms / 0x02 |
+| CRC | 有 | 17 ms |
+| Timeout | 有 | 1000 ms |
+| 快照 | 4/4/0 · 1/1/1/1/0 · 0.25 · **15.0** | 4/4/0 · 1/1/1/1/0 · **25%** · **25 ms** |
+
+Demo 平均延迟是 **25ms**，因为只有 Success（25ms）参与平均——不是 (25+18+17+1000)/4。
+
+---
+
+## 3.14 从 Transaction 到 Dashboard 的事实链
+
+```
+Simulator / Replay / Serial
+   ↓ 各自产出 TransactionAnalysis 数组（同一个 core）
+transactions → summarizeTransactions
+   ↓
+TransactionStatisticsSnapshot
+   ↓
+AnalysisController（hasSuccessRate/successRate/... Q_PROPERTY，emit statisticsChanged）
+   ↓
+QML Dashboard（只格式化与显示）
+```
+
+- QML 不计算成功率、不重数 Timeout、不自算平均延迟。
+- Presentation 只做：格式化（0.25→"25.0%"）、显示、颜色/文本。
+- Core 才负责统计事实。
+
+---
+
+## 3.15 从 Statistics 到 Diagnosis
+
+```
+Transaction facts + Statistics Snapshot
+   → DiagnosisContext（buildDiagnosisContext 内自洽重算）
+```
+
+- Statistics 是确定性事实。Baseline / AI / Agent 只能消费/解释。
+- 禁止：LLM 重新计算 successRate、修改 counts、修改 average latency。
+- 若 AI 文本与 Snapshot 冲突：以 Core Snapshot 为准（AI 文本只是展示字符串）。
+
+---
+
+## 3.16 浮点数规则
+
+- `successRate` 与 `averageSuccessLatencyMs` 是 **double**。
+- 真实测试用 `qFuzzyCompare`（tolerance/fuzzy）而非精确 `==`（STAT-B02/STAT-I01 断言）。
+- Core 返回数值 0.25；Presentation 才决定显示 "25.0%"。
+- **Core 绝不返回字符串 "25%"**——字符串是展示格式，不是事实。
+
+---
+
+## 3.17 常见误区（≥10，均指本项目）
+
+1. ❌ "Pending 算失败。" ✅ Pending 未完成，不进入 successRate 分母。
+2. ❌ "没有完成事务就是 0% 成功率。" ✅ completed==0 时 successRate 无值。
+3. ❌ "完成了但 0 Success 时 successRate 也无值。" ✅ completed>0 时是 0.0。
+4. ❌ "平均延迟统计所有事务。" ✅ v1 只统计 Success elapsed。
+5. ❌ "Timeout 的 1000ms 应进入平均成功响应耗时。" ✅ 不进入（度量对象不同）。
+6. ❌ "Success=1、Pending=99 的 completed=100。" ✅ completed=1。
+7. ❌ "成功率 = success/observed。" ✅ v1 是 success/completed。
+8. ❌ "QML 自己算统计就够了。" ✅ 统计事实属于 deterministic core。
+9. ❌ "Statistics 决定 TransactionStatus。" ✅ Statistics 只消费已定 status。
+10. ❌ "可选值没有就给 0 兜底。" ✅ nullopt 与 0.0 不同义；hasX 才是业务含义。
+11. ❌ "把 15ms 集成测试与 25ms Demo 混为一谈。" ✅ 两批 golden 事实不同。
+
+---
+
+## 3.18 Code Navigation
+
+| 主题 | 关键文件 | API/符号 | 测试 |
+| --- | --- | --- | --- |
+| Transaction Analysis | src/core/analysis/TransactionAnalysis.{h,cpp} | `TransactionStatus`、`TransactionAnalysis`、`ResponseObservation`、`analyzeFunction03Transaction` | tests/test_transaction_analysis.cpp、test_transaction_integration.cpp |
+| Transaction Statistics | src/core/analysis/TransactionStatistics.{h,cpp} | `TransactionStatisticsSnapshot`、`summarizeTransactions` | tests/test_transaction_statistics.cpp、test_statistics_integration.cpp |
+| Demo integration | src/ui/AnalysisController.cpp | `runDemoBatch()`（makeEntry→analyze×4→summarize→applySnapshot） | tests/test_ui_bridge.cpp |
+| Replay statistics | src/core/replay/ReplayAnalysis.cpp | `analyzeReplayLog` 内部复用 `summarizeTransactions` | test_replay_analysis / ui_bridge r01 |
+| Diagnosis | src/core/diagnosis/DiagnosisContext.cpp | `buildDiagnosisContext`（自洽重算同一批） | tests/test_diagnosis.cpp |
+
+---
+
+## 3.19 Self-Test（15 题，无答案）
+
+**基础 5**
+1. 六状态 `TransactionStatus` 各自在什么 observation 下产生？
+2. `elapsed` 与 `exceptionCode` 在六种状态下各是什么值域？
+3. `observed/pending/completed` 三者关系是什么？Success=2、Pending=3 时各是多少？
+4. `summarizeTransactions` 的大致计算顺序？
+5. 平均成功延迟为什么只用 Success elapsed？
+
+**边界 5**
+6. completed=0 与 completed>0&&success=0 时 successRate 分别为什么值？UI 如何区分？
+7. Timeout 1000ms + Success 10/30ms 的平均成功延迟是多少？
+8. 四个 Invariant 分别是什么？哪个测试锁定？
+9. 为什么 Pending 不进成功率分母？（给一个数字反例）
+10. `qFuzzyCompare` 用在哪类断言，为什么不 `==`？
+
+**追问 5**
+11. Replay 和 Demo 为什么能得到同一套统计口径？
+12. 依赖方向 Protocol→Analysis→Statistics 被颠倒会带来什么架构危害？
+13. 为什么 v1 选择纯函数快照而非 mutable accumulator？（列举至少三个真实理由）
+14. 新增第七种 TransactionStatus 时，Statistics 哪个位置会先报警、为什么这是好事？
+15. STAT-I01 的 avg=15.0 与 Demo 的 25.0 怎么从事实源各自推出？
+
+---
+
+*Part 3 完。后续 Part 不在本阶段创建。*
