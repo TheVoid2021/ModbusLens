@@ -1,6 +1,6 @@
 # T013 — Final Integration & Demo Polish
 
-- **状态**：IN PROGRESS — **Phase C = IMPLEMENTED / AWAITING MANUAL VISUAL RE-REVIEW（2026-09-11；candidate `5a2f60c`；Phase B `aea1e64` 已定格为 superseded）**
+- **状态**：IN PROGRESS — **Phase D = IMPLEMENTED / AWAITING MANUAL VISUAL RE-REVIEW（2026-09-11；candidate `a25d63c`；`5a2f60c`/`aea1e64` 均定格 superseded）**
 - **背景**：T011/T012 及 Post-Closure Stabilization 全部完成（LKGC `3572cf7`）。T013 不是第二轮产品开发——只做 UI visual polish、用户术语 polish、最终 Demo 流程、README/部署/演示证据一致性与面试表达就绪。
 
 ---
@@ -144,4 +144,11 @@ FC06/FC10；startAddress/quantity enrichment；write-register Tool；自动设�
 - **Serial 事实调查（实施前）**：OS 只读 probe —— .NET `SerialPort.GetPortNames()` = **0**(当前系统无活动串口)、PnP "COM" 模糊匹配 13 条属宽泛命中、非活动端口证据。→ R1 定性 = **情况 B**（无端口 + UI 缺空态），非 serial 枚举功能 bug、非 transport error。
 - 方向：R1 仅 QML 空态（“未检测到串口”，model 保持真空、Connect 保持 disabled、刷新不 open/不 crash/不改 batch）；R2 TabButton 显式 background+border（inactive surfaceAlt/border；active surface/可见 border+2px accent 底条）；R3 单一列几何 owner（右 pane 上共享列宽常量，header 与 row 完全同坐标、spacing=0、Row 布局），last 列填充余量。
 - Phase C candidate `5a2f60c` = IMPLEMENTED / AUTOMATED PASS / MANUAL VISUAL RE-REVIEW FAILED → superseded（新 Phase D commit 出现后定格）。
+## 19. Phase D Implementation 记录（2026-09-11，`a25d63c` candidate）
+
+- R1 Serial empty-state：OS probe(.NET GetPortNames=0/无活动端口)证实"无端口";QML 增加"未检测到串口"overlay(仅当 model 真空),ComboBox model 保持真空/currentIndex=-1/Connect disabled;controller 零 diff(非枚举 bug)。Refresh 语义:不 crash/open/改 batch/无 transport error。
+- R2 Tab 边框:TabButton 自定义 background+contentItem —— inactive=surfaceAlt+1px border;active=surface+**始终可见** 1px border(activeTabBorder #98A2B3)+bold 深字;无 border.width=0 态。
+- R3 表格对齐:transactionsPane 单列几何 owner(80/70/90/80 + leadingColumnsWidth);表头与行用 Row{spacing:0}+共享精确宽度+同 leftPadding 6;异常码列填充余量(同源计算);同视口坐标系 → 五列垂直对齐与行内容无关;elide 防扩列。
+- 验证:clean 147 零警告;ctest 23/23;deploy+minimal-PATH PASS;零真实调用。Semantics freeze 保持(Core/Agent/Prompt 零 diff)。
+- 下一次 Manual Re-Review 仅 A~D 四项(串口空态/Tab 边框/列对齐回归/1000x700 回归)。
 

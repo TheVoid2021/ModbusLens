@@ -33,3 +33,8 @@
 - Manual Review FAIL 归档（A/C/D/E/F FAIL；G/H/I/J PASS；busy/error NOT FULLY EXERCISED）→ 用户方向定案：**fixed LIGHT + TabBar 三页 + 稳定表格 + 轻量 scrollbar**。
 - 实施：light palette（白底/近黑正文/中深灰 secondary/浅灰 border）+ ApplicationWindow palette/background；左 pane「诊断」18px + TabBar（基线诊断/AI 解释/Agent 问答）+ StackLayout 三页（各自内部 Flickable+细 scrollbar,8px/thumb 4px/minimumSize 0.15）；右 pane 新增固定表头（设备/功能码/状态/耗时/异常码）与 delegate 等宽稳定列（80/70/90/80/84，elide 防挤）；Exception 0x02 仅污染固定异常码列（errorAccent）；lineHeight 1.35 保留（G=PASS 不折腾）；busy/error 用 light contrast(busyAccent/errorAccent)。
 - Phase B candidate `aea1e64` = superseded（历史保留，不 amend）。验证待跑。
+
+
+## 追加（Phase D）— Re-Review 修复 ✅（`a25d63c`）
+
+- Phase C Re-Review FAIL(R1 串口空态/R2 Tab 边框/R3 表格对齐)归档;OS probe=0 活动端口 → R1 定性"无端口+缺空态"(非枚举 bug)。修复:串口 overlay"未检测到串口"、Tab 恒可见边框(#98A2B3 active border+加粗)、表格单列几何 owner(shared widths+Row spacing0)。ctest 23/23;deploy+minimal-PATH PASS;零真实调用;待用户 Manual Visual Re-Review(A~D)。
