@@ -955,4 +955,312 @@ Source / Transport / Runtime（Simulator、Replay、Serial）可以各不相同�
 
 ---
 
-*Part 4 完。后续 Part 不在本阶段创建。*
+*Part 4 完。后续 Part 不在本阶段创建。*---
+
+# Part 5 — Qt/QML Adapter & Presentation（T008/T008.1/T009B/T010/T011/T012/T013 UI 边界）
+
+> 与代码互核：`main.cpp`（`QQuickStyle::setStyle("Fusion")`、`engine.loadFromModule("ModbusLens","Main")`、`--qml-smoke-test` 分支）；`CMakeLists.txt`（`qt_add_qml_module(URI ModbusLens VERSION 1.0 ...)`、QML 模块直接挂在 exe target）；`AnalysisController`（Q_PROPERTY/Q_INVOKABLE 两族）；`TransactionListModel`（7 roles，QAbstractListModel）；ADR001。
+
+---
+
+## 5.1 中文术语表
+
+- **Adapter（适配层）**：把一种数据/API 转换成另一层可使用的形式。
+- **Controller（控制器）**：应用层编排，向 UI 暴露状态与命令；不是业务核心。
+- **Presentation（展示层）**：格式化/颜色/布局/文字。
+- **Q_PROPERTY**：QObject 暴露给 Qt/QML 可绑定的属性。
+- **Q_INVOKABLE**：可由 QML 调用的 C++ 方法。
+- **Model**：给 ListView 等控件提供结构化列表数据的模型。
+- **Role**：一行数据中的命名字段。
+- **Binding（绑定）**：QML 属性绑定（property 变了自动刷新）。
+- **Signal**：Qt 信号，状态变化通知。
+- **Smoke Test（冒烟测试）**：快速证明最基本运行路径正常。
+- **Deployment（部署）**：把应用与运行时依赖整理成用户可运行的交付目录。
+
+---
+
+## 5.2 最终依赖方向（Core Zero Qt 的约束意义）
+
+```
+QML / Qt Quick
+      ↓
+AnalysisController / TransactionListModel（App/Adapter）
+      ↓
+modbuslens_core（Pure C++20，Zero Qt）
+```
+
+**严格禁止** `modbuslens_core → QObject/QString/QVariant/QML`。价值：
+- Core 单测不需要 GUI/事件循环；
+- 协议逻辑不受 UI 框架影响；
+- Replay/Simulator/Serial 共用同一 Core；
+- 未来换 UI 技术不重写协议事实；
+- AI/Agent 不需要从 QML 字符串反推事实。
+
+---
+
+## 5.3 App 启动结构（真实 main.cpp）
+
+`QGuiApplication` → `QQuickStyle::setStyle("Fusion")` → `QQmlApplicationEngine` → `engine.loadFromModule("ModbusLens", "Main")` → `--qml-smoke-test` 分支（实例化后直接 return 0）。
+
+**为什么不用 QApplication+QMainWindow+Qt Widgets**：T008 是真实的 bootstrap 迁移——Qt Quick/QML（ADR001）成为最终 UI，QWidget scaffold 被删除；`qt_add_qml_module` 的模块注册在 exe target 上，静态链接也不会丢模块初始化。
+
+---
+
+## 5.4 QML Module / CMake
+
+- `qt_add_qml_module(modbuslens URI ModbusLens VERSION 1.0 QML_FILES src/ui/qml/Main.qml SOURCES ...)`（模块直接挂在 exe target）。
+- QML 由 CMake 正式管理（不是开发机路径下的松散 Main.qml）：clean build / resource 与模块发现 / clone 后可构建 / deployment 四件事都由此保证。
+
+---
+
+## 5.5 AnalysisController 的角色
+
+= Core 与 QML 之间的 **Application Adapter / Orchestration Layer**。
+**不是**：Protocol Core、Transaction Analyzer、Statistics Engine、Replay Parser、Serial Protocol Parser、AI Detector。
+主要负责（真实职责）：调 Core；保存当前 active batch 与 UI-facing 状态；把 Core 结果转成 Qt/QML 友好类型；接收 UI 命令；调度 source/runtime；更新 model/properties；发 notify signals；管理应用层异步状态（busy/error/cancel/失效）。
+
+---
+
+## 5.6 Q_PROPERTY 四类（按真实属性归类）
+
+- **A. Deterministic facts**：observed/pending/completedCount、success/exception/crcError/timeout/protocolErrorCount、hasSuccessRate+successRate、hasAverageSuccessLatency+averageSuccessLatencyMs。
+- **B. Source / transport state**：modeLabel / sourceLabel；serialConnected / serialBusy / hasSerialError / serialErrorMessage / serialPortNames；hasReplayError / replayErrorMessage。
+- **C. Diagnosis / AI state**：hasBaselineDiagnosis / baselineDiagnosisText；aiConfigured / aiDiagnosisBusy / hasAiDiagnosis / aiDiagnosisText / aiDiagnosisErrorMessage / aiModelName。
+- **D. Agent state**：agentBusy / hasAgentAnswer / agentAnswerText / agentErrorText / agentAvailable / cloudAiBusy（busy 全 derived：aiBusy||runtime.isBusy）。
+
+---
+
+## 5.7 optional → QML（无损边界）
+
+- Core：`std::optional<double> successRate`；completed==0 → nullopt。
+- Controller **不**把它偷换成 0%；用 `hasSuccessRate（bool）+ successRate（double）` 成对暴露。
+- 无值时：hasX=false；value getter 即使返回 0.0 也只是技术占位（`value_or(0.0)` 注释原文），不是业务事实。
+- QML 必须**先判断 hasX 再读 value**（`hasSuccessRate ? rate+"%" : "—"`），averageSuccessLatency 同理。
+- 为什么：nullopt 与 0.0 语义不同（Part 3 §3.7）——这层语义不能在 UI 边界丢失；项目早期就按 hasX+value 固化。
+
+---
+
+## 5.8 TransactionListModel（真实类型与 roles）
+
+- `QAbstractListModel`；`TransactionListEntry{deviceAddress, functionCode, TransactionStatus status, elapsedMs, optional exceptionCode}`；7 roles：DeviceAddress / FunctionCode / StatusCode / StatusText / ElapsedMs / HasExceptionCode / ExceptionCode。
+- **为什么不用** QML JS array / QVariantList / QList<QObject*>：roles 明确、ListView 原生适配、C++ 控制事实、model 更新通知明确（beginResetModel 式整批 replace）、Presentation 文本（statusText）与 Core enum（StatusCodeRole）分离。
+
+---
+
+## 5.9 Core fact vs Presentation text
+
+例：Core=`TransactionStatus::CrcError` → Adapter 映射 `"CRC 错误"` → QML 显示文字/决定颜色/布局。QML **不得**从该字符串反推 TransactionStatus。Core enum 不保存 QString / 中英文标签——所以展示文案只存在 Adapter 一处（06 政策的"展示层唯一定义点"）。
+
+---
+
+## 5.10 TransactionListEntry 为什么存在
+
+`TransactionAnalysis{status,elapsed,exceptionCode}` 是最小分析事实；UI 还需要 deviceAddress/functionCode。Adapter 组合「Request metadata + TransactionAnalysis → TransactionListEntry」——**不为了 UI 需要反向污染 T007 的最小 Core model**。
+
+---
+
+## 5.11 Controller → Model ownership
+
+AnalysisController 拥有 TransactionListModel（成员，随 controller 生命周期）。QML 只读取 model（data 绑定），**不**创建业务 model、不修改 model、不 append 假数据。ListView 是纯 consumer。
+
+---
+
+## 5.12 Simulator / Replay / Serial 共用 Dashboard（B5 核心题）
+
+```
+Simulator ─┐
+Replay  ───┼→ active result batch
+Serial  ───┘        ↓
+               AnalysisController
+                     ↓
+         statistics properties + TransactionListModel
+                     ↓
+                   QML
+```
+
+三种来源最终结果结构相同（同 core 产出）→ 不需要 SimulatorDashboard/ReplayDashboard/SerialDashboard。T009 Part B 明确要求复用 T008 统计卡、TransactionListModel 与 Recent Transactions（真实档案决策）。
+
+---
+
+## 5.13 QML 不应该计算什么（责任边界）
+
+禁止放进 QML JS：CRC 判断、FC03 decode、Timeout 判断、TransactionStatus、successRate、average latency、Exception 分类、Replay 统计、Serial framing、Baseline diagnosis、AI facts、Agent tool facts。
+QML 只做：显示、布局、输入、按钮交互、格式化、有限展示状态（如占位/空态文案）。
+
+---
+
+## 5.14 User Command → Core（三条真实链，代码名）
+
+- **A. Run Demo**：Button→`runDemoBatch()`→Simulator/Fault→analyzer→summarize→`applySnapshot`+`setEntries`→signals→QML。
+- **B. Replay**：FileDialog→`loadReplayFile(QUrl)`→QFile read→`parseReplayLog`/`analyzeReplayLog`→同 Dashboard 发布（stats_/model/source 原子切换）。
+- **C. Serial Read**：控件→`connectSerial`（openPort）+`readHoldingRegistersOnce`→adapter write→`feedResponseBytes`→`publishSerialResult`→单行 model+单元素统计→Dashboard。
+
+---
+
+## 5.15 QML Binding / Notify
+
+`Q_PROPERTY + NOTIFY + QML binding`= 推式刷新：Core state 变 → Controller 属性变（emit 信号）→ QML 绑定自动更新。**UI 不需要轮询 Controller**（`statisticsChanged/sourceChanged/serial*/aiStateChanged/agentStateChanged/cloudAiChanged` 信号族承担）。
+
+---
+
+## 5.16 Empty / Optional / Error states（不得混淆"没有数据"与"发生错误"）
+
+- 无事务：「暂无通信记录」；无成功率/平均延迟：`—`（hasX=false 分支，非 0%）。
+- Replay error：`replayErrorMessage`（红色显示；旧 batch 保留——原子语义）。
+- Serial no-port：「未检测到串口」（空列表是合法状态，**不是** transport error）。
+- Serial error：`serialErrorMessage`（transport 层错误，≠ Modbus 诊断）。
+- AI not configured / error：`aiDiagnosisErrorMessage`；Agent no-data / error：`agentErrorText`（provider 失败必可见——ISSUE-009）。
+
+---
+
+## 5.17 Serial UI Adapter（Qt/UI 边界）
+
+`QSerialPortInfo::availablePorts()` → Controller → serialPortNames → QML ComboBox + empty state。Refresh 不 open/write/probe；Connect 才显式连接；QML 禁止自己操作 QSerialPort。
+
+---
+
+## 5.18 Async UI state contract（不深入 runtime）
+
+Controller 层：busy（derived）、answer、error、cancel、batch-change invalidation。旧 batch 的 AI/Agent 结果**不能继续显示在新 batch 上**——batch 变化时 Controller 清对应视图并 emit（深层 revision/generation 机制留 B6/B7）。
+
+---
+
+## 5.19 Final UI structure（为什么这样划分交互区域）
+
+- **Header/source controls**（顶部固定）：模式与来源切换——用户第一步关心的"我在看什么"。
+- **Statistics cards**：批次口径总览（核心事实的即时镜像）。
+- **Recent Transactions + 固定表头/稳定列**：可扫读的证据明细。
+- **Diagnosis 区域**：三种"解释性产出"按 Tab 分页（基线诊断=确定性产出、AI 解释=one-shot、Agent 问答=按需只读查询）——三类语义不同所以分页，而不是同框纵向堆叠。
+- **布局约束**（ISSUE-004/T013 结晶）：root 不滚、Horizontal SplitView、左 pane 内部 Flickable（长答案 containment）、右 ListView 独立滚动。
+
+---
+
+## 5.20 T013 UI Review Lessons（真实三段验收）
+
+自动测试 PASS ≠ 视觉体验 PASS。项目真实经历：自动验证通过 → 人工视觉 FAIL（深色对比度/串口空态/Tab 边框/表格对齐/宽度利用，多次）→ 多轮修正 → 人工复验 → PASS。GUI 项目需要三重验收：**Automated correctness + QML runtime warning check + Manual visual review**。
+
+---
+
+## 5.21 Fusion Style 事实
+
+`main.cpp` 真实存在 `QQuickStyle::setStyle("Fusion")`。设置原因不是"更好看"，而是实际证据：Windows native style **静默忽略** ScrollBar/TabButton 的 background/contentItem 自定义并抛 `checked is not defined` 运行时警告（T013 Phase E 运行日志实证，警告随 Fusion 清零）。不扩大为"Fusion 永远优于 Native"。
+
+---
+
+## 5.22 UI Language / Presentation Policy（06 政策）
+
+哪些字属 Presentation：按钮/标签/状态/错误/diagnosis/统计含义→简体中文；专业实体保留（Modbus RTU/RS485/CRC/FC03/0x02/0x03/8N1/COM/ModelScope/Qwen/.mlog/ms/AI）。显示文案绝不进 Core（Core 只有 enum/事实）——因此文案改动永远不动确定性层。
+
+---
+
+## 5.23 QML Smoke 的边界
+
+`--qml-smoke-test` 真实作用：启动真实 app 的 QML module、实例化、捕捉 module/type/binding/runtime 问题、成功后快速退出。**不能证明**：布局美观、字体可读、控件宽度合理、真实鼠标交互——所以不能代替人工 Review。
+
+---
+
+## 5.24 UI Bridge Tests（真实覆盖，按"证明什么"）
+
+Controller initial state（UI-B01）；snapshot→properties；model row/roles（UI-A04/A05、UI-B02）；optional semantics（hasX 与占位值）；Demo command（UI-B01~B06）；Replay command/state（UI-R01~R08）；Serial state（UI-S01~S10）；AI/Agent state（UI-AI01~AI11、UI-AG01~AG20）。以上全部为真实存在测试，未虚构。
+
+---
+
+## 5.25 Manual UI Review 关注点（真实经验清单）
+
+可读性、控件状态（disabled 不该像坏掉）、布局比例、表头对齐、空状态、滚动区域、不同 source mode、Diagnosis tabs。自动 PASS 与人工 FAIL 曾分离的事实（T013 候选 commit 留存）。
+
+---
+
+## 5.26 Development Run vs Standalone Deployment
+
+- Development Run：依赖正确的 Qt/MinGW 开发环境（preset 注入工具链）。
+- Standalone Deployment：deploy 目录含匹配运行时依赖（windeployqt + MinGW runtime），面向双击/演示。
+- **不得**要求用户永久改全局 PATH 才能运行。
+
+---
+
+## 5.27 ISSUE-002（现象/证据/根因/修复/验证）
+
+- **现象**：应用在开发环境可运行，但 Explorer 双击 `modbuslens.exe` 失败（无法定位 `std::pmr::get_default_resource` 于 Qt6Gui.dll）。
+- **证据**：runtime provenance（编译器三件套 SHA256）比对——错误来自 PATH 中 Anaconda 旧 libstdc++/Qt 组合而非应用本体。
+- **根因（已证）**：运行时 DLL 解析冲突（旧 g++ runtime 无 pmr 符号）。
+- **修复**：`deploy_windows.bat` 用 windeployqt + 匹配编译器 runtime 生成独立 deploy 目录（本地 DLL 优先）。
+- **验证**：provenance SHA256 + minimal-PATH smoke + **用户 Explorer 双击确认 PASS**。
+- 不泛化为"Qt DLL 缺失"。
+
+---
+
+## 5.28 Deployment why matters
+
+build success ≠ 可分发/独立运行。桌面项目需要：Compile + Test + **Runtime dependency closure + Deployment validation**（minimal-PATH/双击验收）。这是面试可讲的工程能力点（不是"我打包过"）。
+
+---
+
+## 5.29 Common Misconceptions（≥12）
+
+1. ❌ "AnalysisController 是业务 Core。" ✅ 是 Adapter；Core 在 src/core（Zero Qt）。
+2. ❌ "QML 可以直接调协议算法。" ✅ 必须经 Controller；Core 不暴露给 QML。
+3. ❌ "nullopt 在 QML 直接显示 0%。" ✅ hasX 先判，无值显示 `—`。
+4. ❌ "TransactionListModel 应该放进 Core。" ✅ Qt 类型只允许在 App/Adapter。
+5. ❌ "QML 可以自己算 Success Rate。" ✅ 只显示 Controller 传来的 core 值。
+6. ❌ "Replay 应该做第二套 Dashboard。" ✅ 复用同一 Dashboard（同 core 口径）。
+7. ❌ "不同 source mode 必须做不同页面。" ✅ 只换来源标签与数据，页面同一。
+8. ❌ "statusText 是事实来源。" ✅ 是展示文案；判断永远走 StatusCodeRole/enum。
+9. ❌ "QML smoke PASS 等于 UI 完全 PASS。" ✅ 只证加载无错。
+10. ❌ "自动测试 PASS 就不需要人工视觉验收。" ✅ T013 反例已实证。
+11. ❌ "开发环境能运行就等于可发布。" ✅ 需要 runtime closure + deployment 验证。
+12. ❌ "解决 DLL 问题最简单就是改全局 PATH。" ✅ 应独立 deploy 目录 + minimal-PATH 纪律。
+
+---
+
+## 5.30 Code Navigation
+
+| 主题 | 位置/符号 |
+| --- | --- |
+| App entry | src/main.cpp：Fusion、loadFromModule、--qml-smoke-test |
+| QML module | CMakeLists.txt：qt_add_qml_module（URI ModbusLens） |
+| AnalysisController | src/ui/AnalysisController.{h,cpp}：runDemoBatch / loadReplayFile / connectSerial / readHoldingRegistersOnce / askAiDiagnosis / askAgent |
+| TransactionListModel | src/ui/TransactionListModel.{h,cpp}：7 roles |
+| Main.qml | src/ui/qml/Main.qml：统计卡/三 Tab/SplitView/Transactions |
+| UI bridge tests | tests/test_ui_bridge.cpp |
+| QML smoke | ctest `qml_smoke` = modbuslens --qml-smoke-test |
+| Deployment | scripts/deploy_windows.bat + minimal-PATH smoke |
+| ISSUE-002 | docs/issues/ISSUE-002-explorer-launch-dll-collision.md |
+
+---
+
+## 5.31 Self-Test（15 题，无答案）
+
+**基础 5**
+1. 依赖方向为什么必须 QML→Controller→Core？反向会破坏什么？
+2. `hasSuccessRate + successRate` 的分工是什么？QML 正确读法？
+3. TransactionListModel 的 7 roles 分别是什么？StatusTextRole 与 StatusCodeRole 差别？
+4. Setup 里 QML 模块如何被 CMake 管理（URI/VERSION/SOURCES）？
+5. `--qml-smoke-test` 具体做什么、何时 return？
+
+**边界 5**
+6. TransactionAnalysis 与 TransactionListEntry 的字段差是什么？谁补齐差额？
+7. Serial no-port 空态与 Serial transport error 在 UI/语义上怎么区分？
+8. 三种模式为什么共用 Dashboard？（给一个真实口径证据）
+9. batch 变化时旧 AI/Agent 结果为何必须清？（只讲 UI contract）
+10. statusText 为什么不能反向推断 TransactionStatus？
+
+**追问 5**
+11. QML 绑定+NOTIFY 为什么让 UI 无需轮询？（信号族怎么组织？）
+12. 为什么 Fusion style 是"修复"而不是"美化"？（实际证据是什么？）
+13. ISSUE-002 的根因是什么、证据链怎么来的？（不答"Qt DLL 缺失"）
+14. deployment 验证的最小链条是什么？（列出各环节证明什么）
+15. T013 里 automated PASS 后人工 FAIL 的具体类目至少列三个。
+
+---
+
+## 5.32 UNKNOWN（严格区分）
+
+- **当前代码事实**：Fusion style；7 roles；hasX 成对属性；三 Tab；SplitView 布局。
+- **历史设计**：QWidget bootstrap→QML 迁移（ADR001/T008 文档事实）。
+- **视觉判断**：T013 各轮人工结论属人工验收证据（有 commit 与档案记录），不包装成自动化事实。
+- **未证明 hypothesis**：Serial 当前 0 端口的原因（Part 4 §4.13 同规）。
+
+---
+
+*Part 5 完。后续 Part 不在本阶段创建。*
