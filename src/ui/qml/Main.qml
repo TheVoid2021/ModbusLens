@@ -22,6 +22,7 @@ ApplicationWindow {
     readonly property color agentAccent: "#C88719"
     readonly property color errorAccent: "#C0392B"
     readonly property color busyAccent: "#2F6FB7"
+    readonly property color activeTabBorder: "#98A2B3"
     readonly property color scrollThumb: "#B6BDC8"
 
     width: 1024
@@ -139,11 +140,23 @@ ApplicationWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     Label { text: qsTr("串口") }
-                    ComboBox {
-                        id: serialPortCombo
-                        model: analysisController.serialPortNames
-                        enabled: !analysisController.serialConnected
+                    Item {
                         Layout.preferredWidth: 140
+                        Layout.preferredHeight: serialPortCombo.implicitHeight
+                        ComboBox {
+                            id: serialPortCombo
+                            anchors.fill: parent
+                            model: analysisController.serialPortNames
+                            enabled: !analysisController.serialConnected
+                                         && analysisController.serialPortNames.length > 0
+                        }
+                        Label {
+                            anchors.centerIn: parent
+                            visible: analysisController.serialPortNames.length === 0
+                            text: qsTr("未检测到串口")
+                            color: root.textSecondary
+                            font.pixelSize: 12
+                        }
                     }
                     Button {
                         text: qsTr("刷新串口")
@@ -416,9 +429,62 @@ ApplicationWindow {
                     TabBar {
                         id: diagnosisTabs
                         Layout.fillWidth: true
-                        TabButton { text: qsTr("基线诊断") }
-                        TabButton { text: qsTr("AI 解释") }
-                        TabButton { text: qsTr("Agent 问答") }
+
+                        background: Rectangle {
+                            color: "transparent"
+                        }
+
+                        TabButton {
+                            text: qsTr("基线诊断")
+                            background: Rectangle {
+                                radius: 3
+                                color: checked ? root.surface : root.surfaceAlt
+                                border.color: checked ? root.activeTabBorder : root.border
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                color: checked ? root.textPrimary : root.textSecondary
+                                font.pixelSize: 13
+                                font.bold: checked
+                            }
+                        }
+                        TabButton {
+                            text: qsTr("AI 解释")
+                            background: Rectangle {
+                                radius: 3
+                                color: checked ? root.surface : root.surfaceAlt
+                                border.color: checked ? root.activeTabBorder : root.border
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                color: checked ? root.textPrimary : root.textSecondary
+                                font.pixelSize: 13
+                                font.bold: checked
+                            }
+                        }
+                        TabButton {
+                            text: qsTr("Agent 问答")
+                            background: Rectangle {
+                                radius: 3
+                                color: checked ? root.surface : root.surfaceAlt
+                                border.color: checked ? root.activeTabBorder : root.border
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                color: checked ? root.textPrimary : root.textSecondary
+                                font.pixelSize: 13
+                                font.bold: checked
+                            }
+                        }
                     }
 
                     StackLayout {
@@ -662,6 +728,7 @@ ApplicationWindow {
 
             // ---- RIGHT: Recent Transactions pane (primary data view) ----
             Rectangle {
+                id: transactionsPane
                 SplitView.fillWidth: true
                 SplitView.fillHeight: true
                 SplitView.minimumWidth: 520
@@ -670,6 +737,17 @@ ApplicationWindow {
                 border.width: 1
                 radius: 6
                 clip: true
+
+                // Single column-geometry owner (Phase D): header AND
+                // every row reference exactly these widths — no
+                // independent layout distribution may drift columns.
+                readonly property int deviceColumnWidth: 80
+                readonly property int functionColumnWidth: 70
+                readonly property int statusColumnWidth: 90
+                readonly property int latencyColumnWidth: 80
+                readonly property int leadingColumnsWidth:
+                    deviceColumnWidth + functionColumnWidth
+                    + statusColumnWidth + latencyColumnWidth
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -683,16 +761,37 @@ ApplicationWindow {
                         color: root.textPrimary
                     }
 
-                    // Fixed header row matching the delegate column widths
-                    // (stable-column contract — Phase C).
-                    RowLayout {
+                    // Fixed header row — same column geometry source as
+                    // the row delegate below (single owner, Phase D).
+                    Row {
                         Layout.fillWidth: true
-                        spacing: 6
-                        Label { text: qsTr("设备"); Layout.preferredWidth: 80; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
-                        Label { text: qsTr("功能码"); Layout.preferredWidth: 70; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
-                        Label { text: qsTr("状态"); Layout.preferredWidth: 90; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
-                        Label { text: qsTr("耗时"); Layout.preferredWidth: 80; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
-                        Label { text: qsTr("异常码"); Layout.preferredWidth: 84; font.bold: true; color: root.textSecondary; font.pixelSize: 12 }
+                        spacing: 0
+                        Label {
+                            text: qsTr("设备"); width: transactionsPane.deviceColumnWidth
+                            leftPadding: 6; font.bold: true
+                            color: root.textSecondary; font.pixelSize: 12
+                        }
+                        Label {
+                            text: qsTr("功能码"); width: transactionsPane.functionColumnWidth
+                            leftPadding: 6; font.bold: true
+                            color: root.textSecondary; font.pixelSize: 12
+                        }
+                        Label {
+                            text: qsTr("状态"); width: transactionsPane.statusColumnWidth
+                            leftPadding: 6; font.bold: true
+                            color: root.textSecondary; font.pixelSize: 12
+                        }
+                        Label {
+                            text: qsTr("耗时"); width: transactionsPane.latencyColumnWidth
+                            leftPadding: 6; font.bold: true
+                            color: root.textSecondary; font.pixelSize: 12
+                        }
+                        Label {
+                            text: qsTr("异常码")
+                            width: parent.width - transactionsPane.leadingColumnsWidth
+                            leftPadding: 6; font.bold: true
+                            color: root.textSecondary; font.pixelSize: 12
+                        }
                     }
 
                     Item {
@@ -716,28 +815,31 @@ ApplicationWindow {
                                 color: root.surfaceAlt
                                 radius: 4
 
-                                RowLayout {
+                                Row {
                                     anchors.fill: parent
-                                    anchors.margins: 6
-                                    spacing: 6
+                                    spacing: 0
 
                                     Label {
                                         text: qsTr("设备 %1").arg(model.deviceAddress)
-                                        Layout.preferredWidth: 80
+                                        width: transactionsPane.deviceColumnWidth
+                                        leftPadding: 6
                                         elide: Text.ElideRight
                                     }
                                     Label {
                                         text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
-                                        Layout.preferredWidth: 70
+                                        width: transactionsPane.functionColumnWidth
+                                        leftPadding: 6
                                     }
                                     Label {
                                         text: model.statusText
-                                        Layout.preferredWidth: 90
+                                        width: transactionsPane.statusColumnWidth
+                                        leftPadding: 6
                                         elide: Text.ElideRight
                                     }
                                     Label {
                                         text: model.elapsedMs + qsTr(" ms")
-                                        Layout.preferredWidth: 80
+                                        width: transactionsPane.latencyColumnWidth
+                                        leftPadding: 6
                                         elide: Text.ElideRight
                                     }
                                     Label {
@@ -746,7 +848,8 @@ ApplicationWindow {
                                                     ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
                                               : qsTr("—")
                                         color: model.hasExceptionCode ? root.errorAccent : root.textSecondary
-                                        Layout.preferredWidth: 84
+                                        width: parent.width - transactionsPane.leadingColumnsWidth
+                                        leftPadding: 6
                                         elide: Text.ElideRight
                                     }
                                 }
