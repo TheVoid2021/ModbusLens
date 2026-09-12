@@ -1263,4 +1263,336 @@ build success ≠ 可分发/独立运行。桌面项目需要：Compile + Test +
 
 ---
 
-*Part 5 完。后续 Part 不在本阶段创建。*
+*Part 5 完。后续 Part 不在本阶段创建。*---
+
+# Part 6 — Deterministic Diagnosis / ModelScope AI Explanation（T011）
+
+> 与代码互核：`src/core/diagnosis`（DiagnosisContext / RuleBasedDiagnosis / DiagnosisReport，Pure C++、Zero Qt、Zero Network）；`DiagnosisPromptBuilder`（detail 上限 `kMaxDetailTransactions=20`）；`ModelScopeDiagnosisClient`（`kMaxOutputTokens=768`、max_tokens 字段）；Controller：`activeBatchRevision_` + `aiRequestGeneration_` 双维 guard、Baseline First、Ask AI 仅显式触发。
+
+---
+
+## 6.1 中文术语表
+
+- **Diagnosis（诊断）**：对已确定的通信事实进行归纳与解释。
+- **Baseline（基线诊断）**：不依赖云模型的确定性规则结果。
+- **Rule-based（规则化）**：基于明确程序规则，而非模型自由生成。
+- **Finding（发现）**：诊断发现（如"存在 CRC Error"）。
+- **Recommendation（建议）**：排查建议（结构化 code，非自由文本）。
+- **Structured Facts（结构化事实）**：不是 UI 字符串、不是原始聊天文本。
+- **Prompt**：发给模型的指令与事实上下文。
+- **Provider**：模型服务提供方（本项目最终=ModelScope）。
+- **One-shot**：一次独立请求，不维护多轮会话历史。
+- **Stale Response**：迟到、且已不属于当前数据批次的响应。
+- **Revision**：批次版本号 / 身份标识。
+- **Cancel**：取消正在进行的请求。
+- **Authority**：哪一层拥有某项事实的最终决定权。
+
+---
+
+## 6.2 Diagnosis 的 Authority（事实唯一权威）
+
+唯一 authority=Deterministic Core：CRC 是否正确、Frame 是否可解码、FC03 是否合法、Request/Response 是否一致、Exception Code、Timeout、ProtocolError、elapsed、TransactionStatus、Statistics、Success Rate、Avg Latency。
+- AI/Baseline 可以：总结事实、标记主要问题、给可能原因、给下一步排查建议。
+- **不得**：改 TransactionStatus / Statistics、重新解释 CRC、把 CrcError 说成 Timeout、自动操作 Serial、自动重发、改文件。
+
+---
+
+## 6.3 为什么必须有 Part A Baseline
+
+即使无 Key / 无网 / provider 不可用 / 超时 / 额度不足 / HTTP 错误，`TransactionAnalysis+Statistics → DiagnosisContext → RuleBasedDiagnosis → Baseline` 仍然产出基础诊断。**LLM = enhancement，不是 single point of failure。**
+
+---
+
+## 6.4 DiagnosisContext（真实构造）
+
+由 active batch（结构化 DiagnosisTransaction 数组）经 `buildDiagnosisContext` 构造，statistics 与同批 transactions 自洽（Part 3 同原则）。Diagnosis **不允许**读 QML statusText/"CRC Error"/颜色/ListView 文本再反推事实;只直接消费 `TransactionStatus / TransactionAnalysis / TransactionStatisticsSnapshot`。
+
+---
+
+## 6.5 Rule-based Baseline（真实模型）
+
+`DiagnosisFinding{code,severity,affectedCount,optional exceptionCode,recommendedActions}` + `DiagnosisReport{findings}`;ActionCode 12 值（检查供电/核对地址/串口参数/接线/接地干扰/功能码支持/寄存器表/请求参数/设备状态/文档/协议一致性/等待完成）。CRC Error / Timeout / Exception(0x02→register map/address 类建议) / ProtocolError 各自形成确定性 finding;固定 finding 顺序（Protocol→CRC→Timeout→Exception→Pending→Healthy/NoData）——不是捍卫等级，只是确定性展示顺序。没有"健康分数"、没有自由文本专家系统。
+
+---
+
+## 6.6 Baseline 为什么不直接输出自由文本
+
+structured findings + recommendation codes：稳定、可测、可统计、UI 可映射、AI 可消费、不靠字符串反推。Presentation（formatter）最后才翻译成中文可读文本（T013 已有术语校准）。
+
+---
+
+## 6.7 Baseline 与 UI
+
+`Active Batch → DiagnosisContext → RuleBasedDiagnosis → DiagnosisReport → Controller(baselineDiagnosisText_) → QML 基线诊断 Tab`。QML 只显示,不运行诊断规则。
+
+---
+
+## 6.8 ModelScope Provider 边界
+
+- Provider=ModelScope API-Inference;client=`ModelScopeDiagnosisClient`;协议=OpenAI-compatible Chat Completions。
+- **"OpenAI-compatible" 只代表 HTTP/JSON API 形式兼容,不代表调用 OpenAI 服务**(Provider 与协议格式是两件事)。
+
+---
+
+## 6.9 为什么不提前做 multi-provider abstraction
+
+当前只有一个真实 Provider(ModelScope)→ 直接 `ModelScopeDiagnosisClient`,不提前 IModelProvider/Registry/Factory/多厂商框架。原则:先解决真实需求;第二个真实 Provider 出现时再按真实共性抽象(T011 真实决策)。
+
+---
+
+## 6.10 Core Zero Network
+
+`src/core/diagnosis` 继续 Pure C++20 / Zero Qt / Zero Network;QtNetwork/QNetworkAccessManager 只在 App 层。HTTP 是外部基础设施,不是 Modbus 诊断事实。
+
+---
+
+## 6.11 ModelScopeDiagnosisClient 职责
+
+只做:构造 Chat Completions HTTP request(QNetworkAccessManager POST)→ timeout/cancel → HTTP/provider 解析 → success/error signal。**不得**:读 TransactionListModel、重判 CRC、算统计、构造新协议事实、操作 Serial、切 Source、读任意文件、做 Tool Calling。
+
+---
+
+## 6.12 Ask AI 必须显式用户操作
+
+Run Demo / Load Replay / Serial complete / Run Baseline **都不自动调 AI**;只有用户显式 Ask AI 才发外部请求。理由:API cost、privacy、predictability、demo stability、user control。
+
+---
+
+## 6.13 Baseline First（真实前置）
+
+允许 Ask AI 的真实 precondition(controller 重校验,不只靠 QML disabled):`aiConfigured && 有 active batch && hasBaselineDiagnosis && !busy(T012 后还有单飞 guard)`。典型路径:Run/Load/Serial → Run Baseline → Ask AI。deterministic facts first,AI explanation second。
+
+---
+
+## 6.14 Empty Batch
+
+无 active analysis data 时 Ask AI **不发网络请求**、返回本地 application error——不为 No Data 浪费 ModelScope request。
+
+---
+
+## 6.15 Prompt Authority（真实 builder）
+
+Prompt 明确要求:deterministic facts are authoritative;不得 recalculate/contradict/override/claim certain root cause。模型不能把 CrcError 写成 Timeout(ISSUE-006 又加了 evidence scope/状态正例语义/混合独立性,术语政策再加语言指引——全部不动 authority 底座)。
+
+---
+
+## 6.16 Prompt Input(真实内容面)
+
+基于 DiagnosisContext+DiagnosisReport:transaction status、device address、function code、elapsed、exception code、聚合统计、baseline finding codes/counts、recommendation codes。禁/避发:raw wire、QML text、文件名、Replay comments、路径、任意本地文件、无关 COM description。
+
+---
+
+## 6.17 为什么 AI 不需要 raw Modbus bytes
+
+CRC/FC03/事务分类已在 Core 完成;给模型 raw bytes 会引入重复判断/幻觉/prompt 膨胀/暴露增加/Core authority 模糊。模型消费"已验证后的结构化事实"。
+
+---
+
+## 6.18 Bounded Prompt（真实=20）
+
+`kMaxDetailTransactions=20`:统计与 finding counts 永远全量(代表整批),transaction detail deterministic truncation(先失败类、原序;detail 高于 20 时打 details_truncated=true)。理由:token 上限稳定、整体事实不丢(Part A 定案)。
+
+---
+
+## 6.19 One-shot AI
+
+每次 Ask AI = 独立请求;无 conversation history/thread/prev-response linkage。T011 是"解释当前批次",不是聊天机器人——状态简单、更可复现、batch ownership 清晰、stale guard 易证。
+
+---
+
+## 6.20 Request Shape(真实)
+
+POST `https://api-inference.modelscope.cn/v1/chat/completions`;Authorization Bearer(仅此一处);`model`(env override 或 Qwen/Qwen3.5-27B);`messages=[system,user]`;`stream=false`;`max_tokens=768`。不是早期被替换的 Responses API。
+
+---
+
+## 6.21 Response Parser
+
+`choices[]→message→content`(字符串);**HTTP 200 仍可能**:malformed JSON/empty choices/missing message/empty content → InvalidResponse。
+
+---
+
+## 6.22 reasoning_content
+
+产品只用 final `content`;不显示/不保存/不拼入诊断。只有 reasoning 而无 content → 按实现为 InvalidResponse(ISSUE-008 hardening 后明确)。
+
+---
+
+## 6.23 Credential Boundary
+
+`MODELSCOPE_API_KEY` 仅进程 env(只读判断 configured);不写 Git、不进 QML、不进日志、不进 issue/devlog、不打印 Authorization/完整 headers;自动测试绝不使用真实 Key(BYOK)。
+
+---
+
+## 6.24 Production endpoint / test endpoint
+
+Production=固定官方 endpoint(**禁 env override**——防 token 被发往恶意 endpoint);Test=constructor seam 注入 localhost fake endpoint。这是 T011 的 exfil 防线。
+
+---
+
+## 6.25 Local Fake HTTP Server
+
+localhost fake server + 真实 QNetworkAccessManager 可证:POST/headers/JSON body/解析/HTTP 映射/timeout/cancel/异步完成/stale 行为——同时不公网、不 quota、无真实 secret。
+
+---
+
+## 6.26 AI Error Mapping(真实枚举)
+
+`AiDiagnosisErrorCode`:NotConfigured / InvalidConfiguration / NoData / BaselineRequired / Busy(本地前置)+ NetworkError / Timeout / Unauthorized / RateLimited / ProviderRequestError / ServerError / InvalidResponse(provider/网络)。Cancelled **不是错误**——是静默控制路径。
+
+---
+
+## 6.27 Provider Failure 不破坏 Baseline
+
+Ask AI 失败只写 error 状态;Baseline 不清除、Dashboard facts 不变、rows 不变。外部 request 失败不能破坏本地 deterministic result(ai01/ai05 等 UI 测试锁定)。
+
+---
+
+## 6.28 Same-batch retry 语义(真实=keep old text)
+
+同一 batch 已有成功 explanation,再 Ask AI 失败时**保留旧成功答案**(`keep old text` 注释与 UI-AI 测试锁定);不受新 error 影响自动清除错误由下一次 accepted run 清。
+
+---
+
+## 6.29 Batch change invalidation(stale 核心)
+
+场景:Replay A → Ask AI(请求在网)→ 成功切 Simulator B → A 的 explanation 不得覆盖 B。`invalidateAiForBatchChange()`(成功发布批时才触达)做:++activeBatchRevision_、abort in-flight AI(BatchInvalidated)、清 view、emit。
+
+---
+
+## 6.30 Abort 为什么还不够
+
+abort 只是"发出取消",异步世界仍有:回调已排队/取消与完成竞争/响应已到/回调晚执行——所以发布前**必须再验 captured revision == current**,否则丢弃。
+
+---
+
+## 6.31 Generation / revision guard(T011 真实机制,勿与 T012 混)
+
+Controller 双维:`activeBatchRevision_`("还是同一批数据吗?")+`aiRequestGeneration_ / activeAiRequestId_ / requestBatchRevision_`("还是最新那次请求吗?")。capture 在发起时;发布前双检;任一不匹配=丢弃。T012 的 agentRequestGeneration_ 是平行机制,不可混写。
+
+---
+
+## 6.32 成功 vs 失败 source switch
+
+成功切换(新 batch 真变了)必须 invalidate 旧 AI state;Replay load 失败 / Serial 失败→active batch 没变→**旧有效 AI state 不被无故清除**("attempted switch"≠"batch changed",UI-AI07/r-系列锁定)。
+
+---
+
+## 6.33 Cancel
+
+Cancel AI:用户动作→client cancel(静默)→busy 清→**保留**旧 answer/不写红色错误(UI-AI11 cancel/stale 锁定)。它与 provider timeout/error 语义不同。
+
+---
+
+## 6.34 AI 永远不能修改 Dashboard(脑内测试)
+
+Core:Success=1/Exception=1/Crc=1/Timeout=1/rate=25%。模型说"没有 CRC Error,主要是 Timeout"→ Dashboard 仍是 Crc=1/Timeout=1/25%。**AI 文本可以错,Core facts 不变**(ai10 测试)。
+
+---
+
+## 6.35 Live ModelScope Evidence(真实历史保留)
+
+- Attempt#1=BLOCKED(insufficient balance)——**历史保留**;它同时证明 provider 失败不破坏 Baseline/Dashboard/Transactions。
+- Attempt#2=PASS:真实端到端 Context→Prompt→ModelScope→Parser→Controller→QML 成立。
+
+---
+
+## 6.36 LLM Over-inference(真实观察)
+
+模型曾输出比事实更强的因果表述(把多类失败归结为单一 signal integrity 问题,如"rather than"句型)。这属于 **prose quality issue**,不是 deterministic corruption——因为 0x02/CRC/Timeout 事实仍独立存在。面试金句:**AI can be wrong in prose without corrupting protocol facts**(ISSUE-006 治理后用 evidence scope/正例语义/混合独立/术语政策收口)。
+
+---
+
+## 6.37 Baseline 与 AI 的 UI 关系
+
+Diagnosis 三 Tab:基线诊断(确定性)/AI 解释(one-shot)/Agent 问答(只读工具)。本 Part 只讲前两者:AI text **不覆盖** baseline text,是两个独立视图/结果。
+
+---
+
+## 6.38 T011 与 T012 的边界
+
+- T011:one-shot explanation、无 tools、无 function calling、无 tool loop、无 Agent action。
+- T012:native tool calling、读 structured immutable snapshot、本地只读 tools、多轮 tool loop(有界)。
+- 都调 ModelScope ≠ 同一层。
+
+---
+
+## 6.39 Tests(真实覆盖,按"证明什么")
+
+- test_diagnosis:规则矩阵(NoData≠Healthy、Pending≠failure、异常码映射、finding 顺序)。
+- test_ai_client:prompt authority/bounded、request shape、parse success、invalid response、401/403、429、server error、reasoning ignored、cancel、timeout、request identity、ISSUE-006 B14~B17。
+- test_ui_bridge:UI-AI01~AI11(AI state/invalidation/failed switch/cancel/stale/never-changes-facts)+UI-AG 集成。
+- fake server 脚本化回合。仅列真实存在项。
+
+---
+
+## 6.40 Common Misconceptions(≥15)
+
+1. ❌ "AI 负责检测 CRC。" ✅ Core 负责;AI 只能解释。
+2. ❌ "有 AI 就不需要 Baseline。" ✅ 反向:Baseline 先、AI 后。
+3. ❌ "Baseline 是 AI 失败的 fallback 文本。" ✅ 独立确定性路径。
+4. ❌ "Serial 每笔完成后自动 Ask AI。" ✅ 绝无自动触发。
+5. ❌ "LLM 应直接看 raw wire 自己诊断。" ✅ 结构化事实已足够、且防幻觉。
+6. ❌ "模型输出可以修正 TransactionStatus。" ✅ 永不。
+7. ❌ "模型与 Dashboard 冲突时信模型。" ✅ 信 Core。
+8. ❌ "AI error 应清空 Baseline。" ✅ 独立保留。
+9. ❌ "HTTP 200 就一定成功。" ✅ 还需 message/content。
+10. ❌ "choices[0] 永远可用。" ✅ 需判空/非 object。
+11. ❌ "reasoning_content 应展示给用户。" ✅ 只用 final content。
+12. ❌ "abort 了就不需要 revision guard。" ✅ 双保险缺一不可。
+13. ❌ "尝试切 source 就清旧 AI。" ✅ 成功切批才清;失败保留。
+14. ❌ "OpenAI-compatible=调用 OpenAI。" ✅ 协议形式≠服务商。
+15. ❌ "T011 已经是 Agent。" ✅ one-shot 无 tools,不是 Agent。
+
+---
+
+## 6.41 Code Navigation
+
+| 主题 | 位置/符号 |
+| --- | --- |
+| DiagnosisContext | src/core/diagnosis/DiagnosisContext.{h,cpp}:`buildDiagnosisContext` |
+| Rule-based Baseline | src/core/diagnosis/RuleBasedDiagnosis.{h,cpp}:`diagnoseTransactions`,`DiagnosisReport` |
+| Prompt | src/ui/ai/DiagnosisPromptBuilder.{h,cpp}:`buildDiagnosisPrompt`,`kMaxDetailTransactions=20` |
+| AI client | src/ui/ai/ModelScopeDiagnosisClient.{h,cpp}:`requestDiagnosis/cancel`,`kMaxOutputTokens=768` |
+| Controller AI | src/ui/AnalysisController.cpp:askAiDiagnosis/cancelAiDiagnosis/invalidateAiForBatchChange/handleAi* |
+| QML | Main.qml Diagnosis 区域(基线诊断/AI 解释 Tab) |
+| Tests | tests/test_diagnosis.cpp;tests/test_ai_client.cpp;tests/test_ui_bridge.cpp(UI-AI*) |
+
+---
+
+## 6.42 Self-Test(15 题,无答案)
+
+**基础 5**
+1. Diagnosis 全部事实的唯一 authority 是什么层?列 5 个 AI 不能改的事实。
+2. Baseline 的 Finding/Report/Action 结构是什么?为什么不是自由文本?
+3. buildDiagnosisContext 的输入是什么?它为什么自洽?
+4. Prompt 里"authoritative"句子防止什么?
+5. Ask AI 触发需要哪几个前置条件?
+
+**边界 5**
+6. 空 batch 为什么零网络请求?错误落在哪层?
+7. 为什么 HTTP 200 仍可能 InvalidResponse?(列四个形状)
+8. reasoning_content 与 content 同时存在时产品取谁?只有 reasoning 时呢?
+9. 为什么 raw bytes 不进 prompt?(至少四条理由)
+10. detail=20 截断时,什么仍然代表整批?截断标记是什么?
+
+**追问 5**
+11. activeBatchRevision_ 与 aiRequestGeneration_ 各防什么问题?能合并成一个吗?
+12. abort 之后为什么还要 publish 前校验?
+13. Replay 加载失败与成功切换对旧 AI 状态的差别是什么?为什么?
+14. Live attempt#1(insufficient balance)证明什么、没证明什么?
+15. 模型把三种失败归为单一信号完整性问题时,产品哪部分错了、哪部分没错?(ISSUE-006/PART 6 视角)
+
+---
+
+## 6.43 UNKNOWN(严格区分)
+
+- 代码事实:768 tokens、20 detail、双维 guard、Baseline First、BYOK。
+- Provider contract:OpenAI-compatible Chat Completions(Gate 0/请求形状 live 实证)。
+- 真实 live evidence:Try#1 BLOCKED(余额)、Try#2 PASS。
+- 模型质量观察:over-inference 属 prose 问题(ISSUE-006 治理)。
+- 未证明:ISSUE-008 历史 InvalidResponse 的 exact producer(①~④);LLM 的 possible cause 不是项目证明的 root cause。
+
+---
+
+*Part 6 完。后续 Part 不在本阶段创建。*
