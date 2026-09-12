@@ -215,4 +215,214 @@ askAgent(question)                        ← 前置：AI busy?/自 busy?/空批
 
 ---
 
-*Part 1（System Architecture）完。后续 Part 不在本阶段创建。*
+*Part 1（System Architecture）完。后续 Part 不在本阶段创建。*---
+
+# Part 2 — Modbus Protocol Core（T002～T004 + T007 边界）
+
+> 与代码互核的符号：`calculateModbusCrc(span<const uint8_t>)→uint16_t`（ModbusCrc）；`ModbusRtuFrame{address,functionCode,data}`（value 语义、不存 CRC）；`RtuDecodeErrorCode{FrameTooShort, CrcMismatch}`；`Function03DecodeErrorCode / Function03EncodeErrorCode`；`TransactionStatus{Pending,Success,Exception,CrcError,Timeout,ProtocolError}`；`ResponseObservation=variant<ModbusRtuFrame, RtuDecodeError, NoResponse>`；`analyzeFunction03Transaction(request, observation, elapsed, threshold)` 纯函数。
+
+---
+
+## 2.1 T002 — CRC16 / MODBUS
+
+**A. API 事实**：`calculateModbusCrc(std::span<const std::uint8_t> data)` 返回数值型 `uint16_t`（按位实现，init=0xFFFF、reflect in/out、XOR out=0x0000）。输入是"待校验的语义字节序列"（不含线上的 CRC 字段本身）。
+
+**B. 数值 vs wire byte order（项目真实 KAT）**
+- payload：`01 03 00 00 00 01`
+- 数值：`0x0A84`
+- wire CRC bytes：`84 0A`（低字节在前）
+
+为什么"明明是 0x0A84、线上却写 84 0A"：Modbus RTU 规范要求 CRC 字段**低字节先发**——`0x0A84` 的低字节 `0x84` 先出现在线上。这不是"小端 CPU"，而是**协议规定的字段传输顺序**。
+
+**C. 为什么不能 `memcpy(uint16_t CRC)` 到 wire**：memcpy 会把本机字节序原样拷出（x86 上会得到 `84 0A`，恰好一致；但这是巧合，不是协议正确性——换架构即错，且把协议语义绑定到了宿主字节序）。正确做法是两个显式字节：`bytes.push_back(crc & 0xFF); bytes.push_back(crc >> 8);`（见 `encodeRtuFrame`）。
+
+**D. 为什么 CPU endian 不能决定协议 endian**：协议字段顺序由 Modbus 规范定义（寄存器语义字段高字节在前、CRC 低字节在前），与运行 CPU 无关；所有序列化必须显式，禁止隐式转换（项目 D2 决策）。
+
+**E. KAT 与 round-trip 的区别**：encode→decode 的往返只证明"编解码器自洽"（用同一个错算法也能自洽闭环）；KAT（已知输入→规范已知输出 `0x4B37` / 帧例 `0x0A84`）才是算法正确的权威证据（04_TEST_STRATEGY 的证据分级：KAT > invariant/round-trip）。
+
+---
+
+## 2.2 T003 — RTU Frame Model
+
+**真实字段**：`{ address, functionCode, data }` + `operator==`；另有 `isExceptionResponse()`（`functionCode & 0x80`）。value 语义、向量拥有数据。
+
+**Frame ≠ wire bytes**。Frame 刻意**不存**：CRC（wire 校验层，避免 stale-CRC bug——头文件注释原文）、elapsed、timeout、transaction status、AI diagnosis。
+- **CRC 属于 wire representation 而非 semantic frame state**：CRC 是"线上完整性校验码"，与语义无关；放进 Frame 会让"语义模型"被传输细节污染，并诱使调用方忘记重建/误比较。
+
+---
+
+## 2.3 T004 Part A — RTU Wire Codec
+
+**Encode**：`ModbusRtuFrame` → address → functionCode → data → `calculateModbusCrc` → **先 CRC low byte、再 high byte** → wire。
+
+**Decode**：wire → 最小长度检查（<4 → `FrameTooShort`）→ 取出收到的 CRC 两字节 → 对余下部分重算 → 比较 → 不符 → `CrcMismatch`；通过 → Frame。
+
+**为什么 CRC mismatch 是 decode failure 而不是"Frame + crcValid=false"**：variant 错误模型让下游**不可能忽略**校验失败（系统学上"半好半坏"的对象是静默 bug 温床）；诊断平台尤其需要对"线上确实到达了坏数据"这一事实给出独立状态（CrcError）。这也是 §2.12 的分类原因。
+
+---
+
+## 2.4 T004 Part B — FC03 Request 解析
+
+项目金样：`01 03 00 00 00 01 84 0A`
+- `01` = slave address
+- `03` = function code（Read Holding Registers）
+- `00 00` = startAddress = 0（**16-bit big-endian 语义字段：高字节在前**）
+- `00 01` = quantity = 1
+- `84 0A` = wire CRC（数值 0x0A84 的低字节在前）
+
+**两条规则不可混淆**：
+- register / request 语义字段（startAddress、quantity、register value）：**high byte first**。
+- RTU CRC 传输字节：**low byte first**。
+
+---
+
+## 2.5 FC03 Normal Response
+
+金样片段：`01 03 04 00 64 00 C8 ...`
+- `01` = address；`03` = function；`04` = byteCount；`00 64`=100；`00 C8`=200。
+- **为什么 byteCount=4**：quantity=2 → 2 个 16-bit 寄存器 = 4 字节。
+- 寄存器值必须显式 `(high << 8) | low` 组装，禁止依赖主机内存布局（哪怕与传输顺序一致也只是巧合）。
+
+---
+
+## 2.6 Exception Response
+
+`01 83 02 ...`
+- `0x83 = 0x03 | 0x80`：异常标志位 + 原功能码。
+- `0x02` = exception code（Illegal Data Address，标准语义语义层解释在 T011/T012 作为确定性事实下发）。
+
+**三类区分（项目存在）**：
+- 合法 Modbus Exception（0x83 匹配 0x03 请求 + 合法异常码）→ `TransactionStatus::Exception`。
+- 帧格式异常/不匹配 → `ProtocolError`。
+- wire 校验失败 → `CrcError`。
+
+**为什么 0x84 不能判为 FC03 的匹配 Exception**：0x84 = 0x04|0x80，是对 FC04 请求的异常响应；对 FC03 事务而言，function 不匹配 → `ProtocolError`（而不是把这个异常码的语义套给 FC03）。
+
+---
+
+## 2.7 Codec 与 Transaction 的边界（本阶段重点）
+
+| 问题 | T004 codec 能判 | T007 负责 | 原因 |
+| --- | --- | --- | --- |
+| wire 长度是否足够 | ✓（FrameTooShort） | — | 纯 frame 形状 |
+| CRC 是否正确 | ✓（CrcMismatch） | 分类为 CrcError | wire 校验 |
+| FC03 response 自身格式（byteCount/帧内数据量一致等） | ✓（Function03 decode） | 分类为 ProtocolError | 单帧语义 |
+| response address 是否 == request | ✗（无 request 上下文） | ✓ | 配对语义 |
+| response function 是否匹配 request | ✗ | ✓ | 配对语义 |
+| 返回寄存器数 == request quantity | ✗ | ✓（跨帧比较） | 见下例 |
+| 是否 Timeout | ✗ | ✓（elapsed≥threshold） | 无时钟概念 |
+| elapsed latency | ✗（codec 不进时钟） | ✓（caller 提供 elapsed） | 纯函数 |
+| 是否合法 Exception | 部分（帧格式+合法码由 codec 保证） | ✓（异常码归类/文义解释） | 边界在 analyzer |
+| Exception code 取值 | 解析出字节 | 记录（optional exceptionCode） | — |
+
+**quantity mismatch 为什么不能属纯 response codec**：response `values={100,200,1500}`（quantity=3）自身是**逐字节完全合法**的 FC03 Normal Response；只有同时看到 request（quantity=2）才能发现不匹配。codec 没有 request 上下文 → 该判断只能发生在 transaction 层。
+
+---
+
+## 2.8 T007 Transaction Boundary（只含协议边界部分）
+
+- `ResponseObservation = variant<ModbusRtuFrame, RtuDecodeError, NoResponse>`（请求方把"到达了什么"抽象成三种语言：好帧 / 解码错误 / 无响应——NoResponse 刻意与 T006 的 DroppedResponse 解耦）。
+- 六状态分类流程：
+  - observation==NoResponse：`elapsed < threshold` → Pending；`elapsed >= threshold` → Timeout。
+  - observation==RtuDecodeError：CrcMismatch → CrcError；FrameTooShort → ProtocolError。
+  - observation==Frame：先 address 匹配 → 再 function 匹配（0x03 ↔ 0x83 对偶）→ 再 FC03 语义/quantity 匹配 → Success / Exception / ProtocolError。
+
+---
+
+## 2.9 DropResponse vs Timeout（T006 vs T007）
+
+- T006 `SimulationFault::DropResponse` 只制造**投递事实**："模拟这次没有回答到达"。
+- T007 把 `NoResponse` + `elapsed` + `threshold` 合成判定：
+  - elapsed=500ms / threshold=1000ms → **Pending**（还没到判定时刻）
+  - elapsed=1000ms / threshold=1000ms → **Timeout**
+- **DropResponse != Timeout**；Timeout 不能在 Fault Injector 直接生成——注入器无权"断定超时"，超时是 analyzer 对（无响应 + 已等待足够久）的语义裁决。
+
+---
+
+## 2.10 CRC Error vs ProtocolError（真实分类）
+
+| 观察 | 状态 |
+| --- | --- |
+| decode → CrcMismatch | CrcError（"数据到达但完整性校验失败"是独特诊断事实）
+| decode → FrameTooShort | ProtocolError |
+| address mismatch | ProtocolError |
+| function mismatch（含 0x84 对 FC03 请求） | ProtocolError |
+| FC03 响应 malformed / 数量不匹配 | ProtocolError |
+
+CRC Error 单独一档，因为它是"物理线路上最真实的现场故障信号"（干扰/接线/参数）且来自 wire 层而非语义层。
+
+---
+
+## 2.11 RTU Request/Response Pairing
+
+- Modbus RTU **没有 transaction ID**。v1 定案：**one outstanding request**——分析器接收"调用方认为属于同一等待窗口"的 Request+Observation（串行会话/演示/回放都天然满足）。
+- 即便有单飞前提，analyzer 仍校验 address / function / 语义一致性——单飞只保证"同一窗口只有一对"，不保证"这对就是同一目标"。
+- 当前不存在的机制：并发 request map、transaction-id lookup（记为 limitation，非缺陷——v1 单事务语义足够）。
+
+---
+
+## 2.12 Exact Examples（白板级 6 例）
+
+1. **Success**：req `01 03 00 00 00 02`（CRC 略）→ obs Frame `01 03 04 00 64 00 C8` → address✓/function✓/quantity 2==2✓ → **Success**, elapsed=caller's, exceptionCode=nullopt。
+2. **Exception 0x02**：req `01 03 00 64 00 01` → obs `01 83 02`（合法）→ address✓/function(0x83↔0x03)✓/异常码内 0x02 → **Exception**, exceptionCode=0x02。
+3. **CRC mismatch**：obs = wire 完整但尾两字节被翻 → decode → CrcMismatch → **CrcError**。
+4. **NoResponse before timeout**：obs=NoResponse, elapsed=500, threshold=1000 → **Pending**。
+5. **NoResponse at boundary**：obs=NoResponse, elapsed=1000, threshold=1000 → **Timeout**（项目口径 `>=`）。
+6. **Quantity mismatch**：req quantity=2 → obs `01 03 06 00 64 00 C8 05 DC`（byteCount=6，合法单帧）→ address✓/function✓ → quantity 不一致 → **ProtocolError**。
+
+---
+
+## 2.13 Code Navigation（协议核快速复习）
+
+| 主题 | 文件 | API | 测试 |
+| --- | --- | --- | --- |
+| CRC | src/core/protocol/ModbusCrc.{h,cpp} | `calculateModbusCrc(span)` | tests/test_modbus_crc.cpp（KAT/边界/zero-remainder 等） |
+| Frame | src/core/protocol/ModbusRtuFrame.h | struct + `isExceptionResponse` | test_modbus_rtu_frame.cpp |
+| RTU Codec | src/core/protocol/ModbusRtuCodec.{h,cpp} | `encodeRtuFrame` / `decodeRtuFrame`（variant） | test_modbus_rtu_codec.cpp |
+| FC03 | src/core/protocol/Function03.{h,cpp} | request/normal/exception 三个 decoder（+encode） | test_function03.cpp（含 V1.1b3 官方 gold 样例） |
+| Transaction | src/core/analysis/TransactionAnalysis.{h,cpp} | `analyzeFunction03Transaction` + `TransactionStatus` | test_transaction_analysis.cpp |
+
+---
+
+## 2.14 Misconception List（至少 10 条，均针对本项目）
+
+1. ❌ "Modbus 所有字段都是 little-endian。" ✅ 寄存器/请求语义字段 high-byte-first；只有 RTU CRC 线上是 low-byte-first。
+2. ❌ "没收到 response 就是 Timeout。" ✅ 未到阈值是 Pending。
+3. ❌ "0x02 是 CRC 错误。" ✅ 0x02 是 Modbus Exception Code（Illegal Data Address）；CRC 错误来自 wire 校验。
+4. ❌ "0x84 也是对 FC03 的异常响应。" ✅ 0x84 对应 FC04 请求，对 FC03 是 function mismatch → ProtocolError。
+5. ❌ "Frame 里存了 CRC。" ✅ Frame 只有 address/function/data；CRC 只在 wire 层。
+6. ❌ "CPU 是小端所以 84 0A 出现在线上。" ✅ 84 0A 是协议规定（低字节先发），与 CPU 无关，也不能 memcpy。
+7. ❌ "encode→decode 能走通就证明 CRC 正确。" ✅ 那只证明自洽；KAT 才是算法正确的权威证据。
+8. ❌ "DropResponse 就是 Timeout。" ✅ 注入只制造无响应事实；Timeout 由 elapsed+threshold 在 T007 裁决。
+9. ❌ "quantity 不匹配是 response codec 的错。" ✅ 单帧本身完全合法，只有见 request 才知道不匹配 → 属 transaction 层。
+10. ❌ "RTU 有 transaction ID 可以用来配对。" ✅ RTU 没有；v1 用 one-outstanding + address/function/语义三重校验。
+11. ❌ "异常响应（0x83）与 CRC 校验是同一层的检查。" ✅ 0x83 是语义层匹配；CRC 在 wire decode 层先行。
+
+---
+
+## 2.15 Self-Test（15 题，不附答案）
+
+**基础 5**
+1. `calculateModbusCrc` 的输入是什么字节？0x0A84 为什么在线上变成 84 0A？
+2. `ModbusRtuFrame` 三个字段之外，为什么不放 CRC？
+3. 逐字节解释 `01 03 00 00 00 01 84 0A`。
+4. `01 03 04 00 64 00 C8 ...` 中 byteCount 为什么是 4？
+5. `0x83` 与 `0x02` 各自表示什么？
+
+**边界 5**
+6. 为什么 `0x84` 不能判 FC03 Exception？
+7. 单帧 `01 03 06 ...`（byteCount=6）自身合法，为什么在一个 quantity=2 的事务里是 ProtocolError？
+8. CrcMismatch 与 FrameTooShort 分别落到什么 TransactionStatus？
+9. Pending 与 Timeout 的分界条件是什么（elapsed/threshold）？
+10. "到达了 4 字节坏 CRC 的 response"在 Serial 里为什么是 CrcError 而不是 Timeout？
+
+**追问 5**
+11. 为什么 decode 失败用 variant 错误而不是 "Frame+crcValid=false"？
+12. 为什么 DropResponse 不能在 Fault Injector 里直接生产 Timeout？
+13. one-outstanding 前提下，为什么 analyzer 还要校验 address/function？
+14. 为什么 round-trip 不能替代 KAT？（04 的证据分级怎么表述？）
+15. KAT 数值 0x0A84 反推出"线上 84 0A"的两步推理是什么？
+
+---
+
+*Part 2 完。后续 Part 不在本阶段创建。*
