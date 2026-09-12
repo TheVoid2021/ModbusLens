@@ -13,7 +13,7 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T013 — Phase E REMEDIATION（Phase D Re-Review FAIL/PARTIAL：串口空态视觉+表格宽度利用；Qt-side 取证 count=0）** |
+| 当前任务（Current Task） | **T013 — Phase E IMPLEMENTED / AWAITING MANUAL VISUAL RE-REVIEW（candidate `99f17d6`）** |
 | 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
 | 当前阶段（Current Phase） | T013 Phase C 落地（Light + TabBar 三页 + 稳定表格 + 轻 scrollbar；ctest 23/23、deploy+minimal-PATH）→ 待用户 Manual Visual Re-Review |
 | 下一步动作（Next Action） | **T013 Manual Visual Re-Review（A~K 清单 + 三场景）— 待用户本人确认** |
@@ -191,6 +191,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-11 | **T013 Manual Visual Re-Review = FAIL（用户，R1/R2/R3）**：串口下拉空白（OS probe=0 活动端口→空态缺陷，非枚举 bug）；选中 Tab 无边框；表格五列对齐失败；5a2f60c 定格 MANUAL RE-REVIEW FAILED→superseded；进入 Phase D |
 | 2026-09-11 | **T013 Phase D Remediation 完成（`a25d63c` candidate）**：串口空态（OS probe=0 端口取证→仅 QML overlay）/Tab 选中恒可见边框/表格单列几何 owner 对齐；clean 147 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH PASS；零真实调用；**待用户 Manual Visual Re-Review（仅 A~D）**；LKGC 未推进 |
 | 2026-09-11 | **T013 Phase D Re-Review = FAIL/PARTIAL（用户）**：A 串口空态视觉 UNRESOLVED（生产 Qt API 取证 QSerialPortInfo count=0——机器 serial availability 变化，非链路 bug）；D 表格水平空间浪费；B/C PASS。另发现原生 style 忽略自定义（Fusion style 修正）。a25d63c 定格 superseded；进入 Phase E |
+| 2026-09-11 | **T013 Phase E 完成（`99f17d6` candidate）**：Qt 同 runtime 取证（QSerialPortInfo count=0）+ Fusion style（定制警告清零）+ 串口可读空态 + 表格比例列宽；clean 147 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH PASS；零真实调用；**待用户 Manual Visual Re-Review（A/B/C）**；LKGC 未推进 |
+
 
 
 

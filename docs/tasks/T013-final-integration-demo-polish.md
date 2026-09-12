@@ -1,6 +1,6 @@
 # T013 — Final Integration & Demo Polish
 
-- **状态**：IN PROGRESS — **Phase D = IMPLEMENTED / AWAITING MANUAL VISUAL RE-REVIEW（2026-09-11；candidate `a25d63c`；`5a2f60c`/`aea1e64` 均定格 superseded）**
+- **状态**：IN PROGRESS — **Phase E = IMPLEMENTED / AWAITING MANUAL VISUAL RE-REVIEW（2026-09-11；candidate `99f17d6`；`a25d63c`/`5a2f60c`/`aea1e64` 均定格 superseded）**
 - **背景**：T011/T012 及 Post-Closure Stabilization 全部完成（LKGC `3572cf7`）。T013 不是第二轮产品开发——只做 UI visual polish、用户术语 polish、最终 Demo 流程、README/部署/演示证据一致性与面试表达就绪。
 
 ---
@@ -157,4 +157,12 @@ FC06/FC10；startAddress/quantity enrichment；write-register Tool；自动设�
 - **Qt-side 真证**:在 production 相同 Qt6.11.1 MinGW runtime 上受控 probe(临时 qInfo,已 git checkout 恢复):刷新点击两次 → `QSerialPortInfo::availablePorts()` size = **0**。<10>.NET=0 与 OS/PnP 仅辅助,生产事实以 Qt API 为准。→ "以前有两个、现在为零"= 机器 serial availability 变化(此前物理/虚拟 COM 当前不存在),hypothesis only、无 root-cause 断言;不存在应用链路 regression。
 - 额外发现:实际运行 log 显示原生 Windows style **忽略** ScrollBar/TabButton 的 background/contentItem 自定义(且 TabButton `checked` 引用报 ReferenceError)→ 在 main.cpp 显式 `QQuickStyle::setStyle("Fusion")` 使定制生效(警告清零)。这解释为何 Phase D 的某些定制此前未真正渲染。
 - 修复方向:A 保留真实空 model+“未检测到串口”overlay,ComboBox 不再整体 disabled(自定义可读背景/文本,Connect 仍 disabled);D 表格改为单一 owner 的按比例列宽(15/15/20/18/最后余量,含最小宽度保护),表头与行同一几何来源。
+## 21. Phase E Implementation 记录（2026-09-11，`99f17d6` candidate）
+
+- Qt-side 取证结论:生产同 runtime `QSerialPortInfo::availablePorts()`=0(两次)→ 非应用回归;机器 serial availability 变化(假设级)。
+- Serial UI:真实空 model + "未检测到串口"overlay + 可读自定义框(不再整体 disabled);Refresh 恒可点;Connect 语义不变。
+- Fusion style(main.cpp):修复原生 Windows style 忽略自定义与 `checked` ReferenceError;运行日志 customization 警告清零。
+- 表格:15/15/20/18/余量 比例列宽,单一 owner(tableUsableWidth)+最小宽度保护;表头与行共享;大窗口均衡填充。
+- 验证:clean 147 零警告;ctest 23/23;deploy+minimal-PATH PASS;零真实调用。
+- 人工复查仅 A(串口,先报 Qt count=N)/B(表格对齐+宽度利用)/C(回归:Tab border 仍 PASS、1000x700、Simulator/Replay)。
 
