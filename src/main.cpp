@@ -1,6 +1,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QCoreApplication>
+#include <QQuickStyle>
 
 int main(int argc, char *argv[])
 {
@@ -8,6 +9,12 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationName(QStringLiteral("ModbusLens"));
     QCoreApplication::setApplicationName(QStringLiteral("ModbusLens"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+
+    // T013 Phase E: the Windows native style ignores our QML control
+    // customization (TabButton/ScrollBar background & contentItem) — switch
+    // to a style that honors custom backgrounds so the light-theme tab
+    // borders and thin scrollbars actually render.
+    QQuickStyle::setStyle(QStringLiteral("Fusion"));
 
     QQmlApplicationEngine engine;
     QObject::connect(

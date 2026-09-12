@@ -148,7 +148,19 @@ ApplicationWindow {
                             anchors.fill: parent
                             model: analysisController.serialPortNames
                             enabled: !analysisController.serialConnected
-                                         && analysisController.serialPortNames.length > 0
+                            background: Rectangle {
+                                radius: 3
+                                color: root.surface
+                                border.color: root.border
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                leftPadding: 8
+                                verticalAlignment: Text.AlignVCenter
+                                text: serialPortCombo.currentText
+                                color: root.textPrimary
+                                elide: Text.ElideRight
+                            }
                         }
                         Label {
                             anchors.centerIn: parent
@@ -435,54 +447,57 @@ ApplicationWindow {
                         }
 
                         TabButton {
+                            id: tabBaseline
                             text: qsTr("基线诊断")
                             background: Rectangle {
                                 radius: 3
-                                color: checked ? root.surface : root.surfaceAlt
-                                border.color: checked ? root.activeTabBorder : root.border
+                                color: tabBaseline.checked ? root.surface : root.surfaceAlt
+                                border.color: tabBaseline.checked ? root.activeTabBorder : root.border
                                 border.width: 1
                             }
                             contentItem: Text {
-                                text: parent.text
+                                text: tabBaseline.text
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
-                                color: checked ? root.textPrimary : root.textSecondary
+                                color: tabBaseline.checked ? root.textPrimary : root.textSecondary
                                 font.pixelSize: 13
-                                font.bold: checked
+                                font.bold: tabBaseline.checked
                             }
                         }
                         TabButton {
+                            id: tabAi
                             text: qsTr("AI 解释")
                             background: Rectangle {
                                 radius: 3
-                                color: checked ? root.surface : root.surfaceAlt
-                                border.color: checked ? root.activeTabBorder : root.border
+                                color: tabAi.checked ? root.surface : root.surfaceAlt
+                                border.color: tabAi.checked ? root.activeTabBorder : root.border
                                 border.width: 1
                             }
                             contentItem: Text {
-                                text: parent.text
+                                text: tabAi.text
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
-                                color: checked ? root.textPrimary : root.textSecondary
+                                color: tabAi.checked ? root.textPrimary : root.textSecondary
                                 font.pixelSize: 13
-                                font.bold: checked
+                                font.bold: tabAi.checked
                             }
                         }
                         TabButton {
+                            id: tabAgent
                             text: qsTr("Agent 问答")
                             background: Rectangle {
                                 radius: 3
-                                color: checked ? root.surface : root.surfaceAlt
-                                border.color: checked ? root.activeTabBorder : root.border
+                                color: tabAgent.checked ? root.surface : root.surfaceAlt
+                                border.color: tabAgent.checked ? root.activeTabBorder : root.border
                                 border.width: 1
                             }
                             contentItem: Text {
-                                text: parent.text
+                                text: tabAgent.text
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
-                                color: checked ? root.textPrimary : root.textSecondary
+                                color: tabAgent.checked ? root.textPrimary : root.textSecondary
                                 font.pixelSize: 13
-                                font.bold: checked
+                                font.bold: tabAgent.checked
                             }
                         }
                     }
@@ -741,13 +756,23 @@ ApplicationWindow {
                 // Single column-geometry owner (Phase D): header AND
                 // every row reference exactly these widths — no
                 // independent layout distribution may drift columns.
-                readonly property int deviceColumnWidth: 80
-                readonly property int functionColumnWidth: 70
-                readonly property int statusColumnWidth: 90
-                readonly property int latencyColumnWidth: 80
+                // Phase E: proportional widths derived from ONE owner.
+                // mins protect the 1000x700 minimum window.
+                readonly property int tableUsableWidth:
+                    Math.max(transactionsPane.width - 24, 0)
+                readonly property int deviceColumnWidth:
+                    Math.max(64, Math.round(tableUsableWidth * 0.15))
+                readonly property int functionColumnWidth:
+                    Math.max(60, Math.round(tableUsableWidth * 0.15))
+                readonly property int statusColumnWidth:
+                    Math.max(96, Math.round(tableUsableWidth * 0.20))
+                readonly property int latencyColumnWidth:
+                    Math.max(84, Math.round(tableUsableWidth * 0.18))
                 readonly property int leadingColumnsWidth:
                     deviceColumnWidth + functionColumnWidth
                     + statusColumnWidth + latencyColumnWidth
+                readonly property int exceptionColumnWidth:
+                    Math.max(tableUsableWidth - leadingColumnsWidth, 96)
 
                 ColumnLayout {
                     anchors.fill: parent
