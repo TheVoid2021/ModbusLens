@@ -138,4 +138,10 @@ FC06/FC10；startAddress/quantity enrichment；write-register Tool；自动设�
 - 密度收敛 + lineHeight 1.35 保留 + busy/error light 对比（语义不变，视觉仍待人工复验）。
 - 验证：clean 147 零警告；ctest 23/23；deploy+minimal-PATH PASS；零真实调用。
 - Screenshot 状态与 Manual Re-Review 清单更新（10+ 项）由 docs commit 随附。
+## 18. Phase D Remediation（2026-09-11）— Manual Visual Re-Review FAIL 归档
+
+- **Phase C Manual Visual Re-Review = FAIL**（用户）：R1 Serial Port Refresh/Empty State=FAIL（刷新后端口下拉全空无任何可见提示）；R2 Selected Tab Border=FAIL（选中 Tab 变白且边框消失、与内容区相融）；R3 Transaction Header/Row Alignment=FAIL（相同 preferredWidth 方案未达成五列对齐，越右错位越明显）。其他区域无新增问题；busy/error 仍 NOT FULLY EXERCISED。
+- **Serial 事实调查（实施前）**：OS 只读 probe —— .NET `SerialPort.GetPortNames()` = **0**(当前系统无活动串口)、PnP "COM" 模糊匹配 13 条属宽泛命中、非活动端口证据。→ R1 定性 = **情况 B**（无端口 + UI 缺空态），非 serial 枚举功能 bug、非 transport error。
+- 方向：R1 仅 QML 空态（“未检测到串口”，model 保持真空、Connect 保持 disabled、刷新不 open/不 crash/不改 batch）；R2 TabButton 显式 background+border（inactive surfaceAlt/border；active surface/可见 border+2px accent 底条）；R3 单一列几何 owner（右 pane 上共享列宽常量，header 与 row 完全同坐标、spacing=0、Row 布局），last 列填充余量。
+- Phase C candidate `5a2f60c` = IMPLEMENTED / AUTOMATED PASS / MANUAL VISUAL RE-REVIEW FAILED → superseded（新 Phase D commit 出现后定格）。
 
