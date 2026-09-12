@@ -699,4 +699,260 @@ Transaction facts + Statistics Snapshot
 
 ---
 
-*Part 3 完。后续 Part 不在本阶段创建。*
+*Part 3 完。后续 Part 不在本阶段创建。*---
+
+# Part 4 — Simulator / Replay / Serial Execution Modes
+
+> 与代码互核：`SimulatedSlave::handleRequest`（可信 Frame→正常/合法异常）；`SimulationFaultMode{None,CorruptCrc,DropResponse,ArtificialDelay}`、`SimulatedDelivery=variant<DeliveredWire,DroppedResponse>`；`ReplayTransactionRecord{elapsed, requestWire, optional responseWire}`（nullopt=明确"未观察到响应"）、`ReplayLog{records, timeoutThreshold}`；`SerialTransactionState{Idle, AwaitingResponse}`、`SerialTransactionErrorCode{Busy, NotActive, ...}`、`beginReadHoldingRegisters→variant<SerialRequestStart,SerialTransactionError>`、`feedResponseBytes`。
+
+---
+
+## 4.1 三种模式的共同目标
+
+Simulator / Replay / Serial 最终都应进入**同一条**判定链路：
+
+```
+Modbus Frame / Decode Error / NoResponse
+   → TransactionAnalysis（T007）
+   → TransactionStatistics（T007）
+   → Controller / Diagnosis
+```
+
+任何一种模式都**不得**自己重新实现：CRC、FC03 解析、TransactionStatus 分类、Statistics 公式。差别只在"事实从哪里来、怎样到达"，而不是"事实怎样被判断"。
+
+---
+
+## 4.2 Simulator（T005）
+
+- `SimulatedSlave` 模拟的是 **Slave**：接收可信 Request Frame → 查 Holding Register → 返回正常 Response 或合法 Exception（如起始地址越界 → 0x83/0x02）。
+- **不负责**：CRC corruption、DropResponse、Timeout、UI、AI。
+- Fault Injector 与 SimulatedSlave 分开的理由：从站语义与"故意破坏投递"是两个正交关注点；语义端点保持纯净（const 应答），破坏面单独在 wire 层注入（T006）。
+
+---
+
+## 4.3 Fault Injection（T006）
+
+真实层次：
+
+```
+SimulatedSlave → 正确 Response Frame
+   → encodeRtuFrame → 正确 wire
+   → applySimulationFault（None / CorruptCrc / DropResponse / ArtificialDelay）
+```
+
+- **CorruptCrc 必须作用于 wire**：CRC 属于 wire representation（Part 2 结论），语义帧里根本没有 CRC 可"翻"。
+- **DropResponse ≠ Timeout**：注入只产生投递事实"没有回答到达"（DroppedResponse）；Timeout 是 T007 依据 NoResponse + elapsed + threshold 的裁决（Part 3/Part 2 双重锁定）。
+- **ArtificialDelay 不真实 sleep**：它携带 metadata（延迟量），由上层测试赋值给 elapsed 传入 analyzer——core 无时钟、无等待（纯函数纪律）。
+
+---
+
+## 4.4 Replay（T009）
+
+- Replay = 读取历史记录做**批式离线重分析**，不是实时通信、不是按时间轴播放。
+- 真实模型：
+
+```cpp
+struct ReplayTransactionRecord {
+    std::chrono::milliseconds elapsed{};
+    std::vector<std::uint8_t> requestWire;
+    std::optional<std::vector<std::uint8_t>> responseWire; // nullopt = NO_RESPONSE（历史事实）
+};
+struct ReplayLog { std::vector<ReplayTransactionRecord> transactions; std::chrono::milliseconds timeoutThreshold{1000}; };
+```
+
+- **Replay 不 sleep**：elapsed 是历史记录的直接值，原样传给 `analyzeFunction03Transaction(request, observation, elapsed, threshold)`——分析结果与当年完全同口径。
+
+---
+
+## 4.5 坏 Request vs 坏 Response（重点面试题）
+
+- **坏 Request**（requestWire decode 失败 / FC03 语义非法）：无法建立可信的事务起点 → **Replay execution error**（InvalidRequestWire/InvalidRequestData/InvalidRequestFunction 三错误码）。**不能**伪造 `TransactionStatus::CrcError`——CRC 错误形容的是"响应数据损坏"，与"请求不可信"是两件事。
+- **坏 Response**（responseWire decode 失败）：恰恰是**历史诊断对象本身** → 转成 `ResponseObservation{RtuDecodeError}` → analyzer → CrcError / ProtocolError（真实历史故障被如实重放）。
+- 为什么必须区别：一个描述"复盘无法进行（输入不可信）"，一个描述"当时现场确有此故障"。混淆会让坏日志被伪装成 CRC 故障统计。
+
+---
+
+## 4.6 Replay 为什么复用 T007
+
+```
+Replay text/file → Parser → ReplayLog
+   → requestWire decode（可信链）
+   → responseWire decode / NoResponse
+   → ResponseObservation
+   → analyzeFunction03Transaction
+   → TransactionAnalysis
+   → summarizeTransactions（batch 级）
+```
+
+Replay 自己**不再**实现：CRC 分类、Timeout 分类、quantity mismatch、统计公式——全部是 T007 的既定裁决。
+
+---
+
+## 4.7 Serial（T010）两层职责
+
+- **Qt Serial Adapter（App 层）**：`QSerialPort` 生命周期、port discovery、open/close、字节 I/O、Qt 信号/定时器/事件集成（queued error handling，PE-4）。它是"transport adapter"。
+- **SerialTransactionSession（Pure C++ Core）**：begin FC03 事务、保存请求、one outstanding、receive buffer、任意切块累计、candidate framing、调 codec、调 transaction analyzer、timeout 收口、cancel/reset。它是"deterministic session logic"。
+- 状态机真实值：`Idle` / `AwaitingResponse`；begin 时已有事务 → `Busy` 错误；无事务时收口 → `NotActive`。
+
+**为什么 Session 必须 Pure C++**：framing/runtime 全塞进 QObject/QSerialPort 会——难单测、协议逻辑与平台 I/O 耦合、Replay/Simulator 无法共享思想、真实 COM 环境成为验证前提。分离后：Qt 负责运输，Core 负责裁决。
+
+---
+
+## 4.8 Serial byte chunks（真实串口特性）
+
+一次 `readyRead` 不保证一帧：可能先 `01 03 04`、再 `00 64`、再 `00 C8 BA 7A`。因此必须有 receive buffer + candidate framing。**一次 read == 一帧是错误假设**。
+
+---
+
+## 4.9 FC03 response framing（真实实现基础）
+
+- Normal：`Address(1) + Function(1) + ByteCount(1) + Data(byteCount) + CRC(2)`，候选完整长度由 byteCount 推出（5+2N 形式）。
+- Exception：固定 5 字节（`Address + 0x83 + Code + CRC`）。
+- **framing 不判断 quantity mismatch**：候选是否收齐只看字节结构；"返回寄存器数是否等于 request.quantity"仍属 Transaction Analysis（Part 2 跨帧边界）。
+
+---
+
+## 4.10 One Outstanding Request
+
+同一 session 一次只允许一个未完成 Request（Idle↔AwaitingResponse）。AwaitingResponse 时再次 begin → `Busy`；**不 queue、不覆盖当前 request**。这个约束让没有 Transaction ID 的 RTU v1 保持简单可靠（结合 T007 的 address/function/语义三重校验）。
+
+---
+
+## 4.11 Serial Timeout 职责边界
+
+- Qt timer（adapter）推进时间 → 时间到 -> session 的 timeout 收口路径，把 elapsed 交给 analyzer；分析器按 elapsed≥threshold 判定 Timeout。
+- **不是 Slave 产生 Timeout**；slave 只是"没响应"（或响应没到），判定属于本机分析层。
+
+---
+
+## 4.12 Serial Port Discovery（真实 contract）
+
+- 生产唯一发现源 = `QSerialPortInfo::availablePorts()`。
+- refresh 只允许：重新枚举。不得：open、write、probe Modbus、自动连接。
+- 端口列表可以为空——**空列表不是程序故障、不是 SerialError**。
+- 不声称固定存在 N 个 port。
+
+---
+
+## 4.13 No-port 历史事实（证明 vs 未知）
+
+- **已证明**：本项目历史环境曾观察到过 serial devices（档案记录）；最终一次 production Qt runtime 受控 probe 得到 `QSerialPortInfo::availablePorts().size() == 0`。
+- **设计约束**：UI 提供明确空态（"未检测到串口"）、Refresh 恒可用、Connect disabled、不伪造端口。
+- **未知（不得发明 RCA）**："现在为何是 0"（驱动/USB/COM 占用等一律是未经证明的假设）。这一纪律与 ISSUE-008/009 同源：不把 hypothesis 写成 fact。
+
+---
+
+## 4.14 三模式对照表（以代码为准）
+
+| | Simulator | Replay | Serial |
+| --- | --- | --- | --- |
+| 数据来源 | 内存 SimulatedSlave + Fault | 历史 .mlog 文件 | QSerialPort 实时字节 |
+| 是否实时 | 是（点击即算） | 否（批式重分析） | 是 |
+| 是否真实等待 | 否 | 否（elapsed 是历史值） | 是（Qt timer） |
+| Request 来源 | makeFc03Read 演示构造 | requestWire 字节 | encodeReadHoldingRegistersRequest |
+| Response 来源 | Slave 应答（±Fault） | responseWire 历史字节 | readyRead 字节 |
+| 物理串口 | 无 | 无 | 有（可选） |
+| 使用 RTU codec | ✓（encode/decode 校验） | ✓（双 wire decode） | ✓（session framing） |
+| 使用 T007 analyzer | ✓ | ✓ | ✓ |
+| 使用 T007 statistics | ✓ | ✓ | ✓（单元素批） |
+| 可产生 NoResponse | ✓（DropResponse） | ✓（NO_RESPONSE 字段） | ✓（超时无响应） |
+| 主要错误来源 | 构造错误（演示代码防御 qWarning） | Parse/Execution 错误（文件坏） | Transport error（端口/写失败） |
+| 测试方式 | SIM/FAULT tests | REPLAY/A + I | SERIAL + adapter + UI bridge |
+
+---
+
+## 4.15 三条真实调用链（都到 Analysis + Statistics）
+
+**A. Simulator Demo（Success/CRC/Timeout 四种）**
+`runDemoBatch() → makeFc03Read → SimulatedSlave.handleRequest → (DEMO-3) encodeRtuFrame → applySimulationFault(CorruptCrc) → decodeRtuFrame → RtuDecodeError → (DEMO-4) applySimulationFault(DropResponse) → DroppedResponse→NoResponse → analyzeFunction03Transaction(request, obs, elapsed, 1000ms) ×4 → summarizeTransactions → applySnapshot + setEntries → QML`
+
+**B. Replay 一条事务**
+`loadReplayFile → parseReplayLog → ReplayLog → analyzeReplayLog → 每条: requestWire→decode(可信) / responseWire→decode|NoResponse → analyzeFunction03Transaction → ReplayTransactionOutcome → 全批 summarizeTransactions → Controller publish → QML`
+
+**C. Serial FC03 read**
+`connectSerial → openPort(QSerialPort 8N1+波特率) → readHoldingRegistersOnce → startTransaction → encodeRequest + write → readyRead chunk(s) → feedResponseBytes → candidate complete → codec/analyzer → transactionCompleted(TransactionAnalysis) → publishSerialResult → single-row model + single-element statistics → QML`
+
+---
+
+## 4.16 IFrameSource 决策（为什么不强行统一）
+
+三种来源的调用形状完全不同：Simulator 是"Request→Response"同步算式，Replay 是"Batch→Analysis"批处理，Serial 是"async bytes + session 生命周期"。早期为了"架构好看"强行抽 `IFrameSource` 只会造出既不适配三个形状、又无消费者的抽象。**结论：共用点落在分析核心（Transaction/Statistics），而不是采集接口。**
+
+---
+
+## 4.17 Source vs Analysis（核心思想）
+
+Source / Transport / Runtime（Simulator、Replay、Serial）可以各不相同；Protocol / Transaction / Statistics（Core）必须共享。这就是"三模式同口径"的架构表达：**来源负责把事实送达，核心负责裁决事实。**
+
+---
+
+## 4.18 Tests 边界（每类证明什么）
+
+- **Simulator tests（SIM-T）**：从站语义正确（正常/异常/越界），无注入参杂。
+- **Fault tests（FAULT-T）**：四模式注入结果形态（DeliveredWire/DroppedResponse）+ 确定性。
+- **Simulator integration**：T002→T005 首次全链路闭环（slave→codec→analyzer）。
+- **Replay log tests（REPLAY-A）**：text→ReplayLog 解析矩阵（header/wire/行号/CRLF/注释）。
+- **Replay analysis tests（REPLAY-I）**：batch→outcome；坏请求三错误码；坏响应→诊断事实；golden 与 Demo 同口径。
+- **Serial session tests（SERIAL-A）**：Zero Qt 状态机、framing、Busy/NotActive、partial vs CrcError。
+- **Serial adapter tests**：QSerialPort 路径（含 PE-4 错误风暴有界性）——唯一链接 QtSerialPort 的测试 target。
+- **UI bridge tests**：三模式发布路径（UI-R / UI-S / UI-B）与 stale guard。
+
+---
+
+## 4.19 Common Misconceptions（≥12 条）
+
+1. ❌ "Simulator 是假数据直接塞 UI。" ✅ 真实经过 core analyzer/statistics。
+2. ❌ "DropResponse 就是 Timeout。" ✅ 注入≠裁决；阈值决定。
+3. ❌ "Replay 按 elapsed 真实 sleep 回放。" ✅ 批式瞬间重算。
+4. ❌ "坏 Request 应产生 CrcError 事务。" ✅ 应产生 execution error（请求不可信 ≠ 响应损坏）。
+5. ❌ "Serial 一次 read 就是一帧。" ✅ 任意切块；需 buffer+framing。
+6. ❌ "framing 应判断 quantity mismatch。" ✅ framing 只看字节结构；匹配归 T007。
+7. ❌ "refresh 串口可以顺便 open/probe。" ✅ discovery-only，禁自动 side-effect。
+8. ❌ "端口列表为空就是 SerialError。" ✅ 是合法空态；有 UI 提示、无错误语义。
+9. ❌ "历史见过 2 个 port，现在必须有 2 个。" ✅ 设备可用性随时间变化；当前 Qt 探针=0。
+10. ❌ "三种模式必须共用一个大 interface 才算好架构。" ✅ 共用点=分析核心，非采集接口。
+11. ❌ "ArtificialDelay 会让 core 真的睡一会。" ✅ metadata 延迟，由测试/demo 赋 elapsed。
+12. ❌ "Serial 超时是 slave 产生的。" ✅ 由本机 elapsed+threshold 收口判定。
+
+---
+
+## 4.20 Code Navigation
+
+| 主题 | 文件 | 关键符号 |
+| --- | --- | --- |
+| Simulator | src/core/simulator/SimulatedSlave.{h,cpp} | `handleRequest` |
+| Fault | src/core/simulator/SimulationFault.{h,cpp} | `applySimulationFault`, `SimulatedDelivery` |
+| Replay | src/core/replay/ReplayLog.{h,cpp}, ReplayAnalysis.{h,cpp} | `parseReplayLog`, `analyzeReplayLog`, `ReplayTransactionRecord` |
+| Serial Session | src/core/serial/SerialTransactionSession.{h,cpp} | `beginReadHoldingRegisters`, `feedResponseBytes`, `onResponseTimeout` |
+| Serial Adapter | src/ui/serial/SerialPortAdapter.{h,cpp} | `openPort`, `startTransaction`, `cancelPending` |
+| Controller 集成 | src/ui/AnalysisController.cpp | `runDemoBatch`, `loadReplayFile`, `connectSerial`, `readHoldingRegistersOnce`, `publishSerialResult` |
+| Tests | tests/：test_simulated_slave / test_simulation_fault / test_simulator_integration / test_replay_log / test_replay_analysis / test_serial_session / test_serial_adapter / test_ui_bridge | — |
+
+---
+
+## 4.21 Self-Test（15 题，无答案）
+
+**基础 5**
+1. SimulatedSlave 的输入输出形态是什么？它会不会故意坏 CRC？
+2. Fault Injection 的四种模式各产生什么 variant？
+3. ReplayTransactionRecord 三个字段的语义（responseWire=nullopt 表示什么）？
+4. Serial Session 的两个状态与两个 begin 边界错误是什么？
+5. 三条来源最终共用的判定函数名是什么？
+
+**边界 5**
+6. CorruptCrc 为什么不能作用于 Frame 而必须作用于 wire？
+7. Replay 坏请求与坏响应为什么必须分类不同（各落到哪）？
+8. `01 03 04 / 00 64 / 00 C8 BA 7A` 三个 chunk 到达时 session 做什么？
+9. 为什么 framing 收齐的依据是 byteCount 而非 quantity 匹配？
+10. 端口列表为空时为什么不是 SerialError？
+
+**追问 5**
+11. 为什么 ArtificialDelay 不在 core 里 sleep？（纯函数纪律向内推导……从哪些 API 能看出？）
+12. Serial 超时的"发起者/收到者/判定者"分别在哪层？
+13. 为什么不抽 IFrameSource？请在三种模式的调用形状上给出证据。
+14. 集成测试的 15ms 与 Demo 的 25ms/1000ms 分别如何进入统计？（跨 Part 3/4 追问）
+15. "历史见过 2 个 port"与"现在 Qt probe=0"这件事，哪些能说、哪些不能说？为什么？
+
+---
+
+*Part 4 完。后续 Part 不在本阶段创建。*
