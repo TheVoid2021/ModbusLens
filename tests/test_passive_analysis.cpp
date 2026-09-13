@@ -124,6 +124,10 @@ private slots:
     void p13_fc06WrongResponseAddress();
     void p14_mixedBatchStatistics();
     void p15_deterministicRepeat();
+    // T015 semantic audit (P0): the generic exception matcher must require a
+    // request function WITHOUT the exception bit; a request whose function
+    // already carries 0x80 can never be "answered" by (fn | 0x80).
+    void p16_requestFunctionWithExceptionBitIsNeverAnException();
 };
 
 void PassiveAnalysisTest::f06_requestDecode()
@@ -448,6 +452,50 @@ void PassiveAnalysisTest::p15_deterministicRepeat()
     QVERIFY(first.has_value());
     QVERIFY(second.has_value());
     QVERIFY(*first == *second);
+}
+
+void PassiveAnalysisTest::p16_requestFunctionWithExceptionBitIsNeverAnException()
+{
+    // A captured request whose function code already has the MSB set (0x88)
+    // is NOT a normal Modbus request function. Without an MSB guard,
+    // (0x88 | 0x80) == 0x88 makes the "exception reply" match itself and a
+    // 1-byte payload would be misreported as a legal Exception 0x01.
+    const ModbusRtuFrame exceptionShapedRequest{
+        .address = 0x01, .functionCode = 0x88, .data = {0x00}};
+    const ModbusRtuFrame oneByteReply{
+        .address = 0x01, .functionCode = 0x88, .data = {0x01}};
+
+    const auto batch =
+        analyzeBatch(logOf({recordOf(exceptionShapedRequest, oneByteReply, 12)}));
+    QVERIFY(batch.has_value());
+    QCOMPARE(batch->transactions.size(), std::size_t{0});
+    QCOMPARE(batch->unsupportedRecords.size(), std::size_t{1});
+    QCOMPARE(batch->unsupportedRecords[0].functionCode, std::uint8_t{0x88});
+    QCOMPARE(batch->statistics.exceptionCount, std::size_t{0});
+
+    // Same invariant for a longer (non-1-byte) reply: it must not become a
+    // malformed-exception protocol error either — the pair simply has no
+    // normal semantics for a function ModbusLens does not model.
+    const ModbusRtuFrame fourByteReply{
+        .address = 0x01, .functionCode = 0x88, .data = {0x01, 0x02, 0x03, 0x04}};
+    const auto batch2 =
+        analyzeBatch(logOf({recordOf(exceptionShapedRequest, fourByteReply, 12)}));
+    QVERIFY(batch2.has_value());
+    QCOMPARE(batch2->transactions.size(), std::size_t{0});
+    QCOMPARE(batch2->unsupportedRecords.size(), std::size_t{1});
+    QCOMPARE(batch2->unsupportedRecords[0].functionCode, std::uint8_t{0x88});
+    QCOMPARE(batch2->statistics.protocolErrorCount, std::size_t{0});
+
+    // Control: the legitimate generic-exception path is untouched
+    // (request 0x08 answered by 0x88/0x01 is still Exception 0x01).
+    const ModbusRtuFrame fc08Exception{
+        .address = 0x01, .functionCode = 0x88, .data = {0x01}};
+    const auto control =
+        analyzeBatch(logOf({recordOf(kFc08Request, fc08Exception, 14)}));
+    QVERIFY(control.has_value());
+    QCOMPARE(control->transactions.size(), std::size_t{1});
+    QCOMPARE(control->transactions[0].analysis.status, TransactionStatus::Exception);
+    QCOMPARE(*control->transactions[0].analysis.exceptionCode, std::uint8_t{0x01});
 }
 
 QTEST_GUILESS_MAIN(PassiveAnalysisTest)

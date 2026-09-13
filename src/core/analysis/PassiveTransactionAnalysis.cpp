@@ -168,8 +168,17 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
     }
 
     // 5. Generic exception path — written ONCE for every function code.
-    if (response.functionCode
-        == static_cast<std::uint8_t>(request.functionCode | kExceptionBit)) {
+    //    Boundary guard (T015 semantic audit): only a request function
+    //    WITHOUT the exception bit can be answered by (fn | 0x80). A request
+    //    whose function already carries 0x80 (e.g. 0x88) is not a normal
+    //    Modbus request function, so (fn | 0x80) == fn must never match
+    //    itself into a fake Exception; such a pair falls through to the
+    //    unsupported / function-mismatch paths below.
+    const bool requestHasExceptionBit =
+        (request.functionCode & kExceptionBit) != 0;
+    if (!requestHasExceptionBit
+        && response.functionCode
+            == static_cast<std::uint8_t>(request.functionCode | kExceptionBit)) {
         if (response.data.size() != 1) {
             return analyzed(
                 TransactionStatus::ProtocolError, elapsed, std::nullopt,
