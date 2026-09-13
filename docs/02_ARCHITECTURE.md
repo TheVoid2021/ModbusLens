@@ -75,12 +75,21 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 - Agent 通过 HTTP 与只读 Service 通信；Service 所能触及的数据仅为统计快照与报告。
 - 写操作能力在类型层面不存在（无任何"写"API），从架构上保证 FR-AG-02。
 
-### D6 诊断细节与归一化状态正交（T014，2026-09-13 落地）
+### D6 诊断细节与归一化状态正交（T014 建立；T015 扩展为七状态）
 
-- **六种 `TransactionStatus` 保持不变**；协议/事务级确定性诊断细节由 `TransactionIssue`（`TransactionIssueCode` 七值 + 稀疏 optional 载荷）随 `TransactionAnalysis` 保存（追加末尾、默认 nullopt——aggregate 源兼容）。
-- 生产不变量：`ProtocolError ⇒ issue.has_value()`（**只在 `analyzeFunction03Transaction` 的生产输出中成立**；防御分支 7/11 用 `UnknownProtocolError` sentinel）——下游对**人工构造 / malformed 的 `ProtocolError + issue == nullopt` 对象必须保持防御**：不 crash、不伪造 deterministic reason（omit detail 或显式 unspecified fallback）。其余状态 issue 恒缺席；Exception 的 detail 仍只有 exceptionCode；CrcError 不重复挂 detail（状态名已承载唯一确定性来源）。
-- 下游（Baseline/AI Prompt/Agent Tool/UI）**只读不重判**：reason 仅在 `analyzeFunction03Transaction` 产生，三模式（Simulator/Replay/Serial）经同一漏斗结构性同口径；serialization token（`transactionIssueName`）与人类文案分层（QString/UI prose 不进 Core）。
-- `TransactionStatistics` 仍只按 high-level status 聚合（STAT-B09 锁定）；detail 不产生任何统计维度。
+- **`TransactionStatus` 现为七值**：T014 保持六状态不动并新增正交 `TransactionIssue`；T015 Gate C（ADR-003 批准）**有意新增** `ExpectedNoResponse`——广播请求无响应且协议不期待响应（不证明写入成功/设备健康）。该扩展使 completed 分解与成功率口径按 ADR-003 公式执行。
+- 协议/事务级确定性诊断细节由 `TransactionIssue`（`TransactionIssueCode` 九值 + 稀疏 optional 载荷）随 `TransactionAnalysis` 保存（追加末尾、默认 nullopt——aggregate 源兼容）。
+- 生产不变量：`ProtocolError ⇒ issue.has_value()`（**只在 `analyzeFunction03Transaction()` 的生产输出中成立**；防御分支用 `UnknownProtocolError` sentinel）——下游对**人工构造 / malformed 的 `ProtocolError + issue == nullopt` 对象必须保持防御**：不 crash、不伪造 deterministic reason（omit detail 或显式 unspecified fallback）。其余状态 issue 恒缺席；Exception 的 detail 仍只有 exceptionCode；CrcError 不重复挂 detail。
+- 请求侧事实由**独立**的 `TransactionRequestIssue`（Gate B）承载——T014 的 `TransactionIssue` 语义职责不被修改；两类 issue 均只在 Core 产生一次，下游只复制。
+- 下游（Baseline/AI Prompt/Agent Tool/UI）**只读不重判**；serialization token（`transactionIssueName`/`transactionRequestIssueName`）与人类文案分层。
+- `TransactionStatistics` 仍只按 high-level status 聚合（STAT-B09/B10 锁定）；detail 不产生统计维度。
+
+### D7 Active 与 Passive 契约分离（T015 Gate A）
+
+- **Active（Serial/Simulator）**：ModbusLens 自己构造请求 ⇒ T007 的 trusted-request 契约成立且**不改**；Serial 永远只发 FC03 读（写能力在类型/API 层不存在）。
+- **Passive（Replay）**：分析他人历史流量 ⇒ 新增 Core `PassiveTransactionAnalysis`（`analyzeObservedTransaction`）：按观测请求功能码 dispatch；FC03 有效请求**逐字复用** T007；**generic exception 匹配只写一处**（地址匹配 + fn|0x80 + 单字节 payload，不要求被拒函数的正常语义）；广播 = `address==0 ∧ FC06`（仅已支持的 broadcast-capable 功能码）；无法分析的功能码产出显式 `UnsupportedObservedTransaction`（**不伪装成 TransactionStatus**）。
+- Replay per-record 化（Gate F）：parser 语法失败仍整文件 fail；有效 RTU 请求之后的 semantic-invalid / unsupported 均为 per-record 事实，统计只描述 analyzed 子集且 unsupported 显式披露（UI 非致命提示）。
+- **Passive understanding ≠ Active capability**：理解历史写事务不授予任何写权限（源码 grep 级回归锚）。request-wire corruption（CRC/FrameTooShort）仍属旧失败契约（Gate E Scope A，deferred）。
 
 ## 3. 模式实现策略
 
@@ -126,7 +135,7 @@ tests/
 
 ## 6. 演进规则
 
-- 任何对 D1–D6 的变动 → 新建 ADR，禁止静默改架构。
+- 任何对 D1–D7 的变动 → 新建 ADR，禁止静默改架构。
 - 本文件随 ADR 诞生而更新「决策索引」，保持与代码事实一致。
 
 ### 决策索引

@@ -42,3 +42,4 @@
 
 - 2026-09-13 Draft/Proposal 建立（T015 Phase A）。
 - 2026-09-13 **用户 Gate C 批准 → Accepted（implemented-candidate）**。批准口径（最终公式）：`observed = pending + completed`；`completed = success + exception + crcError + timeout + protocolError + expectedNoResponse`（**completed 不含 Pending**）；`rateEligibleCompleted = completed − expectedNoResponse`；`successRate = success / rateEligibleCompleted`；`rateEligibleCompleted == 0 ⇒ successRate = nullopt`；`averageSuccessLatencyMs` 仍只计 Success。新增状态 `TransactionStatus::ExpectedNoResponse` 语义：观察到合法 broadcast-capable 请求、未观察到响应、协议不期待响应——不代表 write success / 设备健康。Final 待 T015 Phase B Review。
+- 2026-09-13 **T015 Phase B 实现完成（IMPLEMENTED / AWAITING REVIEW）**：七状态、统计公式（STAT-B10 + PASSIVE-P14 锁定）、Baseline `ExpectedNoResponseObserved`（Info、顺序 Pending 之后）+ Healthy 四条件、Agent anomalies 排除该状态、UI「预期无响应」文案与统计卡、Prompt 语义句族（“不证明写入成功”）。clean 152 零警告、ctest 24/24、qml smoke、deploy+minimal-PATH；LKGC candidate `6944fd5`。Final 仍待用户 Review。

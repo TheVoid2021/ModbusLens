@@ -44,6 +44,8 @@
 - 构造合成流量（配对、乱序、广播、超时、重试）验证配对与时延统计（T007）。
 - **诊断细节保留（T014）**：ProtocolError 的确定性 reason（`TransactionIssue` 七值 + 稀疏载荷）逐分支断言；RED 以断言失败实证（tx 11 passed / 9 failed，9 条 issue 缺失断言）→ GREEN（tx 20/20）；**production invariant**（`analyzeFunction03Transaction` 生产输出中 `ProtocolError ⇒ issue.has_value()`）与 per-code 载荷约束以专用测试锁定（TX a13~a18）——下游对人工构造/防御性 `ProtocolError + issue=nullopt` 保持防御（omit detail），测试不写无条件 `iff`。统计口径回归 = STAT-B09（issue 不影响 snapshot；防御性输入如实标注）。分层只断言“继承与展示”、不重判：REPLAY-i05 / SERIAL-a07·a11·a15·a16（同漏斗继承）、DIAG-A11（context 保值）、AI-B18/B19（prompt additive + 防御 omit）、AGENT-A11（DTO hasX）、UI-T01（issueText role）。
 
+- **被动回放扩展（T015）**：新增 `passive` 目标（`tests/test_passive_analysis.cpp`）——Function 0x06 单元解码 ×4 + PASSIVE-P01~P15 端到端（FC03 golden 回归锚 / FC06 Success / echo mismatch 独立 issue / generic Exception FC08 / invalid quantity+Exception 双事实 / 不毒死后续记录 / unsupported 显式事实 / unicast Timeout 不变 / broadcast `ExpectedNoResponse` / broadcast 收到响应 → UnexpectedResponseForBroadcast / addr0 非广播能力 → InvalidBroadcastFunction / CRC 与地址失配遗传 / 混合批统计 / 确定性双跑）。RED 实证 = 13 条断言在旧整批失败链路上真实 FAIL（8 passed/13 failed）→ GREEN。统计公式以 STAT-B10 + P14 锁定（completed 含广播；rate=success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）；Baseline 以 DIAG-A12/A13 锁定（Info 顺序 + broadcast 永不单独 Healthy）；下游以 AI-B20 / AGENT-A12 / UI-T02·T03 锁定；UI-R04 按 Phase A 预声明由“整批 load 失败”替换为 per-record 期望。**Active Serial 安全回归以源码 grep 锚定（无 FC06 encoder / 无 Function16 / 无 write tool）**。
+
 ### 三种模式复用性验证（全局护栏）
 
 - **口径一致性测试**：同一组测试帧流，分别经过 SimulatorSource / ReplaySource 进入分析核心，断言产出统计/报告完全一致。**T009 Part A 已落地第一形态**：T008 Demo Batch（Simulator 现场生成）与 `demo_v1.mlog` Golden Replay（历史文件加载）共享同一 wire 金样，两套统计快照严格相等（4/4/0、1/1/1/1/0、0.25、25.0ms）。这是架构承诺 D1 的可自动验证形式。

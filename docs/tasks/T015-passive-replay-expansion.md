@@ -2,8 +2,8 @@
 
 - **Goal**          解决“哪些**真实历史事务**根本进不了现有分析模型”——把 Replay 从 active-master 的 trusted-request 契约迁移为 passive observer 契约：FC06 / 0x10 被动语义、generic exception 识别、invalid-request 可观察性、broadcast expected-no-response；同时不破坏六状态、Statistics、Active Serial read-only 边界。
 - **Background**    M8.1 审计（demo_v2 14 场景）确认当前是 FC03-centric transaction-level analyzer：S2/S3 写功能被 `InvalidRequestFunction` 拒之门外、S5 合法 Exception 01 被请求门挡住、S6 invalid request + 合法 Exception 03 整笔丢弃、S4 broadcast 语义缺失、坏 request 毒死整个 batch。T014 已解决“已接受事务的 **detail** 丢失”（TransactionIssue，六状态不变）；T015 处理的是它们的**上游**：进入模型之前。verified LKGC = `cc8393a`。
-- **状态**           **T015 = IN PROGRESS**。**Phase A（Learning + Test Design）= 本档案，STRICT DOCS-ONLY，零代码改动。**
-- **Phase 状态**     Phase A = DONE / AWAITING REVIEW；Phase B（Test First + Implementation）= WAITING FOR USER APPROVAL（且 Gate C/Gate A~F 需用户先批）。
+- **状态**           **T015 = IN PROGRESS**。Phase A（Learning + Test Design）= 本档案前半（docs-only）；**Phase B（Passive Core + FC06 + Broadcast）= IMPLEMENTED / AWAITING REVIEW**（四提交 RED→GREEN→传播→归档链）。
+- **Phase 状态**     Phase A = DONE / REVIEW PASS（Gate A~F 全批，§32.5）；**Phase B = IMPLEMENTED / AWAITING REVIEW**。**Function 0x10 normal semantics = NOT STARTED（Part C）**。
 
 ## 1. Evidence Inspection
 
@@ -338,6 +338,24 @@ Phase A **不写任何 tests**（writing 属 Phase B）。
 - 更新：`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`（仅登记 T015 IN PROGRESS / Phase A，不写成已实现）。
 - 不修改：09_DIAGNOSTIC_COVERAGE_AUDIT（历史结论不动）；src/tests/CMake/scripts/QML = 零修改；`samples/demo_v2.mlog` 只读。
 
+## Phase B Implementation Record（Test First + Implementation 实录）
+
+- **提交结构**：① `c5cfbf7`（docs：Phase A 口径订正 + 官方协议回填 03 §4.5 + ADR-003 获批）→ ② `477ed44`（**RED**：模型表面 + 21 个 passive 测试，13 条断言在旧行为下真实失败）→ ③ `2ba719f`（GREEN core）→ ④ `6944fd5`（GREEN downstream）→ ⑤ 本归档提交。未 amend/squash/push。
+- **RED 实证**（提交②后）：`ctest -R passive` → FAILED；`modbuslens_passive_tests.exe` → **`Totals: 8 passed, 13 failed`**，失败全部是断言级——FC06/0x10 时代旧链路对 p02/p03/p04/p05/p06/p07/p09/p10/p12/p13/p14/p15 返回整批 `ReplayExecutionError`（`batch.has_value()` FALSE），p11 缺 `requestIssue`。通过者 = F06 单元解码器 ×4 + p01 FC03 golden 回归锚 + p08 unicast Timeout 锚。
+- **GREEN**：core 提交后 p14 一处期望值修正（rateEligible=4−1=3 ⇒ rate 2/3，非 1.0——**测试先写错、以公式为准修正**）；全量 **ctest 24/24**（新增 `passive` 目标 = 第 24 个）。
+- **实现映射（全部落在既有分层）**：
+  - `src/core/protocol/Function06.{h,cpp}`：request/response 双 decoder（**无 encoder**）+ 广播知识锚点（03 §4.5）。
+  - `src/core/protocol/Function03.{h,cpp}`：新增 `readHoldingRegistersRequestQuantity`（**复用/扩展既有解析事实**，不在 Controller/Replay 手拼协议语义）。
+  - `src/core/analysis/PassiveTransactionAnalysis.{h,cpp}`：Gate A 唯一 passive analyzer——request 分类只此一处（quantity/length/InvalidBroadcastFunction 优先级）、generic exception matcher 只写一处、FC03 有效请求**逐字复用 T007**、broadcast 判定 = `address==0 ∧ fc==0x06`（不建“写类猜测表”）、unsupported = 显式 per-record 事实（**不伪装成 TransactionStatus**）。
+  - `TransactionStatus::ExpectedNoResponse`（Gate C）：七状态（有意扩展，ADR-003）；`TransactionIssue` additive 两枚（`WriteSingleRegisterEchoMismatch` 四寄存器载荷、`UnexpectedResponseForBroadcast`）；`TransactionRequestIssue`（Gate B，独立于 T014 issue，T014 契约零改动）。
+  - `ReplayAnalysis`：per-record 化（Gate F）——`transactions`（analyzed）+ `unsupportedRecords`（显式事实）+ 统计仅由 analyzed 子集计算；错误枚举收缩为 `InvalidRequestWire` 一种（Gate E Scope A 保留旧契约）。
+  - Statistics：`expectedNoResponseCount` + 批准公式（completed 含 Broadcast；rate = success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）。
+  - Baseline：`ExpectedNoResponseObserved`（Info、无 action、确定性顺序 Pending 之后）+ Healthy 四条件（含 `expectedNoResponseCount==0`）。
+  - 下游 additive：Controller `expectedNoResponseCount`/replay notice/`composeIssueText`（response issue + request issue 单行）；模型 `ExpectedNoResponse` 文案 `预期无响应` + `requestIssueDetailText`；Prompt stats `expected_no_response` + `request_issue`/`observed_quantity`/`max_allowed_quantity` + system 语义句族（“不证明写入成功/不得推断程序或操作员错误”）；Agent summary `expected_no_response`、detail `request_issue_code`/载荷/`response_expected=false`、anomalies **排除 ExpectedNoResponse**（whitelist 不变）；QML 新增统计卡与非致命提示条。
+- **测试增量**：`test_passive_analysis.cpp`（F06×4 + P01~P15）；STAT-B10（批准公式）；REPLAY-i03b/i03c 重写为 per-record 语义；SERIAL 等既有链路零改动即通过；DIAG-A12/A13；AI-B20；AGENT-A12；UI-T02/T03（含 notice 与 request-issue 行）；UI-R04 按 Phase A 预声明替换为 per-record 期望。
+- **边界取证（自动）**：`grep -rn "encodeWriteSingleRegister|Function16|sendWrite|writeRegister(" src` = **零命中**；Serial 仅有 `beginReadHoldingRegisters`/`encodeReadHoldingRegistersRequest`；`src/ui/agent` 无任何 write 工具名。**Passive understanding ≠ Active capability** 由源码事实保证。
+- **0x10 边界**：仅 03 知识回填；`Function16`/normal matcher/tests **零实现**（Part C）。
+
 ## Problems Encountered / Solutions
 
 - **P1（六状态容不下的 broadcast）**：逐一试放 Pending/Timeout/Success 都不诚实（§17 锁定事实），得出“任何诚实方案都必须动状态轴或统计口径”的结论 → 不硬编方案，升为 Gate C + ADR-003 Draft。
@@ -345,13 +363,35 @@ Phase A **不写任何 tests**（writing 属 Phase B）。
 - **P3（T014 I1 与 Scenario 6 冲突）**：不做“为了新事实推翻旧不变量”或“因为名字叫 TransactionIssue 就硬塞”二选一 → Gate B 推荐独立正交字段（B 案），T014 契约与测试零回归。
 - **P4（R04 测试语义将被替换）**：per-record 化会改变 InvalidRequestWire 的 UI 语义 → 提前在档案声明 UI-R04 随 Phase B 重写及理由，避免实现期才暴露。
 
-## Verification（Phase A docs-only）
+Phase B：
 
-`git diff --check`=0；diff 仅 T015 档案 + ADR-003(Draft) + PROJECT_STATUS + BACKLOG；`samples/demo_v2.mlog` 未改未加；src/tests/CMake/scripts/QML 零修改；零构建（无代码改动，无构建必要）；零真实 ModelScope 调用。
+- **PB1（RED 必须可编译）**：新行为测试引用新类型 → 与 T014 同法：提交②先落“模型表面”（类型/枚举/统计公式/文案 switch），passive analyzer 行为**未接线** → RED 表现 13 条断言失败而非编译错误；用户要求的 5 类行为（FC06 / generic FC08 Exception / S6 invalid+Exception / broadcast ExpectedNoResponse / per-record continuation）全部在旧代码上真实 FAIL。
+- **PB2（-Wmissing-field-initializers 第三次来袭）**：`TransactionIssue{.code=…}` 指定初始化在 core 触发告警 → `makeIssue` value-init 工厂 + 载荷逐项赋值（与 T014 同一纪律），零告警收口。
+- **PB3（-Wswitch 连锁）**：新增状态/issue code 后，`TransactionListModel`/`DiagnosisPromptBuilder`/`AgentTools` 三处 switch 与 Controller 的 finding/error 两个 switch 必须同步穷举——编译器强制，无静默通道。
+- **PB4（聚合初始化复查）**：`DiagnosisTransaction` 增成员 → 11 处聚合站点逐一补 `.requestIssue`（Python 批量 + 手工补嵌套/单行形态）；提交②后 `Function03.h` 缺 `<optional>` 一次编译失败，即时修复。
+- **PB5（测试期望与批准公式冲突）**：p14 初稿把 rate 写成 1.0；按 ADR-003 公式（分母=completed−expectedNoResponse=3，success=2）应为 2/3 ——**以公式与实现为准修正测试**，并在档案记录（不掩盖）。
+- **PB6（per-record 化对既有 golden 的影响面）**：唯一需要重写的既有 UI 断言是 R04（Phase A 已预声明）；demo_v1 四条与全部 T014/T007/T009 断言自动保持（统计池仅含 analyzed）。
+
+## Verification（Phase A docs-only + Phase B 全链）
+
+Phase A（docs-only）：`git diff --check`=0；diff 仅 T015 档案 + ADR-003(Draft) + PROJECT_STATUS + BACKLOG；`samples/demo_v2.mlog` 未改未加；src/tests/CMake/scripts/QML 零修改；零构建（无代码改动，无构建必要）；零真实 ModelScope 调用。
+
+Phase B（真实命令与输出）：
+
+- **RED**：`modbuslens_passive_tests.exe` → `Totals: 8 passed, 13 failed`（13 条断言失败，模式见 Phase B Record）。
+- **GREEN**：`ctest --preset debug-local` → **`100% tests passed, 0 tests failed out of 24`**（含新增 `passive` 目标）。
+- **clean 全量重建**：`--target clean`（Cleaning **152 files**）→ 全量 rebuild **零 warning/error**（grep 计数 0）。
+- **QML smoke**：`modbuslens.exe --qml-smoke-test` → exit=0、零输出；ctest #24 qml_smoke Passed。
+- **deploy + minimal-PATH**：`scripts/deploy_windows.bat` → `[OK] Deployment directory ready`（dxcompiler 提示为历史已知、非阻塞）；minimal-PATH（仅 System32+deploy 目录）`ModbusLens.exe --qml-smoke-test` → exit=0。
+- **边界取证**：§ Phase B Record 的三条 grep（无 FC06 encoder / 无 Function16 / 无 write tool）零命中；`samples/demo_v2.mlog` 未进入任何测试、未跟踪、未修改。
+- **Manual UI Smoke = WAITING FOR USER**（政策：Agent 不自报视觉 PASS）。检查清单：① Run Demo 四行与新增「预期无响应」统计卡（值 0）外观正常；② Replay demo_v1 四行与统计不变、无提示条；③ 含广播的 purpose-built 日志 → 行显示「预期无响应」、统计卡计数 1、无成功率（—）；④ 含 FC08 正常响应的日志 → 出现非致命「未支持分析」提示且不进入统计；⑤ 含 quantity=126+Exception 0x03 的日志 → 行为「异常」+ 第二行「请求数量不符合 0x03 约束（126，上限 125）」；⑥ 布局无回归。
 
 ## Result
 
-T015 = IN PROGRESS；**Phase A = DONE / AWAITING REVIEW**（含 6 个 Gate 与 ADR-003 Draft；Gate C 为用户架构决策点）。verified LKGC 维持 `cc8393a`。
+- **T015 = IN PROGRESS；Phase B = IMPLEMENTED / AWAITING REVIEW**（Function 0x10 = NOT STARTED / Part C）。
+- 交付：七状态（Gate C 批准的 `ExpectedNoResponse`）+ 批准统计公式；Gate A passive analyzer（FC03 复用 / generic exception 单点 / broadcast 仅 FC06）；Gate B 独立 `TransactionRequestIssue`（T014 契约零改动）；Gate D 仅 FC06；Gate E Scope A；Gate F per-record 化 + unsupported 显式披露；Baseline/Agent/Prompt/UI additive 全链；demo_v1/T014/Active Serial 零回归。
+- **LKGC candidate = `6944fd5`**（最新 code/test 提交；自动验证全链通过）——Manual UI Review 与用户 Review 前**不自行推进**；docs 归档提交不作为 LKGC。
+- verified LKGC 维持 `cc8393a` 不变。
 
 ## Knowledge Learned
 
@@ -367,7 +407,15 @@ T015 = IN PROGRESS；**Phase A = DONE / AWAITING REVIEW**（含 6 个 Gate 与 A
 3. 广播为什么必须 USER DECISION？——六状态没有诚实成员、任何方案都动状态/统计口径；先证明穷尽，再给三案与精确数学，不替用户拍板。
 4. generic exception matcher 为什么只需五个事实？——协议结构保证：fn|0x80 + 单字节异常码 + 地址匹配；不需要被拒函数的正常语义。
 5. 为什么 FC06 先行、0x10 独立 Part C？——定长 vs 变长（byteCount/quantity 校验）、取证量与 RED 矩阵体量差、演示叙事真实性；“功能更多”不是并包的依据。
+6. 广播统计为什么把 Broadcast 排除出成功率分母？——广播既非成功也非失败（协议不期待响应），计入分母会“合法地稀释”成功率、计入分子则需要重定义 Success；因此 completed 含广播、rateEligible 不含（ADR-003 公式，STAT-B10/P14 锁定）。
+7. per-record 化如何避免“隐形丢记录”？——`unsupportedRecords` 是显式一等事实 + UI 非致命提示 + 统计只声明“可分析子集”，并有测试证明日志行不会被静默吞掉（Gate F）。
+8. FC06 echo mismatch 为什么不能归 MalformedNormalResponse？——帧格式完全合法（长度/字段都对），错的是**语义回显**；把“格式非法”和“语义不匹配”分开，AI/Agent 才不会给出错误解释（Phase A Review 新增要求）。
+9. 一次 RED 里 13 条失败说明了什么？——旧链路把“历史事实”当“执行错误”：FC06/generic Exception/invalid request/broadcast 全部整批毒死；RED 精确量化了 active 契约错配的成本，GREEN 后逐条转为 per-record 结果。
 
 ## Git Commit
 
-（docs-only；提交哈希与信息见 git log 与 PROJECT_STATUS/BACKLOG 变更记录）
+- A（docs）`c5cfbf7` T015: Phase A acceptance corrections and official protocol evidence backfill
+- B（RED）`477ed44` T015: add passive expansion model surface and RED tests（passive 8 passed/13 failed）
+- C（GREEN core）`2ba719f` T015: implement passive analyzer core (FC06, generic exception, broadcast status)（ctest 24/24）
+- D（GREEN downstream）`6944fd5` T015: propagate passive facts to dashboard, prompt and agent tools（+481/−7，11 文件）——**LKGC candidate（待 Review）**
+- E 本归档提交（docs-only；哈希见 git log）

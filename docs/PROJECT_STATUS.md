@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T015 Passive Replay Expansion — IN PROGRESS**（Phase A Learning + Test Design docs-only 完成，AWAITING REVIEW；6 个 Architecture Gate 待用户 Review，Gate C=Broadcast 语义为用户架构决策；**未实现**） |
+| 当前任务（Current Task） | **T015 Passive Replay Expansion — IN PROGRESS**（**Phase B IMPLEMENTED / AWAITING REVIEW**：七状态 `ExpectedNoResponse` + passive analyzer + FC06 + per-record 化；LKGC candidate = `6944fd5`；**Function 0x10 = NOT STARTED（Part C）**；Manual UI Smoke = WAITING FOR USER） |
 | 最近完成任务（Last Completed Task） | **T014 Diagnostic Detail Preservation**（DONE；verified LKGC `cc8393a`） |
-| 当前阶段（Current Phase） | T015 Phase A（docs-only，DONE / AWAITING REVIEW；ADR-003 Draft 已建） |
-| 下一步动作（Next Action） | **T015 Phase A Architecture Review（用户）**；Gate A~F 裁决后 Phase B 待批准 |
+| 当前阶段（Current Phase） | T015 Phase B 实现完成（clean 152 零警告、ctest 24/24、qml smoke、deploy+minimal-PATH 全过；待用户 Review） |
+| 下一步动作（Next Action） | **用户 T015 Phase B Review（含 Manual UI Smoke 清单）**；批准后：Part C（Function 0x10 normal semantics）另行立项 |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -41,12 +41,13 @@
 
 ## 2. 当前任务
 
-- **T015 — Passive Replay Expansion（IN PROGRESS；Phase A docs-only 完成，AWAITING REVIEW）**。核心设计（详见 [T015 档案](tasks/T015-passive-replay-expansion.md)）：三种坏输入三分（syntax=load fail / captured protocol-invalid=诊断事实 / unsupported≠invalid）；active（trusted request 合理）与 passive（坏请求本身是要诊断的历史事实）双契约并存，T007 不改；Gate A 推荐 Core 内 generic passive analyzer（FC03 复用、generic exception 单点）；Gate B 推荐 outcome 级正交 `TransactionRequestIssue`（T014 契约零改动，Scenario 6 = Exception 0x03 + requestIssue）；Gate C **Broadcast=USER ARCHITECTURE DECISION**（第七状态/统计口径，ADR-003 Draft）；Gate D 推荐 FC06 先行、0x10 独立 Part C；Gate E 推荐 Scope A（不吞 request-wire corruption）；Gate F 推荐 per-record 化（parser 仍 all-or-nothing）。FC06/0x10 字段布局 repo 未记载 ⇒ External Protocol Reference Required（先取证后实现）。**Phase B = WAITING FOR USER APPROVAL；未实现任何代码。**
+- **T015 — Passive Replay Expansion（IN PROGRESS；Phase B = IMPLEMENTED / AWAITING REVIEW）**。Gate A~F 全批（Phase A Review）后落地：`TransactionStatus::ExpectedNoResponse`（七状态，ADR-003 Accepted）+ 批准统计公式（completed 含广播；rate = success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）；`PassiveTransactionAnalysis`（request 分类单点、generic exception 单点、FC03 复用 T007、broadcast=addr0∧FC06）；`TransactionRequestIssue`（Gate B 独立于 T014 issue）；`Function06` 被动语义（无 encoder）；Replay per-record 化（analyzed + unsupportedRecords 显式披露，Gate F）；Baseline `ExpectedNoResponseObserved` + Healthy 四条件；Prompt/Agent/UI additive；RED 13 条断言失败 → GREEN ctest 24/24；clean 152 零警告；qml smoke 与 deploy+minimal-PATH PASS；Active Serial 写权限零新增（grep 取证）。**Function 0x10 = NOT STARTED（Part C，另行立项）**。LKGC candidate = `6944fd5`（待 Review）。详见 [T015 档案](tasks/T015-passive-replay-expansion.md) + [ADR-003](../adr/ADR-003-broadcast-outcome-semantics.md)。
 
 ## 3. 下一任务
 
-- **T015 Phase B — Test First + Implementation**（Gate A~F 用户裁决后待批准；含 FC06 被动语义与 Scenario 5/6；0x10 独立 Part C；broadcast 实施以 Gate C 批准为前提）。
-- 之后（Backlog）：Replay v2 timing、UART diagnostics、register-map 语义层等仍需分别立项。
+- **用户 T015 Phase B Review**（含 Manual UI Smoke；批准后推进 verified LKGC）。
+- **T015 Part C — Function 0x10 normal semantics**（已批准但仍 NOT STARTED；Phase B 明确禁止实现）。
+- Backlog：Replay v2 timing、UART diagnostics、register-map 语义层、per-device 时间窗等。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -198,6 +199,8 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-13 | **T014 启动：Phase A Learning + Test Design（docs-only，本提交）**——ProtocolError 七分支重构、信息损失矩阵、最小数据模型定案（TransactionIssue A′方案）、六不变量、Statistics 不变契约、request-side/T015 边界、UI/prompt/agent 传播设计、三级测试矩阵落库；**T014 标记 IN PROGRESS，未实现**；Phase B = WAITING FOR USER APPROVAL；LKGC `99f17d6` 不变 |
 | 2026-09-13 | **用户 T014 Manual UI Review = PASS → T014 Final Acceptance**：demo regression 正常（四行/Dashboard/行高/布局）；临时非仓库 `t014_protocol_error.mlog` 下 ProtocolError 行第二行 detail `响应地址不匹配（请求 0x01 / 响应 0x02）` 可读、行高扩展正确、无重叠裁剪、列对齐、仅确定性措辞。**T014 = DONE（Phase A/B DONE）；verified LKGC 推进 `99f17d6` → `cc8393a`**；`213bba5`（docs-only archive）不作 LKGC；措辞订正（生产文件 9 个；production invariant 单向、下游防御 omit）入档；T015 NOT STARTED |
 | 2026-09-13 | **T015 启动：Phase A Learning + Test Design（docs-only，本提交）**——current Replay contract 重建；三种坏输入三分；active/passive 双契约；Gate A~F 设计（A=Core passive analyzer、B=outcome 级 requestIssue、C=Broadcast 用户裁决、D=FC06 先行、E=Scope A、F=per-record）；FC06/0x10 取证门槛（External Protocol Reference Required）；PASSIVE-P01~P15 矩阵落库；**ADR-003 Draft 建立（Broadcast 语义，AWAITING USER DECISION）**；**T015 标记 In Progress，未实现**；verified LKGC `cc8393a` 不变 |
+| 2026-09-13 | **T015 Phase A Review = PASS（Gate A~F 全批；Gate C 批准第七状态 `ExpectedNoResponse` 与最终统计公式）→ Phase B 批准**；docs 提交 `c5cfbf7`（口径订正 + 03 §4.5 官方协议回填 + ADR-003 Accepted-candidate） |
+| 2026-09-13 | **T015 Phase B IMPLEMENTED（B/C/D 三提交）**：B `477ed44` 模型表面 + RED（passive **8 passed/13 failed**，13 条断言级失败）；C `2ba719f` passive core（Function06 / PassiveTransactionAnalysis / per-record replay / 统计公式 / Baseline）→ ctest 24/24；D `6944fd5` 下游传播（dashboard 卡 + replay notice + prompt + agent tools + 测试）。clean **152 targets 零警告**、ctest 24/24、qml smoke、deploy+minimal-PATH 全过；Active Serial 写权限零新增（grep 零命中）；**Function 0x10 = NOT STARTED**；**LKGC candidate = `6944fd5`（待用户 Review + Manual UI Smoke）**；verified LKGC 仍 `cc8393a` |
 
 
 
