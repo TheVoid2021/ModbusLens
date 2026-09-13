@@ -11,6 +11,7 @@
 
 #include "core/diagnosis/DiagnosisContext.h"
 #include "core/diagnosis/RuleBasedDiagnosis.h"
+#include "core/replay/ReplayAnalysis.h"
 #include "ui/ai/DiagnosisPromptBuilder.h"
 #include "ui/ai/ModelScopeDiagnosisClient.h"
 
@@ -107,6 +108,10 @@ private slots:
     // T014-B19 (P0): defensive issue-less ProtocolError -> detail omitted,
     // no crash, no fabricated reason (refinement A downstream contract).
     void b19_defensiveIssueLossInPrompt();
+    // T015-B20 (P0): broadcast + request-side facts enter the prompt as
+    // structured deterministic facts (status/count/request_issue), with the
+    // system contract forbidding success/root-cause conclusions.
+    void b20_t015PromptFacts();
 };
 
 void AiClientTest::b01_promptAuthority()
@@ -673,6 +678,70 @@ void AiClientTest::b19_defensiveIssueLossInPrompt()
     QVERIFY(!prompt.userPrompt.contains(QStringLiteral("issue=")));
     QVERIFY(prompt.userPrompt.contains(QStringLiteral("status=ProtocolError")));
     QVERIFY(prompt.systemInstructions.contains(QStringLiteral("response_address_mismatch")));
+}
+
+void AiClientTest::b20_t015PromptFacts()
+{
+    // Real Core-produced facts: one broadcast observation + one invalid
+    // request answered with a legal Exception.
+    modbuslens::core::ReplayLog log;
+    log.timeoutThreshold = ms{1000};
+    {
+        modbuslens::core::ReplayTransactionRecord broadcast;
+        broadcast.elapsed = ms{0};
+        broadcast.requestWire = modbuslens::core::encodeRtuFrame(
+            modbuslens::core::ModbusRtuFrame{.address = 0x00, .functionCode = 0x06,
+                                             .data = {0x00, 0x01, 0x00, 0x01}});
+        log.transactions.push_back(broadcast);
+
+        modbuslens::core::ReplayTransactionRecord invalid;
+        invalid.elapsed = ms{16};
+        invalid.requestWire = modbuslens::core::encodeRtuFrame(
+            modbuslens::core::ModbusRtuFrame{.address = 0x01, .functionCode = 0x03,
+                                             .data = {0x00, 0x00, 0x00, 0x7E}});
+        invalid.responseWire = modbuslens::core::encodeRtuFrame(
+            modbuslens::core::ModbusRtuFrame{.address = 0x01, .functionCode = 0x83,
+                                             .data = {0x03}});
+        log.transactions.push_back(invalid);
+    }
+    const auto batchResult = modbuslens::core::analyzeReplayLog(log);
+    const auto* batch = std::get_if<modbuslens::core::ReplayBatchAnalysis>(&batchResult);
+    QVERIFY(batch != nullptr);
+    QCOMPARE(batch->transactions.size(), std::size_t{2});
+
+    const std::vector<DiagnosisTransaction> facts = {
+        DiagnosisTransaction{
+            .deviceAddress = 0x00, .functionCode = 0x06,
+            .analysis = batch->transactions[0].analysis,
+            .requestIssue = batch->transactions[0].requestIssue},
+        DiagnosisTransaction{
+            .deviceAddress = 0x01, .functionCode = 0x03,
+            .analysis = batch->transactions[1].analysis,
+            .requestIssue = batch->transactions[1].requestIssue},
+    };
+    const DiagnosisContext context = buildDiagnosisContext(facts);
+    const DiagnosisPrompt prompt = buildDiagnosisPrompt(
+        context, diagnoseTransactions(context));
+
+    const QString user = prompt.userPrompt;
+    QVERIFY(user.contains(QStringLiteral("expected_no_response=1")));
+    QVERIFY(user.contains(QStringLiteral("status=ExpectedNoResponse")));
+    QVERIFY(user.contains(QStringLiteral("request_issue=invalid_request_quantity")));
+    QVERIFY(user.contains(QStringLiteral("observed_quantity=126")));
+    QVERIFY(user.contains(QStringLiteral("max_allowed_quantity=125")));
+    QVERIFY(user.contains(QStringLiteral("exception_code=0x03")));
+
+    // System contract: broadcast proves nothing about device state, and the
+    // request-side facts must not be converted into root causes.
+    const QString system = prompt.systemInstructions;
+    QVERIFY(system.contains(QStringLiteral("does NOT prove")));
+    QVERIFY(system.contains(QStringLiteral("ExpectedNoResponse")));
+    QVERIFY(system.contains(QStringLiteral("invalid_broadcast_function")));
+    QVERIFY(system.contains(QStringLiteral("never claim a program or operator error")));
+
+    // No speculative channels anywhere.
+    QVERIFY(!user.contains(QStringLiteral("root_cause")));
+    QVERIFY(!user.contains(QStringLiteral("write_succeeded")));
 }
 
 QTEST_GUILESS_MAIN(AiClientTest)

@@ -48,6 +48,8 @@ struct SessionSummaryResult {
     std::size_t timeoutCount{};
     std::size_t exceptionCount{};
     std::size_t protocolErrorCount{};
+    // T015: broadcast observations are part of the completed decomposition.
+    std::size_t expectedNoResponseCount{};
     std::size_t transactionCount{};
     // no value == field omitted in JSON (never a fabricated 0 / 0.0).
     std::optional<double> successRate;
@@ -93,6 +95,10 @@ struct TransactionDetailResult {
     // for ProtocolError rows; absent otherwise. Facts only — read from the
     // snapshot, never re-derived by the tool layer.
     std::optional<modbuslens::core::TransactionIssue> issue;
+    // T015 additive: request-side deterministic fact (invalid request /
+    // invalid broadcast function), copied verbatim from the passive
+    // analyzer; absent on all active paths and valid requests.
+    std::optional<modbuslens::core::TransactionRequestIssue> requestIssue;
     // Standard exception NAME (structured, e.g. "Illegal Data Address") when
     // the code is one of 0x01~0x04; absent otherwise. No causal prose here —
     // attribution belongs to the explanation layer, not the tool facts.

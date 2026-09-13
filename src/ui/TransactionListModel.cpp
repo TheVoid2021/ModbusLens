@@ -90,6 +90,30 @@ QString issueDetailText(const modbuslens::core::TransactionAnalysis& analysis)
     return QString();
 }
 
+QString requestIssueDetailText(
+    const std::optional<modbuslens::core::TransactionRequestIssue>& requestIssue)
+{
+    if (!requestIssue.has_value()) {
+        return QString();
+    }
+    using modbuslens::core::TransactionRequestIssueCode;
+    switch (requestIssue->code) {
+    case TransactionRequestIssueCode::InvalidRequestQuantity:
+        if (requestIssue->observedQuantity.has_value()
+            && requestIssue->maxAllowedQuantity.has_value()) {
+            return QStringLiteral("请求数量不符合 0x03 约束（%1，上限 %2）")
+                .arg(*requestIssue->observedQuantity)
+                .arg(*requestIssue->maxAllowedQuantity);
+        }
+        return QStringLiteral("请求数量不符合该功能码约束");
+    case TransactionRequestIssueCode::InvalidRequestLength:
+        return QStringLiteral("请求数据长度不符合该功能码约束");
+    case TransactionRequestIssueCode::InvalidBroadcastFunction:
+        return QStringLiteral("地址 0 不是该功能码的合法广播");
+    }
+    return QString();
+}
+
 TransactionListModel::TransactionListModel(QObject* parent)
     : QAbstractListModel(parent)
 {

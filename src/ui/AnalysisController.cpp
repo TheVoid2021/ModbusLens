@@ -220,6 +220,11 @@ int AnalysisController::protocolErrorCount() const
     return toInt(statistics_.protocolErrorCount);
 }
 
+int AnalysisController::expectedNoResponseCount() const
+{
+    return toInt(statistics_.expectedNoResponseCount);
+}
+
 bool AnalysisController::hasSuccessRate() const
 {
     return statistics_.successRate.has_value();
@@ -257,6 +262,16 @@ QString AnalysisController::replayErrorMessage() const
     return replayErrorMessage_;
 }
 
+bool AnalysisController::hasReplayNotice() const
+{
+    return hasReplayNotice_;
+}
+
+QString AnalysisController::replayNoticeText() const
+{
+    return replayNoticeText_;
+}
+
 QString AnalysisController::modeLabel() const
 {
     return modeLabel_;
@@ -281,14 +296,45 @@ void AnalysisController::clearReplayError()
     emit replayStateChanged();
 }
 
+void AnalysisController::setReplayNotice(const QString& message)
+{
+    hasReplayNotice_ = true;
+    replayNoticeText_ = message;
+    emit replayStateChanged();
+}
+
+void AnalysisController::clearReplayNotice()
+{
+    hasReplayNotice_ = false;
+    replayNoticeText_.clear();
+    emit replayStateChanged();
+}
+
 // ---- T010 Part B: serial source ----
 
 namespace {
 
 constexpr std::array<int, 5> kSupportedSerialBauds = {9600, 19200, 38400, 57600, 115200};
 
-// ---- T011 Part A: deterministic baseline presentation formatter ----
-// Translates a DiagnosisReport (facts + structured codes) into readable
+// T015: one deterministic secondary line combining the response-side issue
+// (T014) and the request-side issue (T015). Presentation-only; both facts
+// come from Core, never re-derived here.
+QString composeIssueText(
+    const modbuslens::core::TransactionAnalysis& analysis,
+    const std::optional<modbuslens::core::TransactionRequestIssue>& requestIssue)
+{
+    const QString responseText = issueDetailText(analysis);
+    const QString requestText = requestIssueDetailText(requestIssue);
+    if (responseText.isEmpty()) {
+        return requestText;
+    }
+    if (requestText.isEmpty()) {
+        return responseText;
+    }
+    return responseText + QStringLiteral("；") + requestText;
+}
+
+// ---- T011 Part A: deterministic baseline presentation formatter ----// Translates a DiagnosisReport (facts + structured codes) into readable
 // text. ONLY translates — never re-judges statuses, never re-counts, never
 // re-runs rules, never claims a root cause, never labels itself "AI".
 
@@ -1154,6 +1200,7 @@ void AnalysisController::runDemoBatch()
     modeLabel_ = QStringLiteral("模拟器模式");
     sourceLabel_ = QStringLiteral("确定性演示");
     clearReplayError();
+    clearReplayNotice();
     clearSerialError();
     emit statisticsChanged();
     emit sourceChanged();
@@ -1170,6 +1217,7 @@ void AnalysisController::clearResults()
     activeDiagnosisTransactions_.clear();
     invalidateAiForBatchChange();
     clearReplayError();
+    clearReplayNotice();
     clearSerialError();
 }
 
@@ -1224,14 +1272,28 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
             .status = outcome.analysis.status,
             .elapsedMs = outcome.analysis.elapsed.count(),
             .exceptionCode = outcome.analysis.exceptionCode,
-            .issueText = issueDetailText(outcome.analysis),
+            .issueText = composeIssueText(outcome.analysis, outcome.requestIssue),
         });
         diagnosisTransactions.push_back(modbuslens::core::DiagnosisTransaction{
             .deviceAddress = outcome.deviceAddress,
             .functionCode = outcome.functionCode,
             .analysis = outcome.analysis,
-            .requestIssue = std::nullopt,
+            .requestIssue = outcome.requestIssue,
         });
+    }
+
+    // T015 Gate F disclosure: unsupported records are reported (never
+    // silently dropped) without masquerading as a TransactionStatus.
+    if (batch.unsupportedRecords.empty()) {
+        clearReplayNotice();
+    } else {
+        setReplayNotice(
+            QStringLiteral("提示：%1 条记录当前未支持分析（功能码 %2 等），未计入统计。")
+                .arg(batch.unsupportedRecords.size())
+                .arg(QStringLiteral("0x%1").arg(
+                    QString::number(batch.unsupportedRecords.front().functionCode, 16)
+                        .toUpper()
+                        .rightJustified(2, QLatin1Char('0')))));
     }
 
     // Atomic publish (rule B): everything below runs only after the whole

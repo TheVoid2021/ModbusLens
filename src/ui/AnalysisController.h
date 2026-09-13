@@ -38,6 +38,7 @@ class AnalysisController : public QObject
     Q_PROPERTY(int crcErrorCount READ crcErrorCount NOTIFY statisticsChanged)
     Q_PROPERTY(int timeoutCount READ timeoutCount NOTIFY statisticsChanged)
     Q_PROPERTY(int protocolErrorCount READ protocolErrorCount NOTIFY statisticsChanged)
+    Q_PROPERTY(int expectedNoResponseCount READ expectedNoResponseCount NOTIFY statisticsChanged)
     Q_PROPERTY(bool hasSuccessRate READ hasSuccessRate NOTIFY statisticsChanged)
     Q_PROPERTY(double successRate READ successRate NOTIFY statisticsChanged)
     Q_PROPERTY(bool hasAverageSuccessLatency READ hasAverageSuccessLatency NOTIFY statisticsChanged)
@@ -45,6 +46,8 @@ class AnalysisController : public QObject
     Q_PROPERTY(QAbstractItemModel* transactionModel READ transactionModel CONSTANT)
     Q_PROPERTY(bool hasReplayError READ hasReplayError NOTIFY replayStateChanged)
     Q_PROPERTY(QString replayErrorMessage READ replayErrorMessage NOTIFY replayStateChanged)
+    Q_PROPERTY(bool hasReplayNotice READ hasReplayNotice NOTIFY replayStateChanged)
+    Q_PROPERTY(QString replayNoticeText READ replayNoticeText NOTIFY replayStateChanged)
     Q_PROPERTY(QString modeLabel READ modeLabel NOTIFY sourceChanged)
     Q_PROPERTY(QString sourceLabel READ sourceLabel NOTIFY sourceChanged)
     Q_PROPERTY(bool serialConnected READ serialConnected NOTIFY serialConnChanged)
@@ -137,6 +140,7 @@ public:
     [[nodiscard]] int crcErrorCount() const;
     [[nodiscard]] int timeoutCount() const;
     [[nodiscard]] int protocolErrorCount() const;
+    [[nodiscard]] int expectedNoResponseCount() const;
     [[nodiscard]] bool hasSuccessRate() const;
     [[nodiscard]] double successRate() const;
     [[nodiscard]] bool hasAverageSuccessLatency() const;
@@ -145,6 +149,10 @@ public:
 
     [[nodiscard]] bool hasReplayError() const;
     [[nodiscard]] QString replayErrorMessage() const;
+    // T015 Gate F disclosure: non-fatal note when a loaded replay batch
+    // contained records that are valid Modbus but unsupported for analysis.
+    [[nodiscard]] bool hasReplayNotice() const;
+    [[nodiscard]] QString replayNoticeText() const;
     [[nodiscard]] QString modeLabel() const;
     [[nodiscard]] QString sourceLabel() const;
 
@@ -232,6 +240,9 @@ private slots:
 private:
     void setReplayError(const QString& message);
     void clearReplayError();
+    // T015 Gate F: non-fatal disclosure helpers (never a load failure).
+    void setReplayNotice(const QString& message);
+    void clearReplayNotice();
     void setSerialError(const QString& message);
     void clearSerialError();
     void teardownSerialTransport(); // adapter close + state reset (silent)
@@ -247,6 +258,9 @@ private:
 
     bool hasReplayError_ = false;
     QString replayErrorMessage_;
+    // T015: non-fatal unsupported-record disclosure for the loaded batch.
+    bool hasReplayNotice_ = false;
+    QString replayNoticeText_;
     QString modeLabel_ = QStringLiteral("模拟器模式");
     QString sourceLabel_ = QStringLiteral("确定性演示");
 

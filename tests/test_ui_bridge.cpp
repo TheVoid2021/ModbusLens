@@ -151,6 +151,12 @@ private slots:
     // UI-T01 (P0): ProtocolError rows expose deterministic issueText;
     // ordinary rows stay empty (additive presentation, no new columns).
     void t01_protocolErrorIssueText();
+    // UI-T02 (P0, T015): broadcast rows present 预期无响应 + the dashboard
+    // counter + the non-fatal unsupported-records notice.
+    void t02_t015Presentation();
+    // UI-T03 (P0, T015): invalid-request + legal Exception row shows the
+    // request-side deterministic secondary text.
+    void t03_requestIssueSecondaryText();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -398,6 +404,23 @@ const QString kBadHexLog = QStringLiteral(
 const QString kZeroQuantityLog = QStringLiteral(
     "MODBUSLENS_MLOG|1|timeout_ms=1000\n"
     "TXN|1|01 03 00 00 00 00 45 CA|NO_RESPONSE\n");
+
+// T015 helpers: build replay log text from real codec-built wires.
+QString wireHex(const std::vector<std::uint8_t>& bytes)
+{
+    QStringList parts;
+    for (const auto byte : bytes) {
+        parts << QStringLiteral("%1")
+                     .arg(byte, 2, 16, QLatin1Char('0'))
+                     .toUpper();
+    }
+    return parts.join(QLatin1Char(' '));
+}
+
+QString mlogOf(const QString& records)
+{
+    return QStringLiteral("MODBUSLENS_MLOG|1|timeout_ms=1000\n") + records;
+}
 
 } // namespace
 
@@ -1242,6 +1265,105 @@ void UiBridgeTest::t01_protocolErrorIssueText()
                  ->data(successIndex, TransactionListModel::IssueTextRole)
                  .toString(),
              QString());
+}
+
+void UiBridgeTest::t02_t015Presentation()
+{
+    using namespace modbuslens::core;
+    // Row #1: FC06 broadcast + NO_RESPONSE -> ExpectedNoResponse.
+    // Row #2: FC08 normal-shaped reply -> unsupported (notice, not a row).
+    const auto broadcastWire = modbuslens::core::encodeRtuFrame(
+        ModbusRtuFrame{.address = 0x00, .functionCode = 0x06,
+                       .data = {0x00, 0x01, 0x00, 0x01}});
+    const auto fc08RequestWire = modbuslens::core::encodeRtuFrame(
+        ModbusRtuFrame{.address = 0x01, .functionCode = 0x08,
+                       .data = {0x00, 0x00, 0x00, 0x00}});
+    const auto fc08NormalWire = modbuslens::core::encodeRtuFrame(
+        ModbusRtuFrame{.address = 0x01, .functionCode = 0x08,
+                       .data = {0x00, 0x00}});
+
+    const QString content = mlogOf(
+        QStringLiteral("TXN|0|%1|NO_RESPONSE\n").arg(wireHex(broadcastWire))
+        + QStringLiteral("TXN|5|%1|%2\n")
+              .arg(wireHex(fc08RequestWire), wireHex(fc08NormalWire)));
+
+    std::optional<QTemporaryFile> holder;
+    const QString path = writeTempMlog(content, holder);
+    QVERIFY(!path.isEmpty());
+
+    AnalysisController controller;
+    controller.loadReplayFile(QUrl::fromLocalFile(path));
+
+    QVERIFY(!controller.hasReplayError());
+    // Only the analyzed record enters the dashboard/statistics.
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    QCOMPARE(controller.expectedNoResponseCount(), 1);
+    QCOMPARE(controller.completedCount(), 1);
+    // A broadcast-only batch has no rate-eligible completed transaction.
+    QVERIFY(!controller.hasSuccessRate());
+
+    const QModelIndex index = controller.transactionModel()->index(0, 0);
+    QCOMPARE(controller.transactionModel()
+                 ->data(index, TransactionListModel::StatusTextRole)
+                 .toString(),
+             QStringLiteral("预期无响应"));
+    QCOMPARE(controller.transactionModel()
+                 ->data(index, TransactionListModel::IssueTextRole)
+                 .toString(),
+             QString());
+
+    // Non-fatal disclosure of the unsupported record.
+    QVERIFY(controller.hasReplayNotice());
+    QVERIFY(controller.replayNoticeText().contains(QStringLiteral("未支持")));
+    QVERIFY(controller.replayNoticeText().contains(QStringLiteral("0x08")));
+
+    // Clear removes the notice with the rest of the replay batch state.
+    controller.clearResults();
+    QVERIFY(!controller.hasReplayNotice());
+}
+
+void UiBridgeTest::t03_requestIssueSecondaryText()
+{
+    using namespace modbuslens::core;
+    // Invalid FC03 quantity answered by a legal Exception 0x03: the row is an
+    // Exception (response fact) with request-side secondary text.
+    const auto invalidRequestWire = modbuslens::core::encodeRtuFrame(
+        ModbusRtuFrame{.address = 0x01, .functionCode = 0x03,
+                       .data = {0x00, 0x00, 0x00, 0x7E}});
+    const auto exceptionWire = modbuslens::core::encodeRtuFrame(
+        ModbusRtuFrame{.address = 0x01, .functionCode = 0x83, .data = {0x03}});
+
+    const QString content = mlogOf(
+        QStringLiteral("TXN|16|%1|%2\n")
+            .arg(wireHex(invalidRequestWire), wireHex(exceptionWire)));
+
+    std::optional<QTemporaryFile> holder;
+    const QString path = writeTempMlog(content, holder);
+    QVERIFY(!path.isEmpty());
+
+    AnalysisController controller;
+    controller.loadReplayFile(QUrl::fromLocalFile(path));
+
+    QVERIFY(!controller.hasReplayError());
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    const QModelIndex index = controller.transactionModel()->index(0, 0);
+    QCOMPARE(controller.transactionModel()
+                 ->data(index, TransactionListModel::StatusTextRole)
+                 .toString(),
+             QStringLiteral("异常"));
+    QCOMPARE(controller.transactionModel()
+                 ->data(index, TransactionListModel::ExceptionCodeRole)
+                 .toInt(),
+             3);
+    const QString secondary = controller.transactionModel()
+                                  ->data(index, TransactionListModel::IssueTextRole)
+                                  .toString();
+    QVERIFY(secondary.contains(QStringLiteral("请求数量不符合")));
+    QVERIFY(secondary.contains(QStringLiteral("126")));
+    QVERIFY(secondary.contains(QStringLiteral("125")));
+    // The row is an Exception, never a protocol error.
+    QCOMPARE(controller.protocolErrorCount(), 0);
+    QCOMPARE(controller.exceptionCount(), 1);
 }
 
 } // namespace

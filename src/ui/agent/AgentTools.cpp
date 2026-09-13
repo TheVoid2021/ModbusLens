@@ -55,6 +55,7 @@ SessionSummaryResult makeSessionSummary(const AgentToolContext& context)
     summary.timeoutCount = context.statistics.timeoutCount;
     summary.exceptionCount = context.statistics.exceptionCount;
     summary.protocolErrorCount = context.statistics.protocolErrorCount;
+    summary.expectedNoResponseCount = context.statistics.expectedNoResponseCount;
     summary.successRate = context.statistics.successRate;
     summary.averageSuccessLatencyMs = context.statistics.averageSuccessLatencyMs;
     summary.transactionCount = context.transactions.size();
@@ -181,6 +182,14 @@ QJsonValue issueCodeValue(modbuslens::core::TransactionIssueCode code)
         name.data(), static_cast<qsizetype>(name.size()))};
 }
 
+// T015: same contract for the request-side issue tokens.
+QJsonValue requestIssueCodeValue(modbuslens::core::TransactionRequestIssueCode code)
+{
+    const auto name = modbuslens::core::transactionRequestIssueName(code);
+    return QJsonValue{QString::fromUtf8(
+        name.data(), static_cast<qsizetype>(name.size()))};
+}
+
 // The model's arguments object is UNTRUSTED input. Returns nullopt when the
 // numeric transaction_number is missing, non-integral, or extra fields
 // exist. Range violations in [1..N] are NOT decided here (they are facts
@@ -255,6 +264,7 @@ AgentToolResult dispatchAgentTool(const AgentToolContext& context,
             .elapsedMs = tx.analysis.elapsed.count(),
             .exceptionCode = tx.analysis.exceptionCode,
             .issue = tx.analysis.issue,
+            .requestIssue = tx.requestIssue,
         };
     }
     }
@@ -280,6 +290,8 @@ QJsonObject toJsonObject(const SessionSummaryResult& result)
                 static_cast<qint64>(result.exceptionCount));
     json.insert(QStringLiteral("protocol_error_count"),
                 static_cast<qint64>(result.protocolErrorCount));
+    json.insert(QStringLiteral("expected_no_response"),
+                static_cast<qint64>(result.expectedNoResponseCount));
     json.insert(QStringLiteral("transaction_count"),
                 static_cast<qint64>(result.transactionCount));
     if (result.successRate.has_value()) {
@@ -380,6 +392,24 @@ QJsonObject toJsonObject(const TransactionDetailResult& result)
             json.insert(QStringLiteral("actual_quantity"),
                         static_cast<qint64>(*result.issue->actualQuantity));
         }
+    }
+    // T015: request-side facts + the broadcast expectation machine fact.
+    if (result.requestIssue.has_value()) {
+        json.insert(QStringLiteral("request_issue_code"),
+                    requestIssueCodeValue(result.requestIssue->code));
+        if (result.requestIssue->observedQuantity.has_value()) {
+            json.insert(QStringLiteral("observed_quantity"),
+                        static_cast<qint64>(*result.requestIssue->observedQuantity));
+        }
+        if (result.requestIssue->maxAllowedQuantity.has_value()) {
+            json.insert(QStringLiteral("max_allowed_quantity"),
+                        static_cast<qint64>(*result.requestIssue->maxAllowedQuantity));
+        }
+    }
+    if (result.status == modbuslens::core::TransactionStatus::ExpectedNoResponse) {
+        // Core-determined broadcast fact (ADR-003): the protocol does not
+        // expect a response for this request.
+        json.insert(QStringLiteral("response_expected"), false);
     }
     json.insert(QStringLiteral("evidence_scope"),
                 QString::fromUtf8(kEvidenceScope.data(),

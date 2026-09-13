@@ -128,6 +128,16 @@ ApplicationWindow {
             Layout.fillWidth: true
         }
 
+        // T015 non-fatal disclosure: some records are valid Modbus but not
+        // supported for analysis yet (they never enter the statistics pool).
+        Label {
+            visible: analysisController.hasReplayNotice
+            text: analysisController.replayNoticeText
+            color: "#806000"
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
+        }
+
         // Serial controls (T010 Part B) — one lightweight GroupBox, no new
         // page, no second dashboard. QSerialPort never appears in QML.
         GroupBox {
@@ -367,6 +377,7 @@ ApplicationWindow {
                     { label: qsTr("CRC 错误"), value: analysisController.crcErrorCount, color: "#803030" },
                     { label: qsTr("超时"), value: analysisController.timeoutCount, color: "#604080" },
                     { label: qsTr("协议错误"), value: analysisController.protocolErrorCount, color: "#606060" },
+                    { label: qsTr("预期无响应"), value: analysisController.expectedNoResponseCount, color: "#406060" },
                 ]
 
                 delegate: Rectangle {

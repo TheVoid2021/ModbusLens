@@ -12,6 +12,7 @@
 #include "core/analysis/TransactionAnalysis.h"
 #include "core/analysis/TransactionStatistics.h"
 #include "core/diagnosis/DiagnosisContext.h"
+#include "core/replay/ReplayAnalysis.h"
 #include "ui/agent/AgentToolContext.h"
 #include "ui/agent/AgentTools.h"
 
@@ -86,6 +87,10 @@ private slots:
     // T014-A11 (P0): issue facts surface through detail (full payload) and
     // anomalies (simplified code) exactly when present; never otherwise.
     void a11_protocolIssueFactsInTools();
+    // T015-A12 (P0): broadcast + request-side facts through the tools:
+    // summary count, detail request_issue/response_expected, anomalies
+    // exclude ExpectedNoResponse.
+    void a12_t015FactsInTools();
 };
 
 void AgentToolsTest::a01_sessionSummaryGolden()
@@ -630,6 +635,106 @@ void AgentToolsTest::a11_protocolIssueFactsInTools()
     QVERIFY(!detail1->issue.has_value());
     const QJsonObject json1 = agent::toJsonObject(*detail1);
     QVERIFY(!json1.contains("issue_code"));
+}
+
+void AgentToolsTest::a12_t015FactsInTools()
+{
+    // Facts are produced by the Core passive analyzer (through the real
+    // replay path); the tools only copy them.
+    modbuslens::core::ReplayLog log;
+    log.timeoutThreshold = ms{1000};
+    {
+        modbuslens::core::ReplayTransactionRecord broadcast;
+        broadcast.elapsed = ms{0};
+        broadcast.requestWire = modbuslens::core::encodeRtuFrame(
+            core::ModbusRtuFrame{.address = 0x00, .functionCode = 0x06,
+                                 .data = {0x00, 0x01, 0x00, 0x01}});
+        broadcast.responseWire = std::nullopt;
+        log.transactions.push_back(broadcast);
+
+        modbuslens::core::ReplayTransactionRecord invalid;
+        invalid.elapsed = ms{16};
+        invalid.requestWire = modbuslens::core::encodeRtuFrame(
+            core::ModbusRtuFrame{.address = 0x01, .functionCode = 0x03,
+                                 .data = {0x00, 0x00, 0x00, 0x7E}});
+        invalid.responseWire = modbuslens::core::encodeRtuFrame(
+            core::ModbusRtuFrame{.address = 0x01, .functionCode = 0x83,
+                                 .data = {0x03}});
+        log.transactions.push_back(invalid);
+    }
+    const auto batchResult = core::analyzeReplayLog(log);
+    const auto* batch = std::get_if<core::ReplayBatchAnalysis>(&batchResult);
+    QVERIFY(batch != nullptr);
+    QCOMPARE(batch->transactions.size(), std::size_t{2});
+
+    const std::vector<core::DiagnosisTransaction> facts = {
+        core::DiagnosisTransaction{
+            .deviceAddress = 0x00, .functionCode = 0x06,
+            .analysis = batch->transactions[0].analysis,
+            .requestIssue = batch->transactions[0].requestIssue},
+        core::DiagnosisTransaction{
+            .deviceAddress = 0x01, .functionCode = 0x03,
+            .analysis = batch->transactions[1].analysis,
+            .requestIssue = batch->transactions[1].requestIssue},
+    };
+    const auto coreContext = core::buildDiagnosisContext(facts);
+    const agent::AgentToolContext context{
+        .transactions = coreContext.transactions,
+        .statistics = coreContext.statistics,
+        .capturedBatchRevision = 7,
+    };
+
+    // Session summary: the new official counter is exposed.
+    const auto summaryResult =
+        agent::dispatchAgentTool(context, "get_session_summary", QJsonObject{});
+    const auto* summary = std::get_if<agent::SessionSummaryResult>(&summaryResult);
+    QVERIFY(summary != nullptr);
+    QCOMPARE(summary->expectedNoResponseCount, std::size_t{1});
+    const QJsonObject summaryJson = agent::toJsonObject(*summary);
+    QCOMPARE(summaryJson.value("expected_no_response").toInt(), 1);
+
+    // Detail #1 (broadcast): ExpectedNoResponse + response_expected=false,
+    // and no issue/request-issue fields.
+    const auto broadcastDetailResult = agent::dispatchAgentTool(
+        context, "get_transaction_detail",
+        QJsonObject{{QStringLiteral("transaction_number"), 1}});
+    const auto* broadcastDetail =
+        std::get_if<agent::TransactionDetailResult>(&broadcastDetailResult);
+    QVERIFY(broadcastDetail != nullptr);
+    QCOMPARE(broadcastDetail->status, core::TransactionStatus::ExpectedNoResponse);
+    const QJsonObject broadcastJson = agent::toJsonObject(*broadcastDetail);
+    QCOMPARE(broadcastJson.value("status").toString(),
+             QStringLiteral("ExpectedNoResponse"));
+    QCOMPARE(broadcastJson.value("response_expected").toBool(), false);
+    QVERIFY(!broadcastJson.contains("issue_code"));
+    QVERIFY(!broadcastJson.contains("request_issue_code"));
+
+    // Detail #2 (invalid request + legal Exception): both fact families.
+    const auto invalidDetailResult = agent::dispatchAgentTool(
+        context, "get_transaction_detail",
+        QJsonObject{{QStringLiteral("transaction_number"), 2}});
+    const auto* invalidDetail =
+        std::get_if<agent::TransactionDetailResult>(&invalidDetailResult);
+    QVERIFY(invalidDetail != nullptr);
+    QCOMPARE(invalidDetail->status, core::TransactionStatus::Exception);
+    QVERIFY(invalidDetail->requestIssue.has_value());
+    const QJsonObject invalidJson = agent::toJsonObject(*invalidDetail);
+    QCOMPARE(invalidJson.value("exception_code").toInt(), 3);
+    QCOMPARE(invalidJson.value("request_issue_code").toString(),
+             QStringLiteral("invalid_request_quantity"));
+    QCOMPARE(invalidJson.value("observed_quantity").toInt(), 126);
+    QCOMPARE(invalidJson.value("max_allowed_quantity").toInt(), 125);
+    QVERIFY(!invalidJson.contains("response_expected"));
+
+    // Anomalies: ExpectedNoResponse is NOT an anomaly (whitelist unchanged);
+    // the Exception row is.
+    const auto anomaliesResult =
+        agent::dispatchAgentTool(context, "get_recent_anomalies", QJsonObject{});
+    const auto* anomalies = std::get_if<agent::RecentAnomaliesResult>(&anomaliesResult);
+    QVERIFY(anomalies != nullptr);
+    QCOMPARE(anomalies->totalAnomalyCount, std::size_t{1});
+    QCOMPARE(anomalies->entries.size(), std::size_t{1});
+    QCOMPARE(anomalies->entries[0].status, core::TransactionStatus::Exception);
 }
 
 QTEST_GUILESS_MAIN(AgentToolsTest)

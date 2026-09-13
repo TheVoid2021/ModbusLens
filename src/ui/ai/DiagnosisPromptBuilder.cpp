@@ -54,6 +54,12 @@ QString issueToken(modbuslens::core::TransactionIssueCode code)
     return QString::fromUtf8(name.data(), static_cast<qsizetype>(name.size()));
 }
 
+QString requestIssueToken(modbuslens::core::TransactionRequestIssueCode code)
+{
+    const auto name = modbuslens::core::transactionRequestIssueName(code);
+    return QString::fromUtf8(name.data(), static_cast<qsizetype>(name.size()));
+}
+
 bool isFailure(modbuslens::core::TransactionStatus status)
 {
     using modbuslens::core::TransactionStatus;
@@ -104,6 +110,19 @@ QString transactionLine(const modbuslens::core::DiagnosisTransaction& transactio
         if (a.issue->actualQuantity.has_value()) {
             line += QStringLiteral(" actual_quantity=%1")
                         .arg(*a.issue->actualQuantity);
+        }
+    }
+    // T015 additive: request-side deterministic facts (observed values only).
+    if (transaction.requestIssue.has_value()) {
+        line += QStringLiteral(" request_issue=%1")
+                    .arg(requestIssueToken(transaction.requestIssue->code));
+        if (transaction.requestIssue->observedQuantity.has_value()) {
+            line += QStringLiteral(" observed_quantity=%1")
+                        .arg(*transaction.requestIssue->observedQuantity);
+        }
+        if (transaction.requestIssue->maxAllowedQuantity.has_value()) {
+            line += QStringLiteral(" max_allowed_quantity=%1")
+                        .arg(*transaction.requestIssue->maxAllowedQuantity);
         }
     }
     return line;
@@ -181,7 +200,13 @@ DiagnosisPrompt buildDiagnosisPrompt(
         "- issue=unexpected_response_function: the response function code is neither the requested function nor its exception form.\n"
         "- issue=malformed_exception_response / malformed_normal_response: the response carried the expected function form but with an invalid data shape.\n"
         "- issue=quantity_mismatch: the response register count differs from the requested quantity — both are observed values.\n"
-        "- Never convert these observed facts into root causes (wiring, device defects, wrong configuration) and never claim the cause; keep them as observed facts and give possible explanations only with explicit uncertainty.\n"
+        // ---- T015: broadcast and request-side fact semantics ----
+        "Deterministic broadcast and request facts:\n"
+        "- status=ExpectedNoResponse (expected_no_response statistics): a valid broadcast-capable write request was observed and no response was observed, which the protocol does not expect. This does NOT prove that any device applied the write, that all devices executed it, or that any device is healthy. Never describe it as success.\n"
+        "- request_issue=invalid_request_quantity: the captured request asked for a register quantity outside its function's protocol constraint (observed/max values are supplied); it says nothing about why the requester sent it (never claim a program or operator error).\n"
+        "- request_issue=invalid_request_length: the captured request's data length does not match its function's protocol shape.\n"
+        "- request_issue=invalid_broadcast_function: address 0 was observed with a function that is not broadcast-capable (a read cannot be broadcast). It is NOT an expected-no-response transaction.\n"
+        "- Never convert these observed facts into root causes (wiring, device defects, configuration, software bugs) and never claim the cause; keep them as observed facts and give possible explanations only with explicit uncertainty.\n"
         "Keep the answer concise (roughly 250 words or less).");
 
     const auto& stats = context.statistics;
@@ -200,7 +225,7 @@ DiagnosisPrompt buildDiagnosisPrompt(
                          ? QStringLiteral("true")
                          : QStringLiteral("false"));
     user += QStringLiteral(
-                "statistics: observed=%1 completed=%2 pending=%3 success=%4 exception=%5 crc_error=%6 timeout=%7 protocol_error=%8\n")
+                "statistics: observed=%1 completed=%2 pending=%3 success=%4 exception=%5 crc_error=%6 timeout=%7 protocol_error=%8 expected_no_response=%9\n")
                 .arg(stats.observedCount)
                 .arg(stats.completedCount)
                 .arg(stats.pendingCount)
@@ -208,7 +233,8 @@ DiagnosisPrompt buildDiagnosisPrompt(
                 .arg(stats.exceptionCount)
                 .arg(stats.crcErrorCount)
                 .arg(stats.timeoutCount)
-                .arg(stats.protocolErrorCount);
+                .arg(stats.protocolErrorCount)
+                .arg(stats.expectedNoResponseCount);
     if (stats.successRate.has_value()) {
         user += QStringLiteral("success_rate=%1\n").arg(*stats.successRate, 0, 'f', 4);
     }
