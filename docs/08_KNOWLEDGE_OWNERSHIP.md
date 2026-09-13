@@ -1595,4 +1595,328 @@ Diagnosis 三 Tab:基线诊断(确定性)/AI 解释(one-shot)/Agent 问答(只�
 
 ---
 
-*Part 6 完。后续 Part 不在本阶段创建。*
+*Part 6 完。后续 Part 不在本阶段创建。*---
+
+# Part 7 — Agent / Tool Calling Knowledge Ownership（T012）
+
+> 与代码互核:`kMaxAgentToolRounds=3`、`kMaxAgentTotalToolCalls=6`、`kMaxRecentAnomalies=20`、`kMaxAgentQuestionChars=1000`(AgentRuntime.h / AgentTools.h);测试实数是 test_agent_tools=10 个 a*,test_agent_runtime=26 个 b*(B01~B25 区间含新增),test_agent_integration=22 个 ag*(AG01~AG22)。ADR002 + ISSUE-006/007/008/009 为本 Part 权威参考。
+
+---
+
+## 7.1 Agent vs LLM(为什么 T012 算 Agent,而 T011 只是 AI Explanation)
+
+- **T011**:structured deterministic facts → **one-shot** LLM 请求 → explanation。没有 tools、没有 tool_calls、没有本地执行、没有多轮 loop。
+- **T012**:user question → model 决定是否需要工具 → assistant.tool_calls → 本地 C++ 校验/执行 → role=tool → 模型继续 → final answer。
+- **LLM 是 Agent 的 reasoning/decision component,但 LLM != Agent**。完整 Agent = LLM + AgentRuntime + Provider Adapter + Tool Schemas + Validator + Dispatcher + Tool Layer + State/Budget/Stale Guards。**"接了 Qwen,所以就是 Agent"是错误表述。**
+
+---
+
+## 7.2 Final Agent Architecture(逐层职责)
+
+```text
+QML Question                        ← 输入;只传文本
+  ↓
+AnalysisController::askAgent        ← 应用层前置(单飞/空批/未配置)+ snapshot 构造 + 结果/错误发布
+  ↓ makeAgentToolContext            ← immutable 快照(含 captured revision)
+AgentRuntime                        ← FSM/轮次/总调用预算/整批校验编排/消息历史/双 guard 应用
+  ↓ requestRound
+ModelScopeAgentClient               ← 每轮 Chat Completions POST(返回完整 assistant message 对象)
+  ↓
+Qwen native tool_calls              ← model 只能"请求"工具,不能执行程序
+  ↓ strict C++ validation           ← 白名单/参数/预算/ID 唯一,先全验后执行
+  ↓ dispatchAgentTool               ← enum + explicit dispatcher(无 registry)
+  ↓ 3 read-only tools               ← 本地确定性查询,输出 typed JSON DTO
+  ↓ role=tool(tool_call_id 原样)
+  ↓ next request → final content
+AnalysisController                  ← handleAgentCompleted/Failed/Cancelled → answer/error/busy
+  ↓ PlainText QML                   ← 只展示
+```
+
+每层**不负责什么**:AgentRuntime 不是协议 detector;Dispatcher 不是 LLM;Client 不解析业务事实;QML 不执行任何工具。
+
+---
+
+## 7.3 Authority Boundary(Agent is not detector)
+
+Deterministic Core 唯一负责:CRC correctness、Frame validity、FC03 semantics、request/response consistency、TransactionStatus、Timeout、ProtocolError、Exception Code、elapsed、Statistics、success rate、latency。
+Agent/LLM 可以:read / summarize / compare / reason over supplied facts / explain / suggest checks。
+**不得**:重判 CRC、改 TransactionStatus、重判 Timeout、改 Statistics、改 Exception Code、制造不存在的确定性协议事实。
+**Tool Calling 没有改变 T011 已建立的 authority boundary**——它只是给"读取事实"增加了受控通道。
+
+---
+
+## 7.4 三个 Tool 最终语义(以当前代码为准)
+
+### A. get_session_summary()
+- 无参数;零联网;不访问 Controller live state(只读 snapshot)。
+- 输出:observed/completed/pending + 五分类 count + transaction_count + optional success_rate / average_success_latency_ms(无值省略字段,绝不伪造 0)+ `evidence_scope:"current_observed_batch"`。
+
+### B. get_recent_anomalies()
+- 最终 whitelist:**Exception / CrcError / Timeout / ProtocolError**(`isAnomalyStatus`;**Pending 不是 anomaly**——它是"未完成",既非成功也非完成性失败;不能用 `status != Success` 推导)。
+- `kMaxRecentAnomalies = 20`;超过上限取**最新 20 条**(anomaly 序列的尾部),返回**保持原 batch 顺序**(不倒序、不随机);结果含 total_anomaly_count / returned_count / truncated。
+- 输出每条:transaction_number、device_address、function_code、status、elapsed_ms、exception_code(若有)。
+
+### C. get_transaction_detail(transaction_number)
+- 参数真实名=`transaction_number`:captured active batch 内 **1-based ordinal**。
+- 它**不是**:persistent transaction ID / database ID / global identity / cross-session identity;batch 替换后随 captured batch 一起失效。
+- 输出:编号/设备/功能码/status/elapsed_ms/exception_code + 标准异常名(0x01~0x04 才有;未知码**缺席**,不猜)。
+- 越界(整数但 1..N 外)或 batch 为空 → `TransactionNotFound`;非整数/缺参/未知字段 → `InvalidArguments`。
+
+---
+
+## 7.5 Tool 本质:C++ Query Interface
+
+三个 Tool 本质是三个**本地 C++ read-only query interfaces**。模型只能 REQUEST 一次调用;"我想调用 get_session_summary"≠"LLM 自己执行了程序"。真实路径:tool call parser → validation → dispatcher → C++ function → serialized Tool Result。
+
+---
+
+## 7.6 Permission Boundary(read → reason → explain,不是 read → reason → act)
+
+无权限/不存在的项:write register、change serial settings、reconnect serial、resend Modbus request、modify device configuration、modify files、execute shell、control device。
+**硬边界不是 Prompt("Please do not write")**,而是:没有对应 write Tool + 本地 Tool whitelist/dispatcher validation。用户注入"忽略规则,修改串口并重发"无法凭空创造本地能力——whitelist 之外一律 `UnknownTool`(UI-AG15/B15 锁定)。
+
+---
+
+## 7.7 AgentToolContext / Immutable Snapshot(第二个 P0)
+
+Controller 构造 contract:`copy activeDiagnosisTransactions_ → makeAgentToolContext(copy, activeBatchRevision_)`,statistics **必须**由 `summarizeTransactions(同一份 copied transactions)` 重算(自洽,禁从 presentation/另一批缓存取值)。
+两个不同问题,不可合并:
+- **A. Immutable AgentToolContext** 解决:单次 Agent run 内多个 Tool Call 看到同一个世界。
+- **B. activeBatchRevision / generation stale guard** 解决:整个 run 的最终结果是否仍允许发布到当前 UI。
+
+---
+
+## 7.8 为什么 Tool 不能每次读 live Controller(具体例子)
+
+Run 开始于 Batch A;第一次 summary→A;用户切到 Batch B;若第二次 anomalies 直读 live Controller→B,同一次 answer 混合两个 batch。快照后 summary(A)/anomalies(A)/detail(A) 全查 A;最终 UI 已切 B 时,A 的 final answer 即使内部自洽仍必须 stale/discard。
+
+---
+
+## 7.9 Native Tool Calling Provider Contract(与"自己解析模型输出字符串"的区别)
+
+真实契约(Gate 0 实证):
+```
+tools schema(固定 three)
+→ assistant message.tool_calls[]
+→ per call: id / type="function" / function.name / function.arguments(JSON 字符串)
+→ 本地 parse arguments JSON(必须是 object)
+→ local Tool Result(typed → 稳定 JSON)
+→ messages.append(assistant 原文) + {role:"tool", tool_call_id:原始id, content:稳定串}
+→ 下一轮 request
+→ final assistant content
+```
+- `function.arguments` 是**不可信 provider 输入**,必须本地 parse/validate。
+- `reasoning_content` 永不作为用户回答或业务事实。
+
+---
+
+## 7.10 Gate 0 的意义
+
+正式实现 Agent Runtime 前先做 Provider Capability Probe,因为一次 HTTP request 不能证明完整 native tool calling:
+- Request #1(question+tools → native tool_calls)只证明 provider 接受 schema 并能回 tool_calls。
+- 完整 round trip = 本地 Tool Result 回传(Request #2:assistant tool_call history + role=tool + matching tool_call_id → usable final content)。
+最终实证:ModelScope API-Inference + Qwen/Qwen3.5-27B,**native round trip PROVEN**(Request#1 tool_calls + Request#2 final content 引用 observed=4/timeout=1)。
+
+---
+
+## 7.11 AgentRuntime FSM(真实流程,非 enum 名字重点)
+
+start run → send request → model response:
+- usable final content → complete;
+- tool_calls → parse all → validate all → budget check → execute allowed tools → append role=tool results → next request。
+直到 final answer / bounded failure / cancel / stale invalidation。状态族:`Idle / WaitingForModel / ExecutingTools / Completed / Failed`。
+
+---
+
+## 7.12 Multiple Tool Calls
+
+一次 assistant response 可以含多个 tool_calls;v1 允许(全部只读+同一 immutable snapshot)。原则:**parse all → validate all → budget check → execute**;任一 call malformed/unknown/invalid args/重复或缺失 tool_call_id/budget 超限 → **整个 batch 零部分执行**。即使现在只读,仍采用 transaction-like all-valid-before-execute 语义,防止未来带状态工具的半执行状态。
+
+---
+
+## 7.13 Runtime Budget(只写最终实现)
+
+- `MAX_TOOL_ROUNDS = 3`;`MAX_TOTAL_TOOL_CALLS = 6`。
+- Tool Round = 一个含 tool_calls 的 assistant response(不论 N 个 call)= 1 轮。Total Tool Calls = run 内本地 Tool Call 总数。
+- 例:一轮含 summary+anomalies+detail(2) = 1 round / 3 calls。
+- **rounds 停在 3 管 provider loop 深度;total 从 3 到 6 管本地只读查询量**(reasoning 见 §7.14,不是"为了测试过")。
+
+---
+
+## 7.14 ISSUE-007 真实工程故事(本 Part 重点)
+
+1. 第一次 Live Agent:合法 multi-step 问题 → `ToolCallLimitExceeded` → FAIL。
+2. 系统表现:无限循环 ✗、crash ✗、修改事实 ✗、绕过 guard ✗——**正确 fail closed**。
+3. RCA:`MAX_TOTAL_TOOL_CALLS=3` 对自然 bounded multi-step read-only diagnosis 过严。这是 **Agent orchestration / planning budget issue**,不是 Core/deterministic data/QML/provider 问题。
+4. 修复:rounds 保持 3;total 3→6;+ Tool Efficiency/Planning Discipline(最少调用、不重复查询已有聚合、summary/anomalies 各至多一次、detail 仅相关时调、事实足够立即 final)。
+5. **安全 guard 未删除**:没有 unlimited、没有自动 retry、没有加 round 深度、没有写权限扩张;只是区分 provider loop depth vs local read-only query count。
+6. 同题 Real Agent Live Re-Smoke → PASS。
+
+---
+
+## 7.15 不得编造 exact Tool Sequence
+
+production UI/日志不暴露 exact tool sequence → **not externally observable**(如实写)。不得编"先 summary 再 anomalies 再 detail(2)…";文档必须区分已证明 vs 合理推测(ISSUE-008/009 同纪律)。
+
+---
+
+## 7.16 Stale Guard / Run Identity(以最终代码为准)
+
+- `capturedBatchRevision`(并入 `AgentToolContext`)解决"这个 run 属于哪一批数据"。
+- `runGeneration_ / currentAgentGeneration_`(Controller 的 `agentRequestGeneration_` 单调 ++ 产生 run 身份)解决"同一 batch 上更新的 run 是否 supersede 旧 run"。
+- publish 前条件:`captured==currentBatchRevision` 且 `runGeneration==currentAgentGeneration`;否则静默丢弃。
+- T011 的 AI generation 与 T012 的 Agent generation 是**平行概念,不共享同一个 request ID**。
+
+---
+
+## 7.17 Cancel / Batch Invalidation(四种形态不是同一种错误)
+
+- user cancel → 静默、busy 清、保留旧 answer、无红错误;
+- provider failure → 可见错误文案(八类映射,ISSUE-009);
+- batch invalidation → `invalidateForBatchChange()`:先使旧 run identity 不可发布(++generation)再 cancel(BatchInvalidated)→ 零用户可见信号;迟到 callback 无法发布;
+- newer run supersede → 旧 run 被新 run 顶替(产物只认最新 generation)。
+
+---
+
+## 7.18 T011 vs T012 对照
+
+| | T011 AI Diagnosis | T012 Agent |
+| --- | --- | --- |
+| 输入 | 固定结构化上下文 | 用户自由问题 |
+| Tools | 无 | 3 read-only(原生 tool calling) |
+| 循环 | one-shot | 有界多轮(≤3 rounds/≤6 calls) |
+| 事实获取 | 一次性全部注入 | 按需动态查询 snapshot |
+| 前置 | Baseline First | 仅 configured+非空批+单飞 |
+| 输出 | explanation | final answer |
+
+共同点:同一 provider;deterministic facts authoritative;不篡改事实;stale guard;外部失败不破坏 Core。**都调 ModelScope ≠ 同一层/同一功能。**
+
+---
+
+## 7.19 Agent Prompt / Question Boundary(最终指令要点)
+
+- read-only diagnostic agent;deterministic tool results authoritative;use provided tools;never invent tool/capability;no false action claims;current observed batch only;no long-term reliability generalization;mixed anomaly types independent unless evidence proves otherwise;do not reinterpret CRC/status/exception/statistics;Tool Efficiency/Budget discipline。
+- 用户问题:`kMaxAgentQuestionChars=1000`;空/纯空白→`InvalidQuestion`(Runtime 权威,零网络,不截断)。
+
+---
+
+## 7.20 0x02 / Register Address Limitation(最终数据模型)
+
+Agent detail 不含 FC03 startAddress/quantity(未 enrichment)。因此可以说:0x02=Illegal Data Address + 建议检查 register map/地址配置;但**不能**声称某一具体寄存器地址错误(如"40017 不存在")。保留为 known limitation/future enhancement。
+
+---
+
+## 7.21 ISSUE-008 / ISSUE-009 UNKNOWN Discipline
+
+- ISSUE-008:历史 InvalidResponse 的 exact producer(Client ①~③ / Runtime ④)= **UNKNOWN / not proven**;desired final-answer contract 已 HARDENED;同场景重放 NOT REPRODUCED。
+- ISSUE-009:历史 silent breakpoint = **UNKNOWN**;visibility contract 已 HARDENED(ag21/22);quota reproduction count=0。
+- 不得为"漂亮 RCA"补根因;区分 known code paths / hypothesis / live observation / proven / not proven。
+
+---
+
+## 7.22 Tests as Knowledge Evidence(真实代表案例)
+
+- Tool 层(a01~a10):summary deterministic、recent anomaly selection(latest-20 原序)、detail、not found、unknown tool、invalid arguments、read-only whitelist、deterministic 重放、snapshot isolation、snapshot builder 自洽。
+- Runtime(b01~b25):direct final、one tool round、multiple calls、malformed、unknown tool、round/call budget(7 calls 零执行)、batch 切换 two-window、supersede、cancel、provider failure、facts 不变、injection 无法造写、no config、question 校验、reasoning-only(B24)、non-string content(B25)、multi-tool plan(B23)。
+- UI(ag01~22):availability/busy/answer/error/cancel/batch invalidation/source switching/rows+statistics unchanged/429 与 malformed-200 可见/ST-A 不可表达的 controller 侧处理。
+
+---
+
+## 7.23 Final Live Evidence 层级
+
+A. Part A 只读确定性工具(全测试);B. Gate 0 真实原生能力 PROVEN;C. Phase 1 Runtime 自动测试;D. Phase 2 Controller+QML;E. Offline Manual UI Smoke;F. 第一次真实 multi-step Live FAIL(ToolCallLimitExceeded);G. budget refinement(3→6+discipline);H. 同题 Real Agent Live Re-Smoke PASS。
+有价值的是 **failure→evidence→RCA→constrained fix→same-scenario re-validation**,不是"最后 PASS"。
+
+---
+
+## 7.24 面试讲法(可复述版)
+
+- 15 秒:T011 是一键解释已确定事实;T012 是让模型在严格只读边界内决定"查什么"(三个 C++ 工具+白名单+预算+快照),回答用户自由问题。
+- 45 秒:补"Agent=LLM+Runtime+校验+Dispatcher+只读工具"与权限边界(写能力类型层面不存在)。
+- 2 分钟:补 Gate 0 实证、immutable snapshot、3/6 预算来源(ISSUE-007 fail-closed→RCA→修复→同题重验)、stale guard、0x02 能力边界。
+- 追问知识点(能答):Agent≠聊天;工具由 C++ 执行;模型不能控串口;只读理由;快照与 revision 都要;多调用合法;不部分执行;3/6 由来;3/3 不是 provider bug;transaction_number 非 ID;0x02 无具体寄存器;不污染 Dashboard;injection 不增权;模型胡说→事实不动。
+
+---
+
+## 7.25 Misconceptions(15 条:错误→错在→正确设计)
+
+1. "用了 Qwen 就叫 Agent" → LLM 只是 reasoning 组件 → Agent=LLM+Runtime+校验+工具层。
+2. "模型自己执行 Tool" → 模型只输出 tool_calls → C++ dispatcher 执行。
+3. "Tool Call 合法就不需要本地 validation" → provider 输出不可信 → whitelist/参数/预算三关。
+4. "Prompt 说只读就足够安全" → 文字不是边界 → 无 write Tool+whitelist 才是硬边界。
+5. "所有 non-Success 都是 anomaly" → Pending 是未完成 → 白名单四态。
+6. "transaction_number 是永久 ID" → batch-scoped 1-based ordinal。
+7. "Snapshot 和 revision guard 是一回事" → 前者 run 内世界一致,后者能否发布。
+8. "有 round limit 就不需要 call limit" → 深度 vs 总量两维。
+9. "multiple tool calls 一定不安全" → 全只读同快照下合法(仍整批先验)。
+10. "第一个合法 Tool 可先执行,后面失败再说" → 零部分执行的 transaction-like 语义。
+11. "3→6 等于取消安全限制" → 只读查询总量(ISSUE-007)非写权限。
+12. "Agent 可以重新判断 CRC" → Core 唯一权威。
+13. "0x02 就能知道具体错误寄存器" → 无 startAddress/quantity,只能建议核对。
+14. "Provider failure 可以清掉 deterministic facts" → 只写 Agent 错误视图。
+15. "T011 与 T012 只是 UI 名字不同" → one-shot vs 有界工具循环,架构不同。
+
+---
+
+## 7.26 Self-Test(15 题,无答案)
+
+**基础 5**
+1. T011 与 T012 各把 LLM 放在哪个位置?三层余下各包括什么?
+2. 三个 Tool 的输入/输出/权限分别是什么?
+3. get_recent_anomalies 为何把 Pending 排除?latest-20 的取值方向与返回顺序?
+4. transaction_number 与"ID"的区别?
+5. 权限边界为什么不是 Prompt,而是类型/白名单?
+
+**边界 5**
+6. 快照为何要 summarize 同一份 copy?给一个"混批"具体反例。
+7. multiple calls 的 parse→validate→execute 顺序;若第三 call 非法,前两个执行了吗?
+8. 3 rounds / 6 calls 各自管什么?一个含 4 个调用的响应算几轮几个 call?若超载如何?
+9. Provider 200 但 content 空且 tool_calls 空会怎样?reasoning-only 呢?
+10. stop 未到、batch 切换:谈快照层与 revision 层的两段应对。
+
+**追问 5**
+11. ISSUE-007 里 fail closed 具体保护了什么?为什么修复不加 round 深度?
+12. 为什么 3/3 预算失败不是 Provider bug?(最优解出一道 evidence 问题)
+13. 自己如何向面试官证明"注入不能新增写权限"?(三层防御)
+14. 为什么 batch 替换后 transaction_number 就失效?跨批问题为何 v1 不支持?
+15. 0x02 已知什么/未知什么?从哪行代码界出?(ISSUE-008 视角总结)
+
+---
+
+## 7.27 Code Navigation(B7)
+
+| 入口/层 | 位置与符号 |
+| --- | --- |
+| 用户问题入口 | AnalysisController::askAgent(前置四级 guard) |
+| Controller Agent 状态 | agentBusy(answer) / hasAgentAnswer / agentErrorText / agentAvailable / cloudAiBusy(全 derived) |
+| Snapshot | AgentToolContext.h:makeAgentToolContext |
+| Tool Context | src/ui/agent/AgentToolContext.{h,cpp} |
+| Tool 实现 | src/ui/agent/AgentTools.{h,cpp}:dispatchAgentTool/validateAgentToolCall, kMaxRecentAnomalies=20 |
+| Prompt | src/ui/agent/AgentPromptBuilder.{h,cpp} |
+| Provider client | src/ui/agent/ModelScopeAgentClient.{h,cpp}:requestRound/cancel(ISSUE-005 契约复刻) |
+| Runtime | src/ui/agent/AgentRuntime.{h,cpp}:start/cancel/invalidateForBatchChange, 3/6 常量, 空题 1000 |
+| QML | Main.qml「Agent 问答」Tab |
+| Tests | test_agent_tools / test_agent_runtime / test_agent_integration / test_ui_bridge |
+| 档案 | docs/tasks/T012-agent-tools.md;ADR002;ISSUE-007/008/009 |
+
+---
+
+## 7.28 Evidence Classification(本 Part 最后一道纪律)
+
+- Known from current code:常量、自洽快照、whitelist、双 guard、错误枚举、验证顺序。
+- Known from automated tests:62 个 agent 相关测试函数(tool 10 + runtime 26 + integration 22;ui_bridge 交错)。
+- Known from real provider probe:Gate 0 native round trip PROVEN。
+- Known from real Live Agent evidence:第一次 FAIL(ToolCallLimitExceeded)、同题 re-validation PASS。
+- Historical failure observation:3/3 预算下 fail-closed(有 UI 文案证据)。
+- Hypothesis only:ISSUE-008 的 exact producer(①~④)、ISSUE-009 的断点("额度响应超表"假设)。
+- Not externally observable:exact tool sequence、exact provider request count。
+- Future enhancement / out of scope:startAddress/quantity 详情、第 4 个工具、多 provider。
+
+---
+
+# Phase B Knowledge Ownership Closure
+
+B1 Architecture / B2 Modbus Protocol Core / B3 Transaction·Statistics / B4 Execution Modes / B5 Qt·QML Adapter / B6 Baseline·AI Diagnosis / B7 Agent·Tool Calling —— **均已完成知识证据归档**(docs/08_KNOWLEDGE_OWNERSHIP.md Part 1~7)。
+
+- B8:NOT DEFINED / NOT CREATED(不硬造)。
+- Next:M8 Interview / Portfolio Packaging —— 等待用户批准,不自动开始。
