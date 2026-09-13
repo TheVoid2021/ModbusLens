@@ -70,6 +70,20 @@
 | 0x0A | 网关路径不可用 |
 | 0x0B | 网关目标设备无响应 |
 
+## 4.5 T015 官方协议事实回填（2026-09-13，人工 Review 后入档）
+
+> 来源：**MODBUS Application Protocol Specification V1.1b3** + **MODBUS Serial Line Protocol and Implementation Guide V1.02**。只记录本阶段（T015 Phase B）需要的确定事实；不接受新证据的一律不入档（不猜常量）。
+
+- **FC06（0x06 Write Single Register）**：
+  - Request：register address（uint16）+ register value（uint16）。
+  - Normal response：**echoes request**（字段与值完全回显）——exact-echo 是事务判定的依据（不匹配 ⇒ 独立 issue `WriteSingleRegisterEchoMismatch`，不是 MalformedNormalResponse）。
+  - Exception function：**0x86**。
+- **Function 0x10（Write Multiple Registers）——仅知识回填，本 Phase 不实现 normal semantics**：
+  - quantity = **1..123**；byteCount = **2×N**（N=写入寄存器数）。
+  - Normal response = **starting address + written quantity**（不回显数据）。
+- **Generic Exception**：exception function = request function + **0x80**；exception payload = **一个 exception code**（单字节）。
+- **Broadcast**：serial address = **0**；**no response returned**；broadcast requests are **writing commands**（写类功能码）——**不**扩大解读为“所有 address=0 的功能码都合法”。
+
 ## 5. CRC-16/MODBUS
 
 - 参数：Poly 0x8005（反射多项式 0xA001），Init 0xFFFF，RefIn/RefOut = true，XorOut 0x0000。

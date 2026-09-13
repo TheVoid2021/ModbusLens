@@ -176,6 +176,12 @@ avgSuccessLatencyMs 定义不变（仅 Success 的 elapsed）
 ```
 证据边界文案（status 语义层）：`ExpectedNoResponse` 只说“未观察到响应，且协议上该广播请求不期待响应”——**绝不**渲染为“写入已成功应用到所有从站”。由用户在 Gate C 三案中裁决；采用新状态/新口径前 Phase B 不启动相关实现。
 
+**→ 2026-09-13 Phase A Review 最终批准口径（Gate C = APPROVED）**：采用上列公式且明确——
+- `completed` **不得包含 Pending**；`ExpectedNoResponse` 属于 completed observation。
+- `rateEligibleCompleted = completed − expectedNoResponse`；**`successRate = success / rateEligibleCompleted`；`rateEligibleCompleted == 0 ⇒ successRate = nullopt`**。
+- `averageSuccessLatencyMs` 仍只由 Success 记录计算。
+- 另批准：FC06 exact-echo mismatch 必须使用独立 deterministic issue `WriteSingleRegisterEchoMismatch`（**不得**误写成 `MalformedNormalResponse`）——此为 Phase A Review 新增要求。
+
 ## 18. BROADCAST_NO_RX Token Decision（§19/§21 结论）
 
 **推荐：不新增 mlog token。** 广播期望可由 `request.address==0 ∧ request.fc∈写类集`（§16）**推导**，日志继续记 `NO_RESPONSE`，Analyzer 判 expected vs unexpected。理由：observation token 只应表达“观察到什么”（no bytes/a wire），“这该怎么解释”是 analyzer 的业务结论，塞进 wire token 会让格式承载业务判断、且 demo_v2 的 `BROADCAST_NO_RX` 正是这种硬编码例子。`.mlog v1` 语法**保持不动**（§22）。Scenario 4 流程：
@@ -303,7 +309,7 @@ Phase A **不写任何 tests**（writing 属 Phase B）。
 | **S4** broadcast | InvalidHex（token 非法）→ L15 整文件失败 | **NO_RESPONSE+地址0 推导 → Gate C outcome**（仍需修 fixture CRC/token） | ✅ 改善（语义层） |
 | **S5** FC08+Exc01 | InvalidRequestFunction | **Exception 0x01（generic path；normal FC08 仍 Unsupported）** | ✅ 改善 |
 | **S6** qty126+Exc03 | InvalidRequestData | **Exception 0x03 + requestIssue InvalidQuantity(126)** | ✅ 改善（本任务核心） |
-| S7/S8 exc04/06 | Exception+detail | 不变 | T014 已覆盖 |
+| S7/S8 exc04/06 | Exception+detail | 不变（**Exception 处理早于 T014 已存在**——T004B/T007 数值存储+Baseline 映射） | T014 新增的只是 **ProtocolError deterministic detail**，不是 Exception 覆盖 |
 | S9/S10/S12/S13 | CrcError | 不变（CrcError；物因不可证） | 不改善（预期内） |
 | S11 timing | InvalidRecord | 不变（≠T015） | 仍不改善 |
 | S14 | Timeout | 不变 | 不改善（覆盖充分） |
@@ -319,6 +325,12 @@ Phase A **不写任何 tests**（writing 属 Phase B）。
 - **Gate E** — request-wire corruption 范围：推荐 Scope A（T015 不吞 wire corruption）。
 - **Gate F** — per-record vs whole-batch：推荐 per-record（parser 保持 all-or-nothing，analyzer 不再整批毒死）。
 任何 Gate 若影响 TransactionStatus / Statistics 语义 / public data model，一律先批后做。
+
+### Phase A Review 批示结果（2026-09-13，Implementation 准入）
+
+- **Gate A = APPROVED**（Core generic passive analyzer）。**Gate B = APPROVED**（独立 `TransactionRequestIssue`；不得修改 T014 `TransactionIssue` 的语义职责）。**Gate C = APPROVED**（新增 `TransactionStatus::ExpectedNoResponse` —— T015 **有意的** high-level outcome expansion；统计公式以 §17 批准口径为准）。**Gate D = APPROVED**（Phase B = FC06；Part C = Function 0x10 normal semantics，**本 Phase 禁止实现**）。**Gate E = APPROVED Scope A**（bad request CRC / FrameTooShort 本 Phase 保持旧契约，记录 deferred）。**Gate F = APPROVED WITH SCOPE**（valid RTU request 之后的 semantic-invalid / supported / unsupported 全部 per-record 化；parser syntax failure 继续整文件 fail；bad request wire 继续旧行为）。
+- **Phase A 文档订正（本 Phase 实施前）**：① demo_v2 mapping 的“S7/S8 = T014 覆盖”改为“Exception 处理早于 T014 已存在（T004B/T007），T014 新增的是 ProtocolError deterministic detail”（§31 已改）；② Broadcast 统计最终采用批准公式（§17 已改）；③ 新增要求：FC06 exact-echo mismatch → 独立 issue `WriteSingleRegisterEchoMismatch`，不得混用 `MalformedNormalResponse`。
+- **0x10 边界**：Phase B 只允许 03_MODBUS_LEARNING 知识回填与未来类型/API 规划思考；**禁止** Function16 production decoder / normal matcher / 相关 tests 实现（全部留 T015 Part C）。
 
 ## 33. Documentation / Files Changed（本阶段 docs-only）
 

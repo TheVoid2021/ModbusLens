@@ -1,6 +1,6 @@
 # ADR-003 — Broadcast Outcome Semantics（广播事务的归一化语义）
 
-> 状态：**Draft / Proposal——AWAITING USER ARCHITECTURE DECISION**（未 FINAL；未被 Phase B 实施）
+> 状态：**Accepted（用户 Gate C 批准，2026-09-13）——implemented-candidate**；Final 状态等待 T015 Phase B Review。
 > 关联：M8.1 Diagnostic Coverage Audit §18、T015 Phase A Gate C（docs/tasks/T015-passive-replay-expansion.md）
 
 ## 背景
@@ -40,4 +40,5 @@
 
 ## 状态历史
 
-- 2026-09-13 Draft/Proposal 建立（T015 Phase A）。FINAL 化与实施待用户裁决。
+- 2026-09-13 Draft/Proposal 建立（T015 Phase A）。
+- 2026-09-13 **用户 Gate C 批准 → Accepted（implemented-candidate）**。批准口径（最终公式）：`observed = pending + completed`；`completed = success + exception + crcError + timeout + protocolError + expectedNoResponse`（**completed 不含 Pending**）；`rateEligibleCompleted = completed − expectedNoResponse`；`successRate = success / rateEligibleCompleted`；`rateEligibleCompleted == 0 ⇒ successRate = nullopt`；`averageSuccessLatencyMs` 仍只计 Success。新增状态 `TransactionStatus::ExpectedNoResponse` 语义：观察到合法 broadcast-capable 请求、未观察到响应、协议不期待响应——不代表 write success / 设备健康。Final 待 T015 Phase B Review。
