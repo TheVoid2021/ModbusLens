@@ -75,6 +75,9 @@ private slots:
     void a09_pending();
     // DIAG-A10 (P1): determinism — same context, identical reports.
     void a10_determinism();
+    // DIAG-A11 (P0, T014): DiagnosisContext preserves the analyzer's issue
+    // verbatim; the baseline does NOT re-derive it and keeps its finding.
+    void a11_protocolIssuePreservedInContext();
 };
 
 void DiagnosisTest::a01_empty()
@@ -268,6 +271,40 @@ void DiagnosisTest::a10_determinism()
     const auto first = diagnoseTransactions(context);
     const auto second = diagnoseTransactions(context);
     QVERIFY(first == second);
+}
+
+void DiagnosisTest::a11_protocolIssuePreservedInContext()
+{
+    // Analyzer-produced ProtocolError (address mismatch). The context must
+    // carry the issue through by value — DiagnosisContext adds NOTHING and
+    // the baseline must not re-derive it (single-authority chain).
+    const modbuslens::core::ModbusRtuFrame request{
+        .address = 0x01, .functionCode = 0x03, .data = {0x00, 0x00, 0x00, 0x02}};
+    const modbuslens::core::ModbusRtuFrame foreign{
+        .address = 0x02, .functionCode = 0x03, .data = {0x04, 0x00, 0x64, 0x00, 0xC8}};
+    const auto analysis = modbuslens::core::analyzeFunction03Transaction(
+        request, modbuslens::core::ResponseObservation{foreign}, ms{25}, ms{1000});
+
+    const std::vector<DiagnosisTransaction> batch = {
+        DiagnosisTransaction{
+            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = analysis},
+    };
+    const DiagnosisContext context = buildDiagnosisContext(batch);
+
+    QCOMPARE(context.transactions.size(), std::size_t{1});
+    QVERIFY(context.transactions[0].analysis.issue.has_value());
+    QCOMPARE(context.transactions[0].analysis.issue->code,
+             modbuslens::core::TransactionIssueCode::ResponseAddressMismatch);
+    QCOMPARE(*context.transactions[0].analysis.issue->expectedAddress,
+             std::uint8_t{0x01});
+    QCOMPARE(*context.transactions[0].analysis.issue->actualAddress,
+             std::uint8_t{0x02});
+
+    // Baseline finding itself stays the pre-T014 shape (no issue deduction,
+    // no new finding codes) — the DIAG-A06 contract is not weakened.
+    const DiagnosisReport report = diagnoseTransactions(context);
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    QCOMPARE(report.findings[0].code, DiagnosisFindingCode::ProtocolErrorObserved);
 }
 
 QTEST_GUILESS_MAIN(DiagnosisTest)

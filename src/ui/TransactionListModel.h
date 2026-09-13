@@ -2,6 +2,7 @@
 
 #include <QAbstractListModel>
 #include <QObject>
+#include <QString>
 
 #include <cstdint>
 #include <optional>
@@ -17,7 +18,14 @@ struct TransactionListEntry {
     modbuslens::core::TransactionStatus status{};
     qint64 elapsedMs{};
     std::optional<std::uint8_t> exceptionCode;
+    // T014: deterministic secondary text for ProtocolError rows formatted in
+    // this Qt adapter (never in Core). Empty for every other row.
+    QString issueText;
 };
+
+// Adapter formatting: TransactionIssue -> conservative deterministic Chinese
+// presentation text (observed facts only; explicitly NOT root-cause prose).
+QString issueDetailText(const modbuslens::core::TransactionAnalysis& analysis);
 
 class TransactionListModel : public QAbstractListModel
 {
@@ -31,7 +39,8 @@ public:
         StatusTextRole,
         ElapsedMsRole,
         HasExceptionCodeRole,
-        ExceptionCodeRole
+        ExceptionCodeRole,
+        IssueTextRole
     };
 
     explicit TransactionListModel(QObject* parent = nullptr);

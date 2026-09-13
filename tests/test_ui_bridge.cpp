@@ -28,6 +28,7 @@ TransactionListEntry successEntry()
         .status = modbuslens::core::TransactionStatus::Success,
         .elapsedMs = 25,
         .exceptionCode = std::nullopt,
+        .issueText = QStringLiteral(""),
     };
 }
 
@@ -39,6 +40,7 @@ TransactionListEntry exceptionEntry()
         .status = modbuslens::core::TransactionStatus::Exception,
         .elapsedMs = 18,
         .exceptionCode = std::uint8_t{0x02},
+        .issueText = QStringLiteral(""),
     };
 }
 
@@ -144,6 +146,11 @@ private slots:
     void ai09_clearDiagnosis();
     void ai10_aiNeverChangesFacts();
     void ai11_sameBatchCancelRestartGuard();
+
+    // ---- T014: issue presentation through the model/controller ----
+    // UI-T01 (P0): ProtocolError rows expose deterministic issueText;
+    // ordinary rows stay empty (additive presentation, no new columns).
+    void t01_protocolErrorIssueText();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -222,6 +229,7 @@ void UiBridgeTest::a06_replaceModel()
         .status = modbuslens::core::TransactionStatus::Success,
         .elapsedMs = 12,
         .exceptionCode = std::nullopt,
+        .issueText = QStringLiteral(""),
     };
     model.setEntries({secondBatchRow});
 
@@ -1182,6 +1190,51 @@ void UiBridgeTest::ai11_sameBatchCancelRestartGuard()
     QCOMPARE(controller.aiDiagnosisText(), QStringLiteral("NEW RESPONSE"));
     QVERIFY(!controller.aiDiagnosisBusy());
 }
+
+void UiBridgeTest::t01_protocolErrorIssueText()
+{
+    // Analyzer-produced address mismatch published via the controller: the
+    // entry carries adapter-formatted deterministic text; a Success row
+    // stays empty. Presentation only — never new columns, never prose in
+    // Core (the text is produced by issueDetailText in the Qt adapter).
+    using namespace modbuslens::core;
+
+    const ModbusRtuFrame request{
+        .address = 0x01, .functionCode = 0x03, .data = {0x00, 0x00, 0x00, 0x02}};
+    const ModbusRtuFrame foreign{
+        .address = 0x02, .functionCode = 0x03, .data = {0x04, 0x00, 0x64, 0x00, 0xC8}};
+    const auto mismatch = analyzeFunction03Transaction(
+        request, ResponseObservation{foreign}, ms{25}, ms{1000});
+
+    AnalysisController controller;
+    controller.publishSerialResult(QStringLiteral("COM1 @ 9600"), 1, mismatch);
+
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    const QModelIndex index = controller.transactionModel()->index(0, 0);
+    QCOMPARE(controller.transactionModel()
+                 ->data(index, TransactionListModel::IssueTextRole)
+                 .toString(),
+             QStringLiteral("响应地址不匹配（请求 0x01 / 响应 0x02）"));
+    QCOMPARE(controller.transactionModel()
+                 ->data(index, TransactionListModel::StatusTextRole)
+                 .toString(),
+             QStringLiteral("协议错误"));
+
+    // Success: issueText role is empty — the additive row contract.
+    const auto success = analyzeFunction03Transaction(
+        request,
+        ResponseObservation{ModbusRtuFrame{
+            .address = 0x01, .functionCode = 0x03, .data = {0x04, 0x00, 0x64, 0x00, 0xC8}}},
+        ms{25}, ms{1000});
+    controller.publishSerialResult(QStringLiteral("COM1 @ 9600"), 1, success);
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    const QModelIndex successIndex = controller.transactionModel()->index(0, 0);
+    QCOMPARE(controller.transactionModel()
+                 ->data(successIndex, TransactionListModel::IssueTextRole)
+                 .toString(),
+             QString());
+}
+
 } // namespace
 
 QTEST_GUILESS_MAIN(UiBridgeTest)

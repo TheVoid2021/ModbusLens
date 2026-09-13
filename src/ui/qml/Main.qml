@@ -836,45 +836,68 @@ ApplicationWindow {
 
                             delegate: Rectangle {
                                 width: ListView.view.width
-                                height: 36
+                                // T014: ProtocolError rows carry a secondary
+                                // deterministic detail line; everything else
+                                // keeps the original 36px row exactly.
+                                height: model.issueText !== "" ? 58 : 36
                                 color: root.surfaceAlt
                                 radius: 4
 
-                                Row {
+                                Column {
                                     anchors.fill: parent
-                                    spacing: 0
 
-                                    Label {
-                                        text: qsTr("设备 %1").arg(model.deviceAddress)
-                                        width: transactionsPane.deviceColumnWidth
-                                        leftPadding: 6
-                                        elide: Text.ElideRight
+                                    Row {
+                                        width: parent.width
+                                        height: 36
+                                        spacing: 0
+
+                                        Label {
+                                            text: qsTr("设备 %1").arg(model.deviceAddress)
+                                            width: transactionsPane.deviceColumnWidth
+                                            leftPadding: 6
+                                            elide: Text.ElideRight
+                                        }
+                                        Label {
+                                            text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
+                                            width: transactionsPane.functionColumnWidth
+                                            leftPadding: 6
+                                        }
+                                        Label {
+                                            text: model.statusText
+                                            width: transactionsPane.statusColumnWidth
+                                            leftPadding: 6
+                                            elide: Text.ElideRight
+                                        }
+                                        Label {
+                                            text: model.elapsedMs + qsTr(" ms")
+                                            width: transactionsPane.latencyColumnWidth
+                                            leftPadding: 6
+                                            elide: Text.ElideRight
+                                        }
+                                        Label {
+                                            text: model.hasExceptionCode
+                                                  ? qsTr("异常码 0x%1").arg(
+                                                        ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
+                                                  : qsTr("—")
+                                            color: model.hasExceptionCode ? root.errorAccent : root.textSecondary
+                                            width: parent.width - transactionsPane.leadingColumnsWidth
+                                            leftPadding: 6
+                                            elide: Text.ElideRight
+                                        }
                                     }
+
+                                    // T014: deterministic detail, only for
+                                    // ProtocolError rows (adapter-formatted
+                                    // observed facts, never root-cause prose).
                                     Label {
-                                        text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
-                                        width: transactionsPane.functionColumnWidth
+                                        width: parent.width
+                                        height: 22
+                                        visible: model.issueText !== ""
+                                        text: model.issueText
+                                        color: root.textSecondary
                                         leftPadding: 6
-                                    }
-                                    Label {
-                                        text: model.statusText
-                                        width: transactionsPane.statusColumnWidth
-                                        leftPadding: 6
-                                        elide: Text.ElideRight
-                                    }
-                                    Label {
-                                        text: model.elapsedMs + qsTr(" ms")
-                                        width: transactionsPane.latencyColumnWidth
-                                        leftPadding: 6
-                                        elide: Text.ElideRight
-                                    }
-                                    Label {
-                                        text: model.hasExceptionCode
-                                              ? qsTr("异常码 0x%1").arg(
-                                                    ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
-                                              : qsTr("—")
-                                        color: model.hasExceptionCode ? root.errorAccent : root.textSecondary
-                                        width: parent.width - transactionsPane.leadingColumnsWidth
-                                        leftPadding: 6
+                                        rightPadding: 6
+                                        font.pixelSize: 11
                                         elide: Text.ElideRight
                                     }
                                 }

@@ -961,6 +961,7 @@ void AnalysisController::publishSerialResult(
         .status = analysis.status,
         .elapsedMs = analysis.elapsed.count(),
         .exceptionCode = analysis.exceptionCode,
+        .issueText = issueDetailText(analysis),
     };
 
     transactionModel_.setEntries({std::move(entry)});
@@ -1043,6 +1044,7 @@ void AnalysisController::runDemoBatch()
             .status = analysis.status,
             .elapsedMs = analysis.elapsed.count(),
             .exceptionCode = analysis.exceptionCode,
+            .issueText = issueDetailText(analysis),
         });
         diagnosisTransactions.push_back(modbuslens::core::DiagnosisTransaction{
             .deviceAddress = request.address,
@@ -1223,6 +1225,7 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
             .status = outcome.analysis.status,
             .elapsedMs = outcome.analysis.elapsed.count(),
             .exceptionCode = outcome.analysis.exceptionCode,
+            .issueText = issueDetailText(outcome.analysis),
         });
         diagnosisTransactions.push_back(modbuslens::core::DiagnosisTransaction{
             .deviceAddress = outcome.deviceAddress,

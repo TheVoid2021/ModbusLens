@@ -99,6 +99,13 @@ private slots:
     void b15_evidenceScopeNotCountBased();
     void b16_exception02Semantics();
     void b17_mixedFailureIndependence();
+    // ---- T014: issue facts in the prompt ----
+    // T014-B18 (P0): analyzer-produced ProtocolError issues enter the prompt
+    // as machine-channel facts (code + payload), never speculation.
+    void b18_promptIssueFacts();
+    // T014-B19 (P0): defensive issue-less ProtocolError -> detail omitted,
+    // no crash, no fabricated reason (refinement A downstream contract).
+    void b19_defensiveIssueLossInPrompt();
 };
 
 void AiClientTest::b01_promptAuthority()
@@ -600,6 +607,69 @@ void AiClientTest::b17_mixedFailureIndependence()
     QVERIFY(user.contains(QStringLiteral("crc_error=1")));
     QVERIFY(user.contains(QStringLiteral("timeout=1")));
     QVERIFY(user.contains(QStringLiteral("exception_code=0x02")));
+}
+
+void AiClientTest::b18_promptIssueFacts()
+{
+    // Analyzer-produced issue rows (the ONLY source of issues): the builder
+    // emits `issue=<token>` plus the payload the code requires.
+    const modbuslens::core::ModbusRtuFrame request{
+        .address = 0x01, .functionCode = 0x03, .data = {0x00, 0x00, 0x00, 0x02}};
+    const modbuslens::core::ModbusRtuFrame foreign{
+        .address = 0x02, .functionCode = 0x03, .data = {0x04, 0x00, 0x64, 0x00, 0xC8}};
+    const modbuslens::core::ModbusRtuFrame quantityMismatch{
+        .address = 0x01, .functionCode = 0x03, .data = {0x06, 0x00, 0x64, 0x00, 0xC8, 0x05, 0xDC}};
+
+    const auto addressAnalysis = modbuslens::core::analyzeFunction03Transaction(
+        request, modbuslens::core::ResponseObservation{foreign}, ms{25}, ms{1000});
+    const auto quantityAnalysis = modbuslens::core::analyzeFunction03Transaction(
+        request, modbuslens::core::ResponseObservation{quantityMismatch}, ms{25}, ms{1000});
+
+    const std::vector<DiagnosisTransaction> batch = {
+        DiagnosisTransaction{
+            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = addressAnalysis},
+        DiagnosisTransaction{
+            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = quantityAnalysis},
+    };
+    const DiagnosisContext context = buildDiagnosisContext(batch);
+    const DiagnosisPrompt prompt = buildDiagnosisPrompt(
+        context, diagnoseTransactions(context));
+
+    const QString user = prompt.userPrompt;
+    QVERIFY(user.contains(QStringLiteral("issue=response_address_mismatch")));
+    QVERIFY(user.contains(QStringLiteral("expected_address=1")));
+    QVERIFY(user.contains(QStringLiteral("actual_address=2")));
+    QVERIFY(user.contains(QStringLiteral("issue=quantity_mismatch")));
+    QVERIFY(user.contains(QStringLiteral("expected_quantity=2")));
+    QVERIFY(user.contains(QStringLiteral("actual_quantity=3")));
+
+    // System contract gained the deterministic issue semantics (additive).
+    const QString system = prompt.systemInstructions;
+    QVERIFY(system.contains(QStringLiteral("response_address_mismatch")));
+    QVERIFY(system.contains(QStringLiteral("does NOT prove slave address misconfiguration")));
+    QVERIFY(system.contains(QStringLiteral("quantity_mismatch")));
+
+    // Never speculative cause channels.
+    QVERIFY(!user.contains(QStringLiteral("root_cause=")));
+    QVERIFY(!user.contains(QStringLiteral("device_config_wrong")));
+    QVERIFY(!user.contains(QStringLiteral("EMI=true")));
+}
+
+void AiClientTest::b19_defensiveIssueLossInPrompt()
+{
+    // A hand-built ProtocolError WITHOUT an issue (defensive input, not a
+    // production-analyzer-valid object): the builder must omit the detail
+    // entirely — no crash, no invented reason token.
+    const std::vector<DiagnosisTransaction> batch = {
+        tx(0x01, TransactionStatus::ProtocolError, 30),
+    };
+    const DiagnosisContext context = buildDiagnosisContext(batch);
+    const DiagnosisPrompt prompt = buildDiagnosisPrompt(
+        context, diagnoseTransactions(context));
+
+    QVERIFY(!prompt.userPrompt.contains(QStringLiteral("issue=")));
+    QVERIFY(prompt.userPrompt.contains(QStringLiteral("status=ProtocolError")));
+    QVERIFY(prompt.systemInstructions.contains(QStringLiteral("response_address_mismatch")));
 }
 
 QTEST_GUILESS_MAIN(AiClientTest)

@@ -82,6 +82,9 @@ private slots:
     void a08_deterministicRepeatedExecution();
     void a09_snapshotIsolation();
     void a10_snapshotBuilderSelfConsistency();
+    // T014-A11 (P0): issue facts surface through detail (full payload) and
+    // anomalies (simplified code) exactly when present; never otherwise.
+    void a11_protocolIssueFactsInTools();
 };
 
 void AgentToolsTest::a01_sessionSummaryGolden()
@@ -307,6 +310,7 @@ void AgentToolsTest::a03_transactionDetailByNumber()
     const QJsonObject json1 = agent::toJsonObject(*detail1);
     QVERIFY(!json1.contains("exception_code"));
     QVERIFY(!json1.contains("exception_name"));
+    QVERIFY(!json1.contains("issue_code"));
 
     // Unknown exception code (0x7E): the fact is reported, the NAME is
     // deliberately ABSENT — never guessed, no invented prose.
@@ -550,6 +554,80 @@ void AgentToolsTest::a10_snapshotBuilderSelfConsistency()
     QVERIFY(s != nullptr);
     QCOMPARE(s->transactionCount, std::size_t{4});
     QCOMPARE(s->timeoutCount, std::size_t{1});
+}
+
+void AgentToolsTest::a11_protocolIssueFactsInTools()
+{
+    // Analyzer-produced ProtocolError: address mismatch (request 1, response 2).
+    const core::ModbusRtuFrame request{
+        .address = 0x01, .functionCode = 0x03, .data = {0x00, 0x00, 0x00, 0x02}};
+    const core::ModbusRtuFrame foreign{
+        .address = 0x02, .functionCode = 0x03, .data = {0x04, 0x00, 0x64, 0x00, 0xC8}};
+    const auto analysis = core::analyzeFunction03Transaction(
+        request, core::ResponseObservation{foreign}, ms{25}, ms{1000});
+
+    const std::vector<core::DiagnosisTransaction> batch = {
+        core::DiagnosisTransaction{
+            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = analysis},
+    };
+    const auto coreContext = core::buildDiagnosisContext(batch);
+    const agent::AgentToolContext context{
+        .transactions = coreContext.transactions,
+        .statistics = coreContext.statistics,
+        .capturedBatchRevision = 7,
+    };
+
+    // get_transaction_detail: full issue facts, only the required payload.
+    const auto detailResult = agent::dispatchAgentTool(
+        context, "get_transaction_detail",
+        QJsonObject{{QStringLiteral("transaction_number"), 1}});
+    const auto* detail = std::get_if<agent::TransactionDetailResult>(&detailResult);
+    QVERIFY(detail != nullptr);
+    QVERIFY(detail->issue.has_value());
+    QCOMPARE(detail->issue->code,
+             core::TransactionIssueCode::ResponseAddressMismatch);
+    QCOMPARE(*detail->issue->expectedAddress, std::uint8_t{0x01});
+    QCOMPARE(*detail->issue->actualAddress, std::uint8_t{0x02});
+
+    const QJsonObject json = agent::toJsonObject(*detail);
+    QCOMPARE(json.value("issue_code").toString(),
+             QStringLiteral("response_address_mismatch"));
+    QCOMPARE(json.value("expected_address").toInt(), 1);
+    QCOMPARE(json.value("actual_address").toInt(), 2);
+    QVERIFY(!json.contains("actual_function_code"));
+    QVERIFY(!json.contains("expected_quantity"));
+    QVERIFY(!json.contains("actual_quantity"));
+
+    // get_recent_anomalies: simplified issue_code only (no payload keys).
+    const auto anomaliesResult = agent::dispatchAgentTool(
+        context, "get_recent_anomalies", QJsonObject{});
+    const auto* anomalies =
+        std::get_if<agent::RecentAnomaliesResult>(&anomaliesResult);
+    QVERIFY(anomalies != nullptr);
+    QCOMPARE(anomalies->entries.size(), std::size_t{1});
+    QVERIFY(anomalies->entries[0].issueCode.has_value());
+    QCOMPARE(*anomalies->entries[0].issueCode,
+             core::TransactionIssueCode::ResponseAddressMismatch);
+
+    const QJsonObject anomaliesJson = agent::toJsonObject(*anomalies);
+    const QJsonArray items = anomaliesJson.value("anomalies").toArray();
+    QCOMPARE(items.size(), QJsonArray::size_type{1});
+    const QJsonObject item = items[0].toObject();
+    QCOMPARE(item.value("issue_code").toString(),
+             QStringLiteral("response_address_mismatch"));
+    QVERIFY(!item.contains("expected_address"));
+    QVERIFY(!item.contains("actual_address"));
+
+    // Non-ProtocolError rows: no issue fields anywhere (hashX semantics).
+    const agent::AgentToolContext golden = goldenContext();
+    const auto detail1Result = agent::dispatchAgentTool(
+        golden, "get_transaction_detail",
+        QJsonObject{{QStringLiteral("transaction_number"), 1}});
+    const auto* detail1 = std::get_if<agent::TransactionDetailResult>(&detail1Result);
+    QVERIFY(detail1 != nullptr);
+    QVERIFY(!detail1->issue.has_value());
+    const QJsonObject json1 = agent::toJsonObject(*detail1);
+    QVERIFY(!json1.contains("issue_code"));
 }
 
 QTEST_GUILESS_MAIN(AgentToolsTest)

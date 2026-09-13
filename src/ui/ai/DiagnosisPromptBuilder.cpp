@@ -46,6 +46,12 @@ QString statusName(modbuslens::core::TransactionStatus status)
     return QStringLiteral("Unknown");
 }
 
+QString issueToken(modbuslens::core::TransactionIssueCode code)
+{
+    const auto name = modbuslens::core::transactionIssueName(code);
+    return QString::fromUtf8(name.data(), static_cast<qsizetype>(name.size()));
+}
+
 bool isFailure(modbuslens::core::TransactionStatus status)
 {
     using modbuslens::core::TransactionStatus;
@@ -69,6 +75,34 @@ QString transactionLine(const modbuslens::core::DiagnosisTransaction& transactio
                     .arg(QString::number(*a.exceptionCode, 16)
                              .toUpper()
                              .rightJustified(2, QLatin1Char('0')));
+    }
+    // T014 additive: deterministic issue facts (machine channel, observed
+    // values only). A ProtocolError WITHOUT an issue (defensive input) stays
+    // detail-less — the builder never guesses a reason (refinement A).
+    if (a.issue.has_value()) {
+        line += QStringLiteral(" issue=%1").arg(issueToken(a.issue->code));
+        if (a.issue->expectedAddress.has_value()) {
+            line += QStringLiteral(" expected_address=%1")
+                        .arg(*a.issue->expectedAddress);
+        }
+        if (a.issue->actualAddress.has_value()) {
+            line += QStringLiteral(" actual_address=%1")
+                        .arg(*a.issue->actualAddress);
+        }
+        if (a.issue->actualFunctionCode.has_value()) {
+            line += QStringLiteral(" actual_function_code=0x%1")
+                        .arg(QString::number(*a.issue->actualFunctionCode, 16)
+                                 .toUpper()
+                                 .rightJustified(2, QLatin1Char('0')));
+        }
+        if (a.issue->expectedQuantity.has_value()) {
+            line += QStringLiteral(" expected_quantity=%1")
+                        .arg(*a.issue->expectedQuantity);
+        }
+        if (a.issue->actualQuantity.has_value()) {
+            line += QStringLiteral(" actual_quantity=%1")
+                        .arg(*a.issue->actualQuantity);
+        }
     }
     return line;
 }
@@ -138,6 +172,14 @@ DiagnosisPrompt buildDiagnosisPrompt(
         "Keep protocol terms in English as-is: Modbus, RTU, CRC, function codes, register addresses, exception codes.\n"
         "Do not use Markdown formatting. Use plain text only.\n"
         "Structure the explanation with sections: 概述, 观测事实, 可能原因, 建议检查.\n"
+        // ---- T014: deterministic protocol-error issue semantics ----
+        "Deterministic protocol error detail (observed transaction facts only):\n"
+        "- issue=response_frame_too_short: the received response was shorter than the minimum RTU frame; nothing beyond that is implied.\n"
+        "- issue=response_address_mismatch: the response address byte differs from the request address byte; this does NOT prove slave address misconfiguration.\n"
+        "- issue=unexpected_response_function: the response function code is neither the requested function nor its exception form.\n"
+        "- issue=malformed_exception_response / malformed_normal_response: the response carried the expected function form but with an invalid data shape.\n"
+        "- issue=quantity_mismatch: the response register count differs from the requested quantity — both are observed values.\n"
+        "- Never convert these observed facts into root causes (wiring, device defects, wrong configuration) and never claim the cause; keep them as observed facts and give possible explanations only with explicit uncertainty.\n"
         "Keep the answer concise (roughly 250 words or less).");
 
     const auto& stats = context.statistics;

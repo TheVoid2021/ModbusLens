@@ -264,6 +264,16 @@ void ReplayAnalysisTest::i05_protocolError()
 
     QCOMPARE(batch->transactions.size(), std::size_t{1});
     QCOMPARE(batch->transactions[0].analysis.status, TransactionStatus::ProtocolError);
+    // T014: replay must NOT re-judge the reason — it inherits the analyzer's
+    // issue verbatim (single-authority consistency).
+    QVERIFY(batch->transactions[0].analysis.issue.has_value());
+    QCOMPARE(batch->transactions[0].analysis.issue->code,
+             modbuslens::core::TransactionIssueCode::ResponseAddressMismatch);
+    QVERIFY(batch->transactions[0].analysis.issue->expectedAddress.has_value());
+    QCOMPARE(*batch->transactions[0].analysis.issue->expectedAddress,
+             std::uint8_t{0x01});
+    QCOMPARE(*batch->transactions[0].analysis.issue->actualAddress,
+             std::uint8_t{0x02});
     QCOMPARE(batch->statistics.protocolErrorCount, std::size_t{1});
 }
 

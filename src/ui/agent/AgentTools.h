@@ -65,6 +65,9 @@ struct AnomalyEntry {
     modbuslens::core::TransactionStatus status{};
     long long elapsedMs{};
     std::optional<std::uint8_t> exceptionCode;
+    // T014 additive: simplified issue code only (payload stays with
+    // get_transaction_detail). Absent for non-ProtocolError statuses.
+    std::optional<modbuslens::core::TransactionIssueCode> issueCode;
 
     bool operator==(const AnomalyEntry&) const = default;
 };
@@ -86,6 +89,10 @@ struct TransactionDetailResult {
     modbuslens::core::TransactionStatus status{};
     long long elapsedMs{};
     std::optional<std::uint8_t> exceptionCode;
+    // T014 additive: the FULL deterministic issue (code + sparse payload)
+    // for ProtocolError rows; absent otherwise. Facts only — read from the
+    // snapshot, never re-derived by the tool layer.
+    std::optional<modbuslens::core::TransactionIssue> issue;
     // Standard exception NAME (structured, e.g. "Illegal Data Address") when
     // the code is one of 0x01~0x04; absent otherwise. No causal prose here —
     // attribution belongs to the explanation layer, not the tool facts.

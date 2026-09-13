@@ -63,6 +63,10 @@ SessionSummaryResult makeSessionSummary(const AgentToolContext& context)
 AnomalyEntry makeAnomalyEntry(std::size_t transactionNumber,
                               const modbuslens::core::DiagnosisTransaction& tx)
 {
+    std::optional<modbuslens::core::TransactionIssueCode> issueCode;
+    if (tx.analysis.issue.has_value()) {
+        issueCode = tx.analysis.issue->code;
+    }
     return AnomalyEntry{
         .transactionNumber = transactionNumber,
         .deviceAddress = tx.deviceAddress,
@@ -70,6 +74,7 @@ AnomalyEntry makeAnomalyEntry(std::size_t transactionNumber,
         .status = tx.analysis.status,
         .elapsedMs = tx.analysis.elapsed.count(),
         .exceptionCode = tx.analysis.exceptionCode,
+        .issueCode = issueCode,
     };
 }
 
@@ -165,6 +170,15 @@ std::string_view errorCodeName(AgentToolErrorCode code)
     return "Unknown";
 }
 
+// T014: stable machine serialization token for an issue code (Core-owned
+// naming; the tool layer only copies it into JSON — never prose).
+QJsonValue issueCodeValue(modbuslens::core::TransactionIssueCode code)
+{
+    const auto name = modbuslens::core::transactionIssueName(code);
+    return QJsonValue{QString::fromUtf8(
+        name.data(), static_cast<qsizetype>(name.size()))};
+}
+
 // The model's arguments object is UNTRUSTED input. Returns nullopt when the
 // numeric transaction_number is missing, non-integral, or extra fields
 // exist. Range violations in [1..N] are NOT decided here (they are facts
@@ -238,6 +252,7 @@ AgentToolResult dispatchAgentTool(const AgentToolContext& context,
             .status = tx.analysis.status,
             .elapsedMs = tx.analysis.elapsed.count(),
             .exceptionCode = tx.analysis.exceptionCode,
+            .issue = tx.analysis.issue,
         };
     }
     }
@@ -303,6 +318,10 @@ QJsonObject toJsonObject(const RecentAnomaliesResult& result)
             item.insert(QStringLiteral("exception_code"),
                         static_cast<int>(*entry.exceptionCode));
         }
+        if (entry.issueCode.has_value()) {
+            item.insert(QStringLiteral("issue_code"),
+                        issueCodeValue(*entry.issueCode));
+        }
         anomalies.append(item);
     }
     json.insert(QStringLiteral("anomalies"), anomalies);
@@ -332,6 +351,32 @@ QJsonObject toJsonObject(const TransactionDetailResult& result)
             json.insert(QStringLiteral("exception_name"),
                         QString::fromUtf8(name->data(),
                                           static_cast<qsizetype>(name->size())));
+        }
+    }
+    // T014: issue facts are emitted ONLY when present (hasX semantics), and
+    // payload keys only when their code requires them — never fabricated.
+    if (result.issue.has_value()) {
+        json.insert(QStringLiteral("issue_code"),
+                    issueCodeValue(result.issue->code));
+        if (result.issue->expectedAddress.has_value()) {
+            json.insert(QStringLiteral("expected_address"),
+                        static_cast<int>(*result.issue->expectedAddress));
+        }
+        if (result.issue->actualAddress.has_value()) {
+            json.insert(QStringLiteral("actual_address"),
+                        static_cast<int>(*result.issue->actualAddress));
+        }
+        if (result.issue->actualFunctionCode.has_value()) {
+            json.insert(QStringLiteral("actual_function_code"),
+                        static_cast<int>(*result.issue->actualFunctionCode));
+        }
+        if (result.issue->expectedQuantity.has_value()) {
+            json.insert(QStringLiteral("expected_quantity"),
+                        static_cast<qint64>(*result.issue->expectedQuantity));
+        }
+        if (result.issue->actualQuantity.has_value()) {
+            json.insert(QStringLiteral("actual_quantity"),
+                        static_cast<qint64>(*result.issue->actualQuantity));
         }
     }
     json.insert(QStringLiteral("evidence_scope"),

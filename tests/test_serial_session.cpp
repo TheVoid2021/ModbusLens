@@ -216,6 +216,7 @@ void SerialSessionTest::a07_partialResponseTimeout()
         const auto analysis = as<TransactionAnalysis>(result);
         QVERIFY(analysis.has_value());
         QCOMPARE(analysis->status, TransactionStatus::CrcError);
+        QVERIFY(!analysis->issue.has_value());
         QCOMPARE(session.state(), SerialTransactionState::Idle);
     }
     // Scenario 2: 2 bytes (below the minimum frame) -> FrameTooShort ->
@@ -230,6 +231,11 @@ void SerialSessionTest::a07_partialResponseTimeout()
         const auto analysis = as<TransactionAnalysis>(result);
         QVERIFY(analysis.has_value());
         QCOMPARE(analysis->status, TransactionStatus::ProtocolError);
+        // T014: the session inherits the analyzer's issue — it never
+        // re-derives the reason (shared-Core authority).
+        QVERIFY(analysis->issue.has_value());
+        QCOMPARE(analysis->issue->code,
+                 modbuslens::core::TransactionIssueCode::ResponseFrameTooShort);
         QCOMPARE(session.state(), SerialTransactionState::Idle);
     }
 }
@@ -298,6 +304,11 @@ void SerialSessionTest::a11_wrongAddress()
     QVERIFY(analysis.has_value());
     // Serial framing completed the candidate; T007 owns the mismatch verdict.
     QCOMPARE(analysis->status, TransactionStatus::ProtocolError);
+    QVERIFY(analysis->issue.has_value());
+    QCOMPARE(analysis->issue->code,
+             modbuslens::core::TransactionIssueCode::ResponseAddressMismatch);
+    QCOMPARE(*analysis->issue->expectedAddress, std::uint8_t{0x01});
+    QCOMPARE(*analysis->issue->actualAddress, std::uint8_t{0x02});
 }
 
 void SerialSessionTest::a12_invalidQuantity()
@@ -364,6 +375,10 @@ void SerialSessionTest::a15_wrongExceptionFunction()
     QVERIFY(analysis.has_value());
     // T007: 0x84 is not the 0x03 exception reply -> ProtocolError.
     QCOMPARE(analysis->status, TransactionStatus::ProtocolError);
+    QVERIFY(analysis->issue.has_value());
+    QCOMPARE(analysis->issue->code,
+             modbuslens::core::TransactionIssueCode::UnexpectedResponseFunction);
+    QCOMPARE(*analysis->issue->actualFunctionCode, std::uint8_t{0x84});
     QCOMPARE(session.state(), SerialTransactionState::Idle);
 }
 
@@ -383,6 +398,11 @@ void SerialSessionTest::a16_wrongByteCount()
     QVERIFY(analysis.has_value());
     // T007 semantic analysis: request quantity 2 vs response values 1.
     QCOMPARE(analysis->status, TransactionStatus::ProtocolError);
+    QVERIFY(analysis->issue.has_value());
+    QCOMPARE(analysis->issue->code,
+             modbuslens::core::TransactionIssueCode::QuantityMismatch);
+    QCOMPARE(*analysis->issue->expectedQuantity, std::uint16_t{2});
+    QCOMPARE(*analysis->issue->actualQuantity, std::uint16_t{1});
     QCOMPARE(session.state(), SerialTransactionState::Idle);
 }
 
