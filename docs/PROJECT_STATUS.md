@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T013 Final Integration & Demo ✅ DONE（用户 Manual Visual Re-Review PASS；verified LKGC `99f17d6`）** |
-| 最近完成任务（Last Completed Task） | **T011 AI Diagnosis**（DONE；+ ISSUE-006 收尾：evidence-scope guard，Live 五项验收全 PASS，LKGC `01841b1`）；UI Localization Pass（LKGC `9e79558`） |
-| 当前阶段（Current Phase） | T013 完成（Phase A~E 全链；M7 DONE）；暂无新任务（等待用户下一步指示） |
-| 下一步动作（Next Action） | **等待用户指示（项目主线任务 M1~M7 全部完成）** |
+| 当前任务（Current Task） | **T014 Diagnostic Detail Preservation — IN PROGRESS**（Phase A Learning + Test Design docs-only 完成，AWAITING REVIEW；Phase B = WAITING FOR USER APPROVAL；**未实现任何代码**）。前序：M8 Phase B Knowledge Ownership ✅、M8.1 Diagnostic Coverage Audit ✅（用户 Final Review PASS） |
+| 最近完成任务（Last Completed Task） | **M8.1 Diagnostic Coverage Audit 完成并通过最终 Review**（docs-only commit `dab9b5f` + bookkeeping 修正 `5f21911`；history: T011/T012/T013 见 §1） |
+| 当前阶段（Current Phase） | **T014 Phase A（Learning + Test Design，docs-only）已归档 AWAITING REVIEW；T014 未实现**（ProtocolError 七分支重构与最小数据模型定案见 T014 档案） |
+| 下一步动作（Next Action） | **T014 Phase B — Test First + Implementation：WAITING FOR USER APPROVAL；批准前零代码改动** |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -41,12 +41,12 @@
 
 ## 2. 当前任务
 
-- **None**。T011 AI Diagnosis 已整体 DONE（Part A 规则基线 + Part B ModelScope LLM 集成；Manual AI UI Smoke 与 Live ModelScope Smoke 双 PASS；ISSUE-004 布局全轨迹 RESOLVED）。下一步：启动 T012 Agent Tools（见 §3 与 BACKLOG）。
-
+- **T014 — Diagnostic Detail Preservation（IN PROGRESS）**。Phase A（Learning + Test Design）= docs-only 完成并 AWAITING REVIEW：M8.1 审计确认的 ProtocolError Detail Loss 的修复设计已定案——六状态不动，新增正交 `TransactionIssue`（7 值 + 稀疏载荷、append-last、四+二不变量）；统计口径零变化（R-STAT）；T015 request-side 边界划清；单元/集成/回归三级测试矩阵落库（详见 [T014 档案](tasks/T014-diagnostic-detail-preservation.md)）。**Phase B（Test First + Implementation）= WAITING FOR USER APPROVAL；T014 未实现。**
 
 ## 3. 下一任务
 
-- **T012 — Agent Tools**（详见 [BACKLOG](BACKLOG.md)）：只读 Agent 工具集——读日志摘要/统计/报告；架构强制无写 API（类型层面不存在）。依赖 T007/T008/T011 输出；在 T011 完成后启动。
+- **T014 Phase B — Test First + Implementation**（批准后：RED 矩阵 → Core TransactionIssue → 下游 additive 传播 → 全量回归；LKGC 候选待用户 review，Agent 不自行推进）。
+- **T015 — Passive Replay Expansion**（Backlog；invalid-request 可观察性 / broadcast /（可选）Replay v2，取决于 M8.1 决策问题 1/2 的用户答复，本轮明确不实现）。
 
 ## 4. Known Issues（当前已知问题）
 
@@ -193,6 +193,9 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-11 | **T013 Phase D Re-Review = FAIL/PARTIAL（用户）**：A 串口空态视觉 UNRESOLVED（生产 Qt API 取证 QSerialPortInfo count=0——机器 serial availability 变化，非链路 bug）；D 表格水平空间浪费；B/C PASS。另发现原生 style 忽略自定义（Fusion style 修正）。a25d63c 定格 superseded；进入 Phase E |
 | 2026-09-11 | **T013 Phase E 完成（`99f17d6` candidate）**：Qt 同 runtime 取证（QSerialPortInfo count=0）+ Fusion style（定制警告清零）+ 串口可读空态 + 表格比例列宽；clean 147 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH PASS；零真实调用；**待用户 Manual Visual Re-Review（A/B/C）**；LKGC 未推进 |
 | 2026-09-11 | **用户 Manual Visual Re-Review = PASS（五项确认）→ T013 Final Closure**：Phase E 视觉通过；**verified LKGC 推进 `3572cf7` → `99f17d6`**（clean/ctest 23/23/qml/deploy/minimal-PATH/runtime 警告检查/人工视觉全链）；Phase A~D 历史与 FAIL 记录保留；M6 保持 DONE；ISSUE-008/009 MONITORING 不变；零真实请求 |
+| 2026-09-13 | **M8 Phase B Knowledge Ownership 系列（B1~B7，docs-only）**：architecture/Modbus core/Transaction Statistics/execution modes/Qt QML adapter/AI diagnosis/Agent tool-calling 七个知识主权文档化完成（Part 7 = `4039ade`）；Phase B Closure 入档；LKGC `99f17d6` 不变 |
+| 2026-09-13 | **M8.1 — Diagnostic Coverage Audit 建立并通过用户 Final Review**（docs-only `dab9b5f`；line-count/CRC-count bookkeeping 修正 `5f21911`）：`docs/09_DIAGNOSTIC_COVERAGE_AUDIT.md` 定案——术语模型、14 场景实测矩阵、独立 CRC 审计、覆盖族、Claim Risk、T014/T015 候选；LKGC `99f17d6` 不变 |
+| 2026-09-13 | **T014 启动：Phase A Learning + Test Design（docs-only，本提交）**——ProtocolError 七分支重构、信息损失矩阵、最小数据模型定案（TransactionIssue A′方案）、六不变量、Statistics 不变契约、request-side/T015 边界、UI/prompt/agent 传播设计、三级测试矩阵落库；**T014 标记 IN PROGRESS，未实现**；Phase B = WAITING FOR USER APPROVAL；LKGC `99f17d6` 不变 |
 
 
 

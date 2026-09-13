@@ -15,6 +15,7 @@
 | M5 | 回放与串口模式 | T009, T010 | ✅ 完成 |
 | M6 | AI 诊断与 Agent 工具 | T011, T012 | ✅ 完成（T011 ✅ + T012 ✅ 含 Stabilization；ISSUE-008/009=MONITORING/NON-BLOCKING） |
 | M7 | 收尾与演示 | T013 | ✅ 完成（T013 Done；verified LKGC `99f17d6`） |
+| M8 | 诊断深化与知识固化 | M8.1 ✅（Diagnostic Coverage Audit，docs-only，用户 Final Review PASS）；T014 🔄（IN PROGRESS，Phase A docs-only）；T015 ⏸（Backlog，方向待用户决策） | 🔄 进行中 |
 
 ## 任务表
 
@@ -35,6 +36,8 @@
 | T011 | **AI Diagnosis**（Part A Rule Baseline / Part B LLM Integration） | M6 | P2 | ✅ Done（整体） | T007 | **Part A 定案**：核心原则"AI 不产生协议事实"（事实 authority 永远是 deterministic Core；禁止 LLM 改 TransactionStatus/statistics/自动行动）；`src/core/diagnosis/`（Zero Qt，计划）——DiagnosisTransaction/DiagnosisContext（buildDiagnosisContext 复用 summarizeTransactions 保证自洽）+ RuleBasedDiagnosis（NoData≠Healthy、Healthy 三条件、Pending 不算 failure、Timeout/CRC 只述事实给 possible checks 不宣 root cause、Exception 按 code 升序分组 + 0x01~0x04 映射、Mixed 多 finding 无 health score、固定 finding 顺序仅 presentation）；Controller：activeDiagnosisTransactions_ 与 batch 同源 + runBaselineDiagnosis/clearDiagnosis + 新 batch invalidation（失败切换保留）；QML Diagnosis panel（称 Baseline Diagnosis，不叫 AI）；矩阵 DIAG-A01~A10 + UI-D01~D07；20 题问答。**Part B 原则提前锁定**：LLM 不自动调用（用户显式 Ask AI）、API Key 永不入库（env/local ignored）、不做 Agent（属 T012）、prompt injection 边界预告。**Part A ✅ 落地并验证**：src/core/diagnosis/（Zero Qt）Context+builder（summarizeTransactions 自洽）+ RuleBasedDiagnosis 全规则；Controller activeDiagnosisTransactions_ 三发布同源 + invalidation（失败切换保留）；formatter 只翻译；QML Deterministic Baseline 面板；DIAG-A01~A10 + UI-D01~D08 全绿；**用户 Manual Baseline Smoke PASS**；产品代码零 LLM/HTTP/key（grep 佐证）；架构结论 "AI is interpreter, not detector"。**Part B** ✅：Provider=ModelScope API-Inference（OpenAI-compatible Chat Completions 仅协议兼容；禁 OpenAI SDK/Responses API/多 provider）；credential=MODELSCOPE_API_KEY 仅 process env（BYOK、QML 不见 Token、生产 endpoint 禁 override）；candidate model Qwen/Qwen3.5-27B + env override + 用户 live probe；ModelScopeDiagnosisClient（App 层 QNetworkAccessManager、one-shot、Idle/Requesting）；Baseline First/空批不调 API；structured-facts-only prompt（bounded 20、确定性、system authority 指令、plain text、768 tokens）；raw parser choices→message→content + reasoning_content 忽略；错误 11 值 + HTTP mapping；zero retry/无 streaming/30s timeout/cancel 静默；activeBatchRevision stale guard（P0）+ AI invalidation 与失败切换保留；fake server 随机端口+fake token 硬约束；矩阵 AI-B01~B12 + UI-AI01~AI10；QtNetwork 预检已实证（sslBuild=yes）；Live Smoke 政策（无 token 记 NOT RUN 不伪报）。**Part B ✅ 落地并验证**：ModelScopeDiagnosisClient/prompt builder/双 stale guard（batchRevision+requestGeneration）/grep 级零 Agent；AI-B01~B13 + UI-AI01~AI11 全绿；ISSUE-004（Diagnosis workspace 溢出→SplitView）RESOLVED 全轨迹；**Manual AI UI Smoke PASS + Live ModelScope Smoke PASS（Qwen/Qwen3.5-27B 真实验证，attempt#1 余额失败记录保留）**；non-blocking over-inference 质量观察入档："AI can be wrong in prose without corrupting protocol facts"。**范围**：Part A 无任何 HTTP/网络/key/provider/prompt mock；Part B 无 tools/tool calling/MCP/Agent/conversation |
 | T012 | **Agent Tools** | M6 | P2 | ✅ Done（Final Review PASS；Stabilization DONE；verified LKGC `3572cf7`；ISSUE-008/009=MONITORING/NON-BLOCKING） | T007/T008/T011 输出 | 只读 Agent 工具集：三工具 white-list（summary/anomalies/detail）；架构强制**无写能力连名字都不在 contract**；详见 T012 档案 + ADR002 |
 | T013 | **Final Integration & Demo** | M7 | P1 | ✅ Done（用户 Manual Visual Re-Review PASS；verified LKGC `99f17d6`） | T008（含 T009–T012 可用能力） | 打包/便携发布；演示脚本与素材齐备（demo/ 目录）；文档终稿（README/DEMO_GUIDE 重写）；深色对比度/视觉层级/AI·Agent·Baseline 视觉身份/术语 polish（见 T013 档案 §2/§4）；CRC 查表优化留待单独任务 |
+| T014 | **Diagnostic Detail Preservation（诊断细节保留）** | M8 | P0 | 🔄 In Progress（**Phase A Learning + Test Design docs-only 完成，AWAITING REVIEW；Phase B 待批准；未实现**） | T007（下游传播涉 T011/T012/T013 既有结构） | M8.1 确认的 ProtocolError Detail Loss 修复设计：六状态不动；正交 `TransactionIssue`（7 值 + 稀疏载荷，append-last）；六不变量；Statistics 口径零变化（R-STAT）；Baseline finding 不变 + `summarizeProtocolIssues` 纯计数；Prompt/Agent additive 传事实；UI 仅 ProtocolError 行 secondary text（最小 B 方案）；三级测试矩阵（unit/integration/regression）落库。详见 [T014 档案](tasks/T014-diagnostic-detail-preservation.md) |
+| T015 | **Passive Replay Expansion（被动回放扩展）**（Backlog 提名） | M8 | P1 | ⏸ Backlog（方向取决于 M8.1 决策问题 1/2 的用户答复；T014 明确不实现、不改变 Replay trust contract） | T009、T014 | invalid-request 作为可观察历史事实（M8.1 S6：`RequestIssue::InvalidQuantity + Response::Exception(0x03)` 并存）；broadcast expected-no-response 语义（S4）；（可选）Replay v2 event/timing 设计（S11）；被动 FC06/FC10 语义解码（**仅被动分析，无主动写权限**）。候选详情见 [M8.1 审计 §24](09_DIAGNOSTIC_COVERAGE_AUDIT.md) |
 
 ## 建议路线（默认执行顺序）
 
@@ -43,6 +46,9 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 → T005 Simulator ✅ → T006 Fault Injection ✅ → T007 Transaction Analysis ✅
 → T008 Qt UI ✅ → T009 Replay ✅ → T010 Serial ✅ → T011 AI Diagnosis ✅ → T012 Agent Tools → T013 Final Integration & Demo
 → T012 Agent Tools → T013 Final Integration & Demo
+→ M8.1 Diagnostic Coverage Audit ✅（docs-only，用户 Final Review PASS）
+→ T014 Diagnostic Detail Preservation 🔄（Phase A docs-only 完成，Phase B 待批准）
+→ T015 Passive Replay Expansion ⏸（Backlog；方向待用户决策）
 ```
 
 ## 变更记录
@@ -120,6 +126,9 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-11 | **T013 Phase D Re-Review FAIL/PARTIAL → Phase E**：Qt-side serial 取证（count=0）+ Fusion style + 表格比例列宽 |
 | 2026-09-11 | **T013 Phase E 完成（`99f17d6`）**：Qt 取证+Fusion+串口空态视觉+表格比例列宽；ctest 23/23、deploy+minimal-PATH；待 Re-Review |
 | 2026-09-11 | **用户 Manual Visual Re-Review PASS → T013 Done**：verified **LKGC = `99f17d6`**；M7 DONE |
+| 2026-09-13 | **M8 Phase B Knowledge Ownership（B1~B7，docs-only）完成**（architecture/Modbus core/statistics/execution modes/Qt QML adapter/AI diagnosis/Agent tool-calling 七 Part + Phase B Closure，`4039ade`）；LKGC `99f17d6` 不变 |
+| 2026-09-13 | **M8.1 Diagnostic Coverage Audit 建立并通过用户 Final Review**（docs-only `dab9b5f` + bookkeeping 修正 `5f21911`；`docs/09_DIAGNOSTIC_COVERAGE_AUDIT.md`）；LKGC `99f17d6` 不变 |
+| 2026-09-13 | **T014 启动：Phase A Learning / Test Design（docs-only，本提交）**——ProtocolError 七分支重构 + 最小数据模型（TransactionIssue A′ + 六不变量）+ Statistics 不变契约 + 三级测试矩阵定案；**T014 标记 In Progress，未实现；Phase B = WAITING FOR USER APPROVAL**；同步建立 T015（Backlog，方向待用户决策） |
 
 
 
