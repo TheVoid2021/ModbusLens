@@ -80,7 +80,7 @@ device 1
 
 目标读法示例：`设备地址1 Success / 设备地址1 Exception / 设备地址1 CRC 错误 / 设备地址1 超时` → “同一 Modbus address 的四笔 transaction”。只记录，不改动。
 
-## 5. demo_v2 Fixture Raw Layout（44 物理行 / 14 记录）
+## 5. demo_v2 Fixture Raw Layout（45 逻辑/物理行（L1–L45）· 44 个换行符（末行无 trailing newline，`wc -l` 类工具因此报 44）· 14 TXN 记录）
 
 | # | 物理行 | 注释意图（场景作者） | FC | request wire | response 表示 |
 | --- | --- | --- | --- | --- | --- |
@@ -104,7 +104,7 @@ device 1
 ## 6. Independent CRC Audit（独立重算，不信任注释与聊天）
 
 方法：独立实现的 CRC-16/MODBUS（init 0xFFFF、poly 0xA001 反射、无 xorout），先以项目两条已知 KAT 锚定工具正确性——
-`"123456789" → 0x4B37` ✓（T002）；`01 03 00 00 00 01 → 0x0A84`（wire `84 0A`）✓（T003）。随后对 demo_v2 所有以真实 wire 表达的 request/response 逐条重算（wire 序：CRC 低字节在前）。**与外部预审给定的候选值逐条吻合，补充了预审未覆盖的 7 条结论。**
+`"123456789" → 0x4B37` ✓（T002）；`01 03 00 00 00 01 → 0x0A84`（wire `84 0A`）✓（T003）。随后对 demo_v2 全部字节序列逐条重算（wire 序：CRC 低字节在前）——共 20 条：**19 条为文件中出现的 unique 完整 raw RTU wire field**，**1 条为 S11 两 FRAME_FRAGMENT 拼接得到的 derived candidate**（表中以 derived 标注）。与外部预审给定的候选值逐条吻合（11 项全部一致），另独立补算 8 条预审未覆盖的序列（7 条 raw wire + 1 条 derived）。
 
 | wire | 长度 | provided | 独立计算 | 匹配 | 正确 wire CRC |
 | --- | --- | --- | --- | --- | --- |
@@ -124,16 +124,16 @@ device 1
 | S8 response | 5 | C1 32 | C1 32 | ✅ | — |
 | S9 response | 10 | 3B 2A | AE 75 | ❌ | `AE 75` |
 | S10 response | 8 | BA 7A | B1 A1 | ❌ | `B1 A1` |
-| S11 两段拼接 | 9 | BA 7A | BA 7A | ✅ | — |
+| S11 两段拼接（derived，非文件 raw wire field） | 9 | BA 7A | BA 7A | ✅ | — |
 | S12 response | 9 | BA 7B | BA 7A | ❌（故意） | `BA 7A` |
 | S13 request | 8 | 84 39 | 84 39 | ✅ | — |
 | S13 response | 9 | A4 C1 | 02 B5 | ❌ | `02 B5` |
 
-**CRC 审计结论**：19 条 wire 中 7 条合法（S1req、S5req、S7req、S8req、S8resp、S11 拼接体、S13req）；13 条不合法，其中 S12 为**故意的 1-bit flip**（BA 7A→BA 7B，注释属实），其余 12 条为 fixture 手工书写错误（含 S9/S10/S13 三条“故意畸形”场景里的 response——它们的垃圾性质由字节内容表达，CRC 恰巧也未通过；S10 是“原合法帧去掉首字节后 CRC 未重算”）。S11 的字节**若拼接**则 CRC 恰好合法——这本身就是 Timing Gap 的最强证据（见 §20）。
+**CRC 审计结论（主口径 = 19 条 unique raw wire）**：demo_v2 中出现的 unique 完整 raw RTU wire 共 **19 条 = 6 条 CRC-valid**（S1req、S5req、S7req、S8req、S8resp、S13req）**+ 13 条 CRC-invalid**。13 条 invalid 中 S12 为**故意的 1-bit flip**（BA 7A→BA 7B，注释属实），其余 12 条为 fixture 手工书写错误（含 S9/S10/S13 三条“故意畸形”场景里的 response——它们的垃圾性质由字节内容表达，CRC 恰巧也未通过；S10 是“原合法帧去掉首字节后 CRC 未重算”）。**另有 1 条 derived candidate 不计入 raw 口径**：S11 两个 FRAME_FRAGMENT 字段拼接出的 `01 03 04 00 64 00 C8 BA 7A`，CRC-valid，但不是原文件中的完整 raw wire field——**若把 derived 也计入，本次共计审计 20 条字节序列 = 7 valid + 13 invalid**。S11 拼接体恰好合法，这本身就是 Timing Gap 的最强证据（见 §20）。
 
 ## 7. 14-Scenario Audit Matrix（真实代码实测）
 
-> 实测口径：`parseReplayLog` / `analyzeReplayLog` 由链接 `build/debug/libmodbuslens_core.a` 的只读 harness 运行；“As-is”= 文件原样（单记录隔离）；“CRC 修正后”= 响应/请求 CRC 按 §6 独立计算值修正后的同等 probe。“整文件”= 44 行原文件一次性解析。
+> 实测口径：`parseReplayLog` / `analyzeReplayLog` 由链接 `build/debug/libmodbuslens_core.a` 的只读 harness 运行；“As-is”= 文件原样（单记录隔离）；“CRC 修正后”= 响应/请求 CRC 按 §6 独立计算值修正后的同等 probe。“整文件”= 45 逻辑行原文件（L1–L45，末行无 trailing newline）一次性解析。
 
 | # | 行 | v1 语法 | 整文件 parser（真实） | 单行 parser（真实） | As-is 分析（真实） | CRC 修正后分析（真实） | 修正后 T007 状态 | Baseline finding | Agent 可给事实 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -154,7 +154,7 @@ device 1
 
 **实测要点（对照疑似结论）**：
 
-1. **整文件 44 行永远以 `InvalidHex @ line 15` 失败**——parser 是 fail-fast 的，S4 的非法 token 让 S5~S14 全部不可达；即使 S4 修复，S11 的 5 字段=InvalidRecord 会再次整文件失败。**v1 语义 = 全部或全无（all-or-nothing）**。
+1. **整个 demo_v2.mlog（45 逻辑行）永远以 `InvalidHex @ line 15` 失败**——parser 是 fail-fast 的，S4 的非法 token 让 S5~S14 全部不可达；即使 S4 修复，S11 的 5 字段=InvalidRecord 会再次整文件失败。**v1 语义 = 全部或全无（all-or-nothing）**。
 2. 修正后能进入 TransactionAnalysis 的只有 **S1/S7/S8/S9/S10/S12/S13/S14**（请求均为合法 FC03）。
 3. S6 的“地址越界 Exception 03 合法响应”会被请求侧 quantity=126 的 `InvalidRequestData` 挡在门外——**设备合法拒答的事实被整个丢弃**（§19）。
 4. S5 请求 CRC 本已合法，仅因 FC≠0x03 被 `InvalidRequestFunction` 拒之门外——**合法性异常响应与异常码 01 一并不可见**（§19）。
@@ -403,8 +403,8 @@ SCADA；full PLC control；FC06/FC10 active write；device auto-repair；Agent a
 | --- | --- | --- |
 | Known from current code | 从当前工作区源码/头文件逐行核验 | 六状态、mlog 4 字段、FC03 1..125、ProtocolError 五分支、exception 映射 |
 | Known from automated tests | 仓库测试档案/ctest 记录 | T007/T009/T010/T011/T012 各矩阵；demo_v1 golden 4/4/0·1/1/1/1/0 |
-| Known from demo_v2 bytes | 只读读取文件本身 | 44 行、14 记录、5 字段违规（S11） |
-| Known from CRC calculation | 本审计独立计算（KAT 锚定，PASS×2） | §6 的 19 条 wire 结论 |
+| Known from demo_v2 bytes | 只读读取文件本身 | 45 逻辑行（44 个换行符，末行无 trailing newline）、14 TXN 记录、5 字段违规（S11） |
+| Known from CRC calculation | 本审计独立计算（KAT 锚定，PASS×2） | §6 的 20 条字节序列结论（19 raw wire + 1 derived） |
 | Known from project docs | 文档原文引用 | T009 mlog v1 契约、T010 禁 t1.5/t3.5 scanner、T011 不宣称 root cause |
 | Known from protocol reference | 项目协议知识库 | 帧间 ≥3.5t / 帧内 >1.5t 帧中止（`03_MODBUS_LEARNING.md:39-41`）、广播只允许写类 FC |
 | Inferred possible cause | 规则引擎的检查建议 | power/address/settings/wiring/noise/grounding 等 action |
@@ -427,7 +427,7 @@ SCADA；full PLC control；FC06/FC10 active write；device auto-repair；Agent a
 
 ## 29. Verification（本审计自身的验证记录）
 
-- 独立 CRC：KAT1 `123456789→0x4B37` PASS、KAT2 `01 03 00 00 00 01→0x0A84` PASS；19 条 wire 结论见 §6，与外部预审候选 11/11 吻合（并补齐 8 条预审未覆盖的 wire）。
+- 独立 CRC：KAT1 `123456789→0x4B37` PASS、KAT2 `01 03 00 00 00 01→0x0A84` PASS；20 条字节序列（19 raw wire + 1 derived）结论见 §6，与外部预审候选 11 项全部吻合（另补算 8 条预审未覆盖序列：7 raw wire + 1 derived）。
 - 真实代码 harness（build/ 内一次性程序，链接 `build/debug/libmodbuslens_core.a`，gitignored，不进入提交）：
   - 整文件 `parseReplayLog` → `PARSE-ERROR InvalidHex line=15`；
   - 单行隔离解析 14/14（12 行 PARSE-OK、L15 InvalidHex、L36 InvalidRecord）；
