@@ -75,6 +75,13 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 - Agent 通过 HTTP 与只读 Service 通信；Service 所能触及的数据仅为统计快照与报告。
 - 写操作能力在类型层面不存在（无任何"写"API），从架构上保证 FR-AG-02。
 
+### D6 诊断细节与归一化状态正交（T014，2026-09-13 落地）
+
+- **六种 `TransactionStatus` 保持不变**；协议/事务级确定性诊断细节由 `TransactionIssue`（`TransactionIssueCode` 七值 + 稀疏 optional 载荷）随 `TransactionAnalysis` 保存（追加末尾、默认 nullopt——aggregate 源兼容）。
+- 生产不变量：`ProtocolError ⇒ issue.has_value()`（只能在分析器产生；防御路径用 `UnknownProtocolError` sentinel，下游不得反向伪造）；其余状态 issue 恒缺席；Exception 的 detail 仍只有 exceptionCode；CrcError 不重复挂 detail（状态名已承载唯一确定性来源）。
+- 下游（Baseline/AI Prompt/Agent Tool/UI）**只读不重判**：reason 仅在 `analyzeFunction03Transaction` 产生，三模式（Simulator/Replay/Serial）经同一漏斗结构性同口径；serialization token（`transactionIssueName`）与人类文案分层（QString/UI prose 不进 Core）。
+- `TransactionStatistics` 仍只按 high-level status 聚合（STAT-B09 锁定）；detail 不产生任何统计维度。
+
 ## 3. 模式实现策略
 
 | 模式 | 数据来源 | 关键点 | 复用程度 |
@@ -119,7 +126,7 @@ tests/
 
 ## 6. 演进规则
 
-- 任何对 D1–D5 的变动 → 新建 ADR，禁止静默改架构。
+- 任何对 D1–D6 的变动 → 新建 ADR，禁止静默改架构。
 - 本文件随 ADR 诞生而更新「决策索引」，保持与代码事实一致。
 
 ### 决策索引

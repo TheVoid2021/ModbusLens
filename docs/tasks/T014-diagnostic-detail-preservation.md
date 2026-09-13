@@ -2,8 +2,8 @@
 
 - **Goal**          把 Transaction Analyzer 在**判定过程中已经确定性知道**的 protocol/transaction reason（而非导致的物理原因）结构化保存下来，一路传递到 DiagnosisContext / Baseline / AI Prompt / Agent Tools /（可选）UI——修复 M8.1 审计 §13.1 确认的 “ProtocolError Detail Loss”，而不改变六状态、统计口径或任何现有结论。
 - **Background**    M8.1 Diagnostic Coverage Audit（`dab9b5f` + `5f21911`，用户 Final Review PASS）确认：六种 `TransactionStatus` 作为 high-level normalized outcome 是合理设计；但 `analyzeFunction03Transaction` 的 5 个真实 ProtocolError 分支 + 2 个防御路径在返回 `ProtocolError` 时把 “原因” 全部丢弃，导致 Baseline/AI/Agent 只能说 “ProtocolError”，无法说出它已知的 AddressMismatch / QuantityMismatch 等事实。T014 = 只保存确定性事实，不猜物理根因。
-- **状态**           **T014 = IN PROGRESS**。**Phase A（Learning + Test Design）= 本档案，docs-only，零代码改动。**
-- **Phase 状态**     Phase A = DONE / AWAITING REVIEW；Phase B（Test First + Implementation）= WAITING FOR USER APPROVAL。
+- **状态**           **T014 = IN PROGRESS**。Phase A（Learning + Test Design）= 本档案前半（docs-only）；**Phase B（Test First + Implementation）= IMPLEMENTED / AWAITING REVIEW**（三提交 RED→GREEN→传播链）。
+- **Phase 状态**     Phase A = DONE / REVIEW PASS（含用户三项 refinement 采纳，§28.5）；**Phase B = IMPLEMENTED / AWAITING REVIEW**（LKGC candidate = 最新代码提交，待用户 Review 推进）。
 
 ## 1. Evidence Inspection（证据清单）
 
@@ -255,6 +255,12 @@ T014 是 **additive deterministic information**。
 7. **为什么 Statistics 不按 reason 拆？** 计数是高层监控轴（六族、锁定不变量与金样）；reason 是逐事务上下文，价值在解释与查询而非聚合度量。
 8. **为什么 AI/Agent 不能重新猜 reason？** “AI is interpreter, not detector”（T011）与 ISSUE-006 纪律：模型不得建立协议事实；工具只读 Core 事实。LLM 重猜等于引入第二个未审计分类器。
 
+## 28.5 Phase B Entry Refinements（Phase A Review = PASS 后用户补充，Implementation 前写入）
+
+- **A. “ProtocolError ⇒ issue present” 的定义与防御边界**：这是 **production analyzer invariant**——`analyzeFunction03Transaction` 正常生产输出中的 ProtocolError 必须携带 issue。但 **downstream 仍必须 defensive**：遇到 `ProtocolError + issue == nullopt`（例如测试/外部构造的防御性输入）时，不得 crash、不得猜具体 reason，只允许 **omit detail**（或显式 presentation/serialization fallback，如 unspecified，保持最小）。`UnknownProtocolError` **只代表** Analyzer 内部真正走到无法进一步分类的 deterministic defensive/fallback 分支；**下游看到 missing issue 后不得反向伪造它**。
+- **B. Token 与文案分层**：`TransactionIssueCode` 属于 deterministic Core fact；**stable serialization token**（如 `response_address_mismatch`）可以存在于 Adapter / Tool serialization；**human-readable QString / UI prose 一律不进入 Core**。
+- **C. 不新建 Issue Statistics subsystem**：只有本轮**明确消费者**确实需要 batch reason breakdown 时才新增**一个** Pure C++ deterministic summarizer，且所有消费者复用（禁止 Baseline / PromptBuilder / AgentTools / QML 各自重复计算 counts）。本轮若没有明确消费者，记录 deferred rationale（§12 决策附在本节后执行）。
+
 ## 29. Documentation / Files Changed（本阶段 docs-only）
 
 - 新增：`docs/tasks/T014-diagnostic-detail-preservation.md`（本档案）。
@@ -265,41 +271,80 @@ T014 是 **additive deterministic information**。
 
 1. 编译面普查（§26 步骤 0）→ 2. RED：测试矩阵 §24/§25 先写（含 update 断言）→ 3. Core：`TransactionIssue`/`TransactionIssueCode`/`transactionIssueName` + `TransactionAnalysis.issue`（append-last）+ `makeAnalysis` 第 4 参数 + 分支 4–11 填充 → 4. GREEN + 全量 ctest/qml smoke/deploy 回归 → 5. 下游 additive：prompt builder 事实行与 system 语义、AgentTools DTO（三工具不变）、`summarizeProtocolIssues`、UI role（最小 B 方案）→ 6. 文档归档 + LKGC 候选待用户 review（**不得自行推进**）。
 
+## Phase B Implementation Record（Test First + Implementation 实录）
+
+- **Submission 顺序**：Commit A（模型表面 + RED 测试）→ Commit B（analyzer 接线，GREEN）→ Commit C（下游传播 + UI）→ Commit D（本归档提交）。**未 amend/squash/push**。
+- **Commit A：RED-first 策略落地**——为让 RED 是**断言失败而非编译错误**（用户 §22 要求），先落 Phase A 已批准的模型表面（`TransactionIssueCode`/`TransactionIssue`/`transactionIssueName`/`TransactionAnalysis.issue` 追加末尾），测试因此可编译；analyzer **未接线** → RED 实证：`Totals: 11 passed, 9 failed`，9 条失败全部是 `issue.has_value() returned FALSE`（a06~a11 更新断言 + a13/a15/a17 新测试），而 issue 缺席断言（a01~a05/a14）与 token/确定性测试（a16/a18）在 RED 状态下通过——RED 精确指向“缺失的 detail”。
+- **Commit B：七分支接线**（`TransactionAnalysis.cpp`）：`makeAnalysis` 增第 4 参数 + `makeProtocolError` 漏斗 + `makeIssue` value-init 工厂（规避 -Wmissing-field-initializers，载荷列按 code 稀疏填充）。分支映射 = §4 矩阵逐行落地；防御分支 7（request 契约违反）与 11（switch 哨兵）→ `UnknownProtocolError`。GREEN：tx 20/20、全量 ctest 23/23、零警告。
+- **Commit C：下游 propagation（additive）**：
+  - DiagnosisContext/Replay/Serial **零改动**即继承 issue（三模式同一 funnel，一致性由结构保证；仅在测试加“继承而非重判”断言）。
+  - `DiagnosisPromptBuilder`：仅 ProtocolError-with-issue 行追加 `issue=<token>` + 存在列；防御性 issue-less ProtocolError → omit detail（refinement A）；system 追加 issue 语义句族（ISSUE-006 风格：禁止转译成 root cause）。
+  - `AgentTools`：`TransactionDetailResult.issue` 全量 + `AnomalyEntry.issueCode` 简化；JSON 仅在存在时输出（hasX）；tool 数 3、whitelist、read-only 不变。
+  - `TransactionListModel` + `AnalysisController`：`issueText` role（adapter 内确定性中文；Core 零 QString）；`Main.qml` ProtocolError 行 secondary text（58px vs 36px 条件高度），非 ProtocolError 行视觉不变。
+  - **Issue summary（batch breakdown）= DEFERRED**：本轮唯一消费者是 per-transaction 事实（prompt 行/agent detail/UI 行），无 batch-level consumer → 按 refinement C 不建立 summarizer，deferred rationale 入档。
+- **Compile-impact sweep（用户 §21）**：`TransactionAnalysis{`/`TransactionListEntry{` 全部站点逐一核验并显式补 `.issue=.nullopt`/`.issueText=""`——命中 8 个测试文件（含 agent_runtime/ui_bridge/statistics/ai_client/diagnosis/agent_tools），生产侧仅 funnel。语义零变化的防御性输入如实标注（STAT-B09、AI-B19）。
+- **T014 新测试**：TX a13~a18（6 个新 + a01~a11 强化）；STAT-B09；REPLAY-i05 强化；SERIAL a07/a11/a15/a16 强化；DIAG-A11；AI-B18/B19；AGENT-A11（+A03 强化）；UI-T01。
+
 ## Problems Encountered / Solutions
+
+Phase A：
 
 - **P1（分支 7/11 的归属）**：初稿把“防御性 request 重解码失败”与“response 形状非法”混成一个 reason；核对 `TransactionAnalysis.cpp:72-82` 后确认两分支可分且语义不同 → 拆分：response 侧失败 = `MalformedNormalResponse`，request 侧契约违反与 switch 哨兵 = `UnknownProtocolError` sentinel（I2）。
 - **P2（CrcError 是否挂 issue）**：核验 `RtuDecodeErrorCode` 恰两值（`ModbusRtuCodec.h:12-15`）后确认 CrcError 只有 CrcMismatch 一个确定性来源 → 不重复保存（I4），避免冗余双写。
 - **P3（载荷存全还是存最小）**：在“只存 actual”与“expected+actual 都存”之间按价值/成本逐字段决策（§13/§14/§16），QuantityMismatch 因下游无处可查而必须存 expected，AddressMismatch 因自包含与 1 字节成本存双值，FunctionMismatch 因可推导只存 actual。
 - **P4（档案口径防漂移）**：整个分支矩阵只来自当前 `TransactionAnalysis.cpp` 的行号逐条核验，未引用旧文档的 branch 描述（M8.1 教训）。
 
-## Verification（本阶段）
+Phase B：
 
-- `git diff --check` = 0；`git diff --name-only` 仅 `docs/tasks/T014-diagnostic-detail-preservation.md`、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`；`git status`：tracked 无其他改动，`samples/demo_v2.mlog` 仍 untracked/unstaged/unchanged；src/tests/CMakeLists/scripts/QML = 零修改。
-- 证据命令性事实：`RtuDecodeErrorCode` 两值、`Function03DecodeErrorCode` 五值、TX 测试 a06~a11 现断言、7 文件 `TransactionAnalysis{` 站点 —— 均为本阶段 grep/Read 实核，非摘抄。
-- 本阶段零构建零测试（docs-only；未改任何代码，无构建必要）。
+- **PB1（RED 必须是断言失败）**：加模型的顺序敏感——测试引用 `issue` 字段必须先有类型。解法：Commit A 只落“模型表面”（已批设计），不接行为；RED = 9 条 `issue.has_value()==FALSE` 断言失败（非编译错误），随后 Commit B 接线转绿。该次序与库存档（§Phase B 步骤 1）一致。
+- **PB2（-Wmissing-field-initializers 两波）**：第一波 = 8 个测试文件 fixture 构造遗漏新成员（aggregate 源兼容 ≠ 警告免除）→ 编译面普查显式补齐 `.issue = std::nullopt`；第二波 = Core 内 `TransactionIssue{.code=...}` 指定初始化仍触发 → `makeIssue` value-init 工厂根治（同时强化 per-code 稀疏载荷纪律）。
+- **PB3（a15 局部变量撞名）**：`malformedNormal` 帧与其分析结果同名 → 编译错误；改为 `malformedNormalFrame` / `malformedNormalAnalysis`。构造 fixture 期间另发现并修正过一处手滑（QML 高度/分行不影响语义）。
+- **PB4（TransactionListModel 命名空间打滑）**：`issueDetailText` 定义误留在匿名 namespace → “defined but not used” + 外部符号缺失链接失败；移到 namespace 外与头文件声明对齐（这正是 exports 语义的编译期守卫）。
+- **P5（QML 行高回归风险）**：T013 人工验收的 36px 稳定行高在 ProtocolError 行需容纳 second line。解法：条件高度（有 issue 58px / 无 issue 36px）+ 原五行几何 owner 不变——非 ProtocolError 行视觉与 T013 完全一致，回归留给 Manual UI Smoke 人工确认。
+
+## Verification（Phase A docs-only + Phase B 全链）
+
+Phase A（docs-only）：`git diff --check` = 0；diff 仅 T014 档案 + PROJECT_STATUS + BACKLOG；`samples/demo_v2.mlog` 未改未加；src/tests/CMake/scripts/QML 零修改。
+
+Phase B（真实命令与输出）：
+
+- **RED 实证**（Commit A 后）：`ctest --preset debug-local -R "^transaction$"` → `The following tests FAILED: 9 - transaction`；`modbuslens_transaction_tests.exe -v2` → `Totals: 11 passed, 9 failed`，9 条均为 `issue.has_value() ... returned FALSE`（a06/a07/a08/a09/a10/a11/a13/a15/a17）。
+- **GREEN**（Commit B 后）：tx `Totals: 20 passed, 0 failed`；Commit C 后全量 `ctest --preset debug-local` → **`100% tests passed, 0 tests failed out of 23`**（23.45s）。
+- **clean 全量重建**：`--target clean`（Cleaning 147 files）→ 全量 rebuild **零 warning/error**（grep 计数 0）。
+- **QML smoke**：`build/debug/modbuslens.exe --qml-smoke-test` → exit=0，输出无 warning；ctest #23 qml_smoke Passed。
+- **deploy + minimal-PATH**：`scripts/deploy_windows.bat` → `[OK] Deployment directory ready`（仅 dxcompiler 提示为历史已知、非阻塞）；minimal-PATH（仅 System32+deploy 目录）运行 `ModbusLens.exe --qml-smoke-test` → exit=0。
+- **Manual UI Smoke**：a) Run Demo 仍四行正常；b) Replay demo_v1 仍正常；c) 构造/已有 ProtocolError 显示 detail；d) 界面无挤坏 —— **WAITING FOR USER（政策：Agent 不自报视觉 PASS）**，检查清单见 Result。
+- **零真实调用 ModelScope**；AI/Agent 全为 fake provider / deterministic tests。`samples/demo_v2.mlog` 未进入任何测试（§24 遵循），仍未跟踪、未修改。
 
 ## Result
 
-- Phase A 完成：七分支重构 + 信息损失矩阵 + 最小数据模型定案（A′）+ 六不变量 + 统计/请求侧/UI 边界 + 测试矩阵（unit/integration/regression 三级）。
-- **T014 = IN PROGRESS；Phase A = DONE / AWAITING REVIEW；Phase B = WAITING FOR USER APPROVAL。**
-- verified LKGC 维持 `99f17d6` 不变（docs-only 不推进）。
+- **T014 = IN PROGRESS；Phase B = IMPLEMENTED / AWAITING REVIEW。**
+- 交付：六状态零改动 + orthogonal `TransactionIssue`（7 值 + per-code 载荷 + 六不变量）落地 Core；Statistics 语义逐位不变（R-STAT/STAT-B09）；三模式同漏斗继承；Baseline finding 不变 + summary defer（无消费者）；Prompt/Agent/UI additive 传播；回归三级清单全绿。
+- **LKGC candidate = 最新代码提交**（Commit C，见 Git Commit）——仅当用户 Review（含 Manual UI Smoke）通过后推进；docs closure 不推进 LKGC。
+- verified LKGC 维持 `99f17d6` 不变。
+- Manual UI Smoke 清单（WAITING FOR USER）：1) Run Demo 四行（Success/Exception 0x02/CRC/Timeout）外观与 T013 一致；2) Replay demo_v1 四行正常无 secondary 行；3) ProtocolError 行出现第二行确定性文案（可用 Serial 疑难或内部构造；无硬件时接受自动化 UI-T01 + 若需要临时构造说明）；4) 列表行高自适应、无溢出/挤坏。
 
 ## Knowledge Learned
 
 - 归一化状态轴（orthogonal status）与诊断细节轴（reason）分离是信息无损化的最小代价路径；把 reason 提为状态是常见的过度建模陷阱。
-- “append-last + 默认成员初始化”是 C++20 聚合结构体做 additive 变更的编译兼容钥匙（`==` 默认比较也随行）。
+- “append-last + 默认成员初始化”是 C++20 聚合结构体做 additive 变更的编译兼容钥匙（`==` 默认比较也随行）——但 **-Wmissing-field-initializers 说明源兼容≠零警告**，编译面普查必须逐一补显式初始化。
 - -Wswitch 穷举 + 哨兵 sentinel 让“未来枚举增值”的语义安全在类型层面显式化。
-- 单一事实漏斗（makeAnalysis）把不变量验证收敛到一点，是 T007 以来连续有效的模式。
+- 单一事实漏斗（makeAnalysis/makeProtocolError/makeIssue）把不变量验证收敛到一点，是 T007 以来连续有效的模式。
+- “测试先失败”的成本控制：让 RED 是断言失败（不是编译错误），需要把“模型表面”与“行为接线”拆成两个提交——类型壳先行、行为后接。
 
 ## Potential Interview Questions
 
-1. 为什么不把 ProtocolError 拆成几十个状态，而是加 orthogonal detail？——两轴分离：统计/仪表盘消费归一轴，解释层消费细节轴；拆轴会连锁破坏 exhaustive switch 与金样。
+1. 为什么不把 ProtocolError 拆成几十个状态，而是加 orthogonal detail？——两轴分离：统计/仪表盘/Agent whitelist 消费归一轴，解释层消费细节轴；拆轴会连锁破坏 exhaustive switch 与金样。
 2. TransactionIssue 为什么是 `optional<struct>` 而不是 `variant<struct...>`？——7 个 code 时 variant 的 visit 开销与 breaking 演进不值；optional+稀疏载荷兼具类型安全与增量兼容。
-3. 你怎么保证三模式 issue 口径一致？——共享 Core 唯一漏斗，Replay/Serial/Simulator 都只是调用 analyzeFunction03Transaction；集成测试直接断言两路结果严格相等。
-4. 什么是“确定性事实”与“物理根因”的界限？——能由当前字节/时序观测直接推出的 vs 需要外部证据才能唯一确定的；FrameTooShort 是前者，BitFlip/EMI 是后者。
-5. 新增字段为什么不会破坏现有测试与统计？——append-last 默认值保持聚合初始化兼容；summarizeTransactions 不读新字段；R-STAT 回归锁定 snapshot 逐字段相等。
-6. AI/Agent 拿到 issue 后可能过度归因，你怎么防？——沿 ISSUE-006：system 语义句族提前定义每个 issue 的确定性含义与禁止推断边界；工具只读 Core 事实。
+3. 你怎么保证三模式 issue 口径一致？——共享 Core 唯一漏斗；Replay/Serial/Simulator 都只是调用 analyzeFunction03Transaction；测试直接断言两路结果严格相等（issue 含 payload）。
+4. 什么是“确定性事实”与“物理根因”的界限？——能由当前字节/时序观测直接推出的 vs 需要外部证据才能唯一确定的；FrameTooShort/AddressMismatch 是前者，BitFlip/EMI/“配置错”是后者。
+5. 新增字段为什么不会破坏现有测试与统计？——append-last 默认值保持聚合初始化兼容；summarizeTransactions 不读新字段；R-STAT/STAT-B09 锁定 snapshot 一致。
+6. AI/Agent 拿到 issue 后可能过度归因，你怎么防？——system 语义句族提前定义每个 issue 的确定性含义与禁止推断边界（“地址不符≠从站配置错误”）；工具只读 Core 事实；B18/B19 锁定 prompt 无 speculative channel。
+7. RED-first 里怎么避免“用编译错误当 RED”？——模型表面（已批准的类型）先行提交、行为接线后提交：测试因此可编译，RED 精确表现为 9 条 issue 缺失断言。
 
 ## Git Commit
 
-（docs-only；提交哈希与信息见 git log 与 PROJECT_STATUS/BACKLOG 变更记录）
+- A `0ec6e06` T014: add TransactionIssue model surface and RED detail tests（+433/−3；此提交后 tx 测试 RED：11 passed/9 failed）
+- B `900131d` T014: wire deterministic issue into transaction analyzer（+65/−18；tx 20/20、ctest 23/23）
+- C `cc8393a` T014: propagate issue facts to prompt, agent tools and transaction UI（+478/−32，13 文件；ctest 23/23）——**当前 LKGC candidate（待 Review）**
+- D 本归档提交（docs-only；哈希见 git log）

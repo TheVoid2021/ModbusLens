@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T014 Diagnostic Detail Preservation — IN PROGRESS**（Phase A Learning + Test Design docs-only 完成，AWAITING REVIEW；Phase B = WAITING FOR USER APPROVAL；**未实现任何代码**）。前序：M8 Phase B Knowledge Ownership ✅、M8.1 Diagnostic Coverage Audit ✅（用户 Final Review PASS） |
-| 最近完成任务（Last Completed Task） | **M8.1 Diagnostic Coverage Audit 完成并通过最终 Review**（docs-only commit `dab9b5f` + bookkeeping 修正 `5f21911`；history: T011/T012/T013 见 §1） |
-| 当前阶段（Current Phase） | **T014 Phase A（Learning + Test Design，docs-only）已归档 AWAITING REVIEW；T014 未实现**（ProtocolError 七分支重构与最小数据模型定案见 T014 档案） |
-| 下一步动作（Next Action） | **T014 Phase B — Test First + Implementation：WAITING FOR USER APPROVAL；批准前零代码改动** |
+| 当前任务（Current Task） | **T014 Diagnostic Detail Preservation — IN PROGRESS**（**Phase B IMPLEMENTED / AWAITING REVIEW**：三提交 RED→GREEN→传播链；LKGC candidate = `cc8393a`，待用户 Review；Manual UI Smoke = WAITING FOR USER；T015 未开始） |
+| 最近完成任务（Last Completed Task） | **M8.1 Diagnostic Coverage Audit 完成并通过最终 Review**（docs-only `dab9b5f` + `5f21911`）；T014 Phase A = DONE/REVIEW PASS |
+| 当前阶段（Current Phase） | **T014 Phase B 实现完成**（`TransactionIssue` 落地 Core + prompt/agent/UI additive 传播；clean 147 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH 全过；待用户 Manual UI Smoke 与 Review） |
+| 下一步动作（Next Action） | **用户 T014 Phase B Review（含 Offline Manual UI Smoke 清单）**；不被 Agent 自行推进 LKGC |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -41,7 +41,7 @@
 
 ## 2. 当前任务
 
-- **T014 — Diagnostic Detail Preservation（IN PROGRESS）**。Phase A（Learning + Test Design）= docs-only 完成并 AWAITING REVIEW：M8.1 审计确认的 ProtocolError Detail Loss 的修复设计已定案——六状态不动，新增正交 `TransactionIssue`（7 值 + 稀疏载荷、append-last、四+二不变量）；统计口径零变化（R-STAT）；T015 request-side 边界划清；单元/集成/回归三级测试矩阵落库（详见 [T014 档案](tasks/T014-diagnostic-detail-preservation.md)）。**Phase B（Test First + Implementation）= WAITING FOR USER APPROVAL；T014 未实现。**
+- **T014 — Diagnostic Detail Preservation（IN PROGRESS；Phase B = IMPLEMENTED / AWAITING REVIEW）**。`TransactionIssue`（7 值 + 稀疏载荷 + 六不变量）随 `TransactionAnalysis` 保存：ProtocolError 五真实分支（FrameTooShort/AddressMismatch/MalformedException/MalformedNormal/QuantityMismatch）与功能码不符/防御 sentinel 全部产出确定性 detail；Statistics 口径逐位不变（STAT-B09）；Replay/Serial/Simulator 同漏斗继承；Baseline finding 不变（batch summary defer：无消费者）；AI Prompt 与 Agent Tools additive 传播 machine facts；UI 仅 ProtocolError 行 secondary text。RED 实证 9 FAIL→GREEN tx 20/20→ctest 23/23；clean 147 零警告；qml smoke 与 deploy+minimal-PATH PASS。**Manual UI Smoke = WAITING FOR USER**（见 [T014 档案 Phase B Verification](tasks/T014-diagnostic-detail-preservation.md)。LKGC candidate = `cc8393a`（待 Review）。
 
 ## 3. 下一任务
 
@@ -196,6 +196,7 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-13 | **M8 Phase B Knowledge Ownership 系列（B1~B7，docs-only）**：architecture/Modbus core/Transaction Statistics/execution modes/Qt QML adapter/AI diagnosis/Agent tool-calling 七个知识主权文档化完成（Part 7 = `4039ade`）；Phase B Closure 入档；LKGC `99f17d6` 不变 |
 | 2026-09-13 | **M8.1 — Diagnostic Coverage Audit 建立并通过用户 Final Review**（docs-only `dab9b5f`；line-count/CRC-count bookkeeping 修正 `5f21911`）：`docs/09_DIAGNOSTIC_COVERAGE_AUDIT.md` 定案——术语模型、14 场景实测矩阵、独立 CRC 审计、覆盖族、Claim Risk、T014/T015 候选；LKGC `99f17d6` 不变 |
 | 2026-09-13 | **T014 启动：Phase A Learning + Test Design（docs-only，本提交）**——ProtocolError 七分支重构、信息损失矩阵、最小数据模型定案（TransactionIssue A′方案）、六不变量、Statistics 不变契约、request-side/T015 边界、UI/prompt/agent 传播设计、三级测试矩阵落库；**T014 标记 IN PROGRESS，未实现**；Phase B = WAITING FOR USER APPROVAL；LKGC `99f17d6` 不变 |
+| 2026-09-13 | **T014 Phase B 实施完成（A/B/C 三提交，本行由 docs closure 回填）**：A `0ec6e06` 模型表面+RED（tx 11/9：9 条 issue 缺失断言）；B `900131d` 接线 makeProtocolError/makeIssue（tx 20/20、ctest 23/23）；C `cc8393a` prompt/agent/UI 传播 + 测试强化（13 文件）。clean 147 targets 零警告、ctest 23/23、qml smoke、deploy+minimal-PATH 全过；**LKGC candidate = `cc8393a`（待用户 Review + Manual UI Smoke）**；verified LKGC 仍 `99f17d6`；T015 NOT STARTED |
 
 
 
