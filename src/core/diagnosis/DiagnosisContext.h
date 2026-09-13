@@ -18,6 +18,9 @@ struct DiagnosisTransaction {
     std::uint8_t deviceAddress{};
     std::uint8_t functionCode{};
     TransactionAnalysis analysis;
+    // T015 Gate B: copied verbatim from the passive analyzer (nullopt on all
+    // active paths). Downstream layers never re-derive request facts.
+    std::optional<TransactionRequestIssue> requestIssue;
 
     bool operator==(const DiagnosisTransaction&) const = default;
 };

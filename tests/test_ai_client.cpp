@@ -41,6 +41,7 @@ DiagnosisTransaction tx(std::uint8_t address, TransactionStatus status,
             .exceptionCode = exceptionCode,
             .issue = std::nullopt,
         },
+        .requestIssue = std::nullopt,
     };
 }
 
@@ -627,9 +628,11 @@ void AiClientTest::b18_promptIssueFacts()
 
     const std::vector<DiagnosisTransaction> batch = {
         DiagnosisTransaction{
-            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = addressAnalysis},
+            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = addressAnalysis,
+            .requestIssue = std::nullopt},
         DiagnosisTransaction{
-            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = quantityAnalysis},
+            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = quantityAnalysis,
+            .requestIssue = std::nullopt},
     };
     const DiagnosisContext context = buildDiagnosisContext(batch);
     const DiagnosisPrompt prompt = buildDiagnosisPrompt(

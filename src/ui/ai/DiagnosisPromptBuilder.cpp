@@ -42,6 +42,7 @@ QString statusName(modbuslens::core::TransactionStatus status)
     case TransactionStatus::CrcError: return QStringLiteral("CrcError");
     case TransactionStatus::Timeout: return QStringLiteral("Timeout");
     case TransactionStatus::ProtocolError: return QStringLiteral("ProtocolError");
+    case TransactionStatus::ExpectedNoResponse: return QStringLiteral("ExpectedNoResponse");
     }
     return QStringLiteral("Unknown");
 }

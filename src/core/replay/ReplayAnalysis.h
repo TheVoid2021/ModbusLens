@@ -4,6 +4,7 @@
 #include <variant>
 #include <vector>
 
+#include "core/analysis/PassiveTransactionAnalysis.h"
 #include "core/analysis/TransactionAnalysis.h"
 #include "core/analysis/TransactionStatistics.h"
 #include "core/replay/ReplayLog.h"
@@ -37,12 +38,21 @@ struct ReplayTransactionOutcome {
     std::uint8_t deviceAddress{};
     std::uint8_t functionCode{};
     TransactionAnalysis analysis;
+    // T015: request-side fact copied from the passive analyzer (nullopt when
+    // the captured request was valid for its function).
+    std::optional<TransactionRequestIssue> requestIssue;
 
     bool operator==(const ReplayTransactionOutcome&) const = default;
 };
 
 struct ReplayBatchAnalysis {
+    // Analyzed records only (these feed TransactionStatisticsSnapshot).
     std::vector<ReplayTransactionOutcome> transactions;
+    // T015 Gate F: valid-wire records whose NORMAL semantics are not
+    // supported yet. They are neither invalid nor hidden: they are kept as
+    // explicit per-record facts so no log line is silently dropped.
+    std::vector<UnsupportedObservedTransaction> unsupportedRecords;
+    // Statistics are computed ONLY from the analyzed subset above.
     TransactionStatisticsSnapshot statistics;
 
     bool operator==(const ReplayBatchAnalysis&) const = default;

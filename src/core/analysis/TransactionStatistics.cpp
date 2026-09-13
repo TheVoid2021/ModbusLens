@@ -35,19 +35,29 @@ TransactionStatisticsSnapshot summarizeTransactions(
         case TransactionStatus::ProtocolError:
             ++snapshot.protocolErrorCount;
             break;
+        case TransactionStatus::ExpectedNoResponse:
+            // T015: a completed observation, but never a success and never a
+            // failure (broadcast has no response by protocol).
+            ++snapshot.expectedNoResponseCount;
+            break;
         }
     }
 
-    // Invariant B by construction: completed = sum of the five final states
+    // Invariant B by construction: completed = sum of the six final states
     // (and with observedCount set above, invariant A holds automatically).
     snapshot.completedCount = snapshot.successCount + snapshot.exceptionCount
         + snapshot.crcErrorCount + snapshot.timeoutCount
-        + snapshot.protocolErrorCount;
+        + snapshot.protocolErrorCount + snapshot.expectedNoResponseCount;
 
-    // Invariant C: "no completed transactions yet" is nullopt, never 0%.
-    if (snapshot.completedCount > 0) {
+    // Invariant C (T015/ADR-003 approved formula): the rate is computed over
+    // rate-eligible completed transactions only — a legal broadcast must not
+    // dilute the success rate; "no eligible completed transaction" is
+    // nullopt, never a fabricated 0%.
+    const std::size_t rateEligibleCompleted =
+        snapshot.completedCount - snapshot.expectedNoResponseCount;
+    if (rateEligibleCompleted > 0) {
         snapshot.successRate = static_cast<double>(snapshot.successCount)
-            / static_cast<double>(snapshot.completedCount);
+            / static_cast<double>(rateEligibleCompleted);
     }
 
     // Invariant D: latency averages only successful transactions; a

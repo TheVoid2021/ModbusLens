@@ -24,6 +24,7 @@ add_library(modbuslens_core STATIC
     src/core/protocol/ModbusCrc.cpp
     src/core/protocol/ModbusRtuCodec.cpp
     src/core/protocol/Function03.cpp
+    src/core/protocol/Function06.cpp
     src/core/simulator/SimulatedSlave.cpp
     src/core/simulator/SimulationFault.cpp
     src/core/analysis/TransactionAnalysis.cpp
@@ -268,6 +269,17 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME replay_analysis COMMAND modbuslens_replay_analysis_tests)
+
+    # T015 Passive Replay Expansion: the generic passive analyzer lives in
+    # Core; its tests exercise the real replay path end to end.
+    add_executable(modbuslens_passive_tests tests/test_passive_analysis.cpp)
+    target_link_libraries(modbuslens_passive_tests PRIVATE modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_passive_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME passive COMMAND modbuslens_passive_tests)
 
     # Serial (T010 Part A): Pure transaction session needs no Qt beyond the
     # test framework; the adapter test is the ONLY target that links

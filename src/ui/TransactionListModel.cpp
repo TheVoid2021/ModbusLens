@@ -19,6 +19,9 @@ QString statusText(modbuslens::core::TransactionStatus status)
         return QStringLiteral("超时");
     case modbuslens::core::TransactionStatus::ProtocolError:
         return QStringLiteral("协议错误");
+    case modbuslens::core::TransactionStatus::ExpectedNoResponse:
+        // T015 Gate C: truthful broadcast wording — never 成功 / 超时.
+        return QStringLiteral("预期无响应");
     }
     return QStringLiteral("Unknown");
 }
@@ -67,6 +70,22 @@ QString issueDetailText(const modbuslens::core::TransactionAnalysis& analysis)
         return QStringLiteral("响应功能码不符");
     case TransactionIssueCode::UnknownProtocolError:
         return QStringLiteral("协议错误（未记录细节）");
+    case TransactionIssueCode::WriteSingleRegisterEchoMismatch:
+        if (issue.expectedRegisterAddress.has_value() && issue.actualRegisterAddress.has_value()
+            && issue.expectedRegisterValue.has_value() && issue.actualRegisterValue.has_value()) {
+            const auto hex4 = [](std::uint16_t value) {
+                return QStringLiteral("0x")
+                    + QString::number(value, 16).toUpper().rightJustified(4, QLatin1Char('0'));
+            };
+            return QStringLiteral("写入回显不匹配（请求 %1=%2 / 响应 %3=%4）")
+                .arg(hex4(*issue.expectedRegisterAddress),
+                     hex4(*issue.expectedRegisterValue),
+                     hex4(*issue.actualRegisterAddress),
+                     hex4(*issue.actualRegisterValue));
+        }
+        return QStringLiteral("写入回显不匹配");
+    case TransactionIssueCode::UnexpectedResponseForBroadcast:
+        return QStringLiteral("广播请求不应答却收到响应");
     }
     return QString();
 }

@@ -64,6 +64,10 @@ private slots:
     // STAT-B09 (P0, T014): issue payload is orthogonal — the snapshot keys
     // ONLY on the high-level status, never on issue presence/payload.
     void b09_issuePresenceDoesNotChangeSnapshot();
+    // STAT-B10 (P0, T015/ADR-003): approved broadcast formula — completed
+    // includes ExpectedNoResponse; the success rate denominator excludes it;
+    // a broadcast-only batch has nullopt (never a fabricated 0%).
+    void b10_expectedNoResponseFormula();
 };
 
 void TransactionStatisticsTest::b01_emptyInput()
@@ -280,6 +284,47 @@ void TransactionStatisticsTest::b09_issuePresenceDoesNotChangeSnapshot()
              withoutSnapshot.successRate.has_value());
     QCOMPARE(withSnapshot.averageSuccessLatencyMs.has_value(),
              withoutSnapshot.averageSuccessLatencyMs.has_value());
+}
+
+void TransactionStatisticsTest::b10_expectedNoResponseFormula()
+{
+    // 1 Success (elapsed 20) + 2 broadcast observed (ExpectedNoResponse).
+    const std::vector<TransactionAnalysis> batch = {
+        makeAnalysis(TransactionStatus::Success, ms{20}),
+        makeAnalysis(TransactionStatus::ExpectedNoResponse, ms{0}),
+        makeAnalysis(TransactionStatus::ExpectedNoResponse, ms{0}),
+    };
+    const auto snapshot = summarizeTransactions(batch);
+
+    QCOMPARE(snapshot.observedCount, std::size_t{3});
+    QCOMPARE(snapshot.pendingCount, std::size_t{0});
+    QCOMPARE(snapshot.completedCount, std::size_t{3});
+    QCOMPARE(snapshot.successCount, std::size_t{1});
+    QCOMPARE(snapshot.expectedNoResponseCount, std::size_t{2});
+    // Approved formula: rateEligibleCompleted = 3 - 2 = 1 -> 1/1 = 1.0.
+    QVERIFY(snapshot.successRate.has_value());
+    QCOMPARE(*snapshot.successRate, 1.0);
+    // Latency still only averages Success rows.
+    QVERIFY(snapshot.averageSuccessLatencyMs.has_value());
+    QCOMPARE(*snapshot.averageSuccessLatencyMs, 20.0);
+    // Invariant A/B hold.
+    QCOMPARE(snapshot.observedCount,
+             snapshot.pendingCount + snapshot.completedCount);
+    QCOMPARE(snapshot.completedCount,
+             snapshot.successCount + snapshot.exceptionCount
+                 + snapshot.crcErrorCount + snapshot.timeoutCount
+                 + snapshot.protocolErrorCount
+                 + snapshot.expectedNoResponseCount);
+
+    // Broadcast-only batch: nothing is rate-eligible -> nullopt, never 0%.
+    const std::vector<TransactionAnalysis> onlyBroadcast = {
+        makeAnalysis(TransactionStatus::ExpectedNoResponse, ms{0}),
+    };
+    const auto broadcastSnapshot = summarizeTransactions(onlyBroadcast);
+    QCOMPARE(broadcastSnapshot.completedCount, std::size_t{1});
+    QCOMPARE(broadcastSnapshot.expectedNoResponseCount, std::size_t{1});
+    QVERIFY(!broadcastSnapshot.successRate.has_value());
+    QVERIFY(!broadcastSnapshot.averageSuccessLatencyMs.has_value());
 }
 
 } // namespace

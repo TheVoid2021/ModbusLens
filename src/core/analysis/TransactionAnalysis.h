@@ -19,6 +19,10 @@ enum class TransactionStatus {
     CrcError,      // wire arrived but decode failed with CrcMismatch
     Timeout,       // no response and elapsed >= timeoutThreshold
     ProtocolError, // data arrived but cannot be a valid match for this request
+    // T015 Gate C: a valid broadcast-capable request was observed, no
+    // response was observed, and protocol semantics do not expect one. It
+    // proves NOTHING about device write success or device health (ADR-003).
+    ExpectedNoResponse,
 };
 
 // T014: orthogonal deterministic diagnostic detail. A TransactionIssue is
@@ -33,6 +37,9 @@ enum class TransactionIssueCode {
     QuantityMismatch,           // response value count != request quantity
     UnexpectedResponseFunction, // any other response function code
     UnknownProtocolError,       // deterministic defensive/fallback branch only
+    // ---- T015 additive (FC06 / broadcast; T014 contract unchanged) ----
+    WriteSingleRegisterEchoMismatch, // FC06 echo fields differ from request
+    UnexpectedResponseForBroadcast,  // any bytes replied to a broadcast
 };
 
 // Sparse context payload: each optional is populated ONLY when its code
@@ -48,6 +55,13 @@ struct TransactionIssue {
     std::optional<std::uint16_t> expectedQuantity;
     std::optional<std::uint16_t> actualQuantity;
 
+    // ---- T015 FC06 echo mismatch payload (register semantics: the address
+    // columns above are Modbus DEVICE addresses, never register addresses).
+    std::optional<std::uint16_t> expectedRegisterAddress;
+    std::optional<std::uint16_t> actualRegisterAddress;
+    std::optional<std::uint16_t> expectedRegisterValue;
+    std::optional<std::uint16_t> actualRegisterValue;
+
     bool operator==(const TransactionIssue&) const = default;
 };
 
@@ -55,6 +69,34 @@ struct TransactionIssue {
 // "response_address_mismatch"). Deliberately NOT human UI prose — that
 // mapping belongs to the Qt adapter layer.
 std::string_view transactionIssueName(TransactionIssueCode code);
+
+// ---------------------------------------------------------------------------
+// T015 Gate B: request-side orthogonal deterministic detail. Produced ONLY
+// by the Passive Core analyzer (never by T007 — its trusted-request contract
+// stays intact; never re-derived by Replay/Diagnosis/Prompt/Agent/UI).
+// A request issue records "what the captured request violated" as an
+// observed fact — never a root-cause guess (no WrongDeviceConfiguration /
+// BadPLCProgram / OperatorError codes, ever).
+// ---------------------------------------------------------------------------
+
+enum class TransactionRequestIssueCode {
+    InvalidRequestQuantity, // semantic quantity outside the function's domain
+    InvalidRequestLength,   // request data length not valid for the function
+    InvalidBroadcastFunction, // address==0 with a non-broadcast function
+};
+
+struct TransactionRequestIssue {
+    TransactionRequestIssueCode code{};
+
+    // InvalidRequestQuantity payload (FC03: maxAllowedQuantity == 125).
+    std::optional<std::uint16_t> observedQuantity;
+    std::optional<std::uint16_t> maxAllowedQuantity;
+
+    bool operator==(const TransactionRequestIssue&) const = default;
+};
+
+// Stable machine serialization token (adapter/tool serialization only).
+std::string_view transactionRequestIssueName(TransactionRequestIssueCode code);
 
 // A transaction is a request plus its response/failure observation — never a
 // single frame. NoResponse is deliberately decoupled from T006's

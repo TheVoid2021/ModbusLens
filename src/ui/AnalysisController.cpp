@@ -971,6 +971,7 @@ void AnalysisController::publishSerialResult(
             .deviceAddress = static_cast<std::uint8_t>(deviceAddress),
             .functionCode = 0x03,
             .analysis = analysis,
+            .requestIssue = std::nullopt,
         },
     };
     invalidateAiForBatchChange();
@@ -1050,6 +1051,7 @@ void AnalysisController::runDemoBatch()
             .deviceAddress = request.address,
             .functionCode = request.functionCode,
             .analysis = analysis,
+            .requestIssue = std::nullopt,
         });
     };
 
@@ -1231,6 +1233,7 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
             .deviceAddress = outcome.deviceAddress,
             .functionCode = outcome.functionCode,
             .analysis = outcome.analysis,
+            .requestIssue = std::nullopt,
         });
     }
 

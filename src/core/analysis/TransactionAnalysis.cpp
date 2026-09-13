@@ -19,10 +19,27 @@ std::string_view transactionIssueName(TransactionIssueCode code)
         return "unexpected_response_function";
     case TransactionIssueCode::UnknownProtocolError:
         return "unknown_protocol_error";
+    case TransactionIssueCode::WriteSingleRegisterEchoMismatch:
+        return "write_single_register_echo_mismatch";
+    case TransactionIssueCode::UnexpectedResponseForBroadcast:
+        return "unexpected_response_for_broadcast";
     }
     // Defensive: an enum value this build does not know cannot be given a
     // fabricated meaning — fall back to the generic token, never a guess.
     return "unknown_protocol_error";
+}
+
+std::string_view transactionRequestIssueName(TransactionRequestIssueCode code)
+{
+    switch (code) {
+    case TransactionRequestIssueCode::InvalidRequestQuantity:
+        return "invalid_request_quantity";
+    case TransactionRequestIssueCode::InvalidRequestLength:
+        return "invalid_request_length";
+    case TransactionRequestIssueCode::InvalidBroadcastFunction:
+        return "invalid_broadcast_function";
+    }
+    return "unknown_request_issue";
 }
 
 namespace {

@@ -58,6 +58,7 @@ ReplayAnalysisResult analyzeReplayLog(const ReplayLog& log)
             .deviceAddress = request.address,
             .functionCode = request.functionCode,
             .analysis = analysis,
+            .requestIssue = std::nullopt,
         });
     }
 
@@ -65,7 +66,10 @@ ReplayAnalysisResult analyzeReplayLog(const ReplayLog& log)
     // statistics computed from the same function.
     auto statistics = summarizeTransactions(analyses);
     return ReplayAnalysisResult{
-        ReplayBatchAnalysis{std::move(outcomes), std::move(statistics)}};
+        ReplayBatchAnalysis{
+            .transactions = std::move(outcomes),
+            .unsupportedRecords = {},
+            .statistics = std::move(statistics)}};
 }
 
 } // namespace modbuslens::core

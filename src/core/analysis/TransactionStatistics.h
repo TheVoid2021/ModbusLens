@@ -13,8 +13,11 @@ namespace modbuslens::core {
 // no history, no manager: the same batch always yields the same snapshot.
 // Invariants (locked by tests):
 //   A: observedCount == pendingCount + completedCount
-//   B: completedCount == success + exception + crcError + timeout + protocolError
-//   C: successRate has a value  <=>  completedCount > 0
+//   B: completedCount == success + exception + crcError + timeout
+//                       + protocolError + expectedNoResponse
+//   C: successRate has a value  <=>  rateEligibleCompleted > 0, where
+//      rateEligibleCompleted = completedCount - expectedNoResponseCount
+//      (T015/ADR-003: a legal broadcast must not dilute the success rate)
 //   D: averageSuccessLatencyMs has a value  <=>  successCount > 0
 struct TransactionStatisticsSnapshot {
     std::size_t observedCount{};
@@ -26,6 +29,10 @@ struct TransactionStatisticsSnapshot {
     std::size_t crcErrorCount{};
     std::size_t timeoutCount{};
     std::size_t protocolErrorCount{};
+    // T015 Gate C: broadcast transactions are completed OBSERVATIONS but are
+    // excluded from the success-rate denominator (they cannot be "successful"
+    // and must not be counted as failures either).
+    std::size_t expectedNoResponseCount{};
 
     std::optional<double> successRate;
     std::optional<double> averageSuccessLatencyMs;

@@ -40,7 +40,8 @@ core::DiagnosisTransaction tx(std::uint8_t address, core::TransactionStatus stat
         .deviceAddress = address,
         .functionCode = 0x03,
         .analysis = makeAnalysis(status, elapsedMs, exceptionCode),
-    };
+            .requestIssue = std::nullopt,
+        };
 }
 
 // 1 Success + 1 CRC + 1 Timeout + 1 Exception 0x02 (the golden mixed batch).
@@ -568,7 +569,8 @@ void AgentToolsTest::a11_protocolIssueFactsInTools()
 
     const std::vector<core::DiagnosisTransaction> batch = {
         core::DiagnosisTransaction{
-            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = analysis},
+            .deviceAddress = 0x01, .functionCode = 0x03, .analysis = analysis,
+            .requestIssue = std::nullopt},
     };
     const auto coreContext = core::buildDiagnosisContext(batch);
     const agent::AgentToolContext context{

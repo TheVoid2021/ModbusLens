@@ -38,6 +38,7 @@ bool isAnomalyStatus(TransactionStatus status)
         return true;
     case TransactionStatus::Success:
     case TransactionStatus::Pending:
+    case TransactionStatus::ExpectedNoResponse:
         return false;
     }
     return false;
@@ -143,6 +144,7 @@ std::string_view transactionStatusName(
     case TransactionStatus::CrcError: return "CrcError";
     case TransactionStatus::Timeout: return "Timeout";
     case TransactionStatus::ProtocolError: return "ProtocolError";
+    case TransactionStatus::ExpectedNoResponse: return "ExpectedNoResponse";
     }
     return "Unknown";
 }
