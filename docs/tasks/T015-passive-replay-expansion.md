@@ -2,8 +2,8 @@
 
 - **Goal**          解决“哪些**真实历史事务**根本进不了现有分析模型”——把 Replay 从 active-master 的 trusted-request 契约迁移为 passive observer 契约：FC06 / 0x10 被动语义、generic exception 识别、invalid-request 可观察性、broadcast expected-no-response；同时不破坏六状态、Statistics、Active Serial read-only 边界。
 - **Background**    M8.1 审计（demo_v2 14 场景）确认当前是 FC03-centric transaction-level analyzer：S2/S3 写功能被 `InvalidRequestFunction` 拒之门外、S5 合法 Exception 01 被请求门挡住、S6 invalid request + 合法 Exception 03 整笔丢弃、S4 broadcast 语义缺失、坏 request 毒死整个 batch。T014 已解决“已接受事务的 **detail** 丢失”（TransactionIssue，六状态不变）；T015 处理的是它们的**上游**：进入模型之前。verified LKGC = `cc8393a`。
-- **状态**           **T015 = IN PROGRESS**。Phase A（Learning + Test Design）= 本档案前半（docs-only）；**Phase B（Passive Core + FC06 + Broadcast）= IMPLEMENTED / AWAITING REVIEW**（四提交 RED→GREEN→传播→归档链）。
-- **Phase 状态**     Phase A = DONE / REVIEW PASS（Gate A~F 全批，§32.5）；**Phase B = IMPLEMENTED / AWAITING REVIEW**。**Function 0x10 normal semantics = NOT STARTED（Part C）**。
+- **状态**           **T015 = IN PROGRESS（整体）**。Phase A（Learning + Test Design）与 **Phase B（Passive Core + FC06 + Broadcast）= DONE / REVIEW PASS**（用户 Manual UI Smoke = PASS；verified LKGC = `02ce302`）；**Part C（Function 0x10 normal semantics）= NOT STARTED**。
+- **Phase 状态**     Phase A = DONE / REVIEW PASS（Gate A~F 全批）；**Phase B = DONE / REVIEW PASS**；**T015 整体不得标 DONE**（Part C 未启动）。
 
 ## 1. Evidence Inspection
 
@@ -356,6 +356,35 @@ Phase A **不写任何 tests**（writing 属 Phase B）。
 - **边界取证（自动）**：`grep -rn "encodeWriteSingleRegister|Function16|sendWrite|writeRegister(" src` = **零命中**；Serial 仅有 `beginReadHoldingRegisters`/`encodeReadHoldingRegistersRequest`；`src/ui/agent` 无任何 write 工具名。**Passive understanding ≠ Active capability** 由源码事实保证。
 - **0x10 边界**：仅 03 知识回填；`Function16`/normal matcher/tests **零实现**（Part C）。
 
+## Final Acceptance（用户 Manual UI Review = PASS，2026-09-13）
+
+- **A. Existing Demo regression PASS**：原四行（Success/Exception/CRC/Timeout）正常；新「预期无响应」统计计数为 **0**；旧布局无回归。
+- **B. demo_v1 Replay regression PASS**：Success/Exception/CrcError/Timeout 四行正常；**无 unsupported notice**；Statistics 逐字段不变。
+- **C. Broadcast PASS**：FC06 broadcast + NO_RESPONSE → 状态显示「**预期无响应**」；`expectedNoResponse` 计数正确；**success rate 未被广播稀释**；**不显示 Success、不显示 Timeout**；无任何“写入成功”类措辞。
+- **D. Unsupported normal function PASS**：unsupported record **不导致 Replay load failure**、**不伪装成 ProtocolError**；UI 有明确非致命提示；未支持记录**不计入 TransactionStatistics**；用户能区分 analyzed vs unsupported。
+- **E. Invalid FC03 + legal Exception PASS**：主状态 **Exception**、exception code **0x03**，同时显示 request-side 确定性事实 **quantity=126 / max=125**；两个事实同时保留；无 PLC/operator root-cause 推断。
+- **F. FC06 echo mismatch**：用户清单列明该项（ProtocolError + `WriteSingleRegisterEchoMismatch`、expected/actual 可读、未误归 MalformedNormalResponse）；本档案按用户整体 PASS 归档，该确定性行为另由 `PASSIVE-P03` 自动锁定、UI 文案由 `issueDetailText` 提供。
+- **G. 整体布局**：无裁剪、无重叠、行高正常、Dashboard 正常、unsupported notice 正常、无可见回归。
+
+**结论**：Phase A = DONE；**Phase B = DONE / REVIEW PASS**；**T015 整体 = IN PROGRESS（Part C 未启动）**。verified LKGC 推进 `cc8393a` → **`02ce302`**（semantic audit 修复后的最终 code/test commit；`6944fd5` 与一切 docs-only 提交均不作为 LKGC）。
+
+### Bookkeeping correction（按 Git 实际输出，替代手工汇总数字）
+
+- Phase B code/test 提交 = `477ed44` / `2ba719f` / `6944fd5` / `02ce302`；`git show --name-only` 并集：
+  - **src 生产文件（23 个）**：`src/core/analysis/` 6 个（PassiveTransactionAnalysis.h/.cpp、TransactionAnalysis.h/.cpp、TransactionStatistics.h/.cpp）、`src/core/diagnosis/` 3 个（DiagnosisContext.h、RuleBasedDiagnosis.h/.cpp）、`src/core/protocol/` 4 个（Function03.h/.cpp、Function06.h/.cpp）、`src/core/replay/` 2 个（ReplayAnalysis.h/.cpp）、`src/ui/` 8 个（AnalysisController.h/.cpp、TransactionListModel.h/.cpp、AnalysisController 同目录、agent/AgentTools.h/.cpp、ai/DiagnosisPromptBuilder.cpp、qml/Main.qml）。
+  - **构建配置（1 个）**：`CMakeLists.txt` ⇒ **24 tracked production/build paths**。
+  - **测试文件（8 个）**：`tests/` 的 test_passive_analysis.cpp、test_replay_analysis.cpp、test_transaction_statistics.cpp、test_diagnosis.cpp、test_ai_client.cpp、test_agent_tools.cpp、test_agent_runtime.cpp、test_ui_bridge.cpp。
+- 此前汇报的 “13 production files / 9 tests changed” 属 **component 与 file 计数混用**，作废；本档案与后续文档统一以 **exact changed paths / N 生产组件 + M tracked paths** 口径为准。
+
+### Semantic audit story（完整归档，Review 前专项）
+
+- 规则：generic exception（fn 匹配）= `response.function == (request.function | 0x80)`，且**必须先满足 `(request.function & 0x80) == 0`**。
+- 初始实现遗漏前置约束 ⇒ request=0x88 / response=0x88 时 `0x88|0x80 == 0x88` **自我匹配**，1 字节载荷被误判为 **Exception 0x01**。
+- **RED**：`PASSIVE-P16` 旧逻辑 FAIL（**21 passed / 1 failed**，误接受 Exception）。
+- **Fix**：`PassiveTransactionAnalysis.cpp` §5 增加 request MSB guard；修复后 `0x88/0x88` 落入**已有** `UnsupportedObservedTransaction`（零新状态、零新 issue code），合法 `0x08 → 0x88/0x01` 仍为 **Exception 0x01**（对照断言保留）。
+- **GREEN**：passive **22/22**、full ctest **24/24**、clean build **zero warnings**。
+- **问题定性（不得写错）**：**generic exception matcher 的 protocol-semantic edge-case bug**——不是 Provider bug、不是 Replay parser bug、不是 Modbus device bug。
+
 ## Problems Encountered / Solutions
 
 - **P1（六状态容不下的 broadcast）**：逐一试放 Pending/Timeout/Success 都不诚实（§17 锁定事实），得出“任何诚实方案都必须动状态轴或统计口径”的结论 → 不硬编方案，升为 Gate C + ADR-003 Draft。
@@ -389,10 +418,9 @@ Phase B（真实命令与输出）：
 
 ## Result
 
-- **T015 = IN PROGRESS；Phase B = IMPLEMENTED / AWAITING REVIEW**（Function 0x10 = NOT STARTED / Part C）。
-- 交付：七状态（Gate C 批准的 `ExpectedNoResponse`）+ 批准统计公式；Gate A passive analyzer（FC03 复用 / generic exception 单点 / broadcast 仅 FC06）；Gate B 独立 `TransactionRequestIssue`（T014 契约零改动）；Gate D 仅 FC06；Gate E Scope A；Gate F per-record 化 + unsupported 显式披露；Baseline/Agent/Prompt/UI additive 全链；demo_v1/T014/Active Serial 零回归。
-- **LKGC candidate = `6944fd5`**（最新 code/test 提交；自动验证全链通过）——Manual UI Review 与用户 Review 前**不自行推进**；docs 归档提交不作为 LKGC。
-- verified LKGC 维持 `cc8393a` 不变。
+- **Phase A = DONE；Phase B = DONE / REVIEW PASS；T015 整体 = IN PROGRESS（Part C = NOT STARTED）**。
+- 交付：七状态（Gate C 批准的 `ExpectedNoResponse`）+ 批准统计公式；Gate A passive analyzer（FC03 复用 / generic exception 单点 / broadcast 仅 FC06）；Gate B 独立 `TransactionRequestIssue`（T014 契约零改动）；Gate D 仅 FC06；Gate E Scope A；Gate F per-record 化 + unsupported 显式披露；Baseline/Agent/Prompt/UI additive 全链；demo_v1/T014/Active Serial 零回归；semantic audit（request MSB guard）修复并留痕。
+- **verified LKGC = `02ce302`**（用户 Final Review 推进；`6944fd5` superseded；docs-only 提交不作 LKGC）。
 
 ## Knowledge Learned
 
@@ -419,5 +447,6 @@ Phase B（真实命令与输出）：
 - B（RED）`477ed44` T015: add passive expansion model surface and RED tests（passive 8 passed/13 failed）
 - C（GREEN core）`2ba719f` T015: implement passive analyzer core (FC06, generic exception, broadcast status)（ctest 24/24）
 - D（GREEN downstream）`6944fd5` T015: propagate passive facts to dashboard, prompt and agent tools（+481/−7，11 文件）
-- F（semantic audit fix）`02ce302` T015: guard generic exception matcher against request function MSB（+59/−2；passive 22/22、ctest 24/24）——**当前 LKGC candidate（`6944fd5` 作废）**
-- E 本归档提交（docs-only；哈希见 git log）
+- F（semantic audit fix）`02ce302` T015: guard generic exception matcher against request function MSB（+59/−2；passive 22/22、ctest 24/24）——**verified LKGC（用户 Final Review 推进；`6944fd5` superseded）**
+- G（docs）`fdefb0e` 记录 semantic audit 并刷新 candidate（不作 LKGC）
+- H 本 Final Acceptance 提交（docs-only；哈希见 git log；不作 LKGC）

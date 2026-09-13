@@ -1,6 +1,6 @@
 # ADR-003 — Broadcast Outcome Semantics（广播事务的归一化语义）
 
-> 状态：**Accepted（用户 Gate C 批准，2026-09-13）——implemented-candidate**；Final 状态等待 T015 Phase B Review。
+> 状态：**Accepted / Implemented（用户 Gate C 批准 + T015 Phase B Final Review PASS，2026-09-13）**。
 > 关联：M8.1 Diagnostic Coverage Audit §18、T015 Phase A Gate C（docs/tasks/T015-passive-replay-expansion.md）
 
 ## 背景
@@ -43,3 +43,12 @@
 - 2026-09-13 Draft/Proposal 建立（T015 Phase A）。
 - 2026-09-13 **用户 Gate C 批准 → Accepted（implemented-candidate）**。批准口径（最终公式）：`observed = pending + completed`；`completed = success + exception + crcError + timeout + protocolError + expectedNoResponse`（**completed 不含 Pending**）；`rateEligibleCompleted = completed − expectedNoResponse`；`successRate = success / rateEligibleCompleted`；`rateEligibleCompleted == 0 ⇒ successRate = nullopt`；`averageSuccessLatencyMs` 仍只计 Success。新增状态 `TransactionStatus::ExpectedNoResponse` 语义：观察到合法 broadcast-capable 请求、未观察到响应、协议不期待响应——不代表 write success / 设备健康。Final 待 T015 Phase B Review。
 - 2026-09-13 **T015 Phase B 实现完成（IMPLEMENTED / AWAITING REVIEW）**：七状态、统计公式（STAT-B10 + PASSIVE-P14 锁定）、Baseline `ExpectedNoResponseObserved`（Info、顺序 Pending 之后）+ Healthy 四条件、Agent anomalies 排除该状态、UI「预期无响应」文案与统计卡、Prompt 语义句族（“不证明写入成功”）。clean 152 零警告、ctest 24/24、qml smoke、deploy+minimal-PATH；LKGC candidate `6944fd5`。Final 仍待用户 Review。
+## 最终状态（2026-09-13 T015 Phase B Final Review = PASS）
+
+**Accepted / Implemented.** 最终语义（自动测试 + 人工验收双通过）：
+
+- `ExpectedNoResponse` **不是** Success、**不是** Timeout、**不是** Pending：它表示“观察到合法 broadcast-capable 请求、未观察到响应、协议不期待响应”，不证明任何设备写入成功或健康。
+- `successRate` 分母 = `completed − expectedNoResponse`（只统计“已应答事务”），分母为 0 ⇒ `nullopt`；`completed` 含广播且不含 Pending；`averageSuccessLatencyMs` 仍只计 Success。
+- Baseline：`ExpectedNoResponseObserved`（Info、无 action、顺序在 Pending 之后）；存在广播时**不得**仅凭其宣布 Healthy。
+- Agent：anomaly whitelist 不含该状态；session summary 暴露 `expected_no_response`；UI 文案「预期无响应」。
+- 锁定证据：STAT-B10、PASSIVE-P09/P14、DIAG-A12/A13、AGENT-A12、AI-B20、UI-T02；verified LKGC = `02ce302`。

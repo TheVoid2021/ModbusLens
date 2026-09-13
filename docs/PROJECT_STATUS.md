@@ -1,7 +1,7 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-| Last Known Good Commit | **`cc8393a`**（T014 Diagnostic Detail Preservation 完成：`TransactionIssue` 正交诊断细节 + prompt/agent/UI additive 传播；用户 Manual UI Review PASS 后正式推进。历史值：`99f17d6`（T013）、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
+| Last Known Good Commit | **`02ce302`**（T015 Phase B 完成：passive Core + Function 0x06 + Broadcast `ExpectedNoResponse`；含 semantic audit request-MSB guard 修复；用户 Manual UI Review PASS 后正式推进。历史值：`cc8393a`（T014）、`99f17d6`（T013）、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 
 ## 状态面板
 
@@ -9,14 +9,14 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | M1~M6 ✅；**M7 ✅ DONE（T013 Final Integration & Demo 完成，用户视觉 PASS）**；全部里程碑完成 |
-| Last Known Good Commit | **`cc8393a`**（T014 Diagnostic Detail Preservation 完成：`TransactionIssue` 正交诊断细节 + prompt/agent/UI additive 传播；用户 Manual UI Review PASS 后正式推进。历史值：`99f17d6`（T013）、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
+| Last Known Good Commit | **`02ce302`**（T015 Phase B 完成：passive Core + Function 0x06 + Broadcast `ExpectedNoResponse`；含 semantic audit request-MSB guard 修复；用户 Manual UI Review PASS 后正式推进。历史值：`cc8393a`（T014）、`99f17d6`（T013）、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T015 Passive Replay Expansion — IN PROGRESS**（**Phase B IMPLEMENTED / AWAITING REVIEW**：七状态 `ExpectedNoResponse` + passive analyzer + FC06 + per-record 化；LKGC candidate = `02ce302`；**Function 0x10 = NOT STARTED（Part C）**；Manual UI Smoke = WAITING FOR USER） |
-| 最近完成任务（Last Completed Task） | **T014 Diagnostic Detail Preservation**（DONE；verified LKGC `cc8393a`） |
-| 当前阶段（Current Phase） | T015 Phase B 实现完成（clean 152 零警告、ctest 24/24、qml smoke、deploy+minimal-PATH 全过；待用户 Review） |
-| 下一步动作（Next Action） | **用户 T015 Phase B Review（含 Manual UI Smoke 清单）**；批准后：Part C（Function 0x10 normal semantics）另行立项 |
+| 当前任务（Current Task） | **T015 Passive Replay Expansion — IN PROGRESS（整体）**（Phase A DONE + **Phase B DONE / REVIEW PASS（用户 Manual UI Smoke PASS）**；verified LKGC = `02ce302`；**Part C — Function 0x10 normal semantics = NOT STARTED，WAITING FOR USER APPROVAL**） |
+| 最近完成任务（Last Completed Task） | **T015 Phase B — Passive Core + FC06 + Broadcast**（DONE / REVIEW PASS；T015 整体仍 IN PROGRESS：Part C NOT STARTED；verified LKGC `02ce302`） |
+| 当前阶段（Current Phase） | T015 Phase B Final Acceptance（docs-only 归档进行中）；Part C 未启动 |
+| 下一步动作（Next Action） | **T015 Part C Architecture / Learning（WAITING FOR USER APPROVAL；Agent 不自动开始）** |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -41,11 +41,11 @@
 
 ## 2. 当前任务
 
-- **T015 — Passive Replay Expansion（IN PROGRESS；Phase B = IMPLEMENTED / AWAITING REVIEW）**。Gate A~F 全批（Phase A Review）后落地：`TransactionStatus::ExpectedNoResponse`（七状态，ADR-003 Accepted）+ 批准统计公式（completed 含广播；rate = success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）；`PassiveTransactionAnalysis`（request 分类单点、generic exception 单点、FC03 复用 T007、broadcast=addr0∧FC06）；`TransactionRequestIssue`（Gate B 独立于 T014 issue）；`Function06` 被动语义（无 encoder）；Replay per-record 化（analyzed + unsupportedRecords 显式披露，Gate F）；Baseline `ExpectedNoResponseObserved` + Healthy 四条件；Prompt/Agent/UI additive；RED 13 条断言失败 → GREEN ctest 24/24；clean 152 零警告；qml smoke 与 deploy+minimal-PATH PASS；Active Serial 写权限零新增（grep 取证）。**Function 0x10 = NOT STARTED（Part C，另行立项）**。LKGC candidate = `02ce302`（semantic audit fix 后；`6944fd5` 作废）。详见 [T015 档案](tasks/T015-passive-replay-expansion.md) + [ADR-003](../adr/ADR-003-broadcast-outcome-semantics.md)。
+- **T015 — Passive Replay Expansion（Phase A/B = DONE；整体 IN PROGRESS：Part C NOT STARTED）**。Gate A~F 全批（Phase A Review）后落地：`TransactionStatus::ExpectedNoResponse`（七状态，ADR-003 Accepted）+ 批准统计公式（completed 含广播；rate = success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）；`PassiveTransactionAnalysis`（request 分类单点、generic exception 单点、FC03 复用 T007、broadcast=addr0∧FC06）；`TransactionRequestIssue`（Gate B 独立于 T014 issue）；`Function06` 被动语义（无 encoder）；Replay per-record 化（analyzed + unsupportedRecords 显式披露，Gate F）；Baseline `ExpectedNoResponseObserved` + Healthy 四条件；Prompt/Agent/UI additive；RED 13 条断言失败 → GREEN ctest 24/24；clean 152 零警告；qml smoke 与 deploy+minimal-PATH PASS；Active Serial 写权限零新增（grep 取证）。**Function 0x10 = NOT STARTED（Part C，另行立项）**。**verified LKGC = `02ce302`**（`6944fd5` superseded；docs-only 提交不作 LKGC）。详见 [T015 档案](tasks/T015-passive-replay-expansion.md) + [ADR-003](../adr/ADR-003-broadcast-outcome-semantics.md)。
 
 ## 3. 下一任务
 
-- **用户 T015 Phase B Review**（含 Manual UI Smoke；批准后推进 verified LKGC）。
+- ~~用户 T015 Phase B Review~~ ✅ PASS（Manual UI Smoke 全项 PASS；verified LKGC = `02ce302`）。
 - **T015 Part C — Function 0x10 normal semantics**（已批准但仍 NOT STARTED；Phase B 明确禁止实现）。
 - Backlog：Replay v2 timing、UART diagnostics、register-map 语义层、per-device 时间窗等。
 
@@ -234,3 +234,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 
 | 2026-09-08 | **ISSUE-005 修复并 RESOLVED**：AiAbortReason 归属 + 单一 QTimer owner（90s）+ OperationCanceledError 按 reason 分类 + UI 文案与 errorString 解耦；自动化全绿后**用户真实 27B Live Regression Smoke = PASS**（不再出现"操作被取消"）；verified LKGC 推进至 `bb3f3b4`（新 code fix commit）；docs-only 归档不再次推进 |
 | 2026-09-13 | **T015 semantic audit（用户 Review 前专项）：generic exception request-function MSB 边界**——发现 matcher 缺守卫（request.fc 已带 0x80 时 `fn|0x80==fn` 自我匹配，误判 Exception）；RED=PASSIVE-P16 旧逻辑 FAIL（21/1）；修复=`(request.functionCode & 0x80)==0` 前置守卫，0x88/0x88 落入既有 Unsupported 路径（零新状态/零新 issue code）；passive 22/22、clean 152 零警告、ctest 24/24；**新 LKGC candidate = `02ce302`（`6944fd5` 作废）** |
+| 2026-09-13 | **用户 T015 Phase B Final Review = PASS → Final Acceptance**：Manual UI Smoke 全项 PASS（Demo 回归 / demo_v1 Replay 不变 / Broadcast「预期无响应」且不稀释成功率 / unsupported 非致命提示且不计入统计 / invalid FC03+Exception 双事实 / 布局无回归）；**verified LKGC 推进 `cc8393a` → `02ce302`**；`6944fd5` superseded，`fdefb0e` 及本次 docs-only 提交均不作 LKGC；bookkeeping 订正为 exact changed paths（23 src + CMakeLists.txt = 24 tracked production/build paths；8 test files）；ADR-003 推进为 Accepted / Implemented；**T015 整体仍 IN PROGRESS（Part C = NOT STARTED）** |
