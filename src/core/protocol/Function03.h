@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -89,5 +90,12 @@ decodeReadHoldingRegistersResponse(const ModbusRtuFrame& frame);
 // byte (stored numerically — text mapping belongs to the analysis layer).
 ModbusExceptionResponseResult
 decodeReadHoldingRegistersException(const ModbusRtuFrame& frame);
+
+// T015: the raw quantity field of a 0x03 request frame, when the frame has
+// the function/length shape required to read it. The passive analyzer uses
+// this to record an OBSERVED invalid quantity without re-implementing any
+// protocol parsing outside this module (nullopt when not readable).
+std::optional<std::uint16_t>
+readHoldingRegistersRequestQuantity(const ModbusRtuFrame& frame);
 
 } // namespace modbuslens::core

@@ -79,6 +79,12 @@ private slots:
     // DIAG-A11 (P0, T014): DiagnosisContext preserves the analyzer's issue
     // verbatim; the baseline does NOT re-derive it and keeps its finding.
     void a11_protocolIssuePreservedInContext();
+    // DIAG-A12 (P0, T015): broadcast observations surface as an Info finding
+    // in the fixed order, with no suggested checks and never Healthy.
+    void a12_expectedNoResponseObservation();
+    // DIAG-A13 (P0, T015): a broadcast must never, on its own, allow a batch
+    // to be declared Healthy — even when every answered transaction succeeded.
+    void a13_broadcastNeverHealthy();
 };
 
 void DiagnosisTest::a01_empty()
@@ -307,6 +313,54 @@ void DiagnosisTest::a11_protocolIssuePreservedInContext()
     const DiagnosisReport report = diagnoseTransactions(context);
     QCOMPARE(report.findings.size(), std::size_t{1});
     QCOMPARE(report.findings[0].code, DiagnosisFindingCode::ProtocolErrorObserved);
+}
+
+void DiagnosisTest::a12_expectedNoResponseObservation()
+{
+    const auto context = contextOf({
+        tx(0x00, TransactionStatus::ExpectedNoResponse, 0),
+        tx(0x01, TransactionStatus::Timeout, 1000),
+        tx(0x01, TransactionStatus::Pending, 10),
+    });
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    // Fixed deterministic order: Protocol -> CRC -> Timeout -> Exception ->
+    // Pending -> ExpectedNoResponse -> Healthy/NoData.
+    QCOMPARE(report.findings.size(), std::size_t{3});
+    QCOMPARE(report.findings[0].code, DiagnosisFindingCode::TimeoutObserved);
+    QCOMPARE(report.findings[1].code, DiagnosisFindingCode::PendingObserved);
+    QCOMPARE(report.findings[2].code,
+             DiagnosisFindingCode::ExpectedNoResponseObserved);
+    QCOMPARE(report.findings[2].severity, DiagnosisSeverity::Info);
+    QCOMPARE(report.findings[2].affectedCount, std::size_t{1});
+    QVERIFY(report.findings[2].recommendedActions.empty());
+    for (const auto& finding : report.findings) {
+        QVERIFY(finding.code != DiagnosisFindingCode::Healthy);
+    }
+}
+
+void DiagnosisTest::a13_broadcastNeverHealthy()
+{
+    // Every ANSWERED transaction succeeded, but the batch also observed a
+    // broadcast: Healthy must NOT be declared (a broadcast proves nothing
+    // about device state by itself — ADR-003).
+    const auto context = contextOf({
+        tx(0x01, TransactionStatus::Success, 20),
+        tx(0x00, TransactionStatus::ExpectedNoResponse, 0),
+    });
+    const DiagnosisReport report = diagnoseTransactions(context);
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    QCOMPARE(report.findings[0].code,
+             DiagnosisFindingCode::ExpectedNoResponseObserved);
+    QCOMPARE(report.findings[0].affectedCount, std::size_t{1});
+
+    // Control: the same batch WITHOUT the broadcast IS Healthy.
+    const auto healthyContext = contextOf({
+        tx(0x01, TransactionStatus::Success, 20),
+    });
+    const DiagnosisReport healthyReport = diagnoseTransactions(healthyContext);
+    QCOMPARE(healthyReport.findings.size(), std::size_t{1});
+    QCOMPARE(healthyReport.findings[0].code, DiagnosisFindingCode::Healthy);
 }
 
 QTEST_GUILESS_MAIN(DiagnosisTest)

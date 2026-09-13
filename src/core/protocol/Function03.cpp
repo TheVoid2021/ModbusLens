@@ -1,5 +1,7 @@
 #include "core/protocol/Function03.h"
 
+#include <optional>
+
 namespace modbuslens::core {
 
 namespace {
@@ -88,6 +90,16 @@ decodeReadHoldingRegistersException(const ModbusRtuFrame& frame)
     // Stored numerically on purpose: unknown codes still carry diagnostic
     // value; the text mapping lives in the analysis layer.
     return ModbusExceptionResponse{.exceptionCode = frame.data[0]};
+}
+
+std::optional<std::uint16_t>
+readHoldingRegistersRequestQuantity(const ModbusRtuFrame& frame)
+{
+    if (frame.functionCode != kReadHoldingRegistersFunction
+        || frame.data.size() != 4) {
+        return std::nullopt;
+    }
+    return readBigEndianUint16(frame.data[2], frame.data[3]);
 }
 
 ReadHoldingRegistersEncodeResult encodeReadHoldingRegistersRequest(

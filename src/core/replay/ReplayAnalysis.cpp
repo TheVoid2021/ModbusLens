@@ -1,43 +1,31 @@
 #include "core/replay/ReplayAnalysis.h"
 
-#include "core/protocol/Function03.h"
 #include "core/protocol/ModbusRtuCodec.h"
 
 namespace modbuslens::core {
 
 ReplayAnalysisResult analyzeReplayLog(const ReplayLog& log)
 {
-    std::vector<TransactionAnalysis> analyses;
-    analyses.reserve(log.transactions.size());
     std::vector<ReplayTransactionOutcome> outcomes;
+    std::vector<UnsupportedObservedTransaction> unsupportedRecords;
+    std::vector<TransactionAnalysis> analyses;
     outcomes.reserve(log.transactions.size());
+    analyses.reserve(log.transactions.size());
 
     for (std::size_t index = 0; index < log.transactions.size(); ++index) {
         const auto& record = log.transactions[index];
 
-        // 1. requestWire -> trusted RTU frame. Every decode result is named
-        //    before inspection; variant pointers never escape that lifetime
-        //    (ISSUE-001 rule).
+        // 1. Gate E (Scope A): a request wire that is not even a valid RTU
+        //    frame keeps the old whole-batch failure contract (deferred).
         const auto requestDecode = decodeRtuFrame(record.requestWire);
         if (std::get_if<RtuDecodeError>(&requestDecode) != nullptr) {
             return ReplayExecutionError{ReplayExecutionErrorCode::InvalidRequestWire, index};
         }
         const auto& request = std::get<ModbusRtuFrame>(requestDecode);
 
-        // 2. function gate: T007's contract needs a trusted 0x03 request.
-        if (request.functionCode != 0x03) {
-            return ReplayExecutionError{ReplayExecutionErrorCode::InvalidRequestFunction, index};
-        }
-
-        // 3. 0x03 semantic validation (quantity / request length).
-        const auto requestSemantic = decodeReadHoldingRegistersRequest(request);
-        if (std::get_if<Function03DecodeError>(&requestSemantic) != nullptr) {
-            return ReplayExecutionError{ReplayExecutionErrorCode::InvalidRequestData, index};
-        }
-
-        // 4. Response side: decode failure is NOT a replay failure — it is
-        //    the historical fact we are diagnosing, so it flows into the
-        //    analyzer as CrcError / ProtocolError.
+        // 2. Response side: decode failure is NOT a replay failure — it is
+        //    the historical fact being diagnosed, so it flows into the
+        //    passive analyzer as CrcError / ProtocolError.
         ResponseObservation observation;
         if (!record.responseWire.has_value()) {
             observation = NoResponse{};
@@ -50,26 +38,32 @@ ReplayAnalysisResult analyzeReplayLog(const ReplayLog& log)
             }
         }
 
-        // 5. Reuse T007 classification — never re-derive statuses here.
-        const auto analysis = analyzeFunction03Transaction(
+        // 3. Gate F: every record after a valid RTU request becomes its own
+        //    outcome — semantic-invalid requests and unsupported normal
+        //    semantics can never poison later records.
+        const auto result = analyzeObservedTransaction(
             request, observation, record.elapsed, log.timeoutThreshold);
-        analyses.push_back(analysis);
-        outcomes.push_back(ReplayTransactionOutcome{
-            .deviceAddress = request.address,
-            .functionCode = request.functionCode,
-            .analysis = analysis,
-            .requestIssue = std::nullopt,
-        });
+        if (const auto* analyzed = std::get_if<AnalyzedObservedTransaction>(&result)) {
+            analyses.push_back(analyzed->analysis);
+            outcomes.push_back(ReplayTransactionOutcome{
+                .deviceAddress = request.address,
+                .functionCode = request.functionCode,
+                .analysis = analyzed->analysis,
+                .requestIssue = analyzed->requestIssue,
+            });
+        } else {
+            unsupportedRecords.push_back(
+                std::get<UnsupportedObservedTransaction>(result));
+        }
     }
 
-    // Same aggregation as every other mode: replay statistics ARE T007
-    // statistics computed from the same function.
+    // Statistics describe exactly the ANALYZED subset; unsupported records
+    // are reported separately (never silently dropped — Gate F).
     auto statistics = summarizeTransactions(analyses);
-    return ReplayAnalysisResult{
-        ReplayBatchAnalysis{
-            .transactions = std::move(outcomes),
-            .unsupportedRecords = {},
-            .statistics = std::move(statistics)}};
+    return ReplayAnalysisResult{ReplayBatchAnalysis{
+        .transactions = std::move(outcomes),
+        .unsupportedRecords = std::move(unsupportedRecords),
+        .statistics = std::move(statistics)}};
 }
 
 } // namespace modbuslens::core

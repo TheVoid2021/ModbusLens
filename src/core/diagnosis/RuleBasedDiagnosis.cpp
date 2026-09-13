@@ -107,12 +107,26 @@ DiagnosisReport diagnoseTransactions(const DiagnosisContext& context)
         });
     }
 
-    // Healthy needs ALL THREE conditions: something completed, everything
-    // completed successfully, nothing in flight. In that case the findings
-    // list above is necessarily empty (success == completed leaves the five
-    // failure categories at zero).
+    // T015: broadcast observations are informational facts only — no check
+    // is suggested from "no response was expected", and no device/write
+    // conclusion may be derived. Placed after Pending, before Healthy.
+    if (s.expectedNoResponseCount > 0) {
+        findings.push_back(DiagnosisFinding{
+            .code = DiagnosisFindingCode::ExpectedNoResponseObserved,
+            .severity = DiagnosisSeverity::Info,
+            .affectedCount = s.expectedNoResponseCount,
+            .exceptionCode = std::nullopt,
+            .recommendedActions = {},
+        });
+    }
+
+    // Healthy needs ALL FOUR conditions: something completed, everything
+    // completed successfully, nothing in flight, and no broadcast
+    // observation (T015: a broadcast must never, on its own, let a batch be
+    // declared Healthy).
     if (findings.empty() && s.completedCount > 0
-        && s.successCount == s.completedCount && s.pendingCount == 0) {
+        && s.successCount == s.completedCount && s.pendingCount == 0
+        && s.expectedNoResponseCount == 0) {
         findings.push_back(DiagnosisFinding{
             .code = DiagnosisFindingCode::Healthy,
             .severity = DiagnosisSeverity::Info,

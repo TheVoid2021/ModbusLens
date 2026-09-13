@@ -21,6 +21,7 @@ using modbuslens::core::ReplayLog;
 using modbuslens::core::ReplayParseError;
 using modbuslens::core::ReplayTransactionRecord;
 using modbuslens::core::TransactionAnalysis;
+using modbuslens::core::TransactionRequestIssueCode;
 using modbuslens::core::TransactionStatus;
 using modbuslens::core::analyzeReplayLog;
 using modbuslens::core::encodeRtuFrame;
@@ -99,9 +100,11 @@ private slots:
     void i02_determinism();
     // REPLAY-I03 (P0): bad request CRC -> InvalidRequestWire + 0-based index.
     void i03_invalidRequestWire();
-    // REPLAY-I03B (P0): quantity=0 with valid CRC -> InvalidRequestData.
+    // REPLAY-I03B (P0, T015): quantity=0 with valid CRC -> per-record
+    // request issue (InvalidRequestQuantity), batch keeps analyzing.
     void i03b_invalidRequestData();
-    // InvalidRequestFunction: frame valid but function code != 0x03.
+    // REPLAY-I03C (P0, T015): a valid 0x06 request is analyzed per-record
+    // (Function 0x06 passive semantics) instead of failing the batch.
     void i03c_invalidRequestFunction();
     // REPLAY-I04 (P0): bad response CRC -> batch still succeeds, CrcError.
     void i04_badResponseCrc();
@@ -203,19 +206,33 @@ void ReplayAnalysisTest::i03_invalidRequestWire()
 
 void ReplayAnalysisTest::i03b_invalidRequestData()
 {
-    // 01 03 00 00 00 00 45 CA: CRC valid, function 0x03, quantity 0.
+    // T015 Gate F: 01 03 00 00 00 00 45 CA (CRC valid, quantity 0) is now a
+    // PER-RECORD request fact — no response was recorded, so the transaction
+    // keeps ordinary unicast Pending semantics and carries the request
+    // issue. It no longer fails the whole batch.
     const auto result = analyzeReplayLog(
         singleRecordLog(kZeroQuantityRequest, std::nullopt, 25));
-    const auto error = as<ReplayExecutionError>(result);
-    QVERIFY(error.has_value());
-    QCOMPARE(error->code, ReplayExecutionErrorCode::InvalidRequestData);
-    QCOMPARE(error->transactionIndex, std::size_t{0});
+    const auto batch = as<ReplayBatchAnalysis>(result);
+    QVERIFY(batch.has_value());
+    QCOMPARE(batch->transactions.size(), std::size_t{1});
+    const auto& outcome = batch->transactions[0];
+    QCOMPARE(outcome.analysis.status, TransactionStatus::Pending);
+    QVERIFY(outcome.requestIssue.has_value());
+    QCOMPARE(outcome.requestIssue->code,
+             TransactionRequestIssueCode::InvalidRequestQuantity);
+    QVERIFY(outcome.requestIssue->observedQuantity.has_value());
+    QCOMPARE(*outcome.requestIssue->observedQuantity, std::uint16_t{0});
+    QVERIFY(outcome.requestIssue->maxAllowedQuantity.has_value());
+    QCOMPARE(*outcome.requestIssue->maxAllowedQuantity, std::uint16_t{125});
 }
 
 void ReplayAnalysisTest::i03c_invalidRequestFunction()
 {
-    // Frame-level valid write-single-register request (0x06) built with the
-    // codec so its CRC is correct — only the function code is unsupported.
+    // T015 Gate A/D: a valid 0x06 request is no longer an execution error —
+    // the passive analyzer understands Function 0x06 semantics. With no
+    // recorded response and a unicast address, Pending is the shared
+    // threshold verdict (and there is no request issue: the request is a
+    // perfectly valid Modbus write).
     const ModbusRtuFrame writeReg{
         .address = 0x01,
         .functionCode = 0x06,
@@ -225,10 +242,12 @@ void ReplayAnalysisTest::i03c_invalidRequestFunction()
 
     const auto result = analyzeReplayLog(
         singleRecordLog(requestWire, std::nullopt, 25));
-    const auto error = as<ReplayExecutionError>(result);
-    QVERIFY(error.has_value());
-    QCOMPARE(error->code, ReplayExecutionErrorCode::InvalidRequestFunction);
-    QCOMPARE(error->transactionIndex, std::size_t{0});
+    const auto batch = as<ReplayBatchAnalysis>(result);
+    QVERIFY(batch.has_value());
+    QCOMPARE(batch->transactions.size(), std::size_t{1});
+    QCOMPARE(batch->transactions[0].functionCode, std::uint8_t{0x06});
+    QCOMPARE(batch->transactions[0].analysis.status, TransactionStatus::Pending);
+    QVERIFY(!batch->transactions[0].requestIssue.has_value());
 }
 
 void ReplayAnalysisTest::i04_badResponseCrc()

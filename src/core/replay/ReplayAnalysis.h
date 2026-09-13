@@ -11,16 +11,16 @@
 
 namespace modbuslens::core {
 
-// Why a replay batch can fail BEFORE transaction analysis: the T007 analyzer
-// contract requires an already-trusted Function 0x03 request, so the replay
-// pipeline must prove that chain first (requestWire -> RTU frame -> 0x03 ->
-// valid 0x03 semantics). A response-side problem is deliberately NOT here:
-// a bad response is usually the historical fault we are diagnosing, and it
-// flows into the analyzer as CrcError/ProtocolError instead.
+// Why a replay batch can fail BEFORE any per-record analysis: T015 Gate E
+// (Scope A) keeps the OLD contract for corrupted request WIRES only — a
+// record whose request cannot even be RTU-decoded cannot be classified as a
+// transaction, and per-record wire-corruption observation is explicitly
+// deferred (conceptually it IS a captured anomaly, but interpreting corrupt
+// requests is its own design problem). Everything AFTER a valid RTU request
+// (semantic-invalid / supported / unsupported) is per-record and can never
+// poison the rest of the batch.
 enum class ReplayExecutionErrorCode {
     InvalidRequestWire,     // decodeRtuFrame failed (CRC / too short)
-    InvalidRequestFunction, // frame OK but functionCode != 0x03
-    InvalidRequestData      // 0x03 semantic validation failed (quantity etc.)
 };
 
 struct ReplayExecutionError {

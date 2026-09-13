@@ -424,8 +424,9 @@ void PassiveAnalysisTest::p14_mixedBatchStatistics()
     QCOMPARE(batch->statistics.protocolErrorCount, std::size_t{0});
     QCOMPARE(batch->statistics.expectedNoResponseCount, std::size_t{1});
     // Approved ADR-003 formula: rate over rate-eligible completed only.
+    // rateEligibleCompleted = 4 - 1 = 3; success = 2 -> 2/3.
     QVERIFY(batch->statistics.successRate.has_value());
-    QCOMPARE(*batch->statistics.successRate, 1.0);
+    QCOMPARE(*batch->statistics.successRate, 2.0 / 3.0);
     QVERIFY(batch->statistics.averageSuccessLatencyMs.has_value());
     QCOMPARE(*batch->statistics.averageSuccessLatencyMs, 25.0);
 }

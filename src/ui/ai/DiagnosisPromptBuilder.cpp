@@ -9,6 +9,7 @@ constexpr int kMaxDetailTransactions = 20;
 const char* kFindingNames[] = {
     "NoData", "Healthy", "PendingObserved", "ExceptionObserved",
     "CrcErrorObserved", "TimeoutObserved", "ProtocolErrorObserved",
+    "ExpectedNoResponseObserved",
 };
 const char* kSeverityNames[] = {"Info", "Warning", "Error"};
 

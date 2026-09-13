@@ -101,12 +101,6 @@ QString executionErrorMessage(
     case modbuslens::core::ReplayExecutionErrorCode::InvalidRequestWire:
         phrase = QStringLiteral("请求报文无效");
         break;
-    case modbuslens::core::ReplayExecutionErrorCode::InvalidRequestFunction:
-        phrase = QStringLiteral("请求功能码不受支持");
-        break;
-    case modbuslens::core::ReplayExecutionErrorCode::InvalidRequestData:
-        phrase = QStringLiteral("请求数据无效");
-        break;
     }
     // Core indexing is 0-based; humans count transactions from 1.
     return QStringLiteral("回放分析错误（事务 %1）：%2")
@@ -319,6 +313,9 @@ QString findingPhrase(const modbuslens::core::DiagnosisFinding& finding)
         return QStringLiteral("无响应超时：%1").arg(finding.affectedCount);
     case DiagnosisFindingCode::ProtocolErrorObserved:
         return QStringLiteral("协议错误：%1").arg(finding.affectedCount);
+    case DiagnosisFindingCode::ExpectedNoResponseObserved:
+        // T015/ADR-003 wording: an observation only — never "写入成功".
+        return QStringLiteral("预期无响应的广播事务：%1").arg(finding.affectedCount);
     case DiagnosisFindingCode::NoData:
         return QStringLiteral("暂无可分析数据");
     }

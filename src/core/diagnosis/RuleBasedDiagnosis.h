@@ -27,6 +27,10 @@ enum class DiagnosisFindingCode {
     CrcErrorObserved,
     TimeoutObserved,
     ProtocolErrorObserved,
+    // T015 (ADR-003): broadcast transactions that completed with no
+    // (expected) response. Purely observational — it proves nothing about
+    // device write success or device health.
+    ExpectedNoResponseObserved,
 };
 
 enum class DiagnosisSeverity {

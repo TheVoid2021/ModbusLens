@@ -393,7 +393,8 @@ const QString kBadHexLog = QStringLiteral(
     "TXN|1|GG|01 03 04 00 64 00 C8 BA 7A\n");
 
 // quantity = 0 with a CORRECT CRC (01 03 00 00 00 00 45 CA): frame and
-// function both valid, 0x03 semantics fail -> InvalidRequestData.
+// function both valid. T015 Gate F: this is now a PER-RECORD request issue
+// (InvalidRequestQuantity), not a batch load failure.
 const QString kZeroQuantityLog = QStringLiteral(
     "MODBUSLENS_MLOG|1|timeout_ms=1000\n"
     "TXN|1|01 03 00 00 00 00 45 CA|NO_RESPONSE\n");
@@ -481,23 +482,31 @@ void UiBridgeTest::r03_parseErrorPreservesState()
 
 void UiBridgeTest::r04_executionError()
 {
+    // T015 Gate F (declared in the T015 Phase A archive §21): a semantically
+    // invalid but wire-valid request is no longer a batch execution failure —
+    // it becomes a per-record analyzed outcome carrying a request issue, so
+    // the OLD "请求数据无效 load error" expectation is replaced. Request
+    // WIRE corruption keeps the legacy failure contract (core REPLAY-I03 and
+    // the file-level error paths still cover it).
     AnalysisController controller;
     controller.loadReplayFile(QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
 
     std::optional<QTemporaryFile> holder;
     const QString badPath = writeTempMlog(kZeroQuantityLog, holder);
     QVERIFY(!badPath.isEmpty());
     controller.loadReplayFile(QUrl::fromLocalFile(badPath));
 
-    QVERIFY(controller.hasReplayError());
-    // 0-based core index 0 -> human-readable "transaction 1".
-    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("事务 1")));
-    QVERIFY(controller.replayErrorMessage().contains(QStringLiteral("请求数据无效")));
-
-    // Old batch and source stay (rule A).
-    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    // The quantity=0 record now loads and publishes as a Pending observation
+    // (no response recorded, elapsed below the threshold).
+    QVERIFY(!controller.hasReplayError());
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    const QModelIndex index = controller.transactionModel()->index(0, 0);
+    QCOMPARE(controller.transactionModel()
+                 ->data(index, TransactionListModel::StatusCodeRole)
+                 .toInt(),
+             static_cast<int>(modbuslens::core::TransactionStatus::Pending));
     QCOMPARE(controller.modeLabel(), QStringLiteral("回放模式"));
-    QCOMPARE(controller.sourceLabel(), QStringLiteral("demo_v1.mlog"));
 }
 
 void UiBridgeTest::r05_fileOpenFailure()

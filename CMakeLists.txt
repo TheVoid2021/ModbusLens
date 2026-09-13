@@ -28,6 +28,7 @@ add_library(modbuslens_core STATIC
     src/core/simulator/SimulatedSlave.cpp
     src/core/simulator/SimulationFault.cpp
     src/core/analysis/TransactionAnalysis.cpp
+    src/core/analysis/PassiveTransactionAnalysis.cpp
     src/core/analysis/TransactionStatistics.cpp
     src/core/replay/ReplayLog.cpp
     src/core/replay/ReplayAnalysis.cpp
