@@ -371,6 +371,7 @@ Phase B：
 - **PB4（聚合初始化复查）**：`DiagnosisTransaction` 增成员 → 11 处聚合站点逐一补 `.requestIssue`（Python 批量 + 手工补嵌套/单行形态）；提交②后 `Function03.h` 缺 `<optional>` 一次编译失败，即时修复。
 - **PB5（测试期望与批准公式冲突）**：p14 初稿把 rate 写成 1.0；按 ADR-003 公式（分母=completed−expectedNoResponse=3，success=2）应为 2/3 ——**以公式与实现为准修正测试**，并在档案记录（不掩盖）。
 - **PB6（per-record 化对既有 golden 的影响面）**：唯一需要重写的既有 UI 断言是 R04（Phase A 已预声明）；demo_v1 四条与全部 T014/T007/T009 断言自动保持（统计池仅含 analyzed）。
+- **PB7（semantic audit：generic exception 的 request-function MSB 边界，用户 Review 前专项）**：核验发现 matcher 缺前置守卫——`response.functionCode == (request.functionCode | 0x80)` 对 `request.functionCode` 已带 0x80 的捕获请求（如 0x88）会**自我匹配**：`0x88|0x80 == 0x88`，1 字节载荷被误判为合法 Exception 0x01。修复=显式守卫 `(request.functionCode & 0x80) == 0` 后才允许 generic exception 判断；修复后 0x88/0x88 落入既有 `response.fc == request.fc` 的 **Unsupported** 路径（不新增状态/issue code，符合“invalid/unsupported/non-exception 路径”要求）。RED 实证：新增 `PASSIVE-P16` 在旧逻辑下 FAIL（21 passed/1 failed，误接受 Exception）；GREEN：passive **22/22**、clean 152 零警告、ctest 24/24。合法路径未受影响（P04 对照断言保留）。**新 LKGC candidate = `02ce302`（`6944fd5` 作废）**。
 
 ## Verification（Phase A docs-only + Phase B 全链）
 
@@ -417,5 +418,6 @@ Phase B（真实命令与输出）：
 - A（docs）`c5cfbf7` T015: Phase A acceptance corrections and official protocol evidence backfill
 - B（RED）`477ed44` T015: add passive expansion model surface and RED tests（passive 8 passed/13 failed）
 - C（GREEN core）`2ba719f` T015: implement passive analyzer core (FC06, generic exception, broadcast status)（ctest 24/24）
-- D（GREEN downstream）`6944fd5` T015: propagate passive facts to dashboard, prompt and agent tools（+481/−7，11 文件）——**LKGC candidate（待 Review）**
+- D（GREEN downstream）`6944fd5` T015: propagate passive facts to dashboard, prompt and agent tools（+481/−7，11 文件）
+- F（semantic audit fix）`02ce302` T015: guard generic exception matcher against request function MSB（+59/−2；passive 22/22、ctest 24/24）——**当前 LKGC candidate（`6944fd5` 作废）**
 - E 本归档提交（docs-only；哈希见 git log）

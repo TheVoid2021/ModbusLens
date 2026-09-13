@@ -13,7 +13,7 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T015 Passive Replay Expansion — IN PROGRESS**（**Phase B IMPLEMENTED / AWAITING REVIEW**：七状态 `ExpectedNoResponse` + passive analyzer + FC06 + per-record 化；LKGC candidate = `6944fd5`；**Function 0x10 = NOT STARTED（Part C）**；Manual UI Smoke = WAITING FOR USER） |
+| 当前任务（Current Task） | **T015 Passive Replay Expansion — IN PROGRESS**（**Phase B IMPLEMENTED / AWAITING REVIEW**：七状态 `ExpectedNoResponse` + passive analyzer + FC06 + per-record 化；LKGC candidate = `02ce302`；**Function 0x10 = NOT STARTED（Part C）**；Manual UI Smoke = WAITING FOR USER） |
 | 最近完成任务（Last Completed Task） | **T014 Diagnostic Detail Preservation**（DONE；verified LKGC `cc8393a`） |
 | 当前阶段（Current Phase） | T015 Phase B 实现完成（clean 152 零警告、ctest 24/24、qml smoke、deploy+minimal-PATH 全过；待用户 Review） |
 | 下一步动作（Next Action） | **用户 T015 Phase B Review（含 Manual UI Smoke 清单）**；批准后：Part C（Function 0x10 normal semantics）另行立项 |
@@ -41,7 +41,7 @@
 
 ## 2. 当前任务
 
-- **T015 — Passive Replay Expansion（IN PROGRESS；Phase B = IMPLEMENTED / AWAITING REVIEW）**。Gate A~F 全批（Phase A Review）后落地：`TransactionStatus::ExpectedNoResponse`（七状态，ADR-003 Accepted）+ 批准统计公式（completed 含广播；rate = success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）；`PassiveTransactionAnalysis`（request 分类单点、generic exception 单点、FC03 复用 T007、broadcast=addr0∧FC06）；`TransactionRequestIssue`（Gate B 独立于 T014 issue）；`Function06` 被动语义（无 encoder）；Replay per-record 化（analyzed + unsupportedRecords 显式披露，Gate F）；Baseline `ExpectedNoResponseObserved` + Healthy 四条件；Prompt/Agent/UI additive；RED 13 条断言失败 → GREEN ctest 24/24；clean 152 零警告；qml smoke 与 deploy+minimal-PATH PASS；Active Serial 写权限零新增（grep 取证）。**Function 0x10 = NOT STARTED（Part C，另行立项）**。LKGC candidate = `6944fd5`（待 Review）。详见 [T015 档案](tasks/T015-passive-replay-expansion.md) + [ADR-003](../adr/ADR-003-broadcast-outcome-semantics.md)。
+- **T015 — Passive Replay Expansion（IN PROGRESS；Phase B = IMPLEMENTED / AWAITING REVIEW）**。Gate A~F 全批（Phase A Review）后落地：`TransactionStatus::ExpectedNoResponse`（七状态，ADR-003 Accepted）+ 批准统计公式（completed 含广播；rate = success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）；`PassiveTransactionAnalysis`（request 分类单点、generic exception 单点、FC03 复用 T007、broadcast=addr0∧FC06）；`TransactionRequestIssue`（Gate B 独立于 T014 issue）；`Function06` 被动语义（无 encoder）；Replay per-record 化（analyzed + unsupportedRecords 显式披露，Gate F）；Baseline `ExpectedNoResponseObserved` + Healthy 四条件；Prompt/Agent/UI additive；RED 13 条断言失败 → GREEN ctest 24/24；clean 152 零警告；qml smoke 与 deploy+minimal-PATH PASS；Active Serial 写权限零新增（grep 取证）。**Function 0x10 = NOT STARTED（Part C，另行立项）**。LKGC candidate = `02ce302`（semantic audit fix 后；`6944fd5` 作废）。详见 [T015 档案](tasks/T015-passive-replay-expansion.md) + [ADR-003](../adr/ADR-003-broadcast-outcome-semantics.md)。
 
 ## 3. 下一任务
 
@@ -200,7 +200,7 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-13 | **用户 T014 Manual UI Review = PASS → T014 Final Acceptance**：demo regression 正常（四行/Dashboard/行高/布局）；临时非仓库 `t014_protocol_error.mlog` 下 ProtocolError 行第二行 detail `响应地址不匹配（请求 0x01 / 响应 0x02）` 可读、行高扩展正确、无重叠裁剪、列对齐、仅确定性措辞。**T014 = DONE（Phase A/B DONE）；verified LKGC 推进 `99f17d6` → `cc8393a`**；`213bba5`（docs-only archive）不作 LKGC；措辞订正（生产文件 9 个；production invariant 单向、下游防御 omit）入档；T015 NOT STARTED |
 | 2026-09-13 | **T015 启动：Phase A Learning + Test Design（docs-only，本提交）**——current Replay contract 重建；三种坏输入三分；active/passive 双契约；Gate A~F 设计（A=Core passive analyzer、B=outcome 级 requestIssue、C=Broadcast 用户裁决、D=FC06 先行、E=Scope A、F=per-record）；FC06/0x10 取证门槛（External Protocol Reference Required）；PASSIVE-P01~P15 矩阵落库；**ADR-003 Draft 建立（Broadcast 语义，AWAITING USER DECISION）**；**T015 标记 In Progress，未实现**；verified LKGC `cc8393a` 不变 |
 | 2026-09-13 | **T015 Phase A Review = PASS（Gate A~F 全批；Gate C 批准第七状态 `ExpectedNoResponse` 与最终统计公式）→ Phase B 批准**；docs 提交 `c5cfbf7`（口径订正 + 03 §4.5 官方协议回填 + ADR-003 Accepted-candidate） |
-| 2026-09-13 | **T015 Phase B IMPLEMENTED（B/C/D 三提交）**：B `477ed44` 模型表面 + RED（passive **8 passed/13 failed**，13 条断言级失败）；C `2ba719f` passive core（Function06 / PassiveTransactionAnalysis / per-record replay / 统计公式 / Baseline）→ ctest 24/24；D `6944fd5` 下游传播（dashboard 卡 + replay notice + prompt + agent tools + 测试）。clean **152 targets 零警告**、ctest 24/24、qml smoke、deploy+minimal-PATH 全过；Active Serial 写权限零新增（grep 零命中）；**Function 0x10 = NOT STARTED**；**LKGC candidate = `6944fd5`（待用户 Review + Manual UI Smoke）**；verified LKGC 仍 `cc8393a` |
+| 2026-09-13 | **T015 Phase B IMPLEMENTED（B/C/D 三提交）**：B `477ed44` 模型表面 + RED（passive **8 passed/13 failed**，13 条断言级失败）；C `2ba719f` passive core（Function06 / PassiveTransactionAnalysis / per-record replay / 统计公式 / Baseline）→ ctest 24/24；D `6944fd5` 下游传播（dashboard 卡 + replay notice + prompt + agent tools + 测试）。clean **152 targets 零警告**、ctest 24/24、qml smoke、deploy+minimal-PATH 全过；Active Serial 写权限零新增（grep 零命中）；**Function 0x10 = NOT STARTED**；**LKGC candidate = `02ce302`（semantic audit fix；`6944fd5` 作废；待用户 Review + Manual UI Smoke）**；verified LKGC 仍 `cc8393a` |
 
 
 
@@ -233,3 +233,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 
 
 | 2026-09-08 | **ISSUE-005 修复并 RESOLVED**：AiAbortReason 归属 + 单一 QTimer owner（90s）+ OperationCanceledError 按 reason 分类 + UI 文案与 errorString 解耦；自动化全绿后**用户真实 27B Live Regression Smoke = PASS**（不再出现"操作被取消"）；verified LKGC 推进至 `bb3f3b4`（新 code fix commit）；docs-only 归档不再次推进 |
+| 2026-09-13 | **T015 semantic audit（用户 Review 前专项）：generic exception request-function MSB 边界**——发现 matcher 缺守卫（request.fc 已带 0x80 时 `fn|0x80==fn` 自我匹配，误判 Exception）；RED=PASSIVE-P16 旧逻辑 FAIL（21/1）；修复=`(request.functionCode & 0x80)==0` 前置守卫，0x88/0x88 落入既有 Unsupported 路径（零新状态/零新 issue code）；passive 22/22、clean 152 零警告、ctest 24/24；**新 LKGC candidate = `02ce302`（`6944fd5` 作废）** |
