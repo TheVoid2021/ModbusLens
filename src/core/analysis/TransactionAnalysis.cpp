@@ -2,6 +2,29 @@
 
 namespace modbuslens::core {
 
+std::string_view transactionIssueName(TransactionIssueCode code)
+{
+    switch (code) {
+    case TransactionIssueCode::ResponseFrameTooShort:
+        return "response_frame_too_short";
+    case TransactionIssueCode::ResponseAddressMismatch:
+        return "response_address_mismatch";
+    case TransactionIssueCode::MalformedExceptionResponse:
+        return "malformed_exception_response";
+    case TransactionIssueCode::MalformedNormalResponse:
+        return "malformed_normal_response";
+    case TransactionIssueCode::QuantityMismatch:
+        return "quantity_mismatch";
+    case TransactionIssueCode::UnexpectedResponseFunction:
+        return "unexpected_response_function";
+    case TransactionIssueCode::UnknownProtocolError:
+        return "unknown_protocol_error";
+    }
+    // Defensive: an enum value this build does not know cannot be given a
+    // fabricated meaning — fall back to the generic token, never a guess.
+    return "unknown_protocol_error";
+}
+
 namespace {
 
 // Single funnel so the invariants hold on every return path: elapsed is the

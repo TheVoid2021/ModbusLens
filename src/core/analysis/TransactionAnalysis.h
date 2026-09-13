@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 #include <variant>
 
 #include "core/protocol/Function03.h"
@@ -20,6 +21,41 @@ enum class TransactionStatus {
     ProtocolError, // data arrived but cannot be a valid match for this request
 };
 
+// T014: orthogonal deterministic diagnostic detail. A TransactionIssue is
+// the REASON the analyzer knew at classification time — a directly observed
+// protocol/transaction fact, never a physical root-cause claim (M8.1 §5/§27
+// discipline). It deliberately does NOT widen the six-status outcome axis.
+enum class TransactionIssueCode {
+    ResponseFrameTooShort,      // response wire below the minimum RTU frame
+    ResponseAddressMismatch,    // response.address != request.address
+    MalformedExceptionResponse, // 0x83-shaped reply failed exception decoding
+    MalformedNormalResponse,    // 0x03 reply failed normal-response decoding
+    QuantityMismatch,           // response value count != request quantity
+    UnexpectedResponseFunction, // any other response function code
+    UnknownProtocolError,       // deterministic defensive/fallback branch only
+};
+
+// Sparse context payload: each optional is populated ONLY when its code
+// requires it (per-code invariants, locked by transaction-analysis tests).
+struct TransactionIssue {
+    TransactionIssueCode code{};
+
+    std::optional<std::uint8_t> expectedAddress;
+    std::optional<std::uint8_t> actualAddress;
+
+    std::optional<std::uint8_t> actualFunctionCode;
+
+    std::optional<std::uint16_t> expectedQuantity;
+    std::optional<std::uint16_t> actualQuantity;
+
+    bool operator==(const TransactionIssue&) const = default;
+};
+
+// Stable machine serialization token for adapters/tools (e.g.
+// "response_address_mismatch"). Deliberately NOT human UI prose — that
+// mapping belongs to the Qt adapter layer.
+std::string_view transactionIssueName(TransactionIssueCode code);
+
 // A transaction is a request plus its response/failure observation — never a
 // single frame. NoResponse is deliberately decoupled from T006's
 // DroppedResponse: the analyzer speaks the abstract observation language.
@@ -33,6 +69,12 @@ struct TransactionAnalysis {
     TransactionStatus status{};
     std::chrono::milliseconds elapsed{0};
     std::optional<std::uint8_t> exceptionCode;   // set only for Exception
+    // T014 (append-last for aggregate source compatibility). Production
+    // invariant: status == ProtocolError => issue.has_value(); all other
+    // statuses leave it nullopt. Downstream consumers stay defensive:
+    // a ProtocolError WITHOUT an issue must be rendered by omitting the
+    // detail — never by guessing a reason.
+    std::optional<TransactionIssue> issue;
 
     bool operator==(const TransactionAnalysis&) const = default;
 };

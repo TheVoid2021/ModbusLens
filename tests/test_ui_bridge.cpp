@@ -596,6 +596,7 @@ modbuslens::core::TransactionAnalysis makeAnalysis(
         .status = status,
         .elapsed = ms{elapsedMs},
         .exceptionCode = exceptionCode,
+        .issue = std::nullopt,
     };
 }
 

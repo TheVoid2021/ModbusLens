@@ -39,6 +39,7 @@ DiagnosisTransaction tx(std::uint8_t address, TransactionStatus status,
             .status = status,
             .elapsed = ms{elapsedMs},
             .exceptionCode = exceptionCode,
+            .issue = std::nullopt,
         },
     };
 }

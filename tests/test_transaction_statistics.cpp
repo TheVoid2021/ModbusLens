@@ -7,9 +7,14 @@
 
 #include "core/analysis/TransactionStatistics.h"
 
+using modbuslens::core::ModbusRtuFrame;
+using modbuslens::core::ResponseObservation;
+using modbuslens::core::RtuDecodeError;
+using modbuslens::core::RtuDecodeErrorCode;
 using modbuslens::core::TransactionAnalysis;
 using modbuslens::core::TransactionStatisticsSnapshot;
 using modbuslens::core::TransactionStatus;
+using modbuslens::core::analyzeFunction03Transaction;
 using modbuslens::core::summarizeTransactions;
 
 namespace {
@@ -21,7 +26,8 @@ TransactionAnalysis makeAnalysis(TransactionStatus status, ms elapsed)
     return TransactionAnalysis{
         .status = status,
         .elapsed = elapsed,
-        .exceptionCode = std::nullopt};
+        .exceptionCode = std::nullopt,
+        .issue = std::nullopt};
 }
 
 TransactionAnalysis makeException(std::uint8_t code, ms elapsed)
@@ -29,7 +35,8 @@ TransactionAnalysis makeException(std::uint8_t code, ms elapsed)
     return TransactionAnalysis{
         .status = TransactionStatus::Exception,
         .elapsed = elapsed,
-        .exceptionCode = code};
+        .exceptionCode = code,
+        .issue = std::nullopt};
 }
 
 class TransactionStatisticsTest : public QObject
@@ -54,6 +61,9 @@ private slots:
     void b07_successLatencyIsolation();
     // STAT-B08 (P1): snapshot invariants A-D on a mixed batch.
     void b08_invariants();
+    // STAT-B09 (P0, T014): issue payload is orthogonal — the snapshot keys
+    // ONLY on the high-level status, never on issue presence/payload.
+    void b09_issuePresenceDoesNotChangeSnapshot();
 };
 
 void TransactionStatisticsTest::b01_emptyInput()
@@ -215,6 +225,61 @@ void TransactionStatisticsTest::b08_invariants()
     // Invariant D: latency defined iff success > 0.
     QCOMPARE(snapshot.averageSuccessLatencyMs.has_value(),
         snapshot.successCount > 0);
+}
+
+void TransactionStatisticsTest::b09_issuePresenceDoesNotChangeSnapshot()
+{
+    // Same batch analyzed once WITH issues (analyzer-produced, three
+    // different reasons) and once WITHOUT (hand-built equivalents). The
+    // hand-built row is documented as a defensive-statistics input, NOT a
+    // production-analyzer-valid object: it exists to prove the summarizer
+    // keys on high-level status only (T014 R-STAT).
+    const ModbusRtuFrame request{
+        .address = 0x01, .functionCode = 0x03, .data = {0x00, 0x00, 0x00, 0x02}};
+    const ModbusRtuFrame wrongAddress{
+        .address = 0x02, .functionCode = 0x03, .data = {0x04, 0x00, 0x64, 0x00, 0xC8}};
+    const ModbusRtuFrame wrongFunction{
+        .address = 0x01, .functionCode = 0x04, .data = {0x02, 0x00, 0x64}};
+    const ModbusRtuFrame quantityMismatch{
+        .address = 0x01, .functionCode = 0x03, .data = {0x06, 0x00, 0x64, 0x00, 0xC8, 0x05, 0xDC}};
+
+    std::vector<TransactionAnalysis> withIssues;
+    withIssues.push_back(analyzeFunction03Transaction(
+        request, ResponseObservation{wrongAddress}, ms{25}, ms{1000}));
+    withIssues.push_back(analyzeFunction03Transaction(
+        request, ResponseObservation{wrongFunction}, ms{25}, ms{1000}));
+    withIssues.push_back(analyzeFunction03Transaction(
+        request, ResponseObservation{RtuDecodeError{RtuDecodeErrorCode::FrameTooShort}},
+        ms{40}, ms{1000}));
+    withIssues.push_back(analyzeFunction03Transaction(
+        request, ResponseObservation{quantityMismatch}, ms{25}, ms{1000}));
+
+    std::vector<TransactionAnalysis> withoutIssues;
+    for (const auto& analysis : withIssues) {
+        withoutIssues.push_back(TransactionAnalysis{
+            .status = analysis.status,
+            .elapsed = analysis.elapsed,
+            .exceptionCode = analysis.exceptionCode,
+            .issue = std::nullopt,
+        });
+    }
+
+    const auto withSnapshot = summarizeTransactions(withIssues);
+    const auto withoutSnapshot = summarizeTransactions(withoutIssues);
+
+    QCOMPARE(withSnapshot.protocolErrorCount, std::size_t{4});
+    QCOMPARE(withSnapshot.observedCount, withoutSnapshot.observedCount);
+    QCOMPARE(withSnapshot.pendingCount, withoutSnapshot.pendingCount);
+    QCOMPARE(withSnapshot.completedCount, withoutSnapshot.completedCount);
+    QCOMPARE(withSnapshot.successCount, withoutSnapshot.successCount);
+    QCOMPARE(withSnapshot.exceptionCount, withoutSnapshot.exceptionCount);
+    QCOMPARE(withSnapshot.crcErrorCount, withoutSnapshot.crcErrorCount);
+    QCOMPARE(withSnapshot.timeoutCount, withoutSnapshot.timeoutCount);
+    QCOMPARE(withSnapshot.protocolErrorCount, withoutSnapshot.protocolErrorCount);
+    QCOMPARE(withSnapshot.successRate.has_value(),
+             withoutSnapshot.successRate.has_value());
+    QCOMPARE(withSnapshot.averageSuccessLatencyMs.has_value(),
+             withoutSnapshot.averageSuccessLatencyMs.has_value());
 }
 
 } // namespace

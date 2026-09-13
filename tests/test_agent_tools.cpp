@@ -28,6 +28,7 @@ core::TransactionAnalysis makeAnalysis(core::TransactionStatus status,
         .status = status,
         .elapsed = ms{elapsedMs},
         .exceptionCode = exceptionCode,
+        .issue = std::nullopt,
     };
 }
 
