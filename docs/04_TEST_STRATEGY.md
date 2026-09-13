@@ -42,7 +42,7 @@
 ### 事务分析
 
 - 构造合成流量（配对、乱序、广播、超时、重试）验证配对与时延统计（T007）。
-- **诊断细节保留（T014）**：ProtocolError 的确定性 reason（`TransactionIssue` 七值 + 稀疏载荷）逐分支断言；RED 以断言失败实证（tx 11 passed / 9 failed，9 条 issue 缺失断言）→ GREEN（tx 20/20）；`ProtocolError ⟺ issue.has_value()` 与 per-code 载荷约束以专用测试锁定（TX a13~a18）。统计口径回归 = STAT-B09（issue 不影响 snapshot；防御性输入如实标注）。分层只断言“继承与展示”、不重判：REPLAY-i05 / SERIAL-a07·a11·a15·a16（同漏斗继承）、DIAG-A11（context 保值）、AI-B18/B19（prompt additive + 防御 omit）、AGENT-A11（DTO hasX）、UI-T01（issueText role）。
+- **诊断细节保留（T014）**：ProtocolError 的确定性 reason（`TransactionIssue` 七值 + 稀疏载荷）逐分支断言；RED 以断言失败实证（tx 11 passed / 9 failed，9 条 issue 缺失断言）→ GREEN（tx 20/20）；**production invariant**（`analyzeFunction03Transaction` 生产输出中 `ProtocolError ⇒ issue.has_value()`）与 per-code 载荷约束以专用测试锁定（TX a13~a18）——下游对人工构造/防御性 `ProtocolError + issue=nullopt` 保持防御（omit detail），测试不写无条件 `iff`。统计口径回归 = STAT-B09（issue 不影响 snapshot；防御性输入如实标注）。分层只断言“继承与展示”、不重判：REPLAY-i05 / SERIAL-a07·a11·a15·a16（同漏斗继承）、DIAG-A11（context 保值）、AI-B18/B19（prompt additive + 防御 omit）、AGENT-A11（DTO hasX）、UI-T01（issueText role）。
 
 ### 三种模式复用性验证（全局护栏）
 

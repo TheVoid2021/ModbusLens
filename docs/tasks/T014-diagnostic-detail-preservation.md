@@ -2,8 +2,8 @@
 
 - **Goal**          把 Transaction Analyzer 在**判定过程中已经确定性知道**的 protocol/transaction reason（而非导致的物理原因）结构化保存下来，一路传递到 DiagnosisContext / Baseline / AI Prompt / Agent Tools /（可选）UI——修复 M8.1 审计 §13.1 确认的 “ProtocolError Detail Loss”，而不改变六状态、统计口径或任何现有结论。
 - **Background**    M8.1 Diagnostic Coverage Audit（`dab9b5f` + `5f21911`，用户 Final Review PASS）确认：六种 `TransactionStatus` 作为 high-level normalized outcome 是合理设计；但 `analyzeFunction03Transaction` 的 5 个真实 ProtocolError 分支 + 2 个防御路径在返回 `ProtocolError` 时把 “原因” 全部丢弃，导致 Baseline/AI/Agent 只能说 “ProtocolError”，无法说出它已知的 AddressMismatch / QuantityMismatch 等事实。T014 = 只保存确定性事实，不猜物理根因。
-- **状态**           **T014 = IN PROGRESS**。Phase A（Learning + Test Design）= 本档案前半（docs-only）；**Phase B（Test First + Implementation）= IMPLEMENTED / AWAITING REVIEW**（三提交 RED→GREEN→传播链）。
-- **Phase 状态**     Phase A = DONE / REVIEW PASS（含用户三项 refinement 采纳，§28.5）；**Phase B = IMPLEMENTED / AWAITING REVIEW**（LKGC candidate = 最新代码提交，待用户 Review 推进）。
+- **状态**           **T014 = DONE**（Phase A 与 Phase B 均 DONE；用户 Manual UI Review = PASS；verified LKGC = `cc8393a`）。
+- **Phase 状态**     Phase A = DONE / REVIEW PASS；Phase B = DONE（Implementation + 用户人工视觉验收 PASS）。
 
 ## 1. Evidence Inspection（证据清单）
 
@@ -87,7 +87,7 @@ M8.1 提出的 6 个候选（FrameTooShort/AddressMismatch/UnexpectedFunction/Ma
 | # | 不变量 | 说明 |
 | --- | --- | --- |
 | I1 | `status ∈ {Pending, Success, Exception, CrcError, Timeout}` ⇒ `issue == nullopt` | 非 ProtocolError 一律无 issue |
-| I2 | `status == ProtocolError` ⇒ `issue.has_value()` | **不允许 nullopt**：defensive 路径用 `UnknownProtocolError` sentinel（分支 7/11 的诚实表达；下游 switch 无 null 歧义） |
+| I2 | **production analyzer invariant**：`analyzeFunction03Transaction()` 的生产输出中 `status == ProtocolError` ⇒ `issue.has_value()`（defensive 分支 7/11 以 `UnknownProtocolError` sentinel 表达） | **下游保持防御**：对人工构造 / malformed 的 `ProtocolError + issue == nullopt` 对象不得 crash、不得伪造 deterministic reason（只允许 omit detail 或显式 unspecified fallback）。生产不变量是单方向（production ⇒ issue 必有），**不写无条件 `iff`** |
 | I3 | `status == Exception` ⇒ `exceptionCode.has_value()`（既有）；issue 一律 absent | Exception 的 detail 仍只有 exceptionCode（§13 决策） |
 | I4 | `status == CrcError` ⇒ issue absent | CrcError 当前只有 CrcMismatch 一个确定性来源（RtuDecodeErrorCode 恰两值），状态名已承载原因，**不重复保存**；若未来 RtuDecodeErrorCode 增值，届时再议（-Wswitch 会提醒） |
 | I5 | per-code payload：`ResponseAddressMismatch ⇒ expectedAddress∧actualAddress`；`UnexpectedResponseFunction ⇒ actualFunctionCode 且无其他载荷`；`QuantityMismatch ⇒ expectedQuantity∧actualQuantity`；其余四 code ⇒ 全部载荷 absent | 载荷字段只在该 code 语义需要时出现（§12–§16 逐条决策） |
@@ -208,7 +208,7 @@ T014 是 **additive deterministic information**。
 | a13 [new] | 响应 fc=0x84（异常形状非 0x83，Serial A15 同族） | ProtocolError + `UnexpectedResponseFunction` + actual=0x84 |
 | a14 [new] | 防御路径：非法 request（如 quantity=0 的构造 Frame）直调 analyzer | ProtocolError + `UnknownProtocolError`（sentinel，满足 I2） |
 | a15 [new] | 非 ProtocolError 全族（Success/Exception/CrcError/Timeout/Pending） | `issue == nullopt`（I1/I3/I4） |
-| a16 [new] | 不变量扫捕：固定输入集上 `status==ProtocolError ⟺ issue.has_value()` | 双向成立（I2） |
+| a16 [new] | 不变量扫捕：固定输入集上生产不变量 `status==ProtocolError ⇒ issue.has_value()`（缺失侧的防御路径由 a13/a15 单独锁定，不写无条件 `iff`） | 生产侧成立（I2） |
 | a17 [new] | 同输入两次 analyze | 返回完全相等（含 payload；I6） |
 | a18 [new] | per-code 载荷约束（I5 表格逐行） | 每个 code → 要求字段存在、其余 absent |
 
@@ -283,7 +283,14 @@ T014 是 **additive deterministic information**。
   - `TransactionListModel` + `AnalysisController`：`issueText` role（adapter 内确定性中文；Core 零 QString）；`Main.qml` ProtocolError 行 secondary text（58px vs 36px 条件高度），非 ProtocolError 行视觉不变。
   - **Issue summary（batch breakdown）= DEFERRED**：本轮唯一消费者是 per-transaction 事实（prompt 行/agent detail/UI 行），无 batch-level consumer → 按 refinement C 不建立 summarizer，deferred rationale 入档。
 - **Compile-impact sweep（用户 §21）**：`TransactionAnalysis{`/`TransactionListEntry{` 全部站点逐一核验并显式补 `.issue=.nullopt`/`.issueText=""`——命中 8 个测试文件（含 agent_runtime/ui_bridge/statistics/ai_client/diagnosis/agent_tools），生产侧仅 funnel。语义零变化的防御性输入如实标注（STAT-B09、AI-B19）。
+- **Phase B Production Files Changed（共 9 个）**：`src/core/analysis/TransactionAnalysis.h`、`src/core/analysis/TransactionAnalysis.cpp`、`src/ui/ai/DiagnosisPromptBuilder.cpp`、`src/ui/agent/AgentTools.h`、`src/ui/agent/AgentTools.cpp`、`src/ui/TransactionListModel.h`、`src/ui/TransactionListModel.cpp`、`src/ui/AnalysisController.cpp`、`src/ui/qml/Main.qml`。
 - **T014 新测试**：TX a13~a18（6 个新 + a01~a11 强化）；STAT-B09；REPLAY-i05 强化；SERIAL a07/a11/a15/a16 强化；DIAG-A11；AI-B18/B19；AGENT-A11（+A03 强化）；UI-T01。
+
+## Final Acceptance（用户 Manual UI Review = PASS，2026-09-13）
+
+- **A. Existing Demo regression PASS**：Run Demo Batch 四行（Success / Exception / CRC Error / Timeout）正常；Dashboard 数值正常；普通事务行高度与布局正常；Diagnosis / Recent Transactions 布局无明显回归。
+- **B. T014 ProtocolError detail visual acceptance PASS**：临时、非仓库文件 `t014_protocol_error.mlog` 加载得 Observed=1 / Completed=1 / Pending=0；五分类 0 / 0 / 0 / 0 / ProtocolError=1；Success Rate=0.0%、Avg Success Latency="—"。行显示 Device Address=1 / 0x03 / Protocol Error / 25 ms，并正确显示第二行 deterministic detail：`响应地址不匹配（请求 0x01 / 响应 0x02）`。人工确认：secondary detail readable、行高正确扩展、无重叠、无裁剪、列对齐、无布局破坏、仅确定性事实措辞、无推测性 root-cause 措辞。
+- **结论**：**T014 = DONE；Phase A = DONE；Phase B = DONE**。code/test LKGC candidate `cc8393a` 经 automatic tests + clean build + full 23/23 ctest + QML smoke + deploy/minimal-PATH + **用户 Manual UI Review PASS** → **verified LKGC = `cc8393a`**。`213bba5` 为 docs-only Phase B archive commit，**明确不作为 LKGC**。
 
 ## Problems Encountered / Solutions
 
@@ -318,11 +325,9 @@ Phase B（真实命令与输出）：
 
 ## Result
 
-- **T014 = IN PROGRESS；Phase B = IMPLEMENTED / AWAITING REVIEW。**
+- **T014 = DONE；Phase A = DONE；Phase B = DONE**（自动化全链 + 用户 Manual UI Review PASS）。
 - 交付：六状态零改动 + orthogonal `TransactionIssue`（7 值 + per-code 载荷 + 六不变量）落地 Core；Statistics 语义逐位不变（R-STAT/STAT-B09）；三模式同漏斗继承；Baseline finding 不变 + summary defer（无消费者）；Prompt/Agent/UI additive 传播；回归三级清单全绿。
-- **LKGC candidate = 最新代码提交**（Commit C，见 Git Commit）——仅当用户 Review（含 Manual UI Smoke）通过后推进；docs closure 不推进 LKGC。
-- verified LKGC 维持 `99f17d6` 不变。
-- Manual UI Smoke 清单（WAITING FOR USER）：1) Run Demo 四行（Success/Exception 0x02/CRC/Timeout）外观与 T013 一致；2) Replay demo_v1 四行正常无 secondary 行；3) ProtocolError 行出现第二行确定性文案（可用 Serial 疑难或内部构造；无硬件时接受自动化 UI-T01 + 若需要临时构造说明）；4) 列表行高自适应、无溢出/挤坏。
+- **verified LKGC = `cc8393a`**（升级自 `99f17d6`；`213bba5` docs-only archive commit 不作为 LKGC）。
 
 ## Knowledge Learned
 
@@ -346,5 +351,6 @@ Phase B（真实命令与输出）：
 
 - A `0ec6e06` T014: add TransactionIssue model surface and RED detail tests（+433/−3；此提交后 tx 测试 RED：11 passed/9 failed）
 - B `900131d` T014: wire deterministic issue into transaction analyzer（+65/−18；tx 20/20、ctest 23/23）
-- C `cc8393a` T014: propagate issue facts to prompt, agent tools and transaction UI（+478/−32，13 文件；ctest 23/23）——**当前 LKGC candidate（待 Review）**
-- D 本归档提交（docs-only；哈希见 git log）
+- C `cc8393a` T014: propagate issue facts to prompt, agent tools and transaction UI（+478/−32，13 文件；ctest 23/23）——**verified LKGC（用户 Final Review 推进）**
+- D `213bba5` T014: Phase B 归档（docs-only；**不作为 LKGC**）
+- E Final Acceptance docs-only 提交（本档哈希见 git log）
