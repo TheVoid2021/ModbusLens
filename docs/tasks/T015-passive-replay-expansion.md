@@ -552,32 +552,38 @@ request 0x10 → response **0x90** 完全由既有 generic exception matcher 命
 
 † C 案严守 Gate E：**只有 valid RTU wire 内的 semantic invalid 才 per-record**；CRC 错/<4B 的 request 仍旧契约（deferred）。**任何案例都不得退回 whole-batch failure。**
 
-## C12. Multi-request-issue Problem（Gate C2，最大 data-model Gate）
+## C12. Multi-request-issue Problem（Gate C2，REVISED：保留多个 issues）
 
-现状 `std::optional<TransactionRequestIssue>` 一次只表达一个 issue；Function16 一个请求可能同时 quantity invalid ∧ byteCount 不符 ∧ payload 长度不符。
+**Review correction（2026-09-14，P0）**：否决“单 issue + priority + 丢弃其余已知 issue”。T014/T015 核心原则是 **Core 已经确定知道的 deterministic facts 不应要求下游重新解析 raw wire 才能恢复**——raw wire 是 evidence source，不是 downstream structured fact；Drop 已知 issue = 制造与 T014 同类的 detail loss。Function 0x10 已证明一个 Request 可同时存在多个独立 semantic issues。
 
-| 案 | 形态 | 评价 |
-| --- | --- | --- |
-| A 单 issue + deterministic priority | 保持 optional<单一> | ✅ 零 API 震荡（DTO/prompt/UI/测试全不改型）；损失的事实**仍字面存在于 requestWire 原文**（Replay record 保留）；priority 保证确定性 |
-| B `vector<TransactionRequestIssue>` | optional<vector> | 全事实保留，但连锁改动 requestIssue→outcome/context/prompt/agent/UI 全部消费点与既有测试，成本远大于受益 |
-| C composite request analysis | 分层对象 | 结构最全、成本最高，当前无消费者 |
+**定案（design-only）**：`std::vector<TransactionRequestIssue>`（仓库风格等价的有序 collection）取代单 optional。
 
-**推荐 A（单 issue + priority）**，向量化为未来留 additive 余量（如 request-wire corruption per-record 化时确有复合需求再议）。**Priority 定案（若 C2=A）**：
+- **顺序 deterministic（reporting order，≠ discard priority）**：
+  1. structural/readability　2. quantity　3. byteCount↔quantity　4. actual payload↔declared byteCount
+- **不得因为前面有 issue 就无条件丢弃后面所有仍可独立证明的 issue。**
+- **防 cascade（派生依赖规则）**：
+  - quantity invalid → 记录 quantity issue；
+  - byteCount vs quantity → **仅当 quantity 合法时**才计算 expectedByteCount（不基于非法 quantity 派生伪 byteCount issue）；
+  - actual payload length vs declared byteCount → **只要 byteCount 字段可读取即可独立判断**（比较 data.size() 与 5+declaredByteCount），与 quantity 合法性无关。
+- **Multi-issue example（必测）**：`quantity=2, byteCount=2, actual value payload=4 bytes` ⇒ Expected = **[InvalidRequestByteCount(observed 2/expected 4), InvalidRequestLength(observed 9/expected 7)]**——两项均保存、顺序稳定，**绝不只留第一项**。
+- 单 issue 的旧下游（outcome/DiagnosisContext/prompt/agent DTO/UI/Phase B 测试）改为 collection 时的触达面列入 §C23 清单。
 
-1. 无法安全读取基本字段（data<5B）→ `InvalidRequestLength`（observed=data.size()，expected 缺省）
-2. 字段可读但 quantity ∉ 1..123 → `InvalidRequestQuantity`
-3. quantity 合法但 byteCount ≠ 2×quantity → `InvalidRequestByteCount`
-4. byteCount 合法但 data.size() ≠ 5+byteCount → `InvalidRequestLength`（observed/expected 全）
+## C13. Broadcast Integration（REVISED：两个正交维度）
 
-**justification**：每层都是下一层的输入事实（quantity 决定 expected byteCount、byteCount 决定 expected data length），上游先判保证下游判断前提正确、不会产生“基于非法量的伪期望”；被降权的次要事实不灭失——原文 wire 仍保留，且需求出现时可升级 B。
+**Review correction（2026-09-14，P0）**：否决“semantic-validity-gated broadcast → invalid request + NO_RESPONSE = Timeout”。重新设计为**两个正交维度**：
 
-## C13. Broadcast Integration（Function16 域）
+- **A. broadcast response expectation**（address==0 ∧ fc ∈ 明确 broadcast-capable set {0x06, 0x10}）
+- **B. request semantic validity**（由 `requestIssues` collection 正交表达）
 
-- 0x10 是写类功能 ⇒ 合法广播（address=0 ∧ fc=0x10 ∧ **request semantics 有效**）+ NO_RESPONSE ⇒ 复用 **`ExpectedNoResponse`**，零新增状态（不建 `ExpectedNoResponseFunction16`）；Statistics/Baseline/Agent anomaly/UI 全部沿用 Phase B 模型；dispatch order：**broadcast response rule 先于 normal matcher**（合法 Function16 broadcast 收到任何 recorded response ⇒ ProtocolError + `UnexpectedResponseForBroadcast`，绝不因 echo 匹配抢判 Success）。
-- **Gate C7（invalid broadcast 的 high-level outcome）**：`address=0 ∧ fc=0x10 ∧ semantic invalid ∧ NO_RESPONSE`。推荐 **validation-gated broadcast**：`isBroadcast == (addr0 ∧ fc∈{0x06,0x10} ∧ !requestIssue)`；
-  - valid broadcast + NO_RESPONSE ⇒ ExpectedNoResponse；
-  - **invalid broadcast + NO_RESPONSE ⇒ 不落入 ExpectedNoResponse**——推荐按 Phase B 已确立的“invalid-request 无响应沿用共享 unicast 语义（Pending/Timeout 按 elapsed）+ requestIssue”走（与 i03b 契约一致：requestIssue 说明“为什么可能无应答”，UI 第二行已软释 Timeout）；**此为推荐案，属用户 Review 的 Gate C7**；备选（不做）：专属状态/专属 issue 均属过度设计。
-  - 附：invalid broadcast + response ⇒ 不经 broadcast 分支，落入 normal 路径（invalid request 无模型 ⇒ ProtocolError + UnknownProtocolError + requestIssue，与 FC06 invalid 路径同构）。
+**定案**：
+
+- `address == 0 ∧ function == 0x10` ⇒ **已知 broadcast-capable**。即使 request semantic invalid（如 quantity=124），只要 request RTU wire 仍在 Gate E 支持范围（可 decode），**NO_RESPONSE ⇒ status = `ExpectedNoResponse`，同时 requestIssues = [InvalidRequestQuantity…]** —— **不得 Timeout**（系统本来就不等待 broadcast response）；这**不证明写入成功**。
+- **该语义与 Phase B 生产行为一致**（真实代码证据：`PassiveTransactionAnalysis.cpp:116-134`——broadcast 判定与 NoResponse 分支是 expectation-driven，返回 `ExpectedNoResponse` 并携带 requestIssue；invalid FC06 broadcast + NO_RESPONSE 今天即产出 `ExpectedNoResponse + requestIssue`，而非 Timeout。Part C 初稿 §C13 的“Pending/Timeout”推荐是**对既有生产事实的错误描述**，已废除。）
+- 合法/非法 Function16 broadcast 观察到**任何** response bytes ⇒ **status = ProtocolError + issue = `UnexpectedResponseForBroadcast`**，**同时保留 requestIssues**；不得让 normal matcher 抢先判 Success；**不得用 `UnknownProtocolError` 掩盖已有确定性 broadcast fact**。
+- broadcast-capable set 显式维护：Phase B = {0x06}，Part C 加入 0x10 = {0x06, 0x10}；**不重开** address=0 + FC03 ⇒ `InvalidBroadcastFunction` 的既有边界（Phase B p11 锁定）；禁止“address=0 → 所有 function 自动 ExpectedNoResponse”的过度泛化。
+
+**ExpectedNoResponse 语义澄清 proposal（待 Review；本次不改 Accepted ADR 为 FINAL 新语义）**：
+提议将语义表述为“**response expectation / transaction outcome**：观察到请求、未观察到响应、且协议上该请求属不期待响应的 broadcast；request semantic validity 由 requestIssues 正交表达”。当前把 “valid / 合法 broadcast-capable request” 写死的**既有位置清单**（Implementation 经批准后需同步更新）：`TransactionAnalysis.h:22-24`（状态枚举注释）、`docs/adr/ADR-003-broadcast-outcome-semantics.md`（第 44/50 行两处语义句）、`docs/02_ARCHITECTURE.md` D6、`src/ui/ai/DiagnosisPromptBuilder.cpp:205`（system 语义句 “a valid broadcast-capable write request…”）、T015 Phase B Final Acceptance 语义句、`RuleBasedDiagnosis` 注释、`TransactionListModel.cpp` 文案（文案本身无“valid”，仅复核）。
 
 ## C14. Unsupported Transition（Before→After 测试）
 
@@ -615,7 +621,15 @@ request 0x10 → response **0x90** 完全由既有 generic exception matcher 命
 
 **Function16 单元（F16-U 系列）**：U01 valid request decoder（字段全读对）；U02 quantity=1 合法；U03 quantity=123 合法；U04 quantity=0 非法；U05 quantity=124 非法；U06 byteCount==2N 合法；U07 byteCount≠2N → InvalidRequestByteCount（observed/expected）；U08 payload truncated → InvalidRequestLength；U09 payload excess → 按 priority 先出 byteCount（若 C 层已违）或 InvalidRequestLength；U10 normal response decoder（4 字节 data）。
 
-**Passive 集成（PASSIVE-C 系列）**：C01 Function16 normal unicast Success；C02 地址不符 → ResponseAddressMismatch；C03 响应功能码不符 → UnexpectedResponseFunction；C04 bad response CRC → CrcError；C05 malformed normal response → MalformedNormalResponse（≠EchoMismatch）；C06 起始地址不匹配 → `WriteMultipleRegistersEchoMismatch`（四载荷）；C07 写入数量不匹配 → 同上；C08 generic Exception（0x10→0x90）→ Exception；C09 quantity=124 + Exception 0x03 → Exception + InvalidRequestQuantity；C10 byteCount mismatch + Exception 0x03 → Exception + InvalidRequestByteCount；C11 semantic-invalid 记录不毒死后续记录；C12 broadcast + NO_RESPONSE → ExpectedNoResponse；C13 broadcast + response → UnexpectedResponseForBroadcast；C14 invalid broadcast policy（Gate C7 批准口径）；C15 FC08 normal 仍 Unsupported；C16 mixed FC03/FC06/F16 batch statistics；C17 deterministic repeat。
+**Passive 集成（PASSIVE-C 系列）**：C01 Function16 normal unicast Success；C02 地址不符 → ResponseAddressMismatch；C03 响应功能码不符 → UnexpectedResponseFunction；C04 bad response CRC → CrcError；C05 malformed normal response → MalformedNormalResponse（≠EchoMismatch）；C06 起始地址不匹配 → `WriteMultipleRegistersEchoMismatch`（四载荷）；C07 写入数量不匹配 → 同上；C08 generic Exception（0x10→0x90）→ Exception；C09 quantity=124 + Exception 0x03 → Exception + requestIssues=[InvalidRequestQuantity]；C10 byteCount mismatch + Exception 0x03 → Exception + requestIssues=[InvalidRequestByteCount]；C11 semantic-invalid 记录不毒死后续记录；C12 valid broadcast + NO_RESPONSE → ExpectedNoResponse；C13 broadcast + response → UnexpectedResponseForBroadcast；C14 invalid broadcast policy（Gate C7 REVISED 口径）；C15 FC08 normal 仍 Unsupported；C16 mixed FC03/FC06/F16 batch statistics；C17 deterministic repeat。
+
+**Review 新增（2026-09-14）**：
+
+- **MULTI-C01（P0）**：`quantity=2, byteCount=2, actual payload=4 bytes` ⇒ requestIssues = **[InvalidRequestByteCount(2/4), InvalidRequestLength(observed 9 / expected 7)]**——两项均存、顺序稳定、不得只留第一项。
+- **MULTI-C02（P0）**：`quantity=124, byteCount 与 payload 自洽` ⇒ requestIssues = **[InvalidRequestQuantity]** only——**不得基于非法 quantity 派生伪 byteCount issue**。
+- **BCAST-C01（P0）**：Function16 broadcast semantic-invalid + NO_RESPONSE ⇒ **`ExpectedNoResponse` + requestIssues 全保留**（不得 Timeout）。
+- **BCAST-C02（P0）**：Function16 broadcast semantic-invalid + response bytes ⇒ **ProtocolError + `UnexpectedResponseForBroadcast` + requestIssues 全保留**（不得 Success、不得以 UnknownProtocolError 掩盖 broadcast fact）。
+- valid broadcast tests 全部保留（PASSIVE-C12/C13）。
 
 **Statistics 回归**：FC03 Success + FC06 Success + F16 Success + F16 Exception + F16 ProtocolError + F16 ExpectedNoResponse 混合批——证明 status-based 统计与 function code 无关、successRate 继续排除 ExpectedNoResponse、无 function-specific statistics branch。
 
@@ -626,18 +640,18 @@ request 0x10 → response **0x90** 完全由既有 generic exception matcher 命
 | Gate | 问题 | 推荐（本设计） |
 | --- | --- | --- |
 | C1 | structural parser vs strict decoder | structural（轻量字段读取 + 分层校验） |
-| C2 | requestIssue 单个 vs 多个 | 单 issue + deterministic priority（A 案；向量化为未来 additive 余量） |
+| C2 | requestIssue 单个 vs 多个 | **REVISED：multi-request-issue collection（`std::vector<TransactionRequestIssue>` 有序 collection；ordering=reporting order，≠discard priority；防 cascade 依赖规则；MULTI-C01/02 锁定）** |
 | C3 | InvalidRequestQuantity 加 minAllowed | **新增 optional `minAllowedQuantity`**（FC03/Function16 双填） |
 | C4 | InvalidRequestByteCount 新增 | 新增（payload observed/expected byteCount） |
-| C5 | InvalidRequestLength payload 定义 | 新增 observedLength/expectedLength；**单位=request data 字节**（稳定、单一） |
+| C5 | InvalidRequestLength payload 定义 | 新增 observedLength/expectedLength；**单位=request data 字节**（稳定、单一；不可计算则缺省） |
 | C6 | WriteMultipleRegistersEchoMismatch 字段 | 复用既有 `expectedRegisterAddress/actualRegisterAddress` + `expectedQuantity/actualQuantity`，零新列 |
-| C7 | invalid broadcast + NO_RESPONSE 的高状态 | **validation-gated broadcast**：invalid ⇒ 不 ExpectedNoResponse，按共享 unicast 无响应语义（Pending/Timeout 按 elapsed）+ requestIssue（Phase B i03b 契约一致） |
-| C8 | values 完整保存？ | 不传播 values（DTO 存 starting/quantity/byteCount/valueCount；原文 wire 保留原始字节） |
+| C7 | invalid broadcast + NO_RESPONSE 的高状态 | **REVISED：正交两维——broadcast response expectation 与 request semantic validity 分离；address==0 ∧ fc∈{0x06,0x10} 即 broadcast-capable ⇒ NO_RESPONSE = `ExpectedNoResponse` + requestIssues（不得 Timeout）；任何 response bytes = UnexpectedResponseForBroadcast + requestIssues（BCAST-C01/02 锁定）** |
+| C8 | values 完整保存？ | 不传播 values（DTO 存 starting/quantity/byteCount/valueCount；value bytes 仍是记录内 evidence，不是 downstream structured fact 的替代） |
 
 ## C21. Required / Deferred
 
-- **Required for Part C**：Function16 passive normal semantics（decoder + fields reader + 分层校验）、generic exception 复用（含 MSB guard）、normal response matcher、broadcast 复用（validation-gated）、Replay per-record 集成、新 issue codes（C3/C4/C6 载荷）、tests 与 downstream additive 传播。
-- **Deferred**：active write / encoder / 0x10 Serial 命令 / Agent action、request-wire corruption per-record 化、Replay timing（t1.5/t3.5）、UART、register-map/business 语义、per-device health、其他功能码、requestIssue 向量化（C2=B 的未来形态）。
+- **Required for Part C**：Function16 passive normal semantics（decoder + fields reader + 分层校验）、generic exception 复用（含 MSB guard）、normal response matcher、broadcast 复用（**REVISED 正交口径**）、Replay per-record 集成、**multi-request-issue collection（C23 触达面清单）**、新 issue codes（C3/C4/C5/C6 载荷）、tests（含 MULTI-C/BCAST-C）与 downstream collection 传播。
+- **Deferred**：active write / encoder / 0x10 Serial 命令 / Agent action、request-wire corruption per-record 化、Replay timing（t1.5/t3.5）、UART、register-map/business 语义、per-device health、其他功能码。
 
 ## C22. 文档计划（本阶段）
 
@@ -645,3 +659,30 @@ request 0x10 → response **0x90** 完全由既有 generic exception matcher 命
 - `docs/PROJECT_STATUS.md` / `docs/BACKLOG.md`：仅登记 Part C = IN PROGRESS（Learning + Test Design）、不得写成已实现。
 - `docs/03_MODBUS_LEARNING.md`：仅补记一条（§4.5 后）：Function 0x10 request PDU 字段顺序 = startingAddress(2B)+quantity(2B)+byteCount(1B)+values；exception function = **0x90**（经 generic matcher）。**不重复堆 Phase B 已回填的契约**。
 - `02/04` 本阶段不动（设计待 Review；提案通过后 Implementation 归档再锁 FINAL）。ADR-003 不改（未发现 Broadcast 复用设计缺陷）。
+## C23. Part C Architecture Review Corrections（2026-09-14，P0×2，docs-only）
+
+### 1. Context-decay reinspection evidence（真实代码/tests 重新核验，非会话记忆）
+
+- `src/core/analysis/PassiveTransactionAnalysis.cpp:116-134`（现文）：`isBroadcast = address==0 && fc==0x06`；NoResponse 分支对 broadcast 返回 `ExpectedNoResponse` **并携带 requestIssue**；任何 response bytes（覆盖 broadcast）→ `UnexpectedResponseForBroadcast` + requestIssue。⇒ **Phase B 生产本来就是 expectation-driven 正交口径**，本 Part C 初稿 §C13 的“invalid broadcast + NO_RESPONSE = Pending/Timeout”是对既有生产事实的错误描述，已废除。
+- `src/core/analysis/TransactionAnalysis.h`（现文）：`TransactionRequestIssueCode` 三值 {InvalidRequestQuantity, InvalidRequestLength, InvalidBroadcastFunction}；`TransactionRequestIssue` 载荷仅 `observedQuantity/maxAllowedQuantity`；单 optional 挂载于 `ReplayTransactionOutcome.requestIssue` / `DiagnosisTransaction.requestIssue`。⇒ collection 化的触达面（Impl 时）：
+  - Core：`TransactionRequestIssue`（+minAllowed/byteCount/length 载荷）与挂载点（Outcome/DiagnosisTransaction）改为有序 collection。
+  - 消费点：`DiagnosisPromptBuilder::transactionLine`（现单 issue 输出）、`AgentTools` detail DTO（现单 issue + JSON 字段）、`AnalysisController::composeIssueText`（现单 issue 拼接）、Phase B 测试（p05/i03b/p11/a12/AGENT-A12/UI-T03 等现断言单 issue）。
+  - 兼容策略候选（Implementation 时再定）：`requestIssue` 更名/加 `requestIssues` 并列过渡，或直接以 collection 替换并同步全部断言——**本阶段只登记触达面，不编码**。
+- `docs/adr/ADR-003-broadcast-outcome-semantics.md:44,50`、`src/core/analysis/TransactionAnalysis.h:22-24`、`src/ui/ai/DiagnosisPromptBuilder.cpp:205`：现文把 ExpectedNoResponse 写成 “合法 / valid broadcast-capable request”。⇒ 按 §C13 clarification proposal 处理：**本次不把 Accepted ADR 改成 FINAL 新语义**，仅登记 Implementation 时需同步更新的位置清单（§C13 已列）。
+- Phase B 测试现状：p11（addr0+FC03 ⇒ InvalidBroadcastFunction）与 p16（MSB guard）继续作为不回退回归锚。
+
+### 2. Raw wire 边界声明（写入本档案，替代“原文 wire 可弥补”理由）
+
+**Raw wire 是 evidence source，不是 downstream structured fact。** Diagnosis / Prompt / Agent / UI 不得为恢复被丢弃的 issue 而重新解析协议；Passive Core 是唯一 semantic authority。被删除/失效的旧理由（初稿 §C12 “被降权事实仍字面存在于 requestWire 原文”）废止。
+
+### 3. Preflight bookkeeping wording（evidence-based）
+
+前一轮汇报把 `samples/` 新增文件写作“用户放置的 5 个 fixture”——**更正为可证据化表述**：**“5 个额外 untracked files，名称与此前 manual-smoke artifacts 一致；按用户 evidence 对待并保持 untouched。”** Git 无法证明创建者来源，文档与汇报一律不得断言。
+
+### 4. Downstream multi-issue design（只设计）
+
+- DiagnosisContext：保存完整 collection（DiagnosisTransaction 携带全量 ordered issues）。
+- AI Prompt：输出**全部** deterministic request issues（按 deterministic order 逐条 `request_issue=` 行）。
+- Agent detail：输出数组/等价 structured collection（不得新增 Tool；anomalies 不变）。
+- UI：secondary text 按 deterministic order 用「；」连接（或等价最小可读 presentation）；**不得**由 UI 重新决定 issue 优先级、PromptBuilder 不得重解析 wire、AgentTools 不得重判协议。
+- 其余 Gates（C1/C3~C6/C8、generic Exception 复用 + MSB guard、parser 不变、request-wire corruption deferred、Active Serial FC03 read-only）维持批准。
