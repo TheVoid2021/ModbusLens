@@ -87,6 +87,8 @@ ExpectedNoResponse + InvalidBroadcastFunction
 
 ### 4.3 Broadcast → `ExpectedNoResponse`（统计诚实）
 
+> 速记卡（协议定义 / 四情形判定表 / 追问话术）见 §5「广播与广播语义」。
+
 广播（addr=0）按协议不回应。把它归进 `Success` 是"假称写入成功"；归进 `Timeout` 是"把合法行为当故障"。最终新增第七状态 `ExpectedNoResponse`，且统计公式排除它：
 
 ```text
@@ -144,11 +146,71 @@ completed 包含广播；rate = success / (completed − expectedNoResponse)；�
 
 NoData / Healthy / Pending·Exception·CrcError·Timeout·ProtocolError Observed / ExpectedNoResponseObserved / RequestIssueObserved。
 
-## 6. 性能基准
+### 广播与广播语义（高频考点）
+
+- **协议层**：地址 0 = 广播——总线上所有从站执行、**谁都不回应**（避免应答冲撞）；只对写类功能码成立，本仓库被动支持集 = {0x06, 0x10}（"广播读"不成立：地址 0 + FC03 ⇒ 请求侧 `InvalidBroadcastFunction`）。工程用途：多设备统一启停/统一下发设定值，代价是主站拿不到任何确认。
+- **诊断难点**：addr=0 且未观察到响应时，旧六状态无诚实落点——判 `Success` 是假称写入成功，判 `Timeout` 是把合法沉默当故障。
+- **判定规则**：
+
+| 报文情形 | 判定 |
+| --- | --- |
+| 单播（addr≠0）无响应 | `Timeout`（该响应却没响应） |
+| 广播（addr=0，0x06/0x10）无响应 | `ExpectedNoResponse`（协议合法行为；不证明写入成功，也不证明设备健康） |
+| 广播 + 请求本身违例 | `ExpectedNoResponse` **+** requestIssues（两者正交，绝不 Timeout） |
+| 广播却收到响应字节 | `ProtocolError` + `UnexpectedResponseForBroadcast`（真异常：从站不该回应） |
+
+- **统计口径**：`completed` 含广播；`successRate = success / (completed − expectedNoResponse)`，分母 0 ⇒ `nullopt`——广播既不稀释成功率，也不冒充成功。
+- **下游**：Baseline 中为 Info（排在 Pending 之后，**不得仅凭广播宣布 Healthy**）；Agent anomaly 白名单不含它；UI 文案「预期无响应」。
+- **一问一答**：*"广播写成功了吗？"→"通信层无法证明，工具只报'观察到广播请求且未观察到响应'；要确认得靠后续回读。"* / *"为什么不算 Timeout？"→"广播本就不允许响应，判超时是制造假故障。"*
+- 证据：[ADR-003](adr/ADR-003-broadcast-outcome-semantics.md)、STAT-B10、PASSIVE-P09·P14、BCAST-C01·C02、DIAG-A12·A13、AGENT-A12、UI-T02。
+
+## 6. 数值与单位速查（简历三段声明逐项拆解）
+
+### 6.1 协议分析条：7 与 14
+
+| 数字 | 单位 | 含义 |
+| --- | --- | --- |
+| 7 | 个枚举成员 | `TransactionStatus` 七状态（见 §5） |
+| 14 | 个枚举成员（= 10 + 4） | 响应侧 `TransactionIssueCode` 10 个 + 请求侧 `TransactionRequestIssueCode` 4 个；是**两组正交枚举**，不是"一个枚举 14 个值" |
+| "结构化" | — | 每个 issue = 枚举码 + 稀疏载荷（expected/actual 字段按需填充）+ 稳定机器 token（如 `response_address_mismatch`），非自然语言描述 |
+
+**口径纠正**：① CRC / Timeout / Exception 是**状态**，不是 issue（issue 覆盖的是地址/数量/回显/请求格式类事实）；② `FC06/Function 0x10` 混了两种记法，统一写 `FC03 / FC06 / FC16（0x10）`；③ FC03 主被动都支持，**FC06 与 0x10 只有被动分析**（无 encoder、无写路径）。
+
+### 6.2 架构设计条：没有性能数字，但有两个预算数字
+
+`per-record` = 判定粒度是单条记录（一条坏记录不再毒死整批；统计只描述 analyzed 子集，unsupported 显式披露）；`ExpectedNoResponse` 见 §5 与 6.3 公式；**3** = 只读工具数（`GetSessionSummary` / `GetRecentAnomalies` / `GetTransactionDetail`）。相关预算：**rounds = 3**、**单次 run 工具调用上限 = 6**、prompt 下发明细 **bounded 20 条**。
+
+### 6.3 性能条：每个数值与单位的含义
+
+| 简历数值 | 单位含义 | 准确解读 |
+| --- | --- | --- |
+| 10 万条 / 1M | 1 "条" = 1 条 TXN 记录 = **一次请求-响应事务**（含 NO_RESPONSE 的超时事务）；**不是线路帧** | 测试规模 10⁵ / 10⁶ 条事务 |
+| 中位 70.9 ms | ms = 10⁻³ 秒；"中位" = 多次重复运行耗时的**中位数**（抗离群） | 整批 10 万条的墙上时钟耗时 |
+| 约 141 万条/秒 | 吞吐 = 记录数 ÷ 耗时 | 100000 ÷ 0.0709 s ≈ 1,410,437 条/s |
+| 0.709 μs/record | μs = 10⁻⁶ 秒，per record = 平摊到单条 | 70.9 ms ÷ 100000 = 0.709 μs = **709 ns**；与吞吐互为倒数 |
+| 1M ≈ 686.7 ms | — | 对应吞吐 ≈1.456 M 条/s |
+| 10k~1M 近线性 | 规模跨 100 倍 | 686.7 ÷ 70.9 ≈ **9.69 倍**（数据 10 倍）⇒ 单条成本近似恒定、O(N) 无性能悬崖 |
+
+**三处自洽性**（被追问要能当场算）：① 141 万条/秒 与 0.709 μs/条互为倒数（1 ÷ 1.41e6 ≈ 0.709 μs）；② 70.9 ms（整批）与 0.709 μs（单条）是同一数字的两个量级；③ 1M 实测 686.7 ms 比按 100k 速率外推的 709.2 ms 快约 3.2%（固定开销摊薄 + 缓存行为），不是错误。
+
+**限定词不能省**：**Release** = `-O3`、无调试断言（换 Debug 差数倍）；**单线程** = 单核成绩，不宣称并行扩展性；**生产 Replay 链路** = 读 `.mlog` → `parseReplayLog` → `analyzeReplayLog`（逐记录被动分析 + `summarizeTransactions` 统计），**不含**界面渲染 / AI / Agent / 网络。
+
+**单位陷阱**："条/秒"里的"条"是事务记录而非线路帧（一笔 FC03 成功在线路上是请求+响应 2 帧，按帧计数量翻倍）；0.709 的单位是**微秒**，不是毫秒。本机独立复测对照见 §7。
+
+### 6.4 口径风险清单（面试前过一遍）
+
+1. 把"中位"说成"平均"——若被问轮次，诚实答"原测轮次未记录，已补脚本与文档，复跑按 5~9 轮取中位"。
+2. 漏掉"Release + 单线程"限定，变成无前提的速度宣称。
+3. 把性能数字说成跨机/生产 SLA——它是**主机相对值**（本机实测波动 ±10~15%）。
+4. 七状态漏掉第七个 `ExpectedNoResponse`；14 说成"单枚举 14 值"。
+5. 把 CRC / Timeout / Exception 说成 issue（它们是状态）。
+6. 说"线性扩展"而不说"单条成本恒定、无超线性增长"。
+
+## 7. 性能基准
 
 详见 [10_REPLAY_PERFORMANCE_BENCHMARK](10_REPLAY_PERFORMANCE_BENCHMARK.md)：生产链路（读文件 → parse → analyze+统计，单线程 Release）本机两次独立运行，100k `parse+analyze` 中位 73.4~84.1 ms、1M 716.9~738.7 ms，≈1.35~1.4M 条/s，10k→1M 近线性（8.3~8.5 倍用时/10 倍数据）。**诚实口径**：主机相对值（±10~15% 噪声带）、非跨机 SLA；脚本与原始输出均在 `scripts/bench_replay/` 与文档 §5 可复现。
 
-## 7. 不足与边界（要主动讲，并习惯"因为…所以没做"句式）
+## 8. 不足与边界（要主动讲，并习惯"因为…所以没做"句式）
 
 | # | 边界 | 事实 |
 | --- | --- | --- |
@@ -167,7 +229,7 @@ NoData / Healthy / Pending·Exception·CrcError·Timeout·ProtocolError Observed
 
 **面试句式模板**：*"我做的是 X；我没有做 Y，因为 Z（范围纪律/证据不足/没有真实需求），这在 BACKLOG 里单独立项等待。"*——把边界说清楚，通常比声称"实现了智能根因诊断"更加分。
 
-## 8. 面试叙事线
+## 9. 面试叙事线
 
 **30 秒版**（与 INTERVIEW_NOTES §1 一致）：C++20+Qt6 的 Modbus RTU 诊断平台，三种数据源（模拟器/日志回放/真实串口）共用同一协议与诊断核心，结论口径一致；核心分析不依赖 LLM，AI/Agent 是只读增强；全程在仓库留档，每个决策可追溯。
 
@@ -182,7 +244,7 @@ NoData / Healthy / Pending·Exception·CrcError·Timeout·ProtocolError Observed
   工程纪律 → RED-first、LKGC、Gate、semantic audit、ABI collision 排查
 ```
 
-## 9. 证据映射表（问到哪、指到哪）
+## 10. 证据映射表（问到哪、指到哪）
 
 | 声称 | 代码/测试锚点 | 文档 |
 | --- | --- | --- |
@@ -200,9 +262,10 @@ NoData / Healthy / Pending·Exception·CrcError·Timeout·ProtocolError Observed
 | 语义审计 bug | PASSIVE-P16；RED 21/1 → guard → GREEN | T015 档案 §semantic audit / INTERVIEW_NOTES |
 | ABI collision 排查 | ISSUE-002 全轨迹 | [T008](tasks/T008-qt-quick-qml-analysis-ui.md) §T008.1 / [ISSUE-002](issues/ISSUE-002-explorer-launch-dll-collision.md) |
 
-## 10. 维护注意
+## 11. 维护注意
 
 - 本文与 07 双轨并存：07=事实总账，本文件=定位叙事；任何一方发现过时，用"追加批注"方式标注新事实与日期，不覆盖原文。
 - 事实底盘（§2）随每个任务完成后刷新（提交数、测试数、LKGC）。
 - **对外材料（简历/README 之外的宣称）中的时间与数字必须与本文件 §2 一致**；简历时间范围以 Git 实证（2026-09-05 ~ 2026-09-14）为准。
-- 本文件主张的每个"亮点"必须能在 §9 映射表中找到锚点；找不到锚点的新亮点先补证据再写入。
+- §6 的数值与单位口径与 [10_REPLAY_PERFORMANCE_BENCHMARK](10_REPLAY_PERFORMANCE_BENCHMARK.md) 保持同步；修改任一处后另一处必须同批更新。
+- 本文件主张的每个"亮点"必须能在 §10 映射表中找到锚点；找不到锚点的新亮点先补证据再写入。
