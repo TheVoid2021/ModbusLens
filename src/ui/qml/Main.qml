@@ -847,10 +847,12 @@ ApplicationWindow {
 
                             delegate: Rectangle {
                                 width: ListView.view.width
-                                // T014: ProtocolError rows carry a secondary
-                                // deterministic detail line; everything else
-                                // keeps the original 36px row exactly.
-                                height: model.issueText !== "" ? 58 : 36
+                                // T014/T015: rows carrying deterministic detail
+                                // get a secondary line; a multi-request-issue
+                                // join may wrap to two lines, so the delegate
+                                // reserves 64px and the label wraps instead
+                                // of clipping.
+                                height: model.issueText !== "" ? 64 : 36
                                 color: root.surfaceAlt
                                 radius: 4
 
@@ -902,13 +904,16 @@ ApplicationWindow {
                                     // observed facts, never root-cause prose).
                                     Label {
                                         width: parent.width
-                                        height: 22
+                                        height: 28
                                         visible: model.issueText !== ""
                                         text: model.issueText
                                         color: root.textSecondary
                                         leftPadding: 6
                                         rightPadding: 6
                                         font.pixelSize: 11
+                                        wrapMode: Text.Wrap
+                                        // Two wrapped lines must never clip.
+                                        maximumLineCount: 2
                                         elide: Text.ElideRight
                                     }
                                 }
