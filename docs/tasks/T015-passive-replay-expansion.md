@@ -626,7 +626,8 @@ request 0x10 → response **0x90** 完全由既有 generic exception matcher 命
 **Review 新增（2026-09-14）**：
 
 - **MULTI-C01（P0）**：`quantity=2, byteCount=2, actual payload=4 bytes` ⇒ requestIssues = **[InvalidRequestByteCount(2/4), InvalidRequestLength(observed 9 / expected 7)]**——两项均存、顺序稳定、不得只留第一项。
-- **MULTI-C02（P0）**：`quantity=124, byteCount 与 payload 自洽` ⇒ requestIssues = **[InvalidRequestQuantity]** only——**不得基于非法 quantity 派生伪 byteCount issue**。
+- **MULTI-C02（P0，2026-09-14 终审批后订正）**：`quantity=0, byteCount=0, actual payload=0` ⇒ requestIssues = **[InvalidRequestQuantity{observed=0, minAllowed=1, maxAllowed=123}]**——**只有这一项**。依赖规则：quantity invalid ⇒ **不派生** byteCount-vs-quantity issue；payload 长度校验 `data.size() == 5 + declaredByteCount`（= 5 + 0 = 5 ⇒ 通过）⇒ **无 InvalidRequestLength**。
+- **quantity=124 保留为 Function16 semantic unit boundary test**，但**不得以“124 + 完整自洽 payload”作为 Gate-E valid RTU passive fixture**：124×2=248 value bytes ⇒ frame.data = 2+2+1+248 = **253** > RTU Data 上限 252、完整 RTU frame = **257** > 256-byte maximum ⇒ 已跨入 Gate E deferred 的 wire/frame-validity 边界；其语义边界仅在“quantity 字段可读且越界”的合法短线上表达（requestIssues=[InvalidRequestQuantity]，不携带自洽长 payload）。
 - **BCAST-C01（P0）**：Function16 broadcast semantic-invalid + NO_RESPONSE ⇒ **`ExpectedNoResponse` + requestIssues 全保留**（不得 Timeout）。
 - **BCAST-C02（P0）**：Function16 broadcast semantic-invalid + response bytes ⇒ **ProtocolError + `UnexpectedResponseForBroadcast` + requestIssues 全保留**（不得 Success、不得以 UnknownProtocolError 掩盖 broadcast fact）。
 - valid broadcast tests 全部保留（PASSIVE-C12/C13）。
@@ -643,7 +644,7 @@ request 0x10 → response **0x90** 完全由既有 generic exception matcher 命
 | C2 | requestIssue 单个 vs 多个 | **REVISED：multi-request-issue collection（`std::vector<TransactionRequestIssue>` 有序 collection；ordering=reporting order，≠discard priority；防 cascade 依赖规则；MULTI-C01/02 锁定）** |
 | C3 | InvalidRequestQuantity 加 minAllowed | **新增 optional `minAllowedQuantity`**（FC03/Function16 双填） |
 | C4 | InvalidRequestByteCount 新增 | 新增（payload observed/expected byteCount） |
-| C5 | InvalidRequestLength payload 定义 | 新增 observedLength/expectedLength；**单位=request data 字节**（稳定、单一；不可计算则缺省） |
+| C5 | InvalidRequestLength payload 定义 | 新增 observedLength/expectedLength；**单位=request data 字节**（稳定、单一；不可计算则缺省）。**类型：不得 uint8_t**——expectedLength = 5 + declaredByteCount 理论可达 **260**（quantity=124 ⇒ byteCount=248 ⇒ data=253 越 RTU 帧界）；最终取 **std::uint16_t 或 std::size_t**（按现有 Core 长度类型惯例，Implementation 定案） |
 | C6 | WriteMultipleRegistersEchoMismatch 字段 | 复用既有 `expectedRegisterAddress/actualRegisterAddress` + `expectedQuantity/actualQuantity`，零新列 |
 | C7 | invalid broadcast + NO_RESPONSE 的高状态 | **REVISED：正交两维——broadcast response expectation 与 request semantic validity 分离；address==0 ∧ fc∈{0x06,0x10} 即 broadcast-capable ⇒ NO_RESPONSE = `ExpectedNoResponse` + requestIssues（不得 Timeout）；任何 response bytes = UnexpectedResponseForBroadcast + requestIssues（BCAST-C01/02 锁定）** |
 | C8 | values 完整保存？ | 不传播 values（DTO 存 starting/quantity/byteCount/valueCount；value bytes 仍是记录内 evidence，不是 downstream structured fact 的替代） |
@@ -686,3 +687,13 @@ request 0x10 → response **0x90** 完全由既有 generic exception matcher 命
 - Agent detail：输出数组/等价 structured collection（不得新增 Tool；anomalies 不变）。
 - UI：secondary text 按 deterministic order 用「；」连接（或等价最小可读 presentation）；**不得**由 UI 重新决定 issue 优先级、PromptBuilder 不得重解析 wire、AgentTools 不得重判协议。
 - 其余 Gates（C1/C3~C6/C8、generic Exception 复用 + MSB guard、parser 不变、request-wire corruption deferred、Active Serial FC03 read-only）维持批准。
+## C24. Final Architecture Review（2026-09-14）— Gate C1-C8 全部批准
+
+- **Approval**：**C1 APPROVED**（structural parser）、**C2 APPROVED**（multi-request-issue collection）、**C3 APPROVED**（minAllowedQuantity）、**C4 APPROVED**（InvalidRequestByteCount）、**C5 APPROVED**（InvalidRequestLength payload；**类型出台**：observedLength/expectedLength 不得 uint8_t——expectedLength = 5 + declaredByteCount 理论可达 260；Implementation 时按现有 Core 长度类型惯例在 **std::uint16_t 与 std::size_t** 间定案）、**C6 APPROVED**（WriteMultipleRegistersEchoMismatch 复用既有载荷列）、**C7 APPROVED**（broadcast / request validity 正交两维）、**C8 APPROVED**（不传播 register values）。
+- **Part C Architecture Review = PASS**。IDENTIFIED Generic Exception、MSB guard、parser 边界、request-wire corruption deferred、Active Serial read-only 均维持。
+
+### Fixture corrections（2026-09-14 终审批）
+
+- **MULTI-C02 订正**（已落到 §C19）：由“quantity=124 + 完整自洽 payload”改为 **`quantity=0, byteCount=0, payload=0` ⇒ requestIssues = [InvalidRequestQuantity(0,1,123)] only**——quantity invalid 不派生 byteCount issue；`data.size()==5+0` 通过 ⇒ 无 InvalidRequestLength。
+- **quantity=124 的边界定性**：保留为 **Function16 semantic unit boundary test**；但“124 + 完整自洽 payload”的 request 会达到 data=253 > RTU Data 252 / frame=257 > 256 —— **跨入 Gate E deferred wire/frame-validity 边界**，因此**不得**用作 Gate-E valid RTU passive fixture。
+- 后续 fixture 与矩阵细节一律以此口径为准（§C18 的 124 项在其合法短线上表达）。

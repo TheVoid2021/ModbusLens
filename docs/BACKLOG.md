@@ -15,7 +15,7 @@
 | M5 | 回放与串口模式 | T009, T010 | ✅ 完成 |
 | M6 | AI 诊断与 Agent 工具 | T011, T012 | ✅ 完成（T011 ✅ + T012 ✅ 含 Stabilization；ISSUE-008/009=MONITORING/NON-BLOCKING） |
 | M7 | 收尾与演示 | T013 | ✅ 完成（T013 Done；verified LKGC `99f17d6`） |
-| M8 | 诊断深化与知识固化 | M8.1 ✅；T014 ✅ Done（verified LKGC `cc8393a`）；T015 🔄（IN PROGRESS 整体；**Phase A/B ✅ DONE / REVIEW PASS**；verified LKGC `02ce302`；**Part C 0x10 = IN PROGRESS（Learning + Test Design docs-only，AWAITING FINAL ARCHITECTURE REVIEW；Review P0 修正已落档）**）；后续（Replay v2 timing / UART / register-map）⏸ | 🔄 进行中 |
+| M8 | 诊断深化与知识固化 | M8.1 ✅；T014 ✅ Done（verified LKGC `cc8393a`）；T015 🔄（IN PROGRESS 整体；**Phase A/B ✅ DONE / REVIEW PASS**；verified LKGC `02ce302`；**Part C 0x10 = IN PROGRESS（Architecture Review = PASS，Gate C1~C8 全批；Implementation = NOT STARTED）**）；后续（Replay v2 timing / UART / register-map）⏸ | 🔄 进行中 |
 
 ## 任务表
 
@@ -167,3 +167,4 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-13 | **用户 T015 Phase B Final Review = PASS → Final Acceptance**：Manual UI Smoke 全项 PASS（Demo / demo_v1 Replay / Broadcast「预期无响应」不稀释成功率 / unsupported 非致命提示不计入统计 / invalid FC03+Exception 双事实 / FC06 echo mismatch / 布局）；**verified LKGC 推进 `cc8393a` → `02ce302`**（`6944fd5` superseded；`fdefb0e` 与本次 docs-only 不作 LKGC）；bookkeeping 订正为 exact paths（23 src + CMakeLists.txt / 8 tests）；ADR-003 → Accepted / Implemented；**T015 整体 IN PROGRESS（Part C NOT STARTED）** |
 | 2026-09-14 | **T015 Part C 启动：Function 0x10 Learning + Test Design（docs-only，本提交）**——官方契约核验 + naming=Function16；dispatcher 插入点（request 分类/broadcast/normal 分支三处）；request 四层校验 + 新 issue 提案（InvalidRequestByteCount、minAllowedQuantity、InvalidRequestLength 单位）；response echo mismatch 复用既有 payload 列；Gate C1~C8 落档（C2=单 issue+priority、C7=validation-gated broadcast、C8=values 不传播）；demo_v2 S3 审计（fixture CRC defect×2，修正后 Success）；F16-U01~U10 + PASSIVE-C01~C17 + 统计回归 + T014/T015 回归锁矩阵；**未实现，Implementation 待批复** |
 | 2026-09-14 | **T015 Part C Architecture Review：P0×2 correction 落档（docs-only）**——C2=multi-request-issue collection（有序、不丢弃、防 cascade；MULTI-C01/02）；C7=Broadcast 正交两维（invalid broadcast + NO_RESPONSE = ExpectedNoResponse + requestIssues；BCAST-C01/02）；raw-wire 边界与 ExpectedNoResponse 澄清 proposal 存入 Part C 档案；**未实现，AWAITING FINAL ARCHITECTURE REVIEW** |
+| 2026-09-14 | **T015 Part C Final Architecture Review = PASS（docs-only）**：Gate C1~C8 全部 APPROVED；MULTI-C02 头寸订正（quantity=0 形态；124 仅在合法短线表达）；Length 字段类型出台（≥uint16，非 uint8）；**Implementation = NOT STARTED，待批准** |
