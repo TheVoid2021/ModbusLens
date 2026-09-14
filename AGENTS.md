@@ -65,6 +65,7 @@ ModbusLens 是一个 C++20 + Qt6 的工业通信（Modbus）智能诊断平台�
 | `docs/09_DIAGNOSTIC_COVERAGE_AUDIT.md` | 诊断覆盖审计（14 场景矩阵与 Claim Risk） | 覆盖度审计时 |
 | `docs/10_REPLAY_PERFORMANCE_BENCHMARK.md` | Replay 链路性能基准（口径、原始数据、复现脚本） | 性能声明或核心链路大改时 |
 | `docs/11_PROJECT_FINAL_RETROSPECTIVE.md` | 项目最终复盘（定位 · 亮点 · 边界 · 证据映射，面试素材） | 里程碑复盘或对外定位变化时 |
+| `docs/12_RESUME_INTERVIEW_QA.md` | 简历逐句解析与面试问答题库（术语解析 + 可背答句 + 口径核对） | 简历改动或面试素材更新时 |
 | `docs/PROJECT_STATUS.md` | 项目状态单一事实源 | **每个任务完成后** |
 | `docs/BACKLOG.md` | 全部任务与优先级（里程碑视图） | **每个任务完成后** |
 | `docs/ENVIRONMENT.md` | 环境搭建/工具链/常见坑 | 环境变化时 |
