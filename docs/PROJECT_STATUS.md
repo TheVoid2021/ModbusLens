@@ -1,7 +1,7 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-| Last Known Good Commit | **`02ce302`**（T015 Phase B 完成：passive Core + Function 0x06 + Broadcast `ExpectedNoResponse`；含 semantic audit request-MSB guard 修复；用户 Manual UI Review PASS 后正式推进。历史值：`cc8393a`（T014）、`99f17d6`（T013）、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
+| Last Known Good Commit | **`ae067ab`**（T015 整体 DONE：Phase A ✅ + Phase B ✅ + Part C ✅（Function 0x10 passive）；含 P0 语义审计与 presentation gap 修复；用户 Manual UI Review PASS 后正式推进。历史值：`02ce302`（T015 Phase B）、`cc8393a`（T014）、`99f17d6`（T013）、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 
 ## 状态面板
 
@@ -9,12 +9,12 @@
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
 | 当前 Milestone（Current Milestone） | M1~M6 ✅；**M7 ✅ DONE（T013 Final Integration & Demo 完成，用户视觉 PASS）**；全部里程碑完成 |
-| Last Known Good Commit | **`02ce302`**（T015 Phase B 完成：passive Core + Function 0x06 + Broadcast `ExpectedNoResponse`；含 semantic audit request-MSB guard 修复；用户 Manual UI Review PASS 后正式推进。历史值：`cc8393a`（T014）、`99f17d6`（T013）、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
+| Last Known Good Commit | **`ae067ab`**（T015 整体 DONE：Phase A ✅ + Phase B ✅ + Part C ✅（Function 0x10 passive）；含 P0 语义审计与 presentation gap 修复；用户 Manual UI Review PASS 后正式推进。历史值：`02ce302`（T015 Phase B）、`cc8393a`（T014）、`99f17d6`（T013）、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T015 Passive Replay Expansion — IN PROGRESS（整体）**（Phase A/B ✅ DONE；**Part C = IMPLEMENTED / AWAITING REVIEW**：Function16 被动语义 + requestIssues collection + broadcast/{0x06,0x10}；LKGC candidate = `da8ce48`（`96ed9e2`→`e16b4d0`→`da8ce48` supersede 链；Manual UI Smoke = WAITING FOR USER；verified LKGC = `02ce302`） |
-| 最近完成任务（Last Completed Task） | **T015 Phase B — Passive Core + FC06 + Broadcast**（DONE / REVIEW PASS；T015 整体仍 IN PROGRESS：Part C NOT STARTED；verified LKGC `02ce302`） |
+| 当前任务（Current Task） | **None（主线任务全完成）**。**T015 — Passive Replay Expansion = ✅ DONE（整体）**：Phase A ✅ + Phase B ✅ + Part C ✅（Function 0x10 passive）；verified LKGC = `ae067ab` |
+| 最近完成任务（Last Completed Task） | **T015 Passive Replay Expansion — 整体 DONE**（Phase A/B/Part C 全链；用户 Manual UI Review PASS；verified LKGC `ae067ab`） |
 | 当前阶段（Current Phase） | T015 Part C IMPLEMENTED（RED 42/12 → GREEN passive 54/54 + ctest 24/24 + clean 153 零警告 + qml/deploy）；待用户 Review |
 | 下一步动作（Next Action） | **T015 Part C Review + Manual UI Smoke（用户）**；通过后推进 verified LKGC |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
@@ -241,3 +241,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-14 | **T015 Part C Final Architecture Review = PASS（docs-only 订正提交）**：Gate C1~C8 全部 APPROVED；fixture 订正——MULTI-C02 改为 quantity=0/byteCount=0/payload=0 ⇒ [InvalidRequestQuantity(0,1,123)] only；quantity=124 保留为 semantic unit boundary test 但**不得**以“完整自洽 payload”作 Gate-E valid RTU fixture（data=253/frame=257 越界）；InvalidRequestLength payload 类型不得 uint8_t（expected 可达 260，uint16_t/size_t 由 Implementation 定案）；**Implementation = NOT STARTED**；verified LKGC `02ce302` 不变 |
 | 2026-09-14 | **T015 Part C IMPLEMENTED（A/B/C 三提交）**：A `92ccf16` requestIssues collection 迁移 + Function16 surface + RED（passive **42 passed/12 failed**，断言级）；B `e1c9e2c` Function16 被动语义 + broadcast 集 {0x06,0x10} 接线 → passive **54/54**、ctest 24/24；C `96ed9e2` QML 多 issue 换行。clean **153 targets 零警告**、ctest 24/24、qml smoke、deploy+minimal-PATH；写权限 grep 零命中（无 encoder/send/写工具，Serial 仍 FC03 read-only）；ExpectedNoResponse 三处措辞同步为 expectation/validity 正交（统计公式未变）；**LKGC candidate = `da8ce48`（`96ed9e2`→`e16b4d0`→`da8ce48` supersede 链；待 Review + Manual UI Smoke）**；verified LKGC 仍 `02ce302` |
 | 2026-09-14 | **T015 Part C P0 downstream semantic gap audit（`e16b4d0` + `da8ce48`）**：requestIssues 下游化——Baseline `RequestIssueObserved`（affectedCount=事务数）+ Healthy 五条件（issues 正交于 100% success）；Agent anomaly=status OR !issues.empty() + `request_issue_codes` + summary `request_issue_transactions`；AI 护栏（Success/高成功率不擦除 request issues）；Statistics/TransactionStatus 未动（DIAG-A14 锁正交）；RED=diag 2/agent 1/ai 1（断言级）→ GREEN 全套（diag 17、agent 15、ai 23、uib 55、passive 55、ctest 24/24、clean 153 零警告、qml smoke=0）；RED-history 事实订正入档（92ccf16 的 RED 真实但不覆盖每个 F16 unit behavior）；**Part C candidate = `da8ce48`** |
+| 2026-09-14 | **用户 T015 Part C Manual UI Review = PASS → T015 整体 Final Closure**：Dashboard 6/6/0·2/1/0/0/1/2·50%·22ms；unsupported notice 不计统计；Rows 全项 PASS（含 Success+双 issues 与 invalid broadcast+issue）；Baseline 四点 PASS（请求参数…事务：3=事务数非 4；无 Healthy）；**verified LKGC 推进 `02ce302` → `ae067ab`**（`da8ce48`=final production-affecting commit；`ae067ab`=更完整 verified code/test baseline）；T015 整体 DONE；docs-only 提交不作 LKGC |
