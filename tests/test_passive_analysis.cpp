@@ -941,15 +941,15 @@ void PassiveAnalysisTest::c16_mixedFunctionStatistics()
     QVERIFY(batch.has_value());
     QCOMPARE(batch->transactions.size(), std::size_t{6});
     QCOMPARE(batch->statistics.observedCount, std::size_t{6});
-    QCOMPARE(batch->statistics.completedCount, std::size_t{5});
-    QCOMPARE(batch->statistics.pendingCount, std::size_t{1});
+    QCOMPARE(batch->statistics.completedCount, std::size_t{6});
+    QCOMPARE(batch->statistics.pendingCount, std::size_t{0});
     QCOMPARE(batch->statistics.successCount, std::size_t{3});
     QCOMPARE(batch->statistics.exceptionCount, std::size_t{1});
     QCOMPARE(batch->statistics.protocolErrorCount, std::size_t{1});
     QCOMPARE(batch->statistics.expectedNoResponseCount, std::size_t{1});
-    // rateEligible = 5 - 1 = 4; success 3 -> 0.75.
+    // rateEligible = 6 - 1 = 5; success 3 -> 0.6.
     QVERIFY(batch->statistics.successRate.has_value());
-    QCOMPARE(*batch->statistics.successRate, 0.75);
+    QCOMPARE(*batch->statistics.successRate, 0.6);
     // avg latency: (20+30+40)/3 = 30.
     QVERIFY(batch->statistics.averageSuccessLatencyMs.has_value());
     QCOMPARE(*batch->statistics.averageSuccessLatencyMs, 30.0);

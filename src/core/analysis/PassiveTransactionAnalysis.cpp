@@ -5,6 +5,7 @@
 #include "core/protocol/Function16.h"
 
 #include <optional>
+#include <utility>
 
 namespace modbuslens::core {
 
@@ -173,8 +174,12 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
     ms timeoutThreshold)
 {
     const auto requestIssues = classifyRequest(request);
+    // T015 Part C: the broadcast-capable set is explicitly {0x06, 0x10}.
+    // Orthogonal semantics (ADR-003): response expectation is decided by
+    // address+function, NEVER gated on request semantic validity.
     const bool isBroadcast = request.address == kBroadcastAddress
-        && request.functionCode == kWriteSingleRegisterFunction;
+        && (request.functionCode == kWriteSingleRegisterFunction
+            || request.functionCode == kWriteMultipleRegistersFunction);
 
     // 1. NoResponse: broadcast-capable request -> the protocol itself says
     //    "no response expected" (never Pending/Timeout). Everything else
@@ -309,6 +314,47 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
             return analyzed(TransactionStatus::ProtocolError, elapsed,
                             std::nullopt, std::move(issue), requestIssues);
         }
+        return analyzed(TransactionStatus::Success, elapsed, std::nullopt,
+                        std::nullopt, requestIssues);
+    }
+
+    if (request.functionCode == kWriteMultipleRegistersFunction
+        && response.functionCode == kWriteMultipleRegistersFunction) {
+        // Function 0x10 normal semantics (T015 Part C). Format errors stay
+        // MalformedNormalResponse; a well-formed reply whose start address or
+        // written quantity disagrees with the request is an ECHO-CONTRACT
+        // mismatch, never a malformed reply.
+        const auto responseDecode = decodeWriteMultipleRegistersResponse(response);
+        if (std::holds_alternative<Function16DecodeError>(responseDecode)) {
+            return analyzed(
+                TransactionStatus::ProtocolError, elapsed, std::nullopt,
+                makeIssue(TransactionIssueCode::MalformedNormalResponse),
+                requestIssues);
+        }
+        const auto requestFields = readWriteMultipleRegistersFields(request);
+        if (!requestFields.has_value()) {
+            // Request header not readable: no echo comparison possible.
+            return analyzed(
+                TransactionStatus::ProtocolError, elapsed, std::nullopt,
+                makeIssue(TransactionIssueCode::UnknownProtocolError),
+                requestIssues);
+        }
+        const auto& responseModel =
+            std::get<WriteMultipleRegistersResponse>(responseDecode);
+        if (requestFields->startingAddress != responseModel.startingAddress
+            || requestFields->quantity != responseModel.quantityWritten) {
+            auto issue = makeIssue(
+                TransactionIssueCode::WriteMultipleRegistersEchoMismatch);
+            issue.expectedRegisterAddress = requestFields->startingAddress;
+            issue.actualRegisterAddress = responseModel.startingAddress;
+            issue.expectedQuantity = requestFields->quantity;
+            issue.actualQuantity = responseModel.quantityWritten;
+            return analyzed(TransactionStatus::ProtocolError, elapsed,
+                            std::nullopt, std::move(issue), requestIssues);
+        }
+        // Orthogonality: a matching normal reply is Success even when the
+        // request carried invalid semantics — those facts ride in
+        // requestIssues, never in the response-side status.
         return analyzed(TransactionStatus::Success, elapsed, std::nullopt,
                         std::nullopt, requestIssues);
     }
