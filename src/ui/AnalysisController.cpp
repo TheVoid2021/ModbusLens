@@ -321,10 +321,10 @@ constexpr std::array<int, 5> kSupportedSerialBauds = {9600, 19200, 38400, 57600,
 // come from Core, never re-derived here.
 QString composeIssueText(
     const modbuslens::core::TransactionAnalysis& analysis,
-    const std::optional<modbuslens::core::TransactionRequestIssue>& requestIssue)
+    const std::vector<modbuslens::core::TransactionRequestIssue>& requestIssues)
 {
     const QString responseText = issueDetailText(analysis);
-    const QString requestText = requestIssueDetailText(requestIssue);
+    const QString requestText = requestIssueDetailText(requestIssues);
     if (responseText.isEmpty()) {
         return requestText;
     }
@@ -334,9 +334,7 @@ QString composeIssueText(
     return responseText + QStringLiteral("；") + requestText;
 }
 
-// ---- T011 Part A: deterministic baseline presentation formatter ----// Translates a DiagnosisReport (facts + structured codes) into readable
-// text. ONLY translates — never re-judges statuses, never re-counts, never
-// re-runs rules, never claims a root cause, never labels itself "AI".
+// ---- T011 Part A: deterministic baseline presentation formatter ----
 
 QString findingPhrase(const modbuslens::core::DiagnosisFinding& finding)
 {
@@ -1014,7 +1012,7 @@ void AnalysisController::publishSerialResult(
             .deviceAddress = static_cast<std::uint8_t>(deviceAddress),
             .functionCode = 0x03,
             .analysis = analysis,
-            .requestIssue = std::nullopt,
+            .requestIssues = {},
         },
     };
     invalidateAiForBatchChange();
@@ -1094,7 +1092,7 @@ void AnalysisController::runDemoBatch()
             .deviceAddress = request.address,
             .functionCode = request.functionCode,
             .analysis = analysis,
-            .requestIssue = std::nullopt,
+            .requestIssues = {},
         });
     };
 
@@ -1272,13 +1270,13 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
             .status = outcome.analysis.status,
             .elapsedMs = outcome.analysis.elapsed.count(),
             .exceptionCode = outcome.analysis.exceptionCode,
-            .issueText = composeIssueText(outcome.analysis, outcome.requestIssue),
+            .issueText = composeIssueText(outcome.analysis, outcome.requestIssues),
         });
         diagnosisTransactions.push_back(modbuslens::core::DiagnosisTransaction{
             .deviceAddress = outcome.deviceAddress,
             .functionCode = outcome.functionCode,
             .analysis = outcome.analysis,
-            .requestIssue = outcome.requestIssue,
+            .requestIssues = outcome.requestIssues,
         });
     }
 

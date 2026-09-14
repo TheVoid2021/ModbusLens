@@ -25,6 +25,7 @@ add_library(modbuslens_core STATIC
     src/core/protocol/ModbusRtuCodec.cpp
     src/core/protocol/Function03.cpp
     src/core/protocol/Function06.cpp
+    src/core/protocol/Function16.cpp
     src/core/simulator/SimulatedSlave.cpp
     src/core/simulator/SimulationFault.cpp
     src/core/analysis/TransactionAnalysis.cpp

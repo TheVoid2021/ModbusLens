@@ -38,7 +38,7 @@ core::DiagnosisTransaction tx(core::TransactionStatus status, long long elapsedM
 {
     return core::DiagnosisTransaction{.deviceAddress = 1, .functionCode = 0x03,
                                       .analysis = makeAnalysis(status, elapsedMs, code),
-                                      .requestIssue = std::nullopt};
+                                      .requestIssues = {}};
 }
 
 std::vector<core::DiagnosisTransaction> goldenTransactions()

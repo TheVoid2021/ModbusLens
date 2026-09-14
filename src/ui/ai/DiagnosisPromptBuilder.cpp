@@ -112,17 +112,37 @@ QString transactionLine(const modbuslens::core::DiagnosisTransaction& transactio
                         .arg(*a.issue->actualQuantity);
         }
     }
-    // T015 additive: request-side deterministic facts (observed values only).
-    if (transaction.requestIssue.has_value()) {
+    // T015 Part C additive: EVERY deterministic request issue, in Core order.
+    for (const auto& requestIssue : transaction.requestIssues) {
         line += QStringLiteral(" request_issue=%1")
-                    .arg(requestIssueToken(transaction.requestIssue->code));
-        if (transaction.requestIssue->observedQuantity.has_value()) {
+                    .arg(requestIssueToken(requestIssue.code));
+        if (requestIssue.observedQuantity.has_value()) {
             line += QStringLiteral(" observed_quantity=%1")
-                        .arg(*transaction.requestIssue->observedQuantity);
+                        .arg(*requestIssue.observedQuantity);
         }
-        if (transaction.requestIssue->maxAllowedQuantity.has_value()) {
+        if (requestIssue.minAllowedQuantity.has_value()) {
+            line += QStringLiteral(" min_allowed_quantity=%1")
+                        .arg(*requestIssue.minAllowedQuantity);
+        }
+        if (requestIssue.maxAllowedQuantity.has_value()) {
             line += QStringLiteral(" max_allowed_quantity=%1")
-                        .arg(*transaction.requestIssue->maxAllowedQuantity);
+                        .arg(*requestIssue.maxAllowedQuantity);
+        }
+        if (requestIssue.observedByteCount.has_value()) {
+            line += QStringLiteral(" observed_byte_count=%1")
+                        .arg(*requestIssue.observedByteCount);
+        }
+        if (requestIssue.expectedByteCount.has_value()) {
+            line += QStringLiteral(" expected_byte_count=%1")
+                        .arg(*requestIssue.expectedByteCount);
+        }
+        if (requestIssue.observedLength.has_value()) {
+            line += QStringLiteral(" observed_length=%1")
+                        .arg(*requestIssue.observedLength);
+        }
+        if (requestIssue.expectedLength.has_value()) {
+            line += QStringLiteral(" expected_length=%1")
+                        .arg(*requestIssue.expectedLength);
         }
     }
     return line;
@@ -202,10 +222,13 @@ DiagnosisPrompt buildDiagnosisPrompt(
         "- issue=quantity_mismatch: the response register count differs from the requested quantity — both are observed values.\n"
         // ---- T015: broadcast and request-side fact semantics ----
         "Deterministic broadcast and request facts:\n"
-        "- status=ExpectedNoResponse (expected_no_response statistics): a valid broadcast-capable write request was observed and no response was observed, which the protocol does not expect. This does NOT prove that any device applied the write, that all devices executed it, or that any device is healthy. Never describe it as success.\n"
-        "- request_issue=invalid_request_quantity: the captured request asked for a register quantity outside its function's protocol constraint (observed/max values are supplied); it says nothing about why the requester sent it (never claim a program or operator error).\n"
-        "- request_issue=invalid_request_length: the captured request's data length does not match its function's protocol shape.\n"
+        "- status=ExpectedNoResponse (expected_no_response statistics): a broadcast-capable request was observed and no response was observed, which the protocol does not expect — this status describes the response expectation/outcome only; request semantic validity is expressed SEPARATELY through request_issue facts, never folded into this status. This does NOT prove that any device applied the write, that all devices executed it, or that any device is healthy. Never describe it as success, failure, or timeout.\n"
+        "- request_issue=invalid_request_quantity: the captured request asked for a quantity outside its function's protocol constraint (observed/min/max values are supplied); it says nothing about why the requester sent it (never claim a program or operator error).\n"
+        "- request_issue=invalid_request_length (observed_length/expected_length in the function's request-data bytes): the captured request's data length does not match its function's protocol shape; never claim truncation causes.\n"
+        "- request_issue=invalid_request_byte_count (observed/expected byte count): the declared byte count disagrees with the quantity-based expectation; it is a declarative mismatch fact.\n"
         "- request_issue=invalid_broadcast_function: address 0 was observed with a function that is not broadcast-capable (a read cannot be broadcast). It is NOT an expected-no-response transaction.\n"
+        "- issue=write_multiple_registers_echo_mismatch: a well-formed Write Multiple Registers reply whose starting address or written quantity disagrees with the request (expected/actual register-address and quantity pairs are supplied); it is an echo-contract mismatch, NOT a malformed reply.\n"
+        "- Multiple request_issue entries may exist for ONE transaction when several independent request facts were observed; keep every one of them and never report only the first.\n"
         "- Never convert these observed facts into root causes (wiring, device defects, configuration, software bugs) and never claim the cause; keep them as observed facts and give possible explanations only with explicit uncertainty.\n"
         "Keep the answer concise (roughly 250 words or less).");
 

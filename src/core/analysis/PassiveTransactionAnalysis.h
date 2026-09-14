@@ -5,6 +5,7 @@
 #include <optional>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 #include "core/analysis/TransactionAnalysis.h"
 
@@ -47,7 +48,11 @@ struct UnsupportedObservedTransaction {
 struct AnalyzedObservedTransaction {
     TransactionAnalysis analysis;
     // Produced ONCE here; every downstream layer copies, never re-derives.
-    std::optional<TransactionRequestIssue> requestIssue;
+    // T015 Part C: an ordered COLLECTION — a single request can carry
+    // several independently provable semantic issues, and every one of them
+    // must survive (ordering is deterministic reporting order, NOT a
+    // discard-priority ladder). Empty for a request that violated nothing.
+    std::vector<TransactionRequestIssue> requestIssues;
 
     bool operator==(const AnalyzedObservedTransaction&) const = default;
 };

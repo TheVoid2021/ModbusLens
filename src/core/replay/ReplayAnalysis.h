@@ -38,9 +38,9 @@ struct ReplayTransactionOutcome {
     std::uint8_t deviceAddress{};
     std::uint8_t functionCode{};
     TransactionAnalysis analysis;
-    // T015: request-side fact copied from the passive analyzer (nullopt when
-    // the captured request was valid for its function).
-    std::optional<TransactionRequestIssue> requestIssue;
+    // T015 Part C: the FULL ordered request-issue collection copied from
+    // the passive analyzer (empty vector when the request was valid).
+    std::vector<TransactionRequestIssue> requestIssues;
 
     bool operator==(const ReplayTransactionOutcome&) const = default;
 };

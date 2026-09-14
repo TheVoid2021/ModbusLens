@@ -23,6 +23,8 @@ std::string_view transactionIssueName(TransactionIssueCode code)
         return "write_single_register_echo_mismatch";
     case TransactionIssueCode::UnexpectedResponseForBroadcast:
         return "unexpected_response_for_broadcast";
+    case TransactionIssueCode::WriteMultipleRegistersEchoMismatch:
+        return "write_multiple_registers_echo_mismatch";
     }
     // Defensive: an enum value this build does not know cannot be given a
     // fabricated meaning — fall back to the generic token, never a guess.
@@ -36,6 +38,8 @@ std::string_view transactionRequestIssueName(TransactionRequestIssueCode code)
         return "invalid_request_quantity";
     case TransactionRequestIssueCode::InvalidRequestLength:
         return "invalid_request_length";
+    case TransactionRequestIssueCode::InvalidRequestByteCount:
+        return "invalid_request_byte_count";
     case TransactionRequestIssueCode::InvalidBroadcastFunction:
         return "invalid_broadcast_function";
     }

@@ -95,10 +95,10 @@ struct TransactionDetailResult {
     // for ProtocolError rows; absent otherwise. Facts only — read from the
     // snapshot, never re-derived by the tool layer.
     std::optional<modbuslens::core::TransactionIssue> issue;
-    // T015 additive: request-side deterministic fact (invalid request /
-    // invalid broadcast function), copied verbatim from the passive
-    // analyzer; absent on all active paths and valid requests.
-    std::optional<modbuslens::core::TransactionRequestIssue> requestIssue;
+    // T015 additive: the FULL ordered request-issue collection, copied
+    // verbatim from the passive analyzer; empty on valid requests and all
+    // active paths. The tool layer never re-derives request facts.
+    std::vector<modbuslens::core::TransactionRequestIssue> requestIssues;
     // Standard exception NAME (structured, e.g. "Illegal Data Address") when
     // the code is one of 0x01~0x04; absent otherwise. No causal prose here —
     // attribution belongs to the explanation layer, not the tool facts.

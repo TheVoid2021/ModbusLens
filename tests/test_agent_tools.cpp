@@ -41,7 +41,7 @@ core::DiagnosisTransaction tx(std::uint8_t address, core::TransactionStatus stat
         .deviceAddress = address,
         .functionCode = 0x03,
         .analysis = makeAnalysis(status, elapsedMs, exceptionCode),
-            .requestIssue = std::nullopt,
+            .requestIssues = {},
         };
 }
 
@@ -575,7 +575,7 @@ void AgentToolsTest::a11_protocolIssueFactsInTools()
     const std::vector<core::DiagnosisTransaction> batch = {
         core::DiagnosisTransaction{
             .deviceAddress = 0x01, .functionCode = 0x03, .analysis = analysis,
-            .requestIssue = std::nullopt},
+            .requestIssues = {}},
     };
     const auto coreContext = core::buildDiagnosisContext(batch);
     const agent::AgentToolContext context{
@@ -671,11 +671,11 @@ void AgentToolsTest::a12_t015FactsInTools()
         core::DiagnosisTransaction{
             .deviceAddress = 0x00, .functionCode = 0x06,
             .analysis = batch->transactions[0].analysis,
-            .requestIssue = batch->transactions[0].requestIssue},
+            .requestIssues = batch->transactions[0].requestIssues},
         core::DiagnosisTransaction{
             .deviceAddress = 0x01, .functionCode = 0x03,
             .analysis = batch->transactions[1].analysis,
-            .requestIssue = batch->transactions[1].requestIssue},
+            .requestIssues = batch->transactions[1].requestIssues},
     };
     const auto coreContext = core::buildDiagnosisContext(facts);
     const agent::AgentToolContext context{
@@ -708,6 +708,7 @@ void AgentToolsTest::a12_t015FactsInTools()
     QCOMPARE(broadcastJson.value("response_expected").toBool(), false);
     QVERIFY(!broadcastJson.contains("issue_code"));
     QVERIFY(!broadcastJson.contains("request_issue_code"));
+    QVERIFY(!broadcastJson.contains("request_issues"));
 
     // Detail #2 (invalid request + legal Exception): both fact families.
     const auto invalidDetailResult = agent::dispatchAgentTool(
@@ -717,13 +718,17 @@ void AgentToolsTest::a12_t015FactsInTools()
         std::get_if<agent::TransactionDetailResult>(&invalidDetailResult);
     QVERIFY(invalidDetail != nullptr);
     QCOMPARE(invalidDetail->status, core::TransactionStatus::Exception);
-    QVERIFY(invalidDetail->requestIssue.has_value());
+    QCOMPARE(invalidDetail->requestIssues.size(), std::size_t{1});
     const QJsonObject invalidJson = agent::toJsonObject(*invalidDetail);
     QCOMPARE(invalidJson.value("exception_code").toInt(), 3);
-    QCOMPARE(invalidJson.value("request_issue_code").toString(),
-             QStringLiteral("invalid_request_quantity"));
-    QCOMPARE(invalidJson.value("observed_quantity").toInt(), 126);
-    QCOMPARE(invalidJson.value("max_allowed_quantity").toInt(), 125);
+    QVERIFY(!invalidJson.contains("request_issue_code"));
+    const QJsonArray ri = invalidJson.value("request_issues").toArray();
+    QCOMPARE(ri.size(), QJsonArray::size_type{1});
+    const QJsonObject ri0 = ri[0].toObject();
+    QCOMPARE(ri0.value("code").toString(), QStringLiteral("invalid_request_quantity"));
+    QCOMPARE(ri0.value("observed_quantity").toInt(), 126);
+    QCOMPARE(ri0.value("min_allowed_quantity").toInt(), 1);
+    QCOMPARE(ri0.value("max_allowed_quantity").toInt(), 125);
     QVERIFY(!invalidJson.contains("response_expected"));
 
     // Anomalies: ExpectedNoResponse is NOT an anomaly (whitelist unchanged);

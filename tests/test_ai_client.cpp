@@ -42,7 +42,7 @@ DiagnosisTransaction tx(std::uint8_t address, TransactionStatus status,
             .exceptionCode = exceptionCode,
             .issue = std::nullopt,
         },
-        .requestIssue = std::nullopt,
+        .requestIssues = {},
     };
 }
 
@@ -634,10 +634,10 @@ void AiClientTest::b18_promptIssueFacts()
     const std::vector<DiagnosisTransaction> batch = {
         DiagnosisTransaction{
             .deviceAddress = 0x01, .functionCode = 0x03, .analysis = addressAnalysis,
-            .requestIssue = std::nullopt},
+            .requestIssues = {}},
         DiagnosisTransaction{
             .deviceAddress = 0x01, .functionCode = 0x03, .analysis = quantityAnalysis,
-            .requestIssue = std::nullopt},
+            .requestIssues = {}},
     };
     const DiagnosisContext context = buildDiagnosisContext(batch);
     const DiagnosisPrompt prompt = buildDiagnosisPrompt(
@@ -713,11 +713,11 @@ void AiClientTest::b20_t015PromptFacts()
         DiagnosisTransaction{
             .deviceAddress = 0x00, .functionCode = 0x06,
             .analysis = batch->transactions[0].analysis,
-            .requestIssue = batch->transactions[0].requestIssue},
+            .requestIssues = batch->transactions[0].requestIssues},
         DiagnosisTransaction{
             .deviceAddress = 0x01, .functionCode = 0x03,
             .analysis = batch->transactions[1].analysis,
-            .requestIssue = batch->transactions[1].requestIssue},
+            .requestIssues = batch->transactions[1].requestIssues},
     };
     const DiagnosisContext context = buildDiagnosisContext(facts);
     const DiagnosisPrompt prompt = buildDiagnosisPrompt(

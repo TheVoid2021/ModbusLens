@@ -1,5 +1,7 @@
 #include "ui/TransactionListModel.h"
 
+#include <QStringList>
+
 namespace {
 
 // Adapter-only label mapping: enum -> UI text. Never placed in core, which
@@ -86,32 +88,72 @@ QString issueDetailText(const modbuslens::core::TransactionAnalysis& analysis)
         return QStringLiteral("写入回显不匹配");
     case TransactionIssueCode::UnexpectedResponseForBroadcast:
         return QStringLiteral("广播请求不应答却收到响应");
+    case TransactionIssueCode::WriteMultipleRegistersEchoMismatch:
+        if (issue.expectedRegisterAddress.has_value() && issue.actualRegisterAddress.has_value()
+            && issue.expectedQuantity.has_value() && issue.actualQuantity.has_value()) {
+            const auto hex4 = [](std::uint16_t value) {
+                return QStringLiteral("0x")
+                    + QString::number(value, 16).toUpper().rightJustified(4, QLatin1Char('0'));
+            };
+            return QStringLiteral("写多个寄存器响应不匹配（起始地址 请求 %1 / 响应 %2；数量 请求 %3 / 响应 %4）")
+                .arg(hex4(*issue.expectedRegisterAddress),
+                     hex4(*issue.actualRegisterAddress))
+                .arg(*issue.expectedQuantity)
+                .arg(*issue.actualQuantity);
+        }
+        return QStringLiteral("写多个寄存器响应不匹配");
+    }
+    return QString();
+}
+
+QString singleRequestIssueText(const modbuslens::core::TransactionRequestIssue& requestIssue)
+{
+    using modbuslens::core::TransactionRequestIssueCode;
+    switch (requestIssue.code) {
+    case TransactionRequestIssueCode::InvalidRequestQuantity:
+        if (requestIssue.observedQuantity.has_value()
+            && requestIssue.minAllowedQuantity.has_value()
+            && requestIssue.maxAllowedQuantity.has_value()) {
+            return QStringLiteral("请求数量不符合该功能码约束（%1，合法范围 %2–%3）")
+                .arg(*requestIssue.observedQuantity)
+                .arg(*requestIssue.minAllowedQuantity)
+                .arg(*requestIssue.maxAllowedQuantity);
+        }
+        return QStringLiteral("请求数量不符合该功能码约束");
+    case TransactionRequestIssueCode::InvalidRequestLength:
+        if (requestIssue.observedLength.has_value()
+            && requestIssue.expectedLength.has_value()) {
+            return QStringLiteral("请求长度不匹配（实际 %1 / 期望 %2）")
+                .arg(*requestIssue.observedLength)
+                .arg(*requestIssue.expectedLength);
+        }
+        return QStringLiteral("请求长度不符合该功能码约束");
+    case TransactionRequestIssueCode::InvalidRequestByteCount:
+        if (requestIssue.observedByteCount.has_value()
+            && requestIssue.expectedByteCount.has_value()) {
+            return QStringLiteral("请求字节数不匹配（实际 %1 / 期望 %2）")
+                .arg(*requestIssue.observedByteCount)
+                .arg(*requestIssue.expectedByteCount);
+        }
+        return QStringLiteral("请求字节数不匹配");
+    case TransactionRequestIssueCode::InvalidBroadcastFunction:
+        return QStringLiteral("地址 0 不是该功能码的合法广播");
     }
     return QString();
 }
 
 QString requestIssueDetailText(
-    const std::optional<modbuslens::core::TransactionRequestIssue>& requestIssue)
+    const std::vector<modbuslens::core::TransactionRequestIssue>& requestIssues)
 {
-    if (!requestIssue.has_value()) {
-        return QString();
-    }
-    using modbuslens::core::TransactionRequestIssueCode;
-    switch (requestIssue->code) {
-    case TransactionRequestIssueCode::InvalidRequestQuantity:
-        if (requestIssue->observedQuantity.has_value()
-            && requestIssue->maxAllowedQuantity.has_value()) {
-            return QStringLiteral("请求数量不符合 0x03 约束（%1，上限 %2）")
-                .arg(*requestIssue->observedQuantity)
-                .arg(*requestIssue->maxAllowedQuantity);
+    // Deterministic join in CORE order — the adapter never re-sorts issues.
+    QStringList parts;
+    for (const auto& requestIssue : requestIssues) {
+        const QString text = singleRequestIssueText(requestIssue);
+        if (!text.isEmpty()) {
+            parts << text;
         }
-        return QStringLiteral("请求数量不符合该功能码约束");
-    case TransactionRequestIssueCode::InvalidRequestLength:
-        return QStringLiteral("请求数据长度不符合该功能码约束");
-    case TransactionRequestIssueCode::InvalidBroadcastFunction:
-        return QStringLiteral("地址 0 不是该功能码的合法广播");
     }
-    return QString();
+    return parts.join(QStringLiteral("；"));
 }
 
 TransactionListModel::TransactionListModel(QObject* parent)

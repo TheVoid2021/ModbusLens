@@ -2,6 +2,7 @@
 
 #include "core/protocol/Function03.h"
 #include "core/protocol/Function06.h"
+#include "core/protocol/Function16.h"
 
 #include <optional>
 
@@ -13,18 +14,24 @@ using ms = std::chrono::milliseconds;
 
 constexpr std::uint8_t kReadHoldingRegistersFunction = 0x03;
 constexpr std::uint8_t kWriteSingleRegisterFunction = 0x06;
+constexpr std::uint8_t kWriteMultipleRegistersFunction = 0x10;
 constexpr std::uint8_t kExceptionBit = 0x80;
 constexpr std::uint8_t kBroadcastAddress = 0x00;
-// V1.1b3 §6.3 (mirrors Function03's own kMaxQuantity; kept local because the
-// protocol module does not export its constants).
+// V1.1b3 §6.3 / Function03's own kMaxQuantity (kept local; the protocol
+// module does not export its constants).
+constexpr std::uint16_t kFc03MinQuantity = 1;
 constexpr std::uint16_t kFc03MaxQuantity = 125;
+// Function16 domain (03_MODBUS_LEARNING §4.5): 1..123.
+constexpr std::uint16_t kFc16MinQuantity = 1;
+constexpr std::uint16_t kFc16MaxQuantity = 123;
+constexpr std::uint16_t kFc16HeaderBytes = 5;
 
 AnalyzedObservedTransaction analyzed(
     TransactionStatus status,
     ms elapsed,
     std::optional<std::uint8_t> exceptionCode = std::nullopt,
     std::optional<TransactionIssue> issue = std::nullopt,
-    std::optional<TransactionRequestIssue> requestIssue = std::nullopt)
+    std::vector<TransactionRequestIssue> requestIssues = {})
 {
     return AnalyzedObservedTransaction{
         .analysis = TransactionAnalysis{
@@ -33,13 +40,12 @@ AnalyzedObservedTransaction analyzed(
             .exceptionCode = std::move(exceptionCode),
             .issue = std::move(issue),
         },
-        .requestIssue = std::move(requestIssue),
+        .requestIssues = std::move(requestIssues),
     };
 }
 
 // Value-initialized issue factory: sparse payload columns start empty and
-// per-branch code fills exactly the columns its code requires (T015 I-set,
-// same discipline as T014's makeIssue).
+// per-branch code fills exactly the columns its code requires.
 TransactionIssue makeIssue(TransactionIssueCode code)
 {
     TransactionIssue issue;
@@ -47,36 +53,90 @@ TransactionIssue makeIssue(TransactionIssueCode code)
     return issue;
 }
 
-TransactionRequestIssue quantityIssue(std::optional<std::uint16_t> observed)
+TransactionRequestIssue makeRequestIssue(TransactionRequestIssueCode code)
 {
     TransactionRequestIssue issue;
-    issue.code = TransactionRequestIssueCode::InvalidRequestQuantity;
-    issue.observedQuantity = observed;
-    issue.maxAllowedQuantity = kFc03MaxQuantity;
+    issue.code = code;
     return issue;
 }
 
-// Gate B: the ONLY place request-side issues are derived. Precedence when
-// both facts hold (address 0 + invalid quantity): the function-specific
-// invalidity wins — it is the more specific observed violation.
-std::optional<TransactionRequestIssue> classifyRequest(const ModbusRtuFrame& request)
+// Gate B / Part C: the ONLY place request-side issues are derived.
+// Deterministic reporting order = structural readability -> quantity ->
+// byteCount-vs-quantity -> payload-vs-declared; ordering is NOT a discard
+// ladder: every independently provable issue is kept (anti-cascade rules
+// below). InvalidBroadcastFunction is appended last when it applies.
+std::vector<TransactionRequestIssue> classifyRequest(const ModbusRtuFrame& request)
 {
-    std::optional<TransactionRequestIssue> requestIssue;
+    std::vector<TransactionRequestIssue> issues;
 
     switch (request.functionCode) {
     case kReadHoldingRegistersFunction: {
         const auto decoded = decodeReadHoldingRegistersRequest(request);
         if (std::holds_alternative<Function03DecodeError>(decoded)) {
-            requestIssue = quantityIssue(readHoldingRegistersRequestQuantity(request));
+            auto issue = makeRequestIssue(
+                TransactionRequestIssueCode::InvalidRequestQuantity);
+            issue.observedQuantity = readHoldingRegistersRequestQuantity(request);
+            issue.minAllowedQuantity = kFc03MinQuantity;
+            issue.maxAllowedQuantity = kFc03MaxQuantity;
+            issues.push_back(std::move(issue));
         }
         break;
     }
     case kWriteSingleRegisterFunction: {
         const auto decoded = decodeWriteSingleRegisterRequest(request);
         if (std::holds_alternative<Function06DecodeError>(decoded)) {
-            TransactionRequestIssue issue;
-            issue.code = TransactionRequestIssueCode::InvalidRequestLength;
-            requestIssue = issue;
+            issues.push_back(makeRequestIssue(
+                TransactionRequestIssueCode::InvalidRequestLength));
+        }
+        break;
+    }
+    case kWriteMultipleRegistersFunction: {
+        const auto fields = readWriteMultipleRegistersFields(request);
+        if (!fields.has_value()) {
+            // Structural readability failed: nothing else can be derived.
+            auto issue = makeRequestIssue(
+                TransactionRequestIssueCode::InvalidRequestLength);
+            issue.observedLength = static_cast<std::uint16_t>(request.data.size());
+            issues.push_back(std::move(issue));
+            break;
+        }
+
+        const bool quantityValid = fields->quantity >= kFc16MinQuantity
+            && fields->quantity <= kFc16MaxQuantity;
+        if (!quantityValid) {
+            auto issue = makeRequestIssue(
+                TransactionRequestIssueCode::InvalidRequestQuantity);
+            issue.observedQuantity = fields->quantity;
+            issue.minAllowedQuantity = kFc16MinQuantity;
+            issue.maxAllowedQuantity = kFc16MaxQuantity;
+            issues.push_back(std::move(issue));
+        } else {
+            // Anti-cascade: expectedByteCount from a VALID quantity only —
+            // never derive a pseudo byte-count expectation from an invalid
+            // quantity.
+            const auto expectedByteCount = static_cast<std::uint8_t>(
+                fields->quantity * 2);
+            if (fields->byteCount != expectedByteCount) {
+                auto issue = makeRequestIssue(
+                    TransactionRequestIssueCode::InvalidRequestByteCount);
+                issue.observedByteCount = fields->byteCount;
+                issue.expectedByteCount = expectedByteCount;
+                issues.push_back(std::move(issue));
+            }
+        }
+
+        // Payload-length vs declared byteCount is INDEPENDENT of quantity
+        // validity: as long as the byteCount field is readable, the actual
+        // data length can be compared against 5 + declaredByteCount.
+        const std::uint16_t expectedLength = static_cast<std::uint16_t>(
+            kFc16HeaderBytes + fields->byteCount);
+        if (request.data.size() != expectedLength) {
+            auto issue = makeRequestIssue(
+                TransactionRequestIssueCode::InvalidRequestLength);
+            issue.observedLength =
+                static_cast<std::uint16_t>(request.data.size());
+            issue.expectedLength = expectedLength;
+            issues.push_back(std::move(issue));
         }
         break;
     }
@@ -84,15 +144,15 @@ std::optional<TransactionRequestIssue> classifyRequest(const ModbusRtuFrame& req
         break; // unknown functions have no request model to violate
     }
 
-    if (!requestIssue.has_value() && request.address == kBroadcastAddress
-        && request.functionCode != kWriteSingleRegisterFunction) {
-        // Phase B: FC06 is the only supported broadcast-capable function.
-        // A read (or anything else) at address 0 is NOT a broadcast.
-        TransactionRequestIssue issue;
-        issue.code = TransactionRequestIssueCode::InvalidBroadcastFunction;
-        requestIssue = issue;
+    if (request.address == kBroadcastAddress
+        && request.functionCode != kWriteSingleRegisterFunction
+        && request.functionCode != kWriteMultipleRegistersFunction) {
+        // The broadcast-capable set is explicitly {0x06, 0x10}: a read (or
+        // anything else) at address 0 is NOT a broadcast.
+        issues.push_back(makeRequestIssue(
+            TransactionRequestIssueCode::InvalidBroadcastFunction));
     }
-    return requestIssue;
+    return issues;
 }
 
 } // namespace
@@ -112,7 +172,7 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
     ms elapsed,
     ms timeoutThreshold)
 {
-    const auto requestIssue = classifyRequest(request);
+    const auto requestIssues = classifyRequest(request);
     const bool isBroadcast = request.address == kBroadcastAddress
         && request.functionCode == kWriteSingleRegisterFunction;
 
@@ -122,11 +182,11 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
     if (std::holds_alternative<NoResponse>(observation)) {
         if (isBroadcast) {
             return analyzed(TransactionStatus::ExpectedNoResponse, elapsed,
-                            std::nullopt, std::nullopt, requestIssue);
+                            std::nullopt, std::nullopt, requestIssues);
         }
         return analyzed(elapsed < timeoutThreshold ? TransactionStatus::Pending
                                                    : TransactionStatus::Timeout,
-                        elapsed, std::nullopt, std::nullopt, requestIssue);
+                        elapsed, std::nullopt, std::nullopt, requestIssues);
     }
 
     // 2. Broadcast: ANY recorded bytes are an unexpected response, even a
@@ -135,7 +195,7 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
         return analyzed(
             TransactionStatus::ProtocolError, elapsed, std::nullopt,
             makeIssue(TransactionIssueCode::UnexpectedResponseForBroadcast),
-            requestIssue);
+            requestIssues);
     }
 
     // 3. Wire-level failure (unicast). Exhaustive switch on purpose.
@@ -143,17 +203,16 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
         switch (decodeError->code) {
         case RtuDecodeErrorCode::CrcMismatch:
             return analyzed(TransactionStatus::CrcError, elapsed, std::nullopt,
-                            std::nullopt, requestIssue);
+                            std::nullopt, requestIssues);
         case RtuDecodeErrorCode::FrameTooShort:
             return analyzed(
                 TransactionStatus::ProtocolError, elapsed, std::nullopt,
                 makeIssue(TransactionIssueCode::ResponseFrameTooShort),
-                requestIssue);
+                requestIssues);
         }
         return analyzed(
             TransactionStatus::ProtocolError, elapsed, std::nullopt,
-            makeIssue(TransactionIssueCode::UnknownProtocolError),
-            requestIssue);
+            makeIssue(TransactionIssueCode::UnknownProtocolError), requestIssues);
     }
 
     // 4. A decoded frame.
@@ -164,16 +223,12 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
         issue.expectedAddress = request.address;
         issue.actualAddress = response.address;
         return analyzed(TransactionStatus::ProtocolError, elapsed, std::nullopt,
-                        std::move(issue), requestIssue);
+                        std::move(issue), requestIssues);
     }
 
     // 5. Generic exception path — written ONCE for every function code.
     //    Boundary guard (T015 semantic audit): only a request function
-    //    WITHOUT the exception bit can be answered by (fn | 0x80). A request
-    //    whose function already carries 0x80 (e.g. 0x88) is not a normal
-    //    Modbus request function, so (fn | 0x80) == fn must never match
-    //    itself into a fake Exception; such a pair falls through to the
-    //    unsupported / function-mismatch paths below.
+    //    WITHOUT the exception bit can be answered by (fn | 0x80).
     const bool requestHasExceptionBit =
         (request.functionCode & kExceptionBit) != 0;
     if (!requestHasExceptionBit
@@ -183,33 +238,32 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
             return analyzed(
                 TransactionStatus::ProtocolError, elapsed, std::nullopt,
                 makeIssue(TransactionIssueCode::MalformedExceptionResponse),
-                requestIssue);
+                requestIssues);
         }
         return analyzed(TransactionStatus::Exception, elapsed, response.data[0],
-                        std::nullopt, requestIssue);
+                        std::nullopt, requestIssues);
     }
 
     if (request.functionCode == kReadHoldingRegistersFunction
         && response.functionCode == kReadHoldingRegistersFunction) {
-        if (!requestIssue.has_value()) {
+        if (requestIssues.empty()) {
             // Valid FC03 request: reuse T007 verbatim — single source of
             // truth for the whole FC03 pair (T014 issue semantics included).
             return AnalyzedObservedTransaction{
                 .analysis = analyzeFunction03Transaction(
                     request, observation, elapsed, timeoutThreshold),
-                .requestIssue = std::nullopt,
+                .requestIssues = {},
             };
         }
         // Semantic-invalid FC03 request: the response side is still
         // classified, but the invalid request must not be trusted for the
-        // cross-frame quantity expectation either — the recorded quantity
-        // value stays the honest expected value.
+        // cross-frame quantity expectation either.
         const auto responseDecode = decodeReadHoldingRegistersResponse(response);
         if (std::holds_alternative<Function03DecodeError>(responseDecode)) {
             return analyzed(
                 TransactionStatus::ProtocolError, elapsed, std::nullopt,
                 makeIssue(TransactionIssueCode::MalformedNormalResponse),
-                requestIssue);
+                requestIssues);
         }
         const auto& responseModel = std::get<ReadHoldingRegistersResponse>(responseDecode);
         const auto requestedQuantity =
@@ -220,11 +274,11 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
             issue.expectedQuantity = requestedQuantity;
             issue.actualQuantity = static_cast<std::uint16_t>(
                 responseModel.values.size());
-            return analyzed(TransactionStatus::ProtocolError, elapsed, std::nullopt,
-                            std::move(issue), requestIssue);
+            return analyzed(TransactionStatus::ProtocolError, elapsed,
+                            std::nullopt, std::move(issue), requestIssues);
         }
         return analyzed(TransactionStatus::Success, elapsed, std::nullopt,
-                        std::nullopt, requestIssue);
+                        std::nullopt, requestIssues);
     }
 
     if (request.functionCode == kWriteSingleRegisterFunction
@@ -234,17 +288,14 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
             return analyzed(
                 TransactionStatus::ProtocolError, elapsed, std::nullopt,
                 makeIssue(TransactionIssueCode::MalformedNormalResponse),
-                requestIssue);
+                requestIssues);
         }
         const auto requestDecode = decodeWriteSingleRegisterRequest(request);
         if (std::holds_alternative<Function06DecodeError>(requestDecode)) {
-            // Request length was already recorded as a request issue; a
-            // normal-shaped reply cannot be echo-verified against an
-            // undecodable request — no finer deterministic fact exists.
             return analyzed(
                 TransactionStatus::ProtocolError, elapsed, std::nullopt,
                 makeIssue(TransactionIssueCode::UnknownProtocolError),
-                requestIssue);
+                requestIssues);
         }
         const auto& requestModel = std::get<WriteSingleRegisterRequest>(requestDecode);
         const auto& responseModel = std::get<WriteSingleRegisterResponse>(responseDecode);
@@ -255,17 +306,17 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
             issue.actualRegisterAddress = responseModel.registerAddress;
             issue.expectedRegisterValue = requestModel.registerValue;
             issue.actualRegisterValue = responseModel.registerValue;
-            return analyzed(TransactionStatus::ProtocolError, elapsed, std::nullopt,
-                            std::move(issue), requestIssue);
+            return analyzed(TransactionStatus::ProtocolError, elapsed,
+                            std::nullopt, std::move(issue), requestIssues);
         }
         return analyzed(TransactionStatus::Success, elapsed, std::nullopt,
-                        std::nullopt, requestIssue);
+                        std::nullopt, requestIssues);
     }
 
     // 6. The response answers the request function, but ModbusLens has no
-    //    normal semantics for it yet (FC08, 0x04, 0x10 until Part C, ...).
-    //    That is an explicit per-record "unsupported" fact — NOT an invalid
-    //    request and NOT a TransactionStatus.
+    //    normal semantics for it yet (FC08, 0x04, Function 0x10 until
+    //    Part C wires it, ...). That is an explicit per-record "unsupported"
+    //    fact — NOT an invalid request and NOT a TransactionStatus.
     if (response.functionCode == request.functionCode) {
         return UnsupportedObservedTransaction{
             .deviceAddress = request.address,
@@ -279,7 +330,7 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
         auto issue = makeIssue(TransactionIssueCode::UnexpectedResponseFunction);
         issue.actualFunctionCode = response.functionCode;
         return analyzed(TransactionStatus::ProtocolError, elapsed, std::nullopt,
-                        std::move(issue), requestIssue);
+                        std::move(issue), requestIssues);
     }
 }
 

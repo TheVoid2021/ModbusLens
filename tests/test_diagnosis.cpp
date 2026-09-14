@@ -38,7 +38,7 @@ DiagnosisTransaction tx(std::uint8_t address, TransactionStatus status,
             .exceptionCode = exceptionCode,
             .issue = std::nullopt,
         },
-        .requestIssue = std::nullopt,
+        .requestIssues = {},
     };
 }
 
@@ -295,7 +295,7 @@ void DiagnosisTest::a11_protocolIssuePreservedInContext()
     const std::vector<DiagnosisTransaction> batch = {
         DiagnosisTransaction{
             .deviceAddress = 0x01, .functionCode = 0x03, .analysis = analysis,
-            .requestIssue = std::nullopt},
+            .requestIssues = {}},
     };
     const DiagnosisContext context = buildDiagnosisContext(batch);
 

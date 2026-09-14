@@ -19,9 +19,12 @@ enum class TransactionStatus {
     CrcError,      // wire arrived but decode failed with CrcMismatch
     Timeout,       // no response and elapsed >= timeoutThreshold
     ProtocolError, // data arrived but cannot be a valid match for this request
-    // T015 Gate C: a valid broadcast-capable request was observed, no
-    // response was observed, and protocol semantics do not expect one. It
-    // proves NOTHING about device write success or device health (ADR-003).
+    // T015 Gate C / Part C orthogonal semantics (ADR-003): the RESPONSE
+    // expectation / observed outcome of a broadcast-capable request — no
+    // response was observed and protocol semantics do not expect one.
+    // Request semantic validity is an ORTHOGONAL dimension carried by the
+    // request-issues collection, never folded into this status. It proves
+    // NOTHING about device write success or device health.
     ExpectedNoResponse,
 };
 
@@ -37,9 +40,10 @@ enum class TransactionIssueCode {
     QuantityMismatch,           // response value count != request quantity
     UnexpectedResponseFunction, // any other response function code
     UnknownProtocolError,       // deterministic defensive/fallback branch only
-    // ---- T015 additive (FC06 / broadcast; T014 contract unchanged) ----
+    // ---- T015 additive (FC06 / broadcast / Function 0x10) ----
     WriteSingleRegisterEchoMismatch, // FC06 echo fields differ from request
     UnexpectedResponseForBroadcast,  // any bytes replied to a broadcast
+    WriteMultipleRegistersEchoMismatch, // 0x10 reply shaped right, fields differ
 };
 
 // Sparse context payload: each optional is populated ONLY when its code
@@ -80,17 +84,36 @@ std::string_view transactionIssueName(TransactionIssueCode code);
 // ---------------------------------------------------------------------------
 
 enum class TransactionRequestIssueCode {
-    InvalidRequestQuantity, // semantic quantity outside the function's domain
-    InvalidRequestLength,   // request data length not valid for the function
+    InvalidRequestQuantity,   // quantity outside the function's legal domain
+    InvalidRequestLength,     // request data length not valid for the function
+    InvalidRequestByteCount,  // declared byteCount != 2*quantity (valid qty)
     InvalidBroadcastFunction, // address==0 with a non-broadcast function
 };
 
 struct TransactionRequestIssue {
     TransactionRequestIssueCode code{};
 
-    // InvalidRequestQuantity payload (FC03: maxAllowedQuantity == 125).
+    // InvalidRequestQuantity payload (observed + the exact legal domain;
+    // T015 Part C: min is recorded for both FC03 (1..125) and Function16
+    // (1..123) so a quantity=0 cannot be misread as "only over the max").
     std::optional<std::uint16_t> observedQuantity;
+    std::optional<std::uint16_t> minAllowedQuantity;
     std::optional<std::uint16_t> maxAllowedQuantity;
+
+    // InvalidRequestByteCount payload (byteCount is a wire 1-byte field;
+    // expected = 2*quantity <= 246, so uint8 is the exact wire width).
+    std::optional<std::uint8_t> observedByteCount;
+    std::optional<std::uint8_t> expectedByteCount;
+
+    // InvalidRequestLength payload. Length unit (stable definition):
+    // Function16 request frame.data bytes; expected = 5 + declaredByteCount,
+    // absent when not reliably computable. NOT uint8_t on purpose: the
+    // expression can reach 260 (quantity=124 => byteCount=248 => data=253,
+    // which itself crosses the RTU frame boundary). uint16_t is protocol-
+    // sufficient and serialization-stable (size_t NOT chosen: build-width
+    // dependent serialization).
+    std::optional<std::uint16_t> observedLength;
+    std::optional<std::uint16_t> expectedLength;
 
     bool operator==(const TransactionRequestIssue&) const = default;
 };

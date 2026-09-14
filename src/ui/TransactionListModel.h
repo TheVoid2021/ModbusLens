@@ -27,10 +27,11 @@ struct TransactionListEntry {
 // presentation text (observed facts only; explicitly NOT root-cause prose).
 QString issueDetailText(const modbuslens::core::TransactionAnalysis& analysis);
 
-// T015: request-side fact -> conservative Chinese text (adapter only; Core
-// never carries presentation strings). Empty when there is no request issue.
+// T015: request-side facts -> conservative Chinese text (adapter only; Core
+// never carries presentation strings). Multiple issues are joined in the
+// CORE-determined order — the adapter re-sorts nothing.
 QString requestIssueDetailText(
-    const std::optional<modbuslens::core::TransactionRequestIssue>& requestIssue);
+    const std::vector<modbuslens::core::TransactionRequestIssue>& requestIssues);
 
 class TransactionListModel : public QAbstractListModel
 {

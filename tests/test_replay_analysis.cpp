@@ -217,13 +217,15 @@ void ReplayAnalysisTest::i03b_invalidRequestData()
     QCOMPARE(batch->transactions.size(), std::size_t{1});
     const auto& outcome = batch->transactions[0];
     QCOMPARE(outcome.analysis.status, TransactionStatus::Pending);
-    QVERIFY(outcome.requestIssue.has_value());
-    QCOMPARE(outcome.requestIssue->code,
+    QCOMPARE(outcome.requestIssues.size(), std::size_t{1});
+    QCOMPARE(outcome.requestIssues[0].code,
              TransactionRequestIssueCode::InvalidRequestQuantity);
-    QVERIFY(outcome.requestIssue->observedQuantity.has_value());
-    QCOMPARE(*outcome.requestIssue->observedQuantity, std::uint16_t{0});
-    QVERIFY(outcome.requestIssue->maxAllowedQuantity.has_value());
-    QCOMPARE(*outcome.requestIssue->maxAllowedQuantity, std::uint16_t{125});
+    QVERIFY(outcome.requestIssues[0].observedQuantity.has_value());
+    QCOMPARE(*outcome.requestIssues[0].observedQuantity, std::uint16_t{0});
+    QVERIFY(outcome.requestIssues[0].minAllowedQuantity.has_value());
+    QCOMPARE(*outcome.requestIssues[0].minAllowedQuantity, std::uint16_t{1});
+    QVERIFY(outcome.requestIssues[0].maxAllowedQuantity.has_value());
+    QCOMPARE(*outcome.requestIssues[0].maxAllowedQuantity, std::uint16_t{125});
 }
 
 void ReplayAnalysisTest::i03c_invalidRequestFunction()
@@ -247,7 +249,7 @@ void ReplayAnalysisTest::i03c_invalidRequestFunction()
     QCOMPARE(batch->transactions.size(), std::size_t{1});
     QCOMPARE(batch->transactions[0].functionCode, std::uint8_t{0x06});
     QCOMPARE(batch->transactions[0].analysis.status, TransactionStatus::Pending);
-    QVERIFY(!batch->transactions[0].requestIssue.has_value());
+    QVERIFY(batch->transactions[0].requestIssues.empty());
 }
 
 void ReplayAnalysisTest::i04_badResponseCrc()

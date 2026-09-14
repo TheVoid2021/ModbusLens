@@ -264,7 +264,7 @@ AgentToolResult dispatchAgentTool(const AgentToolContext& context,
             .elapsedMs = tx.analysis.elapsed.count(),
             .exceptionCode = tx.analysis.exceptionCode,
             .issue = tx.analysis.issue,
-            .requestIssue = tx.requestIssue,
+            .requestIssues = tx.requestIssues,
         };
     }
     }
@@ -393,18 +393,45 @@ QJsonObject toJsonObject(const TransactionDetailResult& result)
                         static_cast<qint64>(*result.issue->actualQuantity));
         }
     }
-    // T015: request-side facts + the broadcast expectation machine fact.
-    if (result.requestIssue.has_value()) {
-        json.insert(QStringLiteral("request_issue_code"),
-                    requestIssueCodeValue(result.requestIssue->code));
-        if (result.requestIssue->observedQuantity.has_value()) {
-            json.insert(QStringLiteral("observed_quantity"),
-                        static_cast<qint64>(*result.requestIssue->observedQuantity));
+    // T015 Part C: the FULL ordered request-issue collection (same order
+    // the Core produced it), plus the broadcast expectation machine fact.
+    if (!result.requestIssues.empty()) {
+        QJsonArray requestIssues;
+        for (const auto& requestIssue : result.requestIssues) {
+            QJsonObject item;
+            item.insert(QStringLiteral("code"),
+                        requestIssueCodeValue(requestIssue.code));
+            if (requestIssue.observedQuantity.has_value()) {
+                item.insert(QStringLiteral("observed_quantity"),
+                            static_cast<qint64>(*requestIssue.observedQuantity));
+            }
+            if (requestIssue.minAllowedQuantity.has_value()) {
+                item.insert(QStringLiteral("min_allowed_quantity"),
+                            static_cast<qint64>(*requestIssue.minAllowedQuantity));
+            }
+            if (requestIssue.maxAllowedQuantity.has_value()) {
+                item.insert(QStringLiteral("max_allowed_quantity"),
+                            static_cast<qint64>(*requestIssue.maxAllowedQuantity));
+            }
+            if (requestIssue.observedByteCount.has_value()) {
+                item.insert(QStringLiteral("observed_byte_count"),
+                            static_cast<int>(*requestIssue.observedByteCount));
+            }
+            if (requestIssue.expectedByteCount.has_value()) {
+                item.insert(QStringLiteral("expected_byte_count"),
+                            static_cast<int>(*requestIssue.expectedByteCount));
+            }
+            if (requestIssue.observedLength.has_value()) {
+                item.insert(QStringLiteral("observed_length"),
+                            static_cast<qint64>(*requestIssue.observedLength));
+            }
+            if (requestIssue.expectedLength.has_value()) {
+                item.insert(QStringLiteral("expected_length"),
+                            static_cast<qint64>(*requestIssue.expectedLength));
+            }
+            requestIssues.append(item);
         }
-        if (result.requestIssue->maxAllowedQuantity.has_value()) {
-            json.insert(QStringLiteral("max_allowed_quantity"),
-                        static_cast<qint64>(*result.requestIssue->maxAllowedQuantity));
-        }
+        json.insert(QStringLiteral("request_issues"), requestIssues);
     }
     if (result.status == modbuslens::core::TransactionStatus::ExpectedNoResponse) {
         // Core-determined broadcast fact (ADR-003): the protocol does not

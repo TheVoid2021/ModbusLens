@@ -49,7 +49,7 @@ ReplayAnalysisResult analyzeReplayLog(const ReplayLog& log)
                 .deviceAddress = request.address,
                 .functionCode = request.functionCode,
                 .analysis = analyzed->analysis,
-                .requestIssue = analyzed->requestIssue,
+                .requestIssues = analyzed->requestIssues,
             });
         } else {
             unsupportedRecords.push_back(
