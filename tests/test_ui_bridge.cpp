@@ -161,6 +161,10 @@ private slots:
     // still displays 成功 (status is never rewritten) with the FULL
     // secondary request-issue text.
     void t04_successRowKeepsBothDimensions();
+    // UI-T05 (P0, presentation gap): the formatted baseline MUST contain the
+    // RequestIssueObserved line (transaction-count based, deterministic
+    // position after ExpectedNoResponse), never just its side-actions.
+    void t05_baselineRequestIssueFindingVisible();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -1408,6 +1412,55 @@ void UiBridgeTest::t04_successRowKeepsBothDimensions()
                                   .toString();
     QVERIFY(secondary.contains(QStringLiteral("请求字节数不匹配（实际 2 / 期望 4）")));
     QVERIFY(secondary.contains(QStringLiteral("请求长度不匹配（实际 9 / 期望 7）")));
+}
+
+void UiBridgeTest::t05_baselineRequestIssueFindingVisible()
+{
+    // Composite batch shaped like the manual-smoke case: a protocol error, an
+    // Exception 0x03, a broadcast, and THREE transactions carrying request
+    // issues (one of them carries TWO issues — count must still be 3).
+    using namespace modbuslens::core;
+    const ModbusRtuFrame f16faulty{.address = 0x01, .functionCode = 0x10,
+                                   .data = {0x00, 0x10, 0x00, 0x02, 0x02, 0x00, 0x01, 0x00, 0x02}};
+    const ModbusRtuFrame f16clean{.address = 0x01, .functionCode = 0x10,
+                                  .data = {0x00, 0x10, 0x00, 0x01, 0x02, 0x00, 0x2A}};
+    const ModbusRtuFrame f16reply{.address = 0x01, .functionCode = 0x10,
+                                  .data = {0x00, 0x10, 0x00, 0x02}};
+    const ModbusRtuFrame badQty{.address = 0x01, .functionCode = 0x10,
+                                .data = {0x00, 0x10, 0x00, 0x7C, 0x00}};
+    const ModbusRtuFrame broadcastReq{.address = 0x00, .functionCode = 0x10,
+                                      .data = {0x00, 0x10, 0x00, 0x01, 0x02, 0x00, 0x2A}};
+
+    const QString content = mlogOf(
+        QStringLiteral("TXN|10|%1|%2\n").arg(wireHex(encodeRtuFrame(f16faulty)), wireHex(encodeRtuFrame(f16reply)))
+        + QStringLiteral("TXN|10|%1|%2\n").arg(wireHex(encodeRtuFrame(badQty)),
+             wireHex(encodeRtuFrame(ModbusRtuFrame{.address = 0x01, .functionCode = 0x90, .data = {0x03}})))
+        + QStringLiteral("TXN|10|%1|%2\n").arg(wireHex(encodeRtuFrame(badQty)),
+             wireHex(encodeRtuFrame(ModbusRtuFrame{.address = 0x01, .functionCode = 0x10, .data = {0x00, 0x10, 0x00, 0x7C}})))
+        + QStringLiteral("TXN|10|%1|%2\n").arg(wireHex(encodeRtuFrame(f16clean)),
+             wireHex(encodeRtuFrame(ModbusRtuFrame{.address = 0x01, .functionCode = 0x10, .data = {0x00, 0x11, 0x00, 0x01}})))
+        + QStringLiteral("TXN|5|%1|NO_RESPONSE\n").arg(wireHex(encodeRtuFrame(broadcastReq))));
+
+    std::optional<QTemporaryFile> holder;
+    const QString path = writeTempMlog(content, holder);
+    QVERIFY(!path.isEmpty());
+
+    AnalysisController controller;
+    controller.loadReplayFile(QUrl::fromLocalFile(path));
+    controller.runBaselineDiagnosis();
+    QVERIFY(controller.hasBaselineDiagnosis());
+
+    const QString text = controller.baselineDiagnosisText();
+    // The finding line itself must exist — not just its side actions.
+    QVERIFY(text.contains(QStringLiteral("请求参数不符合协议约束的事务：3")));
+    // Transaction count, never the issue total (3 transactions / 4 issues).
+    QVERIFY(!text.contains(QStringLiteral("事务：4")));
+    // Deterministic order: after the broadcast line, before anything Healthy.
+    const int issuePos = text.indexOf(QStringLiteral("请求参数不符合协议约束的事务：3"));
+    const int broadcastPos = text.indexOf(QStringLiteral("预期无响应的广播事务：1"));
+    QVERIFY(broadcastPos >= 0);
+    QVERIFY(issuePos > broadcastPos);
+    QVERIFY(!text.contains(QStringLiteral("全部 ")));
 }
 
 } // namespace
