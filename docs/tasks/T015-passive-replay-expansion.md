@@ -710,3 +710,22 @@ request 0x10 → response **0x90** 完全由既有 generic exception matcher 命
 - **验证**：clean 重建 **153 targets 零警告**；ctest **24/24**；`modbuslens.exe --qml-smoke-test` exit=0 零输出；deploy + minimal-PATH exit=0；安全 grep：`encodeWriteMultipleRegisters|writeMultipleRegisters(` 零命中、agent 无 write/retry/send_function16、SerialTransactionSession 仍仅 `beginReadHoldingRegisters`（FC03 active read-only）。**零真实 ModelScope 调用**；sample 6 文件 untracked/未用。
 - **未做（边界未破）**：Function16 encoder / active write / QML 写控件 / Agent 写工具 / auto-retry；Replay parser 零语法变化（无新 token）；request-wire corruption 仍 Gate E deferred；0x10 之外的其余功能码未动；Unsupported 未变 ProtocolError；ExpectedNoResponse 未变 Success。
 - **Phase C 状态**：**IMPLEMENTED / AWAITING REVIEW**；T015 整体仍 IN PROGRESS；LKGC candidate = `96ed9e2`（待用户 Review + Manual UI Smoke）。
+## C26. P0 Downstream Semantic Gap Audit（Final Acceptance 前，2026-09-14）+ RED-history 事实订正
+
+### Gap 与修复（minimal fix，未扩 Scope）
+
+- **Gap**：requestIssues 已是与 TransactionStatus 正交的一等事实，但三个下游仍 status-only——Baseline 的 Healthy 判定、Agent anomaly predicate、以及缺少 prompt 护栏——可能漏掉 `Success + requestIssues` 与 `ExpectedNoResponse + requestIssues`。
+- **真实行为核验（不以报告推断）**：构造 `quantity=2, byteCount=2, payload=4 bytes` + 结构合法且匹配的 0x10 normal response → 实测 **`TransactionStatus::Success` + `requestIssues.size()==2`**（`REQISSUE-C01` 在修复前即 PASS：analyzer 层正交性本已正确；缺口只在下游）。
+- **RED**（修复前）：diagnosis **2 failed**（a14：Success+issues 被误判 Healthy；a15：缺 RequestIssueObserved 顺序）、agent_tools **1 failed**（a13：clean Success/ExpectedNoResponse 与带 issue 版本未区分）、ai_client **1 failed**（b21：system 缺护栏句）。passive 55/55（anchor）与 ui_bridge 54/54 保持。
+- **最小修复**：
+  - `RuleBasedDiagnosis`：新 finding **`RequestIssueObserved`**（Warning；`affectedCount`=**携带 requestIssues 的事务数**，非 issue 总数；action=CheckRequestParameters+CheckDeviceDocumentation；固定位置在 ExpectedNoResponseObserved 之后、Healthy 之前）；Healthy 四条件扩为**五条件**（`requestIssueTransactions == 0`）。不提 PLC bug/operator error/master bug/misconfiguration。
+  - **Statistics 未变**：无新快照字段；1 Success + issues 仍 success=1/completed=1/rate=100%——正交性由 DIAG-A14 + STAT 现有矩阵同时锁定。
+  - `AgentTools`：anomaly predicate = **status anomaly OR `!requestIssues.empty()`**（clean Success/clean ExpectedNoResponse 仍非 anomaly；其带 issue 版本是——理由=request-side issue，不是 ExpectedNoResponse 本身）；`AnomalyEntry` 增 `requestIssueCodes`（JSON `request_issue_codes` 数组）；`SessionSummaryResult` 增 **`request_issue_transactions`**（≥1 issue 的事务数，非 issue 总数；JSON 同字段）。工具数仍 3。
+  - `DiagnosisPromptBuilder`：system 增护栏——“Success 仅表示观察到匹配 normal response，不证明请求自身协议合法；high success rate does not erase request-side protocol issues；request issues 由本地 analyzer 决定，不得重算/重解析/指认为请求方 bug”。
+  - UI 零新功能：既有 Success+secondary 呈现已满足，仅补自动 bridge 锚 `UI-T04`（statusText 仍“成功” + 完整 secondary 两段文本；protocolErrorCount==0）。
+- **验证**：diagnosis **17/17**、agent_tools **15/15**、ai **23/23**、ui_bridge **55/55**、passive **55/55**；clean 153 零警告；ctest **24/24**；qml smoke exit=0。
+
+### RED-history 事实订正（§10 要求，不改历史 commit）
+
+- `git show 92ccf16` 复核结论：当轮记录的 **RED 是真实的**（42 passed / 12 failed，且 12 条全为断言级失败）；但 **F16-U01~U11 在 RED 时刻并不逐条处于未实现状态**——Function16 protocol/model scaffolding（structural reader + response decoder）与该提交同批落地，F16 单元测试因此自始即通过。
+- 准确表述（已同步到 Phase C Implementation Record 与 devlog）：**recorded RED is real；12 integration/behavior assertions failed；protocol/model scaffolding was already present；therefore this is not evidence that every Function16 unit behavior individually had a captured RED state。** 不声称不存在的 unit RED。
