@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
 | Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
-| 当前任务（Current Task） | **T015 Passive Replay Expansion — IN PROGRESS（整体）**（Phase A/B ✅ DONE；**Part C = IN PROGRESS：Function 0x10 Learning + Test Design（docs-only，DONE / AWAITING REVIEW；未实现）**；verified LKGC = `02ce302`） |
+| 当前任务（Current Task） | **T015 Passive Replay Expansion — IN PROGRESS（整体）**（Phase A/B ✅ DONE；**Part C = IMPLEMENTED / AWAITING REVIEW**：Function16 被动语义 + requestIssues collection + broadcast/{0x06,0x10}；LKGC candidate = `96ed9e2`；Manual UI Smoke = WAITING FOR USER；verified LKGC = `02ce302`） |
 | 最近完成任务（Last Completed Task） | **T015 Phase B — Passive Core + FC06 + Broadcast**（DONE / REVIEW PASS；T015 整体仍 IN PROGRESS：Part C NOT STARTED；verified LKGC `02ce302`） |
-| 当前阶段（Current Phase） | T015 Part C Architecture Review = **PASS**（Gate C1~C8 全部 APPROVED；fixture 订正 MULTI-C02 + Length 类型出台已落档）；Implementation = NOT STARTED |
-| 下一步动作（Next Action） | **T015 Part C — Test First + Implementation**（待批准；Agent 不自动开始） |
+| 当前阶段（Current Phase） | T015 Part C IMPLEMENTED（RED 42/12 → GREEN passive 54/54 + ctest 24/24 + clean 153 零警告 + qml/deploy）；待用户 Review |
+| 下一步动作（Next Action） | **T015 Part C Review + Manual UI Smoke（用户）**；通过后推进 verified LKGC |
 | 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
 | 下一任务（Next Task After T011） | **T012 Agent Tools** |
 | Known Issues | 见 §4 |
@@ -46,7 +46,7 @@
 ## 3. 下一任务
 
 - ~~用户 T015 Phase B Review~~ ✅ PASS（Manual UI Smoke 全项 PASS；verified LKGC = `02ce302`）。
-- **T015 Part C — Function 0x10（IN PROGRESS：Learning + Test Design docs-only，AWAITING FINAL ARCHITECTURE REVIEW）**：Gate C1~C8 设计 + Review P0 修正（C2=**multi-request-issue collection**（有序、ordering≠discard、防 cascade）；C7=**Broadcast 两维正交**（expectation 与 request validity 分离；invalid broadcast + NO_RESPONSE = ExpectedNoResponse + requestIssues，不得 Timeout；任何 response bytes = UnexpectedResponseForBroadcast + requestIssues））；raw wire 非 structured fact 替代的边界声明；ExpectedNoResponse 语义澄清 proposal（同步位置清单，未改 Accepted ADR）；MULTI-C01/02 + BCAST-C01/02 入矩阵；未实现任何代码。
+- **T015 Part C — Function 0x10（IMPLEMENTED / AWAITING REVIEW）**：Gate C1~C8 设计 + Review P0 修正（C2=**multi-request-issue collection**（有序、ordering≠discard、防 cascade）；C7=**Broadcast 两维正交**（expectation 与 request validity 分离；invalid broadcast + NO_RESPONSE = ExpectedNoResponse + requestIssues，不得 Timeout；任何 response bytes = UnexpectedResponseForBroadcast + requestIssues））；raw wire 非 structured fact 替代的边界声明；ExpectedNoResponse 语义澄清 proposal（同步位置清单，未改 Accepted ADR）；MULTI-C01/02 + BCAST-C01/02 入矩阵；未实现任何代码。
 - **T015 Part C — Function 0x10 normal semantics**（IN PROGRESS：Learning + Test Design docs-only 完成，Implementation 待 Gate C1~C8 批复）。
 - Backlog：Replay v2 timing、UART diagnostics、register-map 语义层、per-device 时间窗等。
 
@@ -239,3 +239,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-14 | **T015 Part C 启动：Function 0x10 Learning + Test Design（docs-only，本提交）**——官方契约核验（PDU 字段顺序/1..123/byteCount=2N/0x90/不回显 values）；naming=Function16 定案；dispatcher 插入点三分（request 分类/broadcast 判定/normal 分支）；request 四层语义校验矩阵；`InvalidRequestByteCount` + `minAllowedQuantity` + `InvalidRequestLength`（单位=request data 字节）提案；`WriteMultipleRegistersEchoMismatch` 复用既有四载荷列；Gate C2=单 issue+priority（向量化留未来）；Gate C7=validation-gated broadcast（invalid 不 ExpectedNoResponse）；values 不传播（Gate C8）；demo_v2 S3 审计（两条 CRC fixture defect，修正后=Success）；F16-U01~U10 + PASSIVE-C01~C17 矩阵；**Part C 未实现**；verified LKGC `02ce302` 不变 |
 | 2026-09-14 | **T015 Part C Architecture Review：P0×2 correction 落档（docs-only，本提交）**——Gate C2 改为 multi-request-issue collection（`std::vector<TransactionRequestIssue>`；deterministic reporting order ≠ discard priority；quantity invalid 不派生伪 byteCount issue；payload↔declared 仅需 byteCount 可读）；Gate C7 改为 broadcast 正交两维（address=0 ∧ fc∈{0x06,0x10} 即 broadcast-capable；invalid + NO_RESPONSE = ExpectedNoResponse + requestIssues，与 Phase B 生产行为一致；response bytes = UnexpectedResponseForBroadcast + requestIssues）；raw-wire≠structured-fact 边界声明；ExpectedNoResponse 澄清为 proposal + 同步位置清单；untracked-files 表述证据化订正。**未实现代码**；verified LKGC `02ce302` 不变 |
 | 2026-09-14 | **T015 Part C Final Architecture Review = PASS（docs-only 订正提交）**：Gate C1~C8 全部 APPROVED；fixture 订正——MULTI-C02 改为 quantity=0/byteCount=0/payload=0 ⇒ [InvalidRequestQuantity(0,1,123)] only；quantity=124 保留为 semantic unit boundary test 但**不得**以“完整自洽 payload”作 Gate-E valid RTU fixture（data=253/frame=257 越界）；InvalidRequestLength payload 类型不得 uint8_t（expected 可达 260，uint16_t/size_t 由 Implementation 定案）；**Implementation = NOT STARTED**；verified LKGC `02ce302` 不变 |
+| 2026-09-14 | **T015 Part C IMPLEMENTED（A/B/C 三提交）**：A `92ccf16` requestIssues collection 迁移 + Function16 surface + RED（passive **42 passed/12 failed**，断言级）；B `e1c9e2c` Function16 被动语义 + broadcast 集 {0x06,0x10} 接线 → passive **54/54**、ctest 24/24；C `96ed9e2` QML 多 issue 换行。clean **153 targets 零警告**、ctest 24/24、qml smoke、deploy+minimal-PATH；写权限 grep 零命中（无 encoder/send/写工具，Serial 仍 FC03 read-only）；ExpectedNoResponse 三处措辞同步为 expectation/validity 正交（统计公式未变）；**LKGC candidate = `96ed9e2`（待 Review + Manual UI Smoke）**；verified LKGC 仍 `02ce302` |
