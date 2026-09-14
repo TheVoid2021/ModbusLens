@@ -450,3 +450,198 @@ Phase B（真实命令与输出）：
 - F（semantic audit fix）`02ce302` T015: guard generic exception matcher against request function MSB（+59/−2；passive 22/22、ctest 24/24）——**verified LKGC（用户 Final Review 推进；`6944fd5` superseded）**
 - G（docs）`fdefb0e` 记录 semantic audit 并刷新 candidate（不作 LKGC）
 - H 本 Final Acceptance 提交（docs-only；哈希见 git log；不作 LKGC）
+---
+
+# Part C — Function 0x10 Learning + Test Design（STRICT DOCS-ONLY）
+
+- **状态**（2026-09-14 建稿）：**T015 = IN PROGRESS；Part C = IN PROGRESS（Learning + Test Design，DONE / AWAITING REVIEW）；Function 0x10 Implementation = NOT STARTED。**
+- 本部分只设计，零代码/测试/QML 修改；verified LKGC 维持 `02ce302`。
+
+## C0. 冻结基线与证据现状
+
+- HEAD=`4de0237`、verified LKGC=`02ce302`；Phase B 已交付：generic passive analyzer、FC03/FC06 passive 语义、MSB-guarded generic exception、requestIssue（单 issue）、`ExpectedNoResponse`、per-record continuation、Unsupported 显式事实。Active Serial 仍 FC03 read-only。
+- 协议依据与现有文档核对：`03_MODBUS_LEARNING.md §4.5` Phase B 回填与官方 V1.1b3 无冲突——request PDU 字段顺序（function=0x10、starting address 2B、quantity 2B、byte count 1B、values N×2B，quantity 1..123、byteCount=2×quantity、actual value payload 与 byteCount 一致）、normal response = (starting address, quantity written) 且**不回显 values**、exception function **0x90**。仅需补记一句“request PDU 字段顺序 + 0x90”（见 §C1 后的 03 增补计划），**不重复堆内容**。
+
+## C1. Official Function 0x10 Contract（本设计的事实底座）
+
+| 项 | 官方事实（V1.1b3） | 备注 |
+| --- | --- | --- |
+| function | 0x10（decimal 16） | 命名见 §C2 |
+| request PDU | startingAddress(2B) + quantity(2B) + byteCount(1B) + values(2×N B) | data 层总长 = 5 + byteCount 字节 |
+| quantity 合法域 | **1..123** | 0 与 124 均非法（§C4 边界矩阵） |
+| byteCount | **2 × quantity** | quantity=2/byteCount=2 = **semantic mismatch**（不是 CRC、不是 response 错——是 request-side fact） |
+| values 长度 | 必须与 byteCount 一致 | 缺（truncated）与多（excess）都成立（§C5） |
+| normal response | function=0x10 + startingAddress(2B) + quantityWritten(2B) | 固定 4 字节 data；**不回显 values** |
+| exception | request fn | 0x80 ⇒ **0x90** | 走 generic exception matcher，**不写 Function16 私有 exception 解析** |
+
+## C2. Naming Decision（定案）
+
+- C++ 文件/API：**`Function16.{h,cpp}`**（function code 0x10 = decimal 16；与 `Function03`/`Function06` 风格统一）。
+- 文档首次出现必须写全称：**Function 0x10 (Write Multiple Registers, decimal 16)**，之后允许 `Function16`；**禁止**使用“FC10”（易误读为十进制 10）。本档案自此处起用 Function16。
+
+## C3. Existing Passive Dispatcher Insertion Point（从最终代码重建）
+
+```text
+valid RTU request
+  ↓ analyzeObservedTransaction
+  ├─ classifyRequest 的 switch —— 【插入点①】新增 case kWriteMultipleRegistersFunction(0x10)：
+  │     decode 失败（无法读取基本字段）⇒ requestIssue=InvalidRequestLength
+  │     quantity ∉ 1..123 ⇒ requestIssue=InvalidRequestQuantity
+  │     byteCount ≠ 2×quantity ⇒ requestIssue=InvalidRequestByteCount（NEW code）
+  │     data.size() ≠ 5+byteCount ⇒ requestIssue=InvalidRequestLength（payload 单位见 §C5）
+  ├─ broadcast 判定 —— 【插入点②】`address==0 && fc∈{0x06, 0x10}`；且（Gate C7）仅语义有效才谓 broadcast
+  ├─ generic exception path —— 【零改动】0x10|0x80==0x90 自动命中；继续继承 request-function MSB guard
+  ├─ function-specific normal semantics —— 【插入点③】`request.fc==0x10 && response.fc==0x10` 分支（FC06 分支之后、Unsupported fallback 之前）
+  └─ Analyzed / Unsupported
+```
+
+**不得设计第二套 Replay 私有 matcher**；Function16 的一切语义只在 `Function16.*`（passive decoder/matcher）与 `PassiveTransactionAnalysis` 的 dispatch 内。
+
+## C4. Request Semantic Layers（不许统称 InvalidRequestData）
+
+| 层 | 事实 | issue 归属 |
+| --- | --- | --- |
+| A 基本长度/字段可读 | data.size() ≥ 5 才可读出三项字段 | `InvalidRequestLength`（无法读字段） |
+| B quantity 范围 | 1..123 | `InvalidRequestQuantity` |
+| C byteCount↔quantity | byteCount == 2×quantity | **`InvalidRequestByteCount`（NEW）** |
+| D 实际 payload↔byteCount | data.size() == 5 + byteCount | `InvalidRequestLength`（稳定单位，§C5） |
+
+**quantity 边界矩阵**（Phase B 仅测 124 的教训）：0 / 124 / 123 / 1 四点必须全测——0 与 124 非法、1 与 123 合法（F16-U02/U03/U04/U05）。
+
+## C5. Quantity / ByteCount / Payload-Length 设计
+
+- **C3 Gate（minAllowedQuantity）**：当前 `InvalidRequestQuantity` 载荷只有 `observedQuantity/maxAllowedQuantity`。推荐**新增 optional `minAllowedQuantity`**（append-last，additive；FC03 与 Function16 都填：1..125 / 1..123），使“合法区间”可在双边界精确表达，quantity=0 不再被误读为“只超上限”。UI 文案形如“合法范围 1–123”。
+- **C4 Gate（InvalidRequestByteCount）**：推荐**新增 code** `InvalidRequestByteCount` + payload `observedByteCount/expectedByteCount`（uint8；expected=2×quantity ≤ 246）。与 `InvalidRequestLength` 严格区分：byteCount **声明值**错误 vs 实际**data 长度**错误。
+- **C5 Gate（InvalidRequestLength payload）**：推荐新增 optional `observedLength/expectedLength`，**稳定单位定案 = Function16 request data 字节数（frame.data.size()）**，expected = 5 + byteCount（D 层）或 ≥5 不可计算（A 层，expectedLength 缺省）。不采用“values-only bytes”口径（避免两种单位混用）。FC06 的 InvalidRequestLength 暂不加 payload（Part C 范围纪律，记 future）。
+- **excess payload（§12）**：quantity=1/byteCount=2 但带 4 字节 values ⇒ data.size()=7 ≠ 5+2 ⇒ 同样 `InvalidRequestLength`（observed=7/expected=7？——注意 expected 以 declared byteCount 计=5+2=7 → data.size()=7 时 D 层通过但 C 层已失败……重述：excess 场景中的 declared 语义冲突在 C 层先行暴露，D 层仅在 C 通过后比较 declared vs actual）。设计以 §C7 优先级版为准。
+
+## C6. Request Parsing Strategy（Gate C1：structural parser vs strict decoder）
+
+- **推荐：structural parser（B 案，轻量版）**。理由：Passive Replay 必须保留“非法 Request 是现场事实”——strict decoder 会在第一次失败时丢掉 quantity/byteCount/payload facts；Function16 的字段全在固定前 5 字节，**一次 structural read 即可取出全部字段**（无需复杂 parser framework）。形态：`readWriteMultipleRegistersFields(frame) → optional<WriteMultipleRegistersFields{startingAddress, quantity, byteCount, valueCount}>`（data.size()≥5 即可返回），语义校验在 passive analyzer 内逐层产生 requestIssue——与 FC03 的 `readHoldingRegistersRequestQuantity` 同族、比 Function06 的 strict decoder 更进一步（因 0x10 有字节数与 payload 两层）。
+- strict 与 structural 并存：valid 请求的 `WriteMultipleRegistersRequest` 完整模型由同一读取路径构造，**一个字段来源、两种消费**。
+
+## C7. Register Values Storage Decision（Gate C8）
+
+- 推荐 **B 案（最小）**：decoder DTO 只保存 `startingAddress/quantity/byteCount/valueCount`——不下发 values。
+  - 理由 ①当前无 register-map/business 语义 ⇒ **零消费者**（“错误分类要有消费者”纪律与 T007 `returnedRegisterCount` 先例）；②values 不脱离 `requestWire` 原文（Replay record 保留原始字节），未来 inspection 可再取——信息未永久丢失，只是不进 analysis 结果；③避免“以后可能用”式无限保存。
+  - A 案（保存全部 values）否决：本阶段 downstream 几乎不消费具体值，扩容 DTO 无意义；C 案（decoder 内保存但不传播）为中间态，B 已覆盖其收益。
+- normal response matcher 需要的只是 startingAddress/quantity 比较（§C9），与 values 无关。
+
+## C8. Normal Response Contract + Response Mismatch（Gate C6）
+
+- **回应契约（与 FC06 exact echo 不同）**：合法 normal response data = 4 字节 `startingAddress(2B) + quantityWritten(2B)`，必须与 request 的对应字段一致；**不回显 values**。
+- **新 issue（Gate C6 推荐）**：`WriteMultipleRegistersEchoMismatch`，语义=“response 格式合法、但起始地址或写入数量与请求不匹配”。
+- **payload 复用审计（已核验 T014/T015 现有列）**：`expectedRegisterAddress/actualRegisterAddress`（uint16）语义完全契合“起始地址 请求/响应”；`expectedQuantity/actualQuantity`（uint16）契合“数量 请求/响应”。⇒ **零新增字段**，直接复用这两对列；per-code 不变量表扩一行（四载荷全 present）。machine token：`write_multiple_registers_echo_mismatch`。
+- **与 MalformedNormalResponse 的分界（§17 红线）**：response data ≠ 4 字节 ⇒ `MalformedNormalResponse`（**format invalid**）；data 4 字节但值不匹配 ⇒ `WriteMultipleRegistersEchoMismatch`（**format valid but mismatched**）。两者绝不可混（Phase A Review 同类教训：FC06 echo mismatch ≠ MalformedNormalResponse）。
+
+## C9. Wrong Function / Address / CRC 复用（零新增 code）
+
+bad response CRC → CrcError；wrong device address → ProtocolError + `ResponseAddressMismatch`；wrong normal response function → ProtocolError + `UnexpectedResponseFunction`；malformed normal response → ProtocolError + `MalformedNormalResponse`。**禁止**臆造 `Function16AddressMismatch/Function16CrcError` 等重复 code。
+
+## C10. Generic Exception Reuse
+
+request 0x10 → response **0x90** 完全由既有 generic exception matcher 命中（`0x10|0x80==0x90`），并继续继承 request-function MSB guard。`Function16.cpp` **只负责 normal semantics**，不得再写 `response.function==0x90` 的私有 exception parser/matcher。
+
+## C11. Invalid Request + Legal Exception（双事实）
+
+| 案例 | 高状态 | requestIssue |
+| --- | --- | --- |
+| A quantity=124 + Exception 0x03 | Exception(0x03) | InvalidRequestQuantity（observed 124/min 1/max 123） |
+| B quantity=2/byteCount=2 + Exception 0x03 | Exception(0x03) | InvalidRequestByteCount（observed 2/expected 4） |
+| C quantity=2/byteCount=4 但 payload truncated + Exception 0x03 | Exception(0x03)（†前提：request RTU frame 可 decode） | InvalidRequestLength（observed/expected，单位=request data 字节） |
+
+† C 案严守 Gate E：**只有 valid RTU wire 内的 semantic invalid 才 per-record**；CRC 错/<4B 的 request 仍旧契约（deferred）。**任何案例都不得退回 whole-batch failure。**
+
+## C12. Multi-request-issue Problem（Gate C2，最大 data-model Gate）
+
+现状 `std::optional<TransactionRequestIssue>` 一次只表达一个 issue；Function16 一个请求可能同时 quantity invalid ∧ byteCount 不符 ∧ payload 长度不符。
+
+| 案 | 形态 | 评价 |
+| --- | --- | --- |
+| A 单 issue + deterministic priority | 保持 optional<单一> | ✅ 零 API 震荡（DTO/prompt/UI/测试全不改型）；损失的事实**仍字面存在于 requestWire 原文**（Replay record 保留）；priority 保证确定性 |
+| B `vector<TransactionRequestIssue>` | optional<vector> | 全事实保留，但连锁改动 requestIssue→outcome/context/prompt/agent/UI 全部消费点与既有测试，成本远大于受益 |
+| C composite request analysis | 分层对象 | 结构最全、成本最高，当前无消费者 |
+
+**推荐 A（单 issue + priority）**，向量化为未来留 additive 余量（如 request-wire corruption per-record 化时确有复合需求再议）。**Priority 定案（若 C2=A）**：
+
+1. 无法安全读取基本字段（data<5B）→ `InvalidRequestLength`（observed=data.size()，expected 缺省）
+2. 字段可读但 quantity ∉ 1..123 → `InvalidRequestQuantity`
+3. quantity 合法但 byteCount ≠ 2×quantity → `InvalidRequestByteCount`
+4. byteCount 合法但 data.size() ≠ 5+byteCount → `InvalidRequestLength`（observed/expected 全）
+
+**justification**：每层都是下一层的输入事实（quantity 决定 expected byteCount、byteCount 决定 expected data length），上游先判保证下游判断前提正确、不会产生“基于非法量的伪期望”；被降权的次要事实不灭失——原文 wire 仍保留，且需求出现时可升级 B。
+
+## C13. Broadcast Integration（Function16 域）
+
+- 0x10 是写类功能 ⇒ 合法广播（address=0 ∧ fc=0x10 ∧ **request semantics 有效**）+ NO_RESPONSE ⇒ 复用 **`ExpectedNoResponse`**，零新增状态（不建 `ExpectedNoResponseFunction16`）；Statistics/Baseline/Agent anomaly/UI 全部沿用 Phase B 模型；dispatch order：**broadcast response rule 先于 normal matcher**（合法 Function16 broadcast 收到任何 recorded response ⇒ ProtocolError + `UnexpectedResponseForBroadcast`，绝不因 echo 匹配抢判 Success）。
+- **Gate C7（invalid broadcast 的 high-level outcome）**：`address=0 ∧ fc=0x10 ∧ semantic invalid ∧ NO_RESPONSE`。推荐 **validation-gated broadcast**：`isBroadcast == (addr0 ∧ fc∈{0x06,0x10} ∧ !requestIssue)`；
+  - valid broadcast + NO_RESPONSE ⇒ ExpectedNoResponse；
+  - **invalid broadcast + NO_RESPONSE ⇒ 不落入 ExpectedNoResponse**——推荐按 Phase B 已确立的“invalid-request 无响应沿用共享 unicast 语义（Pending/Timeout 按 elapsed）+ requestIssue”走（与 i03b 契约一致：requestIssue 说明“为什么可能无应答”，UI 第二行已软释 Timeout）；**此为推荐案，属用户 Review 的 Gate C7**；备选（不做）：专属状态/专属 issue 均属过度设计。
+  - 附：invalid broadcast + response ⇒ 不经 broadcast 分支，落入 normal 路径（invalid request 无模型 ⇒ ProtocolError + UnknownProtocolError + requestIssue，与 FC06 invalid 路径同构）。
+
+## C14. Unsupported Transition（Before→After 测试）
+
+- 现状（Phase B）：Function16 的 normal 形态记录 → `UnsupportedObservedTransaction`。Part C 实现后**同一 purpose-built record** 应变为 Analyzed——写 transition 断言（Before：unsupported 1 条；After：transactions 1 条）锁定语义迁移。
+- **FC08 normal 仍继续 Unsupported**——generic unsupported contract 不因 Function16 加入而破坏（PASSIVE-C15）。
+
+## C15. Parser / Request-wire / Statistics / Baseline / AI / Agent / UI 边界
+
+- `.mlog v1` **零语法变化**：0x10 不需要、也不得新增 `WRITE_MULTIPLE/BROADCAST_NO_RX/FUNCTION16` 等 token；NO_RESPONSE 继续复用，协议语义必须来自 wire。
+- request-wire corruption（bad CRC/FrameTooShort）继续 deferred（Gate E），Part C 不顺手扩大。
+- Statistics：Function16 的 Success/Exception/CrcError/Timeout/ProtocolError 自然进入现有计数；**零新增** `function16SuccessCount`；broadcast 继续 `ExpectedNoResponseCount`；**successRate 公式不得再改**。回归矩阵证明 status-based 统计与 function code 无关。
+- Baseline：不新增 Function16-specific root-cause finding；requestIssue 无专门 finding 的状态保持不变（不强制新增）；禁止输出“PLC 写请求程序有 bug / 写寄存器失败 / 设备寄存器非法”——除非 deterministic facts 真正支持。
+- AI：新增 issue 仅以 machine facts 入 prompt（`request_issue=invalid_request_byte_count expected_byte_count=… observed_byte_count=…`；response mismatch 用 `issue=write_multiple_registers_echo_mismatch` + 既有 expected/actual 列）；禁止 raw speculative cause；**不真实调用 ModelScope**。
+- Agent：仍 3 tools、whitelist 不变、ExpectedNoResponse 仍非 anomaly；detail 未来照常输出 Function16 的 requestIssue/issue；**不得出现** write_register/retry/send_function16。
+- UI：布局不变；Function 列天然显示 `0x10`；requestIssue 沿用 secondary deterministic text（示例：“请求寄存器数量不符合 0x10 约束（124，合法范围 1–123）”、“请求字节数不匹配（实际 2 / 期望 4）”；response mismatch 文案“写多个寄存器响应不匹配（起始地址 请求/响应…；数量 请求/响应…）”）；**不加大列**。Part C Learning 只设计不改 QML。
+
+## C16. Active Serial Safety（红线继续）
+
+**Function16 passive support ≠ Function16 active write support。** Part C Implementation 未来也禁止：encoder / Serial send / write API / QML write button / Agent write tool。`Function16.{h,cpp}` 只含 passive decoder 与 semantic matcher 所需能力。
+
+## C17. demo_v2 S3 Audit（不修改 sample；结论沿用 M8.1 独立 CRC 审计）
+
+| 问 | 结论（证据：M8.1 §6 独立计算 + 本会话 Phase B 代码） |
+| --- | --- |
+| A 原 sample wire CRC-valid？ | **否**——request provided `62 10`、正确应为 `22 A2`；response provided `41 CD`、正确应为 `40 0D`（两条均 **fixture defect**，如实保留，不偷偷修 evidence 文件） |
+| B 若修正 CRC，request semantics 是否合法？ | **是**——fc=0x10、start=0x0010、quantity=0x0002、byteCount=0x04、values `00 01 00 02`（4 字节 ≡ byteCount）全部合规（A~D 层全过） |
+| C response 是否符合 normal response contract？ | **是（修正 CRC 后）**——`01 10 00 10 00 02` = start 0x0010 + quantityWritten 0x0002，与 request 一致、不回显 values |
+| D Part C 完成后理论结果 | **Success**（unicast、语义与回应全匹配）；demo_v2 as-is 仍因 S4/L15 语法问题整文件不可加载；T015 验收不用 demo_v2 |
+
+## C18. Purpose-built Fixture 计划（CRC 纪律）
+
+最小 Function16 fixture 集（全部由项目 `encodeRtuFrame` 构造 ⇒ CRC 由项目已 KAT 验证的 codec 产生；不手抄未经验证的 CRC 进 golden）：valid unicast Success；invalid quantity(124) + Exception 0x03；byteCount mismatch + Exception 0x03；normal response 起始地址不符；normal response 数量不符；broadcast + NO_RESPONSE；unsupported FC08 normal 对照。测试不得直接依赖 `samples/demo_v2.mlog`（及其余 untracked samples——一律只读）。
+
+## C19. Test Matrices（本阶段只写文档，不写 tests）
+
+**Function16 单元（F16-U 系列）**：U01 valid request decoder（字段全读对）；U02 quantity=1 合法；U03 quantity=123 合法；U04 quantity=0 非法；U05 quantity=124 非法；U06 byteCount==2N 合法；U07 byteCount≠2N → InvalidRequestByteCount（observed/expected）；U08 payload truncated → InvalidRequestLength；U09 payload excess → 按 priority 先出 byteCount（若 C 层已违）或 InvalidRequestLength；U10 normal response decoder（4 字节 data）。
+
+**Passive 集成（PASSIVE-C 系列）**：C01 Function16 normal unicast Success；C02 地址不符 → ResponseAddressMismatch；C03 响应功能码不符 → UnexpectedResponseFunction；C04 bad response CRC → CrcError；C05 malformed normal response → MalformedNormalResponse（≠EchoMismatch）；C06 起始地址不匹配 → `WriteMultipleRegistersEchoMismatch`（四载荷）；C07 写入数量不匹配 → 同上；C08 generic Exception（0x10→0x90）→ Exception；C09 quantity=124 + Exception 0x03 → Exception + InvalidRequestQuantity；C10 byteCount mismatch + Exception 0x03 → Exception + InvalidRequestByteCount；C11 semantic-invalid 记录不毒死后续记录；C12 broadcast + NO_RESPONSE → ExpectedNoResponse；C13 broadcast + response → UnexpectedResponseForBroadcast；C14 invalid broadcast policy（Gate C7 批准口径）；C15 FC08 normal 仍 Unsupported；C16 mixed FC03/FC06/F16 batch statistics；C17 deterministic repeat。
+
+**Statistics 回归**：FC03 Success + FC06 Success + F16 Success + F16 Exception + F16 ProtocolError + F16 ExpectedNoResponse 混合批——证明 status-based 统计与 function code 无关、successRate 继续排除 ExpectedNoResponse、无 function-specific statistics branch。
+
+**T014/T015 回归锁**：T014 全部 issue 行为不回退；Phase B 的 FC06/generic Exception/MSB guard/requestIssue/ExpectedNoResponse/Unsupported/per-record 全不回退；特别锁定 `0x08→0x88/0x01` 仍 Exception、`0x88→0x88` 仍 Unsupported——**绝不因 Function16 修改而复发**。
+
+## C20. Architecture Gates（Implementation 前必须 Review）
+
+| Gate | 问题 | 推荐（本设计） |
+| --- | --- | --- |
+| C1 | structural parser vs strict decoder | structural（轻量字段读取 + 分层校验） |
+| C2 | requestIssue 单个 vs 多个 | 单 issue + deterministic priority（A 案；向量化为未来 additive 余量） |
+| C3 | InvalidRequestQuantity 加 minAllowed | **新增 optional `minAllowedQuantity`**（FC03/Function16 双填） |
+| C4 | InvalidRequestByteCount 新增 | 新增（payload observed/expected byteCount） |
+| C5 | InvalidRequestLength payload 定义 | 新增 observedLength/expectedLength；**单位=request data 字节**（稳定、单一） |
+| C6 | WriteMultipleRegistersEchoMismatch 字段 | 复用既有 `expectedRegisterAddress/actualRegisterAddress` + `expectedQuantity/actualQuantity`，零新列 |
+| C7 | invalid broadcast + NO_RESPONSE 的高状态 | **validation-gated broadcast**：invalid ⇒ 不 ExpectedNoResponse，按共享 unicast 无响应语义（Pending/Timeout 按 elapsed）+ requestIssue（Phase B i03b 契约一致） |
+| C8 | values 完整保存？ | 不传播 values（DTO 存 starting/quantity/byteCount/valueCount；原文 wire 保留原始字节） |
+
+## C21. Required / Deferred
+
+- **Required for Part C**：Function16 passive normal semantics（decoder + fields reader + 分层校验）、generic exception 复用（含 MSB guard）、normal response matcher、broadcast 复用（validation-gated）、Replay per-record 集成、新 issue codes（C3/C4/C6 载荷）、tests 与 downstream additive 传播。
+- **Deferred**：active write / encoder / 0x10 Serial 命令 / Agent action、request-wire corruption per-record 化、Replay timing（t1.5/t3.5）、UART、register-map/business 语义、per-device health、其他功能码、requestIssue 向量化（C2=B 的未来形态）。
+
+## C22. 文档计划（本阶段）
+
+- `docs/tasks/T015-passive-replay-expansion.md`：本 Part C 段（本提交）。
+- `docs/PROJECT_STATUS.md` / `docs/BACKLOG.md`：仅登记 Part C = IN PROGRESS（Learning + Test Design）、不得写成已实现。
+- `docs/03_MODBUS_LEARNING.md`：仅补记一条（§4.5 后）：Function 0x10 request PDU 字段顺序 = startingAddress(2B)+quantity(2B)+byteCount(1B)+values；exception function = **0x90**（经 generic matcher）。**不重复堆 Phase B 已回填的契约**。
+- `02/04` 本阶段不动（设计待 Review；提案通过后 Implementation 归档再锁 FINAL）。ADR-003 不改（未发现 Broadcast 复用设计缺陷）。

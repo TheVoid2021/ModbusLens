@@ -81,6 +81,9 @@
 - **Function 0x10（Write Multiple Registers）——仅知识回填，本 Phase 不实现 normal semantics**：
   - quantity = **1..123**；byteCount = **2×N**（N=写入寄存器数）。
   - Normal response = **starting address + written quantity**（不回显数据）。
+  - Request PDU 字段顺序：starting address（2B）+ quantity of registers（2B）+ byte count（1B）+ register values（2N B）；**实际 value 字节数必须与 byteCount 一致**。
+  - Exception function = **0x90**（经 generic exception matcher 识别）。
+  - T015 Part C 立项（2026-09-14）：**仅被动 normal semantics** 纳入实现范围（Active Serial 仍 FC03 read-only）。
 - **Generic Exception**：exception function = request function + **0x80**；exception payload = **一个 exception code**（单字节）。
 - **Broadcast**：serial address = **0**；**no response returned**；broadcast requests are **writing commands**（写类功能码）——**不**扩大解读为“所有 address=0 的功能码都合法”。
 
