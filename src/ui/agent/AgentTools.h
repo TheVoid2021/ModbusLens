@@ -50,6 +50,9 @@ struct SessionSummaryResult {
     std::size_t protocolErrorCount{};
     // T015: broadcast observations are part of the completed decomposition.
     std::size_t expectedNoResponseCount{};
+    // T015 Part C audit: number of analyzed transactions carrying at least
+    // one request-side issue (transactions, never an issue count).
+    std::size_t requestIssueTransactions{};
     std::size_t transactionCount{};
     // no value == field omitted in JSON (never a fabricated 0 / 0.0).
     std::optional<double> successRate;
@@ -70,6 +73,9 @@ struct AnomalyEntry {
     // T014 additive: simplified issue code only (payload stays with
     // get_transaction_detail). Absent for non-ProtocolError statuses.
     std::optional<modbuslens::core::TransactionIssueCode> issueCode;
+    // T015 Part C audit: request-side issue codes on the anomaly row (the
+    // WHY when the status itself — e.g. Success — is not an anomaly).
+    std::vector<modbuslens::core::TransactionRequestIssueCode> requestIssueCodes;
 
     bool operator==(const AnomalyEntry&) const = default;
 };

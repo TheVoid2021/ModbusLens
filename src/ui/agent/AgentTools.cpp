@@ -56,6 +56,15 @@ SessionSummaryResult makeSessionSummary(const AgentToolContext& context)
     summary.exceptionCount = context.statistics.exceptionCount;
     summary.protocolErrorCount = context.statistics.protocolErrorCount;
     summary.expectedNoResponseCount = context.statistics.expectedNoResponseCount;
+    {
+        std::size_t requestIssueTransactions = 0;
+        for (const auto& tx : context.transactions) {
+            if (!tx.requestIssues.empty()) {
+                ++requestIssueTransactions;
+            }
+        }
+        summary.requestIssueTransactions = requestIssueTransactions;
+    }
     summary.successRate = context.statistics.successRate;
     summary.averageSuccessLatencyMs = context.statistics.averageSuccessLatencyMs;
     summary.transactionCount = context.transactions.size();
@@ -77,16 +86,30 @@ AnomalyEntry makeAnomalyEntry(std::size_t transactionNumber,
         .elapsedMs = tx.analysis.elapsed.count(),
         .exceptionCode = tx.analysis.exceptionCode,
         .issueCode = issueCode,
+        .requestIssueCodes = [&tx] {
+            std::vector<modbuslens::core::TransactionRequestIssueCode> codes;
+            codes.reserve(tx.requestIssues.size());
+            for (const auto& requestIssue : tx.requestIssues) {
+                codes.push_back(requestIssue.code);
+            }
+            return codes;
+        }(),
     };
 }
 
 RecentAnomaliesResult makeRecentAnomalies(const AgentToolContext& context)
 {
-    // 1-based ordinals of every whitelisted anomaly transaction, in batch order.
+    // 1-based ordinals of every anomaly transaction, in batch order.
+    // T015 Part C audit predicate: status anomaly OR a non-empty request
+    // issue collection. Clean Success / clean ExpectedNoResponse are NOT
+    // anomalies; their request-issue-bearing counterparts ARE — the anomaly
+    // reason is the request-side issue, never the ExpectedNoResponse itself.
     std::vector<std::size_t> anomalyOrdinals;
     anomalyOrdinals.reserve(context.transactions.size());
     for (std::size_t i = 0; i < context.transactions.size(); ++i) {
-        if (isAnomalyStatus(context.transactions[i].analysis.status)) {
+        const auto& tx = context.transactions[i];
+        if (isAnomalyStatus(tx.analysis.status)
+            || !tx.requestIssues.empty()) {
             anomalyOrdinals.push_back(i + 1);
         }
     }
@@ -292,6 +315,8 @@ QJsonObject toJsonObject(const SessionSummaryResult& result)
                 static_cast<qint64>(result.protocolErrorCount));
     json.insert(QStringLiteral("expected_no_response"),
                 static_cast<qint64>(result.expectedNoResponseCount));
+    json.insert(QStringLiteral("request_issue_transactions"),
+                static_cast<qint64>(result.requestIssueTransactions));
     json.insert(QStringLiteral("transaction_count"),
                 static_cast<qint64>(result.transactionCount));
     if (result.successRate.has_value()) {
@@ -335,6 +360,13 @@ QJsonObject toJsonObject(const RecentAnomaliesResult& result)
         if (entry.issueCode.has_value()) {
             item.insert(QStringLiteral("issue_code"),
                         issueCodeValue(*entry.issueCode));
+        }
+        {
+            QJsonArray requestIssueCodes;
+            for (const auto code : entry.requestIssueCodes) {
+                requestIssueCodes.append(requestIssueCodeValue(code));
+            }
+            item.insert(QStringLiteral("request_issue_codes"), requestIssueCodes);
         }
         anomalies.append(item);
     }

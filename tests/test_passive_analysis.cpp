@@ -167,6 +167,8 @@ private slots:
     void multi_c02();
     void bcast_c01();
     void bcast_c02();
+    // T015 Part C audit: Success + requestIssues keep BOTH dimensions.
+    void reissue_c01();
 };
 
 void PassiveAnalysisTest::f06_requestDecode()
@@ -1024,6 +1026,28 @@ void PassiveAnalysisTest::bcast_c01()
     QCOMPARE(outcome.requestIssues.size(), std::size_t{1});
     QCOMPARE(outcome.requestIssues[0].code,
              TransactionRequestIssueCode::InvalidRequestQuantity);
+}
+
+void PassiveAnalysisTest::reissue_c01()
+{
+    // quantity=2, byteCount=2, payload=4 bytes + a well-formed 0x10 normal
+    // response whose start/quantity MATCH: transaction outcome is Success
+    // (matching normal response) while the TWO request issues survive
+    // (request semantic validity is an orthogonal dimension).
+    const ModbusRtuFrame req{.address = 0x01, .functionCode = 0x10,
+                             .data = {0x00, 0x10, 0x00, 0x02, 0x02, 0x00, 0x01, 0x00, 0x02}};
+    const auto batch = analyzeBatch(logOf({recordOf(
+        req, ModbusRtuFrame{.address = 0x01, .functionCode = 0x10, .data = {0x00, 0x10, 0x00, 0x02}},
+        10)}));
+    QVERIFY(batch.has_value());
+    QCOMPARE(batch->transactions.size(), std::size_t{1});
+    const auto& outcome = batch->transactions[0];
+    QCOMPARE(outcome.analysis.status, TransactionStatus::Success);
+    QCOMPARE(outcome.requestIssues.size(), std::size_t{2});
+    QCOMPARE(outcome.requestIssues[0].code,
+             TransactionRequestIssueCode::InvalidRequestByteCount);
+    QCOMPARE(outcome.requestIssues[1].code,
+             TransactionRequestIssueCode::InvalidRequestLength);
 }
 
 void PassiveAnalysisTest::bcast_c02()

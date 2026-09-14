@@ -91,6 +91,10 @@ private slots:
     // summary count, detail request_issue/response_expected, anomalies
     // exclude ExpectedNoResponse.
     void a12_t015FactsInTools();
+    // T015 Part C audit (P0): request-side issues make a transaction an
+    // anomaly even under Success / ExpectedNoResponse; the session summary
+    // exposes request_issue_transactions (transactions, not issue counts).
+    void a13_requestIssueAnomalySemantics();
 };
 
 void AgentToolsTest::a01_sessionSummaryGolden()
@@ -740,6 +744,70 @@ void AgentToolsTest::a12_t015FactsInTools()
     QCOMPARE(anomalies->totalAnomalyCount, std::size_t{1});
     QCOMPARE(anomalies->entries.size(), std::size_t{1});
     QCOMPARE(anomalies->entries[0].status, core::TransactionStatus::Exception);
+}
+
+void AgentToolsTest::a13_requestIssueAnomalySemantics()
+{
+    auto issue = [] {
+        core::TransactionRequestIssue i;
+        i.code = core::TransactionRequestIssueCode::InvalidRequestQuantity;
+        i.observedQuantity = std::uint16_t{126};
+        i.minAllowedQuantity = std::uint16_t{1};
+        i.maxAllowedQuantity = std::uint16_t{125};
+        return i;
+    };
+    const std::vector<core::DiagnosisTransaction> facts = {
+        tx(0x01, core::TransactionStatus::Success, 20),
+        core::DiagnosisTransaction{
+            .deviceAddress = 0x01, .functionCode = 0x03,
+            .analysis = makeAnalysis(core::TransactionStatus::Success, 21),
+            .requestIssues = {issue()}},
+        core::DiagnosisTransaction{
+            .deviceAddress = 0x00, .functionCode = 0x06,
+            .analysis = makeAnalysis(core::TransactionStatus::ExpectedNoResponse, 0),
+            .requestIssues = {}},
+        core::DiagnosisTransaction{
+            .deviceAddress = 0x00, .functionCode = 0x10,
+            .analysis = makeAnalysis(core::TransactionStatus::ExpectedNoResponse, 0),
+            .requestIssues = {issue()}},
+    };
+    const auto coreContext = core::buildDiagnosisContext(facts);
+    const agent::AgentToolContext context{
+        .transactions = coreContext.transactions,
+        .statistics = coreContext.statistics,
+        .capturedBatchRevision = 7,
+    };
+
+    // AGENT-C01/C02: clean Success and clean ExpectedNoResponse are NOT
+    // anomalies; their request-issue-bearing counterparts ARE.
+    const auto anomaliesResult =
+        agent::dispatchAgentTool(context, "get_recent_anomalies", QJsonObject{});
+    const auto* anomalies = std::get_if<agent::RecentAnomaliesResult>(&anomaliesResult);
+    QVERIFY(anomalies != nullptr);
+    QCOMPARE(anomalies->totalAnomalyCount, std::size_t{2});
+    QCOMPARE(anomalies->entries.size(), std::size_t{2});
+    QCOMPARE(anomalies->entries[0].status, core::TransactionStatus::Success);
+    QCOMPARE(anomalies->entries[1].status, core::TransactionStatus::ExpectedNoResponse);
+    QCOMPARE(anomalies->entries[0].requestIssueCodes.size(), std::size_t{1});
+    QCOMPARE(anomalies->entries[0].requestIssueCodes[0],
+             core::TransactionRequestIssueCode::InvalidRequestQuantity);
+    QVERIFY(anomalies->entries[0].requestIssueCodes[0]
+            != core::TransactionRequestIssueCode::InvalidBroadcastFunction); // verdict is not from ExpectedNoResponse itself
+
+    const QJsonObject anomaliesJson = agent::toJsonObject(*anomalies);
+    const QJsonArray items = anomaliesJson.value("anomalies").toArray();
+    const QJsonArray codes = items[0].toObject().value("request_issue_codes").toArray();
+    QCOMPARE(codes.size(), QJsonArray::size_type{1});
+    QCOMPARE(codes[0].toString(), QStringLiteral("invalid_request_quantity"));
+
+    // AGENT-C03: summary counts TRANSACTIONS with issues (2), not issue count.
+    const auto summaryResult =
+        agent::dispatchAgentTool(context, "get_session_summary", QJsonObject{});
+    const auto* summary = std::get_if<agent::SessionSummaryResult>(&summaryResult);
+    QVERIFY(summary != nullptr);
+    QCOMPARE(summary->requestIssueTransactions, std::size_t{2});
+    const QJsonObject summaryJson = agent::toJsonObject(*summary);
+    QCOMPARE(summaryJson.value("request_issue_transactions").toInt(), 2);
 }
 
 QTEST_GUILESS_MAIN(AgentToolsTest)

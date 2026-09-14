@@ -31,6 +31,11 @@ enum class DiagnosisFindingCode {
     // (expected) response. Purely observational — it proves nothing about
     // device write success or device health.
     ExpectedNoResponseObserved,
+    // T015 Part C audit: one or more transactions carry request-side
+    // protocol semantic issues (orthogonal to their TransactionStatus —
+    // a Success row may carry them). Affected count = TRANSACTIONS with a
+    // non-empty request-issue collection, never the issue count.
+    RequestIssueObserved,
 };
 
 enum class DiagnosisSeverity {

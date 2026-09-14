@@ -112,6 +112,9 @@ private slots:
     // structured deterministic facts (status/count/request_issue), with the
     // system contract forbidding success/root-cause conclusions.
     void b20_t015PromptFacts();
+    // T015 Part C audit (P0): the system contract must state that Success /
+    // high success rate does NOT erase request-side protocol issues.
+    void b21_successDoesNotEraseRequestIssues();
 };
 
 void AiClientTest::b01_promptAuthority()
@@ -742,6 +745,21 @@ void AiClientTest::b20_t015PromptFacts()
     // No speculative channels anywhere.
     QVERIFY(!user.contains(QStringLiteral("root_cause")));
     QVERIFY(!user.contains(QStringLiteral("write_succeeded")));
+}
+
+void AiClientTest::b21_successDoesNotEraseRequestIssues()
+{
+    const DiagnosisContext context = goldenContext();
+    const DiagnosisPrompt prompt = buildDiagnosisPrompt(
+        context, diagnoseTransactions(context));
+    const QString system = prompt.systemInstructions;
+    // Success is defined as a matching normal response ONLY; it never proves
+    // the captured request was itself protocol-valid...
+    QVERIFY(system.contains(QStringLiteral("matching normal response")));
+    QVERIFY(system.contains(QStringLiteral("does not prove the request")));
+    // ...and a high success rate never erases request-side issues.
+    QVERIFY(system.contains(QStringLiteral("does not erase")));
+    QVERIFY(system.contains(QStringLiteral("request_issue")));
 }
 
 QTEST_GUILESS_MAIN(AiClientTest)

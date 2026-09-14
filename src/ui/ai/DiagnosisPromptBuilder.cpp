@@ -9,7 +9,7 @@ constexpr int kMaxDetailTransactions = 20;
 const char* kFindingNames[] = {
     "NoData", "Healthy", "PendingObserved", "ExceptionObserved",
     "CrcErrorObserved", "TimeoutObserved", "ProtocolErrorObserved",
-    "ExpectedNoResponseObserved",
+    "ExpectedNoResponseObserved", "RequestIssueObserved",
 };
 const char* kSeverityNames[] = {"Info", "Warning", "Error"};
 
@@ -229,6 +229,8 @@ DiagnosisPrompt buildDiagnosisPrompt(
         "- request_issue=invalid_broadcast_function: address 0 was observed with a function that is not broadcast-capable (a read cannot be broadcast). It is NOT an expected-no-response transaction.\n"
         "- issue=write_multiple_registers_echo_mismatch: a well-formed Write Multiple Registers reply whose starting address or written quantity disagrees with the request (expected/actual register-address and quantity pairs are supplied); it is an echo-contract mismatch, NOT a malformed reply.\n"
         "- Multiple request_issue entries may exist for ONE transaction when several independent request facts were observed; keep every one of them and never report only the first.\n"
+        "- Success means ONLY that a matching normal response was observed: it does not prove the request itself was protocol-valid when request_issue entries are explicitly present, and a high success rate does not erase request-side protocol issues. Report them alongside the status.\n"
+        "- request issues are deterministic facts produced by the local analyzer; never recalculate them, never re-parse the raw wire, and never describe them as proof of a requester-side bug, PLC program error, operator error or device misconfiguration.\n"
         "- Never convert these observed facts into root causes (wiring, device defects, configuration, software bugs) and never claim the cause; keep them as observed facts and give possible explanations only with explicit uncertainty.\n"
         "Keep the answer concise (roughly 250 words or less).");
 

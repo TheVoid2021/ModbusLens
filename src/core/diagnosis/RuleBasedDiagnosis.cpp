@@ -41,7 +41,8 @@ DiagnosisReport diagnoseTransactions(const DiagnosisContext& context)
     std::vector<DiagnosisFinding> findings;
 
     // Fixed presentation order: Protocol -> CRC -> Timeout -> Exception
-    // (code ascending) -> Pending -> Healthy/NoData. This order is NOT a
+    // (code ascending) -> Pending -> ExpectedNoResponse -> RequestIssue
+    // -> Healthy/NoData. This order is NOT a
     // root-cause or confidence ranking — only deterministic presentation.
     if (s.protocolErrorCount > 0) {
         findings.push_back(DiagnosisFinding{
@@ -120,13 +121,36 @@ DiagnosisReport diagnoseTransactions(const DiagnosisContext& context)
         });
     }
 
-    // Healthy needs ALL FOUR conditions: something completed, everything
-    // completed successfully, nothing in flight, and no broadcast
-    // observation (T015: a broadcast must never, on its own, let a batch be
-    // declared Healthy).
+    // T015 Part C audit: request-side issues are first-class orthogonal
+    // facts — a Success row may carry them, so they surface here as a
+    // deterministic finding. affectedCount = TRANSACTIONS whose request
+    // issue collection is non-empty (never the issue count). No root-cause
+    // wording: observing an invalid captured request proves nothing about
+    // the requester's software.
+    std::size_t requestIssueTransactions = 0;
+    for (const auto& transaction : context.transactions) {
+        if (!transaction.requestIssues.empty()) {
+            ++requestIssueTransactions;
+        }
+    }
+    if (requestIssueTransactions > 0) {
+        findings.push_back(DiagnosisFinding{
+            .code = DiagnosisFindingCode::RequestIssueObserved,
+            .severity = DiagnosisSeverity::Warning,
+            .affectedCount = requestIssueTransactions,
+            .exceptionCode = std::nullopt,
+            .recommendedActions = {DiagnosisActionCode::CheckRequestParameters,
+                                   DiagnosisActionCode::CheckDeviceDocumentation},
+        });
+    }
+
+    // Healthy needs ALL FIVE conditions: something completed, everything
+    // completed successfully, nothing in flight, no broadcast observation,
+    // AND no transaction carries request-side issues (a 100% response
+    // success rate does not erase an invalid captured request).
     if (findings.empty() && s.completedCount > 0
         && s.successCount == s.completedCount && s.pendingCount == 0
-        && s.expectedNoResponseCount == 0) {
+        && s.expectedNoResponseCount == 0 && requestIssueTransactions == 0) {
         findings.push_back(DiagnosisFinding{
             .code = DiagnosisFindingCode::Healthy,
             .severity = DiagnosisSeverity::Info,

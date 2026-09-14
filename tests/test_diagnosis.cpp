@@ -25,9 +25,10 @@ namespace {
 
 using ms = std::chrono::milliseconds;
 
-DiagnosisTransaction tx(std::uint8_t address, TransactionStatus status,
-                        long long elapsedMs,
-                        std::optional<std::uint8_t> exceptionCode = std::nullopt)
+DiagnosisTransaction tx(
+    std::uint8_t address, TransactionStatus status, long long elapsedMs,
+    std::optional<std::uint8_t> exceptionCode = std::nullopt,
+    std::vector<modbuslens::core::TransactionRequestIssue> requestIssues = {})
 {
     return DiagnosisTransaction{
         .deviceAddress = address,
@@ -38,7 +39,7 @@ DiagnosisTransaction tx(std::uint8_t address, TransactionStatus status,
             .exceptionCode = exceptionCode,
             .issue = std::nullopt,
         },
-        .requestIssues = {},
+        .requestIssues = std::move(requestIssues),
     };
 }
 
@@ -85,6 +86,12 @@ private slots:
     // DIAG-A13 (P0, T015): a broadcast must never, on its own, allow a batch
     // to be declared Healthy — even when every answered transaction succeeded.
     void a13_broadcastNeverHealthy();
+    // DIAG-A14 (P0, T015 Part C): Success + requestIssues must NOT be
+    // Healthy; a deterministic RequestIssueObserved finding appears.
+    void a14_requestIssueObserved();
+    // DIAG-A15 (P1): finding order includes RequestIssueObserved after
+    // ExpectedNoResponseObserved and before Healthy/NoData.
+    void a15_requestIssueOrder();
 };
 
 void DiagnosisTest::a01_empty()
@@ -361,6 +368,51 @@ void DiagnosisTest::a13_broadcastNeverHealthy()
     const DiagnosisReport healthyReport = diagnoseTransactions(healthyContext);
     QCOMPARE(healthyReport.findings.size(), std::size_t{1});
     QCOMPARE(healthyReport.findings[0].code, DiagnosisFindingCode::Healthy);
+}
+
+void DiagnosisTest::a14_requestIssueObserved()
+{
+    // Success means "matching normal response observed" — it proves NOTHING
+    // about the request's own protocol validity (orthogonal dimensions).
+    modbuslens::core::TransactionRequestIssue issue;
+    issue.code = modbuslens::core::TransactionRequestIssueCode::InvalidRequestQuantity;
+    issue.observedQuantity = std::uint16_t{126};
+    issue.minAllowedQuantity = std::uint16_t{1};
+    issue.maxAllowedQuantity = std::uint16_t{125};
+
+    const auto context = contextOf({
+        tx(0x01, TransactionStatus::Success, 20, std::nullopt, {issue}),
+    });
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    // NOT Healthy: request issues are first-class orthogonal facts.
+    for (const auto& finding : report.findings) {
+        QVERIFY(finding.code != DiagnosisFindingCode::Healthy);
+    }
+    QCOMPARE(report.findings.size(), std::size_t{1});
+    QCOMPARE(report.findings[0].code, DiagnosisFindingCode::RequestIssueObserved);
+    // affectedCount = TRANSACTIONS carrying issues (1), never the issue count.
+    QCOMPARE(report.findings[0].affectedCount, std::size_t{1});
+    QCOMPARE(report.findings[0].severity, DiagnosisSeverity::Warning);
+}
+
+void DiagnosisTest::a15_requestIssueOrder()
+{
+    modbuslens::core::TransactionRequestIssue issue;
+    issue.code = modbuslens::core::TransactionRequestIssueCode::InvalidBroadcastFunction;
+
+    const auto context = contextOf({
+        tx(0x00, TransactionStatus::ExpectedNoResponse, 0, std::nullopt, {issue}),
+        tx(0x01, TransactionStatus::Timeout, 1000),
+    });
+    const DiagnosisReport report = diagnoseTransactions(context);
+
+    // Fixed order: Timeout -> ExpectedNoResponse -> RequestIssue -> (no Healthy).
+    QCOMPARE(report.findings.size(), std::size_t{3});
+    QCOMPARE(report.findings[0].code, DiagnosisFindingCode::TimeoutObserved);
+    QCOMPARE(report.findings[1].code,
+             DiagnosisFindingCode::ExpectedNoResponseObserved);
+    QCOMPARE(report.findings[2].code, DiagnosisFindingCode::RequestIssueObserved);
 }
 
 QTEST_GUILESS_MAIN(DiagnosisTest)

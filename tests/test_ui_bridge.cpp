@@ -157,6 +157,10 @@ private slots:
     // UI-T03 (P0, T015): invalid-request + legal Exception row shows the
     // request-side deterministic secondary text.
     void t03_requestIssueSecondaryText();
+    // UI-T04 (P0, T015 Part C audit): a Success row carrying request issues
+    // still displays 成功 (status is never rewritten) with the FULL
+    // secondary request-issue text.
+    void t04_successRowKeepsBothDimensions();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -1364,6 +1368,46 @@ void UiBridgeTest::t03_requestIssueSecondaryText()
     // The row is an Exception, never a protocol error.
     QCOMPARE(controller.protocolErrorCount(), 0);
     QCOMPARE(controller.exceptionCount(), 1);
+}
+
+void UiBridgeTest::t04_successRowKeepsBothDimensions()
+{
+    using namespace modbuslens::core;
+    // quantity=2, byteCount=2, payload=4 bytes + a well-formed 0x10 reply:
+    // Success + TWO request issues survive as one secondary line.
+    const auto requestWire = encodeRtuFrame(
+        ModbusRtuFrame{.address = 0x01, .functionCode = 0x10,
+                       .data = {0x00, 0x10, 0x00, 0x02, 0x02, 0x00, 0x01, 0x00, 0x02}});
+    const auto responseWire = encodeRtuFrame(
+        ModbusRtuFrame{.address = 0x01, .functionCode = 0x10,
+                       .data = {0x00, 0x10, 0x00, 0x02}});
+
+    const QString content = mlogOf(
+        QStringLiteral("TXN|10|%1|%2\n").arg(wireHex(requestWire), wireHex(responseWire)));
+
+    std::optional<QTemporaryFile> holder;
+    const QString path = writeTempMlog(content, holder);
+    QVERIFY(!path.isEmpty());
+
+    AnalysisController controller;
+    controller.loadReplayFile(QUrl::fromLocalFile(path));
+
+    QVERIFY(!controller.hasReplayError());
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    const QModelIndex index = controller.transactionModel()->index(0, 0);
+    // Status stays Success — never rewritten into a protocol error.
+    QCOMPARE(controller.transactionModel()
+                 ->data(index, TransactionListModel::StatusTextRole)
+                 .toString(),
+             QStringLiteral("成功"));
+    QCOMPARE(controller.protocolErrorCount(), 0);
+    QCOMPARE(controller.successCount(), 1);
+    // Both request issues remain visible as deterministic text.
+    const QString secondary = controller.transactionModel()
+                                  ->data(index, TransactionListModel::IssueTextRole)
+                                  .toString();
+    QVERIFY(secondary.contains(QStringLiteral("请求字节数不匹配（实际 2 / 期望 4）")));
+    QVERIFY(secondary.contains(QStringLiteral("请求长度不匹配（实际 9 / 期望 7）")));
 }
 
 } // namespace

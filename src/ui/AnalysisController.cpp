@@ -360,6 +360,10 @@ QString findingPhrase(const modbuslens::core::DiagnosisFinding& finding)
     case DiagnosisFindingCode::ExpectedNoResponseObserved:
         // T015/ADR-003 wording: an observation only — never "写入成功".
         return QStringLiteral("预期无响应的广播事务：%1").arg(finding.affectedCount);
+    case DiagnosisFindingCode::RequestIssueObserved:
+        // T015 Part C audit wording: observed request-side protocol facts,
+        // never an accusation against the requester.
+        return QStringLiteral("请求参数不符合协议约束的事务：%1").arg(finding.affectedCount);
     case DiagnosisFindingCode::NoData:
         return QStringLiteral("暂无可分析数据");
     }
