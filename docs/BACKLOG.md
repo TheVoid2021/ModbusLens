@@ -15,7 +15,7 @@
 | M5 | 回放与串口模式 | T009, T010 | ✅ 完成 |
 | M6 | AI 诊断与 Agent 工具 | T011, T012 | ✅ 完成（T011 ✅ + T012 ✅ 含 Stabilization；ISSUE-008/009=MONITORING/NON-BLOCKING） |
 | M7 | 收尾与演示 | T013 | ✅ 完成（T013 Done；verified LKGC `99f17d6`） |
-| M8 | 诊断深化与知识固化 | M8.1 ✅；T014 ✅ Done（verified LKGC `cc8393a`）；T015 🔄（IN PROGRESS 整体；**Phase A/B ✅ DONE / REVIEW PASS**；verified LKGC `02ce302`；**Part C 0x10 = IN PROGRESS（**IMPLEMENTED / AWAITING REVIEW**；candidate `e16b4d0`；Manual UI Smoke 待用户）**）；后续（Replay v2 timing / UART / register-map）⏸ | 🔄 进行中 |
+| M8 | 诊断深化与知识固化 | M8.1 ✅；T014 ✅ Done（verified LKGC `cc8393a`）；**T015 ✅ Done（整体：Phase A ✅ + Phase B ✅ + Part C ✅ Function 0x10 passive；用户 Manual UI Review PASS；verified LKGC `ae067ab`）**；后续候补（Replay v2 timing / UART / register-map）⏸ | ✅ 完成 |
 
 ## 任务表
 
@@ -37,18 +37,16 @@
 | T012 | **Agent Tools** | M6 | P2 | ✅ Done（Final Review PASS；Stabilization DONE；verified LKGC `3572cf7`；ISSUE-008/009=MONITORING/NON-BLOCKING） | T007/T008/T011 输出 | 只读 Agent 工具集：三工具 white-list（summary/anomalies/detail）；架构强制**无写能力连名字都不在 contract**；详见 T012 档案 + ADR002 |
 | T013 | **Final Integration & Demo** | M7 | P1 | ✅ Done（用户 Manual Visual Re-Review PASS；verified LKGC `99f17d6`） | T008（含 T009–T012 可用能力） | 打包/便携发布；演示脚本与素材齐备（demo/ 目录）；文档终稿（README/DEMO_GUIDE 重写）；深色对比度/视觉层级/AI·Agent·Baseline 视觉身份/术语 polish（见 T013 档案 §2/§4）；CRC 查表优化留待单独任务 |
 | T014 | **Diagnostic Detail Preservation（诊断细节保留）** | M8 | P0 | ✅ Done（**用户 Manual UI Review = PASS**；Phase A/B DONE；verified LKGC `cc8393a`；`213bba5` 仅 docs 归档不作 LKGC） | T007（下游传播涉 T011/T012/T013 既有结构） | Core：`TransactionIssueCode` 七值 + 稀疏载荷 + `TransactionAnalysis.issue`（append-last）+ production invariant（`ProtocolError ⇒ issue` 必有；防御 sentinel `UnknownProtocolError`；下游对手工构造 issue=nullopt 防御 omit 不伪造）。Statistics 逐位不变（STAT-B09）。Replay/Serial 零逻辑改动同漏斗继承。Baseline finding 不变；batch summary = DEFERRED（无消费者）。Prompt 行 `issue=<token>`+载荷 additive；AgentTools detail 全量/anomalies 简化 code，hasX 语义；UI 仅 ProtocolError 行 issueText secondary text（9 个生产文件）。测试：TX a13~a18 + a01~a11 强化、STAT-B09、REPLAY-i05、SERIAL a07/a11/a15/a16、DIAG-A11、AI-B18/B19、AGENT-A11、UI-T01。RED 9→GREEN tx 20/20、ctest 23/23、clean 零警告、qml smoke、deploy+minimal-PATH、**Manual UI Review PASS**。详见 [T014 档案](tasks/T014-diagnostic-detail-preservation.md) |
-| T015 | **Passive Replay Expansion（被动回放诊断扩展）** | M8 | P1 | 🔄 In Progress（**Phase A ✅ + Phase B ✅ DONE；Part C Function 0x10 = IMPLEMENTED / AWAITING REVIEW**（Function16 被动语义 + requestIssues collection + broadcast {0x06,0x10}；candidate `e16b4d0` 待 Review）；verified LKGC `02ce302`） | T009、T014（复用 TransactionIssue/下游链） | Phase A 定案（§档案）+ Phase B 落地：`TransactionStatus::ExpectedNoResponse`（Gate C/ADR-003：completed 含广播，rate=success/(completed−expectedNoResponse)，分母 0 ⇒ nullopt）；`PassiveTransactionAnalysis`（Gate A：request 分类单点 / generic exception 单点 / FC03 复用 T007 / broadcast=addr0∧FC06 / unsupported 显式事实）；`TransactionRequestIssue`（Gate B：InvalidRequestQuantity 载荷 126/125、InvalidRequestLength、InvalidBroadcastFunction）；`Function06` 被动 decoder（**无 encoder**；echo mismatch 独立 issue）；Replay per-record 化（Gate F：analyzed + unsupportedRecords + 统计仅 analyzed）；Baseline `ExpectedNoResponseObserved` + Healthy 四条件；Prompt/Agent/QML additive（新统计卡 + 非致命提示条）。RED 13 断言失败 → GREEN ctest 24/24、clean 152 零警告、qml smoke、deploy+minimal-PATH；demo_v1/T014/Active Serial 零回归（写权限 grep 零命中）。**Function 0x10 normal semantics 明确留 Part C**。详见 [T015 档案](tasks/T015-passive-replay-expansion.md) + [ADR-003](../adr/ADR-003-broadcast-outcome-semantics.md) |
+| T015 | **Passive Replay Expansion（被动回放诊断扩展）** | M8 | P1 | ✅ Done（整体：Phase A ✅ + Phase B ✅ + **Part C ✅ Function 0x10 passive**（Function16 被动语义 + requestIssues 有序 collection + broadcast {0x06,0x10}）；用户 Manual UI Review PASS；verified LKGC `ae067ab`） | T009、T014（复用 TransactionIssue/下游链） | Phase A 定案（§档案）+ Phase B 落地：`TransactionStatus::ExpectedNoResponse`（Gate C/ADR-003：completed 含广播，rate=success/(completed−expectedNoResponse)，分母 0 ⇒ nullopt）；`PassiveTransactionAnalysis`（Gate A：request 分类单点 / generic exception 单点 / FC03 复用 T007 / broadcast=addr0∧FC06 / unsupported 显式事实）；`TransactionRequestIssue`（Gate B：InvalidRequestQuantity 载荷 126/125、InvalidRequestLength、InvalidBroadcastFunction）；`Function06` 被动 decoder（**无 encoder**；echo mismatch 独立 issue）；Replay per-record 化（Gate F：analyzed + unsupportedRecords + 统计仅 analyzed）；Baseline `ExpectedNoResponseObserved` + Healthy 四条件；Prompt/Agent/QML additive（新统计卡 + 非致命提示条）。RED 13 断言失败 → GREEN ctest 24/24、clean 152 零警告、qml smoke、deploy+minimal-PATH；demo_v1/T014/Active Serial 零回归（写权限 grep 零命中）。**Part C ✅**：Function16 被动语义（structural reader 保留 odd-byte 事实、不传播 register values；normal response=恰 4 字节 echo；echo mismatch 复用 T014 载荷列）+ requestIssues 迁移为有序 collection（ordering≠discard、防 cascade）+ broadcast {0x06,0x10} 双维正交（expectation 与 request validity 分离）；RED 42/12 → GREEN passive 54/54、ctest 24/24、clean 153 零警告；P0 下游修复 `e16b4d0`（`96ed9e2` superseded）；用户 Manual UI Review PASS；**T015 整体 DONE**；verified LKGC `ae067ab`。详见 [T015 档案](tasks/T015-passive-replay-expansion.md) + [ADR-003](../adr/ADR-003-broadcast-outcome-semantics.md) |
 
 ## 建议路线（默认执行顺序）
 
 ```text
 T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Codec ✅
 → T005 Simulator ✅ → T006 Fault Injection ✅ → T007 Transaction Analysis ✅
-→ T008 Qt UI ✅ → T009 Replay ✅ → T010 Serial ✅ → T011 AI Diagnosis ✅ → T012 Agent Tools → T013 Final Integration & Demo
-→ T012 Agent Tools → T013 Final Integration & Demo
+→ T008 Qt UI ✅ → T009 Replay ✅ → T010 Serial ✅ → T011 AI Diagnosis ✅ → T012 Agent Tools ✅ → T013 Final Integration & Demo ✅
 → M8.1 Diagnostic Coverage Audit ✅（docs-only，用户 Final Review PASS）
-→ T014 Diagnostic Detail Preservation 🔄（Phase A docs-only 完成，Phase B 待批准）
-→ T015 Passive Replay Expansion ⏸（Backlog；方向待用户决策）
+→ T014 Diagnostic Detail Preservation ✅ → T015 Passive Replay Expansion ✅（主线全部完成）
 ```
 
 ## 变更记录
@@ -171,3 +169,4 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-14 | **T015 Part C IMPLEMENTED（A/B/C 三提交）**：requestIssues collection（MULTI-C01/02）+ Function16 passive（F16-U01~U11 + PASSIVE-C01~C17 + BCAST-C01/02）；RED 42/12 → GREEN passive 54/54、ctest 24/24、clean 153 零警告、qml/deploy/minimal-PATH；写权限零新增；**LKGC candidate = `96ed9e2`（待 Review + Manual UI Smoke）** |
 | 2026-09-14 | **T015 Part C P0 downstream semantic gap fix（`e16b4d0`）**：RequestIssueObserved + Healthy 五条件；agent anomaly request-issue predicate/codes/summary;AI guard;RED→GREEN（ctest 24/24、clean 零警告）；**`96ed9e2` superseded；candidate=`e16b4d0`** |
 | 2026-09-14 | **用户 T015 Part C Manual UI Review = PASS → T015 整体 Done**：Function 0x10 passive 全链（Dashboard/Rows/Baseline「请求参数…：3」/unsupported notice）；**verified LKGC 推进 `02ce302` → `ae067ab`**（`da8ce48`=final production commit；`ae067ab`=verified code/test baseline）；遗留 deferred 留未来立项 |
+| 2026-09-14 | **简历性能声明核验 + benchmark 证据落库（maintenance；docs+scripts only）**：同机 Release 复测生产 Replay 链路（10k/100k/1M 混合样本、多轮中位），1M 档去 IO 同口径偏差 ≈4%、100k 档 ≈19% → 性能声明判定可信；`scripts/bench_replay/` + `docs/10_REPLAY_PERFORMANCE_BENCHMARK.md` 落库；本文件与 PROJECT_STATUS 同步做 T015 收盘一致性修复（M8/T015 行/建议路线）；LKGC 不变 `ae067ab` |

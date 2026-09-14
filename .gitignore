@@ -31,3 +31,6 @@ Thumbs.db
 # --- Deployment diagnostic temp files ---
 build/deploy_err*.txt
 build/deploy_out*.txt
+
+# --- Benchmark generated samples (reproducible via scripts/bench_replay/gen_samples.py) ---
+scripts/bench_replay/out/

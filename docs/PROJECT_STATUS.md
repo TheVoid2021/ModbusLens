@@ -8,17 +8,17 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变） |
-| 当前 Milestone（Current Milestone） | M1~M6 ✅；**M7 ✅ DONE（T013 Final Integration & Demo 完成，用户视觉 PASS）**；全部里程碑完成 |
+| 当前 Milestone（Current Milestone） | M1~M8 ✅ 全部 DONE（M8 = M8.1 诊断覆盖审计 + T014 + T015；T015 verified LKGC `ae067ab`） |
 | Last Known Good Commit | **`ae067ab`**（T015 整体 DONE：Phase A ✅ + Phase B ✅ + Part C ✅（Function 0x10 passive）；含 P0 语义审计与 presentation gap 修复；用户 Manual UI Review PASS 后正式推进。历史值：`02ce302`（T015 Phase B）、`cc8393a`（T014）、`99f17d6`（T013）、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
-| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（clean 全量重建 142 targets） |
-| Test 状态 | ✅ **22/22 通过**（ctest 22 个测试目标全绿（T012 Part A agent_tools：AGENT-A01~A09+A10；Part B Phase 1 agent_runtime：AGENT-B01~B18）
-| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · **T011** |
+| Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（T015 收盘 clean 全量重建 153 targets） |
+| Test 状态 | ✅ **24/24 通过**（ctest 24 个测试目标全绿；T015 Part C passive **54/54**（F16-U01~U11 + PASSIVE-C01~C17 + BCAST-C01/02）；历史全绿链含 T012 AGENT-A01~A09+A10 / AGENT-B01~B22、T014 tx 20/20 等） |
+| 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · T011 · **T012 · T013 · T014 · T015（主线全完成）** |
 | 当前任务（Current Task） | **None（主线任务全完成）**。**T015 — Passive Replay Expansion = ✅ DONE（整体）**：Phase A ✅ + Phase B ✅ + Part C ✅（Function 0x10 passive）；verified LKGC = `ae067ab` |
 | 最近完成任务（Last Completed Task） | **T015 Passive Replay Expansion — 整体 DONE**（Phase A/B/Part C 全链；用户 Manual UI Review PASS；verified LKGC `ae067ab`） |
-| 当前阶段（Current Phase） | T015 Part C IMPLEMENTED（RED 42/12 → GREEN passive 54/54 + ctest 24/24 + clean 153 零警告 + qml/deploy）；待用户 Review |
-| 下一步动作（Next Action） | **T015 Part C Review + Manual UI Smoke（用户）**；通过后推进 verified LKGC |
-| 下一 Part（Next Part） | **T012 Part B Phase 2 — Controller Agent Integration + QML Agent UI（ST-A integration test requirement 已入档）** |
-| 下一任务（Next Task After T011） | **T012 Agent Tools** |
+| 当前阶段（Current Phase） | 主线竣工：**T015 整体 DONE**（Phase A ✅ + Phase B ✅ + Part C ✅ Function 0x10 passive；用户 Manual UI Review PASS；verified LKGC `ae067ab`） |
+| 下一步动作（Next Action） | 无主线动作；Backlog 候补见 §3 |
+| 下一 Part（Next Part） | 无（T012 Part B Phase 2 已随 T012 完成） |
+| 下一任务（Next Task After T015） | Backlog 候补（单独立项后才启动）：Replay v2 timing / UART diagnostics / register-map 语义层 / per-device 时间窗 |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -38,17 +38,22 @@
 | T008 | Qt Quick / QML Analysis UI | Part A：QML 迁移 + AnalysisController/TransactionListModel 桥接 + UI-A01~A06 + Manual Visual Smoke 12/12；Part B：runDemoBatch/clearDemo 确定性 Demo Dashboard + UI-B01~B06 + QML Presentation 修正 + Manual Demo Smoke PASS；T008.1 standalone 部署（ISSUE-002 RESOLVED）；ctest 14/14 零警告 | [T008](tasks/T008-qt-quick-qml-analysis-ui.md) |
 | T009 | Replay Mode（Replay Log Format + Replay Core / Replay UI Integration） | Part A：`.mlog` v1 解析 + 批量回放分析（request 可信链三错误码；坏 response 为诊断事实；复用 T004/T007）；REPLAY-A01~A08+I01~I05（24 函数）。Part B：loadReplayFile 原子发布 + clearResults + 错误/来源状态 + FileDialog；UI-R01~R08；canonical sample `samples/demo_v1.mlog`（git mv 单一源头）；**Manual Replay Smoke 用户确认 PASS**；ctest 16/16 零警告 | [T009](tasks/T009-replay-mode.md) |
 | T010 | Serial Mode（Serial Transaction Runtime + Adapter / Serial UI Integration） | Part A：`SerialTransactionSession`（Zero Qt 单事务状态机 + 修正版 framing + timeout 双路语义）+ `encodeReadHoldingRegistersRequest` + QtSerialPort 薄 adapter；SERIAL-A01~A16 全绿；ISSUE-003 RESOLVED（QtSerialPort 组件多 kit 错位）。Part B：transport/transaction 生命周期拆分（openPort/startTransaction/closePort）+ Controller serial 全套 + QML Serial Controls；UI-S01~S10 + SERIAL-I02（PE-4 有界）/I03/I05；**Manual Serial UI Smoke 用户确认 PASS；Hardware Smoke = NOT RUN（hardware unavailable）**；ctest 18/18 零警告；Qt6SerialPort.dll provenance 验证 | [T010](tasks/T010-serial-mode.md) |
+| T011 | AI Diagnosis（Rule Baseline + ModelScope LLM） | 确定性 baseline 与"AI 不产生协议事实"原则；prompt 注入/凭据边界；Manual + Live Smoke PASS；ISSUE-005/006 | [T011](tasks/T011-ai-diagnosis.md) |
+| T012 | Agent Tools（三只读工具 + AgentRuntime） | 白名单 dispatcher（无写能力连名字都不在 contract）+ 双硬上限与 stale-guard 身份模型 + Controller/QML 集成；Live E2E 与 ISSUE-007/008/009 | [T012](tasks/T012-agent-tools.md) |
+| T013 | Final Integration & Demo Polish | Light 主题 + TabBar 三页重排 + 稳定表格；视觉多轮人工闭环；README/DEMO_GUIDE 重写 | [T013](tasks/T013-final-integration-demo-polish.md) |
+| T014 | Diagnostic Detail Preservation | `TransactionIssue`（7 值起步 + 稀疏载荷）+ production invariant（ProtocolError ⇒ issue）+ UI secondary text | [T014](tasks/T014-diagnostic-detail-preservation.md) |
+| T015 | Passive Replay Expansion | 第七状态 `ExpectedNoResponse`（ADR-003）+ Replay per-record 化 + FC06/0x10 被动分析 + 请求侧四类 Issue；verified LKGC `ae067ab` | [T015](tasks/T015-passive-replay-expansion.md) |
 
 ## 2. 当前任务
 
-- **T015 — Passive Replay Expansion（Phase A/B = DONE；整体 IN PROGRESS：Part C NOT STARTED）**。Gate A~F 全批（Phase A Review）后落地：`TransactionStatus::ExpectedNoResponse`（七状态，ADR-003 Accepted）+ 批准统计公式（completed 含广播；rate = success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）；`PassiveTransactionAnalysis`（request 分类单点、generic exception 单点、FC03 复用 T007、broadcast=addr0∧FC06）；`TransactionRequestIssue`（Gate B 独立于 T014 issue）；`Function06` 被动语义（无 encoder）；Replay per-record 化（analyzed + unsupportedRecords 显式披露，Gate F）；Baseline `ExpectedNoResponseObserved` + Healthy 四条件；Prompt/Agent/UI additive；RED 13 条断言失败 → GREEN ctest 24/24；clean 152 零警告；qml smoke 与 deploy+minimal-PATH PASS；Active Serial 写权限零新增（grep 取证）。**Function 0x10 = NOT STARTED（Part C，另行立项）**。**verified LKGC = `02ce302`**（`6944fd5` superseded；docs-only 提交不作 LKGC）。详见 [T015 档案](tasks/T015-passive-replay-expansion.md) + [ADR-003](../adr/ADR-003-broadcast-outcome-semantics.md)。
+- **主线任务全部完成（当前无进行中任务）**。最近收盘任务 **T015 — Passive Replay Expansion = ✅ DONE（整体）**：Phase A（Gate A~F 全批 + ADR-003 Accepted）→ Phase B（第七状态 `ExpectedNoResponse` 与统计公式、`PassiveTransactionAnalysis`、`TransactionRequestIssue`、Function06 被动语义（无 encoder）、Replay per-record 化、Baseline `ExpectedNoResponseObserved`；RED 13 条断言失败 → GREEN ctest 24/24）→ Part C（Function 0x10 / Function16 被动语义：requestIssues 有序 collection、structural reader 不传播 register values、广播 {0x06,0x10} 双维正交；RED 42/12 → GREEN passive 54/54、ctest 24/24、clean 153 零警告）；用户 Manual UI Review PASS；**verified LKGC = `ae067ab`**（final production `da8ce48` + tests-only 锚）。详见 [T015 档案](tasks/T015-passive-replay-expansion.md) + [ADR-003](../adr/ADR-003-broadcast-outcome-semantics.md)。
 
 ## 3. 下一任务
 
-- ~~用户 T015 Phase B Review~~ ✅ PASS（Manual UI Smoke 全项 PASS；verified LKGC = `02ce302`）。
-- **T015 Part C — Function 0x10（IMPLEMENTED / AWAITING REVIEW）**：Gate C1~C8 设计 + Review P0 修正（C2=**multi-request-issue collection**（有序、ordering≠discard、防 cascade）；C7=**Broadcast 两维正交**（expectation 与 request validity 分离；invalid broadcast + NO_RESPONSE = ExpectedNoResponse + requestIssues，不得 Timeout；任何 response bytes = UnexpectedResponseForBroadcast + requestIssues））；raw wire 非 structured fact 替代的边界声明；ExpectedNoResponse 语义澄清 proposal（同步位置清单，未改 Accepted ADR）；MULTI-C01/02 + BCAST-C01/02 入矩阵；未实现任何代码。
-- **T015 Part C — Function 0x10 normal semantics**（IN PROGRESS：Learning + Test Design docs-only 完成，Implementation 待 Gate C1~C8 批复）。
-- Backlog：Replay v2 timing、UART diagnostics、register-map 语义层、per-device 时间窗等。
+- 主线任务全部完成（T001~T015；verified LKGC `ae067ab`）。以下 Backlog 候补需单独立项、经用户批准后才启动：
+  - Replay v2 timing（真实时间推进回放）
+  - UART diagnostics（硬件层诊断）
+  - register-map 语义层 / per-device 时间窗
 
 ## 4. Known Issues（当前已知问题）
 
@@ -60,7 +65,7 @@
 | K4 | ~~**[ISSUE-002] Explorer 启动 modbuslens.exe 失败**~~ **[RESOLVED ✅]**（无法定位输入点 `_ZNSt3pmr20get_default_resourceEv` 于 Qt6Gui.dll） | 仅影响"不经终端直接双击启动"场景；终端前置正确 PATH 后启动正常；**正确 runtime 下用户已人工确认 UI 12/12 正常** | **已解决（T008.1）**：`scripts/deploy_windows.bat` 生成 build/deploy 独立目录（runtime provenance SHA256=编译器 bin VERIFIED + minimal-PATH smoke PASS）；**用户 Explorer 双击确认 PASS**。ISSUE-002 置 RESOLVED |
 | K5 | ~~**[ISSUE-003] 本机 Qt 6.11.1 未安装 QtSerialPort 组件**~~ **[RESOLVED ✅]**（首次补装落错 MSVC kit `D:\QTDesign`，随后装到正确 MinGW kit；五步实证+临时 CMake probe 全过） | 曾阻塞 T010 Part A 的 Qt adapter/SERIAL-I01 | 已解决；T010 Part A 全绿交付 |
 | K6 | [ISSUE-006](issues/ISSUE-006-ai-explanation-overattribution.md) AI 解释过度归因——4 笔小样本（1 CRC + 1 Timeout + 1 Exception 0x02）被渲染为“链路稳定性差/协议混乱/往往源于物理层/间歇中断”等确定语气结论 | 确定性数据零损坏；措辞可能误导排查方向、违背“possible cause ≠ certain cause”产品原则 | **RESOLVED ✅**：evidence-scope guard + 状态正例语义 + 混合错误独立性 + Facts/Explanations/Checks 纪律；AI-B14~B17；用户 Manual UI Regression Smoke PASS + 经授权 Live ModelScope Smoke 五项验收全 PASS；verified LKGC = `01841b1` |
-| K7 | [ISSUE-007](issues/ISSUE-007-live-agent-tool-budget-exhaustion.md) Live Agent tool budget exhaustion（MAX_TOTAL_TOOL_CALLS=3 对多步只读诊断过严，真实 run 触发 ToolCallLimitExceeded） | 合法多步问题无法完成一次诊断（超限即安全终止） | **FIXED / AWAITING LIVE RE-VALIDATION**（`e922c19`：total 3→6 + planning discipline；rounds=3 不变；待用户授权 Live Re-Smoke 后 RESOLVED） || K7 | [ISSUE-007](issues/ISSUE-007-live-agent-tool-budget-exhaustion.md) Live Agent tool budget exhaustion（MAX_TOTAL_TOOL_CALLS=3 对多步只读诊断过严，真实 run 触发 ToolCallLimitExceeded） | 合法多步问题无法完成一次诊断（超限即安全终止） | **LIVE RE-VALIDATION PASS / AWAITING USER FINAL CLOSURE**（`e922c19`：total 3→6 + planning discipline；同一问题一文未改的唯一 run 约 60s 产出合规 final answer，零超限；用户最终确认后 RESOLVED） || K7 | [ISSUE-007](issues/ISSUE-007-live-agent-tool-budget-exhaustion.md) Live Agent tool budget exhaustion（MAX_TOTAL_TOOL_CALLS=3 对多步只读诊断过严，真实 run 触发 ToolCallLimitExceeded） | 合法多步问题无法完成一次诊断（超限即安全终止） | **RESOLVED ✅**（`e922c19`：total 3→6 + planning discipline；同题 Live Re-Validation PASS；用户 Final Review PASS） |
+| K7 | [ISSUE-007](issues/ISSUE-007-live-agent-tool-budget-exhaustion.md) Live Agent tool budget exhaustion（MAX_TOTAL_TOOL_CALLS=3 对多步只读诊断过严，真实 run 触发 ToolCallLimitExceeded） | 合法多步问题无法完成一次诊断（超限即安全终止） | **RESOLVED ✅**（`e922c19`：total 3→6 + planning discipline；rounds=3 不变；同题 Live Re-Validation PASS；用户 Final Review PASS） |
 ## 5. 开发环境
 
 | 项 | 值 |
@@ -242,3 +247,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-14 | **T015 Part C IMPLEMENTED（A/B/C 三提交）**：A `92ccf16` requestIssues collection 迁移 + Function16 surface + RED（passive **42 passed/12 failed**，断言级）；B `e1c9e2c` Function16 被动语义 + broadcast 集 {0x06,0x10} 接线 → passive **54/54**、ctest 24/24；C `96ed9e2` QML 多 issue 换行。clean **153 targets 零警告**、ctest 24/24、qml smoke、deploy+minimal-PATH；写权限 grep 零命中（无 encoder/send/写工具，Serial 仍 FC03 read-only）；ExpectedNoResponse 三处措辞同步为 expectation/validity 正交（统计公式未变）；**LKGC candidate = `da8ce48`（`96ed9e2`→`e16b4d0`→`da8ce48` supersede 链；待 Review + Manual UI Smoke）**；verified LKGC 仍 `02ce302` |
 | 2026-09-14 | **T015 Part C P0 downstream semantic gap audit（`e16b4d0` + `da8ce48`）**：requestIssues 下游化——Baseline `RequestIssueObserved`（affectedCount=事务数）+ Healthy 五条件（issues 正交于 100% success）；Agent anomaly=status OR !issues.empty() + `request_issue_codes` + summary `request_issue_transactions`；AI 护栏（Success/高成功率不擦除 request issues）；Statistics/TransactionStatus 未动（DIAG-A14 锁正交）；RED=diag 2/agent 1/ai 1（断言级）→ GREEN 全套（diag 17、agent 15、ai 23、uib 55、passive 55、ctest 24/24、clean 153 零警告、qml smoke=0）；RED-history 事实订正入档（92ccf16 的 RED 真实但不覆盖每个 F16 unit behavior）；**Part C candidate = `da8ce48`** |
 | 2026-09-14 | **用户 T015 Part C Manual UI Review = PASS → T015 整体 Final Closure**：Dashboard 6/6/0·2/1/0/0/1/2·50%·22ms；unsupported notice 不计统计；Rows 全项 PASS（含 Success+双 issues 与 invalid broadcast+issue）；Baseline 四点 PASS（请求参数…事务：3=事务数非 4；无 Healthy）；**verified LKGC 推进 `02ce302` → `ae067ab`**（`da8ce48`=final production-affecting commit；`ae067ab`=更完整 verified code/test baseline）；T015 整体 DONE；docs-only 提交不作 LKGC |
+| 2026-09-14 | **简历性能声明核验 + benchmark 证据落库（maintenance；docs+scripts only）**：同机同工具链（MinGW 13.1 / -O3）独立复测生产 Replay 链路（10k/100k/1M 确定性混合样本、多轮中位口径），1M 档去 IO 同口径与简历偏差 ≈4%、100k 档 ≈19%（噪声带内）→ 性能声明判定可信；新增 `scripts/bench_replay/`（gen_samples.py / bench.cpp / README）与 `docs/10_REPLAY_PERFORMANCE_BENCHMARK.md`（口径/构成/逐轮原始数据/对照结论）；INTERVIEW_NOTES 追加方法论条目；本文件与 BACKLOG 同步做 T015 收盘一致性修复（面板/§2/§3/K7 行）；LKGC 不变 `ae067ab` |

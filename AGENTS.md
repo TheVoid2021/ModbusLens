@@ -59,6 +59,11 @@ ModbusLens 是一个 C++20 + Qt6 的工业通信（Modbus）智能诊断平台�
 | `docs/03_MODBUS_LEARNING.md` | Modbus 协议知识库（学习笔记） | 学到新知识点时 |
 | `docs/04_TEST_STRATEGY.md` | 测试策略、分层、验收口径 | 测试手段变化时 |
 | `docs/05_DEMO_GUIDE.md` | 演示指南（三种模式的演示脚本） | 新增演示能力时 |
+| `docs/06_UI_LANGUAGE_POLICY.md` | UI 文案语言政策（中文界面、专业术语保留英文） | 文案政策变化时 |
+| `docs/07_FINAL_PROJECT_REVIEW.md` | 项目事实总账（M8 复盘，结论全部出自 Git 历史） | 里程碑复盘时 |
+| `docs/08_KNOWLEDGE_OWNERSHIP.md` | 架构知识所有权地图（面试可解释性素材） | 架构知识沉淀时 |
+| `docs/09_DIAGNOSTIC_COVERAGE_AUDIT.md` | 诊断覆盖审计（14 场景矩阵与 Claim Risk） | 覆盖度审计时 |
+| `docs/10_REPLAY_PERFORMANCE_BENCHMARK.md` | Replay 链路性能基准（口径、原始数据、复现脚本） | 性能声明或核心链路大改时 |
 | `docs/PROJECT_STATUS.md` | 项目状态单一事实源 | **每个任务完成后** |
 | `docs/BACKLOG.md` | 全部任务与优先级（里程碑视图） | **每个任务完成后** |
 | `docs/ENVIRONMENT.md` | 环境搭建/工具链/常见坑 | 环境变化时 |
