@@ -394,6 +394,14 @@ void DiagnosisTest::a14_requestIssueObserved()
     // affectedCount = TRANSACTIONS carrying issues (1), never the issue count.
     QCOMPARE(report.findings[0].affectedCount, std::size_t{1});
     QCOMPARE(report.findings[0].severity, DiagnosisSeverity::Warning);
+
+    // Statistics orthogonality proof (audit §4): the request issues never
+    // become an eighth TransactionStatus — the batch is still 1 Success,
+    // 1 completed, rate 100% — while Baseline correctly refuses Healthy.
+    QCOMPARE(context.statistics.successCount, std::size_t{1});
+    QCOMPARE(context.statistics.completedCount, std::size_t{1});
+    QVERIFY(context.statistics.successRate.has_value());
+    QCOMPARE(*context.statistics.successRate, 1.0);
 }
 
 void DiagnosisTest::a15_requestIssueOrder()
