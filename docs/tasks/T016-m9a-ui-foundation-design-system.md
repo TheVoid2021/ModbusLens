@@ -237,4 +237,4 @@ $ powershell -File build/run_smoke_deploy.ps1   → EXITCODE=0（不带 Qt 开�
 
 ### 16.9 Git Commit
 
-见下文 "17. Git Commit"（提交后回填哈希）。
+- `4fc934f`（main，未 push）— `T016: M9-A Phase 2 — Design System core + first component migration`（16 files：代码 + docs + ISSUE-010/011 + devlog；candidate 提交，**不推进 LKGC**）。
