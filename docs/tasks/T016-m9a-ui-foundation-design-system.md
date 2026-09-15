@@ -295,4 +295,4 @@ deploy_windows.bat + deploy smoke       → [OK] + EXITCODE=0（无开发 PATH�
 
 **Manual 状态**：修复后的新的 deploy candidate 已生成；截图新路径 `docs/assets/screenshots/geometry-1024x720.png` 与 `geometry-1000x700.png`（grabWindow 真值输出）；**PENDING USER REVIEW**（由用户看真实界面决定 PASS/FAIL）。
 
-**Git Commit**：见 §18 回填。
+**Git Commit**：`6562dd3`（main，未 push）— `M9-A: fix statistics layout regression`（13 files：PanelCard/StatCard 契约修复 + Main.qml 调用点 + main.cpp/CMakeLists 回归守卫 + ISSUE-012 + 两张真值截图 + docs；不 amend `4fc934f`/`7abd887`，不 push，不推进 LKGC）。
