@@ -290,84 +290,85 @@ ApplicationWindow {
         // formatting semantics come from analysisController exactly as
         // before this migration.
         SectionHeader {
+            objectName: "statisticsHeader"
             Layout.fillWidth: true
             title: qsTr("运行统计")
         }
 
         PanelCard {
-            id: statisticsPanel
+            objectName: "statisticsPanel"
             Layout.fillWidth: true
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: statisticsPanel.padding
-                spacing: DS.spacingS
+            RowLayout {
+                objectName: "statisticsRow1"
+                Layout.fillWidth: true
+                spacing: DS.spacingM
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: DS.spacingM
+                Repeater {
+                    model: [
+                        { label: qsTr("已观测"), value: analysisController.observedCount },
+                        { label: qsTr("已完成"), value: analysisController.completedCount },
+                        { label: qsTr("进行中"), value: analysisController.pendingCount }
+                    ]
 
-                    Repeater {
-                        model: [
-                            { label: qsTr("已观测"), value: analysisController.observedCount },
-                            { label: qsTr("已完成"), value: analysisController.completedCount },
-                            { label: qsTr("进行中"), value: analysisController.pendingCount }
-                        ]
-
-                        delegate: StatCard {
-                            label: modelData.label
-                            valueText: String(modelData.value)
-                        }
-                    }
-
-                    StatCard {
-                        Layout.preferredWidth: 180
-                        label: qsTr("成功率")
-                        valueText: analysisController.hasSuccessRate
-                              ? (analysisController.successRate * 100).toFixed(1) + "%"
-                              : qsTr("—")
-                    }
-
-                    StatCard {
-                        Layout.preferredWidth: 180
-                        label: qsTr("平均延迟")
-                        valueText: analysisController.hasAverageSuccessLatency
-                              ? analysisController.averageSuccessLatencyMs.toFixed(1) + qsTr(" ms")
-                              : qsTr("—")
-                    }
-
-                    Item {
-                        Layout.fillWidth: true
+                    delegate: StatCard {
+                        objectName: "statCard_" + index
+                        label: modelData.label
+                        valueText: String(modelData.value)
                     }
                 }
 
-                // Status count cards
-                RowLayout {
+                StatCard {
+                    objectName: "statCard_rate"
+                    Layout.preferredWidth: 180
+                    label: qsTr("成功率")
+                    valueText: analysisController.hasSuccessRate
+                          ? (analysisController.successRate * 100).toFixed(1) + "%"
+                          : qsTr("—")
+                }
+
+                StatCard {
+                    objectName: "statCard_latency"
+                    Layout.preferredWidth: 180
+                    label: qsTr("平均延迟")
+                    valueText: analysisController.hasAverageSuccessLatency
+                          ? analysisController.averageSuccessLatencyMs.toFixed(1) + qsTr(" ms")
+                          : qsTr("—")
+                }
+
+                Item {
                     Layout.fillWidth: true
-                    spacing: DS.spacingM
+                }
+            }
 
-                    Repeater {
-                        model: [
-                            { label: qsTr("成功"), value: analysisController.successCount, color: DS.success },
-                            { label: qsTr("异常"), value: analysisController.exceptionCount, color: DS.exception },
-                            { label: qsTr("CRC 错误"), value: analysisController.crcErrorCount, color: DS.crcError },
-                            { label: qsTr("超时"), value: analysisController.timeoutCount, color: DS.timeout },
-                            { label: qsTr("协议错误"), value: analysisController.protocolErrorCount, color: DS.protocolError },
-                            { label: qsTr("预期无响应"), value: analysisController.expectedNoResponseCount, color: DS.expectedNoResponse }
-                        ]
+            // Status count cards
+            RowLayout {
+                objectName: "statisticsRow2"
+                Layout.fillWidth: true
+                spacing: DS.spacingM
 
-                        delegate: StatCard {
-                            Layout.preferredWidth: 110
-                            Layout.preferredHeight: 64
-                            label: modelData.label
-                            valueText: String(modelData.value)
-                            tone: modelData.color
-                        }
+                Repeater {
+                    model: [
+                        { label: qsTr("成功"), value: analysisController.successCount, color: DS.success },
+                        { label: qsTr("异常"), value: analysisController.exceptionCount, color: DS.exception },
+                        { label: qsTr("CRC 错误"), value: analysisController.crcErrorCount, color: DS.crcError },
+                        { label: qsTr("超时"), value: analysisController.timeoutCount, color: DS.timeout },
+                        { label: qsTr("协议错误"), value: analysisController.protocolErrorCount, color: DS.protocolError },
+                        { label: qsTr("预期无响应"), value: analysisController.expectedNoResponseCount, color: DS.expectedNoResponse }
+                    ]
+
+                    delegate: StatCard {
+                        objectName: "statusCard_" + index
+                        Layout.preferredWidth: 110
+                        Layout.preferredHeight: 64
+                        label: modelData.label
+                        valueText: String(modelData.value)
+                        tone: modelData.color
                     }
+                }
 
-                    Item {
-                        Layout.fillWidth: true
-                    }
+                Item {
+                    Layout.fillWidth: true
                 }
             }
         }
@@ -385,6 +386,7 @@ ApplicationWindow {
         // viewport; Recent Transactions scroll inside its own ListView.
         // ------------------------------------------------------------------
         SplitView {
+            objectName: "diagnosisWorkspace"
             Layout.fillWidth: true
             Layout.fillHeight: true
             orientation: Qt.Horizontal

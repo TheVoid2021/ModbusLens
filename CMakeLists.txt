@@ -444,8 +444,14 @@ if(BUILD_TESTING)
     add_test(NAME qml_smoke
         COMMAND modbuslens --qml-smoke-test)
 
+    # M9-A statistics-migration geometry guard (ISSUE-012): the real app
+    # loads the shipped QML and asserts the layout-size contract of the
+    # statistics area at the default size AND at the 1000x700 minimum.
+    add_test(NAME qml_geometry_check
+        COMMAND modbuslens --qml-geometry-check)
+
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

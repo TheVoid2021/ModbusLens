@@ -238,3 +238,61 @@ $ powershell -File build/run_smoke_deploy.ps1   → EXITCODE=0（不带 Qt 开�
 ### 16.9 Git Commit
 
 - `4fc934f`（main，未 push）— `T016: M9-A Phase 2 — Design System core + first component migration`（16 files：代码 + docs + ISSUE-010/011 + devlog；candidate 提交，**不推进 LKGC**）。
+
+## 17. M9-A Phase 2 Manual Visual Review = FAIL → Statistics layout regression remediation（追加记录）
+
+**用户裁定（2026-09-15）**：M9-A Phase 2 Manual Visual Review = **FAIL**（截图证明 Statistics Area 发生严重 visual/layout regression）。自动链（ctest/qml_smoke）当时全绿——本记录同时回答"为什么自动链没拦住"。
+
+**用户截图观察（Observed，用户原话要点）**：statistics labels/values 左边缘重叠；card 背景与文字内容空间脱离；statistics section 高度塌缩、内容溢出；统计行未保持预期卡片布局；下方 Diagnosis workspace 被视觉侵占；统计区不可读。明确排除：native title bar 颜色、缺 icon、旧 Serial styling——这些是已知后续工作，不计入本 regression。
+
+**期望（Expected）**：稳定的两行统计；每张卡都有非零稳定几何；label/value 在各自卡内；统计区拥有足够高度；不与 Diagnosis 重叠。
+
+**运行时取证（修复前，`--qml-geometry-check` 真实测量）**：
+
+| 对象 | 实测（修复前，默认 1024×720 逻辑尺寸） |
+| --- | --- |
+| statisticsPanel | **x=0 y=227 w=992 h=0 implicit=0x0** |
+| statisticsRow1 | x=0 y=0 w=840 h=72 implicit=840x72 |
+| statisticsRow2 | **x=0 y=0** w=732 h=64 implicit=732x64（与 row1 完全重叠） |
+| 11 张 StatCard | 尺寸 140/180/110 × 72/64 正常，**但 implicit 全部 0x0** |
+| diagnosisWorkspace | y=252；统计内容实际画到 ~y=300 → 视觉侵占 48 px 区域 |
+
+**修复后测量（同一探针）**：statisticsPanel 992×168（implicit 864×168）；row1 y=0 h=72，row2 y=80 h=64；diagnosisWorkspace y=420 ≥ panel 底部（227+168+12+1+12=420）；双重尺寸（默认 + 1000×700 最小值）全部通过。11 张卡的 implicit 恢复为真实自然尺寸（如 57×66）。
+
+**RCA（已证实，另见 ISSUE-012）**：PanelCard 的 root Rectangle implicit 为 0×0，且内容 ColumnLayout 通过 anchors 填充卡片——anchors 不向父容器回馈 implicit 尺寸——根 ColumnLayout 按 implicit 高度分配 → PanelCard 高度 0 → 内部内容零空间重叠绘制 → 溢出侵入 Diagnosis。次要发现：StatCard 此前只靠 Layout.preferredWidth/Height 获得尺寸、自身 implicit 为 0×0（脱离 Layout 即塌缩的同族缺陷）。
+
+**Qt Quick Layout 知识（结合本 bug，§5 要求逐条回答）**：
+1. **Layout 管理的 Item 的 width/height 与 Layout.preferredWidth/Height 关系**：Layout 在父布局里分配几何时，取 Layout.preferred*（无则取 implicit*）作为理想尺寸，再结合 fill/minimum 约束在布局方向拉伸；分配完成后**写回**该 Item 的 width/height。本例统计卡 width=140 就是 RowLayout 写回 preferred 的结果——而 PanelCard 没有任何 preferred 也没有 implicit，得到 0。
+2. **reusable component 为什么需要合理 implicit 尺寸**：组件未来可能被放进任何容器（Layout、anchors、Flickable），implicit 是"没有外部指令时我的自然尺寸"声明。StatCard 修复前 implicit=0x0 全凭外部 preferred 续命，是把职责外包给了调用点。
+3. **为什么 child 能画出来但 parent geometry 接近 0**：anchors 只消费父尺寸不产生父 implicit；子内容在 0 高容器里仍按自身 preferred 布局（RowLayout 分配 h=72），无裁剪时照样绘制——"画得出"≠"容器合同成立"。两个 Row 都拿到 y=0 即 ColumnLayout 在 0 高里无空间可分配所致。
+4. **为什么 qml_smoke 没拦住**：qml_smoke 只验证"组件树实例化成功"（返回 0 = 无创建失败），从不进入布局几何断言；本次自动化盲区即 §8 的 geometry regression protection 诉求来源——已以最小成本补齐（见下）。
+
+**修复（最小粒度）**：
+- `PanelCard.qml`：implicit = contentLayout.implicit + 2×padding；内容经 `default property alias contentData: contentLayout.data` 进入内层 ColumnLayout，调用点不再 anchors。
+- `StatCard.qml`：implicitWidth/Height 从 labelColumn.implicit 派生（Layout.preferred* 仍保留为布局首选值）。
+- `Main.qml`：statistics 调用点删除 wrapper ColumnLayout 与其 anchors（rows 直接成为 PanelCard 内容）；新增 objectName（statisticsPanel/statisticsRow1/2、statCard_*/statusCard_*、diagnosisWorkspace、statisticsHeader）作为回归探针锚点。analysisController 绑定、取数与格式化语义零改动。
+- `main.cpp`：新增 `--qml-geometry-check`（加载真实 QML→布局 settle→默认尺寸断言→resize 1000×700→再断言；断言：header 与 panel 不重叠、panel 及每张可见卡 w/h>0、row2.y ≥ row1 底部、Diagnosis.y ≥ panel 底部；附带 `--qml-geometry-dump <dir>` 输出 grabWindow PNG 证据）。CTest 新增 `qml_geometry_check`（offscreen）。
+- `CMakeLists.txt`：注册上述测试。
+
+**Verification（真命令 + 真输出）**：
+```text
+build（debug-local）                    → Linking ... modbuslens.exe（干净）
+--qml-geometry-check（修复前）          → EXITCODE=1：panel 992x0 / row2 y=0 overlaps row1（证据入 ISSUE-012）
+--qml-geometry-check（修复后，双尺寸）  → GEOMETRY CHECK PASS (default size + 1000x700 minimum)，EXITCODE=0
+qml_smoke（debug exe）                  → EXITCODE=0，stderr 无 ReferenceError
+ctest --preset debug-local              → 25/25（24 既有 + 新增 qml_geometry_check）
+git diff --check                        → 通过
+deploy_windows.bat + deploy smoke       → [OK] + EXITCODE=0（无开发 PATH）
+截图像素自检（ps_pixel_check，两张图） → 两张 FILE VERDICT: PASS（11 张卡每张均有文字像素且位于卡内；rate/latency 的“—”占位为低像素阈值特例，已按内容类型调整断言）
+```
+**DPI 真实证据（不猜）**：本机逻辑尺寸×1.25（grabWindow 输出 1280×900 与 1250×875 = 1024×720/1000×700 × 1.25）。grabWindow 输出的两张图为像素真值。
+
+**Knowledge Learned（真实示例）**：
+1. Layout/anchors 的尺寸流转方向——container 的 implicit 只能来自内容布局的 implicit（children 派生）而不是 anchors（parent 派生），反向即 0 高度塌缩（本 bug 本体）。
+2. Repeater delegate 在 QObject 树 vs visual 树的可达性差异：findChild 找不到 delegate objects，item-tree（childItems）递归可找到——几何探针必须走 visual 树。
+3. QQuickWindow::grabWindow 是真值位图证据（与窗口管理器无关、无需显示、逻辑像素准确），配 printWindow 类外部截图会踩 DPI 虚拟化（实测抓到 1024×720 的裁剪而非 1280×900 的完整窗口）。
+4. 阈值为导向的像素断言会误伤合法低像素内容（“—”占位符）——断言参数必须按被检内容类型声明。
+
+**Manual 状态**：修复后的新的 deploy candidate 已生成；截图新路径 `docs/assets/screenshots/geometry-1024x720.png` 与 `geometry-1000x700.png`（grabWindow 真值输出）；**PENDING USER REVIEW**（由用户看真实界面决定 PASS/FAIL）。
+
+**Git Commit**：见 §18 回填。

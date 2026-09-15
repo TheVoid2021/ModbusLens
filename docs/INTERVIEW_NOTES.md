@@ -111,3 +111,10 @@
 - **Q：QtQuick.Controls 的 Label 为什么在组件里报 "is not a type"？** A：Label 定义在 QtQuick.Controls 而非 QtQuick；QML 的 import 是逐文件的，组件文件必须显式 import 所用类型的模块——qmlcachegen 编译期不报、引擎实例化期才报，检测要走到运行。
 - **Q：部署包为什么要复制生成模块而不是手写 qmldir？** A：手写第二份模块清单必然漂移（ISSUE-011：模块 1 类型→6 类型时部署态解析失败）；单一机制：xcopy 构建系统生成的模块整体，`prefer :/ModbusLens/` 保证内嵌资源是权威解析面。
 - **Q：GUI 程序的 QML 错误取证技巧？** A：GUI-subsystem 进程 stderr 默认不通管道且 Windows 负退出码被 MSYS 映射成 127；PowerShell `Start-Process -PassThru` 取原始 ExitCode + `QT_ASSUME_STDERR_HAS_CONSOLE=1` 强制写 stderr，是本次定位的可靠组合。
+
+
+## 7. Post-T016 M9-A remediation 条目（2026-09-15 追加）
+
+- **Q：自动化全绿为什么还会出布局塌缩？** A：qml_smoke 只断言"组件树实例化成功"，不断言几何；PanelCard implicit 0x0 时根 ColumnLayout 分给它 0 高度，两行在 y=0 重叠绘制——实例化成功≠合同成立。补上的 `qml_geometry_check` 只锁尺寸合同（panel/每卡 w>0、行序、Diagnosis 不侵入），明确不是视觉验收替代品。
+- **Q：为什么 container 的 implicit 不能靠 anchors 得到？** A：anchors 消费父尺寸（子跟随父），而 implicit 是"孩子汇合到父"的另一个方向；两个方向不能互相代替——PanelCard 的 implicit 必须来自内容布局的 implicit（children 派生）+ padding，这正是 ISSUE-012 的根因。
+- **Q：运行时几何取证怎么落地？** A：CLI 探针加载真实 QML → 事件循环 settle（100ms×重试）→ 断言 + `QQuickWindow::grabWindow` 输出真值位图；两个坑：QObject findChild 找不到 Repeater delegate（要走 childItems visual 树）；外部截图的 DPI 虚拟化会拿错像素（实测 1024x720 裁剪 vs 真实 1280x900）。

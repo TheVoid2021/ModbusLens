@@ -16,12 +16,22 @@ Rectangle {
     property color tone: DS.textMuted
     property bool emphasized: true
 
+    // Natural size contract (ISSUE-012): derived from the label column's
+    // IMPLICIT size, so the card keeps real geometry even outside a
+    // Layout (the failing measurement showed implicit=0x0 when only
+    // Layout.preferredWidth/Height carried the size).
+    implicitWidth: labelColumn.implicitWidth + 2 * DS.spacingM
+    implicitHeight: labelColumn.implicitHeight + 2 * DS.spacingM
+
+    // Layout hints: first-choice sizes when managed by a RowLayout (the
+    // statistics call site overrides them per card kind).
     Layout.preferredWidth: 140
     Layout.preferredHeight: 72
     color: DS.cardSurface
     radius: DS.radiusM
 
     ColumnLayout {
+        id: labelColumn
         anchors.centerIn: parent
         spacing: 2
 
