@@ -10,18 +10,22 @@ ApplicationWindow {
     // T013 Phase C: FIXED LIGHT presentation palette (user-approved
     // direction). No dark/light switch; final hexes keep HUMAN VISUAL
     // REVIEW REQUIRED status until the user re-reviews.
-    readonly property color pageBackground: "#FFFFFF"
-    readonly property color surface: "#FFFFFF"
-    readonly property color surfaceAlt: "#F5F7FA"
-    readonly property color textPrimary: "#1B1F26"
-    readonly property color textSecondary: "#4A5568"
-    readonly property color border: "#D8DDE4"
-    readonly property color separator: "#EDF0F4"
+    // M9-A Phase 2: the same values are now CENTRALIZED in the DesignSystem
+    // singleton — these aliases stay so the rest of Main.qml (Serial /
+    // Diagnosis / Transactions, not yet migrated) keeps compiling and
+    // rendering pixel-identically.
+    readonly property color pageBackground: DS.background
+    readonly property color surface: DS.surface
+    readonly property color surfaceAlt: DS.surfaceAlt
+    readonly property color textPrimary: DS.textPrimary
+    readonly property color textSecondary: DS.textSecondary
+    readonly property color border: DS.border
+    readonly property color separator: DS.separator
     readonly property color baselineAccent: "#0F8A6D"
-    readonly property color aiAccent: "#2F6FB7"
+    readonly property color aiAccent: DS.primary
     readonly property color agentAccent: "#C88719"
     readonly property color errorAccent: "#C0392B"
-    readonly property color busyAccent: "#2F6FB7"
+    readonly property color busyAccent: DS.primary
     readonly property color activeTabBorder: "#98A2B3"
     readonly property color scrollThumb: "#B6BDC8"
 
@@ -97,21 +101,25 @@ ApplicationWindow {
             color: "#D0D0D0"
         }
 
-        // Demo controls
+        // Demo controls (M9-A Phase 2: presentation migrated to AppButton;
+        // onClicked / enabled business bindings are unchanged).
         RowLayout {
             Layout.fillWidth: true
+            spacing: DS.spacingS
 
-            Button {
+            AppButton {
+                tone: "primary"
                 text: qsTr("运行演示批次")
                 onClicked: analysisController.runDemoBatch()
             }
-            Button {
+            AppButton {
+                tone: "secondary"
                 text: qsTr("加载回放...")
                 onClicked: replayFileDialog.open()
             }
-            Button {
+            AppButton {
+                tone: "secondary"
                 text: qsTr("清空结果")
-                palette.buttonText: "#303030"
                 onClicked: analysisController.clearResults()
             }
             Item {
@@ -277,135 +285,90 @@ ApplicationWindow {
             Layout.fillWidth: true
         }
 
-        // Statistics area
-        RowLayout {
+        // Statistics area — M9-A Phase 2: presentation migrated to
+        // SectionHeader + PanelCard + StatCard. All VALUES, sources and
+        // formatting semantics come from analysisController exactly as
+        // before this migration.
+        SectionHeader {
             Layout.fillWidth: true
-            spacing: 12
-
-            Repeater {
-                model: [
-                    { label: qsTr("已观测"), value: analysisController.observedCount },
-                    { label: qsTr("已完成"), value: analysisController.completedCount },
-                    { label: qsTr("进行中"), value: analysisController.pendingCount }
-                ]
-
-                delegate: Rectangle {
-                    Layout.preferredWidth: 140
-                    Layout.preferredHeight: 72
-                    color: "#F4F4F4"
-                    radius: 6
-
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        spacing: 2
-
-                        Label {
-                            text: modelData.label
-                            color: "#606060"
-                        }
-                        Label {
-                            text: modelData.value
-                            font.pixelSize: 20
-                            font.bold: true
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                Layout.preferredWidth: 180
-                Layout.preferredHeight: 72
-                color: "#F4F4F4"
-                radius: 6
-
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    spacing: 2
-
-                    Label {
-                        text: qsTr("成功率")
-                        color: "#606060"
-                    }
-                    Label {
-                        text: analysisController.hasSuccessRate
-                              ? (analysisController.successRate * 100).toFixed(1) + "%"
-                              : qsTr("—")
-                        font.pixelSize: 20
-                        font.bold: true
-                    }
-                }
-            }
-
-            Rectangle {
-                Layout.preferredWidth: 180
-                Layout.preferredHeight: 72
-                color: "#F4F4F4"
-                radius: 6
-
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    spacing: 2
-
-                    Label {
-                        text: qsTr("平均延迟")
-                        color: "#606060"
-                    }
-                    Label {
-                        text: analysisController.hasAverageSuccessLatency
-                              ? analysisController.averageSuccessLatencyMs.toFixed(1) + qsTr(" ms")
-                              : qsTr("—")
-                        font.pixelSize: 20
-                        font.bold: true
-                    }
-                }
-            }
-
-            Item {
-                Layout.fillWidth: true
-            }
+            title: qsTr("运行统计")
         }
 
-        // Status count cards
-        RowLayout {
+        PanelCard {
+            id: statisticsPanel
             Layout.fillWidth: true
-            spacing: 12
 
-            Repeater {
-                model: [
-                    { label: qsTr("成功"), value: analysisController.successCount, color: "#306030" },
-                    { label: qsTr("异常"), value: analysisController.exceptionCount, color: "#806000" },
-                    { label: qsTr("CRC 错误"), value: analysisController.crcErrorCount, color: "#803030" },
-                    { label: qsTr("超时"), value: analysisController.timeoutCount, color: "#604080" },
-                    { label: qsTr("协议错误"), value: analysisController.protocolErrorCount, color: "#606060" },
-                    { label: qsTr("预期无响应"), value: analysisController.expectedNoResponseCount, color: "#406060" },
-                ]
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: statisticsPanel.padding
+                spacing: DS.spacingS
 
-                delegate: Rectangle {
-                    Layout.preferredWidth: 110
-                    Layout.preferredHeight: 64
-                    color: "#F0F0F0"
-                    radius: 6
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
 
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        spacing: 2
+                    Repeater {
+                        model: [
+                            { label: qsTr("已观测"), value: analysisController.observedCount },
+                            { label: qsTr("已完成"), value: analysisController.completedCount },
+                            { label: qsTr("进行中"), value: analysisController.pendingCount }
+                        ]
 
-                        Label {
-                            text: modelData.label
-                            font.pixelSize: 11
-                            color: modelData.color
-                        }
-                        Label {
-                            text: modelData.value
-                            font.pixelSize: 18
-                            font.bold: true
+                        delegate: StatCard {
+                            label: modelData.label
+                            valueText: String(modelData.value)
                         }
                     }
-                }
-            }
 
-            Item {
-                Layout.fillWidth: true
+                    StatCard {
+                        Layout.preferredWidth: 180
+                        label: qsTr("成功率")
+                        valueText: analysisController.hasSuccessRate
+                              ? (analysisController.successRate * 100).toFixed(1) + "%"
+                              : qsTr("—")
+                    }
+
+                    StatCard {
+                        Layout.preferredWidth: 180
+                        label: qsTr("平均延迟")
+                        valueText: analysisController.hasAverageSuccessLatency
+                              ? analysisController.averageSuccessLatencyMs.toFixed(1) + qsTr(" ms")
+                              : qsTr("—")
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+
+                // Status count cards
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+
+                    Repeater {
+                        model: [
+                            { label: qsTr("成功"), value: analysisController.successCount, color: DS.success },
+                            { label: qsTr("异常"), value: analysisController.exceptionCount, color: DS.exception },
+                            { label: qsTr("CRC 错误"), value: analysisController.crcErrorCount, color: DS.crcError },
+                            { label: qsTr("超时"), value: analysisController.timeoutCount, color: DS.timeout },
+                            { label: qsTr("协议错误"), value: analysisController.protocolErrorCount, color: DS.protocolError },
+                            { label: qsTr("预期无响应"), value: analysisController.expectedNoResponseCount, color: DS.expectedNoResponse }
+                        ]
+
+                        delegate: StatCard {
+                            Layout.preferredWidth: 110
+                            Layout.preferredHeight: 64
+                            label: modelData.label
+                            valueText: String(modelData.value)
+                            tone: modelData.color
+                        }
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
             }
         }
 

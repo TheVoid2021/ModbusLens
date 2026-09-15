@@ -1,5 +1,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
+#include <QQmlContext>
 #include <QCoreApplication>
 #include <QQuickStyle>
 
@@ -17,6 +19,24 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle(QStringLiteral("Fusion"));
 
     QQmlApplicationEngine engine;
+
+    // M9-A: the DesignSystem token singleton is exposed as an engine context
+    // property ("DS"). It is instantiated ONCE here from its qrc URL; its
+    // qmldir "singleton" route is intentionally not used — see ISSUE-010
+    // (the module-singleton lookup emitted "DS is not defined" at runtime
+    // in this exe-attached qrc module).
+    QQmlComponent dsComponent(&engine,
+                              QUrl(QStringLiteral("qrc:/ModbusLens/src/ui/qml/DS/DesignSystem.qml")));
+    QObject *ds = dsComponent.create();
+    if (!ds) {
+        qWarning() << "DesignSystem failed to instantiate:"
+                   << dsComponent.errorString();
+        return -1;
+    }
+    QQmlEngine::setObjectOwnership(ds, QQmlEngine::CppOwnership);
+    ds->setParent(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("DS"), ds);
+
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreationFailed,

@@ -55,11 +55,21 @@ endif()
 qt_add_executable(modbuslens WIN32
     src/main.cpp
 )
+# Note on DesignSystem.qml (M9-A): it is deliberately a PLAIN QML file (no
+# pragma Singleton). The module-singleton route (pragma Singleton +
+# QT_QML_SINGLETON_TYPE) compiled and generated the qmldir correctly but
+# still failed at runtime with "DS is not defined" (ISSUE-010); the tokens
+# are therefore exposed via an engine context property created in main.cpp.
 qt_add_qml_module(modbuslens
     URI ModbusLens
     VERSION 1.0
     QML_FILES
         src/ui/qml/Main.qml
+        src/ui/qml/DS/DesignSystem.qml
+        src/ui/qml/components/AppButton.qml
+        src/ui/qml/components/PanelCard.qml
+        src/ui/qml/components/SectionHeader.qml
+        src/ui/qml/components/StatCard.qml
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp

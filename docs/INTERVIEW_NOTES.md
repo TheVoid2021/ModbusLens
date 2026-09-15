@@ -104,3 +104,10 @@
 ## 5. 维护注意
 
 - 更新时保留历史题目（不删不改），新题追加；被推翻的答案注明"已随任务 T00x 更新说法"。
+## 6. Post-T016 M9-A 条目（2026-09-15 追加）
+
+- **Q：为什么 token 单例不在 QML 层做模块单例，而走 context property？** A：先按 Qt 6.11 官方三步实现（pragma Singleton + QT_QML_SINGLETON_TYPE 源属性 + 生成 qmldir singleton 行），实测 exe-attached qrc 模块下运行期全量 `DS is not defined`；机理未完全隔离（诚实记录于 ISSUE-010），改 engine root context property——同样单实例、跨全局、AOT 稳定，且经 ctest/smoke 实证。
+- **Q：怎么证明"presentation may change, behavior must not"？** A：组件只暴露 text/tone/label/valueText，不做任何业务判断；onClicked 与取值绑定留在 Main.qml 原样接线；统计格式化（toFixed(1)+"%"、"—" 占位、hasXxx 条件）逐一 diff 比对；回归靠 ui_bridge 55 slots + qml_smoke + 全量 ctest 24/24。
+- **Q：QtQuick.Controls 的 Label 为什么在组件里报 "is not a type"？** A：Label 定义在 QtQuick.Controls 而非 QtQuick；QML 的 import 是逐文件的，组件文件必须显式 import 所用类型的模块——qmlcachegen 编译期不报、引擎实例化期才报，检测要走到运行。
+- **Q：部署包为什么要复制生成模块而不是手写 qmldir？** A：手写第二份模块清单必然漂移（ISSUE-011：模块 1 类型→6 类型时部署态解析失败）；单一机制：xcopy 构建系统生成的模块整体，`prefer :/ModbusLens/` 保证内嵌资源是权威解析面。
+- **Q：GUI 程序的 QML 错误取证技巧？** A：GUI-subsystem 进程 stderr 默认不通管道且 Windows 负退出码被 MSYS 映射成 127；PowerShell `Start-Process -PassThru` 取原始 ExitCode + `QT_ASSUME_STDERR_HAS_CONSOLE=1` 强制写 stderr，是本次定位的可靠组合。

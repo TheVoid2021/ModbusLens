@@ -165,4 +165,76 @@ M9 原则：**presentation may change, behavior must not**——任何上述绑�
 
 ## 15. Implementation = NOT STARTED
 
-Phase 1（本档）交付：架构重建、UX 问题清单、设计方向、token 策略（两案比较+结论）、组件计划、导航三案比较+推荐、chroma 结论、icon 根因、知识映射 15 项、V1 风险清单、测试/验收计划。**未写任何 QML/组件代码。**
+Phase 1（本档）交付：架构重建、UX 问题清单、设计方向、token 策略（两案比较+结论）、组件计划、导航三案比较+推荐、chroma 结论、icon 根因、知识映射 15 项、V1 风险清单、测试/验收计划。**未写任何 QML/组件代码。**## 16. Phase 2 — Implementation Record（追加批注：取代 §15 与顶部状态行的 "NOT STARTED"，事实以本章为准）
+
+**实施批次**：M9-A Phase 2（用户批准范围）：DesignSystem tokens + AppButton/PanelCard/SectionHeader/StatCard 四个组件 + 仅迁移 Top Actions 与 Statistics 两处。Serial Controls、Replay workflow、Diagnosis workspace、AI/Agent UI、Transaction ListView/delegate、顶层 Navigation、window chrome、窗口/任务栏 icon **一律未动**。
+
+### 16.1 Implementation
+
+- **DesignSystem.qml**（`src/ui/qml/DS/`）：token 单例对象。spacing XS4/S8/M12/L16/XL24；radius S4/M6/L8；controlHeight 34 / controlPadding 12；neutral 色复刻 V1 固定浅色板（background/surface #FFFFFF、surfaceAlt #F5F7FA、cardSurface #F4F4F4、cardSurfaceAlt #F0F0F0、border #D8DDE4、separator #EDF0F4、textPrimary #1B1F26、textSecondary #4A5568、textMuted #606060、disabledBg #EDF0F4、disabledText #98A2B3）；primary #2F6FB7 / primaryHover #3D7FC4 / primaryPressed #24527F；语义色 success #306030、exception #806000、crcError #803030、timeout #604080、protocolError #606060、expectedNoResponse #406060、pending #4A5568、error #B03030、notice #806000；typography title24/section15/body13/caption11/metric20。值与 V1 逐字对应（T013 Phase C 板对板搬入 token 层），HUMAN VISUAL REVIEW 状态顺延。
+- **AppButton.qml**：`tone: "primary"|"secondary"`；implicitHeight 34；background 三态（down/hovered/normal）+ disabled 态；contentItem Text 随 tone/enabled 换色；`focusPolicy: Qt.StrongFocus`。onClicked/enabled 完全不内置（见 16.6 行为保全）。
+- **PanelCard.qml**：surface + border + radius + `padding`（默认 DS.spacingM）+ `toned`；不含任何业务。
+- **SectionHeader.qml**：title + 可选 subtitle；标题 fontSection bold，副标题 fontCaption + textMuted，尾随 spacer。
+- **StatCard.qml**：`label`/`valueText`/`tone`/`emphasized`；默认 Layout 140×72 / cardSurface / radiusM；label=fontCaption+tone 色，value=fontMetric bold textPrimary。取值与格式化**全部来自调用方**。
+- **Main.qml 迁移**：root 21 个颜色 token 中 neutral/primary 相关改为 DS 绑定（保留 root 别名让未迁移区零改动）；Top Actions 三个 Button → AppButton（runDemoBatch primary / 加载回放 secondary / 清空结果 secondary，onClickeds 原样）；Statistics 区 → SectionHeader("运行统计") + PanelCard + 两行 StatCard（第一行：已观测/已完成/进行中[140×72] + 成功率/平均延迟[180×72]；第二行：6 张状态计数卡[110×64，tone=各语义色]）。绑定来源、toFixed(1)+"%"、" ms"/"—" 等格式化语义逐一保持。
+- **main.cpp**：按 ISSUE-010 把 DS 改为 engine root context property（QQmlComponent 从 qrc URL 创建一次 + setContextProperty("DS") + 失败即退出的 guard）。
+- **deploy_windows.bat**：step 7 改为整目录复制生成的模块（ISSUE-011），step 8 校验清单同步为生成树文件。
+
+### 16.2 Files Changed
+
+- 新增：`src/ui/qml/DS/DesignSystem.qml`、`src/ui/qml/components/{AppButton,PanelCard,SectionHeader,StatCard}.qml`、`docs/issues/ISSUE-010-qml-module-singleton-runtime-unresolved.md`、`docs/issues/ISSUE-011-deploy-qmldir-module-drift.md`。
+- 修改：`src/ui/qml/Main.qml`、`src/main.cpp`、`CMakeLists.txt`、`scripts/deploy_windows.bat`、`docs/tasks/T016-*.md`、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/devlog/2026-09-15-m9a-phase2.md`。
+- 未动（范围冻结区）：Serial Controls / SerialPortAdapter / Controller / core / tests / Replay 工作流 / Diagnosis / AI / Agent / Transaction delegate / samples。
+
+### 16.3 Problems Encountered —（链接 Issue）
+
+1. **DS 模块单例运行时全量 `ReferenceError: DS is not defined`**（三类机制齐备仍失败；qmlcachegen 全量重生成无效）→ [ISSUE-010](ISSUE-010-qml-module-singleton-runtime-unresolved.md)。定位过程中还误入一个坑：Windows GUI 程序负退出码在 Git Bash 显示为 127 且 stderr 全空，PowerShell 取原始 ExitCode + `QT_ASSUME_STDERR_HAS_CONSOLE=1` 才拿到真实错误。
+2. **`Label is not a type`**：SectionHeader/StatCard 只 import 了 QtQuick+Layouts——Label 属于 QtQuick.Controls；加 import 即愈（运行时错误而非编译错误，qmlcachegen 编译通过而引擎实例化失败）。
+3. **`card is not defined`**：Main.qml 引用 PanelCard 内部 `id: card`——组件内部 id 对实例化方不可见；改为实例处自设 `id: statisticsPanel`。
+4. **deploy 候选 `SectionHeader is not a type`**：手写迷你 qmldir 漂移 → [ISSUE-011](ISSUE-011-deploy-qmldir-module-drift.md)。
+5. 会话中途 Git Bash 环境两次抽风（`cd /cygdrive/e` 间歇性 No such file or directory、`spawn bash ENOENT`）——与代码无关，改用 Windows 风格路径 + `cd && pwd &&` 防护后恢复。
+
+### 16.4 Solutions
+
+1. ISSUE-010：放弃模块单例形态，DS 以 **engine root context property** 暴露（同样单实例、跨全 QML 可见、AOT cache 下稳定）；qmldir 仍保留 DesignSystem 为普通类型条目；CMakeLists 删除 singleton 属性块并注释指向 Issue。
+2. 组件 import 约定落定：用 Controls 类型（Label/Button）的组件必须显式 `import QtQuick.Controls`。
+3. 外部访问组件属性一律经实例 id，不依赖组件内部 id。
+4. ISSUE-011：部署复制生成模块整体（单一机制）。
+
+### 16.5 Verification（真命令 + 真输出）
+
+```text
+$ cmake --build --preset debug-local            → …[45/45] Linking CXX executable modbuslens.exe
+$ powershell -File build/run_smoke.ps1          → EXITCODE=0；stderr 仅 QFontDatabase 字体目录环境提示，0 条 ReferenceError
+$ ctest --preset debug-local                    → 100% tests passed, 0 tests failed out of 24（qml_smoke Passed 2.33s）
+$ git diff --check                              → 无输出（通过）
+$ scripts\deploy_windows.bat                    → [OK] Deployment directory ready
+$ powershell -File build/run_smoke_deploy.ps1   → EXITCODE=0（不带 Qt 开发 PATH，windows 平台原生跑）
+```
+
+### 16.6 Behavior Preservation（presentation may change, behavior must not）
+
+- Top Actions 三个 onClicked 接线（runDemoBatch / replayFileDialog.open / clearResults）原文保留；按钮数量、位置、可见性不变。
+- Statistics 全部取值仍直接绑定 analysisController（observedCount/completedCount/pendingCount/successCount/exceptionCount/crcErrorCount/timeoutCount/protocolErrorCount/expectedNoResponseCount/hasSuccessRate/successRate*100 toFixed(1)+"%"、hasAverageSuccessLatency/averageSuccessLatencyMs toFixed(1)+" ms"、"—" 占位）。
+- Controller、core、事务模型零改动。
+- 已知有意的呈现差异（记录在案）：状态卡 value 字号由 18 归一为 fontMetric 20（设计系统统一字号梯度）；两行统计卡背景 #F0F0F0 与 #F4F4F4 归一至 cardSurface（footer/muted 呈现仅视觉层）。
+
+### 16.7 Knowledge Learned（真实示例，非泛泛而谈）
+
+1. **QML 类型来源是逐文件 import**：SectionHeader.qml 编译期正常、运行期 `Label is not a type`——Label 定义在 QtQuick.Controls；组件文件内用哪个模块的类型就必须 import 哪个模块。
+2. **模块单例 = 三条件且仍不保证**：pragma Singleton + `QT_QML_SINGLETON_TYPE` 源属性（模块创建前）+ 生成 qmldir `singleton` 行；本项目 exe-attached qrc 模块在全部满足下仍运行期失败（ISSUE-010），根因未完全隔离时如实记录 + 换 context property 方案并验证——先让证据决定方案，再写结论。
+3. **组件内部 id 不外泄**：`PanelCard{ id: card }` 的 `card` 只在组件文件作用域可见；实例化方要用实例自己的 id。这是 QML 作用域模型，不是 bug。
+4. **GUI 进程取证组合**：Windows GUI-subsystem 程序 stderr 默认不通重定向管道；`QT_ASSUME_STDERR_HAS_CONSOLE=1` + PowerShell `Start-Process -PassThru` 拿原始退出码，负退出码（-1）不会被 MSYS 卷成 127。
+5. **部署清单漂移**：手工维护"第二份模块描述"必然漂移（ISSUE-011）；部署复制生成物整体。
+6. **context property 与 AOT**：root context property 在 qt_add_qml_module + qmlcachegen 下稳定工作（实测 0 错误），是模块单例之外的正规暴露渠道。
+
+### 16.8 Potential Interview Questions（Phase 2 新增）
+
+1. 为什么用 context property 而不是 QML 模块单例暴露 token？——先按官方三条件实现，实测运行期全量解析失败（ISSUE-010 有完整证据链）→ 换同样单实例、跨 QML 全局可见、AOT 稳定的 context property；决策由验证证据驱动。
+2. 组件化如何保证"行为不变"？——组件只认 text/tone/label/valueText，onClicked 与取值绑定留在 Main.qml 原样接线；验证侧靠 ui_bridge（55 slots）+ qml_smoke + 全量 ctest。
+3. 为什么部署目录不能手写 qmldir？——生成模块是单一事实源，手写副本在模块从 1 类型长到 6 类型时漂移且缺 `prefer` 行（ISSUE-011）。
+4. GUI 程序 QML 错误看不到时怎么取証？——PowerShell 重定向 + QT_ASSUME_STDERR_HAS_CONSOLE，原始 ExitCode 判断。
+
+### 16.9 Git Commit
+
+见下文 "17. Git Commit"（提交后回填哈希）。
