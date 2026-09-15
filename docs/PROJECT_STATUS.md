@@ -13,12 +13,12 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（T015 收盘 clean 全量重建 153 targets） |
 | Test 状态 | ✅ **24/24 通过**（ctest 24 个测试目标全绿；T015 Part C passive **55/55**（53 test slots + init/cleanup；F16-U01~U11 + PASSIVE-C01~C17 + BCAST-C01/02 全链，release 实测 rc=0）；历史全绿链含 T012 AGENT-A01~A09+A10 / AGENT-B01~B22、T014 tx 20/20 等） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · T011 · **T012 · T013 · T014 · T015（主线全完成）** |
-| 当前任务（Current Task） | **V2 Gate 0 — Freeze V1 & Establish Upgrade Safety Baseline**（docs-only：V1 冻结契约 / 回归证据映射 / V2 非回归门禁 / M9~M12 路线图落库；未实现任何 V2 功能） |
+| 当前任务（Current Task） | **T016 — M9-A UI Foundation / Design System（IN PROGRESS）**：Phase 1 Learning & Design docs-only 完成（AWAITING REVIEW）；**Implementation = NOT STARTED** |
 | 最近完成任务（Last Completed Task） | **T015 Passive Replay Expansion — 整体 DONE**（verified LKGC `ae067ab`）；其后为 README/简历/复盘/benchmark 证据等 docs 与资产提交（HEAD `a132f9c`） |
-| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：V2 Gate 0**（Freeze V1 & Establish Upgrade Safety Baseline） |
-| 下一步动作（Next Action） | **Next Milestone：M9 — UI / UX Refresh；Next Task：M9-A — UI Foundation / Design System**（待用户批准后启动） |
+| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-A Phase 1 — Learning & Design（docs-only）** |
+| 下一步动作（Next Action） | **M9-A Phase 1 Review（用户）**；批准后进入 M9-A Phase 2（组件化实施，仍须遵守 V2 Task Execution Protocol） |
 | 下一 Part（Next Part） | 无（T012 Part B Phase 2 已随 T012 完成） |
-| 下一任务（Next Task After T015） | **M9-A — UI Foundation / Design System**（V2；Gate 门禁见 docs/11_V2_UPGRADE_PLAN.md） |
+| 下一任务（Next Task After T015） | **M9-B Application Shell & Navigation**（M9-A 实施完成后；V2 门禁见 docs/11_V2_UPGRADE_PLAN.md） |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -253,3 +253,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-14 | **面试速查文档建立（docs-only）**：`docs/12_RESUME_INTERVIEW_QA.md`——简历三条逐句解析（精确含义 / 可背答句 / 追问准备）、四个术语完整解析（CTest 运行器与断言框架分工、RED→GREEN 的有效 RED 标准与演进、官方金样对拍与 CRC 字节序踩坑案例、"解析占三分之二"的分段口径）、27 条追问题库、数字口径核对表 11 项；事实复核：24 测试目标 / 325 用例槽 / 1944 条断言，解析占比 62.8~66.1%（与文档 10 一致），ISSUE-007 预算口径订正为"调用总量 3→6、轮次未变"；AGENTS.md docmap 补 12 行；LKGC 不变 `ae067ab` |
 | 2026-09-14 | **V2 Gate 0 建立（docs-only，本提交）**：创建 `docs/11_V2_UPGRADE_PLAN.md`（V1 冻结行为契约 / 行为→测试回归映射（真实测试名）/ V2 非回归门禁 / M9(A~F)·M10·M11·M12(A~D) 路线图 / AI is extractor-not-authority / V1 visual baseline 说明 / tag 建议指向 `ae067ab` 待人工确认）；PROJECT_STATUS 登记 Project Phase=V2 Upgrade、Current Milestone=V2 Gate 0、Next Task=M9-A；**未开始 M9-A 实现**；verified LKGC `ae067ab` 不变 |
 | 2026-09-14 | **V2 Gate 0 Review = PASS + governance addendum（docs-only，本提交）**：AGENTS.md 新增 V2 Development Protocol（阶段链/禁令/Learning Gate/Debug-Issue Trace/Validation/LKGC 纪律）；`docs/11_V2_UPGRADE_PLAN.md` 新增 V2 Task Execution Protocol（20 段结构）与 Knowledge Ownership 正反例；verified LKGC `ae067ab` 不变；M9-A 未开始 |
+| 2026-09-14 | **M9-A Phase 1 Learning & Design 落库（docs-only，本提交；T016）**：真实 UI 架构重建（934 行单文件/0 可复用组件/23 色·21 spacing·21 pixelSize·14 radius 散落/Fusion/1024×720 min 1000×700/诊断 3-Tab 非顶层导航）；UX 17 类问题清单；Modern Industrial Diagnostic Workbench 方向；token 两案比较（Singleton 采用）；9 组件计划 + 导航三案（推荐 C→B 演进）+ native chrome 结论 + icon 根因（双缺失，已证明）；知识映射 15 项；V1 契约风险与测试/验收计划；**Implementation NOT STARTED**；V1 tag `v1.0.0`=ae067ab 已确认；视觉基线 v1-ui-baseline.png 纳入 tracking（未改像素） |
