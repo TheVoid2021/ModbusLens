@@ -118,3 +118,10 @@
 - **Q：自动化全绿为什么还会出布局塌缩？** A：qml_smoke 只断言"组件树实例化成功"，不断言几何；PanelCard implicit 0x0 时根 ColumnLayout 分给它 0 高度，两行在 y=0 重叠绘制——实例化成功≠合同成立。补上的 `qml_geometry_check` 只锁尺寸合同（panel/每卡 w>0、行序、Diagnosis 不侵入），明确不是视觉验收替代品。
 - **Q：为什么 container 的 implicit 不能靠 anchors 得到？** A：anchors 消费父尺寸（子跟随父），而 implicit 是"孩子汇合到父"的另一个方向；两个方向不能互相代替——PanelCard 的 implicit 必须来自内容布局的 implicit（children 派生）+ padding，这正是 ISSUE-012 的根因。
 - **Q：运行时几何取证怎么落地？** A：CLI 探针加载真实 QML → 事件循环 settle（100ms×重试）→ 断言 + `QQuickWindow::grabWindow` 输出真值位图；两个坑：QObject findChild 找不到 Repeater delegate（要走 childItems visual 树）；外部截图的 DPI 虚拟化会拿错像素（实测 1024x720 裁剪 vs 真实 1280x900）。
+
+
+## 8. Post-T016 M9-A closure 条目（2026-09-15 追加）
+
+- **Q：M9-A 交付了什么、怎么收的口？** A：tokens（单一语义源）+ 四个有真实迁移用例的组件 + Top Actions/Statistics 两处迁移 + 几何回归守卫 `qml_geometry_check`；流程是"自动全绿→人工 FAIL→运行时取证→最小修复→自动+人工双 PASS"，verified LKGC = 修复提交 `6562dd3`。
+- **Q：为什么人工 PASS 只覆盖 M9-A？** A：PASS 的语义边界必须写清：仅证明"首次迁移的视觉回归已解决"，不证明"整个 M9 视觉刷新完成"——Serial/Diagnosis/Transaction styling、icon、shell/navigation、native-title 一致性都是后续里程碑的事；把关单范围收窄是工程纪律，不是保守。
+- **Q：为什么不一次把 9 个组件都写完？** A：组件清单是"由真实重复模式决定的候选集"，不是库存 KPI；没有迁移用例的组件（StatusBadge/FieldRow/SegmentedTabs/EmptyState/Banner）留到对应区域真正迁移时再引入，避免做出来没人用、还得跟着需求返工。

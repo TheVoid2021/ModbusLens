@@ -75,3 +75,22 @@ M9-A Phase 2 候选 UI 的 Statistics 区不可读且污染下方 Diagnosis 区�
 1. 容器组件的尺寸合同必须自洽：implicit 来自 content-layout implicit（children 派生），anchors 永远不产生 implicit。
 2. "自动化全绿"≠"布局没塌"：qml_smoke 的断言面是实例化不是几何——盲区要由最小的运行时几何断言单独覆盖。
 3. 测量先于结论（UNDER INVESTIGATION → 带数字的根因）；取证探针本身也要防坑（QObject findChild 漏 Repeater delegate；DPI 虚拟化让外部截图拿到错误像素尺寸）。
+
+## Closure（追加批注，2026-09-15）
+
+- **Status = RESOLVED / CLOSED**。
+- 失败历史完整保留于本文件（Observed / Evidence / UNDER INVESTIGATION → 实证根因），未删除、未改写。
+
+**Final Verification（终验，全部在最终代码上执行）**：
+
+| 验证项 | 结果 |
+| --- | --- |
+| `qml_geometry_check`（默认尺寸 + resize 1000×700 双尺寸断言） | **PASS**（EXITCODE=0） |
+| full ctest（含既有 24 目标 + 本 Issue 新增守卫） | **25/25 passed** |
+| deploy 重建 + 无开发 PATH deploy smoke | `[OK]` + EXITCODE=0 |
+| **Manual Visual Review（用户复核真实应用界面）** | **PASS**（statistics title 可读；两行统计稳定；labels/values 均在卡内；无文字堆叠；无卡片/内容分离；不侵入 Diagnosis；Top Actions 可用；Serial/Diagnosis/Transactions 可见性不退化） |
+| `git diff --check` | 通过 |
+
+- 修复提交 `6562dd3`（`M9-A: fix statistics layout regression`）经用户批准为 **verified LKGC**；此前 candidate `4fc934f` / 回填 `7abd887` 保留为 "automation PASS → manual visual FAIL" 的真实记录，未 amend。
+- 边界：本 PASS 表示 M9-A 首次迁移的 visual regression 已解决，不代表整个 M9 视觉刷新完成（Serial/Diagnosis/Transaction styling、icon、shell/navigation、native-title 一致性仍待后续里程碑）。
+- 回归保护长期生效：CTest `qml_geometry_check`（尺寸合同守卫）。明确它不是视觉验收替代品，人工验收（M9-F）地位不变。

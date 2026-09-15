@@ -296,3 +296,43 @@ deploy_windows.bat + deploy smoke       → [OK] + EXITCODE=0（无开发 PATH�
 **Manual 状态**：修复后的新的 deploy candidate 已生成；截图新路径 `docs/assets/screenshots/geometry-1024x720.png` 与 `geometry-1000x700.png`（grabWindow 真值输出）；**PENDING USER REVIEW**（由用户看真实界面决定 PASS/FAIL）。
 
 **Git Commit**：`6562dd3`（main，未 push）— `M9-A: fix statistics layout regression`（13 files：PanelCard/StatCard 契约修复 + Main.qml 调用点 + main.cpp/CMakeLists 回归守卫 + ISSUE-012 + 两张真值截图 + docs；不 amend `4fc934f`/`7abd887`，不 push，不推进 LKGC）。
+
+
+## 18. M9-A Phase 2 Manual Visual Review = PASS（用户复核，追加记录）
+
+**用户裁定（2026-09-15）**：修复后的真实应用界面已人工复核，**Manual Visual Review = PASS**。
+
+**人工观察确认**：
+- statistics title readable（运行统计标题可读、不重叠）
+- first statistics row stable / second statistics row stable（两行统计稳定）
+- labels/values remain inside cards（文字均在各自卡内）
+- no text overlap（无文字堆叠）
+- no card/content separation（无卡片背景与文字分离）
+- statistics does not invade Diagnosis（统计区不侵入诊断区）
+- Top Actions remain usable（顶部操作可用性保持）
+- Serial / Diagnosis / Transactions remain visible（旧风格区行为与可见性不退化）
+
+**本 PASS 的边界（明确声明）**：仅表示 **M9-A first migration visual regression resolved**。不表示 entire M9 visual refresh complete。仍待后续改善（已记录、不在本轮处理）：Serial controls styling · Diagnosis workspace styling · Transaction workspace styling · application/taskbar icon · overall application shell/navigation · native-title/content visual coherence。
+
+## 19. M9-A Knowledge Closure（任务级收束）
+
+1. **Design Token 为什么解决当前项目真实问题**：934 行单文件里 23 种颜色、21 处 spacing/pixelSize 散落，任何一处微调都要全文件找字面量；`DesignSystem.qml` 把 V1 固定浅色板与字号梯度收进单一语义源（spacing/radius/typography/semantic color），迁移区全部改为 token 引用，未来 M9-C/D 面板在这层上继续消费，无需再复制 hex。
+2. **reusable component 的 presentation/behavior boundary**：AppButton/PanelCard/SectionHeader/StatCard 全部 presentation-only——只认 text/tone/label/valueText 这类“外观输入”，onClicked、enabled、数据取值与格式化语义全部留在 Main.qml 调用点（analysisController 绑定逐项保全）。这也是 §16.6“presentation may change, behavior must not”在组件边界上的兑现方式。
+3. **implicit sizing 与 Qt Quick Layout contract**：本次最大成本来自违反该合同——PanelCard implicit 0×0 + anchors 不回馈父 implicit → 根 ColumnLayout 分到 0 高度 → 整段塌缩（ISSUE-012 实测 panel 992×0）。修复后的规则：容器 implicit 必须由内容布局的 implicit（children 派生）+ padding 组成；`Layout.preferred*` 只是布局首选值，不能替代组件自身 natural size。
+4. **为什么 qml_smoke ≠ visual correctness**：qml_smoke 断言的是“组件树实例化成功”，几何塌缩在它眼里是成功的——0 高度面板照样实例化。自动化盲区必须用专门的运行时几何断言（`qml_geometry_check`）覆盖，而不是扩大 smoke 的含义。
+5. **为什么 geometry test 也不能完全替代 manual visual review**：几何断言能证明“尺寸合同成立、无重叠、不侵入”，但无法判断视觉质量（层级、间距节奏、颜色语义、可读性、对齐观感）。M9-A 的真实流程证明两者互补：自动链全绿 → 人工 FAIL 抓出塌缩；修复后自动+像素自检 → 仍需人工 PASS 才关单。M9-F 的 manual acceptance 地位不可被自动化取代。
+6. **QML module / deploy module drift 教训**：手写的第二份模块描述（deploy 迷你 qmldir）在模块从 1 类型长到 6 类型时必然漂移（ISSUE-011：部署态 `SectionHeader is not a type`）。解决=复制构建系统生成的模块整体，单一机制贯穿 CMake→deploy 管线。
+7. **为什么没有为了“凑组件数”继续实现第二批组件**：Phase 1 的 9 组件清单是“由当前真实重复模式决定”的候选集，不是必须清空的库存；M9-A 只实现有真实迁移用例的 4 个。记录原则：**new reusable components should be introduced when a real migration/use-case requires them, not to complete an abstract component inventory**——StatusBadge/FieldRow/SegmentedTabs/EmptyState/Banner 留待对应区域真正迁移时再引入。
+
+## 20. Git（M9-A 全套）
+
+- `4fc934f` — Phase 2 实施（candidate）；`7abd887` — 其 docs 哈希回填。两者保留为 automation PASS → manual visual FAIL 的真实工程记录（未 amend、未 reset）。
+- `6562dd3` — `M9-A: fix statistics layout regression`：M9-A 中最后一个包含实际 product/code fix 且通过完整验证的提交，**用户批准为 verified LKGC**。
+- `ceb2559` — 该修复提交的 docs 哈希回填（docs-only，non-LKGC）。
+
+## 21. M9-A Completion
+
+- **M9-A — UI Foundation / Design System = COMPLETE**（2026-09-15）：Phase 1 Learning & Design → Phase 2 实施 → 人工 FAIL → remediation → **人工 PASS** → 本轮 closure。
+- 交付物：DesignSystem tokens（`src/ui/qml/DS/DesignSystem.qml`）· 四组件（AppButton / PanelCard / SectionHeader / StatCard）· Top Actions 迁移 · Statistics 迁移 · QML geometry regression guard（`qml_geometry_check`）· 相关 Issue/RCA/知识记录（ISSUE-010 / ISSUE-011 / ISSUE-012 + §16–§19）。
+- 未做且明确留待后续：第二批组件（StatusBadge / FieldRow / SegmentedTabs / EmptyState / Banner）——按“真实迁移需求驱动”原则引入，不凑组件数。
+- 本轮为 docs-only completion；**按用户指令只创建一个 docs-only completion commit**（subject：`M9-A: complete UI foundation after visual acceptance`，哈希见 `git log`），未另起哈希回填提交。
