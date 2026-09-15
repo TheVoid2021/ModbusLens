@@ -13,12 +13,12 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（T015 收盘 clean 全量重建 153 targets） |
 | Test 状态 | ✅ **24/24 通过**（ctest 24 个测试目标全绿；T015 Part C passive **55/55**（53 test slots + init/cleanup；F16-U01~U11 + PASSIVE-C01~C17 + BCAST-C01/02 全链，release 实测 rc=0）；历史全绿链含 T012 AGENT-A01~A09+A10 / AGENT-B01~B22、T014 tx 20/20 等） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · T011 · **T012 · T013 · T014 · T015（主线全完成）** |
-| 当前任务（Current Task） | **None（主线任务全完成）**。**T015 — Passive Replay Expansion = ✅ DONE（整体）**：Phase A ✅ + Phase B ✅ + Part C ✅（Function 0x10 passive）；verified LKGC = `ae067ab` |
-| 最近完成任务（Last Completed Task） | **T015 Passive Replay Expansion — 整体 DONE**（Phase A/B/Part C 全链；用户 Manual UI Review PASS；verified LKGC `ae067ab`） |
-| 当前阶段（Current Phase） | 主线竣工：**T015 整体 DONE**（Phase A ✅ + Phase B ✅ + Part C ✅ Function 0x10 passive；用户 Manual UI Review PASS；verified LKGC `ae067ab`） |
-| 下一步动作（Next Action） | 无主线动作；Backlog 候补见 §3 |
+| 当前任务（Current Task） | **V2 Gate 0 — Freeze V1 & Establish Upgrade Safety Baseline**（docs-only：V1 冻结契约 / 回归证据映射 / V2 非回归门禁 / M9~M12 路线图落库；未实现任何 V2 功能） |
+| 最近完成任务（Last Completed Task） | **T015 Passive Replay Expansion — 整体 DONE**（verified LKGC `ae067ab`）；其后为 README/简历/复盘/benchmark 证据等 docs 与资产提交（HEAD `a132f9c`） |
+| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：V2 Gate 0**（Freeze V1 & Establish Upgrade Safety Baseline） |
+| 下一步动作（Next Action） | **Next Milestone：M9 — UI / UX Refresh；Next Task：M9-A — UI Foundation / Design System**（待用户批准后启动） |
 | 下一 Part（Next Part） | 无（T012 Part B Phase 2 已随 T012 完成） |
-| 下一任务（Next Task After T015） | Backlog 候补（单独立项后才启动）：Replay v2 timing / UART diagnostics / register-map 语义层 / per-device 时间窗 |
+| 下一任务（Next Task After T015） | **M9-A — UI Foundation / Design System**（V2；Gate 门禁见 docs/11_V2_UPGRADE_PLAN.md） |
 | Known Issues | 见 §4 |
 | 开发环境 | 见 §5 |
 | 标准 Build/Test 命令 | 见 §6 |
@@ -251,3 +251,5 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-14 | **项目最终复盘文档建立（docs-only）**：`docs/11_PROJECT_FINAL_RETROSPECTIVE.md`（定位/事实底盘/维度表/六亮点/模型速记/不足清单/证据映射）；事实取证：155 提交、src+tests ≈16.9k 行、Issue ×9、ADR ×3、ctest 目标 ×24 复核；**passive 口径钉死 = 55/55**（53 slots + init/cleanup，release 实跑 rc=0 + XML 出证；实现当轮 54/54 为历史值）——T015 summary 文本与状态面板同步订正；AGENTS.md docmap 补 11 行；LKGC 不变 `ae067ab` |
 | 2026-09-14 | **复盘文档补充（docs-only）**：`docs/11_PROJECT_FINAL_RETROSPECTIVE.md` 并入两块面试速查内容——§5「广播与广播语义」（协议层定义、四情形判定表、统计公式、追问话术）与 §6「数值与单位速查」（简历三段声明逐项拆解：7/14 枚举口径、3 工具与预算数字、性能数值单位换算与三处自洽性、限定词、6 条口径风险）；章节顺延至 §11 并同步内部引用；LKGC 不变 `ae067ab` |
 | 2026-09-14 | **面试速查文档建立（docs-only）**：`docs/12_RESUME_INTERVIEW_QA.md`——简历三条逐句解析（精确含义 / 可背答句 / 追问准备）、四个术语完整解析（CTest 运行器与断言框架分工、RED→GREEN 的有效 RED 标准与演进、官方金样对拍与 CRC 字节序踩坑案例、"解析占三分之二"的分段口径）、27 条追问题库、数字口径核对表 11 项；事实复核：24 测试目标 / 325 用例槽 / 1944 条断言，解析占比 62.8~66.1%（与文档 10 一致），ISSUE-007 预算口径订正为"调用总量 3→6、轮次未变"；AGENTS.md docmap 补 12 行；LKGC 不变 `ae067ab` |
+| 2026-09-14 | **V2 Gate 0 建立（docs-only，本提交）**：创建 `docs/11_V2_UPGRADE_PLAN.md`（V1 冻结行为契约 / 行为→测试回归映射（真实测试名）/ V2 非回归门禁 / M9(A~F)·M10·M11·M12(A~D) 路线图 / AI is extractor-not-authority / V1 visual baseline 说明 / tag 建议指向 `ae067ab` 待人工确认）；PROJECT_STATUS 登记 Project Phase=V2 Upgrade、Current Milestone=V2 Gate 0、Next Task=M9-A；**未开始 M9-A 实现**；verified LKGC `ae067ab` 不变 |
+| 2026-09-14 | **V2 Gate 0 Review = PASS + governance addendum（docs-only，本提交）**：AGENTS.md 新增 V2 Development Protocol（阶段链/禁令/Learning Gate/Debug-Issue Trace/Validation/LKGC 纪律）；`docs/11_V2_UPGRADE_PLAN.md` 新增 V2 Task Execution Protocol（20 段结构）与 Knowledge Ownership 正反例；verified LKGC `ae067ab` 不变；M9-A 未开始 |

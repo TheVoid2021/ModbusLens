@@ -106,3 +106,50 @@ ModbusLens 是一个 C++20 + Qt6 的工业通信（Modbus）智能诊断平台�
 ## 本文件自身的维护
 
 如需修改工作纪律，须在提案中说明理由，并与修改后的 PROJECT_STATUS 一并提交。
+
+## V2 Development Protocol（V2 起长期强制，2026-09-14 Gate 0 确立）
+
+> 适用对象：V2 起的一切新功能 / UI 改进 / 架构调整 / 重构 / AI 能力 / 协议能力。
+> 原则：**extend, do not silently redefine** —— 所有工作建立在 V1 deterministic core 与既有验证资产之上。
+
+任何 V2 task 必须按顺序经过：
+
+```text
+Preflight
+ → V1 Contract Review（列出受影响的冻结契约，见 docs/11_V2_UPGRADE_PLAN.md §1）
+ → Learning / Design（含知识点自证，见 §Learning Gate）
+ → Test Plan
+ → Implementation
+ → Targeted Verification
+ → Full Regression（不得以删除旧测试解决任何 regression）
+ → Manual Review（涉及 UI/hardware/live 交互时）
+ → Documentation
+ → Knowledge Ownership（必须写“通过哪件真实事情理解了它”，禁止“AI 已完成”式空记录）
+ → Git Commit
+ → Human Review
+ → LKGC decision（docs-only 不推进 LKGC；有人工验收项时验收前不得推进）
+```
+
+禁止：
+
+- 直接让 Agent“把整个功能做完”（必须拆阶段、逐阶段 Review）。
+- 通过删除旧测试解决 regression。
+- 为了新功能**静默改变旧行为**（任何偏离冻结契约必须先 ADR 提案）。
+- 未理解关键知识点就只记录“AI 已完成”。
+
+### V2 Learning Gate
+
+包含新知识的任务（例：QML design system、Qt window/icon/resource、active Modbus write、FC06/Function 0x10、byte/word order、IEEE754、Device Profile、PDF/DOCX 解析、AI 结构化提取、evidence/provenance）必须先完成 **Learning / Design Phase** 并输出：A 这个功能解决什么问题 / B 当前代码如何工作 / C 新增知识是什么 / D 最少需要掌握哪些概念 / E 方案为什么这样设计 / F 哪些 V1 行为有风险 / G 准备如何测试——然后**停止**，Review 批准前不得进入 Implementation。
+
+### V2 Debug / Issue Trace
+
+开发期间出现 bug / test failure / UI regression / runtime failure / architecture mismatch / provider failure / manual acceptance failure：不得只修掉后删除痕迹。按严重程度记录到 task Problems/RCA 或以 `docs/issues/ISSUE-00x-*.md` 建档，字段必须含：Observed / Expected / Evidence / Root Cause / Fix / Verification / Regression Protection。
+
+### V2 Validation Rules（任务门禁）
+
+- 全部 task：targeted test PASS + full regression PASS + `git diff --check` PASS。
+- UI 相关：QML smoke + manual visual review。
+- Serial 相关：serial regression + source switching + stale completion guard。
+- 协议相关：golden vectors / semantic tests。
+- AI 相关：fake/offline deterministic tests 优先；不得依赖一次 live provider PASS 作为唯一证据。
+- write 相关：明确用户操作、明确确认、失败不得呈现为成功、**Agent 不得获得自动写权限**。

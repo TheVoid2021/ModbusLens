@@ -16,6 +16,10 @@
 | M6 | AI 诊断与 Agent 工具 | T011, T012 | ✅ 完成（T011 ✅ + T012 ✅ 含 Stabilization；ISSUE-008/009=MONITORING/NON-BLOCKING） |
 | M7 | 收尾与演示 | T013 | ✅ 完成（T013 Done；verified LKGC `99f17d6`） |
 | M8 | 诊断深化与知识固化 | M8.1 ✅；T014 ✅ Done（verified LKGC `cc8393a`）；**T015 ✅ Done（整体：Phase A ✅ + Phase B ✅ + Part C ✅ Function 0x10 passive；用户 Manual UI Review PASS；verified LKGC `ae067ab`）**；后续候补（Replay v2 timing / UART / register-map）⏸ | ✅ 完成 |
+| M9 | UI / UX Refresh | M9-A Design System · M9-B Shell & Navigation · M9-C Dashboard · M9-D Transaction & Diagnosis Workspace · M9-E Branding/Packaging · M9-F Manual Visual Acceptance | ⏸ 未启动（V2 Gate 0 规划；待批准） |
+| M10 | Active Modbus Master v1 | FC03 active read · FC06 单寄存器写 · Function 0x10 多寄存器写（复用现有编解码/分析；写=显式用户动作+确认；Agent 不自动写） | ⏸ 未启动 |
+| M11 | Register Readout & Decode | raw register values → Hex/Binary/UInt16/Int16/UInt32/Int32/Float32 + byte/word-order；区分 raw data 与 device semantics | ⏸ 未启动 |
+| M12 | Device Profile & Manual Intelligence | A Schema · B Editor · C Manual Import + AI Extraction（PDF/DOCX/TXT/MD；Candidate 非 truth：value/evidence/source/confidence/confirmation；Accept/Edit/Reject）· D Manual Q&A（Not found/Insufficient evidence）| ⏸ 未启动 |
 
 ## 任务表
 
@@ -170,3 +174,5 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-14 | **T015 Part C P0 downstream semantic gap fix（`e16b4d0`）**：RequestIssueObserved + Healthy 五条件；agent anomaly request-issue predicate/codes/summary;AI guard;RED→GREEN（ctest 24/24、clean 零警告）；**`96ed9e2` superseded；candidate=`e16b4d0`** |
 | 2026-09-14 | **用户 T015 Part C Manual UI Review = PASS → T015 整体 Done**：Function 0x10 passive 全链（Dashboard/Rows/Baseline「请求参数…：3」/unsupported notice）；**verified LKGC 推进 `02ce302` → `ae067ab`**（`da8ce48`=final production commit；`ae067ab`=verified code/test baseline）；遗留 deferred 留未来立项 |
 | 2026-09-14 | **简历性能声明核验 + benchmark 证据落库（maintenance；docs+scripts only）**：同机 Release 复测生产 Replay 链路（10k/100k/1M 混合样本、多轮中位），1M 档去 IO 同口径偏差 ≈4%、100k 档 ≈19% → 性能声明判定可信；`scripts/bench_replay/` + `docs/10_REPLAY_PERFORMANCE_BENCHMARK.md` 落库；本文件与 PROJECT_STATUS 同步做 T015 收盘一致性修复（M8/T015 行/建议路线）；LKGC 不变 `ae067ab` |
+| 2026-09-14 | **V2 Gate 0（docs-only）**：`docs/11_V2_UPGRADE_PLAN.md` 落库——V1 冻结契约盘点、behavior→test 回归映射、V2 各任务门禁、M9~M12 路线图、V1 tag 建议（指向 verified LKGC `ae067ab`，待人工确认）；**未开始 M9-A** |
+| 2026-09-14 | **V2 Gate 0 governance addendum（docs-only）**：V2 Development Protocol + Task Execution Protocol（20 段）+ Learning Gate + Knowledge Ownership 纪律确立；M9-A NOT STARTED |
