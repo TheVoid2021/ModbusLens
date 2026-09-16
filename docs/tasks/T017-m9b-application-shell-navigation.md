@@ -1318,4 +1318,245 @@ $ git show --stat --oneline 072fe34
 
 ### 37.11 Next
 
-- **M9-B4 — Replay Extraction（Learning / Design Gate）**：待用户 GO；**本轮不开始实现**。**M10 亦不开始。**
+- **M9-B4 — Replay Extraction（Learning / Design Gate）**：待用户 GO；**本轮不开始实现**。**M10 亦不开始。**## 38. M9-B4 Phase 1 — Replay Workflow / Source-State Boundary（Learning & Design，2026-09-16）
+
+**任务档决策（§29）**：继续 **append 到 T017**（B1–B5 同属 §13 的一个 M9-B 迁移计划；B1/B2/B3 均已同档落地）。**Implementation = NOT STARTED。**
+
+### 38.1 Preflight（2026-09-16）
+
+```text
+HEAD=6b76791；branch=main；working tree clean；git diff --check pass
+git log -12 → 6b76791 … 189c62c（链完整）
+origin/main...main → 0  28（behind 0 / ahead 28；已知允许）
+V2 verified LKGC = 382ecfb；V1 tag v1.0.0 = ae067ab
+```
+
+### 38.2 当前 Replay UI 全量清单（§2，逐项）
+
+| # | UI element | Current owner | Value source | visible/enabled | Command | Side effect | Persistence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `replayFileDialog`（FileDialog） | Main.qml:67-75 | 平台对话框 | 常驻（非视觉对象，open() 时弹出） | `open()` 由 Load Replay 触发 | `onAccepted → loadReplayFile(selectedFile)` | 对话框实例常驻；`selectedFile` 为瞬时候选 |
+| 2 | 标题/过滤器 | 静态 | `title: 加载回放日志`；`nameFilters: [ModbusLens 回放日志 (*.mlog), 所有文件 (*)]` | — | — | — | — |
+| 3 | `selectedFile` | FileDialog property | 用户选择 | — | 作为 `loadReplayFile` 参数 | **候选值，仅在接受瞬间有意义** | 不持久（无 Controller 字段） |
+| 4 | `onRejected` | **未接线** | — | — | 无（对话框关闭，零状态变化） | 无 | — |
+| 5 | Load Replay 按钮 | Legacy demo-controls 行（Main.qml:216） | 静态文案 | **无 enabled 绑定（恒可用）** | `replayFileDialog.open()` | 打开对话框（不发业务命令） | — |
+| 6 | Replay error Label | Legacy（Main.qml:225） | `analysisController.replayErrorMessage` | `visible: hasReplayError` | — | — | 随 Controller 状态 |
+| 7 | Replay notice Label | Legacy（Main.qml:235） | `analysisController.replayNoticeText` | `visible: hasReplayNotice` | — | — | 随 Controller 状态 |
+
+**再无其他 Replay 专属 UI**。已核对：无 currentFolder/fileMode 定制（使用 Qt Quick FileDialog 默认 OpenFile 单选）；无 selectedFiles 多选。
+
+### 38.3 Replay Source 语义（§3，真实 production code + tests）
+
+`AnalysisController::loadReplayFile(fileUrl)`（cpp:1226-1320）的**真实执行序**：
+
+1. `!fileUrl.isLocalFile()` → `setReplayError("回放加载失败：不是本地文件")`，**return**（旧状态全不动）。
+2. `QFile.open` 失败 → `setReplayError("…无法打开文件")`，return。
+3. `parseReplayLog(text)` → `ReplayParseError` → `parseErrorMessage` → error，return。
+4. `analyzeReplayLog(log)` → `ReplayExecutionError` → error，return。
+5. **全部成功后**（原子发布，cpp:1301-1320）：
+   - unsupported 披露：`unsupportedRecords` 空 → clear notice；非空 → `setReplayNotice("提示：N 条记录当前未支持分析（功能码 0xXX 等），未计入统计。")`（T015 Gate F）；
+   - `teardownSerialTransport()`（**SB-13：串口只在成功路径关闭**——失败加载绝不关闭串口）；
+   - `transactionModel_.setEntries` + `statistics_ = batch.statistics` + `activeDiagnosisTransactions_`（同一批次三视图）；
+   - `invalidateAiForBatchChange()`（AI 失效，ai06/ai08 语义）；
+   - `modeLabel_ = "回放模式"`；**`sourceLabel_ = QFileInfo(filePath).fileName()`**（注释明言：**完整路径永不进入 UI**）；
+   - clearReplayError + clearSerialError；emit statisticsChanged + sourceChanged。
+
+**对 §3 三问的回答（代码+测试为证）**：
+- **只有 load 成功后才切换 Replay source**（步骤 5 在全部成功之后；`r03/r04/r05` 证明失败时旧状态原子保留）。
+- **失败保持旧 source**（modeLabel_/sourceLabel_ 不被触碰；`d04/ai07` 同族）。
+- **错误时 transaction/statistics 保持旧值**（`r03_parseErrorPreservesState` 直接断言）。
+
+### 38.4 Replay 双身份（§4）
+
+- **Replay Workspace** = UI 任务区（加载/校验/披露工作流），激活只改 presentation index。
+- **Replay Session Source** = 会话数据来源（`modeLabel_="回放模式"` + `sourceLabel_=文件名`），由 `loadReplayFile` **成功后**原子建立。
+
+**Invariant（B4 强制）**：进入 Replay Workspace 只允许改变 presentation workspace index；**不得自动**打开文件/加载文件/clear/切 source/解析日志。真正的 source transition 只能来自既有显式 load 命令按 §38.3 的成功语义发生。
+
+### 38.5 状态分类（§5）
+
+| State | Current Owner（真实） | Proposed Owner after B4 | Authoritative? | Must Survive Navigation? | Why |
+| --- | --- | --- | --- | --- | --- |
+| modeLabel_/sourceLabel_ | Controller | **不变** | **是** | 是 | 会话身份（B1 已定 chip 语义） |
+| transactions（transactionModel_） | Controller（单实例） | **不变** | **是** | 是 | 批次事实 |
+| statistics_ | Controller | **不变** | **是** | 是 | 批次事实 |
+| activeDiagnosisTransactions_ + batch revision | Controller | **不变** | **是** | 是 | 诊断/AI 输入 |
+| hasReplayError_ / replayErrorMessage_ | Controller | **不变**（呈现归 Replay 页） | **是**（load 尝试的结果事实） | 是 | r03/r06 契约 |
+| hasReplayNotice_ / replayNoticeText_ | Controller | **不变**（呈现归 Replay 页） | **是**（成功加载的披露事实） | 是 | T015 Gate F |
+| FileDialog 实例 + selectedFile | Main.qml（全局） | **ReplayPage 本地** | **否** | 对话框实例随页常驻；selectedFile 瞬时、无持久承诺 | 工作流候选值（§38.6） |
+
+### 38.6 Selected File vs Loaded Source（§6 结论）
+
+**不是同一个事实。** `selectedFile` 是用户在对话框中的**候选**，只在 `onAccepted` 瞬间被消费；只有整条 parse→analyze→adapt 管线**全部成功**后，`sourceLabel_` 才被赋值为**文件名**（cpp:1314-1316，且完整路径永不进 UI）。因此 B4 **不得**把 selected path 当作 current session source——失败选择不留任何会话痕迹（r03/r05），把它当 source 会破坏这一契约。
+
+### 38.7 Replay 产品边界（§7 四案比较）
+
+| 方案 | User workflow | Migration risk | Duplication | 1000×700 | Dashboard ownership | B5/M9-C |
+| --- | --- | --- | --- | --- | --- | --- |
+| A 仅 Load action | 有动作无结果反馈 | 最低 | 无 | 最松 | 无冲突 | 需补 |
+| **B Load + error/notice（推荐）** | **加载→看到结果/披露，闭环** | **低（三件套整体平移）** | 无 | 松 | 无冲突 | 好 |
+| C 再加 statistics | 越权 | 高 | **统计第三视图** | 中 | 冲突（Dashboard 已有） | 差 |
+| D 再加 transactions | 表的主场未到 | 高 | **事务第二视图** | 紧 | 无冲突 | 差（B5/M9-D 决定） |
+
+**结论：B**。真实代码核对：error/notice 本就是 load 工作流的结果披露（r03-r06），与动作同源同迁；统计/事务已有归属（§34.6），不重复。
+
+### 38.8 Dashboard / Replay / Legacy 边界（§8）
+
+Statistics → Dashboard（+Legacy 迁移期实例）· **Replay load workflow（按钮+对话框）→ Replay** · **Replay error/notice → Replay**（其真实语义=load 操作结果披露，见 §38.3）· **Transactions → Legacy（B4 不动，B5/M9-D 再议）** · Diagnosis → Legacy（B5）。
+
+### 38.9 FileDialog Ownership（§9 比较与推荐）
+
+| 维度 | A：FileDialog 放 ReplayPage 内（推荐） | B：留在 Shell/Main，页面仅触发 |
+| --- | --- | --- |
+| lifetime | 随页常驻（StackLayout 全实例化——B2/B3 已证页面 identity 稳定）→ 对话框实例零重建 | 常驻窗口级 |
+| page locality | 工作流三件（按钮/对话框/结果披露）同页自洽 | 按钮在页、对话框在壳，跨文件 id 引用 |
+| navigation | 打开中的对话框属瞬时 UI 态，切页即关闭——可接受（无业务状态丢失） | 同 |
+| maintainability | 一处阅读全部 workflow | 需两处 |
+| state preservation | selectedFile 瞬时语义不变（§38.6） | 同 |
+| testability | 页面暴露同样的 open() 语义；CLI 仍走 Controller 命令 | 同 |
+
+**推荐 A**。依据：StackLayout 常驻实例使对话框随页常驻安全（非 Loader，无销毁重建）；且 Legacy 的 onAccepted 接线可逐字平移。**不凭感觉**：B2/B3 的 identity 断言机制可直接覆盖（对话框作为 page 子对象的存续由页面 identity 证明）。
+
+### 38.10 Load 命令映射（§10）
+
+| 项 | 真实内容 |
+| --- | --- |
+| Trigger | Load Replay 按钮 → `replayFileDialog.open()`；`onAccepted(selectedFile)` → 命令 |
+| URL→本地路径 | `fileUrl.toLocalFile()`（非本地 URL 直接报错，cpp:1230-1233） |
+| Controller command | `loadReplayFile(const QUrl&)`（Q_INVOKABLE） |
+| Preconditions | QML 侧**无**（按钮恒可用）；C++ 侧全量校验（§38.3 步骤 1-4） |
+| 成功副作用 | notice 设置/清除、串口 teardown（SB-13）、批次三视图发布、AI 失效、mode/source 切换、清 replay+serial 错误 |
+| 失败副作用 | 仅 `setReplayError(...)`；notice **不触碰**；其余全保留 |
+| Source transition | 仅成功时（回放模式 + 文件名） |
+| Transaction/statistics | 仅成功时整体替换（原子） |
+| Diagnosis/AI invalidation | 成功时 `invalidateAiForBatchChange()`（batchRevision 递增） |
+| Existing tests | `r01_goldenReplay` / `r02` / `r03_parseErrorPreservesState` / `r04_executionError` / `r05_fileOpenFailure` / `r06_errorRecovery` / `r07_sourceReplace` / `r08_clearKeepsSource` + core `a01-a12` / `i01-i05` |
+
+### 38.11 原子性/失败语义（§11，Observed Current Contract——B4 冻结不改）
+
+- 失败 ⇒ **旧 source 保留** + **旧 transaction collection 保留** + **旧 statistics 保留** + `hasReplayError` 置位。
+- 失败 ⇒ **notice 不清**（notice 属于上一次成功加载的披露）。
+- 成功 ⇒ 整批原子替换 + notice 重设/清除 + replay error 清除 + serial error 清除 + 串口关闭（仅成功）+ source 切换。
+- **future issue candidate（记录不修）**：失败不清 notice 的语义意味着"旧成功披露 + 新失败错误"可同时可见——这是**当前真实契约**（r06_errorRecovery 依此测试），B4 原样保留；是否改进由后续任务评估。
+
+### 38.12 Per-record Passive 契约（§12，B4 冻结清单）
+
+| 契约 | 真实证据 |
+| --- | --- |
+| per-record 被动分析（逐条独立，互不污染） | `ReplayAnalysis.h`（注释明言 per-record；`ReplayBatchAnalysis.transactions` 逐条 outcome）+ core `i01/i02` |
+| Unsupported function 行为 | `unsupportedRecords` 披露（T015 Gate F）+ core `i03*` 族 + sample `t015_unsupported_fc08.mlog` |
+| ExpectedNoResponse | `demo_v1.mlog` 第 4 笔 NO_RESPONSE + ui_bridge `r02`/统计语义（ADR-003） |
+| requestIssues / response issues | `ReplayTransactionOutcome.requestIssues` + `composeIssueText`（cpp:1277）+ `t02/t03/t05` |
+| bad record isolation | parse 层整体报错（结构性错误），分析层 per-record 隔离（`i04_badResponseCrc`/`i05`） |
+| Statistics eligibility | 仅 analyzed 记录计入（`unsupportedRecords` 不计入，cpp:1289-1299）+ STAT-* |
+
+**ReplayPage 只消费 load 结果 / 既有 state**，不重实现任何一层。
+
+### 38.13 Sample / Offline 可测性（§13）
+
+- **8 个 tracked samples**（samples/）：`demo_v1`（golden 4-outcome）· `demo_v2` · `t014_protocol_error` · `t014_t015_summary` · `t015_broadcast` · `t015_invalid_request` · `t015_partc_final` · `t015_unsupported_fc08`。
+- **既有 repo-relative fixture 机制**（无绝对路径）：CMake 把 `samples/demo_v1.mlog` 复制到 `${CMAKE_CURRENT_BINARY_DIR}/test_data/` 并以 `MODBUSLENS_DEMO_MLOG_PATH` 编译定义暴露（CMakeLists:252/267/280/435）——nav check 可完全复用该模式（为失败/notice 场景增补第二个/第三个 define，如 `MODBUSLENS_UNSUPPORTED_MLOG_PATH`）。
+- **判定**：无需用户机器绝对路径即可稳定执行——成功加载（demo_v1，4 笔确定性批次）、失败加载（**不存在的文件路径** → "无法打开文件"，无需新 fixture）、notice 披露（t015_unsupported_fc08，若需要第二个 fixture）。
+
+### 38.14 导航持久化场景（§14）
+
+- **Scenario I**：已有 simulator 批次 → 激活 Replay → Dashboard → 全字段快照不变（navigation ≠ source transition；H 同族）。
+- **Scenario J**：Replay workspace 内**显式** `loadReplayFile(demo_v1 fixture)` → 成功 → `modeLabel=回放模式`、`sourceLabel=demo_v1.mlog`、observed=4 → 切 Dashboard/Communication/Replay → 事实逐值保持（注意：**激活页面不触发加载**；加载由场景显式命令完成）。
+- **Scenario K**：存在既有批次 → 显式 `loadReplayFile(不存在的文件)` → 失败语义（§38.11）→ 三页往返 → error 与全部旧事实保持。
+- （可选增强：unsupported sample 的 notice 断言——fixture 就绪后纳入。）
+
+### 38.15 FileDialog 可测性（§15）
+
+Native FileDialog **不自动化**（不为 B4 引入 GUI automation）。等价验证路径：场景 J/K 直接调用 Controller 的 `loadReplayFile`（真实命令、真实语义）；`onAccepted` 的 URL→命令接线由**人工验收**覆盖；对话框 cancel 由人工覆盖。不伪造对话框行为。
+
+### 38.16 ReplayPage Ownership（§16）
+
+与 B2/B3 一致：`required property var analysisController`（显式注入）；页面拥有 **FileDialog presentation/workflow state**（对话框实例、打开动作）；**不得拥有** transaction copy / statistics copy / Replay parser / source authority。
+
+### 38.17 Replay Workflow Persistence（§17）
+
+- **保留**：对话框实例（页面常驻）；无业务性 workflow 状态需要跨页保留（"选了但没加载"的路径不产生任何事实——§38.6）。
+- **不保证**：未接受的对话框选择在切页后仍存在（平台对话框自身行为，非产品契约）。
+- **禁止**：把 path 写进 Controller 以实现 persistence（§38.6 边界）。
+
+### 38.18 Replay Error / Notice Placement（§18）
+
+两者**归 Replay Workspace**（load 操作结果披露）。AppBar 继续只做 session/source 简洁显示。清除语义归 Controller：error 在成功加载或 clearResults 时清除；notice 在成功加载时重设/清除、失败时保持（§38.11——当前真实契约）。
+
+### 38.19 Legacy after B4（§19）
+
+Legacy 剩：**StatisticsOverview(legacy) → 分隔线 → SplitView(诊断|事务)**。Load Replay 按钮、对话框、error/notice 三件全部移出 → demo-controls 行整体消失。布局检查：无空洞（SplitView 净增 ~34px 行高 + 释放顶部空间）；允许最小注释/间距收口；**不提前迁 Diagnosis/Transactions、不删 Legacy**。
+
+### 38.20 导航模型（§20）
+
+契约扩展：`workspaceReplayIndex: 3`（Main.qml 集中定义）。启用：工作台/总览/通信/**回放**；保持 disabled：诊断(4)/设备(5)。**不重排**；rail 顺序、StackLayout 顺序（child3 = ReplayPage）、测试三方共读契约。
+
+### 38.21 qml_nav_check 扩展（§21）
+
+现有机制扩为 **4 个真实页面**：路径 `Legacy → Dashboard → Communication → Replay → Dashboard → Legacy`（5 次切换）；逐站：identity（4 指针）/ visibility / index / 禁用项（4/5）/ 全字段快照（Scenario I 融入）；Scenario J/K 以 fixture 命令调用落地（§38.13）；**旧覆盖（A/B/D/E/F/G′/H）一个不减**。
+
+### 38.22 Geometry Guard（§22）
+
+**8 趟**（4 workspace × 2 size），替换现 6 趟；Replay active 时断言：页面 non-zero + 动作区（`replayActions`）non-zero + 内容不越界；error/notice **仅 visible 时**做非零检查（hidden 不假设）。旧 6 趟的全部断言保留（按可见页分派的规则沿用）。
+
+### 38.23 1000×700 布局预算（§23）
+
+```text
+Replay 页内容 ≈ 页标题 21 + 12 + 动作卡（34 + 内边距 24）58 + 12 + 错误/notice（可见时 12-34）
+             ≈ 140-160px → 1000×700 可用 627 → 余量 ≈ 470px
+```
+**记录即可**：余量为未来 workflow 增长空间（批次元信息/结果区），**不为填空搬 statistics/transactions**（B4 拒绝 C/D 案的同一理由）。结构采用与 Communication 相同的**尾部弹性 spacer**（§37.7 经验的直接复用）。
+
+### 38.24 Accessibility（§24）
+
+回放 nav：mouse/Enter/Space 同 `activate()`；切页焦点留 rail 项（B2/B3 先例）；Load Replay 按钮键盘可达（AppButton StrongFocus）；FileDialog 用 Qt Quick Dialogs 当前键盘行为（不改造）；busy/disabled 语义沿用（Load 恒可用现状冻结）。
+
+### 38.25 V1/V2 契约风险清单（§25）
+
+| 契约 | 真实证据 | B4 红线 |
+| --- | --- | --- |
+| Replay 成功加载语义 | cpp:1226-1320 + `r01/r02/r07` | 三件套（按钮/对话框/披露）整体平移；接线逐字 |
+| 失败原子性 | `r03/r04/r05/r06` + cpp:1230-1260 | 失败路径零改动（含 notice 不清的现状契约） |
+| per-record / Unsupported / ExpectedNoResponse | §38.12 表 | ReplayPage 零重实现 |
+| statistics | STAT-* + `a01/b01` | 不加第三视图 |
+| TransactionModel | `a03-a06`/`t01-t05` | 不迁移不复制 |
+| source switching | `r07`/`s02/s07` | 只有显式成功加载才切 source |
+| diagnosis invalidation | `d02/d03`/`ai06` | 导航不触碰 |
+| AI/Agent revision | `ai06/ai08` | 同上 |
+| Dashboard | B2 场景断言 | 统计不受影响 |
+| Communication draft | B3 Scenario F | 不受影响 |
+| nav persistence | `qml_nav_check` 全场景 | 三页场景全保留 + 扩四页 |
+| geometry guard | `qml_geometry_check` | 六趟→八趟；旧断言保留 |
+| minimum size | 1000×700 | §38.23 预算 |
+
+### 38.26 增量实施计划（§26）
+
+- **B4.1 — ReplayPage + 机械 MOVE + 启位**（单提交）：`pages/ReplayPage.qml`（页根纯 Item + 标题 + 动作区[Load Replay + FileDialog 逐字] + error/notice 行 + 尾部 spacer）；Legacy 同步删除三件（按钮/对话框/两行披露）；`workspaceReplayIndex: 3` + rail 启位 + StackLayout child3；geometry 八趟 + NAV 矩阵四页。验证：build/smoke/geometry/nav/ctest 26/diff-check。
+- **B4.2 — Scenarios I/J/K**：fixture define（CMake test_data 复制扩展）+ nav check 增补 J/K（I 已含于逐站快照）。验证：ctest 26（断言扩展）。
+- **B4.3 — Deploy / screenshots / manual candidate**。
+- 每步可 build/test/rollback；**move first、behavior preservation first**；不 big-bang。
+
+### 38.27 测试计划（§27）
+
+- Baseline **26** 全保留；**不新增独立 target**（nav/geometry 内扩，避免测试机制碎片化）；fixture 全部走 CMake test_data 机制（repo-relative）。
+- 人工（两尺寸）：回放 nav 与选中 / Load 按钮 / FileDialog 选择 / 加载成功（**使用 sample**）/ 加载失败 / error/notice / source chip（回放模式 · 文件名）/ Dashboard·Communication·Legacy 事实不变 / disabled 诊断·设备 / resize。**人工不得把 sample replay 宣传为真实现场设备数据。**
+
+### 38.28 Knowledge Before Implementation（§28，10 项对应真实问题）
+
+| # | 知识点 | 解决 ModbusLens 的哪个真实问题 |
+| --- | --- | --- |
+| 1 | Workspace workflow vs session source | 防止"进入回放页"被误当"加载了回放"（B4 invariant 的来源） |
+| 2 | selected file vs loaded source | 失败选择必须零痕迹（r03/r05 的契约延展到 UI 层） |
+| 3 | successful command transition | 回放 source 只能由成功管线建立（r07）——迁移期不得新增旁路 |
+| 4 | failure atomicity | r03-r06 的既有契约在 UI 搬家时必须原样存活 |
+| 5 | workflow state vs business state | FileDialog/selectedFile 是候选不是事实，避免污染 Controller |
+| 6 | FileDialog lifetime | StackLayout 常驻使对话框随页安全常驻（B2/B3 identity 证据支撑） |
+| 7 | passive replay analysis | ReplayPage 只消费结果——防止页面重实现分析（违反分层） |
+| 8 | per-record fault isolation | unsupported/bad record 的披露语义（Gate F）在 UI 搬家时逐字保持 |
+| 9 | migration vs behavior rewrite | notice 不清等"奇怪"现状契约原样冻结，改进另立任务 |
+| 10 | offline fixture design | CMake test_data 机制让场景 J/K 无绝对路径、可复现 |
+
+### 38.29 Status
+
+- **M9-B4 Phase 1 = Learning / Design 完成（docs-only）；Implementation = NOT STARTED。**
+- 下一步：**B4 Phase 1 Review（用户）**；批准后按 §38.26 从 B4.1 开始。

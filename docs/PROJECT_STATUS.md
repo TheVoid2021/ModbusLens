@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（T015 收盘 clean 全量重建 153 targets） |
 | Test 状态 | ✅ **26/26 通过**（`qml_geometry_check` 扩为六趟（三页 × 两尺寸）；`qml_nav_check` 扩为三 workspace + 场景 A/B/D/E/F/G′/H；总数不变） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · T011 · T012 · T013 · T014 · T015（V1 主线）· **T016（M9-A UI Foundation / Design System = ✅ COMPLETE）** |
-| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：**M9-B3 Communication Extraction = ✅ COMPLETE**（用户 Manual Visual Review = PASS；verified LKGC `382ecfb`）；B4/B5 未开始 |
+| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B3 = COMPLETE（verified LKGC `382ecfb`）；**M9-B4 Phase 1 Learning / Design 落库（docs-only，AWAITING REVIEW）**——Implementation = NOT STARTED |
 | 最近完成任务（Last Completed Task） | **M9-B3 Communication Extraction = COMPLETE**（`382ecfb` = 新 verified LKGC）。此前：M9-B2（`53685d5`）、M9-B1（`189c62c`）、M9-A（`6562dd3`） |
-| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-B3 = COMPLETE；下一阶段 = M9-B4 Replay Extraction（Learning / Design Gate，未开始）** |
-| 下一步动作（Next Action） | **等待用户 GO 启动 M9-B4 — Replay Extraction（Learning / Design Gate，只设计不实现）**。本轮不开始 B4 / M10。B3 deferred（计划内后续，非缺陷）：默认风格控件统一（ComboBox/SpinBox/Connect 系列样式）· Communication 剩余空间作为 M10 请求/结果区预留 · richer status presentation · Dashboard 同族 surplus-space 收紧（M9-C 决定）· full connected/busy/pending 跨导航自动验证（DEFER，需 DI seam 或硬件） |
+| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-B4 Phase 1 — Replay Workflow / Source-State Boundary（Learning & Design，docs-only）** |
+| 下一步动作（Next Action） | **M9-B4 Phase 1 Review（用户）**：审 [T017 §38](tasks/T017-m9b-application-shell-navigation.md)（Replay UI 7 项清单 / loadReplayFile 真实执行序与原子契约 §38.3/§38.11 / selected file ≠ loaded source §38.6 / 边界方案 B §38.7 / FileDialog 归页 §38.9 / 离线 fixture 机制 §38.13 / 场景 I/J/K §38.14 / 八趟几何 §38.22 / B4.1–B4.3 计划）。批准后才进入 B4.1；未批准前：不改 QML、不开始 ReplayPage、不推进 LKGC、不 push |
 | 下一 Part（Next Part） | 无（T012 Part B Phase 2 已随 T012 完成） |
 | 下一任务（Next Task After T016） | **M9-B Application Shell & Navigation = T017 进行中**（Phase 1 Learning & Design 已落库待 Review；实施按 T017 §13 的 B1→B5 逐步进行，每步独立 Review/提交） |
 | Known Issues | 见 §4 |
@@ -46,13 +46,9 @@
 
 ## 2. 当前任务
 
-- **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B1 = COMPLETE（`189c62c`）→ B2 = COMPLETE（`53685d5`）→ **M9-B3 Communication Extraction = ✅ COMPLETE**（2026-09-16；用户 Manual Visual Review = PASS；verified LKGC `382ecfb`）。
-- B3 交付：CommunicationPage（Connection / Request 两个 presentation section；13 项控件逐字迁移）· 通信 navigation enabled · Serial error contextual placement · page-local command draft（F 场景 5 项往返存续）· authoritative Controller state preservation（H 快照）· Scenario E/F/G′ · three-workspace nav check · six-pass geometry guard · deploy validation（含部署版 nav check）· **用户人工 PASS**。
-- **PASS 边界**：不表示真实 Modbus hardware serial connection 已验证；**full connected/busy/pending 跨导航自动验证 = DEFER**；G′ failure-path PASS 不得扩写为 real hardware PASS。
-- **Layout 知识**：B3 修复的是 **surplus-space ownership unclear**（余量归属未设计 → 显式尾部 spacer），与 **ISSUE-012 的 parent sizing contract collapse 是两类问题**，不合并叙述；Dashboard 同族现象留待 M9-C。
-- **Oracle 知识**：验证器四原则（input identity / current candidate evidence / adaptive expectation / distinguishable signature）已落档；pixel helper 不是视觉验收替代品。
-- 验证终态：qml_smoke PASS · geometry 六趟 PASS · nav check PASS · ctest **26/26** · deploy smoke PASS · manual PASS · **real hardware serial NOT CLAIMED**。
-- 当前无进行中实现任务；等待用户 GO 进入 **M9-B4 — Replay Extraction（Learning / Design）**。详见 [T017 §37](tasks/T017-m9b-application-shell-navigation.md)。
+- **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B1 = COMPLETE（`189c62c`）→ B2 = COMPLETE（`53685d5`）→ B3 = COMPLETE（`382ecfb`）→ **M9-B4 Phase 1 — Replay Workflow / Source-State Boundary（Learning & Design，docs-only）= 已落库，AWAITING REVIEW**。
+- B4 设计要点：Replay UI 7 项清单（按钮/FileDialog[selectedFile]/error/notice，无 currentFolder/fileMode 定制、onRejected 未接线）；`loadReplayFile` 真实执行序（非本地 URL→打开失败→parse→analyze→**全成功才**：notice 披露、串口 teardown（SB-13）、批次三视图原子发布、AI 失效、mode=回放模式、sourceLabel=文件名、清错误；失败仅置 error 且**notice 不清**——现状契约冻结，是否改进 future issue candidate）；**selected file ≠ loaded source**（候选 vs 会话身份）；边界**方案 B**（Load + error/notice；不加统计第三视图/事务第二视图）；**FileDialog 归 ReplayPage**（StackLayout 常驻 + identity 证据）；离线可测性=8 个 tracked samples + CMake test_data 机制（无绝对路径；成功=demo_v1、失败=不存在路径、notice=t015_unsupported_fc08 可选）；场景 I/J/K；几何八趟（4 workspace × 2 size）；B4.1 move+启位 → B4.2 场景 → B4.3 deploy。
+- **Implementation = NOT STARTED**：零 src/tests/QML/CMake/scripts/samples 改动。详见 [T017 §38](tasks/T017-m9b-application-shell-navigation.md)。
 
 ## 3. 下一任务
 
@@ -272,3 +268,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-16 | **M9-B3 Phase 1 Learning & Design 落库（docs-only）**：Serial UI 全量清单（13 项，enabled 表达式冻结逐字迁移）；状态分类（authoritative 归 Controller / draft 归页面本地，含真实代码依据）；边界方案 B（连接 + 现有 FC03 请求）；Dashboard/Communication 分工（无重复视图）；M10 边界预留（Connection/Request/Status 三段，不加 placeholder）；命令映射与离线可测性调查（**无 DI seam → 完整 connected 场景 DEFER；G′ 用真实失败路径部分覆盖，不造假**）；stale guard 四禁止项；结构方案 B（整块 MOVE → 拆两区）；组件候选 DEFER（FieldRow→M10）；布局预算余 ≈437px；**Implementation = NOT STARTED**；verified LKGC 不变 `53685d5`；未 push |
 | 2026-09-16 | **M9-B3 Communication Extraction 实施完成（candidate，不推进 LKGC）**：B3.1 `d957ff7`（CommunicationPage + 整块机械迁移 + 六趟几何/三工作区矩阵）→ B3.2 `c3269dc`（Connection/Request 拆分；**实测修复 ColumnLayout 余量散布**——无 fillHeight 子项时余量散于子项间（189 vs 647），显式尾部 spacer 收口；同族现象在已验收 Dashboard 如实上报不越界）→ B3.3 `382ecfb`（nav check 三 workspace 全轨迹 + 场景 A/B/D/E/F/G′/H；draft 5 项往返存续、端口 DEFER、G′ 真实失败路径 + hasSerialError 布尔 + 原子性）→ B3.4（四张截图 + 自适应像素自检全 PASS + deploy/部署版 nav check 全绿）；验证 ctest **26/26**；**Manual Review = PENDING USER REVIEW**（无硬件时不代表真实串口 PASS）；verified LKGC 不变 `53685d5`；未 push |
 | 2026-09-16 | **M9-B3 完成（closure，docs-only）**：用户 Manual Visual Review = **PASS**（Communication：选中态/分区/控件完整/FC03 参数/错误上下文且不挤布局/无裁切重叠/剩余空间非 regression；Legacy：Serial 已移出无重复入口/Replay·Statistics·Diagnosis·Transactions 正常/无空洞塌陷）；**PASS 边界**=不表示真实硬件串口验证，G′ 不得扩写为 hardware PASS，full connected 场景维持 DEFER；deferred visual work 落档（非 regression）；**Git 证据裁定：`c3269dc`=QML+main.cpp、`382ecfb`=仅 main.cpp（behavior-bearing）、`072fe34`=docs+截图 only → verified LKGC 推进 `53685d5` → `382ecfb`**；**M9-B3 = COMPLETE**；架构六条 + Layout/Oracle 两类独立知识 + Knowledge Closure 十点落档（含 surplus-space 与 ISSUE-012 的显式区分）；Next = **M9-B4 Replay Extraction（Learning / Design）**，本轮不开始 |
+| 2026-09-16 | **M9-B4 Phase 1 Learning & Design 落库（docs-only）**：Replay UI 7 项清单；`loadReplayFile` 真实执行序与原子契约（失败仅置 error、notice 不清——现状冻结，改进 future issue candidate）；**selected file ≠ loaded source**（cpp:1314-1316 文件名才进 UI）；边界方案 B（Load + error/notice）；FileDialog 归 ReplayPage（StackLayout 常驻 + identity 证据）；离线 fixture=CMake test_data 机制 + 8 tracked samples（成功 demo_v1 / 失败不存在路径 / notice=t015_unsupported_fc08 可选）；场景 I/J/K；几何八趟 + NAV 四页；B4.1–B4.3 计划；**Implementation = NOT STARTED**；verified LKGC 不变 `382ecfb`；未 push |
