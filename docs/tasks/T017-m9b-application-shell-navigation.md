@@ -1559,7 +1559,7 @@ Replay 页内容 ≈ 页标题 21 + 12 + 动作卡（34 + 内边距 24）58 + 12
 ### 38.29 Status（经 §38.30 修正后为 authority）
 
 - **M9-B4 Phase 1 = Learning / Design 完成；Review = CONDITIONAL PASS；§38.30 修正已落档；Implementation = NOT STARTED。**
-- 下一步：**B4 Phase 1 修正后复核（用户）**；批准后按 **§38.30.5**（B4.1 迁移不启位 → B4.2 启位 → B4.3 场景+K′ → B4.4 deploy）开始。§38.5/§38.11/§38.13/§38.14/§38.26 与 §38.30 冲突处以 §38.30 为准。### 38.30 Phase 1 Review Correction（CONDITIONAL PASS → docs-only 修正，2026-09-16）
+- 下一步：**B4 序列修正（§38.31）复核（用户）**；批准后按 **§38.31.2/§38.31.3**（B4.1 仅 shell（不迁移不启位）→ B4.2 迁移+启位同阶段 → B4.3 场景 I/J/K/K′+八趟 → B4.4 deploy）开始。§38.5/§38.11/§38.13/§38.14/§38.26 与 §38.30 冲突处以 §38.30 为准；**§38.30.5 的步骤定义由 §38.31 取代**（可达性修正）。### 38.30 Phase 1 Review Correction（CONDITIONAL PASS → docs-only 修正，2026-09-16）
 
 用户 Review = **CONDITIONAL PASS**。本节为 **追加批注**，修正 §38 中被指出的四处表述/计划；与 §38.5/§38.11/§38.13/§38.14/§38.26 冲突之处**以本节为准**。零生产改动。
 
@@ -1620,4 +1620,46 @@ C 类仍由 Controller 持有（ownership 不变、B4 不改），但其语义�
 
 #### 38.30.6 Context-decay / model-switch 纪律（实施前强制）
 
-模型可能在 GLM-5.3-Flash / GLM-5.3 / DeepSeek-V4.1-Flash 间切换——**既往模型摘要不作为权威**。B4 实施前，当值模型必须从仓库重读（至少）：`AGENTS.md` · `docs/PROJECT_STATUS.md` · `docs/BACKLOG.md` · **T017 §38（含本修正节）** · `AnalysisController.h/.cpp` · 当前 `Main.qml` · `qml_nav_check` 实现与测试 · `qml_geometry_check` 实现与测试 · 相关 ui_bridge Replay 测试（r01-r08 原体）· CMake replay fixture/test-data 机制 · tracked replay samples。**改代码前报告实际证据**（本轮 correction 已示范：r06 原体复读、notice 调用点 grep）。
+模型可能在 GLM-5.3-Flash / GLM-5.3 / DeepSeek-V4.1-Flash 间切换——**既往模型摘要不作为权威**。B4 实施前，当值模型必须从仓库重读（至少）：`AGENTS.md` · `docs/PROJECT_STATUS.md` · `docs/BACKLOG.md` · **T017 §38（含本修正节）** · `AnalysisController.h/.cpp` · 当前 `Main.qml` · `qml_nav_check` 实现与测试 · `qml_geometry_check` 实现与测试 · 相关 ui_bridge Replay 测试（r01-r08 原体）· CMake replay fixture/test-data 机制 · tracked replay samples。**改代码前报告实际证据**（本轮 correction 已示范：r06 原体复读、notice 调用点 grep）。### 38.31 Implementation-Sequencing Correction（B4.1/B4.2 可达性修正，2026-09-16）
+
+用户复核指出 §38.30.5 的排序存在**实施安全冲突**。本节为追加批注，**取代 §38.30.5 的步骤定义**；§38.30 的语义结论（38.30.1–38.30.4、38.30.6）全部保持有效。零生产改动。
+
+#### 38.31.1 可达性冲突（确认与定性）
+
+§38.30.5 曾定义 "B4.1 = 机械 MOVE（Replay navigation 保持 disabled）"——该顺序**不安全**：把 Load Replay / FileDialog / error / notice 从 Legacy 移走的同时，新的 ReplayPage 尚不可达 ⇒ **用户可访问的加载工作流出现"暂时消失"窗口**。
+
+这违反 M9-B 自 B1 起一贯的增量迁移不变量：**每一个已提交的步骤都必须保持既有能力可用；任何提交都不得造成能力暂时消失**。既有正确先例即 B3.1（串口三件套迁移与"通信"启位在**同一提交**内完成，正是因为单独迁走会造成不可达窗口）。
+
+#### 38.31.2 修正后的 B4.1 = ReplayPage shell only（不迁移、不启位）
+
+- **只做**：创建/注册/实例化 `pages/ReplayPage.qml`（页根为纯 Item，`required property var analysisController`；StackLayout 增加 child3，但**回放 navigation 仍 disabled**）。
+- **明确不做**：**不迁移** Load Replay 按钮 / FileDialog / replay error / replay notice——四件套继续完整保留在 Legacy，用户能力零变化。
+- **验证**：build + `qml_smoke` + **隐藏 ReplayPage 安全实例化**（页面对象存在且实例化无副作用；隐藏页几何为 0×0 属正常——按既有规则**不对隐藏页做几何断言**，仅可做存在性断言）+ 既有功能不变（Legacy 的 Load Replay 仍可用；r01–r08 等既有测试全绿）。
+- **无行为变化**是这一步的验收标准。
+
+#### 38.31.3 修正后的 B4.2 = 原子工作流迁移 + 启位（同一实施阶段）
+
+在**同一阶段/提交**内完成，不得拆分：
+
+1. **机械 MOVE**：Load Replay 按钮 / FileDialog / replay error / replay notice 四件套 Legacy → ReplayPage（`onAccepted → loadReplayFile(selectedFile)` 接线与既有语义逐字保持）；
+2. **同时启用**：`workspaceReplayIndex: 3`（集中契约）+ rail `回放` 启位 + StackLayout child3 生效；
+3. **同时扩展**：四 workspace 基础导航断言（identity / visibility / index；disabled 仅剩诊断(4)/设备(5)）。
+
+**禁止提交任何"工作流已迁走但 Replay workspace 不可达"的中间状态**（该状态即 §38.31.1 所禁的能力消失窗口）。
+
+#### 38.31.4 B4.3 不变 + K 与 K′ 的职责区分
+
+- **B4.3 保持**：Scenario I / J / K / K′ + 必需 fixture 接线（`MODBUSLENS_UNSUPPORTED_MLOG_PATH`）+ **八趟 geometry**。
+- **K 与 K′ 互补、不可互相替代**：
+  - **K = 普通失败加载的原子性**：针对**存在非空会话**（如 demo 批次或 demo_v1 加载后的 4 笔）执行确定性失败加载 → 断言 `hasReplayError` 置位且 source / rows / statistics **逐值不变**（"不变"只有在会话非空时才有意义）。
+  - **K′ = replayNotice 生命周期**：用**必需的** unsupported fixture 先成功加载（notice 置位、analyzed=0）→ 捕获 notice 文本 → 再执行确定性失败加载 → 断言 error 置位且 **notice 逐字不变**（并保持 source/rows/statistics）→ 页面往返后全部保持。
+- **B4.4 保持**：deploy + 截图 + manual candidate。
+
+#### 38.31.5 §38.30 已批准语义（冻结，不重开）
+
+以下结论**全部保持有效、不在本次修正中重开**：workspace ≠ source · selected file ≠ loaded source · 成功加载是唯一的 Replay source transition · 失败保留旧会话事实 · `replayError` = per-attempt · `replayNotice` = 当前已发布 Replay 结果/会话的披露（per-loaded-session）· FileDialog 迁移后归 ReplayPage · ReplayPage 不持有任何业务/会话副本 · Replay Core 零改动 · Statistics 归 Dashboard · Transactions 在 B4 期间归 Legacy · Diagnosis 归 B5。
+
+#### 38.31.6 Status
+
+- **M9-B4 Phase 1：语义修正（§38.30）= PASS；序列修正（§38.31）= 本节；Implementation = NOT STARTED。**
+- 下一步：**等待本序列修正的复核批准**；批准后从 **B4.1（仅 shell、不迁移、不启位）**开始，随后 **B4.2（迁移+启位同阶段）** → **B4.3** → **B4.4**。
