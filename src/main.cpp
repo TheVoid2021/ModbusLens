@@ -221,13 +221,37 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
 
     // ---- Communication page (M9-B3) ----
     if (page == ActivePage::Communication) {
-        auto *serialGroup = findNamedItem(roots, QStringLiteral("serialControls"));
-        if (!serialGroup)
-            fail(QStringLiteral("serialControls not found"));
-        else if (serialGroup->width() <= 0 || serialGroup->height() <= 0)
-            fail(QStringLiteral("serialControls size %1x%2")
-                     .arg(serialGroup->width())
-                     .arg(serialGroup->height()));
+        auto *connectionSection = findNamedItem(
+            roots, QStringLiteral("communicationConnectionSection"));
+        auto *requestSection = findNamedItem(
+            roots, QStringLiteral("communicationRequestSection"));
+        if (!connectionSection)
+            fail(QStringLiteral("communicationConnectionSection not found"));
+        else if (connectionSection->width() <= 0 || connectionSection->height() <= 0)
+            fail(QStringLiteral("communicationConnectionSection size %1x%2")
+                     .arg(connectionSection->width())
+                     .arg(connectionSection->height()));
+        if (!requestSection)
+            fail(QStringLiteral("communicationRequestSection not found"));
+        else if (requestSection->width() <= 0 || requestSection->height() <= 0)
+            fail(QStringLiteral("communicationRequestSection size %1x%2")
+                     .arg(requestSection->width())
+                     .arg(requestSection->height()));
+        if (connectionSection && requestSection
+            && requestSection->y() + 1e-6
+                   < connectionSection->y() + connectionSection->height())
+            fail(QStringLiteral("communicationRequestSection overlaps the "
+                                "connection section"));
+        if (auto *pageItem =
+                findNamedItem(roots, QStringLiteral("communicationWorkspace"))) {
+            for (auto *section : { connectionSection, requestSection }) {
+                if (section
+                    && section->x() + section->width()
+                           > pageItem->width() + 0.5)
+                    fail(QStringLiteral("%1 exceeds the workspace width")
+                             .arg(section->objectName()));
+            }
+        }
 
         // Hidden error labels get no geometry assumption (T017 §34 spec:
         // only assert what is visible).
@@ -413,8 +437,12 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
               << suffixed(QStringLiteral("statusCard_4"))
               << suffixed(QStringLiteral("statusCard_5"));
     } else {
-        names << QStringLiteral("communicationHeader")
-              << QStringLiteral("serialControls")
+        names << QStringLiteral("communicationContentLayout")
+              << QStringLiteral("communicationHeader")
+              << QStringLiteral("communicationConnectionHeader")
+              << QStringLiteral("communicationConnectionSection")
+              << QStringLiteral("communicationRequestHeader")
+              << QStringLiteral("communicationRequestSection")
               << QStringLiteral("communicationSerialError");
     }
     names << QStringLiteral("diagnosisWorkspace");
@@ -426,14 +454,20 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
             lines << QStringLiteral("  %1: MISSING").arg(name);
             continue;
         }
-        lines << QStringLiteral("  %1: x=%2 y=%3 w=%4 h=%5 implicit=%6x%7")
+        const QString parentName =
+            item->parentItem() ? item->parentItem()->objectName()
+                               : QStringLiteral("<none>");
+        lines << QStringLiteral("  %1: x=%2 y=%3 w=%4 h=%5 implicit=%6x%7 "
+                                "parent=%8")
                      .arg(name)
                      .arg(item->x())
                      .arg(item->y())
                      .arg(item->width())
                      .arg(item->height())
                      .arg(item->implicitWidth())
-                     .arg(item->implicitHeight());
+                     .arg(item->implicitHeight())
+                     .arg(parentName.isEmpty() ? QStringLiteral("<unnamed>")
+                                               : parentName);
     }
     return lines.join(u'\n');
 }
