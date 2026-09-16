@@ -1157,33 +1157,58 @@ ctest --preset debug-local → 100% tests passed, 0 tests failed out of 26（含
 
 （B3.1 → B3.4 的真实执行结果回填于本节下方。）
 
-### 35.2 B3.1 — CommunicationPage Shell + Mechanical MOVE
+### 35.2 B3.1 — CommunicationPage Shell + Mechanical MOVE（`d957ff7`）
 
-（执行后回填。）
+- 新建 `pages/CommunicationPage.qml`（纯 Item 页根 + 标题 + 整块串口 GroupBox + Serial 错误行）：13 项控件的类型/范围/model/enabled/visible/文案/onClicked/参数**逐字迁移**；唯一文本替换是主题访问器（`root.surface/border/textPrimary/textSecondary` → `DS.*`，二者按构造等值并有注释说明）。
+- Shell：index 契约 + `workspaceCommunicationIndex: 2`；rail `通信` 启位（回放/诊断/设备仍 disabled）；StackLayout child2；Legacy **同步删除**串口块与错误行（单入口，无双窗口期）。
+- 护栏：NAV 矩阵扩为三真实 workspace（navItem_0/1/2 enabled；3..5 disabled + invoke 校验）；geometry 六趟（legacy/dashboard/communication × 默认 + communication/dashboard/legacy × 1000×700），断言按可见页分派；dump 表跟随可见页并新增 parent 名称。
+- 门禁：build 干净、qml_smoke EXITCODE=0、六趟 geometry PASS、nav check PASS、ctest **26/26**（无新 target）、diff-check 通过。
 
-### 35.3 B3.2 — Connection / Request Presentation Split
+### 35.3 B3.2 — Connection / Request Presentation Split（`c3269dc`）
 
-（执行后回填。）
+- 单 GroupBox → 两个 presentation section（`communicationConnectionSection` / `communicationRequestSection`，各配 SectionHeader）；控件、表达式、绑定零变化（guardrail A：先 MOVE 后结构）。
+- **发现并修复的真实布局问题（本轮最有价值的取证）**：初次拆分后 dump 显示子项被"摊开"——contentLayout implicit **189** vs 实高 **647**，connection 在 y=229、request 在 y=521（空档 ~204/244px）。根因（观测层面）：**没有任何 fillHeight 子项时，该 ColumnLayout 会把多余空间散布到子项之间**；Legacy 之所以一直正常，只是因为它的 SplitView 恰好带 `Layout.fillHeight` 吸收了余量。修复 = 显式尾部弹性 spacer（把 Legacy 的隐式机制显式化）；修后位置 y=0/27/54/114/141、内容止于 201px ✓ 与设计预算一致。Qt 内部精确机制本轮**未完全隔离**（如实记录）。
+- **同族现象如实上报**：已验收的 Dashboard 页存在同样的"摊开"（统计带落在 ~449 逻辑位而非紧致 ~89）——用户曾将其表述为"较大的空白空间（属 M9-C）"。本轮**不触碰**（范围冻结 + 用户已裁定其非 B2 regression），仅在报告中提交供后续决定。
+- 门禁：build/smoke/六趟 geometry/nav check/ctest 26/diff-check 全绿。
 
-### 35.4 B3.3 — nav check 三 Workspace + Scenarios E/F/G′/H
+### 35.4 B3.3 — nav check 三 Workspace + Scenarios E/F/G′/H（`382ecfb`）
 
-（执行后回填。）
+- `--qml-nav-check` 重写为三 workspace 完整路径 `Legacy → Dashboard → Communication → Dashboard → Legacy`（真实激活路径），逐站验证：三页同时存在、页面 identity 三指针稳定、可见性随选中、index 合法性（读 root 契约）、禁用项 3/4/5、全字段业务快照（Scenario E + H，并输出完整切换轨迹）。
+- **Scenario F（draft 持久化）**：以真实 property 断言（guardrail C）——slave=7 / start=10 / quantity=3 / timeout=2500 / baud index=2（5 项）经 `Legacy ↔ Communication` 全程往返后逐值不变；端口项在本机（且启动时未执行 refresh）无端口 → **显式 DEFERRED**（不伪造端口存在）。
+- **Scenario G′（真实失败路径）**：`connectSerial("MODBUSLENS_NO_SUCH_PORT", 9600)` → 断言操作失败、`serialConnected=false`、**authoritative `hasSerialError=true`**（稳定布尔，不用 OS 错误文本，guardrail D）、mode/source 快照不变（原子性）、并跨 `Communication → Dashboard → Communication` 保持。实测日志：`serialConnected=0 hasSerialError=1 mode=模拟器模式 source=确定性演示` ✓。
+- Scenario A/B/D 保留于同一状态机；未新建第二套导航测试机制。
 
 ### 35.5 B3.4 — Deploy / Screenshots / Manual Candidate
 
-（执行后回填。）
+- 截图（新命名，不覆盖既有证据）：`m9b3-communication-1024x720.png` / `m9b3-communication-1000x700.png` / `m9b3-legacy-1024x720.png` / `m9b3-dashboard-1024x720.png`（后两张作防回归对照）。
+- 自适应像素自检（四图 **全部 PASS**）：legacy/dashboard 用**自动检测卡带**（旧固定坐标已因统计区上移 ~101px 失效——教训：期望坐标必须自适应或与生成时同源）；通信页用两个内容带（connection 220 / request 421 文本像素）+ **无统计面签名**（竖向连续 ≥30px 的 F4F4F4 列 = 1，阈值 <10）；rail 选中 accent 按**文件名对应页**断言（legacy/dashboard/communication 三档各 40，其余档 ≤4）——选中随页移动成为数字化证据。
+- deploy：重建 `[OK]`、无 PATH smoke EXITCODE=0、**部署版 `--qml-nav-check` 完整 PASS**（含三 workspace 轨迹与 G′）。
 
 ### 35.6 Problems / RCA
 
-（执行后回填。）
+1. **布局摊开（P0 级，已修复）**：无 fillHeight 子项的 ColumnLayout 把余量散布于子项之间（实测 189 vs 647；Legacy 因 SplitView 幸免）。修复=尾部弹性 spacer；同族现象存在于已验收的 Dashboard（如实上报，不越界修改；M9-C 可决定是否收紧）。Qt 精确机制未完全隔离。
+2. **陈旧证据（第二次"验证器输入"教训）**：首轮像素自检大面积 FAIL——截图实为 **spacer 修复前**的旧 dump（我拷贝时没有重新出图）；ASCII 图与 dump 数值互相矛盾才暴露。规则升级：**证据文件必须由通过门禁的同一二进制在同一轮重新生成**；配合上周的 `VERIFY_INPUT/IMAGE_SIZE/EXPECTED_PAGE` 原则一并执行。
+3. **像素签名的设计陷阱（第三次教训）**：通信页"无统计面"检查先后被两类假象骗过——surfaceAlt 控件**抗锯齿杂点**（水平结构化判据失效）与 **Fusion 按钮竖向渐变中段**（颜色恰为 F4F4F4，bbox 精确覆盖各按钮）。最终签名=**竖向连续 ≥30 行的卡面列**（真 StatCard ~90 行连续，按钮渐变仅几行）——签名的选择必须能区分"真实控件族"，而不是只匹配颜色。
+4. **诊断工具增强**：dump 表新增 `parent=` 名称（定位子项属于哪个容器时一眼可见，本轮靠它排除了"父子关系猜错"）。
 
 ### 35.7 Knowledge Learned / Interview Questions
 
-（执行后回填。）
+**Knowledge（结合真实实现）**：
+1. extraction 的第一步必须是**可证恒等**的机械迁移（表达式逐字；唯一替换 DS 访问器并说明理由）；结构整理放第二步。
+2. Qt Quick Layouts 的"余量归属"是显式契约：**谁 fillHeight 谁吸收余量**——没有消费者时余量会以你不期望的方式出现；显式 spacer 是让布局意图可见的最便宜方式（Legacy 的隐式版本在本轮才被看见）。
+3. draft（页面）与 authoritative（Controller）的边界在迁移期必须用**真实 property**断言（`value/currentIndex`），显示文本永不作为唯一证据。
+4. 离线诚实边界：无 DI seam 时用**真实失败路径**（G′）部分覆盖，完整 connected 场景保持 DEFER；绝不制造 fake contract。
+5. 验证器三原则（本会话三次教训的沉淀）：输入可验证（路径+哈希+尺寸+页别）、期望自适应（或与生成同源）、签名可区分（颜色不够，形状/结构才够）。
+
+**Interview Questions**：
+1. 为什么"刷新串口"没有 enabled 绑定也要原样保留？——extraction 的边界：行为改进是独立 task；本轮任何"顺手优化"都会污染迁移的可证等价性。
+2. 无 fillHeight 子项的 ColumnLayout 会发生什么？——余量散布（本项目实测）；Legacy 因为 SplitView 的 fillHeight 而幸免；显式 spacer 把这条隐式契约变成可见代码。
+3. 怎么在无硬件条件下测 serial 失败语义？——用真实命令的真实失败分支（不存在端口 → `hasSerialError` 稳定布尔 + mode/source 原子性 + 跨页保持），而不是伪造端口。
 
 ### 35.8 Candidate Commits
 
-（执行后回填。）
+- `d957ff7`（B3.1 页面外壳 + 机械迁移）、`c3269dc`（B3.2 结构拆分）、`382ecfb`（B3.3 三 workspace nav check + 场景）、本轮候选提交（B3.4 文档 + 四张截图，哈希见 §36 回填）。
+- 全部**不 push、不推进 LKGC**（verified 保持 `53685d5`，待人工视觉 PASS）。
 
 ## 36. Next
 

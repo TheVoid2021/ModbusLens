@@ -173,3 +173,10 @@
 - **Q：什么是 command draft，为什么不能进 Controller？** A：draft 是"尚未提交的候选"——Slave=5 在点击读取前不是任何设备/session 事实（真实代码：`pendingSerialAddress_` 只在 adapter 真正接受 startTransaction 后才写入）；把 draft 写回 Controller 会制造第二份事实源，并让"失败不产生痕迹"的原子语义失去意义。
 - **Q：连接成功的 port/baud 和 ComboBox 里的选择是同一个东西吗？** A：不是。前者是 `serialSourceLabel_`（会话身份，AppBar 显示），后者是页面候选；失败连接**不留任何会话痕迹**（s02 的原子保留）——这两个概念在迁移中最容易被压平。
 - **Q：为什么 Serial 跨导航测试只能"部分自动化"？** A：adapter 是具体 `QSerialPort` 成员、无依赖注入，离线无法产生 connected=true；能诚实覆盖的只有失败路径（connectSerial 到不存在端口→错误置位→跨页不变），完整 connected/pending 场景保持 DEFER 并由人工验收——**不制造与真实行为不一致的 fake contract**。
+
+
+## 16. Post-T017 M9-B3 实施条目（2026-09-16 追加）
+
+- **Q：为什么"刷新串口"没有 enabled 绑定也必须原样保留？** A：extraction 的验收标准是可证等价：任何"顺手优化"（busy-disable、自动 refresh）都会污染迁移的恒等性；行为改进属于独立 task——这条边界让回滚与回归对照都保持干净。
+- **Q：Qt Quick Layouts 里"多余的纵向空间"归谁？** A：归显式声明 fillHeight 的子项；**一个都没有时余量会以你意想不到的方式出现**（本项目实测：ColumnLayout 把 458px 余量散布到子项之间，189 内容 vs 647 实高的页面）。Legacy 一直正常只因为 SplitView 恰好带 fillHeight；显式尾部 spacer 是把这条隐式契约变成可读代码。
+- **Q：怎么在无硬件条件下验证 serial 失败语义的跨页保持？** A：走真实命令的真实失败分支（connectSerial 到不存在端口）并断言**稳定布尔属性**（hasSerialError）与 mode/source 原子性，而不是伪造端口或绑定 OS 错误文本；完整 connected/busy 场景继续 DEFER 并由人工覆盖。
