@@ -1,0 +1,192 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import ModbusLens
+
+// M9-B3 Communication workspace page.
+//
+// Page-root pattern (B1 lesson): plain Item that the StackLayout owns and
+// sizes; the page does its own margins INSIDE.
+//
+// Ownership (T017 §34.13 / guardrail B): presentation only — form/draft
+// presentation, bindings and explicit user intent. The AnalysisController
+// is injected by the shell; the page never creates one, never copies
+// business state and never switches the source by itself.
+//
+// DRAFT vs AUTHORITATIVE (T017 §34.3/§34.4): the port/baud selection and
+// the four FC03 parameters below are PAGE-LOCAL command drafts. The
+// authoritative session facts (serialConnected / serialBusy / source /
+// error / port names) always come from the Controller.
+//
+// B3.1: the serial controls were moved here VERBATIM from the Legacy
+// workbench (control types, ranges, models, enabled/visible expressions,
+// texts, onClicked wiring and arguments unchanged). The only textual
+// substitution is the theme accessor: the block used the window's root
+// aliases (root.surface / root.border / root.textPrimary /
+// root.textSecondary), which alias DS.* — a separate file has no window
+// root id, so it reads DS.* directly (identical values by construction).
+Item {
+    id: page
+
+    required property var analysisController
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: DS.spacingL
+        spacing: DS.spacingM
+
+        SectionHeader {
+            objectName: "communicationHeader"
+            Layout.fillWidth: true
+            title: qsTr("通信")
+            subtitle: qsTr("串口连接与请求")
+        }
+
+        // Serial controls (moved verbatim from the Legacy workbench; the
+        // group is split into Connection / Request sections in B3.2).
+        GroupBox {
+            objectName: "serialControls"
+            title: qsTr("串口控制")
+            Layout.fillWidth: true
+
+            ColumnLayout {
+                Layout.fillWidth: true
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: qsTr("串口") }
+                    Item {
+                        Layout.preferredWidth: 140
+                        Layout.preferredHeight: serialPortCombo.implicitHeight
+                        ComboBox {
+                            id: serialPortCombo
+                            objectName: "commPortCombo"
+                            anchors.fill: parent
+                            model: page.analysisController.serialPortNames
+                            enabled: !page.analysisController.serialConnected
+                            background: Rectangle {
+                                radius: 3
+                                color: DS.surface
+                                border.color: DS.border
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                leftPadding: 8
+                                verticalAlignment: Text.AlignVCenter
+                                text: serialPortCombo.currentText
+                                color: DS.textPrimary
+                                elide: Text.ElideRight
+                            }
+                        }
+                        Label {
+                            anchors.centerIn: parent
+                            visible: page.analysisController.serialPortNames.length === 0
+                            text: qsTr("未检测到串口")
+                            color: DS.textSecondary
+                            font.pixelSize: 12
+                        }
+                    }
+                    Button {
+                        text: qsTr("刷新串口")
+                        onClicked: page.analysisController.refreshSerialPorts()
+                    }
+                    Label { text: qsTr("波特率") }
+                    ComboBox {
+                        id: serialBaudCombo
+                        objectName: "commBaudCombo"
+                        model: [9600, 19200, 38400, 57600, 115200]
+                        currentIndex: 0
+                        enabled: !page.analysisController.serialConnected
+                        Layout.preferredWidth: 110
+                    }
+                    Label {
+                        text: qsTr("8N1")
+                        color: DS.textSecondary
+                        font.pixelSize: 11
+                    }
+                    Button {
+                        text: qsTr("连接")
+                        enabled: !page.analysisController.serialConnected
+                                 && serialPortCombo.currentIndex >= 0
+                        onClicked: page.analysisController.connectSerial(
+                            serialPortCombo.currentText,
+                            Number(serialBaudCombo.currentText))
+                    }
+                    Button {
+                        text: qsTr("断开")
+                        enabled: page.analysisController.serialConnected
+                        onClicked: page.analysisController.disconnectSerial()
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: qsTr("从站地址") }
+                    SpinBox {
+                        id: serialSlaveSpin
+                        objectName: "commSlaveSpin"
+                        from: 1
+                        to: 247
+                        value: 1
+                        enabled: !page.analysisController.serialBusy
+                    }
+                    Label { text: qsTr("起始地址") }
+                    SpinBox {
+                        id: serialStartSpin
+                        objectName: "commStartSpin"
+                        from: 0
+                        to: 65535
+                        value: 0
+                        enabled: !page.analysisController.serialBusy
+                    }
+                    Label { text: qsTr("寄存器数量") }
+                    SpinBox {
+                        id: serialQuantitySpin
+                        objectName: "commQuantitySpin"
+                        from: 1
+                        to: 125
+                        value: 2
+                        enabled: !page.analysisController.serialBusy
+                    }
+                    Label { text: qsTr("超时 (ms)") }
+                    SpinBox {
+                        id: serialTimeoutSpin
+                        objectName: "commTimeoutSpin"
+                        from: 100
+                        to: 10000
+                        value: 1000
+                        enabled: !page.analysisController.serialBusy
+                    }
+                    Button {
+                        text: page.analysisController.serialBusy
+                              ? qsTr("读取中...") : qsTr("读取保持寄存器")
+                        enabled: page.analysisController.serialConnected
+                                 && !page.analysisController.serialBusy
+                        onClicked: page.analysisController.readHoldingRegistersOnce(
+                            serialSlaveSpin.value,
+                            serialStartSpin.value,
+                            serialQuantitySpin.value,
+                            serialTimeoutSpin.value)
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+        }
+
+        // Serial transport error (separate lane from Replay error and from
+        // Transaction rows — a transport failure is never a Modbus status).
+        Label {
+            objectName: "communicationSerialError"
+            visible: page.analysisController.hasSerialError
+            text: page.analysisController.serialErrorMessage
+            color: "#B03030"
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
+        }
+    }
+}

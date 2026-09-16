@@ -1133,3 +1133,59 @@ Tab 顺序（页内自然顺序）：端口 → 刷新 → 波特率 → 连接 
 
 - 本文档 append 于 T017 §34；**M9-B3 Phase 1 = Learning / Design 完成（docs-only）；Implementation = NOT STARTED**。
 - 下一步：**B3 Phase 1 Review（用户）**；批准后按 §34.26 从 B3.1 开始。
+
+
+## 35. M9-B3 Phase 2 — Communication Extraction Implementation
+
+### 35.0 Phase 1 Review = PASS（用户，2026-09-16）+ Implementation Guardrails
+
+用户批准进入 B3 Phase 2，并追加约束（本文档为 authority）：
+
+- **A. MOVE before restructure**：B3.1 先机械迁移整块 Serial UI；行为/绑定确认保持后，B3.2 才允许拆成 Connection / Request 两个 presentation section。不得把 move + redesign + behavior cleanup 混在第一步。
+- **B. Draft remains page-local**：port 选择 / baud / slave / start / quantity / timeout 继续作为 CommunicationPage 的 command draft；**不得**新建 RequestDraftModel / SerialConfigModel / Controller draft properties。若真实现有架构无法保留行为，先停止汇报。
+- **C. Draft persistence tests**：断言读真实 property（`currentIndex` / `value`），不得以格式化显示文本作为唯一证据。
+- **D. Serial failure test portability**：Scenario G′ 不得硬编码 OS 相关 QSerialPort 错误文本；断言 `connect failure` / `serialConnected == false` / source 原子性 / `hasSerialError`（稳定布尔属性）及其跨导航保持。
+- **E. Extraction is not behavior rewrite**：Refresh 现状无 enabled 绑定 → B3 保持现状；不得顺手新增 busy/connected-disable、自动 refresh、自动 connect/disconnect——行为改进另开 task/issue。
+
+### 35.1 Baseline（实施前）
+
+```text
+branch=main；HEAD=7bc13e6；working tree clean；git diff --check pass
+V2 verified LKGC=53685d5；v1.0.0=ae067ab；ahead 21 / behind 0（已知允许）
+ctest --preset debug-local → 100% tests passed, 0 tests failed out of 26（含 qml_smoke / qml_geometry_check / qml_nav_check）
+```
+
+（B3.1 → B3.4 的真实执行结果回填于本节下方。）
+
+### 35.2 B3.1 — CommunicationPage Shell + Mechanical MOVE
+
+（执行后回填。）
+
+### 35.3 B3.2 — Connection / Request Presentation Split
+
+（执行后回填。）
+
+### 35.4 B3.3 — nav check 三 Workspace + Scenarios E/F/G′/H
+
+（执行后回填。）
+
+### 35.5 B3.4 — Deploy / Screenshots / Manual Candidate
+
+（执行后回填。）
+
+### 35.6 Problems / RCA
+
+（执行后回填。）
+
+### 35.7 Knowledge Learned / Interview Questions
+
+（执行后回填。）
+
+### 35.8 Candidate Commits
+
+（执行后回填。）
+
+## 36. Next
+
+- **M9-B3 Manual Visual Review = PENDING USER REVIEW**（Communication 双尺寸截图 + 既有页面防回归对照 + deploy 候选）。
+- PASS 之前：不推进 LKGC（保持 `53685d5`）、不 push、不开始 B4。

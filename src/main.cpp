@@ -48,6 +48,21 @@ QQuickItem *findNamedItem(const QList<QObject *> &roots, const QString &name)
     return nullptr;
 }
 
+// M9-B3: which workspace page is currently visible (drives which page's
+// geometry gets asserted — hidden pages are never asserted).
+enum class ActivePage { Legacy, Dashboard, Communication };
+
+ActivePage activePage(const QList<QObject *> &roots)
+{
+    if (auto *page = findNamedItem(roots, QStringLiteral("communicationWorkspace"));
+        page && page->isVisible())
+        return ActivePage::Communication;
+    if (auto *page = findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
+        page && page->isVisible())
+        return ActivePage::Dashboard;
+    return ActivePage::Legacy;
+}
+
 QStringList runGeometryAssertions(const QList<QObject *> &roots,
                                   const QString &contextLabel)
 {
@@ -57,13 +72,11 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
     // page that is currently VISIBLE (hidden StackLayout children get no
     // fragile geometry assertions — T017 §31.7/§20). The suffix is the
     // StatisticsOverview instanceId.
-    QString suffix = QStringLiteral("dashboard");
-    bool legacyVisible = false;
-    if (auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"))) {
-        legacyVisible = legacy->isVisible();
-        suffix = legacyVisible ? QStringLiteral("legacy")
-                               : QStringLiteral("dashboard");
-    }
+    const ActivePage page = activePage(roots);
+    const bool legacyVisible = (page == ActivePage::Legacy);
+    const bool statsVisible = (page != ActivePage::Communication);
+    QString suffix = (page == ActivePage::Legacy) ? QStringLiteral("legacy")
+                                                  : QStringLiteral("dashboard");
     auto suffixed = [&suffix](const QString &base) {
         return base + QLatin1Char('_') + suffix;
     };
@@ -139,7 +152,13 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
                      .arg(kMinimumWorkspaceContentWidth));
     }
 
-    auto *row1 = findNamedItem(roots, suffixed(QStringLiteral("statisticsRow1")));
+    // ---- Statistics (only the pages that own a StatisticsOverview) ----
+    QQuickItem *row1 = nullptr;
+    QQuickItem *row2 = nullptr;
+    QQuickItem *header = nullptr;
+    QQuickItem *panel = nullptr;
+    if (statsVisible) {
+    row1 = findNamedItem(roots, suffixed(QStringLiteral("statisticsRow1")));
     auto *row2 = findNamedItem(roots, suffixed(QStringLiteral("statisticsRow2")));
     const auto row1Count = row1 ? row1->childItems().size() : -1;
     const auto row2Count = row2 ? row2->childItems().size() : -1;
@@ -198,6 +217,30 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
                  .arg(row1->y())
                  .arg(row1->height()));
 
+    } // end statsVisible
+
+    // ---- Communication page (M9-B3) ----
+    if (page == ActivePage::Communication) {
+        auto *serialGroup = findNamedItem(roots, QStringLiteral("serialControls"));
+        if (!serialGroup)
+            fail(QStringLiteral("serialControls not found"));
+        else if (serialGroup->width() <= 0 || serialGroup->height() <= 0)
+            fail(QStringLiteral("serialControls size %1x%2")
+                     .arg(serialGroup->width())
+                     .arg(serialGroup->height()));
+
+        // Hidden error labels get no geometry assumption (T017 §34 spec:
+        // only assert what is visible).
+        auto *serialError =
+            findNamedItem(roots, QStringLiteral("communicationSerialError"));
+        if (serialError && serialError->isVisible()
+            && (serialError->width() <= 0 || serialError->height() <= 0))
+            fail(QStringLiteral("communicationSerialError visible but size "
+                                "%1x%2")
+                     .arg(serialError->width())
+                     .arg(serialError->height()));
+    }
+
     auto *diag = findNamedItem(roots, QStringLiteral("diagnosisWorkspace"));
     if (legacyVisible && panel && diag
         && diag->y() + 1e-6 < panel->y() + panel->height())
@@ -239,19 +282,24 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     if (index < 0 || index > 5)
         fail(QStringLiteral("NAV currentWorkspaceIndex %1 out of range 0..5")
                  .arg(index));
-    if (index != legacyIndex && index != dashboardIndex)
+    const int communicationIndex =
+        rootObj->property("workspaceCommunicationIndex").toInt();
+    if (index != legacyIndex && index != dashboardIndex
+        && index != communicationIndex)
         fail(QStringLiteral("NAV currentWorkspaceIndex %1 is not one of the "
-                            "real workspaces (%2=%3, %4=%5)")
+                            "real workspaces (legacy=%2 dashboard=%3 "
+                            "communication=%4)")
                  .arg(index)
-                 .arg(QStringLiteral("legacy"))
                  .arg(legacyIndex)
-                 .arg(QStringLiteral("dashboard"))
-                 .arg(dashboardIndex));
+                 .arg(dashboardIndex)
+                 .arg(communicationIndex));
 
     // Visibility must follow the selection (page-independent form: this
-    // guard runs at BOTH workspaces now).
+    // guard runs at EVERY workspace now).
     auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"));
     auto *dashboard = findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
+    auto *communication =
+        findNamedItem(roots, QStringLiteral("communicationWorkspace"));
     if (!legacy)
         fail(QStringLiteral("NAV legacyWorkspace not found"));
     else if (legacy->isVisible() != (index == legacyIndex))
@@ -266,6 +314,13 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
                             "follow the selection %2")
                  .arg(dashboard->isVisible())
                  .arg(index));
+    if (!communication)
+        fail(QStringLiteral("NAV communicationWorkspace not found"));
+    else if (communication->isVisible() != (index == communicationIndex))
+        fail(QStringLiteral("NAV communicationWorkspace visibility (%1) does "
+                            "not follow the selection %2")
+                 .arg(communication->isVisible())
+                 .arg(index));
 
     auto *item0 = findNamedItem(roots, QStringLiteral("navItem_0"));
     auto *item1 = findNamedItem(roots, QStringLiteral("navItem_1"));
@@ -274,13 +329,16 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
         return failures;
     }
 
-    // M9-B2 matrix: 工作台 and 总览 are REAL workspaces (enabled); the
-    // remaining four stay disabled until their own extraction steps.
+    // M9-B3 matrix: 工作台 / 总览 / 通信 are REAL workspaces (enabled); the
+    // remaining three stay disabled until their own extraction steps.
     if (!item0->property("enabled").toBool())
         fail(QStringLiteral("NAV navItem_0 (workbench) must be enabled"));
     if (!item1->property("enabled").toBool())
         fail(QStringLiteral("NAV navItem_1 (dashboard) must be enabled"));
-    for (int i = 2; i <= 5; ++i) {
+    auto *item2 = findNamedItem(roots, QStringLiteral("navItem_2"));
+    if (!item2 || !item2->property("enabled").toBool())
+        fail(QStringLiteral("NAV navItem_2 (communication) must be enabled"));
+    for (int i = 3; i <= 5; ++i) {
         auto *item = findNamedItem(roots,
                                    QStringLiteral("navItem_%1").arg(i));
         if (!item) {
@@ -324,36 +382,42 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
 
 QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextLabel)
 {
-    // Statistics names follow the currently VISIBLE page's instanceId
-    // (same rule as the assertions — see runGeometryAssertions).
-    QString suffix = QStringLiteral("dashboard");
-    if (auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace")))
-        suffix = legacy->isVisible() ? QStringLiteral("legacy")
-                                     : QStringLiteral("dashboard");
+    // Names follow the currently VISIBLE page (same rule as the assertions).
+    const ActivePage page = activePage(roots);
+    const bool statsVisible = (page != ActivePage::Communication);
+    QString suffix = (page == ActivePage::Legacy) ? QStringLiteral("legacy")
+                                                  : QStringLiteral("dashboard");
     auto suffixed = [&suffix](const QString &base) {
         return base + QLatin1Char('_') + suffix;
     };
 
-    const QStringList names = {
+    QStringList names = {
         QStringLiteral("appBar"),          QStringLiteral("navigationRail"),
         QStringLiteral("workspaceHost"),   QStringLiteral("legacyWorkspace"),
         QStringLiteral("dashboardWorkspace"),
-        suffixed(QStringLiteral("statisticsPanel")),
-        suffixed(QStringLiteral("statisticsRow1")),
-        suffixed(QStringLiteral("statisticsRow2")),
-        suffixed(QStringLiteral("statCard_0")),
-        suffixed(QStringLiteral("statCard_1")),
-        suffixed(QStringLiteral("statCard_2")),
-        suffixed(QStringLiteral("statCard_rate")),
-        suffixed(QStringLiteral("statCard_latency")),
-        suffixed(QStringLiteral("statusCard_0")),
-        suffixed(QStringLiteral("statusCard_1")),
-        suffixed(QStringLiteral("statusCard_2")),
-        suffixed(QStringLiteral("statusCard_3")),
-        suffixed(QStringLiteral("statusCard_4")),
-        suffixed(QStringLiteral("statusCard_5")),
-        QStringLiteral("diagnosisWorkspace"),
+        QStringLiteral("communicationWorkspace"),
     };
+    if (statsVisible) {
+        names << suffixed(QStringLiteral("statisticsPanel"))
+              << suffixed(QStringLiteral("statisticsRow1"))
+              << suffixed(QStringLiteral("statisticsRow2"))
+              << suffixed(QStringLiteral("statCard_0"))
+              << suffixed(QStringLiteral("statCard_1"))
+              << suffixed(QStringLiteral("statCard_2"))
+              << suffixed(QStringLiteral("statCard_rate"))
+              << suffixed(QStringLiteral("statCard_latency"))
+              << suffixed(QStringLiteral("statusCard_0"))
+              << suffixed(QStringLiteral("statusCard_1"))
+              << suffixed(QStringLiteral("statusCard_2"))
+              << suffixed(QStringLiteral("statusCard_3"))
+              << suffixed(QStringLiteral("statusCard_4"))
+              << suffixed(QStringLiteral("statusCard_5"));
+    } else {
+        names << QStringLiteral("communicationHeader")
+              << QStringLiteral("serialControls")
+              << QStringLiteral("communicationSerialError");
+    }
+    names << QStringLiteral("diagnosisWorkspace");
     QStringList lines;
     lines << QStringLiteral("GEOMETRY [%1]:").arg(contextLabel);
     for (const QString &name : names) {
@@ -412,45 +476,50 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // switches to the target workspace first and then verifies the ACTIVE
     // instance at the current size.
     struct MeasureStep {
-        bool dashboard;
+        int pageIndex; // 0 legacy / 1 dashboard / 2 communication
         bool resizeToMin;
         QString tag;
         QString label;
     };
     const QVector<MeasureStep> steps = {
-        { false, false, QStringLiteral("m9b2-legacy-1024x720"),
+        { 0, false, QStringLiteral("m9b3-legacy-1024x720"),
           QStringLiteral("DEFAULT legacy") },
-        { true, false, QStringLiteral("m9b2-dashboard-1024x720"),
+        { 1, false, QStringLiteral("m9b3-dashboard-1024x720"),
           QStringLiteral("DEFAULT dashboard") },
-        { true, true, QStringLiteral("m9b2-dashboard-1000x700"),
+        { 2, false, QStringLiteral("m9b3-communication-1024x720"),
+          QStringLiteral("DEFAULT communication") },
+        { 2, true, QStringLiteral("m9b3-communication-1000x700"),
+          QStringLiteral("MIN 1000x700 communication") },
+        { 1, false, QStringLiteral("m9b3-dashboard-1000x700"),
           QStringLiteral("MIN 1000x700 dashboard") },
-        { false, false, QStringLiteral("m9b2-legacy-1000x700"),
+        { 0, false, QStringLiteral("m9b3-legacy-1000x700"),
           QStringLiteral("MIN 1000x700 legacy") },
     };
 
     const int settleMs = 100;
     const int maxAttempts = 5;
     auto stepIndex = std::make_shared<int>(0);
-    auto currentDashboard = std::make_shared<bool>(false);
+    auto currentPageIndex = std::make_shared<int>(0);
     auto failures = std::make_shared<QStringList>();
     auto attempt = std::make_shared<int>(0);
 
     auto finish = [&app](const QStringList &fails) {
         if (fails.isEmpty())
             qInfo() << "GEOMETRY CHECK PASS"
-                       "(legacy + dashboard at default size and 1000x700)";
+                       "(legacy + dashboard + communication at default size "
+                       "and 1000x700)";
         else
             for (const QString &f : fails)
                 qWarning().noquote() << "GEOFAIL:" << f;
         app.exit(fails.isEmpty() ? 0 : 1);
     };
 
-    auto switchWorkspace = [&](bool dashboard, QStringList &fails) {
+    auto switchWorkspace = [&](int pageIndex, QStringList &fails) {
         QObject *rootObj = roots.value(0);
-        const int idx =
-            rootObj->property(dashboard ? "workspaceDashboardIndex"
-                                        : "workspaceLegacyIndex")
-                .toInt();
+        const char *key = (pageIndex == 0) ? "workspaceLegacyIndex"
+                        : (pageIndex == 1) ? "workspaceDashboardIndex"
+                                           : "workspaceCommunicationIndex";
+        const int idx = rootObj->property(key).toInt();
         auto *item = findNamedItem(
             roots, QStringLiteral("navItem_%1").arg(idx));
         if (!item) {
@@ -471,16 +540,16 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto pendingPre = std::make_shared<QStringList>();
 
     auto schedule = std::make_shared<std::function<void()>>();
-    *schedule = [&, schedule, failures, attempt, stepIndex, currentDashboard,
+    *schedule = [&, schedule, failures, attempt, stepIndex, currentPageIndex,
                  transitionDone, pendingPre]() {
         const MeasureStep &step = steps.at(*stepIndex);
         QStringList pre;
         if (!*transitionDone) {
-            const bool needSwitch = (step.dashboard != *currentDashboard);
+            const bool needSwitch = (step.pageIndex != *currentPageIndex);
             if (needSwitch || step.resizeToMin) {
                 if (needSwitch) {
-                    switchWorkspace(step.dashboard, pre);
-                    *currentDashboard = step.dashboard;
+                    switchWorkspace(step.pageIndex, pre);
+                    *currentPageIndex = step.pageIndex;
                 }
                 if (step.resizeToMin && window)
                     window->resize(1000, 700);
@@ -568,14 +637,25 @@ QStringList runNavAssertions(const QList<QObject *> &roots,
     const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
     const int dashboardIndex =
         rootObj->property("workspaceDashboardIndex").toInt();
+    const int communicationIndex =
+        rootObj->property("workspaceCommunicationIndex").toInt();
     const int index = rail->property("currentWorkspaceIndex").toInt();
 
-    if (index != legacyIndex && index != dashboardIndex)
+    auto *communication =
+        findNamedItem(roots, QStringLiteral("communicationWorkspace"));
+    if (!communication)
+        fail(QStringLiteral("NAVFAIL communicationWorkspace not found"));
+
+    const bool realWorkspace = (index == legacyIndex)
+                            || (index == dashboardIndex)
+                            || (index == communicationIndex);
+    if (!realWorkspace)
         fail(QStringLiteral("NAVFAIL selection %1 is not a real workspace "
-                            "(legacy=%2 dashboard=%3)")
+                            "(legacy=%2 dashboard=%3 communication=%4)")
                  .arg(index)
                  .arg(legacyIndex)
-                 .arg(dashboardIndex));
+                 .arg(dashboardIndex)
+                 .arg(communicationIndex));
     if (legacy->isVisible() != (index == legacyIndex))
         fail(QStringLiteral("NAVFAIL legacyWorkspace visibility does not "
                             "follow selection %1")
@@ -583,6 +663,10 @@ QStringList runNavAssertions(const QList<QObject *> &roots,
     if (dashboard->isVisible() != (index == dashboardIndex))
         fail(QStringLiteral("NAVFAIL dashboardWorkspace visibility does not "
                             "follow selection %1")
+                 .arg(index));
+    if (communication && communication->isVisible() != (index == communicationIndex))
+        fail(QStringLiteral("NAVFAIL communicationWorkspace visibility does "
+                            "not follow selection %1")
                  .arg(index));
 
     return failures;
@@ -733,7 +817,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
         case 5: { // disabled future entries can never change the selection
-            for (int i = 2; i <= 5; ++i) {
+            for (int i = 3; i <= 5; ++i) {
                 auto *item =
                     findNamedItem(roots, QStringLiteral("navItem_%1").arg(i));
                 if (!item)

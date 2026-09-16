@@ -36,6 +36,7 @@ ApplicationWindow {
     // properties (never a hardcoded 0/1 of their own).
     readonly property int workspaceLegacyIndex: 0
     readonly property int workspaceDashboardIndex: 1
+    readonly property int workspaceCommunicationIndex: 2
 
     width: 1024
     height: 720
@@ -234,145 +235,6 @@ ApplicationWindow {
                             visible: analysisController.hasReplayNotice
                             text: analysisController.replayNoticeText
                             color: "#806000"
-                            wrapMode: Text.Wrap
-                            Layout.fillWidth: true
-                        }
-
-                        // Serial controls (T010 Part B) — one lightweight GroupBox, no new
-                        // page, no second dashboard. QSerialPort never appears in QML.
-                        GroupBox {
-                            title: qsTr("串口控制")
-                            Layout.fillWidth: true
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Label { text: qsTr("串口") }
-                                    Item {
-                                        Layout.preferredWidth: 140
-                                        Layout.preferredHeight: serialPortCombo.implicitHeight
-                                        ComboBox {
-                                            id: serialPortCombo
-                                            anchors.fill: parent
-                                            model: analysisController.serialPortNames
-                                            enabled: !analysisController.serialConnected
-                                            background: Rectangle {
-                                                radius: 3
-                                                color: root.surface
-                                                border.color: root.border
-                                                border.width: 1
-                                            }
-                                            contentItem: Text {
-                                                leftPadding: 8
-                                                verticalAlignment: Text.AlignVCenter
-                                                text: serialPortCombo.currentText
-                                                color: root.textPrimary
-                                                elide: Text.ElideRight
-                                            }
-                                        }
-                                        Label {
-                                            anchors.centerIn: parent
-                                            visible: analysisController.serialPortNames.length === 0
-                                            text: qsTr("未检测到串口")
-                                            color: root.textSecondary
-                                            font.pixelSize: 12
-                                        }
-                                    }
-                                    Button {
-                                        text: qsTr("刷新串口")
-                                        onClicked: analysisController.refreshSerialPorts()
-                                    }
-                                    Label { text: qsTr("波特率") }
-                                    ComboBox {
-                                        id: serialBaudCombo
-                                        model: [9600, 19200, 38400, 57600, 115200]
-                                        currentIndex: 0
-                                        enabled: !analysisController.serialConnected
-                                        Layout.preferredWidth: 110
-                                    }
-                                    Label {
-                                        text: qsTr("8N1")
-                                        color: root.textSecondary
-                                        font.pixelSize: 11
-                                    }
-                                    Button {
-                                        text: qsTr("连接")
-                                        enabled: !analysisController.serialConnected
-                                                 && serialPortCombo.currentIndex >= 0
-                                        onClicked: analysisController.connectSerial(
-                                            serialPortCombo.currentText,
-                                            Number(serialBaudCombo.currentText))
-                                    }
-                                    Button {
-                                        text: qsTr("断开")
-                                        enabled: analysisController.serialConnected
-                                        onClicked: analysisController.disconnectSerial()
-                                    }
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Label { text: qsTr("从站地址") }
-                                    SpinBox {
-                                        id: serialSlaveSpin
-                                        from: 1
-                                        to: 247
-                                        value: 1
-                                        enabled: !analysisController.serialBusy
-                                    }
-                                    Label { text: qsTr("起始地址") }
-                                    SpinBox {
-                                        id: serialStartSpin
-                                        from: 0
-                                        to: 65535
-                                        value: 0
-                                        enabled: !analysisController.serialBusy
-                                    }
-                                    Label { text: qsTr("寄存器数量") }
-                                    SpinBox {
-                                        id: serialQuantitySpin
-                                        from: 1
-                                        to: 125
-                                        value: 2
-                                        enabled: !analysisController.serialBusy
-                                    }
-                                    Label { text: qsTr("超时 (ms)") }
-                                    SpinBox {
-                                        id: serialTimeoutSpin
-                                        from: 100
-                                        to: 10000
-                                        value: 1000
-                                        enabled: !analysisController.serialBusy
-                                    }
-                                    Button {
-                                        text: analysisController.serialBusy
-                                              ? qsTr("读取中...") : qsTr("读取保持寄存器")
-                                        enabled: analysisController.serialConnected
-                                                 && !analysisController.serialBusy
-                                        onClicked: analysisController.readHoldingRegistersOnce(
-                                            serialSlaveSpin.value,
-                                            serialStartSpin.value,
-                                            serialQuantitySpin.value,
-                                            serialTimeoutSpin.value)
-                                    }
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                            }
-                        }
-
-                        // Serial transport error (separate lane from Replay error and from
-                        // Transaction rows — a transport failure is never a Modbus status).
-                        Label {
-                            visible: analysisController.hasSerialError
-                            text: analysisController.serialErrorMessage
-                            color: "#B03030"
                             wrapMode: Text.Wrap
                             Layout.fillWidth: true
                         }
@@ -916,6 +778,13 @@ ApplicationWindow {
                 // matching workspaceDashboardIndex above.
                 DashboardPage {
                     objectName: "dashboardWorkspace"
+                    analysisController: analysisController
+                }
+
+                // Communication workspace page (M9-B3) — StackLayout child 2,
+                // matching workspaceCommunicationIndex above.
+                CommunicationPage {
+                    objectName: "communicationWorkspace"
                     analysisController: analysisController
                 }
             }
