@@ -1257,7 +1257,7 @@ $ git show --stat --oneline 072fe34
 
 **交付清单**：CommunicationPage · Connection section · Request section · Serial error contextual placement · Communication navigation enabled · page-local command draft · authoritative Controller state preservation · Scenario E · Scenario F · Scenario G′ · Scenario H · three-workspace nav check · six-pass geometry guard · deploy validation · **manual visual PASS**。
 
-提交链：`7bc13e6`（Phase 1 设计）→ `d957ff7`（B3.1）→ `c3269dc`（B3.2）→ `382ecfb`（B3.3，**= verified LKGC**）→ `072fe34`（候选：docs+截图）→ `c007013`（回填）→ 本 closure 提交（docs-only，非 LKGC）。
+提交链：`7bc13e6`（Phase 1 设计）→ `d957ff7`（B3.1）→ `c3269dc`（B3.2）→ `382ecfb`（B3.3，**= verified LKGC**）→ `072fe34`（候选：docs+截图）→ `c007013`（回填）→ `2c3955c`（closure，docs-only，非 LKGC）。
 
 ### 37.6 已验证架构（正式记录）
 
