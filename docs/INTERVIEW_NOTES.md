@@ -194,3 +194,9 @@
 - **Q：用户选中的文件和"当前回放来源"是同一个事实吗？** A：不是。selectedFile 是对话框候选，只在 onAccepted 瞬间被消费；只有 parse→analyze→adapt 全部成功后 `sourceLabel_` 才被赋值为**文件名**（完整路径永不进 UI）——失败选择零痕迹（r03/r05）。把选择当来源会破坏这条原子契约。
 - **Q：回放加载失败后，"上一次成功的披露"还在吗？** A：在——当前真实契约是**失败只置 error、不清 notice**（notice 属于上一次成功加载）；这是"旧披露+新错误"并存的现状，被 r06 依此测试。迁移原样冻结；是否改进属未来任务。
 - **Q：为什么 FileDialog 可以随页常驻？** A：StackLayout 全实例化 + 页面 identity 断言（B2/B3 证据）保证对话框实例零重建；对话框没有需要持久化的业务状态（selectedFile 是瞬时候选）。
+
+
+## 19. Post-T017 M9-B4 Review Correction 条目（2026-09-16 追加）
+
+- **Q：状态放在 Controller 里就等于"会话事实"吗？** A：不。所有权≠语义类目：replayError 是 per-attempt（描述最近一次尝试），replayNotice 是 per-loaded-session（描述当前活跃批次的 unsupported 披露）——都由 Controller 持有，但语义生命周期完全不同。分类要按"事实属于谁的生命周期"而不是"字段存在哪个类里"。
+- **Q：怎么避免引用测试证明它没证明的东西？** A：引用前复读测试原体。我曾写"r06 证明失败保留 notice"——复读 r06 原体发现它只断言 error 恢复；正确做法是撤回证据表述、把行为重定性为 code 观测，并补上缺失的自动断言（Scenario K′）。

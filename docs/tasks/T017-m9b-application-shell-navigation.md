@@ -1556,7 +1556,68 @@ Replay 页内容 ≈ 页标题 21 + 12 + 动作卡（34 + 内边距 24）58 + 12
 | 9 | migration vs behavior rewrite | notice 不清等"奇怪"现状契约原样冻结，改进另立任务 |
 | 10 | offline fixture design | CMake test_data 机制让场景 J/K 无绝对路径、可复现 |
 
-### 38.29 Status
+### 38.29 Status（经 §38.30 修正后为 authority）
 
-- **M9-B4 Phase 1 = Learning / Design 完成（docs-only）；Implementation = NOT STARTED。**
-- 下一步：**B4 Phase 1 Review（用户）**；批准后按 §38.26 从 B4.1 开始。
+- **M9-B4 Phase 1 = Learning / Design 完成；Review = CONDITIONAL PASS；§38.30 修正已落档；Implementation = NOT STARTED。**
+- 下一步：**B4 Phase 1 修正后复核（用户）**；批准后按 **§38.30.5**（B4.1 迁移不启位 → B4.2 启位 → B4.3 场景+K′ → B4.4 deploy）开始。§38.5/§38.11/§38.13/§38.14/§38.26 与 §38.30 冲突处以 §38.30 为准。### 38.30 Phase 1 Review Correction（CONDITIONAL PASS → docs-only 修正，2026-09-16）
+
+用户 Review = **CONDITIONAL PASS**。本节为 **追加批注**，修正 §38 中被指出的四处表述/计划；与 §38.5/§38.11/§38.13/§38.14/§38.26 冲突之处**以本节为准**。零生产改动。
+
+#### 38.30.1 状态分类修正（ownership ≠ semantic category）
+
+原 §38.5 把 replayError/replayNotice 放进 "A. Authoritative Session State"（理由="Controller 持有"）——**分类错误**：所有权的归属不等于语义类目的归属。修正后的三类：
+
+- **A — Authoritative Session Facts（会话事实）**：mode/source · transactions · statistics · diagnosis 批次 + revision（如经核实，其他真实批次事实）。
+- **B — Replay Workflow / Draft**：FileDialog 实例/工作流状态 · selectedFile（瞬时候选）。
+- **C — Replay Result / Disclosure State（结果/披露状态）**：`replayError`（**per-attempt**：描述最近一次加载尝试的失败）· `replayNotice`（**per-loaded-session**：见 38.30.2）。
+
+C 类仍由 Controller 持有（ownership 不变、B4 不改），但其语义是"操作的披露"而非"会话批次事实"——呈现归 Replay 页的结论不变。
+
+#### 38.30.2 replayNotice 生命周期结论（按真实代码）
+
+全部真实调用点（grep 实证）：
+
+| 事件 | 行为 | 代码 |
+| --- | --- | --- |
+| 成功加载且 unsupported 非空 | `setReplayNotice("提示：N 条…")` | cpp:1292 |
+| 成功加载且 unsupported 为空 | `clearReplayNotice()` | cpp:1290 |
+| `runDemoBatch()` | `clearReplayNotice()` | cpp:1205 |
+| `clearResults()` | `clearReplayNotice()` | cpp:1222 |
+| **失败加载（全部四类）** | **不触碰 notice** | cpp:1230-1260（无任何 notice 调用） |
+
+**结论**：replayNotice 描述的是**当前已成功加载的 Replay 会话**中 unsupported 记录的披露（T015 Gate F，与当前活跃批次绑定）→ 应记录为 **Controller 持有的 per-loaded-session disclosure**，而非"最近一次加载尝试的结果"。replayError 才是 per-attempt。二者生命周期不同——这是 C 类内部必须区分的两个子语义。
+
+#### 38.30.3 UI-R06 证据表述修正
+
+**撤销**原 §38.11 的这一句："notice 不清…被 r06 依此测试"。**UI-R06（r06_errorRecovery）的实际断言**（tests/test_ui_bridge.cpp，已复读原体）：坏加载 → `hasReplayError` 为真；golden 加载 → 错误清除 + mode/source/rows/observed 断言——**没有任何 notice 断言**。r06 证明的是 error 的恢复路径，不证明 notice 的失败存续。
+
+**"失败加载保留 notice"是 production code 的观测行为**（cpp:1230-1260 失败路径无 notice 调用——见 38.30.2 表），B4 冻结该观测行为，但**补上此前缺失的自动断言**（38.30.4）。
+
+**future-issue 措辞修正**："旧 notice + 新 error 并存"**不是自动成立的 bug**——失败加载没有替换旧会话，notice 仍准确描述着仍然活跃的旧批次。潜在的未来 UX 议题是**旧会话披露与新尝试错误之间的来源/上下文清晰度**（用户可能分不清"哪句话属于哪个会话"），仅此而已。
+
+#### 38.30.4 新增 notice-preservation 自动断言（B4.3 计划）
+
+由于"notice 在失败加载后保留"进入 B4 冻结契约，**notice-bearing fixture 不再可选**：
+
+- **Fixture 决定**：`samples/t015_unsupported_fc08.mlog`（tracked；单条 FC08 记录 → 成功加载后 notice="提示：1 条记录…0x08…"、analyzed=0）。
+- **机制**：沿用既有 CMake `configure_file(... COPYONLY)` + 编译定义模式，新增 `MODBUSLENS_UNSUPPORTED_MLOG_PATH`（与 `MODBUSLENS_DEMO_MLOG_PATH` 同法）；**不新增 test target**（断言进 `qml_nav_check` 场景），**零机器绝对路径**。
+- **Required scenario（Scenario K′，并入 nav check）**：
+  1. `loadReplayFile(unsupported fixture)` 成功 → 捕获 source/rows/statistics/replayNotice；
+  2. 确定性失败加载（不存在路径）→ 断言：`hasReplayError` 置位 + **source 不变 + rows 不变 + statistics 不变 + replayNotice 逐字不变**；
+  3. 三页往返 → 全部保持。
+- 原场景 I/J/K 保持不变。
+
+#### 38.30.5 恢复增量实施边界（B4.1–B4.4）
+
+修正 §38.26 的两步合并（原 B4.1 把"迁移+启位"绑在同一步）。恢复为：
+
+- **B4.1 — ReplayPage shell + 机械 MOVE**（Load 按钮/FileDialog/error/notice 三件套逐字迁入；**回放 navigation 保持 disabled**；Legacy 同步删除）。验证：build + qml_smoke + 行为保持（此时 Replay 页不可达，无导航面变化）。
+- **B4.2 — 启位**：`workspaceReplayIndex: 3` + rail 启用 + StackLayout child3 + 四页 identity/visibility/index/基础导航矩阵。
+- **B4.3 — 场景**：Scenario I/J/K + **K′（38.30.4）** + fixture 接线 + 八趟 geometry。
+- **B4.4 — deploy + 截图 + manual candidate**。
+
+原则不变：move first、behavior preservation first、no big-bang。
+
+#### 38.30.6 Context-decay / model-switch 纪律（实施前强制）
+
+模型可能在 GLM-5.3-Flash / GLM-5.3 / DeepSeek-V4.1-Flash 间切换——**既往模型摘要不作为权威**。B4 实施前，当值模型必须从仓库重读（至少）：`AGENTS.md` · `docs/PROJECT_STATUS.md` · `docs/BACKLOG.md` · **T017 §38（含本修正节）** · `AnalysisController.h/.cpp` · 当前 `Main.qml` · `qml_nav_check` 实现与测试 · `qml_geometry_check` 实现与测试 · 相关 ui_bridge Replay 测试（r01-r08 原体）· CMake replay fixture/test-data 机制 · tracked replay samples。**改代码前报告实际证据**（本轮 correction 已示范：r06 原体复读、notice 调用点 grep）。
