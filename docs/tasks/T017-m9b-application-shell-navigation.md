@@ -854,7 +854,7 @@ $ git show --stat --oneline 387dcaf
 
 **交付清单**：StatisticsOverview feature component · DashboardPage · Run Demo migration（单入口）· two real workspaces · Dashboard navigation enabled · single workspace index contract · `qml_nav_check` · Scenario A（导航存续）· Scenario B（诊断存续）· Scenario D（clear 双视图同步）· dual-view authoritative statistics · dual-size geometry protection（四趟）· deploy validation · **manual visual PASS**。
 
-提交链：`c4291db`（B2.1）→ `93aabb2`（B2.2）→ `53685d5`（B2.3，**= verified LKGC**）→ `387dcaf`（候选：docs+截图）→ `dd8bd12`（回填）→ 本 closure 提交（docs-only，非 LKGC）。
+提交链：`c4291db`（B2.1）→ `93aabb2`（B2.2）→ `53685d5`（B2.3，**= verified LKGC**）→ `387dcaf`（候选：docs+截图）→ `dd8bd12`（回填）→ `004e0a0`（closure，docs-only，非 LKGC）。
 
 ### 33.5 架构决策（已验证事实，正式记录）
 
