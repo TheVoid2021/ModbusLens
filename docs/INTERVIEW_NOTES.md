@@ -140,3 +140,9 @@
 - **Q：壳层如何做到"导航不改业务"？** A：壳层唯一新增状态是选中 index；来源/串口/批次全是只读绑定；护栏直接断言"禁用入口无法改变 index"（且校验 invoke 返回值，防止断言空转）——把不变量交给 CI 而不是口头约定。
 - **Q：为什么 clearResults 可以进 AppBar？** A：先核验语义再搬家——clearResults 清结果但不换 source、不断连接（代码注释 + r08/s08 契约），属 session 级动作；搬迁只改位置，onClicked 逐字保持。
 - **Q：自动测试通过后为什么还要人工视觉？** A：B1 期间 smoke 抓到 anchors 警告、dump 抓到 Layout.margins 被忽略——都是"自动通过≠正确"的实例；几何/像素断言锁合同，视觉质量仍由人工验收（M9-A 已有先例）。
+
+
+## 11. Post-T017 M9-B1 closure 条目（2026-09-16 追加）
+
+- **Q：LKGC 怎么判定？** A：看「真实 product/QML/Qt 代码变更 + 全链路验证 + 人工验收」三件套——M9-B1 的 `189c62c` 满足（smoke/geometry/ctest 25/25/deploy/manual PASS），docs-only 回填（`b7e7d72`）永远不作 LKGC；V1 的 `v1.0.0` tag 与 V2 LKGC 是两个概念，前者永久不动。
+- **Q：为什么"改版"可以只搬位置不改行为还值得大动干戈？** A：因为行为不变本身是可验证的承诺——Clear Results 搬家前先核验 r08/s08 语义、onClicked 逐字保留，护栏把"禁用入口不能改 index"钉成断言；presentation may change, behavior must not 是流程（先证明语义，再动手），不是口号。

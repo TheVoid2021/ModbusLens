@@ -458,3 +458,51 @@ deploy_windows.bat + 无开发 PATH deploy smoke      → [OK] + EXITCODE=0
 
 - **M9-B1 Manual Visual Review = PENDING USER REVIEW**（截图 `m9b1-shell-1024x720.png` / `m9b1-shell-1000x700.png`；复核清单见 §22.6）。
 - PASS 之前：不推进 LKGC（verified 保持 `6562dd3`）、不 push、不开始 B2（Dashboard extraction）。
+
+
+## 24. M9-B1 Manual Visual Review = PASS（用户，2026-09-16）
+
+**人工确认（用户原话要点）**：AppBar 不截字；session/source 信息可读；Rail 与 Workspace 不重叠；1024×720 无明显水平裁切；M9-A statistics 无回归；Serial Controls 可见；Diagnosis 可见；Transactions 可见；disabled future workspace 明显不可用；resize / shell structure 未见视觉崩坏。
+
+**PASS 边界（明确声明）**：本 PASS **仅表示 Shell Skeleton 达到验收要求**；**不表示** M9-B 全部完成，**也不表示** M9 UI Refresh 全部完成。
+
+## 25. Deferred Visual Work（明确留待后续，非 B1 regression）
+
+- temporary "工作台" 入口（B1 的过渡命名，拆分页面后由真实 workspace 入口取代）
+- real Dashboard navigation（B2 起）
+- navigation icons / richer visual identity（M9-E）
+- SessionChip visual refinement（M9-C）
+- Serial controls styling（M9-D）
+- Diagnosis styling（M9-D）
+- Transaction workspace styling（M9-D）
+- window / taskbar icon（M9-E）
+- native-title / content coherence（M9-E 或专门设计）
+
+以上均为**计划内后续工作**，不计入 M9-B1 缺陷。
+
+## 26. M9-B1 Final Status = COMPLETE
+
+**交付清单**：AppBar · compact NavigationRail · StackLayout WorkspaceHost · LegacyWorkspace preservation（全部旧功能）· authoritative mode/source display · shell geometry regression assertions · disabled future navigation guard · accessibility baseline（StrongFocus/焦点迁移/三通道选中态）· deploy validation（生成模块整目录复制）· **用户 Manual Visual PASS**。
+
+提交链：`189c62c`（实现，= **V2 verified LKGC**）→ `b7e7d72`（docs-only 哈希回填，非 LKGC）。
+
+## 27. M9-B1 Knowledge Closure（基于真实实现，8 点）
+
+1. **Shell presentation state 与 business/session state 的边界**：shell 新增的状态只有 `currentWorkspaceIndex` 与焦点/呈现；AppBar 的 session 显示全部是**只读绑定**（modeLabel/sourceLabel/serialConnected）。边界检验方法=看"删掉壳层后业务是否仍成立"：串口连接、批次、诊断/AI/Agent 在壳层不存在时依然完整——证明它们从未被壳层拥有。
+2. **为什么 modeLabel/sourceLabel 只能显示不能做 authority**：它们是可翻译、可重排的展示字符串；authority 是三命令的原子语义（失败不动旧状态、成功后递增批次 revision、clear 永不换 source）。任何"label 含'串口'就当作串口模式"的推断都会在文案改动时静默失效——guardrail A 因此写成禁令而不是建议。
+3. **为什么 StackLayout 当前比 Loader 更适合**：B1 实测确认了设计假设——页面单实例、切换零副作用；而且 `currentIndex` 绑定 rail 后，"禁用项不能改 index"从 UI 细节升级为**页面存续的结构前提**（被护栏钉死）。Loader 的销毁语义会引入"重进页面重建实例/重连信号"的风险，收益（内存）在 5 个轻量页面下没有意义；guardrail B 保留未来为 heavy optional subview 单独设计的权利。
+4. **StackLayout child 为什么用纯 Item page-root pattern**：本轮**实测两次**——anchors 于 layout-managed 子项 → 运行时 undefined behavior 警告（qml_smoke 抓到）；`Layout.margins` → 被 StackLayout 忽略、内缩丢失（dump 抓到）。结论：Layouts 拥有子项几何，页面只能"被摆放"；内缩/内容布局收回页面内部。B2–B5 每个 Page 复用此模式。
+5. **compact rail 的空间预算依据**：56px 来自"最小窗 1000 − rail 56 − 页边距 32 = 912 ≥ 既有业务最低宽度 852（SplitView 300+520+2×16）"；实测 host=943 ≥ 852 ✓。expanded 档未实现；未来实现必须先算 available ≥ required（guardrail D，1060 只是当时预算值）。
+6. **为什么 disabled future navigation 比假 Coming Soon 页面更安全**：假页面把"不存在的能力"呈现为"可进入但空"，用户会把它当作 bug 或半成品；禁用项把信息架构**预告**出来而不承诺——且护栏断言"disabled 项无论如何都无法改变 index"（含 invoke 返回值校验），使"不可用"成为受测事实而非视觉印象（guardrail C）。
+7. **为什么 geometry test 仍不能替代人工视觉验收**：本轮自动链全绿时仍抓到 anchors 警告与 Layout.margins 失效——自动断言只能证明"我测量过的不变量成立"，无法覆盖"我没想到要测的观感"（截字、拥挤、层级混乱）。M9-A 与 B1 两次都是"自动 PASS + 人工裁决"才闭环；几何/像素断言锁合同，人工锁质量。
+8. **如何复用 ISSUE-012 / ISSUE-011 的经验**：ISSUE-012（layout 尺寸合同）→ 直接催生本轮的页根模式与"Layouts 拥有几何"检查清单，并在 smoke 里第一时间识别出 anchors 警告属同族；ISSUE-011（部署模块漂移）→ 新增 NavigationRail 后**零额外部署工作**（生成模块整目录复制机制自动覆盖），验证了"单一机制"的复利。另有验证工具教训（M9-A 同类假阳性在 B1 复现）→ 统一"判定函数只返回 bool + 顶层裸语句打印 + 反射调用校验返回值"。
+
+## 28. LKGC Decision（用户批准）
+
+- **V2 verified LKGC = `189c62c`**（M9-B1 最后一个包含真实 product/QML changes 且通过 qml_smoke + qml_geometry_check + full ctest 25/25 + deploy smoke + **manual visual PASS** 的提交）。
+- `b7e7d72` 为 docs-only 哈希回填，**不得作为 LKGC**。
+- **V1 immutable tag `v1.0.0` → `ae067ab` 永久不变**（与 V2 LKGC 是两个概念）。
+
+## 29. B1 Completion Commit
+
+`M9-B1: complete application shell after visual acceptance`（docs-only；哈希见本章回填或 git log——本轮按用户指令不另起回填提交则记录于 PROJECT_STATUS 变更表）。
