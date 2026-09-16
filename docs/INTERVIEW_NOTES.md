@@ -125,3 +125,10 @@
 - **Q：M9-A 交付了什么、怎么收的口？** A：tokens（单一语义源）+ 四个有真实迁移用例的组件 + Top Actions/Statistics 两处迁移 + 几何回归守卫 `qml_geometry_check`；流程是"自动全绿→人工 FAIL→运行时取证→最小修复→自动+人工双 PASS"，verified LKGC = 修复提交 `6562dd3`。
 - **Q：为什么人工 PASS 只覆盖 M9-A？** A：PASS 的语义边界必须写清：仅证明"首次迁移的视觉回归已解决"，不证明"整个 M9 视觉刷新完成"——Serial/Diagnosis/Transaction styling、icon、shell/navigation、native-title 一致性都是后续里程碑的事；把关单范围收窄是工程纪律，不是保守。
 - **Q：为什么不一次把 9 个组件都写完？** A：组件清单是"由真实重复模式决定的候选集"，不是库存 KPI；没有迁移用例的组件（StatusBadge/FieldRow/SegmentedTabs/EmptyState/Banner）留到对应区域真正迁移时再引入，避免做出来没人用、还得跟着需求返工。
+
+## 9. Post-T017 M9-B Phase 1 条目（2026-09-15 追加）
+
+- **Q：导航为什么选左侧 rail 而不是顶部 tab？** A：用真实布局预算说话——1000×700 最小窗口下垂直轴已到极限（单页堆叠时工作区只剩 ≈190px），顶部 tab 吃常驻垂直空间且 5 项无增长余量；rail 吃的是富余的水平轴，折叠 56px 时内容 888 ≥ 既有并行分栏最小值 820，700 高下页面可用 592px（+400 收益）。屏幕轴宽裕度决定导航形态，不是审美。
+- **Q：Source 和 Workspace 什么关系？** A：Source 是"数据从哪来"（Simulator/Serial/Replay，session 唯一，由 Controller 原子切换）；Workspace 是"用户在做什么任务"（总览/通信/回放/诊断/设备）。两者正交：任何 workspace 不改变 source，source 切换不强制跳页；全局来源 chip 是 source 唯一可见副本。
+- **Q：切页会不会把正在进行的 AI/Agent 请求打断？** A：不会——因为设计上页面只是显示面：StackLayout 全实例化、页面不销毁；异步有效性在 Controller（批次 revision × 请求 generation 二维守卫），页面可见性不是失效条件。反过来 Loader 的销毁语义会打碎这个保障，所以被排除。
+- **Q：为什么要专门写"State Ownership Rule"？** A：拆页的最大风险不是视觉，是把 session 状态拆散成页面各自一份（例如每页一个 transaction model / 每页自己记 serialConnected），这会直接违反 r07/r08/s02/s10 等既有契约。规则一句话：业务状态留 Controller，页面只消费与发信号。
