@@ -787,6 +787,18 @@ ApplicationWindow {
                     objectName: "communicationWorkspace"
                     analysisController: analysisController
                 }
+
+                // Replay workspace page (M9-B4.1) — StackLayout child 3.
+                // SHELL ONLY: the Replay workflow (Load Replay / FileDialog /
+                // error / notice) still lives in the Legacy workbench and
+                // migrates here atomically WITH the 回放 navigation
+                // enablement in B4.2 (T017 §38.31.3). Until then this page
+                // is intentionally empty, has zero bindings/commands, and is
+                // unreachable (回放 stays disabled).
+                ReplayPage {
+                    objectName: "replayWorkspace"
+                    analysisController: analysisController
+                }
             }
         }
     }

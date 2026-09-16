@@ -1663,3 +1663,44 @@ C 类仍由 Controller 持有（ownership 不变、B4 不改），但其语义�
 
 - **M9-B4 Phase 1：语义修正（§38.30）= PASS；序列修正（§38.31）= 本节；Implementation = NOT STARTED。**
 - 下一步：**等待本序列修正的复核批准**；批准后从 **B4.1（仅 shell、不迁移、不启位）**开始，随后 **B4.2（迁移+启位同阶段）** → **B4.3** → **B4.4**。
+
+
+## 39. B4.1 — ReplayPage Shell Only（Implementation Record，2026-09-16）
+
+按 §38.31.2 执行（用户批准范围）：**仅 shell，零迁移、零启位、零行为变化**。
+
+### 39.1 Implementation
+
+- 新建 `pages/ReplayPage.qml`：纯 Item 页根（B1–B3 已验证模式）+ `required property var analysisController`；**页面体刻意为空**（B4.2 随迁移+启位原子填充——§38.31.3 禁止"已迁移但不可达"中间态，故本步不迁任何工作流件）。
+- `Main.qml`：StackLayout **child3** 实例化（`objectName: "replayWorkspace"`，与 legacy/dashboard/communication 同法注入 controller）；回放 nav **保持 disabled**（NavigationRail 零改动）；**未添加** `workspaceReplayIndex`（实例化不需要它——按 §38.31 指令，仅 B4.2 启位时随契约引入）。
+- `CMakeLists.txt`：QML_FILES 注册（qt_add_qml_module + 生成模块部署，无手写 qmldir）。
+- `main.cpp`（仅存在性验证，无行为断言）：nav check stage 0 增加 `replayWorkspace` shell 存在断言 + 跨切换 identity 稳定检查（与其余三页同机制）；dump 表加入 `replayWorkspace`（**纯信息性**——隐藏页 0×0 按规则不做几何断言）。
+
+### 39.2 Verification（真命令 + 真输出）
+
+```text
+build（debug-local）              → Linking modbuslens.exe（干净）
+qml_smoke                         → EXITCODE=0
+qml_nav_check                     → EXITCODE=0；PASS（shell 存在断言含于 stage 0；
+                                    禁用回放激活不可切 index 由既有 3..5 循环覆盖）
+qml_geometry_check                → 六趟 PASS；replayWorkspace 六趟均 0×0（仅信息性记录，未断言）
+full ctest                        → 26/26（含 Replay r01–r08 所在的 ui_bridge 与全部既有目标）
+git diff --check                  → 通过
+```
+
+**零行为变化证明**：nav check 的全字段业务快照逐站比较全部通过（ReplayPage 的存在未改变任何 authoritative 值）；r01–r08 原体已复读且全绿（ui_bridge 26/26 内）；Legacy 的 Load Replay/对话框/error/notice 四件套未动（Main.qml 仅**新增** child3，未删除任何行——`git diff` 可证）。
+
+### 39.3 Files Changed
+
+- 新增：`src/ui/qml/pages/ReplayPage.qml`（13 行有效内容：页根 + required 注入 + 说明注释）。
+- 修改：`CMakeLists.txt`（+1 注册行）、`src/ui/qml/Main.qml`（+9 实例化块）、`src/main.cpp`（nav check 存在性/identity/dump 三处最小扩展）。
+- 未动：AnalysisController、Replay Core、NavigationRail、Serial、statistics、Diagnosis、AI/Agent、samples、scripts。
+
+### 39.4 Candidate Commit
+
+见 §40 回填（B4.1 提交；不 push、不推进 LKGC——待 B4.2/B4.3/B4.4 与人工验收）。
+
+## 40. Next
+
+- **B4.2 — 原子工作流迁移 + 启位**（§38.31.3）：四件套逐字 MOVE + `workspaceReplayIndex: 3` + rail 启位 + 四 workspace 基础导航断言（同一提交内完成，禁止"已迁移但不可达"）。
+- **等待用户 GO**；本轮不开始 B4.2。

@@ -420,6 +420,7 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
         QStringLiteral("workspaceHost"),   QStringLiteral("legacyWorkspace"),
         QStringLiteral("dashboardWorkspace"),
         QStringLiteral("communicationWorkspace"),
+        QStringLiteral("replayWorkspace"),
     };
     if (statsVisible) {
         names << suffixed(QStringLiteral("statisticsPanel"))
@@ -792,6 +793,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (communication != *communicationPtr)
             fail(QStringLiteral("NAVFAIL %1: communication page identity changed")
                      .arg(ctx));
+        auto *replayShell = findNamedItem(
+            roots, QStringLiteral("replayWorkspace"));
+        if (!replayShell)
+            fail(QStringLiteral("NAVFAIL %1: replayWorkspace shell vanished")
+                     .arg(ctx));
     };
 
     auto schedule = std::make_shared<std::function<void()>>();
@@ -820,6 +826,13 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 roots, QStringLiteral("communicationWorkspace"));
             if (!*communicationPtr)
                 fail(QStringLiteral("NAVFAIL communicationWorkspace not found"));
+            // M9-B4.1: the Replay shell exists as the fourth child but its
+            // navigation entry stays disabled — existence only, no geometry
+            // and no behavioural assertions for the hidden page.
+            auto *replayShell =
+                findNamedItem(roots, QStringLiteral("replayWorkspace"));
+            if (!replayShell)
+                fail(QStringLiteral("NAVFAIL replayWorkspace shell not found"));
             *snapshot0 = takeSnapshot(ctrl);
             qInfo().noquote()
                 << QStringLiteral("NAV [initial]: index=%1 legacy=%2x%3 "
