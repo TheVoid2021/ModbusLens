@@ -232,3 +232,10 @@
 - **Q：M9-B 四步迁移后，"状态在 Controller"这条原则带来了什么？** A：四页任何一个的迁出/迁入都没有触碰 Controller 一行代码；跨页状态一致性由统一快照断言机器化证明（A/B/D/E/F/G′/H/I/J/K/K′）；人工验收只需看视觉与交互——架构分工让自动化与人工各管一面。
 - **Q：error 与 notice 同时可见，用户会困惑吗？** A：不会混淆——notice 描述**仍然活跃的旧会话**（unsupported 披露），error 描述**最新一次失败尝试**；两者语义对象不同。若未来要做 UX 改进（来源/上下文标注），属 M9-C/M10 的呈现课题，不是语义错误。
 - **Q：验证器为什么连续出三类假结果还能被信任？** A：因为每次假结果都被**取证分类**（oracle bug / 拼接错误 / 坐标过期）而非掩盖，且修正后沉淀为原则（快照同源、输入身份、自适应期望、可区分签名）；"验证器可信"来自它自身被验证的历史。
+
+
+## 25. Post-T017 M9-B5 Phase 1 条目（2026-09-17 追加）
+
+- **Q：AI 请求进行中切到别的页面，结果会丢吗？** A：不会——结构上 aiClient_/AgentRuntime 在 Controller，完成回调按（generation × batchRevision）二维守卫核对身份，与页面可见性无关；B2 起的页面 identity 断言证明页面只是呈现面。切页≠cancel，这是冻结契约而非实现巧合。
+- **Q：Ask AI 和 Ask Agent 能同时进行吗？** A：不能——single-flight 双向互斥（cloudAiBusy=AI busy ∨ Agent busy，无第三个 bool）。两边的前置检查顺序不同（AI 先查 Agent busy、Agent 先查 AI busy）但语义同为"云工作流单飞"；迁移时这两个前置序必须逐字保留。
+- **Q：Agent 的问题草稿算会话事实吗？** A：不算——它是 QML 页本地 draft（askAgent 参数直传，Controller 从不存储问题文本）；切页往返草稿保留由 StackLayout 常驻自然提供，不需要也不应该写回 Controller。

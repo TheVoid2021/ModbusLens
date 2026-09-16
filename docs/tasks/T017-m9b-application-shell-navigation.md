@@ -1938,4 +1938,163 @@ Native FileDialog 不适合以脆弱 GUI click automation 覆盖。**自动化�
 
 ### 42.12 Next
 
-- **M9-B5 — Diagnosis Extraction（Learning / Design Gate）**：待用户 GO；**本轮不开始实现**。**M9-C / M10 亦不开始。**
+- **M9-B5 — Diagnosis Extraction（Learning / Design Gate）**：待用户 GO；**本轮不开始实现**。**M9-C / M10 亦不开始。**## 43. M9-B5 Phase 1 — Diagnosis Extraction / Persistence Contracts（Learning & Design，2026-09-17）
+
+**任务档决策**：继续 **append 到 T017**（B1–B5 同属 §13 迁移计划；B1–B4 已同档）。**Implementation = NOT STARTED。**
+
+### 43.1 Preflight（2026-09-17）
+
+```text
+HEAD=a47baa4；branch=main；working tree clean；git diff --check pass
+origin/main...main → 0  37（behind 0 / ahead 37；已知允许）
+V2 verified LKGC = 207ae96；V1 tag v1.0.0 = ae067ab
+```
+
+### 43.2 强制重读清单（§1 履行记录）
+
+T017（§13 迁移计划/§38.31 序列/§39–§42 closure）、PROJECT_STATUS、BACKLOG、Main.qml（诊断 pane 逐行）、NavigationRail/DashboardPage/CommunicationPage/ReplayPage（页根模式）、AnalysisController.h/.cpp（诊断/AI/Agent 命令与状态机逐行）、main.cpp（nav/geometry/evidence harness）、tests（test_diagnosis a01–a14、ui_bridge d01–d08/ai01–ai11/t01–t05/r01–r08、test_ai_client、test_agent_*、fake_chat_completions_server）、samples。
+
+### 43.3 当前 Diagnosis UI 全量清单（§2，真实 Main.qml）
+
+| # | UI element | 当前 owner | binding / command | enabled/visible（逐字） | authoritative owner | page-local draft | async lifetime | current tests |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | "诊断" 标题 Label（18 bold） | Legacy pane | 静态 | — | — | — | — | — |
+| 2 | TabBar `diagnosisTabs`（3 TabButton，自定义 background/contentItem） | Legacy pane | `StackLayout.currentIndex: diagnosisTabs.currentIndex` | — | — | **currentIndex=页本地选择** | — | — |
+| 3 | 运行基线诊断 Button | Legacy pane Tab1 | 静态文案，**无 enabled 绑定（恒可用——空批次是合法输入）** | `onClicked: runBaselineDiagnosis()` | Controller（rule core，cpp:832-838） | — | 同步 | `d01/d05/d06`、`a10_determinism` |
+| 4 | 清除诊断 Button | Legacy pane Tab1 | 静态文案，恒可用 | `onClicked: clearDiagnosis()` | Controller（cpp:811-830：清 AI+baseline，**批次/行/统计/source 不动、revision 不变**） | — | 同步 | `d08`、`ai09` |
+| 5 | Baseline 输出 Label | Legacy pane Flickable | `visible: hasBaselineDiagnosis` + `baselineDiagnosisText`（PlainText, wrap, lineHeight 1.35） | — | — | — | — | `d01-d08` |
+| 6 | "尚未运行基线诊断" 空态 Label | Legacy pane | `visible: !hasBaselineDiagnosis` | — | — | — | — | — |
+| 7 | AI 配置 Label | Legacy pane Tab2 | `aiConfigured ? "模型配置：ModelScope — 模型：%1".arg(aiModelName) : "…未配置"` | — | — | — | — | `ai01` |
+| 8 | 生成 AI 解释 Button | Legacy pane Tab2 | 静态文案 | `enabled: aiConfigured && hasBaselineDiagnosis && !cloudAiBusy` | `askAiDiagnosis()`（cpp:731-772） | — | **异步**（generation+batchRevision 双守卫） | `ai01-ai11` |
+| 9 | AI 取消 Button | Legacy pane Tab2 | 静态文案 | `enabled: aiDiagnosisBusy` | `cancelAiDiagnosis()`（cpp:715-730） | — | 取消在途（保留旧文本） | `ai11` |
+| 10 | "请求中..." Label | Legacy pane Tab2 | 静态 | `visible: aiDiagnosisBusy` | — | — | — | — |
+| 11 | AI error Label | Flickable 内 | `replayDiagnosisErrorMessage`→实为 `aiDiagnosisErrorMessage` | `visible: …ErrorMessage !== ""` | Controller | — | — | `ai05` |
+| 12 | AI 输出 Label | Flickable 内 | `hasAiDiagnosis` + `aiDiagnosisText`（PlainText） | `visible: hasAiDiagnosis` | — | — | — | `ai04/ai10` |
+| 13 | AI 空态 Label | Flickable 内 | `visible: !hasAiDiagnosis && errorMessage === ""` | — | — | — | — | — |
+| 14 | Agent 问题 TextArea `agentQuestionInput` | Legacy pane Tab3 | `placeholderText`、`preferredHeight: 68`、Wrap | — | —（**QML draft**） | **是（草稿）** | — | — |
+| 15 | 询问 Agent Button | Legacy pane Tab3 | 静态文案 | `enabled: agentAvailable && !cloudAiBusy && agentQuestionInput.text.trim() !== ""` | `askAgent(agentQuestionInput.text)`（cpp:561-599） | 消费 draft | **异步**（AgentRunRequest+generation） | `AGENT-*`、`d07` |
+| 16 | Agent 取消 Button | Legacy pane Tab3 | 静态文案 | `enabled: agentBusy` | `cancelAgent()` | — | 取消在途 run | — |
+| 17 | "分析中..." Label | Legacy pane Tab3 | 静态 | `visible: agentBusy` | — | — | — | — |
+| 18 | Agent error Label | Flickable 内 | `agentErrorText` | `visible: agentErrorText !== ""` | Controller | — | — | — |
+| 19 | Agent 输出 Label | Flickable 内 | `hasAgentAnswer` + `agentAnswerText`（PlainText） | `visible: hasAgentAnswer` | — | — | — | — |
+| 20 | Flickable ×3（bounded/clip/ScrollBar） | Legacy pane 三 Tab 各一 | `contentHeight: childrenRect.height` + `Layout.fillHeight` + clip | — | — | — | **bounded-scroll contract** | ISSUE-004 系 |
+| 21 | SplitView 关系 | Legacy | 左=Diagnosis pane（min 300/preferred 400）、右=Transactions（min 520） | — | — | — | 分栏宽度契约 | geometry guard（≥852 预算） |
+
+**无其他 Diagnosis 专属 UI**（无 provider 选择器、无历史列表、无导出）。存在但**未在本清单虚构**的：无 FileDialog、无表格。
+
+### 43.4 状态所有权（§5 修正版分类）
+
+| State | Current Owner（真实） | after B5 | Authoritative? | Survive Navigation? | Why |
+| --- | --- | --- | --- | --- | --- |
+| activeDiagnosisTransactions_ / activeBatchRevision_ | Controller | 不变 | **是** | 是 | 批次事实与失效锚 |
+| baselineDiagnosisText_ / hasBaselineDiagnosis_ | Controller | 不变 | **是** | 是 | 确定性规则核心输出 |
+| aiDiagnosisText_/ErrorMessage_/Busy_/hasAiDiagnosis_ + generation/revision | Controller（二维守卫） | 不变 | **是** | 是 | AI 结果与身份 |
+| agentAnswerText_/ErrorText_/hasAgentAnswer_ + AgentRuntime（busy/revision） | Controller | 不变 | **是** | 是 | Agent 结果与身份 |
+| agentQuestionInput.text | **QML draft** | **DiagnosisPage 本地** | 否 | 是（StackLayout 常驻自然保留） | 用户草稿非事实 |
+| diagnosisTabs.currentIndex | QML draft | DiagnosisPage 本地 | 否 | 是 | 呈现选择 |
+| Flickable 滚动位置 | QML | 页本地 | 否 | 是（自然） | 呈现 |
+| mode/source/serial/statistics/transactions | Controller | 不变 | 是 | 是 | 非 Diagnosis 域，冻结 |
+
+### 43.5 异步 AI/Agent 边界（§5，真实代码裁定）
+
+- **Ask AI 在途 → 切 Dashboard → 切回**：`aiClient_` 在 Controller 内，请求身份=（aiRequestGeneration_, requestBatchRevision_）二维守卫；完成回调 `handleAiSucceeded/Failed` 只核对身份、**与页面可见性无关**。正确语义=**请求继续、结果落地、切回可见**；busy 文案（"请求中..."）随 Controller 状态自动恢复。
+- **Ask Agent 在途 → 同上**：`AgentRuntime` 持有 run；`handleAgentCompleted/Failed/Cancelled` 按 generation 核对。
+- **唯一合法的生命周期变更事件**（冻结清单）：user Cancel（cancelAiDiagnosis/cancelAgent）· `invalidateAiForBatchChange`（新批次/串口/演示替换）· `clearDiagnosis` · `clearResults`（顺带 AI/baseline）· Generation 失配的静默丢弃。**页面 visible==false 不在其中**——B5 不得把 visible 绑定到任何 cancel/invalidate。
+
+### 43.6 语义冻结（§6，逐字契约）
+
+1. **Baseline = deterministic authority**：`runBaselineDiagnosis` 仅调 rule core（cpp:832-838 注释"never re-judges statuses or hand-counts"）；空批次是合法输入（`d05_emptyDiagnosis`）。
+2. **Ask AI 前置序（冻结，cpp:731-750）**：agentRuntime busy → 错误"Agent 问答进行中…"；未配置 → 错误；空批次 → "暂无可分析数据"；无 baseline → "请先运行基线诊断。"；已 busy → 静默 return。**迁移不得改变顺序与文案语义**。
+3. **Ask Agent 前置序（冻结，cpp:561-581）**：AI busy → "AI 解释请求进行中…"；Agent busy → "已有 Agent 请求进行中。"；空批次 → 错误；未配置 → 错误。**不得为 UI 对称改成与 Ask AI 相同**。
+4. **Single-flight 互斥（真实存在，完整保留）**：AI 与 Agent 经 `cloudAiBusy = aiDiagnosisBusy_ || agentRuntime_.isBusy()`（cpp:554-558，"No third mutable bool"）**双向互斥**——B5 迁移后按钮 enabled 表达式中的 `!cloudAiBusy` 逐字保留。
+5. **AI/Agent 不得改变 deterministic facts**：两者只读快照（`makeAgentToolContext(activeDiagnosisTransactions_, activeBatchRevision_)`），结果仅落 presentation 字段。
+6. **失败清 error 保旧文本**：`aiDiagnosisErrorMessage_.clear(); // clear the LATEST error, keep old text`（cpp:748）——接受新请求时旧解释保留的语义冻结。
+
+### 43.7 B5 产品边界（§3 三案比较）
+
+| 维度 | A 仅 Baseline（AI/Agent 留 Legacy） | **B 整个 Diagnosis workflow（Baseline+AI+Agent），Transactions 留 Legacy（推荐）** | C Diagnosis+Transactions 同迁 |
+| --- | --- | --- | --- |
+| workflow coherence | **破坏**：TabBar/StackLayout 三 Tab 拆散，AI/Agent 留 Legacy 需自建容器与入口 | 完整（三 Tab 同迁） | 完整但体量大 |
+| ownership | 双份 diagnosis 容器/标题/样式 | 单份 | 单份+表格 |
+| state duplication | 无 | 无 | 无（但视图翻倍） |
+| migration risk | 中（拆 Tab 结构） | **低（21 项清单整块平移）** | 高（表 520 宽+双行 delegate） |
+| async risk | AI/Agent 呈现跨两文件 | 集中 | 集中 |
+| 1000×700/1024×720 | — | 页内 Flickable 有界 ✓ | 表格密度压力 |
+| M9-D | 需再动 | 需再动 | 少动 |
+| Legacy after B5 | Tab 残壳 | 干净（Statistics+Transactions） | 干净 |
+| testability | 差 | 好 | 好 |
+
+**结论：B**。证据：三 Tab 同属一个 StackLayout（Main.qml:481-716），拆散 A 会人为制造"半个工作流"；C 的 Transactions 迁移被 §38.19/B4 明确推迟（表 520 宽 + 双行 delegate 是独立风险面）。
+
+### 43.8 Dashboard/Replay/Legacy 边界（§8）
+
+Statistics → Dashboard（+Legacy 迁移期实例）· **Diagnosis workflow（Baseline+AI+Agent）→ Diagnosis** · **Transactions → Legacy（B5 不动）** · Replay/Communication 不变。不为丰富 Diagnosis 重复任何视图。
+
+### 43.9 DiagnosisPage Ownership（§7）
+
+`pages/DiagnosisPage.qml`：`required property var analysisController`（与 B2/B3/B4 一致）；允许拥有 **presentation state**（TabBar currentIndex、question draft、Flickable 滚动）；**禁止持有** baseline/AI/Agent 事实副本、statistics、active batch、source/revision authority。**不创建** DiagnosisViewModel/Manager/AIViewModel/AgentViewModel（§14：现有 ownership 可安全迁移）。
+
+### 43.10 Page-local draft（§12 决定）
+
+`agentQuestionInput.text` = **QML 页本地草稿**（真实 owner=TextArea；Controller 从未存储问题文本——askAgent 参数直传）。StackLayout 常驻 ⇒ 切页往返草稿自然保留（Scenario N 将断言）；**不把 draft 写回 Controller**。Tab 选择同理。
+
+### 43.11 Legacy after B5（§8）
+
+Legacy 剩：**StatisticsOverview(legacy) + Transactions pane**。SplitView 收口（最小机械）：左 Diagnosis pane 移除后，**Transactions pane 从 SplitView 右子提升为 Legacy 列的直接子项**（`Layout.fillWidth/Height`；其 min 520 内部约束随之保留）——SplitView 包装随之消失。这是"移除左栏"的机械后果，非 redesign；表格列宽由 `transactionsPane` 单一 owner 派生、自动适应变宽 ✓。Layout hole：无（分栏变全宽）。
+
+### 43.12 Navigation Contract（§9）
+
+契约扩展：`workspaceDiagnosisIndex: 4`；启用**工作台/总览/通信/回放/诊断**；保持 disabled：设备(5)。不重排；rail 顺序/StackLayout 顺序（child4=DiagnosisPage）/测试三方共读集中契约。
+
+### 43.13 增量排序（§10，吸取 B4 修正）
+
+- **B5.1 — DiagnosisPage shell only**（创建/注册/实例化 child4；nav 仍 disabled；**零迁移**；Legacy 三 Tab 完整保留；验证=build/smoke/隐藏页存在性/既有功能不变/零行为变化）。
+- **B5.2 — 原子 MOVE + 启位**（同一提交：21 项清单整块迁入 + `workspaceDiagnosisIndex` + rail 启位 + child4 启用 + **SplitView 收口** + Legacy 同步删除；禁止"已迁移但不可达"）。
+- **B5.3 — Scenario L/N + 10-pass geometry**（M 的自动化部分按 §43.14 裁定）。
+- **B5.4 — deploy/截图/人工包**。
+
+### 43.14 Scenario L/M/N（§11）
+
+- **L**：demo 批次 + `runBaselineDiagnosis` → 五页巡回（Diagnosis→Dashboard→Replay→Communication→Diagnosis→Legacy→Diagnosis）→ 扩展快照（含 baseline 文本）逐站全等。
+- **M（AI result 跨导航）**：**自动化 DEFER**——nav harness 无法在不引 fake server 进 app exe 的情况下建立真实 AI 结果（`configureAiClient` 是 C++ 测试 seam；真实 Provider 禁用）。覆盖组合=既有 ui_bridge `ai01-ai11`（fake localhost server，语义层）+ Controller 持有事实的结构性论证（B2/B3/B4 已证 Controller 事实跨页存续）+ B5 人工验收。**不伪造。**
+- **N（Agent question draft）**：`agentQuestionInput.text = "…"` → 五页巡回 → 草稿逐字保留（页本地 draft；Agent answer 的自动化同 M DEFER）。
+
+### 43.15 10-pass Geometry（§12）
+
+五页 × 两尺寸；Diagnosis active 断言：页体/三 Tab 容器/运行·清除按钮/Flickable 有界（高度 ≤ 页内容区）不越界；hidden 页零断言；旧八趟全保留。
+
+### 43.16 Bounded-scroll 风险（§13，只记录）
+
+既有契约：三 Tab 内容均在 `Flickable{clip:true; Layout.fillHeight}` 内（ISSUE-004 系）。风险=迁移后若 Flickable 未继承有界高度（页 ColumnLayout→StackLayout 尺寸链），implicitHeight 会无限撑大页面——**缓解**：沿用 B4 页根模式（Item 根 + anchors.fill ColumnLayout + fillHeight Flickable），nav/geometry guard 的页界断言兜底。本轮不改 UI。
+
+### 43.17 M9-D 边界（§15）
+
+B5 = workspace extraction/navigation ownership；**不做** Transactions redesign/Diagnosis 视觉 overhaul/charts/AI·Agent 新能力/protocol 变更。
+
+### 43.18 验证计划（§16）
+
+Baseline 26 全保留；nav check 扩五页+场景 L/N（M DEFER 如实标注）；geometry 8→10 趟；**AI/Agent 语义门禁=既有 fake/offline 测试（ui_bridge ai01-ai11 + AGENT + fake server），不要求真实 ModelScope**；最终 deploy + minimal-PATH smoke + 人工。
+
+### 43.19 人工验收计划（§17，提前设计不执行）
+
+Diagnosis nav 激活/视觉不裁切 / Baseline action+result / 切页 result 保持 / Clear Diagnosis 语义 / AI 控件完整（含未配置态）/ Agent 控件完整（含草稿保留）/ 长输出 bounded / Transactions 仍可达 / Dashboard·Communication·Replay 无回归 / 两尺寸。**真实 Provider 不作为人工前提**。
+
+### 43.20 Knowledge（§28，10 项对应真实问题）
+
+| # | 知识点 | 真实问题 |
+| --- | --- | --- |
+| 1 | authoritative session state | 诊断/AI/Agent 事实若被页面复制，跨页一致性即失守（d02/d03/ai06 会失效） |
+| 2 | command draft state | Agent 问题草稿不是"待分析事实"，误入 Controller 会污染 askAgent 的参数边界 |
+| 3 | presentation state | Tab 选择/滚动是纯呈现——页面所有权清单的一部分 |
+| 4 | command vs state | runBaselineDiagnosis/clearDiagnosis/Ask*/Cancel* 是动作；结果字段是状态——迁移红线按此划分 |
+| 5 | async operation ownership | aiClient_/AgentRuntime 在 Controller，页面只是呈现——切页不丢在途请求（B2 起的结构保障） |
+| 6 | stale completion | 二维守卫（generation×batchRevision）与页面生命周期无关；B5 四禁止项由此而来 |
+| 7 | UI extraction vs behavior rewrite | 前置序/文案/单飞互斥逐字冻结——extraction 的可证等价性 |
+| 8 | form persistence | StackLayout 常驻 ⇒ 草稿自然保留（Scenario N 将证） |
+| 9 | connected configuration vs editable candidate | aiModelName/aiConfigured（会话级配置事实）vs 问题草稿（候选） |
+| 10 | future-compatible UI boundary | Connection/Request/Result（B3）与 Diagnosis 三 Tab（B5）都为 M10/M9-D 预留边界而非占位 |
+
+### 43.21 Status
+
+- **M9-B5 Phase 1 = Learning / Design 完成（docs-only）；Implementation = NOT STARTED。**
+- 下一步：**B5 Phase 1 Review（用户）**；批准后按 §43.13 从 B5.1 开始。
