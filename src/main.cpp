@@ -1,3 +1,4 @@
+#include <QAbstractItemModel>
 #include <QGuiApplication>
 #include <QDir>
 #include <QImage>
@@ -801,6 +802,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             return values;
         for (const QString &key : snapshotKeys)
             values.insert(key, obj->property(key.toUtf8().constData()));
+        if (QAbstractItemModel *model =
+                obj->property("transactionModel").value<QAbstractItemModel *>())
+            values.insert(QStringLiteral("transactionRowCount"),
+                          model->rowCount());
         return values;
     };
 
@@ -817,6 +822,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             QStringLiteral("baselineDiagnosisText"),
             QStringLiteral("hasReplayError"),
             QStringLiteral("hasReplayNotice"),
+            QStringLiteral("replayNoticeText"),
+            QStringLiteral("replayErrorMessage"),
         };
         for (const QString &key : extra)
             values.insert(key, obj->property(key.toUtf8().constData()));
@@ -1463,13 +1470,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             if (ctrl->property("observedCount").toInt() != 0)
                 fail(QStringLiteral("NAVFAIL scenario K': unsupported records "
                                     "must not enter the statistics pool"));
+            // Full authoritative snapshot (mode/source/rows/all statistics/
+            // rate-latency presence) -- observed==0 alone must never stand
+            // in for "the whole session state is preserved".
+            *scenarioKNotice = takeSnapshot(ctrl);
             scenarioKNotice->insert(QStringLiteral("replayNoticeText"), notice);
-            scenarioKNotice->insert(QStringLiteral("sourceLabel"),
-                                    ctrl->property("sourceLabel"));
-            scenarioKNotice->insert(QStringLiteral("modeLabel"),
-                                    ctrl->property("modeLabel"));
-            scenarioKNotice->insert(QStringLiteral("observedCount"),
-                                    ctrl->property("observedCount"));
             qInfo().noquote()
                 << QStringLiteral("NAV [scenario K' load]: source=%1 notice=%2")
                        .arg(ctrl->property("sourceLabel").toString(), notice);
@@ -1503,6 +1508,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 != scenarioKNotice->value(QStringLiteral("observedCount")))
                 fail(QStringLiteral("NAVFAIL scenario K': observedCount "
                                     "changed"));
+            compareAgainst(*scenarioKNotice, takeExtendedSnapshot(ctrl),
+                           QStringLiteral("scenario K' failed replacement"));
             break;
         }
         case 55: switchTo(1); break;
@@ -1517,6 +1524,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 != scenarioKNotice->value(QStringLiteral("sourceLabel")))
                 fail(QStringLiteral("NAVFAIL scenario K' (round trip): source "
                                     "changed"));
+            compareAgainst(*scenarioKNotice, takeExtendedSnapshot(ctrl),
+                           QStringLiteral("scenario K' round trip"));
             qInfo().noquote()
                 << QStringLiteral("NAV [scenario K']: notice/source/rows all "
                                   "preserved across the failed attempt and a "

@@ -11,9 +11,9 @@
 | 当前 Milestone（Current Milestone） | M1~M8 ✅ 全部 DONE（M8 = M8.1 诊断覆盖审计 + T014 + T015；T015 verified LKGC `ae067ab`） |
 | Last Known Good Commit | **V2 verified LKGC = `382ecfb`**（M9-B3 Communication Extraction：最后一个包含真实 product/QML/test behavior change 且通过本轮终验的提交——`src/main.cpp` 的三 workspace nav check + 场景 A/B/D/E/F/G′/H（Git 证据裁定见 T017 §37.4：`c3269dc`=QML+main.cpp、`382ecfb`=仅 main.cpp、`072fe34`=docs+截图 only）。qml_smoke + geometry 六趟 + nav check + ctest 26/26 + deploy smoke（含部署版 nav check）+ 用户 Manual Visual Review PASS。`072fe34`/`c007013` 等 docs/evidence-only 提交**一律不作 LKGC**。**V1 tag `v1.0.0` = `ae067ab`（永久不变）**。历史值：`53685d5`（M9-B2）、`189c62c`（M9-B1）、`6562dd3`（M9-A）、`ae067ab`（T015）、`02ce302`、`cc8393a`、`99f17d6`、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（T015 收盘 clean 全量重建 153 targets） |
-| Test 状态 | ✅ **26/26 通过**（B4.3：nav check 状态机扩至 58 段（Scenario I/J/K/K′）；geometry 六趟→**八趟**（4 workspace × 2 size）；r01–r08 全绿） |
+| Test 状态 | ✅ **26/26 通过**（B4.3：nav check 58 段 + `transactionRowCount` 进入全场景快照（rows 不变从此有真实断言）+ K′ 完整快照/逐值 notice 比较；八趟 geometry） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · T011 · T012 · T013 · T014 · T015（V1 主线）· **T016（M9-A UI Foundation / Design System = ✅ COMPLETE）** |
-| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B3 = COMPLETE（`382ecfb`）；**M9-B4.3 导航/原子性场景 + unsupported fixture + 八趟几何 = 实施完成（candidate）**；B4.4（deploy/截图/人工）待用户 GO |
+| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B3 = COMPLETE（`382ecfb`）；**M9-B4.3 = HOLD 取证完成：K′ 审计补全（rowCount+完整 statistics 快照断言）+ 第三次 oracle 缺陷修复（disclosure 键集）——candidate `2085d59`+修正待复核**；B4.4 待 GO |
 | 最近完成任务（Last Completed Task） | M9-B4.3 = 实施完成（candidate）。此前：M9-B2/B3（`53685d5`/`382ecfb`）|
 | 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-B4.3 — Replay Navigation / Atomicity Scenarios（实施完成；B4.4 待 GO）** |
 | 下一步动作（Next Action） | **等待用户 GO 启动 M9-B4.4 — deploy + 截图 + manual candidate**（§38.31.4）。B4.3 candidate：Scenario I/J/K/K′ 全绿 + 八趟几何全 PASS；real hardware serial NOT CLAIMED |

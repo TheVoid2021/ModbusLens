@@ -1734,6 +1734,8 @@ git diff --check → 通过
 
 ### 39.1.1 B4.3 — Replay Navigation / Atomicity Scenarios + Unsupported Fixture + 8-Pass Geometry（Implementation Record，2026-09-16）
 
+> **编号批注（2026-09-17，append-only）**：本节编号 `39.1.1` 系笔误——B4.3 是与 B4.2 平级的实施记录，应为 `§40`（其后 Next 节相应为 §41）。原文不改动，以标题文字与内容为准；后续引用写作「T017 §39.1.1（编号笔误，= §40）」。
+
 按 §38.31.4 执行（用户批准；**保留全部旧覆盖，I/J/K/K′ 为增量**）：
 
 - **Fixture 接线（CMake，机制复用零绝对路径）**：`configure_file(samples/t015_unsupported_fc08.mlog → test_data/ COPYONLY)`（紧邻 demo_v1 既有机制）+ `target_compile_definitions(modbuslens PRIVATE MODBUSLENS_UNSUPPORTED_MLOG_PATH=… MODBUSLENS_DEMO_MLOG_PATH=…)`——nav check 跑在 app 可执行文件上，故两个 define 都挂在 `modbuslens` target。
@@ -1761,6 +1763,27 @@ qml_geometry_check → 八趟 PASS（EXITCODE=0）
 full ctest → 26/26（r01–r08 全绿）
 git diff --check → 通过
 ```
+
+#### 39.1.1.1 K′ 原体审计 + 第三次 oracle 缺陷（2026-09-17，HOLD 取证轮追加）
+
+用户对 B4.3 发起 **HOLD — targeted evidence check**（不预设改代码）。逐字复读 K′ 原体后的审计结论与一处**真实缺陷修复**：
+
+**审计矩阵（K′ 成功加载后捕获 vs 断言）**：mode ✓ / source（basename）✓ / observed ✓ / noticeText（完整字符串）✓；**缺**：transactionRowCount、completed/pending/success/exception/crcError/timeout/protocolError、successRate/avgLatency presence（§38.30.4 要求的“完整 statistics snapshot”缺位）→ **走修正分支 B**。
+
+**修复（最小、零生产改动，全部在 nav check harness 内）**：
+1. `takeSnapshot` 键集增加 `transactionRowCount`（经 `transactionModel` property 取 `QAbstractItemModel::rowCount()`）——**统一强化所有场景**（A/B/D/E/F/G′/H/K/K′ 的“rows 不变”自此都有真实断言）；
+2. K′ case 52 捕获改为**完整快照**（`*scenarioKNotice = takeSnapshot(ctrl)` + noticeText）；
+3. K′ case 54 / case 58 增加 `compareAgainst(*scenarioKNotice, …)` 全字段比较（显式逐值断言保留）。
+
+**第三次 oracle 缺陷（同族，HOLD 轮实测）**：强化后首轮 nav check 报 `replayNoticeText changed: 提示… -> `（假 FAIL）——case 54/58 的 `compareAgainst` 用**基线 takeSnapshot**（不含 replayNoticeText）读取 → 取到空值。生产代码行为**完全正确**（notice 全程保持；cpp:1230-1260 失败路径零 notice 调用的原判成立）。修复=case 54/58 改用含 disclosure 对的扩展快照比较。**三次同族缺陷的最终教训：compare 的键集必须 ⊆ 且 = 捕获的键集，且由同一函数生成。**
+
+**修正后验证（全绿）**：qml_smoke EXITCODE=0；qml_nav_check EXITCODE=0（K′ 日志：`notice/source/rows all preserved across the failed attempt and a three-page round trip`）；八趟 geometry EXITCODE=0；full ctest **26/26**（r01–r08 全绿）；`git diff --check` 通过。
+
+**Regression Protection**：transactionRowCount 进入 takeSnapshot 后，A/B/D/E/F/G′/H/K/K′ 的逐站比较自动覆盖 rows；K′ 的显式 noticeText 字节等值断言保留。
+
+#### 39.1.1.1 临时文件卫生
+
+B4.3 期间的拼接片段（`_nav_scenario_i.cpp`/`_nav_scenarios_jkk.cpp`/`_nav_check_code.cpp`/`_nav_check_v3.cpp`/`_shell_head.qml`/`_nav_scenarios.cpp`）已全部删除（均位于 git-ignored build/，从未入库）；git status clean。
 
 #### 39.1.2 Problems / RCA（首轮失败全部留痕）
 
