@@ -1207,7 +1207,7 @@ ctest --preset debug-local → 100% tests passed, 0 tests failed out of 26（含
 
 ### 35.8 Candidate Commits
 
-- `d957ff7`（B3.1 页面外壳 + 机械迁移）、`c3269dc`（B3.2 结构拆分）、`382ecfb`（B3.3 三 workspace nav check + 场景）、本轮候选提交（B3.4 文档 + 四张截图，哈希见 §36 回填）。
+- `d957ff7`（B3.1 页面外壳 + 机械迁移）、`c3269dc`（B3.2 结构拆分）、`382ecfb`（B3.3 三 workspace nav check + 场景）、`072fe34`（B3.4 候选：文档 + 四张截图）。哈希回填列为 docs-only 提交，不作 LKGC。
 - 全部**不 push、不推进 LKGC**（verified 保持 `53685d5`，待人工视觉 PASS）。
 
 ## 36. Next
