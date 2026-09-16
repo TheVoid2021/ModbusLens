@@ -625,6 +625,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
     auto dashboardPtr = std::make_shared<QQuickItem *>(nullptr);
     auto snapshot0 = std::make_shared<QMap<QString, QVariant>>();
+    auto scenarioA = std::make_shared<QMap<QString, QVariant>>();
+    auto scenarioB = std::make_shared<QMap<QString, QVariant>>();
     auto stage = std::make_shared<int>(0);
 
     auto compareAgainstSnapshot0 = [&](const QMap<QString, QVariant> &snapshot,
@@ -641,7 +643,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, schedule, failures, legacyPtr, dashboardPtr, snapshot0,
-                 stage, ctrl, takeSnapshot, compareAgainstSnapshot0]() {
+                 scenarioA, scenarioB, stage, ctrl, takeSnapshot,
+                 compareAgainstSnapshot0]() {
         auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
         const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
         const int dashboardIndex =
@@ -750,11 +753,144 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             }
             break;
         }
+case 6: { // Scenario A step 1: deterministic batch via the EXISTING
+                  // user-action command (runDemoBatch may switch the source;
+                  // what we assert is that NAVIGATION afterwards changes
+                  // nothing).
+            if (!ctrl || !QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("NAVFAIL runDemoBatch() not invokable"));
+            break;
+        }
+        case 7: { // Scenario A step 2: capture the authoritative snapshot,
+                  // then go to the dashboard with a REAL batch loaded.
+            *scenarioA = takeSnapshot(ctrl);
+            const int observed = scenarioA->value(QStringLiteral("observedCount")).toInt();
+            if (observed != 4)
+                fail(QStringLiteral("NAVFAIL scenario A expected the "
+                                    "deterministic 4-transaction demo batch, "
+                                    "got observedCount=%1")
+                         .arg(observed));
+            auto *item = findNamedItem(
+                roots, QStringLiteral("navItem_%1").arg(dashboardIndex));
+            if (!item || !QMetaObject::invokeMethod(item, "activate"))
+                fail(QStringLiteral("NAVFAIL dashboard activation failed "
+                                    "(scenario A)"));
+            break;
+        }
+        case 8: { // Scenario A: every value identical after the switch
+            const auto now = takeSnapshot(ctrl);
+            for (auto it = scenarioA->cbegin(); it != scenarioA->cend(); ++it) {
+                if (it.value() != now.value(it.key()))
+                    fail(QStringLiteral("NAVFAIL scenario A: %1 changed across "
+                                        "navigation: %2 -> %3")
+                             .arg(it.key(), it.value().toString(),
+                                  now.value(it.key()).toString()));
+            }
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario A @dashboard]: "
+                                  "observed=%1 mode=%2 source=%3")
+                       .arg(now.value(QStringLiteral("observedCount")).toInt())
+                       .arg(now.value(QStringLiteral("modeLabel")).toString())
+                       .arg(now.value(QStringLiteral("sourceLabel")).toString());
+            auto *item = findNamedItem(
+                roots, QStringLiteral("navItem_%1").arg(legacyIndex));
+            if (!item || !QMetaObject::invokeMethod(item, "activate"))
+                fail(QStringLiteral("NAVFAIL workbench activation failed "
+                                    "(scenario A)"));
+            break;
+        }
+        case 9: { // Scenario A: still identical back on the workbench
+            const auto now = takeSnapshot(ctrl);
+            for (auto it = scenarioA->cbegin(); it != scenarioA->cend(); ++it) {
+                if (it.value() != now.value(it.key()))
+                    fail(QStringLiteral("NAVFAIL scenario A (return): %1 "
+                                        "changed: %2 -> %3")
+                             .arg(it.key(), it.value().toString(),
+                                  now.value(it.key()).toString()));
+            }
+            // Scenario B step 1: baseline diagnosis on the SAME deterministic
+            // batch, through the existing user-action command.
+            if (!QMetaObject::invokeMethod(ctrl, "runBaselineDiagnosis"))
+                fail(QStringLiteral("NAVFAIL runBaselineDiagnosis() not "
+                                    "invokable"));
+            break;
+        }
+        case 10: { // Scenario B step 2: capture diagnosis facts, switch away
+            scenarioB->insert(QStringLiteral("hasBaselineDiagnosis"),
+                              ctrl->property("hasBaselineDiagnosis"));
+            scenarioB->insert(QStringLiteral("baselineDiagnosisText"),
+                              ctrl->property("baselineDiagnosisText"));
+            if (!scenarioB->value(QStringLiteral("hasBaselineDiagnosis")).toBool())
+                fail(QStringLiteral("NAVFAIL scenario B: baseline diagnosis "
+                                    "did not produce a result"));
+            auto *item = findNamedItem(
+                roots, QStringLiteral("navItem_%1").arg(dashboardIndex));
+            if (!item || !QMetaObject::invokeMethod(item, "activate"))
+                fail(QStringLiteral("NAVFAIL dashboard activation failed "
+                                    "(scenario B)"));
+            break;
+        }
+        case 11: { // Scenario B: diagnosis survives the trip to the dashboard
+            const QVariant now =
+                ctrl->property("hasBaselineDiagnosis");
+            const QVariant text = ctrl->property("baselineDiagnosisText");
+            if (now != scenarioB->value(QStringLiteral("hasBaselineDiagnosis"))
+                || text != scenarioB->value(QStringLiteral("baselineDiagnosisText")))
+                fail(QStringLiteral("NAVFAIL scenario B: diagnosis changed "
+                                    "across navigation"));
+            auto *item = findNamedItem(
+                roots, QStringLiteral("navItem_%1").arg(legacyIndex));
+            if (!item || !QMetaObject::invokeMethod(item, "activate"))
+                fail(QStringLiteral("NAVFAIL workbench activation failed "
+                                    "(scenario B)"));
+            break;
+        }
+        case 12: { // Scenario D step 1: clearResults through the existing
+                   // command; BOTH views must reflect it (single state).
+            if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+                fail(QStringLiteral("NAVFAIL clearResults() not invokable"));
+            const QStringList zeroKeys = {
+                QStringLiteral("observedCount"),  QStringLiteral("pendingCount"),
+                QStringLiteral("completedCount"), QStringLiteral("successCount"),
+                QStringLiteral("exceptionCount"), QStringLiteral("crcErrorCount"),
+                QStringLiteral("timeoutCount"),   QStringLiteral("protocolErrorCount"),
+                QStringLiteral("expectedNoResponseCount"),
+            };
+            for (const QString &key : zeroKeys) {
+                if (ctrl->property(key.toUtf8().constData()).toInt() != 0)
+                    fail(QStringLiteral("NAVFAIL clearResults: %1 not zero on "
+                                        "the workbench").arg(key));
+            }
+            if (ctrl->property("hasSuccessRate").toBool()
+                || ctrl->property("hasAverageSuccessLatency").toBool())
+                fail(QStringLiteral("NAVFAIL clearResults: availability flags "
+                                    "still set"));
+            auto *item = findNamedItem(
+                roots, QStringLiteral("navItem_%1").arg(dashboardIndex));
+            if (!item || !QMetaObject::invokeMethod(item, "activate"))
+                fail(QStringLiteral("NAVFAIL dashboard activation failed "
+                                    "(scenario D)"));
+            break;
+        }
+        case 13: { // Scenario D: the dashboard shows the SAME cleared state
+            if (ctrl->property("observedCount").toInt() != 0
+                || ctrl->property("hasSuccessRate").toBool()
+                || ctrl->property("hasAverageSuccessLatency").toBool())
+                fail(QStringLiteral("NAVFAIL scenario D: dashboard does not "
+                                    "reflect the cleared state"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario D @dashboard]: observed=%1 "
+                                  "hasRate=%2 hasLatency=%3")
+                       .arg(ctrl->property("observedCount").toInt())
+                       .arg(ctrl->property("hasSuccessRate").toBool())
+                       .arg(ctrl->property("hasAverageSuccessLatency").toBool());
+            break;
+        }
         default:
             break;
         }
 
-        if (failures->isEmpty() && *stage < 5) {
+        if (failures->isEmpty() && *stage < 13) {
             ++*stage;
             QTimer::singleShot(settleMs, &app, *schedule);
             return;
