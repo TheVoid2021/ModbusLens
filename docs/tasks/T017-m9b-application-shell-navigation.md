@@ -1840,4 +1840,102 @@ evidence capture → EXITCODE=0；5 张 PNG（1280×900 / 1250×875 实录）
 ## 42. Next
 
 - **M9-B4 Manual Visual Review（用户）**：deployed candidate = `build/deploy/ModbusLens.exe`；清单见 §25（导航/分区/控件/参数/notice/error 共存/恢复/回归/resize）。
-- PASS 之前：**不推进 LKGC（verified 保持 `382ecfb`）、不 push、不开始 B4 closure/B5/M10**。
+- PASS 之前：**不推进 LKGC（verified 保持 `382ecfb`）、不 push、不开始 B4 closure/B5/M10**。## 42. M9-B4 Completion / Archive（2026-09-17）
+
+### 42.1 Manual Visual Review = PASS（用户）
+
+用户人工复核真实 deployed 界面，**16 项确认全部归档**：
+
+1. **Replay navigation**：四真实 workspace 导航正常，回放选中/切换正常。
+2. **Replay 1024×720** 正常。
+3. **Replay 1000×700** 正常。
+4. **FileDialog open**：正常打开。
+5. **FileDialog Cancel**：取消后 session/source/error 状态不变。
+6. **demo_v1 successful load**：成功加载。
+7. **Basename-only source display**：source 仅显示文件名、无绝对路径。
+8. **Dashboard golden facts**：observed=4/completed=4/pending=0/1/1/1/1/0/0/25%/25ms 正确。
+9. **Navigation persistence**：workspace navigation 不改变 Replay session。
+10. **Unsupported notice**：unsupported fixture notice 正常。
+11. **Unsupported 不被误呈现**为 ProtocolError / load error。
+12. **Failed replacement：old notice + new error 可同时正常显示**。
+13. **Failed replacement 不污染旧成功 source/session**。
+14. **Successful recovery**：重新加载 demo_v1 后 error/旧 notice 按既有语义恢复。
+15. **Legacy regression**：无 Replay workflow 重复入口、布局正常。
+16. **Communication regression**：无回归；resize 正常。
+
+### 42.2 PASS 边界（明确声明）
+
+本 PASS 是 **B4 Replay Extraction 的产品/UI/导航/状态保持人工验收**。**不表示**：real serial hardware PASS · M9-B overall COMPLETE · M9 UI Refresh COMPLETE。
+
+### 42.3 Git 证据裁定（原样命令输出摘要，2026-09-17）
+
+| Commit | 文件构成（`git show --stat --name-only`） | 分类 |
+| --- | --- | --- |
+| `2a88169` | ReplayPage.qml（新 QML）+ Main.qml（child3）+ main.cpp（existence/identity harness）+ docs | **QML/test behavior-bearing** |
+| `ba6cc37` | ReplayPage（工作流填充）+ Main.qml（四件套迁出）+ NavigationRail（回放启位）+ main.cpp（四页机器）+ docs | **QML/production behavior-bearing** |
+| `2085d59` | **仅 main.cpp**（391 行：Scenario I/J/K/K′ + 八趟几何 + 扩展快照）+ docs | **test behavior-bearing** |
+| `b0689f3` | main.cpp（21 行：K′ full-state 断言强化 + oracle 修复）+ 4 docs | **test behavior-bearing + docs** |
+| `207ae96` | **src/main.cpp（+181：evidence-capture harness）** + 5×PNG + 4 docs | **test-harness behavior + screenshots/docs —— 不是 docs-only** |
+
+**裁定**：`207ae96` 包含真实 test behavior change（evidence-capture harness）**且其仓库树即用户人工验收所运行的树**、通过了 build/qml_smoke/nav/八趟 geometry/ctest 26/26/deploy smoke/部署版 nav·geometry/Manual PASS → **V2 verified LKGC 推进 `382ecfb` → `207ae96`**。不因 message 中的 "evidence/screenshots" 词汇把它错误归为纯文档提交；`2a88169`/`ba6cc37`/`2085d59`/`b0689f3` 虽更像"产品提交"，但 LKGC 取**最后一个通过完整验收的行为承载提交**——即 `207ae96` 的树。
+
+### 42.4 M9-B4 Final Status = COMPLETE
+
+**交付清单（25 项）**：ReplayPage · persistent StackLayout Replay workspace · workspaceReplayIndex · Replay navigation enabled · FileDialog workflow moved from Legacy · Load Replay action moved · Replay error presentation moved · Replay notice presentation moved · Legacy 无重复 Replay workflow · navigation ≠ source transition · selectedFile ≠ loaded source · basename-only source display · successful Replay transition preserved · failed Replay atomicity preserved · unsupported disclosure preserved · error+old-notice coexistence preserved · Scenario I · J · K · K′ · four-workspace nav verification · eight-pass geometry verification · deploy validation · screenshot evidence · **Manual Visual PASS**。
+
+### 42.5 已验证 Replay 架构（正式记录）
+
+1. **Replay Workspace ≠ Replay Session Source**：进入 Replay page 只改变 presentation workspace；只有显式 `loadReplayFile(...)` 按既有成功语义完成后才发生 source transition。
+2. **FileDialog selectedFile 只是 command candidate / workflow state**，不是 current authoritative source。
+3. **ReplayPage 拥有**：FileDialog + workflow presentation；**不得拥有**：transaction copy · statistics copy · Replay parser · source authority。
+4. **Authoritative session facts 继续由 Controller / 既有 owner 持有**（mode/source/批次三视图/error/notice）。
+5. **Replay failure 是 atomic replacement failure**：new error 可以出现；旧 mode/source/rows/statistics/diagnosis facts/successful-session disclosure 按冻结契约保持。
+6. **K′ 特别证明**：old successful-session notice + new failed-attempt error **同时成立不矛盾**——notice 描述旧 authoritative loaded session，error 描述最新一次失败 attempt。
+
+### 42.6 Sparse Replay Page 边界（有意的产品边界）
+
+ReplayPage 当前较大空白是**有意的 product boundary**：B4 只承载 Replay context / Load Replay / error / notice。Statistics=Dashboard · Transactions=B4 留 Legacy · Diagnosis=B5。closure 阶段未新增任何 widget；当前空白也是未来 Replay workflow / M10+ 的容量。
+
+### 42.7 Native Dialog 自动化边界
+
+Native FileDialog 不适合以脆弱 GUI click automation 覆盖。**自动化负责**：Controller load 命令、QML smoke、navigation、state atomicity、geometry。**人工负责**：FileDialog open / Cancel / real file selection / visual coexistence & readability——本轮用户已人工完成。
+
+### 42.8 验证 Oracle 知识 Closure（本轮真实经验，四条）
+
+- **A. snapshot key-set 本身就是 verification contract**：比较端需要的字段若 snapshot producer 未提供 → missing QVariant → empty value → false FAIL（本轮三次同族）。经验：**capture 与 comparison schema 必须同源**——扩展比较字段时同步扩展快照函数，不维护两套隐式键集。
+- **B. 测试红先分 product vs oracle**：notice 一度"看起来被 failed load 清空"，最终证明 production contract 正确、是 oracle 缺键导致假 FAIL——**不要看到红就改 Controller**。
+- **C. screenshot/pixel oracle 必须验证输入身份**：candidate HEAD / expected page / image size / selected workspace。本轮实际出现：accent 波段坐标算错、`*replay*` 通配把 dashboard-replay 文件错判为 Replay 页、Replay 页 0 卡带不能沿用 Dashboard 期望。**verification oracle must have verifiable inputs。**
+- **D. Pixel helper 不是人工视觉验收替代品**——它是合同探测工具；视觉质量/可读性/布局观感归人工。
+
+### 42.9 最终验证记录（终验结论）
+
+| 验证项 | 结果 |
+| --- | --- |
+| qml_smoke | **PASS** |
+| qml_nav_check | **PASS**（四 workspaces 全轨迹 + 场景全绿） |
+| Scenarios | **A/B/D/E/F/G′/H/I/J/K/K′ PASS** |
+| Scenario G（real hardware connected/busy/pending） | **NOT CLAIMED / DEFERRED** |
+| qml_geometry_check | **PASS**（Legacy/Dashboard/Communication/Replay × 1000×700/1024×720 = 8 passes） |
+| full ctest | **26/26** |
+| Replay r01–r08 | **PASS** |
+| deploy_windows | **PASS**（QtQuick.Dialogs 部署实证） |
+| minimal-PATH deployed smoke | **PASS** |
+| deployed nav check | **PASS** |
+| deployed geometry check | **PASS** |
+| screenshot evidence | **PASS**（5 张，IMAGE_SIZE 实录） |
+| Manual Visual Review | **PASS** |
+| real serial hardware | **NOT CLAIMED** |
+
+本 closure 为 docs/status-only，不产生新的产品验证结果——上表即 `207ae96` 树的终验证据。
+
+### 42.10 Screenshot Evidence Archive
+
+`docs/assets/screenshots/`：`m9b4-replay-1024x720.png` · `m9b4-replay-1000x700.png` · `m9b4-replay-notice-1024x720.png` · `m9b4-replay-error-notice-1024x720.png` · `m9b4-dashboard-replay-1024x720.png`——全部来自 **通过 B4.4 自动门禁的 deployed candidate**（IMAGE_SIZE 实录 1280×900/1250×875，125% DPI）。**pixel self-check 不是用户 Manual PASS 的来源**——Manual PASS 来自用户实际查看/操作确认。
+
+### 42.11 最终导航状态（B4 后）
+
+0 Legacy **enabled** · 1 Dashboard **enabled** · 2 Communication **enabled** · 3 Replay **enabled** · 4 Diagnosis **disabled** · 5 Device **disabled**。不重排；Diagnosis extraction 由 B5 讨论。
+
+### 42.12 Next
+
+- **M9-B5 — Diagnosis Extraction（Learning / Design Gate）**：待用户 GO；**本轮不开始实现**。**M9-C / M10 亦不开始。**
