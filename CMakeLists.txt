@@ -67,6 +67,7 @@ qt_add_qml_module(modbuslens
         src/ui/qml/Main.qml
         src/ui/qml/DS/DesignSystem.qml
         src/ui/qml/components/AppButton.qml
+        src/ui/qml/components/NavigationRail.qml
         src/ui/qml/components/PanelCard.qml
         src/ui/qml/components/SectionHeader.qml
         src/ui/qml/components/StatCard.qml

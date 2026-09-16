@@ -366,3 +366,90 @@ rail 展开 168：776 < 820 ✗（B1-B4 期间） → 规则：展开档仅在�
 - **本阶段交付**：本文档（IA/导航/state map/分解图/迁移/预算/知识/风险/测试/无障碍）。
 - **Implementation = NOT STARTED**：未创建 NavRail/NavItem 组件、未拆 Main.qml、未改任何代码或测试。
 - **下一步**：M9-B Phase 1 Review（用户）；批准后按 §13 的 B1→B5 顺序逐阶段实施（每阶段单独 Review 与提交）。
+
+
+## 21. M9-B Phase 1 Review = PASS（用户，2026-09-15）+ 实施 Guardrails
+
+用户批准进入 **M9-B1 — Application Shell Skeleton**，并追加以下实施约束（本文档为 authority）：
+
+- **A. modeLabel / sourceLabel 仅为 display state。** 禁止从 label 字符串反推业务 source；禁止在 QML 创建第二份 source truth。QML 只能消费 `modeLabel`/`sourceLabel`/`serialConnected`（authoritative property）做显示。
+- **B. Shell workspace host 使用 StackLayout**（本设计结论）**但不禁止未来使用 Loader**：未来 heavy optional subview（例如 M12 手册阅读器）若有真实需求，可单独设计（届时另立设计段落）。
+- **C. M9-B1 不创建可交互的假 Workspace**：尚未迁移的入口必须 disabled / non-interactive；不得出现"点击 → Coming Soon 空页"。
+- **D. Rail 展开不得把真实业务内容压缩到低于最低宽度。** 1060 是设计预算值而非常数：若未来实现展开档，必须依据"available content width ≥ required content width"重新计算，不得把 1060 写成永久 magic number。（B1 决策：**只实现 compact rail，不实现 expanded mode**。）
+
+### 21.1 Baseline（实施前核验）
+
+```text
+branch=main；HEAD=416be79；working tree clean；v1.0.0=ae067ab；ahead 8 / behind 0（已知允许）
+ctest --preset debug-local → 100% tests passed, 0 tests failed out of 25（含 qml_smoke + qml_geometry_check）
+```
+
+
+## 22. M9-B1 — Application Shell Skeleton（Implementation Record，2026-09-15/16）
+
+### 22.1 Implementation
+
+- **Shell 结构**（Main.qml）：`ApplicationWindow → ColumnLayout(spacing:0) → [AppBar(40, objectName appBar) + 1px hairline] + RowLayout → [NavigationRail(id navigationRail, 56) + 1px 分隔 + StackLayout(objectName workspaceHost) → Item(objectName legacyWorkspace) → ColumnLayout(anchors.fill + margins 16)]`。旧 Header（产品名 + 双行 mode/source Label）被 AppBar 吸收；旧根布局的 16px 外边距下沉为 legacy 页内缩。
+- **AppBar**：产品名（DS.fontSection bold）+ 全局 session/source 显示（`modeLabel` bold + `·` + `sourceLabel` + 条件 `serialConnected → "· 已连接"` 绿色）+ `清空结果` AppButton（objectName appBarClearResults）。**只消费既有 authoritative display properties**；未新增任何 Controller 状态；未从字符串反推 source（guardrail A）。
+- **Clear Results 迁移动机核验**：`AnalysisController::clearResults()` 注释与实现（cpp:1211-1224）+ 契约 `r08_clearKeepsSource` / `s08_clearSerialResults` 证明它是 session 级动作（清结果、不换 source、不断连接）→ 允许迁至 AppBar；`onClicked` 与调用名逐字保持（无 enabled 绑定，保持原样）。
+- **NavigationRail**（新组件，presentation-only）：compact 56px；6 个入口 = `工作台`（唯一真实 workspace，enabled、selected）+ `总览/通信/回放/诊断/设备`（未来 workspace，**全部 disabled**）。选中态三通道（navigationSelectedSurface 底 + 3px DS.primary 左条 + 加粗）；`activate()` 是唯一选中变更路径（鼠标与 Enter/Space 共用），且首行 `if (!enabled) return`。**未实现 expanded 模式**（§21-D；B1 无真实需要）。
+- **WorkspaceHost**：StackLayout，`currentIndex: navigationRail.currentWorkspaceIndex`；子项为**纯 Item**（页根模式：StackLayout 拥有其几何，Item 内部再做锚定内缩）。
+- **LegacyWorkspace**：承载全部旧功能（Run Demo、Load Replay、Replay error/notice、Serial Controls、Statistics、Baseline/AI/Agent、Transactions）——原样搬迁、绑定未动；仅顶部注释与缩进变化。
+- **DS 新增（3 个最小 token）**：`appBarHeight: 40`、`compactNavWidth: 56`、`navigationSelectedSurface: "#F5F7FA"`（与 surfaceAlt 同值但独立语义位，M9-C 可单独重绘导航）。未调整任何 M9-A 既有 token。
+- **回归护栏扩展**（main.cpp `--qml-geometry-check`，测试名不变）：新增 shell 断言——appBar/navigationRail/workspaceHost w/h>0；rail 与 host 不重叠；host 右缘 ≤ 窗口宽；**host 宽度 ≥ 852**（= 300+520 SplitView 最小 + 2×16 页内缩，常量带注释）；原 statistics/Diagnosis 断言全部保留。新增 NAV 断言——`currentWorkspaceIndex ∈ [0,5]` 且初始为 0；legacyWorkspace 在 index 0 可见；navItem_0 enabled、navItem_1 disabled；**直接 invoke `activate()` 于禁用项后 index 不变**（且检查 invoke 返回值，防止方法不可解析导致断言空转）；重复激活当前项为 no-op。
+- **部署**：新增 QML 文件沿用 qt_add_qml_module + 生成模块整目录复制（ISSUE-011 经验），无手写 qmldir。
+
+### 22.2 Files Changed
+
+- 新增：`src/ui/qml/components/NavigationRail.qml`。
+- 修改：`src/ui/qml/Main.qml`（shell 化重构，899 → 987 行；全部业务块原样保留）、`src/ui/qml/DS/DesignSystem.qml`（+3 token）、`CMakeLists.txt`（QML_FILES 注册）、`src/main.cpp`（shell 几何 + NAV 断言）。
+- 未改动：AnalysisController/TransactionListModel/Serial/Replay/Diagnosis/AI/Agent/core/tests/scripts/samples。
+
+### 22.3 Problems Encountered
+
+1. **StackLayout 子项 anchors = undefined behavior**（smoke stderr 抓到）：`legacyWorkspace` 初版以 `anchors.fill/anchors.margins` 填充 host，运行时警告 "Detected anchors on an item that is managed by a layout"。属 ISSUE-012 同族（layout 管理的 item 不得再自行锚定）。
+2. **StackLayout 不兑现 `Layout.margins`**（实测）：改用 `Layout.margins: DS.spacingL` 后 dump 显示 legacy 铺满 host（x=0 w=967），页内缩丢失——不能拿它当 anchors 的替代。
+3. **验证脚本自身的假阳性（工具教训，二次出现）**：像素检查里"函数内 Write-Output + 表达式 `-and`"会把输出吞进表达式值，导致判定恒真、检查空转（M9-A 的 ps_pixel_check 同类问题在 B1 的 shell 区复现）。已统一改为"函数只返回 bool + 顶层裸语句打印"；并给 NAV 断言补了 invoke 返回值检查，防止"方法不存在 → 断言空转"。
+
+### 22.4 RCA / Solution
+
+1. **根因**：StackLayout（Layouts 家族）对子项拥有几何所有权；anchors 与 Layout.margins 都不属于"把内缩交给页面自己"的正确手段。**解决**：确立**页根模式**——StackLayout 子项一律是纯 `Item`（不锚定、不设 Layout.margins），页面内缩/内容布局由 Item 内部（anchors 或子布局）自行完成。此模式将直接复用于 B2–B5 的每个 Page。
+2. **根因**：自动化"通过"不等于断言真的执行过。**解决**：断言函数分两类——纯判定函数只返回 bool；打印一律顶层语句；对反射式调用（invokeMethod）检查返回值，杜绝空洞通过。
+
+### 22.5 Verification（真命令 + 真输出）
+
+```text
+build（debug-local）                               → Linking modbuslens.exe（干净）
+--qml-smoke-test                                   → EXITCODE=0，stderr 仅字体目录环境提示（anchors 警告已消除）
+--qml-geometry-check（默认 + 1000×700）            → GEOMETRY CHECK PASS；EXITCODE=0；NAV 断言含 invoke 返回值校验
+  双尺寸实测：appBar 1024×40/1000×40；rail 56×679/56×659；host 967/943（≥852 预算）；
+            legacy Item 铺满 host；statistics 卡片几何与 M9-A 完全一致（row1 h=72 / row2 h=64）
+full ctest --preset debug-local                    → 100% tests passed, 0 failed out of 25（测试名不变，断言已扩展）
+git diff --check                                   → 通过
+deploy_windows.bat + 无开发 PATH deploy smoke      → [OK] + EXITCODE=0
+截图像素自检（ps_pixel_check_b1，双尺寸）          → FILE VERDICT: PASS（AppBar 文字/按钮面、rail 主色选中条 40px、禁用项灰字、统计 11 卡文字均 OK）
+```
+
+### 22.6 Manual Review
+
+- 新截图：`docs/assets/screenshots/m9b1-shell-1024x720.png`、`m9b1-shell-1000x700.png`（grabWindow 真值；M9-A 证据文件未覆盖）。
+- 状态：**PENDING USER REVIEW**。复核清单（§19 A–J）：AppBar 不截字；Rail 与内容不重叠；无水平裁切；Statistics 不回归；Serial Controls/Diagnosis/Transactions 可达；mode/source 显示真实；disabled 未来 workspace 不误导；resize 后结构稳定（1000×700 与 1024×720 两尺寸）。
+- **自动测试 PASS 不构成验收，也不推进 LKGC。**
+
+### 22.7 Knowledge Learned（结合真实实现，四问必答）
+
+1. **shell state vs business state**：Shell 里唯一的新状态是 `currentWorkspaceIndex`（选中态）与焦点/呈现，全部属于导航呈现；source/serial/批次/诊断/AI/Agent 仍由 Controller 独占——AppBar 的 session 显示直接绑定 `modeLabel/sourceLabel/serialConnected`，没有任何第二份 truth（guardrail A 的落地方式就是"只读绑定 + 不加 Controller 状态"）。
+2. **StackLayout lifetime**：全部页面一次性实例化、切换只改 currentIndex——本次 legacy 页在 epilogue 全程存活（切页不触发任何 Component.onCompleted 副作用）；`currentIndex` 绑定 rail 后，"禁用项无法改 index"不再是 UI 装饰，而是**页面存续与页面可见性的结构前提**（护栏把这条前提钉死）。
+3. **compact rail width budget**：56px 不是审美常数——它由"1000 − 56 − 32(页边距) = 912 ≥ 852（SplitView 300+520+2×16 的既有最低预算）"推出；实测 host=943 ≥ 852 ✓。expanded 档本次不实现；未来实现时必须重算 available ≥ required（guardrail D）。
+4. **source display vs source authority**：`modeLabel/sourceLabel` 只是 Controller 拿来做显示的字符串；authority 是三命令的原子切换语义（失败不动旧状态、成功递增批次 revision）。AppBar 只显示不判断——"从 label 反推 source"被 guardrail A 明令禁止，因为字符串可翻译、可重排，而业务判定必须继续走 authoritative property 与 Controller 命令。
+
+### 22.8 Potential Interview Questions（M9-B1 新增）
+
+1. 为什么 StackLayout 的子项必须是纯 Item？——Layouts 拥有子项几何，anchors/Layout.margins 都会被运行时判为 undefined behavior 或被忽略（两个都实测过）；"页根模式"把内缩收回页面内部。
+2. 壳层怎么做到"导航不碰业务"？——shell 只新增选中态；显示全部只读绑定 authoritative properties；护栏里专门断言禁用项无法改变选中 index。
+3. 自动通过为什么还要人工验收？——B1 的 anchors 警告与 Layout.margins 被忽略都是"自动链路不够看"的实例；几何断言能证明合同，但不能证明视觉质量（M9-A 的 PASS/FAIL 循环已是项目惯例）。
+4. compact rail 的宽度怎么定的？——从最小窗口与既有业务最低宽度反推（1000−56−32 ≥ 852），不是拍脑袋。
+
+### 22.9 Candidate Commit
+
+见 §23 回填（candidate 提交，不 push、不推进 LKGC）。

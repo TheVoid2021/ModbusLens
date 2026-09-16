@@ -30,6 +30,14 @@ QtObject {
     readonly property real controlHeight: 34
     readonly property real controlPadding: 12
 
+    // ---- Shell (M9-B1: minimal additions only; navigation visuals belong
+    // to M9-C) ----
+    readonly property real appBarHeight: 40
+    readonly property real compactNavWidth: 56
+    // Selected navigation entry surface. Same value as surfaceAlt today;
+    // kept as its own token so M9-C can restyle navigation alone.
+    readonly property color navigationSelectedSurface: "#F5F7FA"
+
     // ---- Neutral colors（沿用 V1 fixed-light hexes）----
     readonly property color background: "#FFFFFF"
     readonly property color surface: "#FFFFFF"

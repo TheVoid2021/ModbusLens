@@ -66,6 +66,59 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
         failures << contextLabel + QStringLiteral(": ") + message;
     };
 
+    // ---- Shell guards (M9-B1) ----
+    // Minimum business content width for the workspace host: the legacy
+    // SplitView minimums (300 diagnosis + 520 transactions) plus the legacy
+    // margins (2 x 16). Defined here, next to the guard, so it is a stated
+    // budget and not a hidden magic number.
+    constexpr double kMinimumWorkspaceContentWidth = 300 + 520 + 2 * 16;
+
+    auto *appBar = findNamedItem(roots, QStringLiteral("appBar"));
+    if (!appBar)
+        fail(QStringLiteral("appBar not found"));
+    else if (appBar->width() <= 0 || appBar->height() <= 0)
+        fail(QStringLiteral("appBar size %1x%2")
+                 .arg(appBar->width())
+                 .arg(appBar->height()));
+
+    auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
+    if (!rail)
+        fail(QStringLiteral("navigationRail not found"));
+    else if (rail->width() <= 0 || rail->height() <= 0)
+        fail(QStringLiteral("navigationRail size %1x%2")
+                 .arg(rail->width())
+                 .arg(rail->height()));
+
+    auto *host = findNamedItem(roots, QStringLiteral("workspaceHost"));
+    if (!host)
+        fail(QStringLiteral("workspaceHost not found"));
+    else if (host->width() <= 0 || host->height() <= 0)
+        fail(QStringLiteral("workspaceHost size %1x%2")
+                 .arg(host->width())
+                 .arg(host->height()));
+
+    if (rail && host && rail->x() + rail->width() > host->x() + 0.5)
+        fail(QStringLiteral("navigationRail (x=%1 w=%2) overlaps workspaceHost "
+                            "(x=%3)")
+                 .arg(rail->x())
+                 .arg(rail->width())
+                 .arg(host->x()));
+
+    if (host) {
+        if (auto *window = qobject_cast<QQuickWindow *>(roots.value(0))) {
+            if (host->x() + host->width() > window->contentItem()->width() + 0.5)
+                fail(QStringLiteral("workspaceHost right edge %1 exceeds window "
+                                    "content width %2")
+                         .arg(host->x() + host->width())
+                         .arg(window->contentItem()->width()));
+        }
+        if (host->width() + 0.5 < kMinimumWorkspaceContentWidth)
+            fail(QStringLiteral("workspaceHost width %1 < minimum business "
+                                "budget %2")
+                     .arg(host->width())
+                     .arg(kMinimumWorkspaceContentWidth));
+    }
+
     auto *row1 = findNamedItem(roots, QStringLiteral("statisticsRow1"));
     auto *row2 = findNamedItem(roots, QStringLiteral("statisticsRow2"));
     const auto row1Count = row1 ? row1->childItems().size() : -1;
@@ -136,9 +189,76 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
     return failures;
 }
 
+// M9-B1 navigation guards (minimum set while only ONE real workspace
+// exists): the selection index stays legal, the legacy workspace is the
+// visible page, and a disabled future entry can never change the selection
+// (NavigationRail.activate is the single mutation path, shared by mouse,
+// Enter and Space).
+QStringList runShellNavAssertions(const QList<QObject *> &roots,
+                                  const QString &contextLabel)
+{
+    QStringList failures;
+    auto fail = [&failures, &contextLabel](const QString &message) {
+        failures << contextLabel + QStringLiteral(": ") + message;
+    };
+
+    auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
+    if (!rail) {
+        fail(QStringLiteral("NAV navigationRail not found"));
+        return failures;
+    }
+
+    const int index = rail->property("currentWorkspaceIndex").toInt();
+    if (index < 0 || index > 5)
+        fail(QStringLiteral("NAV currentWorkspaceIndex %1 out of range 0..5")
+                 .arg(index));
+    if (index != 0)
+        fail(QStringLiteral("NAV expected initial workspace 0 (legacy), got %1")
+                 .arg(index));
+
+    auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+    if (!legacy)
+        fail(QStringLiteral("NAV legacyWorkspace not found"));
+    else if (!legacy->isVisible())
+        fail(QStringLiteral("NAV legacyWorkspace is not visible at index 0"));
+
+    auto *item0 = findNamedItem(roots, QStringLiteral("navItem_0"));
+    auto *item1 = findNamedItem(roots, QStringLiteral("navItem_1"));
+    if (!item0 || !item1) {
+        fail(QStringLiteral("NAV navItem_0/navItem_1 not found"));
+        return failures;
+    }
+
+    if (!item0->property("enabled").toBool())
+        fail(QStringLiteral("NAV navItem_0 (real workspace) must be enabled"));
+    if (item1->property("enabled").toBool())
+        fail(QStringLiteral("NAV navItem_1 (future workspace) must be disabled"));
+
+    // A disabled entry must not be able to change the selection, even when
+    // its activation path is invoked directly (same path as click/keys).
+    // The invoke result is checked too: a silently unresolvable activate()
+    // would make this guard vacuous.
+    if (!QMetaObject::invokeMethod(item1, "activate"))
+        fail(QStringLiteral("NAV navItem_1.activate() is not invokable — the "
+                            "disabled-entry guard would be vacuous"));
+    if (rail->property("currentWorkspaceIndex").toInt() != 0)
+        fail(QStringLiteral("NAV disabled navItem_1 changed "
+                            "currentWorkspaceIndex"));
+
+    // Re-activating the already-selected entry is a no-op.
+    if (!QMetaObject::invokeMethod(item0, "activate"))
+        fail(QStringLiteral("NAV navItem_0.activate() is not invokable"));
+    if (rail->property("currentWorkspaceIndex").toInt() != 0)
+        fail(QStringLiteral("NAV re-activating navItem_0 changed the index"));
+
+    return failures;
+}
+
 QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextLabel)
 {
     const QStringList names = {
+        QStringLiteral("appBar"),        QStringLiteral("navigationRail"),
+        QStringLiteral("workspaceHost"), QStringLiteral("legacyWorkspace"),
         QStringLiteral("statisticsPanel"), QStringLiteral("statisticsRow1"),
         QStringLiteral("statisticsRow2"),  QStringLiteral("statCard_0"),
         QStringLiteral("statCard_1"),      QStringLiteral("statCard_2"),
@@ -227,6 +347,7 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             passIndex == 0 ? QStringLiteral("DEFAULT") : QStringLiteral("MIN 1000x700");
         qInfo().noquote() << dumpGeometryTable(roots, context);
         *failures = runGeometryAssertions(roots, context);
+        *failures += runShellNavAssertions(roots, context);
         const bool missingItems =
             failures->join(u' ').contains(QStringLiteral("not found"));
         if (!failures->isEmpty() && missingItems && *attempt < maxAttempts) {

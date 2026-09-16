@@ -132,3 +132,11 @@
 - **Q：Source 和 Workspace 什么关系？** A：Source 是"数据从哪来"（Simulator/Serial/Replay，session 唯一，由 Controller 原子切换）；Workspace 是"用户在做什么任务"（总览/通信/回放/诊断/设备）。两者正交：任何 workspace 不改变 source，source 切换不强制跳页；全局来源 chip 是 source 唯一可见副本。
 - **Q：切页会不会把正在进行的 AI/Agent 请求打断？** A：不会——因为设计上页面只是显示面：StackLayout 全实例化、页面不销毁；异步有效性在 Controller（批次 revision × 请求 generation 二维守卫），页面可见性不是失效条件。反过来 Loader 的销毁语义会打碎这个保障，所以被排除。
 - **Q：为什么要专门写"State Ownership Rule"？** A：拆页的最大风险不是视觉，是把 session 状态拆散成页面各自一份（例如每页一个 transaction model / 每页自己记 serialConnected），这会直接违反 r07/r08/s02/s10 等既有契约。规则一句话：业务状态留 Controller，页面只消费与发信号。
+
+
+## 10. Post-T017 M9-B1 条目（2026-09-15/16 追加）
+
+- **Q：StackLayout 的子项为什么必须"纯 Item + 内部锚定"？** A：Layouts 家族对子项拥有几何所有权——子项自己 anchors 会被运行时判为 undefined behavior，`Layout.margins` 则被 StackLayout 直接忽略（两个都是本项目实测）；把内缩收回页面内部（页根模式），B2–B5 的每个 Page 都会复用这条模式。
+- **Q：壳层如何做到"导航不改业务"？** A：壳层唯一新增状态是选中 index；来源/串口/批次全是只读绑定；护栏直接断言"禁用入口无法改变 index"（且校验 invoke 返回值，防止断言空转）——把不变量交给 CI 而不是口头约定。
+- **Q：为什么 clearResults 可以进 AppBar？** A：先核验语义再搬家——clearResults 清结果但不换 source、不断连接（代码注释 + r08/s08 契约），属 session 级动作；搬迁只改位置，onClicked 逐字保持。
+- **Q：自动测试通过后为什么还要人工视觉？** A：B1 期间 smoke 抓到 anchors 警告、dump 抓到 Layout.margins 被忽略——都是"自动通过≠正确"的实例；几何/像素断言锁合同，视觉质量仍由人工验收（M9-A 已有先例）。
