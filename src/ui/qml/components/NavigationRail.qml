@@ -21,8 +21,11 @@ Rectangle {
     property int currentWorkspaceIndex: 0
 
     readonly property var entries: [
-        { label: qsTr("工作台"), enabled: true },   // the real, current workspace
-        { label: qsTr("总览"), enabled: false },    // future Dashboard
+        // Entry ORDER is the workspace index contract 1:1 (see the
+        // workspaceLegacyIndex / workspaceDashboardIndex constants in
+        // Main.qml).
+        { label: qsTr("工作台"), enabled: true },   // the legacy workspace (B1)
+        { label: qsTr("总览"), enabled: true },     // Dashboard (M9-B2)
         { label: qsTr("通信"), enabled: false },    // future Communication
         { label: qsTr("回放"), enabled: false },    // future Replay
         { label: qsTr("诊断"), enabled: false },    // future Diagnosis

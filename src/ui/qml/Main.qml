@@ -29,6 +29,14 @@ ApplicationWindow {
     readonly property color activeTabBorder: "#98A2B3"
     readonly property color scrollThumb: "#B6BDC8"
 
+    // ---- Workspace index contract (M9-B2, presentation-only) ----
+    // Single source of truth for the Legacy/Dashboard indexes: the
+    // NavigationRail entry order and the StackLayout child order below
+    // must match these constants 1:1. Automated checks read THESE
+    // properties (never a hardcoded 0/1 of their own).
+    readonly property int workspaceLegacyIndex: 0
+    readonly property int workspaceDashboardIndex: 1
+
     width: 1024
     height: 720
     minimumWidth: 1000
@@ -50,6 +58,9 @@ ApplicationWindow {
 
     AnalysisController {
         id: analysisController
+        // Test seam (nav check reads authoritative properties/calls
+        // existing invokable commands through this name).
+        objectName: "analysisController"
     }
 
     FileDialog {
@@ -189,17 +200,15 @@ ApplicationWindow {
                         anchors.margins: DS.spacingL
                         spacing: DS.spacingM
 
-                        // Demo controls (M9-B1: Clear Results moved to the AppBar; the
-                        // remaining onClicked / enabled business bindings are unchanged).
+                        // Demo controls (M9-B2: Run Demo moved to the
+                        // Dashboard workspace — one contextual command,
+                        // one entry; Clear Results stays in the AppBar).
+                        // This single-button row is a migration-period
+                        // state; the Replay workflow moves out in M9-B4.
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: DS.spacingS
 
-                            AppButton {
-                                tone: "primary"
-                                text: qsTr("运行演示批次")
-                                onClicked: analysisController.runDemoBatch()
-                            }
                             AppButton {
                                 tone: "secondary"
                                 text: qsTr("加载回放...")
@@ -901,6 +910,13 @@ ApplicationWindow {
                             }
                         }
                     }
+                }
+
+                // Dashboard workspace page (M9-B2) — StackLayout child 1,
+                // matching workspaceDashboardIndex above.
+                DashboardPage {
+                    objectName: "dashboardWorkspace"
+                    analysisController: analysisController
                 }
             }
         }

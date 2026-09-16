@@ -229,19 +229,43 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
         return failures;
     }
 
+    QObject *rootObj = roots.value(0);
+    const int legacyIndex =
+        rootObj->property("workspaceLegacyIndex").toInt();
+    const int dashboardIndex =
+        rootObj->property("workspaceDashboardIndex").toInt();
+
     const int index = rail->property("currentWorkspaceIndex").toInt();
     if (index < 0 || index > 5)
         fail(QStringLiteral("NAV currentWorkspaceIndex %1 out of range 0..5")
                  .arg(index));
-    if (index != 0)
-        fail(QStringLiteral("NAV expected initial workspace 0 (legacy), got %1")
-                 .arg(index));
+    if (index != legacyIndex && index != dashboardIndex)
+        fail(QStringLiteral("NAV currentWorkspaceIndex %1 is not one of the "
+                            "real workspaces (%2=%3, %4=%5)")
+                 .arg(index)
+                 .arg(QStringLiteral("legacy"))
+                 .arg(legacyIndex)
+                 .arg(QStringLiteral("dashboard"))
+                 .arg(dashboardIndex));
 
+    // Visibility must follow the selection (page-independent form: this
+    // guard runs at BOTH workspaces now).
     auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+    auto *dashboard = findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
     if (!legacy)
         fail(QStringLiteral("NAV legacyWorkspace not found"));
-    else if (!legacy->isVisible())
-        fail(QStringLiteral("NAV legacyWorkspace is not visible at index 0"));
+    else if (legacy->isVisible() != (index == legacyIndex))
+        fail(QStringLiteral("NAV legacyWorkspace visibility (%1) does not "
+                            "follow the selection %2")
+                 .arg(legacy->isVisible())
+                 .arg(index));
+    if (!dashboard)
+        fail(QStringLiteral("NAV dashboardWorkspace not found"));
+    else if (dashboard->isVisible() != (index == dashboardIndex))
+        fail(QStringLiteral("NAV dashboardWorkspace visibility (%1) does not "
+                            "follow the selection %2")
+                 .arg(dashboard->isVisible())
+                 .arg(index));
 
     auto *item0 = findNamedItem(roots, QStringLiteral("navItem_0"));
     auto *item1 = findNamedItem(roots, QStringLiteral("navItem_1"));
@@ -250,27 +274,50 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
         return failures;
     }
 
+    // M9-B2 matrix: 工作台 and 总览 are REAL workspaces (enabled); the
+    // remaining four stay disabled until their own extraction steps.
     if (!item0->property("enabled").toBool())
-        fail(QStringLiteral("NAV navItem_0 (real workspace) must be enabled"));
-    if (item1->property("enabled").toBool())
-        fail(QStringLiteral("NAV navItem_1 (future workspace) must be disabled"));
+        fail(QStringLiteral("NAV navItem_0 (workbench) must be enabled"));
+    if (!item1->property("enabled").toBool())
+        fail(QStringLiteral("NAV navItem_1 (dashboard) must be enabled"));
+    for (int i = 2; i <= 5; ++i) {
+        auto *item = findNamedItem(roots,
+                                   QStringLiteral("navItem_%1").arg(i));
+        if (!item) {
+            fail(QStringLiteral("NAV navItem_%1 not found").arg(i));
+            continue;
+        }
+        if (item->property("enabled").toBool())
+            fail(QStringLiteral("NAV navItem_%1 (future workspace) must stay "
+                                "disabled until its extraction step")
+                     .arg(i));
+        // A disabled entry must not be able to change the selection, even
+        // when its activation path is invoked directly (same path as
+        // click/keys). The invoke result is checked too: a silently
+        // unresolvable activate() would make this guard vacuous.
+        if (!QMetaObject::invokeMethod(item, "activate"))
+            fail(QStringLiteral("NAV navItem_%1.activate() is not invokable — "
+                                "the disabled-entry guard would be vacuous")
+                     .arg(i));
+        if (rail->property("currentWorkspaceIndex").toInt() != index)
+            fail(QStringLiteral("NAV disabled navItem_%1 changed "
+                                "currentWorkspaceIndex")
+                     .arg(i));
+    }
 
-    // A disabled entry must not be able to change the selection, even when
-    // its activation path is invoked directly (same path as click/keys).
-    // The invoke result is checked too: a silently unresolvable activate()
-    // would make this guard vacuous.
-    if (!QMetaObject::invokeMethod(item1, "activate"))
-        fail(QStringLiteral("NAV navItem_1.activate() is not invokable — the "
-                            "disabled-entry guard would be vacuous"));
-    if (rail->property("currentWorkspaceIndex").toInt() != 0)
-        fail(QStringLiteral("NAV disabled navItem_1 changed "
-                            "currentWorkspaceIndex"));
-
-    // Re-activating the already-selected entry is a no-op.
-    if (!QMetaObject::invokeMethod(item0, "activate"))
-        fail(QStringLiteral("NAV navItem_0.activate() is not invokable"));
-    if (rail->property("currentWorkspaceIndex").toInt() != 0)
-        fail(QStringLiteral("NAV re-activating navItem_0 changed the index"));
+    // Re-activating the currently selected entry is a no-op.
+    auto *activeItem = findNamedItem(
+        roots, QStringLiteral("navItem_%1").arg(index));
+    if (!activeItem) {
+        fail(QStringLiteral("NAV active navItem_%1 not found").arg(index));
+        return failures;
+    }
+    if (!QMetaObject::invokeMethod(activeItem, "activate"))
+        fail(QStringLiteral("NAV navItem_%1.activate() is not invokable")
+                 .arg(index));
+    if (rail->property("currentWorkspaceIndex").toInt() != index)
+        fail(QStringLiteral("NAV re-activating the active entry changed the "
+                            "index"));
 
     return failures;
 }
@@ -360,33 +407,96 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             qWarning() << "GEOMETRY DUMP FAILED:" << path;
     };
 
-    // Delegate creation / layout polish are asynchronous: give the event
-    // loop real settle time between attempts instead of raw singleShot(0)
-    // turns, and retry "not found" results (up to 5 x 100ms) before
-    // declaring a real failure.
+    // M9-B2: four measurement passes — each workspace at each size. HIDDEN
+    // pages get no fragile geometry assertions (T017 §31.7); every pass
+    // switches to the target workspace first and then verifies the ACTIVE
+    // instance at the current size.
+    struct MeasureStep {
+        bool dashboard;
+        bool resizeToMin;
+        QString tag;
+        QString label;
+    };
+    const QVector<MeasureStep> steps = {
+        { false, false, QStringLiteral("m9b2-legacy-1024x720"),
+          QStringLiteral("DEFAULT legacy") },
+        { true, false, QStringLiteral("m9b2-dashboard-1024x720"),
+          QStringLiteral("DEFAULT dashboard") },
+        { true, true, QStringLiteral("m9b2-dashboard-1000x700"),
+          QStringLiteral("MIN 1000x700 dashboard") },
+        { false, false, QStringLiteral("m9b2-legacy-1000x700"),
+          QStringLiteral("MIN 1000x700 legacy") },
+    };
+
     const int settleMs = 100;
     const int maxAttempts = 5;
-    int passIndex = 0;
+    auto stepIndex = std::make_shared<int>(0);
+    auto currentDashboard = std::make_shared<bool>(false);
     auto failures = std::make_shared<QStringList>();
     auto attempt = std::make_shared<int>(0);
 
     auto finish = [&app](const QStringList &fails) {
         if (fails.isEmpty())
             qInfo() << "GEOMETRY CHECK PASS"
-                       "(default size + 1000x700 minimum)";
+                       "(legacy + dashboard at default size and 1000x700)";
         else
             for (const QString &f : fails)
                 qWarning().noquote() << "GEOFAIL:" << f;
         app.exit(fails.isEmpty() ? 0 : 1);
     };
 
+    auto switchWorkspace = [&](bool dashboard, QStringList &fails) {
+        QObject *rootObj = roots.value(0);
+        const int idx =
+            rootObj->property(dashboard ? "workspaceDashboardIndex"
+                                        : "workspaceLegacyIndex")
+                .toInt();
+        auto *item = findNamedItem(
+            roots, QStringLiteral("navItem_%1").arg(idx));
+        if (!item) {
+            fails << QStringLiteral("navItem_%1 not found for workspace switch")
+                         .arg(idx);
+            return;
+        }
+        if (!QMetaObject::invokeMethod(item, "activate"))
+            fails << QStringLiteral("navItem_%1.activate() not invokable")
+                         .arg(idx);
+    };
+
+    // Each step is measured ONLY after its transitions (workspace switch /
+    // resize) have gone through a full settle turn — otherwise the dump
+    // would read the previous pass's geometry (observed during B2.2: the
+    // dashboard panel reported its implicit 864 instead of the settled 935).
+    auto transitionDone = std::make_shared<bool>(false);
+    auto pendingPre = std::make_shared<QStringList>();
+
     auto schedule = std::make_shared<std::function<void()>>();
-    *schedule = [&, schedule, failures, attempt]() {
-        const QString context =
-            passIndex == 0 ? QStringLiteral("DEFAULT") : QStringLiteral("MIN 1000x700");
-        qInfo().noquote() << dumpGeometryTable(roots, context);
-        *failures = runGeometryAssertions(roots, context);
-        *failures += runShellNavAssertions(roots, context);
+    *schedule = [&, schedule, failures, attempt, stepIndex, currentDashboard,
+                 transitionDone, pendingPre]() {
+        const MeasureStep &step = steps.at(*stepIndex);
+        QStringList pre;
+        if (!*transitionDone) {
+            const bool needSwitch = (step.dashboard != *currentDashboard);
+            if (needSwitch || step.resizeToMin) {
+                if (needSwitch) {
+                    switchWorkspace(step.dashboard, pre);
+                    *currentDashboard = step.dashboard;
+                }
+                if (step.resizeToMin && window)
+                    window->resize(1000, 700);
+                *transitionDone = true;
+                *pendingPre = pre;  // measured on the re-entry below
+                QTimer::singleShot(settleMs, &app, *schedule);
+                return;
+            }
+            *transitionDone = true;
+        }
+        pre = *pendingPre;
+
+        qInfo().noquote() << dumpGeometryTable(roots, step.label);
+        *failures = pre;
+        *failures += runGeometryAssertions(roots, step.label);
+        *failures += runShellNavAssertions(roots, step.label);
         const bool missingItems =
             failures->join(u' ').contains(QStringLiteral("not found"));
         if (!failures->isEmpty() && missingItems && *attempt < maxAttempts) {
@@ -396,15 +506,267 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         *attempt = 0;
         if (failures->isEmpty())
-            dumpGrab(passIndex == 0 ? QStringLiteral("geometry-1024x720")
-                                    : QStringLiteral("geometry-1000x700"));
-        if (passIndex == 0 && failures->isEmpty() && window) {
-            ++passIndex;
-            window->resize(1000, 700);
+            dumpGrab(step.tag);
+        if (failures->isEmpty() && *stepIndex + 1 < steps.size()) {
+            ++*stepIndex;
+            *transitionDone = false;
+            pendingPre->clear();
             QTimer::singleShot(settleMs, &app, *schedule);
             return;
         }
         finish(*failures);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
+// ---------------------------------------------------------------------------
+// M9-B2 `--qml-nav-check`: navigation invariants once TWO real workspaces
+// exist (workbench + dashboard).
+//
+//   A. both real page objects exist at the same time
+//   B. the initial selection is legal and points at the workbench
+//   C. workbench -> dashboard -> workbench via the REAL activation path
+//   D. page object IDENTITY survives the switches (no re-instantiation)
+//   E. visibility follows the selection
+//   F. disabled future entries can never change the selection
+//   G. navigation itself changes NO business value: a full authoritative
+//      snapshot (source labels + all 11 statistics + availability flags)
+//      is compared across every switch
+//
+// Identity (D) and the value snapshot (G) are deliberately SEPARATE
+// assertions: identity proves lifetime stability, the snapshot proves
+// business correctness — neither one substitutes for the other.
+// ---------------------------------------------------------------------------
+QStringList runNavAssertions(const QList<QObject *> &roots,
+                             const QString &contextLabel,
+                             QQuickItem **legacyPageOut,
+                             QQuickItem **dashboardPageOut)
+{
+    QStringList failures;
+    auto fail = [&failures, &contextLabel](const QString &message) {
+        failures << contextLabel + QStringLiteral(": ") + message;
+    };
+
+    auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
+    auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+    auto *dashboard = findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
+    if (!rail)
+        fail(QStringLiteral("NAVFAIL navigationRail not found"));
+    if (!legacy)
+        fail(QStringLiteral("NAVFAIL legacyWorkspace not found"));
+    if (!dashboard)
+        fail(QStringLiteral("NAVFAIL dashboardWorkspace not found"));
+    if (legacyPageOut)
+        *legacyPageOut = legacy;
+    if (dashboardPageOut)
+        *dashboardPageOut = dashboard;
+    if (!rail || !legacy || !dashboard)
+        return failures;
+
+    QObject *rootObj = roots.value(0);
+    const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
+    const int dashboardIndex =
+        rootObj->property("workspaceDashboardIndex").toInt();
+    const int index = rail->property("currentWorkspaceIndex").toInt();
+
+    if (index != legacyIndex && index != dashboardIndex)
+        fail(QStringLiteral("NAVFAIL selection %1 is not a real workspace "
+                            "(legacy=%2 dashboard=%3)")
+                 .arg(index)
+                 .arg(legacyIndex)
+                 .arg(dashboardIndex));
+    if (legacy->isVisible() != (index == legacyIndex))
+        fail(QStringLiteral("NAVFAIL legacyWorkspace visibility does not "
+                            "follow selection %1")
+                 .arg(index));
+    if (dashboard->isVisible() != (index == dashboardIndex))
+        fail(QStringLiteral("NAVFAIL dashboardWorkspace visibility does not "
+                            "follow selection %1")
+                 .arg(index));
+
+    return failures;
+}
+
+int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *ctrl = rootObj ? rootObj->findChild<QObject *>(
+                               QStringLiteral("analysisController"))
+                         : nullptr;
+
+    const QStringList snapshotKeys = {
+        QStringLiteral("modeLabel"),       QStringLiteral("sourceLabel"),
+        QStringLiteral("serialConnected"), QStringLiteral("observedCount"),
+        QStringLiteral("pendingCount"),    QStringLiteral("completedCount"),
+        QStringLiteral("successCount"),    QStringLiteral("exceptionCount"),
+        QStringLiteral("crcErrorCount"),   QStringLiteral("timeoutCount"),
+        QStringLiteral("protocolErrorCount"),
+        QStringLiteral("expectedNoResponseCount"),
+        QStringLiteral("hasSuccessRate"),  QStringLiteral("successRate"),
+        QStringLiteral("hasAverageSuccessLatency"),
+        QStringLiteral("averageSuccessLatencyMs"),
+    };
+
+    auto takeSnapshot = [&snapshotKeys](QObject *obj) {
+        QMap<QString, QVariant> values;
+        if (!obj)
+            return values;
+        for (const QString &key : snapshotKeys)
+            values.insert(key, obj->property(key.toUtf8().constData()));
+        return values;
+    };
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+
+    const int settleMs = 100;
+    auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
+    auto dashboardPtr = std::make_shared<QQuickItem *>(nullptr);
+    auto snapshot0 = std::make_shared<QMap<QString, QVariant>>();
+    auto stage = std::make_shared<int>(0);
+
+    auto compareAgainstSnapshot0 = [&](const QMap<QString, QVariant> &snapshot,
+                                       const QString &ctx) {
+        for (auto it = snapshot.cbegin(); it != snapshot.cend(); ++it) {
+            if (snapshot0->value(it.key()) != it.value())
+                fail(QStringLiteral("NAVFAIL %1: navigation changed business "
+                                    "value %2: %3 -> %4")
+                         .arg(ctx, it.key(),
+                              snapshot0->value(it.key()).toString(),
+                              it.value().toString()));
+        }
+    };
+
+    auto schedule = std::make_shared<std::function<void()>>();
+    *schedule = [&, schedule, failures, legacyPtr, dashboardPtr, snapshot0,
+                 stage, ctrl, takeSnapshot, compareAgainstSnapshot0]() {
+        auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
+        const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
+        const int dashboardIndex =
+            rootObj->property("workspaceDashboardIndex").toInt();
+
+        switch (*stage) {
+        case 0: { // initial structure + snapshot before any navigation
+            if (!ctrl) {
+                fail(QStringLiteral("NAVFAIL analysisController not found"));
+                break;
+            }
+            *failures += runNavAssertions(roots, QStringLiteral("initial"),
+                                          legacyPtr.get(), dashboardPtr.get());
+            *snapshot0 = takeSnapshot(ctrl);
+            qInfo().noquote()
+                << QStringLiteral("NAV [initial]: index=%1 legacy=%2x%3 "
+                                  "dashboard=%4x%5 pages=%6/%7")
+                       .arg(rail ? rail->property("currentWorkspaceIndex").toInt()
+                                 : -1)
+                       .arg((*legacyPtr) ? (*legacyPtr)->width() : -1)
+                       .arg((*legacyPtr) ? (*legacyPtr)->height() : -1)
+                       .arg((*dashboardPtr) ? (*dashboardPtr)->width() : -1)
+                       .arg((*dashboardPtr) ? (*dashboardPtr)->height() : -1)
+                       .arg((*legacyPtr) != nullptr)
+                       .arg((*dashboardPtr) != nullptr);
+            break;
+        }
+        case 1: { // switch to the dashboard through the real activation path
+            auto *item = findNamedItem(
+                roots, QStringLiteral("navItem_%1").arg(dashboardIndex));
+            if (!item || !QMetaObject::invokeMethod(item, "activate"))
+                fail(QStringLiteral("NAVFAIL dashboard activation failed"));
+            break;
+        }
+        case 2: { // dashboard state + identity + unchanged business values
+            *failures += runNavAssertions(roots, QStringLiteral("dashboard"),
+                                          nullptr, nullptr);
+            auto *legacy =
+                findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+            auto *dashboard =
+                findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
+            if (legacy != *legacyPtr)
+                fail(QStringLiteral("NAVFAIL legacy page identity changed"));
+            if (dashboard != *dashboardPtr)
+                fail(QStringLiteral("NAVFAIL dashboard page identity changed"));
+            if (rail->property("currentWorkspaceIndex").toInt() != dashboardIndex)
+                fail(QStringLiteral("NAVFAIL dashboard switch did not select "
+                                    "the dashboard index"));
+            compareAgainstSnapshot0(takeSnapshot(ctrl),
+                                    QStringLiteral("to dashboard"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [dashboard]: index=%1 legacyVisible=%2 "
+                                  "dashboardVisible=%3")
+                       .arg(rail->property("currentWorkspaceIndex").toInt())
+                       .arg((*legacyPtr)->isVisible())
+                       .arg((*dashboardPtr)->isVisible());
+            break;
+        }
+        case 3: { // back to the workbench
+            auto *item = findNamedItem(
+                roots, QStringLiteral("navItem_%1").arg(legacyIndex));
+            if (!item || !QMetaObject::invokeMethod(item, "activate"))
+                fail(QStringLiteral("NAVFAIL workbench activation failed"));
+            break;
+        }
+        case 4: { // return state + identity + unchanged business values
+            *failures += runNavAssertions(roots, QStringLiteral("workbench"),
+                                          nullptr, nullptr);
+            auto *legacy =
+                findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+            auto *dashboard =
+                findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
+            if (legacy != *legacyPtr || dashboard != *dashboardPtr)
+                fail(QStringLiteral("NAVFAIL page identity changed on return"));
+            if (rail->property("currentWorkspaceIndex").toInt() != legacyIndex)
+                fail(QStringLiteral("NAVFAIL return did not select the "
+                                    "workbench index"));
+            compareAgainstSnapshot0(takeSnapshot(ctrl),
+                                    QStringLiteral("back to workbench"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [workbench]: index=%1 "
+                                  "legacyVisible=%2 dashboardVisible=%3")
+                       .arg(rail->property("currentWorkspaceIndex").toInt())
+                       .arg((*legacyPtr)->isVisible())
+                       .arg((*dashboardPtr)->isVisible());
+            break;
+        }
+        case 5: { // disabled future entries can never change the selection
+            for (int i = 2; i <= 5; ++i) {
+                auto *item =
+                    findNamedItem(roots, QStringLiteral("navItem_%1").arg(i));
+                if (!item)
+                    continue;
+                if (item->property("enabled").toBool())
+                    fail(QStringLiteral("NAVFAIL navItem_%1 must stay disabled")
+                             .arg(i));
+                if (!QMetaObject::invokeMethod(item, "activate"))
+                    fail(QStringLiteral("NAVFAIL navItem_%1.activate() not "
+                                        "invokable")
+                             .arg(i));
+                if (rail->property("currentWorkspaceIndex").toInt()
+                    != legacyIndex)
+                    fail(QStringLiteral("NAVFAIL disabled navItem_%1 changed "
+                                        "the selection")
+                             .arg(i));
+            }
+            break;
+        }
+        default:
+            break;
+        }
+
+        if (failures->isEmpty() && *stage < 5) {
+            ++*stage;
+            QTimer::singleShot(settleMs, &app, *schedule);
+            return;
+        }
+
+        if (failures->isEmpty())
+            qInfo() << "NAV CHECK PASS (two workspaces; identity stable; "
+                       "navigation changed no business values)";
+        else
+            for (const QString &f : *failures)
+                qWarning().noquote() << "GEOFAIL:" << f;
+        app.exit(failures->isEmpty() ? 0 : 1);
     };
     QTimer::singleShot(settleMs, &app, *schedule);
     return app.exec();
@@ -464,6 +826,12 @@ int main(int argc, char *argv[])
     // Geometry regression guard for the statistics migration (ISSUE-012).
     if (app.arguments().contains(QStringLiteral("--qml-geometry-check"))) {
         return runGeometryCheck(engine, app);
+    }
+
+    // Navigation guard (M9-B2): two real workspaces and the
+    // "navigation changes no business state" invariant.
+    if (app.arguments().contains(QStringLiteral("--qml-nav-check"))) {
+        return runNavCheck(engine, app);
     }
 
     return app.exec();

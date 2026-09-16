@@ -72,6 +72,7 @@ qt_add_qml_module(modbuslens
         src/ui/qml/components/SectionHeader.qml
         src/ui/qml/components/StatCard.qml
         src/ui/qml/components/StatisticsOverview.qml
+        src/ui/qml/pages/DashboardPage.qml
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
@@ -452,8 +453,14 @@ if(BUILD_TESTING)
     add_test(NAME qml_geometry_check
         COMMAND modbuslens --qml-geometry-check)
 
+    # M9-B2 navigation guard: two real workspaces, page identity, visibility
+    # and "navigation changes no business state" (ISSUE-012 family: the
+    # guard layer keeps growing only where a real contract exists).
+    add_test(NAME qml_nav_check
+        COMMAND modbuslens --qml-nav-check)
+
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()
