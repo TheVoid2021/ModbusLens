@@ -180,3 +180,10 @@
 - **Q：为什么"刷新串口"没有 enabled 绑定也必须原样保留？** A：extraction 的验收标准是可证等价：任何"顺手优化"（busy-disable、自动 refresh）都会污染迁移的恒等性；行为改进属于独立 task——这条边界让回滚与回归对照都保持干净。
 - **Q：Qt Quick Layouts 里"多余的纵向空间"归谁？** A：归显式声明 fillHeight 的子项；**一个都没有时余量会以你意想不到的方式出现**（本项目实测：ColumnLayout 把 458px 余量散布到子项之间，189 内容 vs 647 实高的页面）。Legacy 一直正常只因为 SplitView 恰好带 fillHeight；显式尾部 spacer 是把这条隐式契约变成可读代码。
 - **Q：怎么在无硬件条件下验证 serial 失败语义的跨页保持？** A：走真实命令的真实失败分支（connectSerial 到不存在端口）并断言**稳定布尔属性**（hasSerialError）与 mode/source 原子性，而不是伪造端口或绑定 OS 错误文本；完整 connected/busy 场景继续 DEFER 并由人工覆盖。
+
+
+## 17. Post-T017 M9-B3 closure 条目（2026-09-16 追加）
+
+- **Q：surplus-space 问题与 ISSUE-012 的塌缩问题有何本质区别？** A：ISSUE-012 是**尺寸链断裂**（容器 implicit=0、父子合同崩溃、几何塌缩）；B3 是**尺寸链完好但多余空间的归属没有设计**（implicit 189 vs 实高 647，余量被散布）。前者修合同（implicit 来源），后者修意图（显式 spacer）——症状相似、根因与修法完全不同，混为一谈就会用错药。
+- **Q：为什么 LKGC 不能由 commit message 决定？** A：`072fe34` 命名含 "candidate"，Git 文件列表却是 docs+screenshots only；`382ecfb` 名字普通，却是最后一个行为承载提交（仅 main.cpp 的 nav check 行为，处在终验范围内）。**文件列表 + 是否经过完整验证才是判据**。
+- **Q：pixel helper 与人工视觉验收的关系？** A：它是合同探测工具（几何/存在性/签名），不是视觉质量判据；本轮它自己连续出过三类假结果（陈旧截图/过期坐标/颜色碰撞），所以验证器本身也要有"输入可验证"纪律——但即使全绿，视觉验收仍归人工。

@@ -1214,3 +1214,108 @@ ctest --preset debug-local → 100% tests passed, 0 tests failed out of 26（含
 
 - **M9-B3 Manual Visual Review = PENDING USER REVIEW**（Communication 双尺寸截图 + 既有页面防回归对照 + deploy 候选）。
 - PASS 之前：不推进 LKGC（保持 `53685d5`）、不 push、不开始 B4。
+## 37. M9-B3 Completion / Archive（2026-09-16）
+
+### 37.1 Manual Visual Review = PASS（用户）
+
+**Communication 确认**：通信 navigation 选中态正确；Connection / Request 分区清楚；Port / Refresh / Baud / 8N1 可见；Connect / Disconnect 可见；FC03 Slave / Start / Quantity / Timeout 完整；Read Holding Registers 可见；Serial error 位于 Communication 上下文；error 显示未导致布局挤压；页面无裁切、无重叠；**大面积剩余空间不构成本阶段 regression**。
+
+**Legacy 确认**：Serial controls 已移出、无重复入口；Load Replay 仍可达；Statistics 正常；Diagnosis 正常；Recent Transactions 正常；Serial 区迁出后布局**没有空洞/塌陷**。
+
+### 37.2 PASS 边界（明确声明）
+
+本 PASS 表示 **M9-B3 Communication Extraction 的页面边界、导航、draft persistence、失败路径与当前视觉达到本阶段要求**。**不表示** 真实 Modbus hardware serial connection 已经人工验证；**full connected / busy / pending 跨 workspace 自动验证 = 继续 DEFER**。**不得把 G′ failure-path PASS 扩写成 real hardware PASS。**
+
+### 37.3 Deferred Visual Work（非 B3 regression）
+
+Qt ComboBox / SpinBox 仍为较默认风格 · Connect / Disconnect 控件待后续统一样式 · Communication 页面当前存在较大空白 · richer status presentation 尚未实现。**Communication 的剩余空间应作为未来 M10 Active Master 请求/结果区域的潜在空间**；closure 阶段未填充任何 widget。
+
+### 37.4 LKGC 候选的 Git 证据裁定（原样命令）
+
+```text
+$ git show --stat --oneline c3269dc
+c3269dc M9-B3.2: split communication page into connection and request sections
+ src/main.cpp                           |  56 +++++--
+ src/ui/qml/pages/CommunicationPage.qml | 276 ++++++++++++++++++---------------
+ 2 files changed, 198 insertions(+), 134 deletions(-)
+
+$ git show --stat --oneline 382ecfb
+382ecfb M9-B3.3: nav check goes to three workspaces with scenarios E/F/G'/H
+ src/main.cpp | 452 ++++++++++++++++++++++++++++++++++++++---------------------
+ 1 file changed, 290 insertions(+), 162 deletions(-)
+
+$ git show --stat --oneline 072fe34
+072fe34 M9-B3.4: communication extraction candidate (docs + visual evidence)
+ docs/… + 4× m9b3-*.png + devlog（9 files, 62+/18−）
+```
+
+**分类**：`c3269dc` = QML + `src/main.cpp`（**behavior-bearing**）；`382ecfb` = 仅 `src/main.cpp`（**test behavior-bearing**——nav check 三 workspace + 场景 A/B/D/E/F/G′/H 即其行为）；`072fe34` = **docs/screenshots only**。
+
+**裁定**：最后一个包含真实 product/QML/test behavior change 且其仓库树经过完整验证（qml_smoke + geometry 六趟 + nav check + ctest 26/26 + deploy smoke + manual PASS）的提交 = **`382ecfb`** → **V2 verified LKGC 推进 `53685d5` → `382ecfb`**。**不得以 commit message 的 "candidate/visual/final" 词汇替代文件证据**（`072fe34` 命名含 candidate，实为 docs-only，不作 LKGC）。
+
+### 37.5 B3 Final Status = COMPLETE
+
+**交付清单**：CommunicationPage · Connection section · Request section · Serial error contextual placement · Communication navigation enabled · page-local command draft · authoritative Controller state preservation · Scenario E · Scenario F · Scenario G′ · Scenario H · three-workspace nav check · six-pass geometry guard · deploy validation · **manual visual PASS**。
+
+提交链：`7bc13e6`（Phase 1 设计）→ `d957ff7`（B3.1）→ `c3269dc`（B3.2）→ `382ecfb`（B3.3，**= verified LKGC**）→ `072fe34`（候选：docs+截图）→ `c007013`（回填）→ 本 closure 提交（docs-only，非 LKGC）。
+
+### 37.6 已验证架构（正式记录）
+
+1. **Navigation activation 不是 Serial command**：切页只改 presentation index；`qml_nav_check` 的逐站全字段快照 + 人工行为链共同证明。
+2. **Communication page-local 值**（port selection / baud / slave / start / quantity / timeout）属于 **command draft**，不是 authoritative session fact——断言用真实 property（`value`/`currentIndex`）。
+3. **Connected / session / source / error / busy / pending 的 authority 仍属于 Controller / Serial subsystem**（页面零状态副本）。
+4. **失败 connect 不允许污染旧 source**：G′ 实测 `serialConnected=0 / hasSerialError=1 / mode=模拟器模式 / source=确定性演示`（原子性保持）。
+5. **页面隐藏/显示不得管理 async request lifetime**：adapter/session 由 Controller 持有；StackLayout 全实例化；页面生命周期与请求生命周期解耦。
+6. **完整 connected/busy/pending 的跨导航持久性仍未自动证明**（DEFER 保持，人工验收覆盖 UI 行为且不宣称真实硬件 PASS）。
+
+### 37.7 Layout Knowledge Closure（本轮真实经验）
+
+- **现象**：Communication contentLayout 的 implicitHeight（189）远小于可分配高度（647）时，**额外纵向空间的归属未被显式设计**——Qt 把余量散布到子项之间（实测 y=229 / y=521，空档 ~204/244px）；Legacy 一直"正常"只因 SplitView 恰好带 fillHeight。
+- **修复**：显式尾部弹性 spacer，使 Connection / Request 紧凑排列（y=0/27/54/114/141）、余量落在页面末尾——把隐式契约变成可读代码。
+- **与 ISSUE-012 的区分（不得混为一谈）**：ISSUE-012 = **parent sizing contract collapse**（容器 implicit 为 0、父子尺寸链断裂，几何塌缩）；B3 = **surplus-space ownership unclear**（尺寸链完好，只是多余空间的归属没有设计）。两者症状/根因/修法都不同。
+- **Dashboard 的同族 surplus-space 现象**：如实记录、**留待 M9-C**；B3 不越界修改。
+
+### 37.8 Verification Oracle Closure（本轮真实经验）
+
+本轮验证器连续经历三类真实事故：**陈旧截图**（拷贝未重新出图 → 假 FAIL 风暴）· **固定像素坐标过期**（统计区上移后 B1 时代坐标全部失效）· **Fusion button gradient 与 card surface 颜色碰撞**（渐变中段恰为 #F4F4F4，bbox 精确覆盖按钮）。
+
+由此确立验证器四原则（记录为设计原则，非本轮开发任务）：
+1. **input identity**——验证输入必须自证（路径 + 哈希 + 实际尺寸 + 页别）；
+2. **current candidate evidence**——证据必须由通过门禁的同一二进制在同一轮生成（禁止复用历史 dump）；
+3. **adaptive expectation**——期望自适应（自动检测带/区域）或与生成时同源；
+4. **distinguishable signature**——签名必须能区分真实控件族（颜色不够：竖向连续 ≥30 行的卡面列 vs 按钮渐变仅数行）。
+
+**pixel helper 是合同探测工具，绝不是视觉验收替代品**；M9-F 的人工验收地位不变。
+
+### 37.9 最终验证记录（终验结论）
+
+| 验证项 | 结果 |
+| --- | --- |
+| qml_smoke | **PASS** |
+| qml_geometry_check | **PASS**（Legacy / Dashboard / Communication × 1024×720 / 1000×700 六趟） |
+| qml_nav_check | **PASS**（三 workspace 全轨迹） |
+| Scenarios | **A/B/D/E/F/G′/H PASS** |
+| Scenario G（full connected/busy/pending） | **DEFER**（无 DI seam / 无硬件，不造假） |
+| full ctest | **26/26** |
+| deploy smoke | **PASS**（含部署版 nav check） |
+| manual visual | **PASS**（Communication + Legacy） |
+| **real hardware serial** | **NOT CLAIMED** |
+
+本 closure 为 docs/status-only，不产生新的产品验证结果——上表即 `382ecfb` 行为的终验证据。
+
+### 37.10 Knowledge Closure（基于本轮真实代码/测试）
+
+1. **authoritative session state vs command draft**：`pendingSerialAddress_` 只在 adapter 真正接受后才写入（cpp:986 注释），而 Slave=5 未提交前只是页面表单值——C++ 的写入时机就是两者边界的代码证据。
+2. **connected configuration vs editable candidate**：`serialSourceLabel_ = "COM3 @ 9600"`（连接成功后的会话身份）与 ComboBox currentIndex（候选）是两个概念；失败连接不留痕（s02 语义，G′ 复证）。
+3. **extraction vs behavior rewrite**：Refresh 无 enabled 绑定原样保留；任何"顺手优化"都会破坏迁移的可证等价性——行为改进另开 task。
+4. **navigation vs business command**：H 场景逐站快照证明激活页面零副作用；rail 激活路径（`activate()`）与命令调用点（onClicked）在代码上完全分离。
+5. **async operation ownership**：完成回调由 Controller 承接（`handleSerialTransactionCompleted`）；页面销毁/隐藏与在途请求无关（StackLayout 全实例化是结构保障）。
+6. **stale completion guard 为什么不能由页面生命周期管理**：`if (!pendingSerialAddress_.has_value()) return;` 保护的是"完成与请求的配对"——这是 C++ 侧事务身份问题；页面若 disconnect 信号或 cancel 请求，等于把身份判定搬进 UI 生命周期，必然错配。四个禁止项即防线。
+7. **StackLayout 如何自然保留 page-local draft**：页面实例常驻 → SpinBox/ComboBox 值随实例存活；F 场景 5 项属性往返逐值相等即证据；无需（也不允许）把 draft 写回 Controller。
+8. **offline verification boundary：为什么 G′ PASS ≠ G PASS**：G′ 只覆盖 `connectSerial` 的**失败分支**（openPort 失败 → 错误置位 + 原子保留）；connected/busy/pending 需要真实打开端口或 DI seam——两者结论不能互相外推。
+9. **surplus layout space ownership**：见 §37.7——"尺寸链完好但余量归属未设计"是独立于 ISSUE-012 的布局问题类型。
+10. **verification oracle 输入自身需要可验证**：见 §37.8 四原则。
+
+### 37.11 Next
+
+- **M9-B4 — Replay Extraction（Learning / Design Gate）**：待用户 GO；**本轮不开始实现**。**M10 亦不开始。**
