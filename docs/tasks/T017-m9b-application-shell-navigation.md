@@ -766,19 +766,21 @@ B2.3 gate：nav check 场景 A/B/D 逐值断言全绿 → ctest 26/26
 
 （各步真实输出与截图路径在执行时回填于本节下方——见 §31.6。）
 
-### 31.6 Results（执行后回填——本节在实施完成前保持占位）
+### 31.6 Results（执行回填，真实输出）
 
-- B2.1：PENDING（执行后回填真实命令与输出）
-- B2.2：PENDING
-- B2.3：PENDING
-- B2.4：PENDING
+- **B2.1（`c4291db`）**：`StatisticsOverview.qml` 落地、Legacy 替换为零视觉变化；`qml_smoke` EXITCODE=0；`qml_geometry_check` 双尺寸 PASS（实例化寻址 `statisticsPanel_legacy`=935×168 / 911×168，与 M9-A 一致）；full ctest **25/25**；`git diff --check` 通过；像素验证对齐 B1 区域后与 B1 计数**逐项相同**（158/234/744/40/59/30 + 每卡 dark 计数）——视觉零变化是证明出来的，不是假定。
+- **B2.2（`93aabb2`）**：DashboardPage + index 契约 + 总览启位 + Run Demo 迁移；几何四趟：`DEFAULT legacy`（panel_legacy 935×168）→ `DEFAULT dashboard`（panel_dashboard 935×168）→ `MIN 1000x700 dashboard`（943×659, panel 911×168）→ `MIN 1000x700 legacy`（911×168），全 PASS；`--qml-nav-check` 结构断言 PASS（`index 0→1→0`，可见性随选中）；full ctest **26/26**（新增 `qml_nav_check`，如实报告 25→26）。
+- **B2.3（`53685d5`）**：场景 A/B/D 全绿——`NAV [scenario A @dashboard]: observed=4 mode=模拟器模式 source=确定性演示`（全字段快照跨两跳不变）；场景 B（`hasBaselineDiagnosis`+文本双跳存续，静默通过）；`NAV [scenario D @dashboard]: observed=0 hasRate=0 hasLatency=0`（clear 后两页同态）；场景 C 维持 DEFER（无硬件，不造假）。
+- **B2.4**：四张真值截图（`docs/assets/screenshots/m9b2-{legacy,dashboard}-{1024x720,1000x700}.png`）；像素自检四图全 PASS，且 **rail 选中 accent 的数字即证据**（legacy 图 item0=40/item1=0；dashboard 图 item0=0/item1=40——选中态随页面移动）；deploy 重建 `[OK]`、无 PATH deploy smoke EXITCODE=0、**部署版 exe 的 `--qml-nav-check` 同样 PASS**。
 
 ### 31.7 Problems / RCA
 
+0. **验证工具第三次假阳性（本次最耗时的一课）**：B2.1 首轮像素验证出现"大面积 FAIL"，追查（ASCII 图 → 包围盒 → 逐区域计数 → 同图并排实现）后确认：`ps_pixel_verify.ps1` 的路径覆盖行在派生时**没有生效**，脚本一直在读 `docs/assets/screenshots/geometry-1024x720.png`（**M9-A 时期的旧截图**）做 B1 区域的测量——FAIL 全是测量工件。修复（按行号重写路径）+ 复查后，同一脚本对同图给出与 B1 完全一致的计数。**教训：检查器的输入必须被锁定并核对（路径+哈希），否则"红"和"绿"都不可信。**
 1. **截图 dump 与测量趟次耦合**：四趟测量下，旧的两张 dump 命名（按尺寸）会互相覆盖——改为**按"页 × 尺寸"命名**（`m9b2-<page>-<size>.png`），命名即语义，避免用后写的图覆盖先写的图。
-2. **测试对 index 的依赖方式**：test 不再硬编码"dashboard=1"，而是**读取 root 上的契约 properties**（`workspaceDashboardIndex`/`workspaceLegacyIndex`）——契约改动时测试自动跟随；若 rail 顺序与契约漂移，行为断言（激活后 dashboard 必须可见）会失败。三方（shell 常量 / rail 顺序 / 测试）由一个行为测试钉住。
-3. **隐藏页断言纪律**（B2 预研结论落地）：StackLayout 隐藏子项的可见性/几何不做假设式断言，改为"切到目标 workspace 再验证其活动实例"（§20 要求）。
-4. **既有工具假阳性纪律沿用**：nav check 的 invoke 调用仍检查返回值；比较用全字段快照而非抽样。
+2. **测量时序（四趟引入的新坑）**：初版在同一回调里"切页/缩放 → 立刻 dump+断言"，导致 dashboard 趟读到隐式宽 864（未 settle）——修复为 `transition → settle → measure` 的状态机（切页或缩放后先经 100ms 再测量）。另确认：**从未激活过的隐藏页几何为 0×0**（首次激活后才获得尺寸）——这从数据上验证了"隐藏页不做断言"的规则是必要的而非教条。
+3. **测试对 index 的依赖方式**：test 不再硬编码"dashboard=1"，而是**读取 root 上的契约 properties**（`workspaceDashboardIndex`/`workspaceLegacyIndex`）——契约改动时测试自动跟随；若 rail 顺序与契约漂移，行为断言（激活后 dashboard 必须可见）会失败。三方（shell 常量 / rail 顺序 / 测试）由一个行为测试钉住。
+4. **隐藏页断言纪律**（B2 预研结论落地）：StackLayout 隐藏子项的可见性/几何不做假设式断言，改为"切到目标 workspace 再验证其活动实例"（§20 要求）。
+5. **既有工具假阳性纪律沿用**：nav check 的 invoke 调用仍检查返回值；比较用全字段快照而非抽样。
 
 ### 31.8 Manual Review
 
@@ -802,7 +804,8 @@ B2.3 gate：nav check 场景 A/B/D 逐值断言全绿 → ctest 26/26
 
 ### 31.11 Candidate Commit
 
-见 §32 回填（candidate 提交；不 push、不推进 LKGC——待人工视觉 PASS）。
+- B2 的三个实施提交：`c4291db`（B2.1）、`93aabb2`（B2.2）、`53685d5`（B2.3）；B2.4 的截图/文档随候选提交（哈希见 §32 回填）。
+- 全部**不 push、不推进 LKGC**（verified 保持 `189c62c`，待人工视觉 PASS 后再议）。
 
 ## 32. Next
 
