@@ -312,6 +312,8 @@ deploy_windows.bat + deploy smoke       → [OK] + EXITCODE=0（无开发 PATH�
 - Top Actions remain usable（顶部操作可用性保持）
 - Serial / Diagnosis / Transactions remain visible（旧风格区行为与可见性不退化）
 
+**Visual Evidence（追加批注，2026-09-15）**：用户 PASS 复核时的真实窗口截图为 `docs/assets/screenshots/m9a-foundation-accepted.png`（用户放入仓库后按纪律重命名归档；未改任何像素）。核验依据：① 文件落盘时间 13:30，紧接本文件 closure 提交（13:28）之后；② 尺寸 1280×937 = 1024×720 逻辑 × 125%（本机 DPI）＋原生标题栏 37px，与既有 `v1-ui-baseline.png`（同规格 1280×937）同机同法；③ 文件名为用户自取的 "M9-A Foundation"；④ 该时段仅有 M9-A 修复后候选一次人工复核。此为**用户提供的证据**，非本代理的可复现产物（可复现产物另有 geometry-1024x720.png / geometry-1000x700.png）。
+
 **本 PASS 的边界（明确声明）**：仅表示 **M9-A first migration visual regression resolved**。不表示 entire M9 visual refresh complete。仍待后续改善（已记录、不在本轮处理）：Serial controls styling · Diagnosis workspace styling · Transaction workspace styling · application/taskbar icon · overall application shell/navigation · native-title/content visual coherence。
 
 ## 19. M9-A Knowledge Closure（任务级收束）
