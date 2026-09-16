@@ -1556,6 +1556,173 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
+// ---------------------------------------------------------------------------
+// M9-B4.4 `--qml-evidence-capture <dir>`: produces the manual-review
+// screenshot set from the CURRENT binary (deployed or build-tree) so every
+// PNG provably comes from the candidate that passed the automated gates.
+//
+//   m9b4-replay-1024x720.png            Replay workspace, fresh start
+//   m9b4-replay-1000x700.png            Replay workspace at minimum size
+//   m9b4-replay-notice-1024x720.png     successful load of
+//                                       t015_unsupported_fc08.mlog -> notice
+//   m9b4-replay-error-notice-1024x720.png  deterministic failed replacement
+//                                       -> error + preserved notice coexist
+//   m9b4-dashboard-replay-1024x720.png  Dashboard carrying the demo_v1
+//                                       replay session (chip + facts)
+//
+// Harness only: no product behaviour. Business state transitions use the
+// SAME existing Controller commands the manual flow uses, and each state
+// is asserted before the capture (a wrong state aborts with exit 1 rather
+// than producing misleading evidence).
+// ---------------------------------------------------------------------------
+int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
+                       const QString &dir)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    auto *ctrl = rootObj ? rootObj->findChild<QObject *>(
+                               QStringLiteral("analysisController"))
+                         : nullptr;
+    if (!window || !ctrl) {
+        qWarning() << "EVIDENCE FAIL: window/controller not found";
+        return 1;
+    }
+
+    const int settleMs = 120;
+    const int replayIndex = rootObj->property("workspaceReplayIndex").toInt();
+    const int dashboardIndex =
+        rootObj->property("workspaceDashboardIndex").toInt();
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto fail2 = [failures](const QString &m) { *failures << m; };
+
+    auto grab = [&, window, &dir](const QString &tag) {
+        const QImage image = window->grabWindow();
+        const QString path = QDir(dir).filePath(tag + QStringLiteral(".png"));
+        if (image.save(path))
+            qInfo().noquote() << QStringLiteral("EVIDENCE: %1 (%2x%3)")
+                                     .arg(path)
+                                     .arg(image.size().width())
+                                     .arg(image.size().height());
+        else
+            *failures << QStringLiteral("EVIDENCE FAILED: %1").arg(path);
+    };
+
+    auto switchTo = [&](int pageIndex) {
+        const char *key = (pageIndex == 0)   ? "workspaceLegacyIndex"
+                        : (pageIndex == 1)   ? "workspaceDashboardIndex"
+                        : (pageIndex == 2)   ? "workspaceCommunicationIndex"
+                                             : "workspaceReplayIndex";
+        const int idx = rootObj->property(key).toInt();
+        auto *item = findNamedItem(roots, QStringLiteral("navItem_%1").arg(idx));
+        if (!item || !QMetaObject::invokeMethod(item, "activate"))
+            fail(QStringLiteral("NAVFAIL activation failed for page %1").arg(idx));
+    };
+
+    auto schedule = std::make_shared<std::function<void()>>();
+    auto stage = std::make_shared<int>(0);
+    *schedule = [&, schedule, stage]() {
+        switch (*stage) {
+        case 0: switchTo(replayIndex); break;
+        case 1: grab(QStringLiteral("m9b4-replay-1024x720")); break;
+        case 2:
+            window->resize(1000, 700);
+            break;
+        case 3: grab(QStringLiteral("m9b4-replay-1000x700")); break;
+        case 4:
+            window->resize(1024, 720);
+            break;
+        case 5: {
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_UNSUPPORTED_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("loadReplayFile() not invokable"));
+            break;
+        }
+        case 6: {
+            if (!ctrl->property("hasReplayNotice").toBool()
+                || ctrl->property("hasReplayError").toBool()
+                || ctrl->property("sourceLabel").toString()
+                       != QStringLiteral("t015_unsupported_fc08.mlog"))
+                fail(QStringLiteral("notice state invalid after the "
+                                    "unsupported load"));
+            qInfo().noquote()
+                << QStringLiteral("EVIDENCE STATE: notice=%1 source=%2")
+                       .arg(ctrl->property("replayNoticeText").toString(),
+                            ctrl->property("sourceLabel").toString());
+            grab(QStringLiteral("m9b4-replay-notice-1024x720"));
+            break;
+        }
+        case 7: {
+            const QUrl missing = QUrl::fromLocalFile(
+                QStringLiteral("MODBUSLENS_NO_SUCH_DIR/missing_replay.mlog"));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, missing)))
+                fail(QStringLiteral("loadReplayFile() not invokable"));
+            break;
+        }
+        case 8: {
+            if (!ctrl->property("hasReplayError").toBool())
+                fail(QStringLiteral("failed replacement did not set "
+                                    "replayError"));
+            if (ctrl->property("replayNoticeText")
+                    .toString()
+                    != QStringLiteral(
+                        "提示：1 条记录当前未支持分析（功能码 0x08 等），未计入"
+                        "统计。"))
+                fail(QStringLiteral("preserved notice changed"));
+            if (ctrl->property("sourceLabel").toString()
+                != QStringLiteral("t015_unsupported_fc08.mlog"))
+                fail(QStringLiteral("source changed on a failed replacement"));
+            grab(QStringLiteral("m9b4-replay-error-notice-1024x720"));
+            break;
+        }
+        case 9: {
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_DEMO_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("loadReplayFile() not invokable"));
+            break;
+        }
+        case 10: {
+            if (ctrl->property("observedCount").toInt() != 4
+                || ctrl->property("sourceLabel").toString()
+                       != QStringLiteral("demo_v1.mlog"))
+                fail(QStringLiteral("demo_v1 session state invalid"));
+            switchTo(dashboardIndex);
+            break;
+        }
+        case 11: {
+            if (ctrl->property("observedCount").toInt() != 4)
+                fail(QStringLiteral("dashboard facts changed"));
+            grab(QStringLiteral("m9b4-dashboard-replay-1024x720"));
+            break;
+        }
+        default:
+            break;
+        }
+
+        if (failures->isEmpty() && *stage < 11) {
+            ++*stage;
+            QTimer::singleShot(settleMs, &app, *schedule);
+            return;
+        }
+
+        if (failures->isEmpty())
+            qInfo() << "EVIDENCE CAPTURE PASS (5 screenshots)";
+        else
+            for (const QString &f : *failures)
+                qWarning().noquote() << "EVIDENCE FAIL:" << f;
+        app.exit(failures->isEmpty() ? 0 : 1);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -1616,6 +1783,20 @@ int main(int argc, char *argv[])
     // "navigation changes no business state" invariant.
     if (app.arguments().contains(QStringLiteral("--qml-nav-check"))) {
         return runNavCheck(engine, app);
+    }
+
+    // Manual-candidate evidence capture (M9-B4.4): harness only.
+    const int evIdx =
+        app.arguments().indexOf(QStringLiteral("--qml-evidence-capture"));
+    if (evIdx >= 0) {
+        const QString dir = evIdx + 1 < app.arguments().size()
+                                ? app.arguments().at(evIdx + 1)
+                                : QString();
+        if (dir.isEmpty()) {
+            qWarning() << "--qml-evidence-capture requires a directory";
+            return 1;
+        }
+        return runEvidenceCapture(engine, app, dir);
     }
 
     return app.exec();

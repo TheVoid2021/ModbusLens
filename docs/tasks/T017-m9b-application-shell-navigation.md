@@ -1798,7 +1798,46 @@ B4.3 期间的拼接片段（`_nav_scenario_i.cpp`/`_nav_scenarios_jkk.cpp`/`_na
 
 见 §41 回填（B4.3 提交；不 push、不推进 LKGC——待 B4.4 与人工验收）。
 
-## 41. Next
+## 41. M9-B4.4 — Deploy + Screenshot Evidence + Manual Candidate（Implementation Record，2026-09-17）
 
-- **B4.3 Review（用户）**；通过后 **B4.4 — deploy + 截图 + manual candidate**（§38.31.4；本轮未开始）。
-- **B4.4 之后**：B4 整体 closure + LKGC 裁定（届时按 Git 证据）。本轮均未开始。
+按 §38.31.4 执行（用户批准；**本阶段为 validation/deployment/evidence/manual-candidate 准备，非新功能阶段**）：
+
+- **Evidence-capture harness**（`--qml-evidence-capture <dir>`，main.cpp 内、与 nav/geometry 同族的 CLI 工具）：从**当前二进制**按状态出图——Replay 初始（两尺寸）→ 加载 `t015_unsupported_fc08.mlog`（notice 态）→ 确定性失败替换（error+notice 共存态）→ 加载 demo_v1 + 切 Dashboard。每步**先断言状态再出图**（notice 文本逐值、error 置位、source basename、observed=4），状态错误即 exit 1 而不是产出误导性证据。日志同时记录 `IMAGE_SIZE` 与状态值（§37.8 oracle 四原则）。
+- **Deploy**：`deploy_windows.bat` `[OK]`；`build/deploy/ModbusLens.exe` 在位；**QtQuick.Dialogs 部署依赖实证**（`deploy/qml/QtQuick/Dialogs/qtquickdialogsplugin.dll` + `Qt6QuickDialogs2*.dll`）；`deploy/samples/demo_v1.mlog` 在位（canonical manual sample）。
+- **Minimal-PATH deployed checks**（真实 exit code）：`--qml-smoke-test` **0** · `--qml-nav-check` **0**（四 workspaces + 全场景 PASS）· `--qml-geometry-check` **0**（八趟）。
+- **截图五张**（全部来自 deployed candidate，IMAGE_SIZE 实录）：`m9b4-replay-1024x720.png` (1280×900) · `m9b4-replay-1000x700.png` (1250×875) · `m9b4-replay-notice-1024x720.png` (1280×900) · `m9b4-replay-error-notice-1024x720.png` (1280×900) · `m9b4-dashboard-replay-1024x720.png` (1280×900)。旧证据（m9a/m9b1/m9b2/m9b3）未覆盖。
+- **Screenshot self-check**（自适应，四图全 PASS）：rail 选中 accent 按页别波段（replay 图 item3=40、dashboard 图 item1=40、他档 ~0）；replay 页 0 卡带（无统计视图泄漏）；dashboard 图 2 卡带 + 每卡文本。**两处 helper 自身缺陷实录**：① replay 波段初值 (172,222) 系沿用通信档偏移的算术错误（实测 accent 232–270 后修正为 225–275）；② 文件名→页别映射 `*replay*` 误匹配 dashboard-replay 文件（先判 dashboard 修正）。**pixel helper 是合同探测工具，不是视觉验收替代品。**
+- **临时 fixture disposition**：失败替换使用**不存在的路径**（`MODBUSLENS_NO_SUCH_DIR/missing_replay.mlog`）——**未创建任何临时 malformed 文件**，无清理负担、tracked samples 未动。
+
+### 41.1 Verification（真命令 + 真输出）
+
+```text
+build（debug-local）→ Linking modbuslens.exe（干净）
+qml_smoke → EXITCODE=0
+qml_nav_check → EXITCODE=0（四 workspaces + A/B/D/E/F/G′/H 全绿）
+qml_geometry_check → EXITCODE=0（八趟）
+full ctest → 26/26
+git diff --check → 通过
+deploy_windows.bat → [OK]
+deployed minimal-PATH：--qml-smoke-test 0 / --qml-nav-check 0 / --qml-geometry-check 0
+evidence capture → EXITCODE=0；5 张 PNG（1280×900 / 1250×875 实录）
+```
+
+### 41.1.1 Problems / RCA
+
+1. **grab lambda 捕获缺失**（编译错误，一次）：`fail2` 未进捕获列表 → 改为按引用捕获 failures。分类：harness 拼接错误。
+2. **pixel helper 页别映射缺陷**（本轮第二次 oracle 修正）：文件名含 `replay` 的 dashboard 证据图被误判为 Replay 页（accent 断言错档）；且 replay 波段坐标算术错误（172 vs 实测 225–275）。修复=先判 `*dashboard*` + 实测校正波段。分类：**evidence-tool oracle bug**（与 §37.8/§39.1.2 同族，第三次印证"helper 期望必须与被摄对象同源"）。
+
+### 41.2 Files Changed（B4.4）
+
+`src/main.cpp`（evidence-capture harness，零产品行为）、`docs/assets/screenshots/m9b4-*.png` ×5、T017 本节、PROJECT_STATUS、BACKLOG、devlog。
+
+### 41.3 Candidate / Manual Status
+
+- **EVIDENCE COMMIT**：见 §42 回填。
+- **AUTOMATED = PASS · DEPLOY = PASS · SCREENSHOT EVIDENCE = READY · MANUAL VISUAL = WAITING FOR USER**。
+
+## 42. Next
+
+- **M9-B4 Manual Visual Review（用户）**：deployed candidate = `build/deploy/ModbusLens.exe`；清单见 §25（导航/分区/控件/参数/notice/error 共存/恢复/回归/resize）。
+- PASS 之前：**不推进 LKGC（verified 保持 `382ecfb`）、不 push、不开始 B4 closure/B5/M10**。

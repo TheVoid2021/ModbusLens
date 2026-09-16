@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（T015 收盘 clean 全量重建 153 targets） |
 | Test 状态 | ✅ **26/26 通过**（B4.3：nav check 58 段 + `transactionRowCount` 进入全场景快照（rows 不变从此有真实断言）+ K′ 完整快照/逐值 notice 比较；八趟 geometry） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · T011 · T012 · T013 · T014 · T015（V1 主线）· **T016（M9-A UI Foundation / Design System = ✅ COMPLETE）** |
-| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B3 = COMPLETE（`382ecfb`）；**M9-B4.3 = HOLD 取证完成：K′ 审计补全（rowCount+完整 statistics 快照断言）+ 第三次 oracle 缺陷修复（disclosure 键集）——candidate `2085d59`+修正待复核**；B4.4 待 GO |
+| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B3 = COMPLETE（`382ecfb`）；**M9-B4.4 = deploy + 截图证据 + manual candidate 完成（AUTOMATED PASS / DEPLOY PASS / EVIDENCE READY）**；**Manual Visual Review = WAITING FOR USER** |
 | 最近完成任务（Last Completed Task） | M9-B4.3 = 实施完成（candidate）。此前：M9-B2/B3（`53685d5`/`382ecfb`）|
-| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-B4.3 — Replay Navigation / Atomicity Scenarios（实施完成；B4.4 待 GO）** |
-| 下一步动作（Next Action） | **等待用户 GO 启动 M9-B4.4 — deploy + 截图 + manual candidate**（§38.31.4）。B4.3 candidate：Scenario I/J/K/K′ 全绿 + 八趟几何全 PASS；real hardware serial NOT CLAIMED |
+| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-B4.4 — Deploy + Screenshot Evidence + Manual Candidate（完成；人工验收待用户）** |
+| 下一步动作（Next Action） | **M9-B4 Manual Visual Review（用户）**：启动 `build/deploy/ModbusLens.exe`（或五张截图 `docs/assets/screenshots/m9b4-*.png`）；按 §25/§41 清单复核（导航/分区/加载成功/notice/error+旧 notice 共存/恢复/Dashboard·Communication·Legacy 回归/resize）。**无硬件：不代表真实串口连接 PASS**。PASS 前不推进 LKGC、不 push、不开始 B4 closure/B5/M10 |
 | 下一 Part（Next Part） | 无（T012 Part B Phase 2 已随 T012 完成） |
 | 下一任务（Next Task After T016） | **M9-B Application Shell & Navigation = T017 进行中**（Phase 1 Learning & Design 已落库待 Review；实施按 T017 §13 的 B1→B5 逐步进行，每步独立 Review/提交） |
 | Known Issues | 见 §4 |
