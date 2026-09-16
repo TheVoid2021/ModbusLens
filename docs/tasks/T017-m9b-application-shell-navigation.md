@@ -804,10 +804,10 @@ B2.3 gate：nav check 场景 A/B/D 逐值断言全绿 → ctest 26/26
 
 ### 31.11 Candidate Commit
 
-- B2 的三个实施提交：`c4291db`（B2.1）、`93aabb2`（B2.2）、`53685d5`（B2.3）；B2.4 的截图/文档随候选提交（哈希见 §32 回填）。
+- B2 实施提交：`c4291db`（B2.1）、`93aabb2`（B2.2）、`53685d5`（B2.3）；候选提交 `387dcaf`（B2.4：文档 + 四张截图）。
 - 全部**不 push、不推进 LKGC**（verified 保持 `189c62c`，待人工视觉 PASS 后再议）。
 
 ## 32. Next
 
-- **M9-B2 Manual Visual Review = PENDING USER REVIEW**（四张截图 + deploy 候选；清单 §31.8）。
+- **M9-B2 Manual Visual Review = PENDING USER REVIEW**（candidate HEAD `387dcaf`；四张截图 + deploy 候选；清单 §31.8）。随后的哈希回填（docs-only）为其后一提交，不作 LKGC。
 - PASS 之前：不推进 LKGC（保持 `189c62c`）、不 push、不开始 B3（Communication extraction）。
