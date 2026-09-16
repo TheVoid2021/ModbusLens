@@ -266,6 +266,10 @@ if(BUILD_TESTING)
     # compile definition — no absolute user-dependent paths in product code.
     configure_file(samples/demo_v1.mlog
         "${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog" COPYONLY)
+    # T015 unsupported-function sample: drives the replayNotice disclosure
+    # (Gate F) in the M9-B4.3 navigation scenarios.
+    configure_file(samples/t015_unsupported_fc08.mlog
+        "${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_unsupported_fc08.mlog" COPYONLY)
 
     add_executable(modbuslens_replay_log_tests tests/test_replay_log.cpp)
     target_link_libraries(modbuslens_replay_log_tests PRIVATE modbuslens_core Qt6::Test)
@@ -460,6 +464,12 @@ if(BUILD_TESTING)
     # guard layer keeps growing only where a real contract exists).
     add_test(NAME qml_nav_check
         COMMAND modbuslens --qml-nav-check)
+
+    # M9-B4.3 scenario fixtures (repo-relative: copied into the build tree,
+    # same mechanism as the demo_v1 test_data above -- no absolute paths).
+    target_compile_definitions(modbuslens PRIVATE
+        MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog"
+        MODBUSLENS_UNSUPPORTED_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_unsupported_fc08.mlog")
 
     # Headless-safe on every platform (no display server needed).
     set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check PROPERTIES

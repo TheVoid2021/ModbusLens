@@ -11,12 +11,12 @@
 | 当前 Milestone（Current Milestone） | M1~M8 ✅ 全部 DONE（M8 = M8.1 诊断覆盖审计 + T014 + T015；T015 verified LKGC `ae067ab`） |
 | Last Known Good Commit | **V2 verified LKGC = `382ecfb`**（M9-B3 Communication Extraction：最后一个包含真实 product/QML/test behavior change 且通过本轮终验的提交——`src/main.cpp` 的三 workspace nav check + 场景 A/B/D/E/F/G′/H（Git 证据裁定见 T017 §37.4：`c3269dc`=QML+main.cpp、`382ecfb`=仅 main.cpp、`072fe34`=docs+截图 only）。qml_smoke + geometry 六趟 + nav check + ctest 26/26 + deploy smoke（含部署版 nav check）+ 用户 Manual Visual Review PASS。`072fe34`/`c007013` 等 docs/evidence-only 提交**一律不作 LKGC**。**V1 tag `v1.0.0` = `ae067ab`（永久不变）**。历史值：`53685d5`（M9-B2）、`189c62c`（M9-B1）、`6562dd3`（M9-A）、`ae067ab`（T015）、`02ce302`、`cc8393a`、`99f17d6`、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（T015 收盘 clean 全量重建 153 targets） |
-| Test 状态 | ✅ **26/26 通过**（B4.2：nav check 结构路径扩为 Legacy→Dashboard→Communication→Replay→Dashboard→Legacy + replayWorkspace 可见性/身份断言；r01–r08 全绿；八趟几何属 B4.3 未提前实现） |
+| Test 状态 | ✅ **26/26 通过**（B4.3：nav check 状态机扩至 58 段（Scenario I/J/K/K′）；geometry 六趟→**八趟**（4 workspace × 2 size）；r01–r08 全绿） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · T011 · T012 · T013 · T014 · T015（V1 主线）· **T016（M9-A UI Foundation / Design System = ✅ COMPLETE）** |
-| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B3 = COMPLETE（`382ecfb`）；**M9-B4.2 原子工作流迁移+启位 = 实施完成（candidate）**；B4.3（场景+fixture+八趟几何）待用户 GO |
-| 最近完成任务（Last Completed Task） | **M9-B3 Communication Extraction = COMPLETE**（`382ecfb` = 新 verified LKGC）。此前：M9-B2（`53685d5`）、M9-B1（`189c62c`）、M9-A（`6562dd3`） |
-| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-B4.2 — Atomic Replay Workflow Migration + Activation（实施完成；B4.3 待 GO）** |
-| 下一步动作（Next Action） | **等待用户 GO 启动 M9-B4.3 — Scenario I/J/K/K′ + `MODBUSLENS_UNSUPPORTED_MLOG_PATH` fixture 接线 + 八趟 geometry**（§38.31.4）。B4.2 candidate：四件套已原子迁入 ReplayPage 并启位（回放 nav enabled、诊断/设备仍 disabled）；B4.4（deploy/截图/人工）未开始 |
+| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B3 = COMPLETE（`382ecfb`）；**M9-B4.3 导航/原子性场景 + unsupported fixture + 八趟几何 = 实施完成（candidate）**；B4.4（deploy/截图/人工）待用户 GO |
+| 最近完成任务（Last Completed Task） | M9-B4.3 = 实施完成（candidate）。此前：M9-B2/B3（`53685d5`/`382ecfb`）|
+| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-B4.3 — Replay Navigation / Atomicity Scenarios（实施完成；B4.4 待 GO）** |
+| 下一步动作（Next Action） | **等待用户 GO 启动 M9-B4.4 — deploy + 截图 + manual candidate**（§38.31.4）。B4.3 candidate：Scenario I/J/K/K′ 全绿 + 八趟几何全 PASS；real hardware serial NOT CLAIMED |
 | 下一 Part（Next Part） | 无（T012 Part B Phase 2 已随 T012 完成） |
 | 下一任务（Next Task After T016） | **M9-B Application Shell & Navigation = T017 进行中**（Phase 1 Learning & Design 已落库待 Review；实施按 T017 §13 的 B1→B5 逐步进行，每步独立 Review/提交） |
 | Known Issues | 见 §4 |
@@ -46,11 +46,12 @@
 
 ## 2. 当前任务
 
-- **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B1/B2/B3 = COMPLETE → **M9-B4.2 原子工作流迁移+启位 = 实施完成（candidate；待 B4.2 Review）**。
-- B4.2 交付：**四件套原子迁入 ReplayPage**（Load Replay AppButton / `replayFileDialog`（title/nameFilters/onAccepted 接线逐字）/ error·notice 两行——selectedFile 瞬时候选语义不变）· `workspaceReplayIndex: 3`（集中契约）· 回放 nav 启位（诊断/设备仍 disabled）· nav check 结构路径扩为 `Legacy→Dashboard→Communication→Replay→Dashboard→Legacy` + replayWorkspace 身份/可见性断言 · **零行为变化证明**（全字段快照逐站比较通过 + r01–r08 全绿 + `loadReplayFile`/Controller/Replay Core 零改动）。
-- 实录：首轮 smoke 抓到 ReplayPage 缺 `import QtQuick.Dialogs`（"FileDialog is not a type"，EXITCODE=-1；与 B3 的 Label 教训同族）→ 补 import 后全绿。
-- 几何六趟保持全绿（replayWorkspace 隐藏页 0×0 仅记录不断言；**八趟矩阵属 B4.3，未提前实现**）。
-- **等待用户 GO 启动 B4.3**。详见 [T017 §39.1–§39.5](tasks/T017-m9b-application-shell-navigation.md)。
+- **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B1/B2/B3 = COMPLETE → **M9-B4.3 = 实施完成（candidate；待 B4.3 Review）**。
+- B4.3 交付：unsupported fixture 接线（`MODBUSLENS_UNSUPPORTED_MLOG_PATH`，CMake 机制复用、零绝对路径、不新增 target）· **Scenario I**（四页巡回 + 非空会话含诊断/披露字段的扩展快照逐站全等）· **Scenario J**（canonical demo_v1 加载：basename source + r01 同口径统计 + 五次切换存续）· **Scenario K**（非空会话的失败替换原子性：error 置位 + mode/source/rows/statistics 逐值不变 + 三页巡回）· **Scenario K′**（unsupported 成功加载非 error + notice 完整字符串跨失败尝试与三页往返逐值保持）· **八趟 geometry**（4 workspace × 2 size；Replay active 断言页体/标题/动作区/按钮）。
+- K/K′ 边界：互补不可替代；**G′ failure-path 与 full connected 场景的 DEFER 边界不变；real hardware serial NOT CLAIMED**。
+- 实录（全留痕）：①拼接重复 case 23（片段文件裁剪越界→编译错误）→ 删除；② **oracle 键集缺陷**（I 的比较含 4 个基线快照没有的键 → 假 FAIL）→ `takeExtendedSnapshot`（16+4 键）修复，I 独占。
+- 验证终态：smoke 0 · nav check PASS（全轨迹+场景日志）· 八趟 geometry PASS · ctest **26/26** · diff-check 通过。
+- **等待用户 GO 启动 B4.4**。详见 [T017 §39.1](tasks/T017-m9b-application-shell-navigation.md)。
 
 ## 3. 下一任务
 
@@ -275,3 +276,4 @@ cmake --preset debug -DCMAKE_PREFIX_PATH=<Qt6前缀>
 | 2026-09-16 | **M9-B4 序列修正（docs-only，§38.31）**：确认 §38.30.5 存在**可达性冲突**（先迁移后启位 ⇒ Load Replay 工作流暂时不可达，违反 M9-B 增量不变量）；修正为 **B4.1 = 仅 ReplayPage shell（不迁移、nav 不启位、零行为变化）→ B4.2 = 迁移+启位同阶段原子完成**（禁止"已迁移但不可达"中间态）→ B4.3（I/J/K/K′+fixture+八趟几何，K 与 K′ 职责区分）→ B4.4（deploy）；§38.30 语义全部冻结不重开；verified LKGC 不变 `382ecfb`；未 push |
 | 2026-09-16 | **M9-B4.1 ReplayPage Shell Only 实施完成（candidate，不推进 LKGC）**：`pages/ReplayPage.qml`（纯 Item 页根 + required 注入 + 刻意空体——四件套仍在 Legacy，B4.2 原子迁移+启位）+ StackLayout child3 实例化（`replayWorkspace`，不可达）+ nav check shell 存在性/identity 断言 + dump 信息性条目；**未迁移任何工作流件、未启位、未加 workspaceReplayIndex、零行为变化**（nav 全字段快照逐站比较通过 + r01–r08 全绿 + Legacy 四件套未动可由 diff 证明）；验证：smoke 0 / 六趟 geometry / ctest 26/26 / diff-check；verified LKGC 不变 `382ecfb`；未 push |
 | 2026-09-16 | **M9-B4.2 原子工作流迁移+启位 实施完成（candidate，不推进 LKGC）**：四件套（Load 按钮/FileDialog/error/notice）逐字迁入 ReplayPage（selectedFile 瞬时候选语义不变；两字面色→DS.error/DS.notice 等值替换注明）；`workspaceReplayIndex: 3` + 回放 nav 启位（诊断/设备 disabled）；nav check 路径扩为 Legacy→Dashboard→Communication→Replay→Dashboard→Legacy + replayWorkspace 身份/可见性断言；**navigation ≠ source transition 第四次实证**（全字段快照含 Replay 站逐值不变）；实录：ReplayPage 缺 QtQuick.Dialogs import 被 smoke 抓到（EXITCODE=-1→修复）；几何六趟保持（八趟属 B4.3）；ctest **26/26**（r01–r08 全绿）；verified LKGC 不变 `382ecfb`；未 push；B4.3 未开始 |
+| 2026-09-16 | **M9-B4.3 导航/原子性场景 + unsupported fixture + 八趟几何 实施完成（candidate，不推进 LKGC）**：CMake `MODBUSLENS_UNSUPPORTED_MLOG_PATH` 接线（机制复用）；**Scenario I**（四页巡回、非空会话扩展快照零变化=navigation≠source transition 第五次实证）/ **J**（canonical 加载 basename+golden 统计+五次切换存续）/ **K**（非空会话失败替换原子性）/ **K′**（unsupported 会话 notice 逐值跨失败尝试+往返保持，实测 notice=提示：1 条…0x08…）；**八趟 geometry**（4×2；Replay active 断言页体/标题/动作区/按钮、通信/回放无统计实例门控）；实录两问题（拼接重复 case 23 编译错误；oracle 键集缺陷致 I 假 FAIL → takeExtendedSnapshot 修复）；nav check 状态机 27→58 段；ctest **26/26**（r01–r08 全绿）；verified LKGC 不变 `382ecfb`；未 push；B4.4 未开始 |

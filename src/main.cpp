@@ -50,13 +50,16 @@ QQuickItem *findNamedItem(const QList<QObject *> &roots, const QString &name)
 
 // M9-B3: which workspace page is currently visible (drives which page's
 // geometry gets asserted — hidden pages are never asserted).
-enum class ActivePage { Legacy, Dashboard, Communication };
+enum class ActivePage { Legacy, Dashboard, Communication, Replay };
 
 ActivePage activePage(const QList<QObject *> &roots)
 {
     if (auto *page = findNamedItem(roots, QStringLiteral("communicationWorkspace"));
         page && page->isVisible())
         return ActivePage::Communication;
+    if (auto *page = findNamedItem(roots, QStringLiteral("replayWorkspace"));
+        page && page->isVisible())
+        return ActivePage::Replay;
     if (auto *page = findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
         page && page->isVisible())
         return ActivePage::Dashboard;
@@ -74,9 +77,11 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
     // StatisticsOverview instanceId.
     const ActivePage page = activePage(roots);
     const bool legacyVisible = (page == ActivePage::Legacy);
-    const bool statsVisible = (page != ActivePage::Communication);
-    QString suffix = (page == ActivePage::Legacy) ? QStringLiteral("legacy")
-                                                  : QStringLiteral("dashboard");
+    const bool statsVisible = (page == ActivePage::Legacy
+                               || page == ActivePage::Dashboard);
+    QString suffix = (page == ActivePage::Dashboard)
+                         ? QStringLiteral("dashboard")
+                         : QStringLiteral("legacy");
     auto suffixed = [&suffix](const QString &base) {
         return base + QLatin1Char('_') + suffix;
     };
@@ -265,6 +270,33 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
                      .arg(serialError->height()));
     }
 
+    // ---- Replay page (M9-B4.3): sparse page, shell + load action only ----
+    if (page == ActivePage::Replay) {
+        auto *replayPage =
+            findNamedItem(roots, QStringLiteral("replayWorkspace"));
+        auto *replayHeader =
+            findNamedItem(roots, QStringLiteral("replayHeader"));
+        auto *replayActions = findNamedItem(
+            roots, QStringLiteral("replayActionsSection"));
+        auto *replayLoad =
+            findNamedItem(roots, QStringLiteral("replayLoadButton"));
+        for (auto *item : { replayPage, replayHeader, replayActions,
+                            replayLoad }) {
+            if (!item) {
+                fail(QStringLiteral("replay element missing"));
+                continue;
+            }
+            if (item->width() <= 0 || item->height() <= 0)
+                fail(QStringLiteral("replay element %1 size %2x%3")
+                         .arg(item->objectName())
+                         .arg(item->width())
+                         .arg(item->height()));
+        }
+        // Content must stay inside the workspace host bounds.
+        if (host && replayPage && replayPage->width() > host->width() + 0.5)
+            fail(QStringLiteral("replay content exceeds the workspace width"));
+    }
+
     auto *diag = findNamedItem(roots, QStringLiteral("diagnosisWorkspace"));
     if (legacyVisible && panel && diag
         && diag->y() + 1e-6 < panel->y() + panel->height())
@@ -435,7 +467,13 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
         QStringLiteral("communicationWorkspace"),
         QStringLiteral("replayWorkspace"),
     };
-    if (statsVisible) {
+    if (page == ActivePage::Replay) {
+        names << QStringLiteral("replayHeader")
+              << QStringLiteral("replayActionsSection")
+              << QStringLiteral("replayLoadButton")
+              << QStringLiteral("replayErrorLabel")
+              << QStringLiteral("replayNoticeLabel");
+    } else if (statsVisible) {
         names << suffixed(QStringLiteral("statisticsPanel"))
               << suffixed(QStringLiteral("statisticsRow1"))
               << suffixed(QStringLiteral("statisticsRow2"))
@@ -530,17 +568,21 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         QString label;
     };
     const QVector<MeasureStep> steps = {
-        { 0, false, QStringLiteral("m9b3-legacy-1024x720"),
+        { 0, false, QStringLiteral("m9b4-legacy-1024x720"),
           QStringLiteral("DEFAULT legacy") },
-        { 1, false, QStringLiteral("m9b3-dashboard-1024x720"),
+        { 1, false, QStringLiteral("m9b4-dashboard-1024x720"),
           QStringLiteral("DEFAULT dashboard") },
-        { 2, false, QStringLiteral("m9b3-communication-1024x720"),
+        { 2, false, QStringLiteral("m9b4-communication-1024x720"),
           QStringLiteral("DEFAULT communication") },
-        { 2, true, QStringLiteral("m9b3-communication-1000x700"),
+        { 3, false, QStringLiteral("m9b4-replay-1024x720"),
+          QStringLiteral("DEFAULT replay") },
+        { 3, true, QStringLiteral("m9b4-replay-1000x700"),
+          QStringLiteral("MIN 1000x700 replay") },
+        { 2, false, QStringLiteral("m9b4-communication-1000x700"),
           QStringLiteral("MIN 1000x700 communication") },
-        { 1, false, QStringLiteral("m9b3-dashboard-1000x700"),
+        { 1, false, QStringLiteral("m9b4-dashboard-1000x700"),
           QStringLiteral("MIN 1000x700 dashboard") },
-        { 0, false, QStringLiteral("m9b3-legacy-1000x700"),
+        { 0, false, QStringLiteral("m9b4-legacy-1000x700"),
           QStringLiteral("MIN 1000x700 legacy") },
     };
 
@@ -554,8 +596,8 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto finish = [&app](const QStringList &fails) {
         if (fails.isEmpty())
             qInfo() << "GEOMETRY CHECK PASS"
-                       "(legacy + dashboard + communication at default size "
-                       "and 1000x700)";
+                       "(legacy + dashboard + communication + replay at "
+                       "default size and 1000x700)";
         else
             for (const QString &f : fails)
                 qWarning().noquote() << "GEOFAIL:" << f;
@@ -762,11 +804,30 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         return values;
     };
 
+    // Scenario I compares diagnosis/replay-disclosure facts too, so it
+    // uses an EXTENDED key set (the base takeSnapshot deliberately covers
+    // only the 16 core authoritative fields -- mixing key sets was the
+    // oracle bug fixed in the first B4.3 run).
+    auto takeExtendedSnapshot = [&](QObject *obj) {
+        QMap<QString, QVariant> values = takeSnapshot(obj);
+        if (!obj)
+            return values;
+        const QStringList extra = {
+            QStringLiteral("hasBaselineDiagnosis"),
+            QStringLiteral("baselineDiagnosisText"),
+            QStringLiteral("hasReplayError"),
+            QStringLiteral("hasReplayNotice"),
+        };
+        for (const QString &key : extra)
+            values.insert(key, obj->property(key.toUtf8().constData()));
+        return values;
+    };
+
     auto failures = std::make_shared<QStringList>();
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 27;
+    constexpr int kLastStage = 58;
 
     // Shared state across stages.
     auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
@@ -776,6 +837,20 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto snapshot0 = std::make_shared<QMap<QString, QVariant>>();
     auto scenarioA = std::make_shared<QMap<QString, QVariant>>();
     auto scenarioB = std::make_shared<QMap<QString, QVariant>>();
+    auto scenarioI = std::make_shared<QMap<QString, QVariant>>();
+    auto scenarioJ = std::make_shared<QMap<QString, QVariant>>();
+    auto scenarioKPre = std::make_shared<QMap<QString, QVariant>>();
+    auto scenarioKNotice = std::make_shared<QMap<QString, QVariant>>();
+    QMap<QString, QVariant> scenarioJExpected;
+    scenarioJExpected.insert(QStringLiteral("observedCount"), 4);
+    scenarioJExpected.insert(QStringLiteral("completedCount"), 4);
+    scenarioJExpected.insert(QStringLiteral("pendingCount"), 0);
+    scenarioJExpected.insert(QStringLiteral("successCount"), 1);
+    scenarioJExpected.insert(QStringLiteral("exceptionCount"), 1);
+    scenarioJExpected.insert(QStringLiteral("crcErrorCount"), 1);
+    scenarioJExpected.insert(QStringLiteral("timeoutCount"), 1);
+    scenarioJExpected.insert(QStringLiteral("protocolErrorCount"), 0);
+    scenarioJExpected.insert(QStringLiteral("expectedNoResponseCount"), 0);
     auto draftValues = std::make_shared<QMap<QString, QVariant>>();
     auto gPre = std::make_shared<QMap<QString, QVariant>>();
     auto stage = std::make_shared<int>(0);
@@ -830,7 +905,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, schedule, failures, legacyPtr, dashboardPtr,
                  communicationPtr, replayPtr, snapshot0, scenarioA, scenarioB,
-                 draftValues, gPre, stage, ctrl, takeSnapshot,
+                 scenarioI, scenarioJ, scenarioKPre, scenarioKNotice,
+                 draftValues, gPre, stage, ctrl, takeSnapshot, takeExtendedSnapshot,
                  compareAgainst, switchTo, verifyStructureAndIdentity]() {
         auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
         const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
@@ -975,8 +1051,46 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
 
-        // ---- Scenario B: diagnosis survives navigation ----
+        // ---- Scenario I: navigation is not a source transition (all four
+        // workspaces with a NON-EMPTY demo session + diagnosis facts) ----
         case 15: {
+            *scenarioI = takeExtendedSnapshot(ctrl);
+            switchTo(3);
+            break;
+        }
+        case 16: {
+            verifyStructureAndIdentity(QStringLiteral("scenario I @replay"));
+            compareAgainst(*scenarioI, takeExtendedSnapshot(ctrl),
+                           QStringLiteral("scenario I @replay"));
+            break;
+        }
+        case 17: switchTo(2); break;
+        case 18: {
+            verifyStructureAndIdentity(QStringLiteral("scenario I @communication"));
+            compareAgainst(*scenarioI, takeExtendedSnapshot(ctrl),
+                           QStringLiteral("scenario I @communication"));
+            break;
+        }
+        case 19: switchTo(3); break;
+        case 20: {
+            verifyStructureAndIdentity(QStringLiteral("scenario I @replay again"));
+            compareAgainst(*scenarioI, takeExtendedSnapshot(ctrl),
+                           QStringLiteral("scenario I @replay again"));
+            break;
+        }
+        case 21: switchTo(0); break;
+        case 22: {
+            verifyStructureAndIdentity(QStringLiteral("scenario I @workbench"));
+            compareAgainst(*scenarioI, takeExtendedSnapshot(ctrl),
+                           QStringLiteral("scenario I @workbench"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario I]: four-workspace tour with "
+                                  "a non-empty session changed nothing");
+            break;
+        }
+
+        // ---- Scenario B: diagnosis survives navigation ----
+        case 23: {
             scenarioB->insert(QStringLiteral("hasBaselineDiagnosis"),
                               ctrl->property("hasBaselineDiagnosis"));
             scenarioB->insert(QStringLiteral("baselineDiagnosisText"),
@@ -987,7 +1101,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 16: {
+        case 24: {
             if (ctrl->property("hasBaselineDiagnosis")
                     != scenarioB->value(QStringLiteral("hasBaselineDiagnosis"))
                 || ctrl->property("baselineDiagnosisText")
@@ -997,7 +1111,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(0);
             break;
         }
-        case 17: {
+        case 25: {
             if (ctrl->property("hasBaselineDiagnosis")
                     != scenarioB->value(QStringLiteral("hasBaselineDiagnosis")))
                 fail(QStringLiteral("NAVFAIL scenario B (return): diagnosis "
@@ -1008,7 +1122,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario D: clear is reflected by every view ----
-        case 18: {
+        case 26: {
             const QStringList zeroKeys = {
                 QStringLiteral("observedCount"),  QStringLiteral("pendingCount"),
                 QStringLiteral("completedCount"), QStringLiteral("successCount"),
@@ -1028,7 +1142,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 19: {
+        case 27: {
             if (ctrl->property("observedCount").toInt() != 0
                 || ctrl->property("hasSuccessRate").toBool()
                 || ctrl->property("hasAverageSuccessLatency").toBool())
@@ -1043,7 +1157,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(0);
             break;
         }
-        case 20: {
+        case 28: {
             if (ctrl->property("observedCount").toInt() != 0)
                 fail(QStringLiteral("NAVFAIL scenario D (return): workbench "
                                     "not cleared"));
@@ -1051,7 +1165,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario F: page-local drafts survive navigation ----
-        case 21: {
+        case 29: {
             struct DraftSpec {
                 const char *objectName;
                 const char *property;
@@ -1094,7 +1208,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(2);
             break;
         }
-        case 22: {
+        case 30: {
             for (auto it = draftValues->cbegin(); it != draftValues->cend(); ++it) {
                 auto *item = findNamedItem(roots, it.key());
                 if (!item) {
@@ -1130,7 +1244,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario G': the REAL failure path of a connect attempt ----
-        case 23: {
+        case 31: {
             if (ctrl->property("serialConnected").toBool())
                 fail(QStringLiteral("NAVFAIL scenario G': serialConnected "
                                     "became true for a non-existent port"));
@@ -1154,8 +1268,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 24: switchTo(2); break;
-        case 25: {
+        case 32: switchTo(2); break;
+        case 33: {
             if (ctrl->property("serialConnected").toBool()
                 || !ctrl->property("hasSerialError").toBool())
                 fail(QStringLiteral("NAVFAIL scenario G': connect-failure "
@@ -1164,11 +1278,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario F verification after the round trip ----
-        case 26: {
+        case 34: {
             switchTo(0);
             break;
         }
-        case 27: {
+        case 35: {
             switchTo(2);
             for (auto it = draftValues->cbegin(); it != draftValues->cend(); ++it) {
                 auto *item = findNamedItem(roots, it.key());
@@ -1186,6 +1300,227 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 << QStringLiteral("NAV [scenario F]: %1 draft properties "
                                   "survived the full round trip")
                        .arg(draftValues->size());
+            break;
+        }
+
+        // ---- Scenario J: canonical replay load + navigation persistence ----
+        case 36: {
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_DEMO_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("NAVFAIL loadReplayFile() not invokable"));
+            break;
+        }
+        case 37: {
+            // Canonical golden semantics (mirrors r01; no presentation
+            // strings parsed): the source is the BASENAME only.
+            const QMap<QString, QVariant> now = takeSnapshot(ctrl);
+            const QStringList checks = {
+                QStringLiteral("observedCount"),  QStringLiteral("completedCount"),
+                QStringLiteral("pendingCount"),   QStringLiteral("successCount"),
+                QStringLiteral("exceptionCount"), QStringLiteral("crcErrorCount"),
+                QStringLiteral("timeoutCount"),   QStringLiteral("protocolErrorCount"),
+                QStringLiteral("expectedNoResponseCount"),
+            };
+            for (const QString &key : checks) {
+                if (now.value(key).toInt() != scenarioJExpected.value(key).toInt())
+                    fail(QStringLiteral("NAVFAIL scenario J: %1 = %2, expected %3")
+                             .arg(key, now.value(key).toString(),
+                                  scenarioJExpected.value(key).toString()));
+            }
+            if (now.value(QStringLiteral("modeLabel")).toString()
+                != QStringLiteral("回放模式"))
+                fail(QStringLiteral("NAVFAIL scenario J: mode is not 回放模式"));
+            if (now.value(QStringLiteral("sourceLabel")).toString()
+                != QStringLiteral("demo_v1.mlog"))
+                fail(QStringLiteral("NAVFAIL scenario J: source is not the "
+                                    "basename demo_v1.mlog"));
+            if (!now.value(QStringLiteral("hasSuccessRate")).toBool()
+                || !qFuzzyCompare(now.value(QStringLiteral("successRate")).toDouble(),
+                                  0.25))
+                fail(QStringLiteral("NAVFAIL scenario J: successRate != 0.25"));
+            if (!now.value(QStringLiteral("hasAverageSuccessLatency")).toBool()
+                || !qFuzzyCompare(
+                    now.value(QStringLiteral("averageSuccessLatencyMs")).toDouble(),
+                    25.0))
+                fail(QStringLiteral("NAVFAIL scenario J: avg latency != 25ms"));
+            *scenarioJ = now;
+            switchTo(3);
+            break;
+        }
+        case 38: {
+            verifyStructureAndIdentity(QStringLiteral("scenario J @replay"));
+            compareAgainst(*scenarioJ, takeSnapshot(ctrl),
+                           QStringLiteral("scenario J @replay"));
+            break;
+        }
+        case 39: switchTo(1); break;
+        case 40: {
+            verifyStructureAndIdentity(QStringLiteral("scenario J @dashboard"));
+            compareAgainst(*scenarioJ, takeSnapshot(ctrl),
+                           QStringLiteral("scenario J @dashboard"));
+            break;
+        }
+        case 41: switchTo(2); break;
+        case 42: {
+            verifyStructureAndIdentity(QStringLiteral("scenario J @communication"));
+            compareAgainst(*scenarioJ, takeSnapshot(ctrl),
+                           QStringLiteral("scenario J @communication"));
+            break;
+        }
+        case 43: switchTo(3); break;
+        case 44: {
+            verifyStructureAndIdentity(QStringLiteral("scenario J @replay 2"));
+            compareAgainst(*scenarioJ, takeSnapshot(ctrl),
+                           QStringLiteral("scenario J @replay 2"));
+            switchTo(0);
+            break;
+        }
+        case 45: {
+            verifyStructureAndIdentity(QStringLiteral("scenario J @legacy"));
+            compareAgainst(*scenarioJ, takeSnapshot(ctrl),
+                           QStringLiteral("scenario J @legacy"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario J]: replay session survived "
+                                  "five switches (source=%1)")
+                       .arg(takeSnapshot(ctrl)
+                                .value(QStringLiteral("sourceLabel"))
+                                .toString());
+            break;
+        }
+
+        // ---- Scenario K: ordinary failed replacement is atomic (against a
+        // NON-EMPTY replay session) ----
+        case 46: {
+            *scenarioKPre = takeSnapshot(ctrl);
+            const QUrl missing = QUrl::fromLocalFile(
+                QStringLiteral("MODBUSLENS_NO_SUCH_DIR/missing_replay.mlog"));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, missing)))
+                fail(QStringLiteral("NAVFAIL loadReplayFile() not invokable"));
+            break;
+        }
+        case 47: {
+            if (!ctrl->property("hasReplayError").toBool())
+                fail(QStringLiteral("NAVFAIL scenario K: expected the "
+                                    "authoritative hasReplayError flag"));
+            compareAgainst(*scenarioKPre, takeSnapshot(ctrl),
+                           QStringLiteral("scenario K failed replacement"));
+            switchTo(1);
+            break;
+        }
+        case 48: {
+            compareAgainst(*scenarioKPre, takeSnapshot(ctrl),
+                           QStringLiteral("scenario K @dashboard"));
+            switchTo(2);
+            break;
+        }
+        case 49: {
+            compareAgainst(*scenarioKPre, takeSnapshot(ctrl),
+                           QStringLiteral("scenario K @communication"));
+            switchTo(3);
+            break;
+        }
+        case 50: {
+            compareAgainst(*scenarioKPre, takeSnapshot(ctrl),
+                           QStringLiteral("scenario K @replay"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario K]: failed replacement kept "
+                                  "mode/source/rows/statistics across three "
+                                  "workspaces");
+            break;
+        }
+
+        // ---- Scenario K': replayNotice lifecycle across a failed attempt ----
+        case 51: {
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_UNSUPPORTED_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("NAVFAIL loadReplayFile() not invokable"));
+            break;
+        }
+        case 52: {
+            // Successful load of the unsupported-function sample: NOT an
+            // error; the notice discloses the unsupported record; analyzed
+            // records = 0, so rows/statistics are the zero batch.
+            if (ctrl->property("hasReplayError").toBool())
+                fail(QStringLiteral("NAVFAIL scenario K': successful load must "
+                                    "not set replayError"));
+            if (!ctrl->property("hasReplayNotice").toBool())
+                fail(QStringLiteral("NAVFAIL scenario K': expected "
+                                    "hasReplayNotice for the unsupported "
+                                    "sample"));
+            const QString notice =
+                ctrl->property("replayNoticeText").toString();
+            if (notice.isEmpty())
+                fail(QStringLiteral("NAVFAIL scenario K': notice text is empty"));
+            if (ctrl->property("sourceLabel").toString()
+                != QStringLiteral("t015_unsupported_fc08.mlog"))
+                fail(QStringLiteral("NAVFAIL scenario K': source is not the "
+                                    "unsupported sample basename"));
+            if (ctrl->property("observedCount").toInt() != 0)
+                fail(QStringLiteral("NAVFAIL scenario K': unsupported records "
+                                    "must not enter the statistics pool"));
+            scenarioKNotice->insert(QStringLiteral("replayNoticeText"), notice);
+            scenarioKNotice->insert(QStringLiteral("sourceLabel"),
+                                    ctrl->property("sourceLabel"));
+            scenarioKNotice->insert(QStringLiteral("modeLabel"),
+                                    ctrl->property("modeLabel"));
+            scenarioKNotice->insert(QStringLiteral("observedCount"),
+                                    ctrl->property("observedCount"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario K' load]: source=%1 notice=%2")
+                       .arg(ctrl->property("sourceLabel").toString(), notice);
+            break;
+        }
+        case 53: {
+            // Deterministic failed replacement (same construction as K).
+            const QUrl missing = QUrl::fromLocalFile(
+                QStringLiteral("MODBUSLENS_NO_SUCH_DIR/missing_replay.mlog"));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, missing)))
+                fail(QStringLiteral("NAVFAIL loadReplayFile() not invokable"));
+            break;
+        }
+        case 54: {
+            if (!ctrl->property("hasReplayError").toBool())
+                fail(QStringLiteral("NAVFAIL scenario K': expected replayError "
+                                    "after the failed attempt"));
+            // THE assertion: the old session disclosure survives BYTE-EQUAL.
+            if (ctrl->property("replayNoticeText")
+                != scenarioKNotice->value(QStringLiteral("replayNoticeText")))
+                fail(QStringLiteral("NAVFAIL scenario K': replayNoticeText "
+                                    "changed across a failed attempt"));
+            if (ctrl->property("sourceLabel")
+                != scenarioKNotice->value(QStringLiteral("sourceLabel")))
+                fail(QStringLiteral("NAVFAIL scenario K': source changed"));
+            if (ctrl->property("modeLabel")
+                != scenarioKNotice->value(QStringLiteral("modeLabel")))
+                fail(QStringLiteral("NAVFAIL scenario K': mode changed"));
+            if (ctrl->property("observedCount")
+                != scenarioKNotice->value(QStringLiteral("observedCount")))
+                fail(QStringLiteral("NAVFAIL scenario K': observedCount "
+                                    "changed"));
+            break;
+        }
+        case 55: switchTo(1); break;
+        case 56: switchTo(2); break;
+        case 57: switchTo(3); break;
+        case 58: {
+            if (ctrl->property("replayNoticeText")
+                != scenarioKNotice->value(QStringLiteral("replayNoticeText")))
+                fail(QStringLiteral("NAVFAIL scenario K' (round trip): notice "
+                                    "changed"));
+            if (ctrl->property("sourceLabel")
+                != scenarioKNotice->value(QStringLiteral("sourceLabel")))
+                fail(QStringLiteral("NAVFAIL scenario K' (round trip): source "
+                                    "changed"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario K']: notice/source/rows all "
+                                  "preserved across the failed attempt and a "
+                                  "three-page round trip");
             break;
         }
 

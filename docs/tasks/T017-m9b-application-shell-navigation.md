@@ -1732,7 +1732,50 @@ git diff --check → 通过
 
 见 §41 回填（B4.2 提交；不 push、不推进 LKGC——待 B4.3/B4.4 与人工验收）。
 
+### 39.1.1 B4.3 — Replay Navigation / Atomicity Scenarios + Unsupported Fixture + 8-Pass Geometry（Implementation Record，2026-09-16）
+
+按 §38.31.4 执行（用户批准；**保留全部旧覆盖，I/J/K/K′ 为增量**）：
+
+- **Fixture 接线（CMake，机制复用零绝对路径）**：`configure_file(samples/t015_unsupported_fc08.mlog → test_data/ COPYONLY)`（紧邻 demo_v1 既有机制）+ `target_compile_definitions(modbuslens PRIVATE MODBUSLENS_UNSUPPORTED_MLOG_PATH=… MODBUSLENS_DEMO_MLOG_PATH=…)`——nav check 跑在 app 可执行文件上，故两个 define 都挂在 `modbuslens` target。
+- **Scenario I（navigation ≠ source transition，四页全程）**：以 demo 批次 + 基线诊断为非空会话起点，捕获**扩展快照**（16 核心字段 + hasBaselineDiagnosis/baselineDiagnosisText + hasReplayError/hasReplayNotice），随后 `Legacy→Replay→Communication→Replay→Legacy`（Replay→Communication→Replay→Legacy→Dashboard 全四页巡回）逐站全等断言。实测轨迹：四页巡回零变化 ✓。
+- **Scenario J（canonical load + 持久化）**：`loadReplayFile(demo_v1 fixture)` → 断言 canonical golden（observed=4/completed=4/pending=0/1/1/1/1/0/0、mode=回放模式、**source=demo_v1.mlog（basename）**、successRate=0.25、avgLatency=25ms——与 r01 同口径、无 presentation 字符串解析）→ `Replay→Dashboard→Communication→Replay→Legacy→Replay` 五次切换逐值保持 ✓。
+- **Scenario K（普通失败替换原子性，非空会话起点）**：自 J 的回放会话捕获 pre → `loadReplayFile(不存在的路径)` → `hasReplayError=true` + mode/source/rows/statistics 逐值不变 → `Dashboard→Communication→Replay` 巡回再证 ✓。
+- **Scenario K′（replayNotice 生命周期）**：`loadReplayFile(unsupported fixture)` 成功 → 断言 `hasReplayError=false`、`hasReplayNotice=true`、notice 非空、source=t015_unsupported_fc08.mlog、observed=0（unsupported 不入统计池）→ 捕获 notice **完整字符串** → 同型失败加载 → 断言 `hasReplayError=true` 且 **replayNoticeText 逐值不变**（非"仍非空"）+ mode/source/observed 不变 → `Replay→Dashboard→Communication→Replay` 巡回再证 ✓。实测 notice：`提示：1 条记录当前未支持分析（功能码 0x08 等），未计入统计。`
+- **K/K′ 边界**：K=普通非空会话的失败替换原子性；K′=unsupported 会话的 notice 生命周期。互补、不合并、不互相替代。
+- **八趟 geometry**：`legacy/dashboard/communication/replay × 1024×720 + replay/communication/dashboard/legacy × 1000×700`；`activePage()` 增 Replay 分支；**statsVisible 仅 Legacy/Dashboard**（Communication/Replay 无统计实例，隐藏页零断言）；Replay active 断言：页体/`replayHeader`/`replayActionsSection`/`replayLoadButton` 非零 + 内容不越 workspace 宽度。实测（默认尺寸）：replayHeader 935×15、replayActionsSection 935×58、replayLoadButton 115×34 ✓。
+- **native FileDialog 自动化边界**：未自动化（I/J/K/K′ 直调 Controller 命令）；open/cancel/accepted 接线由 QML inspection + smoke + B4.4 人工共同覆盖。
+
+#### 39.1.1 Verification（真命令 + 真输出）
+
+```text
+build → Linking modbuslens.exe（干净）
+qml_smoke → EXITCODE=0
+qml_nav_check → EXITCODE=0；NAV CHECK PASS（四 workspaces；轨迹含
+  NAV [replay]: index=3 … replayVisible=1；
+  NAV [scenario I]: 四页巡回零变化；
+  NAV [scenario J]: 五次切换后 source=demo_v1.mlog；
+  NAV [scenario K]: 失败替换跨三页保持；
+  NAV [scenario K' load]: source=t015_unsupported_fc08.mlog notice=提示：1 条…0x08…；
+  NAV [scenario K']: notice/source/rows 跨失败尝试+三页往返全部保持）
+qml_geometry_check → 八趟 PASS（EXITCODE=0）
+full ctest → 26/26（r01–r08 全绿）
+git diff --check → 通过
+```
+
+#### 39.1.2 Problems / RCA（首轮失败全部留痕）
+
+1. **拼接重复 case（product-build 编译错误，非 test oracle）**：Scenario I 片段文件意外携带了 Scenario B 的注释 + `case 23: {` 开头（拼接产生空的重复 case，花括号 139/140 失衡）。RCA=片段文件裁剪越界；Fix=删除重复；Verification=编译干净 + 花括号平衡。分类：**fixture wiring/拼接错误**。
+2. **oracle 键集缺陷（test oracle bug）**：Scenario I 的比较含 4 个诊断/披露键，但基线 `takeSnapshot` 键集只有 16 个核心字段 → `now.value()` 取到空值 → 假 FAIL（`hasBaselineDiagnosis changed: true -> `）。RCA=捕获键集与比较键集不一致；Fix=新增 `takeExtendedSnapshot`（基线 16 键 + 4 扩展键），I 独占使用（其余场景键集语义不变、无弱化）；Verification=I 四站全绿。分类：**test oracle bug**。
+
+#### 39.1.3 Files Changed（B4.3）
+
+`CMakeLists.txt`（unsupported fixture 复制 + modbuslens 两 fixture 编译定义）、`src/main.cpp`（nav check 状态机 27→58 段、I/J/K/K′、扩展快照、八趟几何、activePage/stats 门控/dump 分支、PASS 文案 four workspaces+replay）。
+
+#### 39.1.4 Candidate Commit
+
+见 §41 回填（B4.3 提交；不 push、不推进 LKGC——待 B4.4 与人工验收）。
+
 ## 41. Next
 
-- **B4.2 Review（用户）**；通过后 **B4.3 — Scenario I/J/K/K′ + 必需 fixture + 八趟 geometry**（§38.31.4；本轮未开始，含 `MODBUSLENS_UNSUPPORTED_MLOG_PATH` 接线）。
-- **B4.4（deploy/截图/人工）与 LKGC 裁定在 B4.3 之后**；本轮均未开始。
+- **B4.3 Review（用户）**；通过后 **B4.4 — deploy + 截图 + manual candidate**（§38.31.4；本轮未开始）。
+- **B4.4 之后**：B4 整体 closure + LKGC 裁定（届时按 Git 证据）。本轮均未开始。
