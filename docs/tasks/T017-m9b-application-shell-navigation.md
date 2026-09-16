@@ -507,3 +507,208 @@ deploy_windows.bat + 无开发 PATH deploy smoke      → [OK] + EXITCODE=0
 
 - `60709ae` — `M9-B1: complete application shell after visual acceptance`（docs-only，5 files：T017 §24–§29 + PROJECT_STATUS + BACKLOG + devlog + INTERVIEW_NOTES）。
 - 本回填提交（docs-only）为哈希记录；两个提交均**不推进 LKGC、不 push**。
+## 30. M9-B2 Phase 1 — Dashboard Boundary / Navigation Persistence（Learning & Design，2026-09-16）
+
+**Task-document 决策（§20）**：**本设计 append 到 T017，不新建 T018**。依据仓库既有粒度惯例：T014（一个任务含 Phase A/B/C 三阶段）、T015（Phase A + Phase B + Part C 同档）、T016（M9-A 的 Phase 1 设计 + Phase 2 实施 + remediation 同档）；T017 已覆盖 M9-B 全链路（§13 明确列出 B1→B5 迁移计划），B1 亦已落在 T017。B2 是 M9-B 的第二阶段，**不构成独立任务**。Implementation = NOT STARTED。
+
+### 30.1 Preflight（2026-09-16）
+
+```text
+pwd                           → /e/desktop/ModbusLens
+git rev-parse --show-toplevel → E:/desktop/ModbusLens
+git rev-parse --short HEAD    → 7e23245
+git branch --show-current     → main
+git status                    → clean
+git diff --check              → pass (exit 0)
+git log --oneline -10         → 7e23245 … 7abd887（见 §29 链）
+git rev-list --left-right --count origin/main...main → 0  12（behind 0 / ahead 12）
+V2 verified LKGC              → 189c62c（在链上）
+V1 immutable tag              → v1.0.0 → ae067ab
+```
+
+### 30.2 现状取证（B1 实现复核，逐项真实代码）
+
+| 事实 | 证据 |
+| --- | --- |
+| Rail 入口顺序与状态 | `NavigationRail.qml` entries：`[0]工作台 enabled`、`[1]总览 disabled`、`[2]通信`、`[3]回放`、`[4]诊断`、`[5]设备`（后四者 disabled） |
+| 选中变更唯一路径 | `activate()`：`if (!navItem.enabled) return;` → 写 `rail.currentWorkspaceIndex`（鼠标/Enter/Space 共用） |
+| Workspace host | `StackLayout { objectName: "workspaceHost"; currentIndex: navigationRail.currentWorkspaceIndex }`，当前唯一子项 = `Item { objectName: "legacyWorkspace" }`（页根模式） |
+| Legacy 内容 | Demo controls（Run Demo + Load Replay）→ Replay error/notice → Serial GroupBox + error → Statistics 段（`statisticsPanel`/`statCard_*`/`statusCard_*`）→ 分隔线 → SplitView(诊断 | 事务) |
+| AppBar | 产品名 + session/source 只读显示 + `appBarClearResults` |
+| Run Demo 接线 | Main.qml:201 `onClicked: analysisController.runDemoBatch()` |
+| Load Replay 接线 | Main.qml:206 `onClicked: replayFileDialog.open()` |
+| Clear 接线 | Main.qml:135 `onClicked: analysisController.clearResults()` |
+| 几何/导航护栏 | main.cpp `runGeometryAssertions`（shell + statistics）+ `runShellNavAssertions`（index 合法/legacy 可见/navItem_0 enabled/navItem_1 disabled/禁用项改不动 index）；`--qml-geometry-check` 双尺寸 |
+| 测试总数 | ctest 25（含 qml_smoke、qml_geometry_check） |
+
+### 30.3 Dashboard 产品边界（§2 比较）
+
+| 维度 | A：Overview + Statistics | **B：Overview + Run Demo + Statistics（推荐）** | C：B + Recent Transactions | D：更大聚合页 |
+| --- | --- | --- | --- | --- |
+| User value | 只读；冷启动无动作入口 | 冷启动即可"看健康 + 一键进入演示会话" | 多一张表，但表的主场是 Communication | 内容多但任务不清 |
+| Migration risk | 低 | 低（Run Demo 是现成命令的单点搬运） | 中（事务表 520 最小宽 + 双行 delegate 需同迁） | 高 |
+| Duplication risk | 无 | 无 | **事务表在 Legacy 与 Dashboard 双呈现** | 高 |
+| 1000×700 density | 空 | 松（见 §30.12 预算：余 300+px） | 紧张（表要 120+ 高） | 不可控 |
+| M9-C 重构 | 简单 | 简单 | 需处理双表 | 大 |
+| V1 behavior risk | 无 | 无（仅复用既有命令） | 行高/列宽（root-owned token）迁移风险 | 高 |
+
+**结论：B**。用户建议候选（Run Demo + Statistics）经真实代码核对成立：两者都已是**单点实现 + 单点接线**，Dashboard 首版只做"聚合搬运"而不新建事实——这正是"第一个真实 page"最合适的范围。C 的表迁移留给 B3（Communication）与 M9-C/D；D 无对应真实用户任务，拒绝。
+
+### 30.4 Run Demo Ownership（§3）
+
+- **谁触发**：仅用户显式点击（现状 Main.qml:201；提取后为 Dashboard 页内按钮）。**导航本身绝不得调用**。
+- **谁拥有**：`AnalysisController::runDemoBatch()`（cpp:1061-1209）。副作用全清单（真实代码）：① `teardownSerialTransport()`（先离开串口，cpp:1066-1068）② 重建确定性 `SimulatedSlave{0x01}`（寄存器 100/200/1500，cpp:1070-1074）③ 产出 4 笔固定事务（Success/Exception/CRC-Timeout，cpp:1103-1192）④ 原子发布（model + snapshot + diagnosis batch，cpp:1197-1201）⑤ `invalidateAiForBatchChange()` ⑥ 设 `modeLabel_=模拟器模式 / sourceLabel_=确定性演示` ⑦ 清 replay/serial 错误 ⑧ emit statisticsChanged + sourceChanged。
+- **为什么属于 Dashboard contextual 而非 AppBar global**：判定准则是**是否切换 source**——`clearResults` 不换 source（r08/s08）⇒ session 级 ⇒ 归 AppBar；`runDemoBatch` **会**切换 source（并 teardown 串口）⇒ 是"进入演示会话"这一具体任务的入口 ⇒ 归承载该任务的工作区（Dashboard）。AppBar 只放"与来源无关的 session 动作 + 身份显示"。
+
+### 30.5 Statistics Ownership（§4）
+
+| UI Field | Controller property（真实） | 格式化 owner（现状） | 现 binding 位置 |
+| --- | --- | --- | --- |
+| 已观测 / 已完成 / 进行中 | `observedCount` / `completedCount` / `pendingCount` | 无（整数直显） | Main.qml Repeater model（statCard_0..2） |
+| 成功率 | `hasSuccessRate` + `successRate` | Main.qml：`(successRate*100).toFixed(1)+"%"`，无值 → `qsTr("—")` | statCard_rate |
+| 平均延迟 | `hasAverageSuccessLatency` + `averageSuccessLatencyMs` | Main.qml：`toFixed(1)+qsTr(" ms")`，无值 → `"—"` | statCard_latency |
+| 成功/异常/CRC 错误/超时/协议错误/预期无响应 | `successCount` / `exceptionCount` / `crcErrorCount` / `timeoutCount` / `protocolErrorCount` / `expectedNoResponseCount` | 无（整数直显 + 各自 tone 色） | statusCard_0..5 |
+
+**结论**：全部来自 Controller 的 `statistics_` 快照（header:33-45，NOTIFY statisticsChanged）；**Dashboard extraction 不得复制任何一项**——抽取的组件只是把同一条绑定链换个宿主。
+
+### 30.6 双 Workspace 导航模型（§5）
+
+- 现契约：`navItem_0` = 工作台（enabled），`navItem_1` = 总览（disabled）。
+- **B2 决策：保持 index 语义只做 append**——`workingIndex0=工作台`、`index1=总览`**启位**（enabled），其余四个保持 disabled。理由：B1 的自动护栏直接断言 `navItem_0/navItem_1` 的 enabled 语义与 index 合法性；改序（把总览提到 0）会破坏"当前页默认选中"的过渡体验并需要同步改动护栏（§5 明确禁止"不改 guard 就改 index 语义"）。StackLayout 子项顺序**必须**与 rail index 一一对应：child0 = legacyWorkspace，child1 = dashboardWorkspace。
+- 未来（B5 全部页面就位后）若要把"总览"抬到首位，属显式的**重排任务**：须同时改 rail、StackLayout 与全部 guard 断言，并在任务文档中作为独立决策记录。
+
+### 30.7 Navigation vs Source 不变量（§6）
+
+**点击 Dashboard（激活 index 1）只允许改变：`rail.currentWorkspaceIndex` 与 `StackLayout.currentIndex`（呈现层）。**
+
+不得改变：`modeLabel` / `sourceLabel` / `serialConnected` / `transactionModel` 行数与内容 / `statistics_` 全部计数与率 / 诊断结果与 `hasBaselineDiagnosis` / AI 结果与错误 / Agent 答案与状态。
+
+不得调用：`runDemoBatch` / `loadReplayFile` / `connectSerial` / `clearResults`。业务命令只允许由**页面内的显式用户动作**触发（Run Demo 按钮、Load Replay 按钮……）。该不变量以 `qml_nav_check` 断言形式落地（§30.8）。
+
+### 30.8 状态存续场景与 qml_nav_check 设计（§7/§8）
+
+| 场景 | 步骤（全部 offline、确定性） | 断言 |
+| --- | --- | --- |
+| **A** | invoke `runDemoBatch()` → 记录 observed/completed/success 等 → `navItem_1.activate()`（切 Dashboard）→ `navItem_0.activate()`（回 Legacy） | 切换前后全部统计值逐项相等（演示批次是确定性的） |
+| **B** | invoke `runBaselineDiagnosis()` → 记录 `hasBaselineDiagnosis` + `baselineDiagnosisText` → 来回切换 | 文本与标志逐字不变 |
+| **C（serial/session）** | 需要真实串口或传输层 fake；当前 QML 层无可用 seam（`publishSerialResult` 是 C++ 测试 seam，不经 QML） | **DEFER（不造假）**：明确记录"offline 不可可靠验证，留待有硬件或专门 seam 时补"，由人工验收覆盖连接态显示 |
+| **D（Clear）** | invoke `clearResults()` → 记录 → 切换 | 两页同时归零/占位（同一 authoritative state） |
+
+**`qml_nav_check` 设计**（新 CLI `--qml-nav-check` + 新 ctest target；与只读的 geometry check 分离——nav check 会**写状态**（invoke 命令），二者失败语义不同）：
+
+- A. 两个 page object 同时存在：`legacyWorkspace` 与 `dashboardWorkspace` 均能按 objectName 找到（StackLayout 全实例化）。
+- B. 切换 0 → 1 → 0（走真实 `activate()` 路径）。
+- C. **对象身份稳定**：切换前后保存的 `QQuickItem*` 指针相等（页面未被重建）。
+- D. `currentWorkspaceIndex` 与 `StackLayout.currentIndex` 始终一致且正确。
+- E. 可见性正确：index0 → legacy visible / dashboard hidden；index1 反之。
+- F. 禁用未来项（navItem_2..5）invoke `activate()` 后 index 不变（沿用 B1 的 invoke 返回值校验，防空洞通过）。
+- G. 业务值不变（场景 A/B/D 的断言集）。
+- **身份匿名的边界说明**：C 只能证明**生命周期稳定**（对象没被销毁重建 → 页面本地状态不丢、无重复初始化副作用），**不能**证明业务状态正确——业务正确性必须由 G 的逐值断言（走 Controller authoritative properties）独立证明。两者是"结构证据 + 状态证据"，缺一不可。
+
+### 30.9 DashboardPage 组件与依赖方式（§9）
+
+- 形态：`src/ui/qml/pages/DashboardPage.qml`（新 `pages/` 目录，§12 分解图既定），根为**纯 Item**（页根模式，B1 教训），`objectName: "dashboardWorkspace"`。只负责 layout / bindings / 用户意图；不创建第二份 Controller、不复制 statistics、不拥有 simulator、不自行切 source。
+- 依赖方式比较：
+
+| 维度 | A′：注入 Controller 引用（推荐） | B：page 暴露 signal，由 shell 接线 |
+| --- | --- | --- |
+| coupling | 显式依赖（`property AnalysisController controller`，由 shell 传入实例；无全局、无第二实例） | 动作解耦但**显示仍必须**拿引用 → 双机制并存 |
+| testability | 与现状一致（CLI 按 objectName 找到页面，controller 由 shell 注入） | 动作路径经 shell 转发，grep 调用点变难 |
+| boilerplate | 最低（直接绑定 + 直接调用 onClicked） | 每个动作一条 shell 转发线 |
+| 项目规模适配 | 契合（Legacy 的按钮本来就是直接调用） | 过度设计 |
+| B3–B5 一致性 | 全部 page 同一模式 | 两种模式混用 |
+
+**推荐 A′**：显示用绑定、动作用 `onClicked → controller.<command>`（与 Legacy 一致、可在 grep 中看到全部调用点）。**否决 B 的理由**：显示绑定无论如何都要 controller 引用，signal 只覆盖"动作"半边，造成双机制；且转发层会把"谁在调用业务命令"从代码里藏起来。**红线**：任何 `controller.*` 调用不得出现在 `Component.onCompleted` / 可见性变化 / `currentIndex` 变化路径中（§30.7）。
+
+### 30.10 Statistics 复用方案（§10）
+
+| 方案 | migration safety | duplication | visual consistency | rollback | M9-C |
+| --- | --- | --- | --- | --- | --- |
+| A：统计直接 MOVE 到 Dashboard，Legacy 不再显示 | 低（Legacy 出现大片空洞） | 无 | 单点 | 回滚=恢复大段 markup | 好 |
+| **B：抽 `StatisticsOverview.qml`，迁移期 Legacy + Dashboard 共用（推荐）** | **高**（Legacy 视觉零变化，Dashboard 增量出现） | 无 | 单点 | 回滚=换回内联/改回单实例 | 好（一处改两处生效） |
+| C：临时复制 markup | 低 | **有**（违反 §30.5 精神：同一事实两份渲染代码，日后改一处漏一处） | 漂移风险 | 差 | 差 |
+
+**推荐 B**。提取时组件化两条硬约束：① 组件持有**全部 11 卡与格式化逻辑**（toFixed(1) / "%" / " ms" / "—" 逐字保持），消费注入的 controller 引用；② **objectName 必须可按实例命名**——迁移期两个实例同时存在（StackLayout 全实例化），现有 guard 的 `statisticsPanel` / `statCard_*` 名字会重复，因此组件暴露 `instanceId`（如 `stats_legacy` / `stats_dashboard`），objectName 形如 `statisticsPanel_stats_dashboard`；guard 改为按后缀定位**每个实例**各自的卡。
+
+### 30.11 Legacy Workspace after B2（§11）
+
+B2 之后 Legacy 内容：Load Replay（控件行唯一按钮）→ Replay error/notice → Serial GroupBox + error → **StatisticsOverview（共用组件，位置与视觉不变）** → 分隔线 → SplitView(诊断 | 事务)。Run Demo 迁出（其唯一合法入口变为 Dashboard）。
+- 空洞问题：控件行只剩一个"加载回放..."按钮——**保留该行**（B4 会把整个 Replay 流程收拢到 Replay 页），B2 不做视觉重设计，只在注释与文档中标注"过渡期单按钮行"。
+
+### 30.12 Dashboard 布局预算（§14）
+
+```text
+窗口 1000×700：host 高 659（B1 实测）− 页内缩 32 = 627 可用高
+Dashboard 内容：页标题 21 + 12 + Run Demo 行 34 + 12 + StatisticsOverview（标题 21 + 12 + 面板 168 = 201）
+             ≈ 280  →  余量 ≈ 347px（无需滚动）
+窗口 1024×720：host 679 − 32 = 647 可用 → 余量 ≈ 367px
+宽度：host 943/967 − 页内缩 32 → 页内容 911/935；统计两行实测 887/911 ≥ 隐式宽 840/732 ✓
+```
+**结论**：两尺寸均无需滚动；余量记录在案，**不添加填充性 widget**（§14 明令）。
+
+### 30.13 Empty / No-Data 状态（§12）
+
+现状：未跑任何来源时显示 `Observed 0 / Success rate — / Avg latency —`——**数字本身是诚实的**（"没有数据"而非"失败"），保持。设计（不实现）：Dashboard 首版加**一行轻量引导文案**，条件 `visible: analysisController.observedCount === 0`，内容含两个合法入口名（"运行演示批次" / "加载回放日志"）。**不新建 EmptyState 组件**（M9-C 候选；当前唯一使用点，先内联一行 Label）。Legacy 同期不加（它还有 Serial 等入口，语义不同）。
+
+### 30.14 Clear Results 行为验收（§13）
+
+`clearResults()` 清空 `statistics_` → 两页（同一 authoritative 绑定）同时归零、率/延迟回 `—`。验收点：
+- 自动：nav check 场景 D（在 Dashboard 激活状态下 invoke → 断言全零 + `hasSuccessRate==false` + `hasAverageSuccessLatency==false`）。
+- 人工：在 Dashboard 点 AppBar 清空 → 本页立即归零；切到 Legacy → 同样归零（证明无第二份 state）。
+
+### 30.15 Accessibility / Focus（§15）
+
+- `总览` 启位后：mouse / Enter / Space 均经 `activate()`（与 B1 同路径）；选中态沿用三通道（底 + 主色条 + 加粗），**不依赖颜色单通道**。
+- Run Demo 按钮用既有 `AppButton`（`Qt.StrongFocus` 保持）。
+- **切页后焦点策略：A —— 焦点留在被激活的 rail 项**。理由：焦点跟随用户最后操作的控件是桌面惯例；自动把焦点扔进页面（B）会在用户只想"看一眼"时抢走键盘上下文，且页面首个可聚焦控件并不总是用户意图（Dashboard 的 Run Demo 是破坏性不大的动作，但同类假设在 B3 的 Serial 页会直接有风险）。页面内容只在用户显式 Tab 之后接管焦点。无理由不抢焦点。
+
+### 30.16 V1 / M9 契约风险清单（§16）
+
+| 契约 | 真实证据 | B2 红线 |
+| --- | --- | --- |
+| runDemo 行为 | cpp:1061-1209 + `b01_runDemoStatistics`/`b02`/`b04_deterministicReRun`/`b06` | 只搬按钮位置；命令零改动；导航不得触发 |
+| source switching 原子律 | `r03`/`s02`/`d04`/`ai07`（失败不动旧状态） | 不受影响；但 Run Demo 按钮新位置必须保持"点击才切换" |
+| statistics 绑定 | `a01`-`a06`、STAT-*；Main.qml 382-460 现绑定 | 逐字段、逐格式搬运；禁止复制 state |
+| clearResults | `r08_clearKeepsSource`、`s08`、`d08`；cpp:1211-1224 | 留在 AppBar 不动 |
+| 诊断存续 | `d02_clearResultsInvalidates`/`d03_newBatchInvalidates`/`d05`/`d06` | 导航不得清诊断；场景 B 断言 |
+| AI/Agent 存续 | `ai06`/`ai08`/`ai10` | 导航不得触碰（B2 不涉及，护栏不回归） |
+| TransactionModel | `a03`-`a06`、`t01`-`t05` | B2 不动事务表 |
+| M9-A 统计视觉 | ISSUE-012 修复链 + `qml_geometry_check` 统计断言 | 提取后断言必须**按实例名**继续全过；不得删断言 |
+| M9-B1 shell 几何 | `qml_geometry_check` shell 段（appBar/rail/host/≥852） | 新页必须满足 host 预算；导航断言不得弱化 |
+| 禁用导航守卫 | main.cpp `runShellNavAssertions`（含 invoke 校验） | navItem_2..5 保持禁用断言；新增 index1 合法断言 |
+| 最小窗口 | 1000×700（T013 Policy）+ SplitView min 300/520 | Dashboard 预算按 §30.12；不许引入滚动依赖 |
+
+### 30.17 B2 增量实施计划（§17）
+
+> 护栏先行、每步可构建/测试/回滚；不得一次搬完再调试。
+
+- **B2.1 — StatisticsOverview 提取（视觉零变化）**：新建 `components/StatisticsOverview.qml`（instanceId + 全 11 卡 + 格式化）；Legacy 改用该组件（`instanceId: "legacy"`）；`qml_geometry_check` 的统计断言改为实例名寻址。验证：ctest 25/25（总数不变）+ 截图对比无变化。
+- **B2.2 — DashboardPage + 第二 workspace（结构步）**：新建 `pages/DashboardPage.qml`（页标题 + Run Demo + StatisticsOverview(`instanceId: "dashboard"`) + 空态引导行）；rail `index1` 启位；StackLayout 增 child1；**删除 Legacy 的 Run Demo 按钮**（避免双入口）；新增 `--qml-nav-check` + ctest `qml_nav_check`（结构断言 A–F）。验证：ctest **26**（如实报告）+ 双 smoke + 人工。
+- **B2.3 — 状态存续断言（行为步）**：nav check 增加场景 A/B/D 的逐值断言（含 clear 归零）。验证：ctest 26/26。
+- **B2.4 — 收尾**：Legacy 注释/文档更新（单按钮行说明）+ 截图 + 人工验收包（§30.18 清单）。
+- 每步独立提交；回滚 = revert 单提交。
+
+### 30.18 Test / Acceptance Plan（§18）
+
+- **Baseline**：ctest 25（qml_smoke + qml_geometry_check 全保留）。
+- **新增**：`qml_nav_check`（新 ctest target，**总数 25 → 26，如实报告**）；geometry check 断言按实例名扩写（不删旧断言）。
+- **覆盖**：两真实 workspace 并存 / 0→1→0 / 页面身份稳定 / index 与可见性 / 禁用项不可切页（invoke 校验）/ 统计与诊断逐值存续 / clear 归零。
+- **人工**（1000×700 与 1024×720）：Dashboard 导航与选中态 / Legacy 导航 / Run Demo（从 Dashboard 跑出确定性批次）/ Statistics 两页一致 / Clear 两页同步归零 / 诊断与 AI 结果切页存续 / Transactions 与 Serial 区域可见性 / 禁用入口不误导 / resize 稳定。
+
+### 30.19 Knowledge Before Implementation（§19，8 项，各自对应真实问题）
+
+| # | 知识点 | 解决 ModbusLens 的哪个真实问题 |
+| --- | --- | --- |
+| 1 | View duplication vs state duplication | 迁移期最危险的不是"两处显示统计"，而是"两处各存一份统计"——本设计用共享组件 + 单一 Controller 快照把这个坑封死 |
+| 2 | Page ownership | 页面的所有权边界=layout/bindings/用户意图；Run Demo 这类 source 切换命令只能被"页面内的显式动作"触发，不能被"进入页面"触发 |
+| 3 | Page signal vs direct Controller binding | 显示必须绑 Controller，动作若再走 signal 就形成双机制与隐藏调用点——选注入引用 + 直接 onClicked（可 grep、可测） |
+| 4 | Navigation invariant | "切页只改呈现"必须成为可断言事实（nav check），否则未来重排/加页时静默违约 |
+| 5 | Object lifetime vs business state | 对象身份不变只证明生命周期；业务正确性要另证——两类证据分离是 nav check 的设计骨架 |
+| 6 | Migration compatibility | Legacy 在 B2–B4 期间必须继续可用且视觉不塌：统计共用组件（方案 B）是对"兼容期"问题的直接回答 |
+| 7 | Empty state | "0 / —"已经诚实；真正缺的是"接下来做什么"的引导——一行条件文案即可，不为一个使用点造组件 |
+| 8 | Dashboard information hierarchy | 首版层级 = 会话健康（统计）> 入口动作（Run Demo）> 引导；不堆填充物，700 高下的松是特性不是缺陷 |
+
+### 30.20 Status
+
+- **M9-B2 Phase 1 = Learning / Design 完成（docs-only）；Implementation = NOT STARTED。**
+- 下一步：**B2 Phase 1 Review（用户）**；批准后按 §30.17 从 B2.1 开始，每步单独 Review 与提交。
