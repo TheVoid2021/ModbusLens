@@ -505,4 +505,5 @@ deploy_windows.bat + 无开发 PATH deploy smoke      → [OK] + EXITCODE=0
 
 ## 29. B1 Completion Commit
 
-`M9-B1: complete application shell after visual acceptance`（docs-only；哈希见本章回填或 git log——本轮按用户指令不另起回填提交则记录于 PROJECT_STATUS 变更表）。
+- `60709ae` — `M9-B1: complete application shell after visual acceptance`（docs-only，5 files：T017 §24–§29 + PROJECT_STATUS + BACKLOG + devlog + INTERVIEW_NOTES）。
+- 本回填提交（docs-only）为哈希记录；两个提交均**不推进 LKGC、不 push**。
