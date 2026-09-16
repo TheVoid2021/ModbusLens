@@ -11,12 +11,12 @@
 | 当前 Milestone（Current Milestone） | M1~M8 ✅ 全部 DONE（M8 = M8.1 诊断覆盖审计 + T014 + T015；T015 verified LKGC `ae067ab`） |
 | Last Known Good Commit | **V2 verified LKGC = `207ae96`**（M9-B4 Replay Extraction：最后一个包含真实 product/QML/test behavior change（`src/main.cpp` 的 evidence-capture harness + 此前的 ReplayPage/迁移/场景链）且其**仓库树**通过 build/qml_smoke/`qml_nav_check`/八趟 `qml_geometry_check`/full ctest 26/26/deploy smoke（含部署版 nav/geometry）/**用户 Manual Visual Review PASS** 的提交；Git 文件列表裁定见 T017 §42.3——`207ae96` 含 `src/main.cpp` +181 行，**不是 docs-only**）。**V1 tag `v1.0.0` = `ae067ab`（永久不变；V1 与 V2 的 LKGC 是两个概念）**。历史值：`382ecfb`（M9-B3）、`53685d5`（M9-B2）、`189c62c`（M9-B1）、`6562dd3`（M9-A）、`ae067ab`（T015）、`02ce302`、`cc8393a`、`99f17d6`、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`） |
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5，零警告（T015 收盘 clean 全量重建 153 targets） |
-| Test 状态 | ✅ **26/26 通过**（B4.3：nav check 58 段 + `transactionRowCount` 进入全场景快照（rows 不变从此有真实断言）+ K′ 完整快照/逐值 notice 比较；八趟 geometry） |
+| Test 状态 | ✅ **26/26 通过**（B5.1：nav check 增补 diagnosisPage 存在性/not-visible 断言；八趟 geometry 的 dump 含 diagnosisPage 信息性条目——隐藏页 0×0 不断言） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · T011 · T012 · T013 · T014 · T015（V1 主线）· **T016（M9-A UI Foundation / Design System = ✅ COMPLETE）** |
-| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B4 = COMPLETE（verified LKGC `207ae96`）；**M9-B5 Phase 1 Learning / Design 落库（docs-only，AWAITING REVIEW）**——Implementation = NOT STARTED |
+| 当前任务（Current Task） | **T017 — M9-B Application Shell & Navigation（IN PROGRESS）**：B4 = COMPLETE（`207ae96`）；**M9-B5.1 DiagnosisPage Shell Only = 实施完成（candidate）**；B5.2（原子迁移+启位）待用户 GO |
 | 最近完成任务（Last Completed Task） | **M9-B4 Replay Extraction = COMPLETE**（`207ae96` = 新 verified LKGC）。此前：M9-B3（`382ecfb`）、M9-B2（`53685d5`）、M9-B1（`189c62c`）、M9-A（`6562dd3`） |
-| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-B5 Phase 1 — Diagnosis Extraction / Persistence Contracts（Learning & Design，docs-only）** |
-| 下一步动作（Next Action） | **M9-B5 Phase 1 Review（用户）**：审 [T017 §43](tasks/T017-m9b-application-shell-navigation.md)（Diagnosis UI 21 项清单 / 状态所有权表 / 异步 AI·Agent 边界 / single-flight 互斥冻结 / 边界方案 B / 页本地 draft 决定 / Legacy 收口（SplitView→单 Transactions 全宽）/ `workspaceDiagnosisIndex: 4` / B5.1–B5.4 序列（B4 修正教训：迁移+启位同阶段）/ Scenario L/N + **M 的 AI 结果自动化 DEFER（不伪造）** / 10 趟几何 / bounded-scroll 风险 / M9-D 边界）。批准后才进入 B5.1；未批准前：不改 QML、不开始 DiagnosisPage、不推进 LKGC、不 push |
+| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh；Current Task Phase：M9-B5.1 — DiagnosisPage Shell Only（实施完成；B5.2 待 GO）** |
+| 下一步动作（Next Action） | **等待用户 GO 启动 M9-B5.2 — 原子 Diagnosis 工作流迁移+启位**（同一提交：21 项清单整块 MOVE + `workspaceDiagnosisIndex: 4` + rail 启位 + SplitView 收口；§43.13）。B5.1 candidate：DiagnosisPage shell 已实例化（第 5 子项、不可达、零绑定零命令零副作用）；B5.3/B5.4 未开始 |
 | 下一 Part（Next Part） | 无（T012 Part B Phase 2 已随 T012 完成） |
 | 下一任务（Next Task After T016） | **M9-B Application Shell & Navigation = T017 进行中**（Phase 1 Learning & Design 已落库待 Review；实施按 T017 §13 的 B1→B5 逐步进行，每步独立 Review/提交） |
 | Known Issues | 见 §4 |

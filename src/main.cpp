@@ -467,6 +467,7 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
         QStringLiteral("dashboardWorkspace"),
         QStringLiteral("communicationWorkspace"),
         QStringLiteral("replayWorkspace"),
+        QStringLiteral("diagnosisPage"),
     };
     if (page == ActivePage::Replay) {
         names << QStringLiteral("replayHeader")
@@ -942,6 +943,16 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             *replayPtr = findNamedItem(roots, QStringLiteral("replayWorkspace"));
             if (!*replayPtr)
                 fail(QStringLiteral("NAVFAIL replayWorkspace not found"));
+            // M9-B5.1: the Diagnosis shell exists as the fifth child but its
+            // navigation entry stays disabled — existence/not-visible only,
+            // no geometry or behavioural assertions for the hidden page.
+            if (!findNamedItem(roots, QStringLiteral("diagnosisPage")))
+                fail(QStringLiteral("NAVFAIL diagnosisPage shell not found"));
+            else if (auto *diagnosisShell =
+                         findNamedItem(roots, QStringLiteral("diagnosisPage"));
+                     diagnosisShell->isVisible())
+                fail(QStringLiteral("NAVFAIL diagnosisPage must not be visible "
+                                    "while 诊断 navigation is disabled"));
             *snapshot0 = takeSnapshot(ctrl);
             qInfo().noquote()
                 << QStringLiteral("NAV [initial]: index=%1 legacy=%2x%3 "

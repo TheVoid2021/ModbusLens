@@ -753,6 +753,19 @@ ApplicationWindow {
                     objectName: "replayWorkspace"
                     analysisController: analysisController
                 }
+
+                // Diagnosis workspace page (M9-B5.1) — StackLayout child 4.
+                // SHELL ONLY: the Diagnosis workflow (诊断 TabBar, baseline
+                // run/clear, AI controls, Agent draft/controls, bounded
+                // Flickables) still lives in the Legacy workbench and
+                // migrates here atomically WITH the 诊断 navigation
+                // enablement in B5.2 (T017 §43.13). Until then this page is
+                // intentionally empty, has zero bindings/commands, and is
+                // unreachable (诊断 stays disabled).
+                DiagnosisPage {
+                    objectName: "diagnosisPage"
+                    analysisController: analysisController
+                }
             }
         }
     }

@@ -2098,3 +2098,43 @@ Diagnosis nav 激活/视觉不裁切 / Baseline action+result / 切页 result �
 
 - **M9-B5 Phase 1 = Learning / Design 完成（docs-only）；Implementation = NOT STARTED。**
 - 下一步：**B5 Phase 1 Review（用户）**；批准后按 §43.13 从 B5.1 开始。
+
+
+### 43.22 Phase 1 Review = PASS（用户，2026-09-17）+ B5.1 Guardrails
+
+用户批准进入 **B5.1 — DiagnosisPage Shell Only**，并追加四条 guardrails（本文档为 authority）：
+
+- **A. clearDiagnosis 语义以当前 Controller 真实实现为准**（cpp:811-830：清 AI 结果/错误 + baseline，**批次/行/统计/source 不动、batchRevision 不变**；在途 AI 以 `DiagnosisCleared` 原因取消）。B5 extraction **不得重新定义**。
+- **B. DiagnosisPage visibility 没有业务 lifecycle authority**：不得新增通过 `onVisibleChanged` / `Component.onCompleted` / `Component.onDestruction` 触发 runBaselineDiagnosis / clearDiagnosis / askAiDiagnosis / cancelAiDiagnosis / askAgent / cancelAgent 或任何等价业务命令。
+- **C. 未来 Scenario N 的 Agent question draft 断言必须读取真实 QML draft property（`TextArea.text`）**，不得以 presentation screenshot 作为唯一证据。
+- **D. B5.3 除新增 Scenario L/N 外，必须保留完整五 workspace 基础导航/identity/visibility/index guard 与所有既有场景（A/B/D/E/F/G′/H/I/J/K/K′）。**
+
+### 43.23 B5.1 Baseline（实施前）
+
+```text
+branch=main；HEAD=2067b99；working tree clean；git diff --check pass
+V2 verified LKGC=207ae96；v1.0.0=ae067ab；ahead 38 / behind 0（已知允许）
+ctest --preset debug-local → 26/26 全绿（含 qml_smoke/nav/geometry）
+```
+
+### 43.24 B5.1 — DiagnosisPage Shell Only（Implementation Record，2026-09-17）
+
+按 §43.13/用户批准范围执行：**仅 shell，零迁移、零启位、零行为变化**。
+
+- **Implementation**：新建 `pages/DiagnosisPage.qml`（纯 Item 页根 + `required property var analysisController` + **刻意空页面体**，注释说明工作流仍完整保留在 Legacy、B5.2 随 `诊断` 启位原子迁入——§38.31.1 教训：迁移与启位必须同阶段）；`CMakeLists.txt` 注册；`Main.qml` StackLayout **child4** 实例化（`objectName: "diagnosisPage"`——与 Legacy pane 的 `diagnosisWorkspace` **刻意区分**，避免查找歧义）。
+- **护栏扩展（仅存在性/可见性）**：nav check stage 0 增加 `diagnosisPage` 存在断言 + **not-visible 断言**（诊断 nav disabled 期间 shell 不得可见）；dump 表加入 `diagnosisPage` 信息性条目（八趟均 0×0 隐藏记录，零几何断言）。
+- **Proof（负向检查，grep/inspection 实证）**：`DiagnosisPage.qml` 内业务命令出现次数 = **0**（runBaselineDiagnosis/clearDiagnosis/askAiDiagnosis/cancelAiDiagnosis/askAgent/cancelAgent 全零）；`NavigationRail.qml` `诊断` 条目 `enabled: false` 在档；Legacy `diagnosisWorkspace` pane 原样（Main.qml:219）。
+- **Verification**：build 干净；qml_smoke EXITCODE=0；qml_nav_check EXITCODE=0（含 not-visible 断言）；八趟 geometry EXITCODE=0（diagnosisPage 八趟 0×0 信息性）；full ctest **26/26**；diff-check 通过。
+
+### 43.25 Files Changed（B5.1）
+
+新增 `src/ui/qml/pages/DiagnosisPage.qml`；修改 `CMakeLists.txt`（+1）、`src/Main.qml`→`src/ui/qml/Main.qml`（+14 实例化块）、`src/main.cpp`（存在性/not-visible/dump 三处最小扩展）。
+
+### 43.26 Candidate Commit
+
+见 §44 回填（B5.1 提交；不 push、不推进 LKGC——待 B5.2/B5.3/B5.4 与人工验收）。
+
+## 44. Next
+
+- **B5.1 Review（用户）**；通过后 **B5.2 — 原子 MOVE + `诊断` 启位**（§43.13：同一提交内完成迁移+启位+SplitView 收口，禁止"已迁移但不可达"）。
+- **B5.3/B5.4 未开始**；**B5 closure/M9-C/M10 均未开始**。
