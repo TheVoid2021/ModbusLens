@@ -712,3 +712,99 @@ Dashboard 内容：页标题 21 + 12 + Run Demo 行 34 + 12 + StatisticsOverview
 
 - **M9-B2 Phase 1 = Learning / Design 完成（docs-only）；Implementation = NOT STARTED。**
 - 下一步：**B2 Phase 1 Review（用户）**；批准后按 §30.17 从 B2.1 开始，每步单独 Review 与提交。
+
+
+## 31. M9-B2 Phase 2 — Dashboard Extraction Implementation
+
+### 31.0 Phase 1 Review = PASS（用户，2026-09-16）+ Implementation Guardrails
+
+用户批准进入 B2 Phase 2，并追加约束（本文档为 authority）：
+
+- **A. StatisticsOverview 是 ModbusLens feature/presentation component**：可复用，但**不是 Design System primitive**——不得放入 `DS/`，不得把 Modbus 业务语义（事务状态、成功率口径）塞进 DesignSystem。
+- **B. DashboardPage 使用显式注入的现有 AnalysisController 引用**：允许读 authoritative properties、调用既有明确 user-action command（如 `runDemoBatch()`）；**不得**创建第二 Controller、复制业务状态、自行实现 source transition、依赖隐藏字符串解析。
+- **C. workspace index source of truth**：Legacy/Dashboard index 由**一处 presentation-level mapping** 集中定义（Main.qml readonly properties）；不得在多个文件散落裸 `0/1`；测试必须消费同一契约（读 root properties）或通过稳定 objectName/UI API 获取。
+- **D. Dashboard empty-state 文案**：B2 时 Replay workspace 尚未启用——不得暗示可通过 disabled Replay nav 直接加载文件；允许 "暂无通信数据。可运行演示批次，或在工作台加载回放日志。"；**不得制造不可达操作**。
+
+### 31.1 B2.1 — StatisticsOverview Extraction
+
+- 新建 `src/ui/qml/components/StatisticsOverview.qml`（feature component，非 DS primitive）：
+  - `required property var analysisController`（显式依赖）+ `required property string instanceId`（presentation identity，如 `stats_legacy`）；
+  - 封装已验收的 SectionHeader + PanelCard + 11 卡与全部格式化语义（`toFixed(1)+"%"` / `+" ms"` / `"—"` 占位 / 各 status label / semantic tone 逐字保持）；
+  - objectName 由 `instanceId` 派生：`statisticsHeader_<id>` / `statisticsPanel_<id>` / `statisticsRow1_<id>` / `statisticsRow2_<id>` / `statCard_<n>_<id>` / `statusCard_<n>_<id>`（避免"第一个同名对象"式查找）；
+  - **零状态**：不存副本、不算 successRate、不定义分母、不解释 ExpectedNoResponse。
+- Legacy 改用组件（`instanceId: "legacy"`），视觉与数值零变化；`qml_geometry_check` 统计断言改为**按活动实例寻址**（不再裸名），并按 §20 只在相应 workspace 激活时验证其活动统计实例。
+- CMakeLists QML_FILES 注册（沿用 qt_add_qml_module；无手写 qmldir）。
+
+### 31.2 B2.2 — DashboardPage + 第二真实 Workspace
+
+- 新建 `src/ui/qml/pages/DashboardPage.qml`：页根为**纯 Item**（StackLayout 直接子项，页根模式），内部 ColumnLayout（margins 16）再处理布局；只含 page heading + Run Demo 动作 + 轻量 no-data hint + StatisticsOverview(`instanceId: "dashboard"`)；**不含** Recent Transactions/Charts/Diagnosis/AI/Device/Replay 控件。
+- `Main.qml`：新增 workspace index 契约（readonly properties `workspaceLegacyIndex: 0` / `workspaceDashboardIndex: 1`，集中定义、带注释指向 rail 顺序与测试）；`AnalysisController` 增加 `objectName`（测试按名取权威对象，不改 Controller 代码）；StackLayout 增加 child1 = DashboardPage(`objectName: "dashboardWorkspace"`)；**Run Demo 迁至 Dashboard并删除 Legacy 的按钮**（杜绝双入口）；Load Replay 留 Legacy、Clear Results 留 AppBar。
+- `NavigationRail.qml`：entries 中 `总览` 由 disabled 改为 enabled（顺序不变；工作台=0 保持默认选中）。
+- `main.cpp`：`--qml-geometry-check` 改为**四趟测量**（默认尺寸 legacy / 默认尺寸 dashboard / 1000×700 dashboard / 1000×700 legacy），断言对象随"当前可见 workspace"选择（隐藏页不做脆弱断言，§20）；新增 `--qml-nav-check` 模式 + ctest `qml_nav_check`（**测试总数 25 → 26**）。
+- nav check 结构断言（A–F）：两页并存 / 初始 index 合法 / 0→Dashboard→Legacy / **page object 身份指针不变** / 可见性与选中一致 / 禁用项 invoke activate 后 index 不变（沿用 invoke 返回值校验）；并含"导航不改变任何业务值"的全字段快照比较（即 §15-G）。
+
+### 31.3 B2.3 — Persistence Scenarios
+
+- **Scenario A**：invoke `runDemoBatch()` → 记录 *authoritative snapshot*（modeLabel/sourceLabel + 11 统计值 + hasSuccessRate/successRate + hasAverageSuccessLatency/averageSuccessLatencyMs）→ Dashboard→Legacy 每次切换后**逐值相等**（runDemoBatch 本身允许改 source；断言的是**导航之后**不再变化）。
+- **Scenario B**：在确定性批次上 invoke `runBaselineDiagnosis()` → 记录 `hasBaselineDiagnosis` + `baselineDiagnosisText` → 往返后不变（用最 authoritative 可稳定比较的 property；不为测试改 Controller）。
+- **Scenario D（Clear）**：invoke `clearResults()` → 断言全部计数 0 + `hasSuccessRate==false` + `hasAverageSuccessLatency==false`，切换后同值（两 View 消费同一 state）。
+- **Serial 场景：继续 DEFER**（无硬件、offline seam 不足；不新增 fake serial 行为只为导航测试）；Serial Controls 的可达性由人工验收覆盖（§18）。
+
+### 31.4 B2.4 — Deploy / Manual Candidate
+
+- 四张真值截图（两尺寸 × 两页）：`m9b2-legacy-1024x720.png` / `m9b2-dashboard-1024x720.png` / `m9b2-dashboard-1000x700.png` / `m9b2-legacy-1000x700.png`（grabWindow；M9-A/B1 截图不覆盖）。
+- deploy 重建 + 无 PATH smoke；Manual 方案 = PENDING USER REVIEW（清单见 §25）。
+
+### 31.5 Verification（最终，真命令 + 真输出）
+
+```text
+B2.1 gate：build → qml_smoke → qml_geometry_check（实例化寻址）→ full ctest 25/25 → git diff --check → 视觉零变化确认
+B2.2 gate：build → qml_smoke → qml_geometry_check（四趟）→ qml_nav_check（结构）→ full ctest 26/26
+B2.3 gate：nav check 场景 A/B/D 逐值断言全绿 → ctest 26/26
+最终：deploy_windows.bat [OK] + 无 PATH deploy smoke EXITCODE=0 + 四张截图 + 像素自检
+```
+
+（各步真实输出与截图路径在执行时回填于本节下方——见 §31.6。）
+
+### 31.6 Results（执行后回填——本节在实施完成前保持占位）
+
+- B2.1：PENDING（执行后回填真实命令与输出）
+- B2.2：PENDING
+- B2.3：PENDING
+- B2.4：PENDING
+
+### 31.7 Problems / RCA
+
+1. **截图 dump 与测量趟次耦合**：四趟测量下，旧的两张 dump 命名（按尺寸）会互相覆盖——改为**按"页 × 尺寸"命名**（`m9b2-<page>-<size>.png`），命名即语义，避免用后写的图覆盖先写的图。
+2. **测试对 index 的依赖方式**：test 不再硬编码"dashboard=1"，而是**读取 root 上的契约 properties**（`workspaceDashboardIndex`/`workspaceLegacyIndex`）——契约改动时测试自动跟随；若 rail 顺序与契约漂移，行为断言（激活后 dashboard 必须可见）会失败。三方（shell 常量 / rail 顺序 / 测试）由一个行为测试钉住。
+3. **隐藏页断言纪律**（B2 预研结论落地）：StackLayout 隐藏子项的可见性/几何不做假设式断言，改为"切到目标 workspace 再验证其活动实例"（§20 要求）。
+4. **既有工具假阳性纪律沿用**：nav check 的 invoke 调用仍检查返回值；比较用全字段快照而非抽样。
+
+### 31.8 Manual Review
+
+- 四张截图（§31.4）+ deploy 候选；清单 13 项（两页切换 / selected 正确 / 四项仍 disabled / Run Demo 可用 / source chip 更新 / 两页统计一致 / Clear 同步归零 / 诊断往返不丢 / Transactions 不丢 / Serial Controls 可达 / 无裁切重叠 / 1000×700 可用）。
+- 状态：**PENDING USER REVIEW**；**自动 PASS 不推进 LKGC**。
+
+### 31.9 Knowledge Learned（结合真实实现）
+
+1. **view duplication vs state duplication**：Legacy 与 Dashboard 各有一个 StatisticsOverview 实例（两处 markup、两处绑定），但**零状态副本**——两者读同一 Controller 快照。判定法：删掉任一视图，另一视图与全部业务行为不受影响；反之，若某处存了副本，删视图会连带丢状态。
+2. **feature component vs design-system component**：`StatisticsOverview` 含 Modbus 业务词汇（事务状态语义、成功率口径），归 `components/` 作为 feature 组合件；`DS/` 只放与业务无关的 primitive/token（guardrail A 的边界即"语义归属"，不是"被复用次数"）。
+3. **explicit Controller dependency**：`required property var analysisController` + `required property string instanceId` 让依赖与身份都在组件签名上可见、可测；页面/组件不解析字符串、不查全局、不建第二份。
+4. **workspace index contract**：常量集中在 Main.qml，rail 顺序以注释指向它，测试从 root 读同一属性——"三处一致"由行为断言（激活 X 后 Y 可见）兜底，而不是靠三处各自写 0/1。
+5. **object lifetime vs authoritative state**：nav check 同时证明两件事——身份指针跨切换不变（生命周期/无重建）与全字段快照不变（业务状态）——并把它们作为**两类独立断言**，避免用身份证据冒充状态证据。
+
+### 31.10 Potential Interview Questions
+
+1. 迁移期怎么做到"两处显示、一份状态"？——共享 feature 组件 + 单一 Controller 快照 + instanceId 命名；断言全集在 nav check。
+2. 为什么导航测试要读契约属性而不是硬编码 index？——把"index 语义"变成一处定义、三处消费、行为兜底；重排时测试随契约走，rail 漂移时行为断言立刻红。
+3. 为什么 StatisticsOverview 不进 DS/？——DS 是业务无关原语；组件语义含 Modbus 术语（成功率分母、状态名），放 DS 会把业务概念污染进设计系统。
+4. 隐藏页为什么不做几何断言？——StackLayout 隐藏子项的几何/可见性不构成产品契约；断言只对"用户此刻看得到的页面"生效（§20）。
+
+### 31.11 Candidate Commit
+
+见 §32 回填（candidate 提交；不 push、不推进 LKGC——待人工视觉 PASS）。
+
+## 32. Next
+
+- **M9-B2 Manual Visual Review = PENDING USER REVIEW**（四张截图 + deploy 候选；清单 §31.8）。
+- PASS 之前：不推进 LKGC（保持 `189c62c`）、不 push、不开始 B3（Communication extraction）。

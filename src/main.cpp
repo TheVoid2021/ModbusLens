@@ -53,13 +53,33 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
 {
     QStringList failures;
 
+    // M9-B2: statistics and diagnosis assertions target ONLY the workspace
+    // page that is currently VISIBLE (hidden StackLayout children get no
+    // fragile geometry assertions — T017 §31.7/§20). The suffix is the
+    // StatisticsOverview instanceId.
+    QString suffix = QStringLiteral("dashboard");
+    bool legacyVisible = false;
+    if (auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"))) {
+        legacyVisible = legacy->isVisible();
+        suffix = legacyVisible ? QStringLiteral("legacy")
+                               : QStringLiteral("dashboard");
+    }
+    auto suffixed = [&suffix](const QString &base) {
+        return base + QLatin1Char('_') + suffix;
+    };
+
     const QStringList cardNames = {
-        QStringLiteral("statCard_0"),   QStringLiteral("statCard_1"),
-        QStringLiteral("statCard_2"),   QStringLiteral("statCard_rate"),
-        QStringLiteral("statCard_latency"),
-        QStringLiteral("statusCard_0"), QStringLiteral("statusCard_1"),
-        QStringLiteral("statusCard_2"), QStringLiteral("statusCard_3"),
-        QStringLiteral("statusCard_4"), QStringLiteral("statusCard_5"),
+        suffixed(QStringLiteral("statCard_0")),
+        suffixed(QStringLiteral("statCard_1")),
+        suffixed(QStringLiteral("statCard_2")),
+        suffixed(QStringLiteral("statCard_rate")),
+        suffixed(QStringLiteral("statCard_latency")),
+        suffixed(QStringLiteral("statusCard_0")),
+        suffixed(QStringLiteral("statusCard_1")),
+        suffixed(QStringLiteral("statusCard_2")),
+        suffixed(QStringLiteral("statusCard_3")),
+        suffixed(QStringLiteral("statusCard_4")),
+        suffixed(QStringLiteral("statusCard_5")),
     };
 
     auto fail = [&failures, &contextLabel](const QString &message) {
@@ -119,13 +139,13 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
                      .arg(kMinimumWorkspaceContentWidth));
     }
 
-    auto *row1 = findNamedItem(roots, QStringLiteral("statisticsRow1"));
-    auto *row2 = findNamedItem(roots, QStringLiteral("statisticsRow2"));
+    auto *row1 = findNamedItem(roots, suffixed(QStringLiteral("statisticsRow1")));
+    auto *row2 = findNamedItem(roots, suffixed(QStringLiteral("statisticsRow2")));
     const auto row1Count = row1 ? row1->childItems().size() : -1;
     const auto row2Count = row2 ? row2->childItems().size() : -1;
 
-    auto *header = findNamedItem(roots, QStringLiteral("statisticsHeader"));
-    auto *panel = findNamedItem(roots, QStringLiteral("statisticsPanel"));
+    auto *header = findNamedItem(roots, suffixed(QStringLiteral("statisticsHeader")));
+    auto *panel = findNamedItem(roots, suffixed(QStringLiteral("statisticsPanel")));
     if (header && panel && panel->y() + 1e-6 < header->y() + header->height())
         fail(QStringLiteral("statisticsPanel y=%1 overlaps header "
                             "(y=%2 h=%3)")
@@ -179,7 +199,8 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
                  .arg(row1->height()));
 
     auto *diag = findNamedItem(roots, QStringLiteral("diagnosisWorkspace"));
-    if (panel && diag && diag->y() + 1e-6 < panel->y() + panel->height())
+    if (legacyVisible && panel && diag
+        && diag->y() + 1e-6 < panel->y() + panel->height())
         fail(QStringLiteral("diagnosisWorkspace y=%1 invades statisticsPanel "
                             "(y=%2 h=%3)")
                  .arg(diag->y())
@@ -256,16 +277,34 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
 
 QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextLabel)
 {
+    // Statistics names follow the currently VISIBLE page's instanceId
+    // (same rule as the assertions — see runGeometryAssertions).
+    QString suffix = QStringLiteral("dashboard");
+    if (auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace")))
+        suffix = legacy->isVisible() ? QStringLiteral("legacy")
+                                     : QStringLiteral("dashboard");
+    auto suffixed = [&suffix](const QString &base) {
+        return base + QLatin1Char('_') + suffix;
+    };
+
     const QStringList names = {
-        QStringLiteral("appBar"),        QStringLiteral("navigationRail"),
-        QStringLiteral("workspaceHost"), QStringLiteral("legacyWorkspace"),
-        QStringLiteral("statisticsPanel"), QStringLiteral("statisticsRow1"),
-        QStringLiteral("statisticsRow2"),  QStringLiteral("statCard_0"),
-        QStringLiteral("statCard_1"),      QStringLiteral("statCard_2"),
-        QStringLiteral("statCard_rate"),   QStringLiteral("statCard_latency"),
-        QStringLiteral("statusCard_0"),    QStringLiteral("statusCard_1"),
-        QStringLiteral("statusCard_2"),    QStringLiteral("statusCard_3"),
-        QStringLiteral("statusCard_4"),    QStringLiteral("statusCard_5"),
+        QStringLiteral("appBar"),          QStringLiteral("navigationRail"),
+        QStringLiteral("workspaceHost"),   QStringLiteral("legacyWorkspace"),
+        QStringLiteral("dashboardWorkspace"),
+        suffixed(QStringLiteral("statisticsPanel")),
+        suffixed(QStringLiteral("statisticsRow1")),
+        suffixed(QStringLiteral("statisticsRow2")),
+        suffixed(QStringLiteral("statCard_0")),
+        suffixed(QStringLiteral("statCard_1")),
+        suffixed(QStringLiteral("statCard_2")),
+        suffixed(QStringLiteral("statCard_rate")),
+        suffixed(QStringLiteral("statCard_latency")),
+        suffixed(QStringLiteral("statusCard_0")),
+        suffixed(QStringLiteral("statusCard_1")),
+        suffixed(QStringLiteral("statusCard_2")),
+        suffixed(QStringLiteral("statusCard_3")),
+        suffixed(QStringLiteral("statusCard_4")),
+        suffixed(QStringLiteral("statusCard_5")),
         QStringLiteral("diagnosisWorkspace"),
     };
     QStringList lines;

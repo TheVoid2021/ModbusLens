@@ -368,92 +368,14 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
 
-                        // Statistics area — M9-A Phase 2: presentation migrated to
-                        // SectionHeader + PanelCard + StatCard. All VALUES, sources and
-                        // formatting semantics come from analysisController exactly as
-                        // before this migration.
-                        SectionHeader {
-                            objectName: "statisticsHeader"
-                            Layout.fillWidth: true
-                            title: qsTr("运行统计")
-                        }
-
-                        PanelCard {
-                            objectName: "statisticsPanel"
-                            Layout.fillWidth: true
-
-                            RowLayout {
-                                objectName: "statisticsRow1"
-                                Layout.fillWidth: true
-                                spacing: DS.spacingM
-
-                                Repeater {
-                                    model: [
-                                        { label: qsTr("已观测"), value: analysisController.observedCount },
-                                        { label: qsTr("已完成"), value: analysisController.completedCount },
-                                        { label: qsTr("进行中"), value: analysisController.pendingCount }
-                                    ]
-
-                                    delegate: StatCard {
-                                        objectName: "statCard_" + index
-                                        label: modelData.label
-                                        valueText: String(modelData.value)
-                                    }
-                                }
-
-                                StatCard {
-                                    objectName: "statCard_rate"
-                                    Layout.preferredWidth: 180
-                                    label: qsTr("成功率")
-                                    valueText: analysisController.hasSuccessRate
-                                          ? (analysisController.successRate * 100).toFixed(1) + "%"
-                                          : qsTr("—")
-                                }
-
-                                StatCard {
-                                    objectName: "statCard_latency"
-                                    Layout.preferredWidth: 180
-                                    label: qsTr("平均延迟")
-                                    valueText: analysisController.hasAverageSuccessLatency
-                                          ? analysisController.averageSuccessLatencyMs.toFixed(1) + qsTr(" ms")
-                                          : qsTr("—")
-                                }
-
-                                Item {
-                                    Layout.fillWidth: true
-                                }
-                            }
-
-                            // Status count cards
-                            RowLayout {
-                                objectName: "statisticsRow2"
-                                Layout.fillWidth: true
-                                spacing: DS.spacingM
-
-                                Repeater {
-                                    model: [
-                                        { label: qsTr("成功"), value: analysisController.successCount, color: DS.success },
-                                        { label: qsTr("异常"), value: analysisController.exceptionCount, color: DS.exception },
-                                        { label: qsTr("CRC 错误"), value: analysisController.crcErrorCount, color: DS.crcError },
-                                        { label: qsTr("超时"), value: analysisController.timeoutCount, color: DS.timeout },
-                                        { label: qsTr("协议错误"), value: analysisController.protocolErrorCount, color: DS.protocolError },
-                                        { label: qsTr("预期无响应"), value: analysisController.expectedNoResponseCount, color: DS.expectedNoResponse }
-                                    ]
-
-                                    delegate: StatCard {
-                                        objectName: "statusCard_" + index
-                                        Layout.preferredWidth: 110
-                                        Layout.preferredHeight: 64
-                                        label: modelData.label
-                                        valueText: String(modelData.value)
-                                        tone: modelData.color
-                                    }
-                                }
-
-                                Item {
-                                    Layout.fillWidth: true
-                                }
-                            }
+                        // Statistics (M9-B2): extracted to the shared
+                        // feature component; during the migration the
+                        // Legacy and Dashboard instances render the SAME
+                        // authoritative facts (view duplication, never
+                        // state duplication).
+                        StatisticsOverview {
+                            analysisController: analysisController
+                            instanceId: "legacy"
                         }
 
                         Rectangle {

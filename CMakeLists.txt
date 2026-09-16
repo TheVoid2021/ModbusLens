@@ -71,6 +71,7 @@ qt_add_qml_module(modbuslens
         src/ui/qml/components/PanelCard.qml
         src/ui/qml/components/SectionHeader.qml
         src/ui/qml/components/StatCard.qml
+        src/ui/qml/components/StatisticsOverview.qml
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
