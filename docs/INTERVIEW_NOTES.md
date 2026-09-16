@@ -166,3 +166,10 @@
 
 - **Q：怎么给"完成"选 LKGC？** A：用 Git 文件列表分类：最后一个**行为承载**提交且该行为处于本轮终验范围内者当选（B2 的 `53685d5` 只改了 `src/main.cpp` 的 nav check 场景，终验正是跑它）；docs/截图/回填提交即使命名为"candidate"也永不作为 LKGC——**命名不构成证据，文件列表才构成证据**。
 - **Q：多页应用里"状态还在"怎么证明？** A：三层证据：对象身份指针（没重建）+ 全字段 authoritative 快照（业务值没变）+ 真实命令场景（demo/诊断/clear 跨页后逐值相等）；再加上人工行为链确认"切页没有触发 source transition"。
+
+
+## 15. Post-T017 M9-B3 Phase 1 条目（2026-09-16 追加）
+
+- **Q：什么是 command draft，为什么不能进 Controller？** A：draft 是"尚未提交的候选"——Slave=5 在点击读取前不是任何设备/session 事实（真实代码：`pendingSerialAddress_` 只在 adapter 真正接受 startTransaction 后才写入）；把 draft 写回 Controller 会制造第二份事实源，并让"失败不产生痕迹"的原子语义失去意义。
+- **Q：连接成功的 port/baud 和 ComboBox 里的选择是同一个东西吗？** A：不是。前者是 `serialSourceLabel_`（会话身份，AppBar 显示），后者是页面候选；失败连接**不留任何会话痕迹**（s02 的原子保留）——这两个概念在迁移中最容易被压平。
+- **Q：为什么 Serial 跨导航测试只能"部分自动化"？** A：adapter 是具体 `QSerialPort` 成员、无依赖注入，离线无法产生 connected=true；能诚实覆盖的只有失败路径（connectSerial 到不存在端口→错误置位→跨页不变），完整 connected/pending 场景保持 DEFER 并由人工验收——**不制造与真实行为不一致的 fake contract**。

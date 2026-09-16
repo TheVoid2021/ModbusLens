@@ -895,4 +895,241 @@ M9-B3 Communication Extraction · M9-B4 Replay Extraction · M9-B5 Diagnosis Ext
 
 ### 33.9 Next
 
-- **M9-B3 — Communication Extraction（Learning / Design Gate）**：待用户 GO；**本轮不开始实现**。
+- **M9-B3 — Communication Extraction（Learning / Design Gate）**：待用户 GO；**本轮不开始实现**。## 34. M9-B3 Phase 1 — Serial UI Boundary / Command-State Ownership（Learning & Design，2026-09-16）
+
+**任务档决策（§29）**：继续 **append 到 T017**——与 B1/B2 同惯例（同一 M9-B 迁移计划，§13 明确列出 B1–B5），无需独立建档。**Implementation = NOT STARTED。**
+
+### 34.1 Preflight（2026-09-16）
+
+```text
+pwd/toplevel → /e/desktop/ModbusLens，E:/desktop/ModbusLens
+HEAD=e3fce34；branch=main；git status clean；git diff --check pass
+git log --oneline -12 → e3fce34 … 189c62c（链完整）
+origin/main...main → 0  20（behind 0 / ahead 20；已知允许）
+V2 verified LKGC = 53685d5；V1 tag v1.0.0 = ae067ab
+```
+
+### 34.2 当前 Serial UI 全量清单（逐项：控件 → 值来源 → enabled/visible → 命令 → 状态依赖 → 副作用）
+
+| # | 控件 | QML 值来源 | enabled / visible 表达式（逐字） | 命令 | 状态依赖 | 副作用 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 端口选择 `serialPortCombo` | `analysisController.serialPortNames`（model） | `enabled: !analysisController.serialConnected` | —（选择仅本地） | serialConnected、serialPortNames | 无 |
+| 2 | "未检测到串口" Label | 静态文案 | `visible: serialPortNames.length === 0` | — | serialPortNames | 无 |
+| 3 | 刷新串口 | 静态 | **无 enabled 绑定（恒可用）** | `refreshSerialPorts()` | — | 枚举端口、更新 serialPortNames（DisplayRole 文案） |
+| 4 | 波特率 `serialBaudCombo` | 字面量 `[9600,19200,38400,57600,115200]`，`currentIndex: 0` | `enabled: !serialConnected` | —（选择仅本地） | serialConnected | 无 |
+| 5 | "8N1" Label | 静态文案 | — | — | — | — |
+| 6 | 连接 | 静态 | `enabled: !serialConnected && serialPortCombo.currentIndex >= 0` | `connectSerial(currentText, Number(baudText))` | serialConnected、端口列表 | **source transition（成功后清旧批次、mode=串口模式、设 serialSourceLabel_）；失败仅置错误（原子保留）** |
+| 7 | 断开 | 静态 | `enabled: serialConnected` | `disconnectSerial()` | serialConnected | 静默关闭传输；**保留上次结果与来源身份** |
+| 8 | 从站地址 SpinBox | `value: 1`，`from: 1, to: 247` | `enabled: !serialBusy` | —（draft） | serialBusy | 无 |
+| 9 | 起始地址 SpinBox | `value: 0`，`from: 0, to: 65535` | `enabled: !serialBusy` | — | serialBusy | 无 |
+| 10 | 寄存器数量 SpinBox | `value: 2`，`from: 1, to: 125` | `enabled: !serialBusy` | — | serialBusy | 无 |
+| 11 | 超时 SpinBox | `value: 1000`，`from: 100, to: 10000` | `enabled: !serialBusy` | — | serialBusy | 无 |
+| 12 | 读取保持寄存器 | 文案随 busy：`serialBusy ? "读取中..." : "读取保持寄存器"` | `enabled: serialConnected && !serialBusy` | `readHoldingRegistersOnce(slave, start, qty, timeout)` | serialConnected、serialBusy | 校验范围→adapter.startTransaction→`serialBusy_=true`、`pendingSerialAddress_=slave`；异步完成走 transactionCompleted/transportError |
+| 13 | Serial 错误 Label | `serialErrorMessage` | `visible: hasSerialError` | — | hasSerialError | 由 transport 错误/输入校验失败置位；connect 成功/读取接受/clearResults 清除 |
+
+### 34.3 状态分类（§3 输出表）
+
+| State | Current Owner（真实代码） | Proposed Owner after B3 | Must Survive Navigation? | Authoritative? | Why |
+| --- | --- | --- | --- | --- | --- |
+| serialConnected | Controller（`serialConnected_`，adapter 持有真实口） | **不变（Controller）** | 是 | **是** | 传输事实；AppBar chip 与按钮 enabled 都读它 |
+| serialBusy / pending | Controller（`serialBusy_` + `pendingSerialAddress_`） | **不变** | 是 | **是** | 事务在途事实；stale guard 依赖 pending |
+| current source（modeLabel/sourceLabel/serialSourceLabel_） | Controller | **不变** | 是 | **是** | 会话身份；B1/B2 已冻结 |
+| serial error（hasSerialError_/serialErrorMessage_） | Controller | **不变** | 是（错误需跨页可见性归 Communication，状态本身不动） | **是** | 传输错误是会话级事实 |
+| serialPortNames | Controller（`serialPortNames_`） | **不变** | 是（缓存） | **是（枚举事实）** | 刷新才变化 |
+| 端口选择 index | QML（`serialPortCombo.currentIndex`） | **Page 本地（Communication）** | 是（StackLayout 常驻自然保留） | **否** | 未提交的选择不是设备事实 |
+| 波特率 index | QML | **Page 本地** | 是 | 否 | 同上（connectSerial 接受后才成为会话事实并进入 sourceLabel） |
+| slave/start/qty/timeout | QML（SpinBox value） | **Page 本地** | 是 | **否** | 只有提交（读取/未来写）才成为事务事实 |
+| focus / 装饰 | QML | Page 本地 | 否 | 否 | 纯呈现 |
+
+### 34.4 Authoritative vs Command-Draft（§4 结论，引用真实语义）
+
+- **authoritative state** = 控制器里由**真实事件**产生、被其他组件当作事实读取的字段：`serialConnected_`（真实 open 的结果）、`pendingSerialAddress_`（adapter 真正接受 startTransaction 之后才写入，cpp:986-987 —— 代码注释明说"Accept only writes metadata AFTER the adapter really accepted"）、`serialSourceLabel_`（连接成功后由 port+baud 构造，cpp:926）。
+- **command draft / form state** = 用户输入但**尚未提交**的候选值：Slave=5 在点击"读取保持寄存器"之前**不是任何设备或会话的事实**——它没有进入 Controller，没有进入 pending，没有影响任何统计；点击后才由 `readHoldingRegistersOnce` 校验并（adapter 接受后）写 `pendingSerialAddress_`。
+- **"连接成功后的真实 port/baud"与"尚未提交的 port selector"是两个概念**：前者是 `serialSourceLabel_ = "COM3 @ 9600"`（会话身份，AppBar 显示它）；后者是 ComboBox 的 currentIndex（一个候选，失败时不产生任何会话痕迹——s02 的原子保留语义即为此）。B3 的边界：**draft 永远留在页面，事实永远来自 Controller**。
+
+### 34.5 Communication 第一版产品边界（§5 四案比较）
+
+| 方案 | User task | Migration risk | M10 扩展 | Duplication | 1000×700 密度 | V1 行为风险 |
+| --- | --- | --- | --- | --- | --- | --- |
+| A 仅连接控制 | 无法完成"读寄存器"任务（请求控件不在） | 低 | 需补搬一次 | 无 | 最松 | 低 |
+| **B 连接 + 现有 FC03 请求（推荐）** | **完整覆盖"连上并读一次"** | **低（整块 GroupBox 平移）** | 请求区可直接扩展 | 无 | 松（≈150px 内容） | 低（表达式逐字迁移） |
+| C 再加 statistics/transactions | 任务重叠 | 高（表 520 宽 + 行高） | 中 | **统计第三份/事务第二份视图** | 紧张 | 高（绑定面扩大） |
+| D 预留空 Request Builder | 无真实动作 | 中 | — | 无 | 占位空洞 | **禁止（placeholder）** |
+
+**结论：B**。真实代码核对支持：Serial GroupBox 本身就是"连接行 + 请求行"两行的单一实现（Main.qml 149-276），B = 原样搬运，不改语义；C 的统计已有 Dashboard+Legacy 两视图、事务表留在 Legacy（§34.6），再来一份是纯重复。
+
+### 34.6 Dashboard vs Communication 边界（§6）
+
+| 内容 | 归属 | 理由 |
+| --- | --- | --- |
+| Statistics | **Dashboard**（+Legacy 迁移期共享，B5 后退出） | 会话健康概览；B2 已定 |
+| Recent Transactions | **Legacy（B3 不动）**；未来归 Communication 的时机由 B5/M9-D 决定 | 本阶段不制造第二份表视图 |
+| Current Request（FC03 参数） | **Communication** | 与总线交互的上下文 |
+| Serial Error | **Communication**（详细） | 命令上下文错误，见 §34.16 |
+| Connection Status（简明） | **AppBar chip**（`串口模式 · COMx @ baud · 已连接`） | 会话身份，B1 已定；Communication 页内提供完整控制 |
+
+**不重复原则**：同一组件（StatisticsOverview）已存在的视图不再加第三份；transactions 表本阶段不搬。
+
+### 34.7 M10 兼容预留（只做边界分析，§7）
+
+Communication 页的结构边界（B3.2 落地）：**Connection 区（顶）→ Request 区（中）→ 状态/错误行（下）**。M10 的三件事（FC03/FC06/0x10）全部落在 **Request 区内部**扩展（新增模式/参数/写入值列表），**Connection 区与状态行不动**；不预留任何空控件、不引入通用 request model（禁止项明确）。约束记录：写入值列表需要宽度 ≈300+ 且高度可变 → §34.21 预算已记录余量。
+
+### 34.8 命令映射（§8，逐命令核验）
+
+| 命令 | Trigger | Args | Preconditions（真实） | Authority | Source 变化 | 异步完成 | 错误 | 既有测试 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `refreshSerialPorts()` | 刷新串口按钮（恒可用） | 无 | 无（**发现-only，绝不 open**） | Controller（cpp:883-896） | 无 | 无（同步枚举） | 无 | —（约束写在注释） |
+| `connectSerial(port, baud)` | 连接按钮 | portName、baudRate | portName 非空；baud ∈ `kSupportedSerialBauds`（cpp:317/904） | Controller | **成功后=source transition**（清批次、mode=串口模式、设 sourceLabel）；失败=原子保留 | open 同步；后续完成异步 | transportError → 错误 lane（状态不动） | `s02`、adapter `i01/i02` |
+| `disconnectSerial()` | 断开按钮 | 无 | 无（恒安全） | Controller（cpp:937-943） | **无**（保留结果与来源身份） | 无 | 无（静默） | adapter `i03_intentionalCloseIsSilent` |
+| `readHoldingRegistersOnce(slave,start,qty,timeout)` | 读取按钮 | 4 个 int（QML Number） | C++ 先验范围（1..247 / 0..65535 / 1..125 / >0）+ `serialConnected && !serialBusy`（cpp:945-975） | Controller | 无（串口模式内） | `transactionCompleted` / `transportError` 异步到达 | 校验失败→serial error；超时→Timeout 分析 | `s03/s04`、session `a01-a16`、`s05/s06/s10` |
+| `clearResults()`（AppBar） | 清空结果 | 无 | 无 | Controller | **无** | 无 | 无 | `r08`、`s08` |
+
+### 34.9 Enabled / Busy 逐项（§9，迁移红线）
+
+上表 §34.2 的 `enabled:`/`visible:` 表达式为**冻结文本**：B3 迁移必须逐字复制（含 `!serialConnected && serialPortCombo.currentIndex >= 0`、`serialConnected && !serialBusy`、busy 文案三元式）。**禁止"看起来等价"的改写**；改写即视为契约违规（`qml_geometry_check`/`qml_nav_check` 之外由人工+diff 复核）。
+
+### 34.10 跨导航 Serial 生命周期（§10 invariant）
+
+- **进入 Communication 不自动 connect；离开不 disconnect；导航不 cancel pending；导航不 reset serial state。**
+- 架构天然支持：adapter/session 全部由 Controller 持有（`serialAdapter_` 成员），页面只是 consumer；StackLayout 全实例化（B2 已验证页面 identity 稳定），无 Loader 销毁路径。
+- **不存在 QML 销毁影响 signal connection/timer/adapter 的路径**——除非页面犯错：B3 明令禁止页面在 `Component.onCompleted`/`onVisibleChanged`/`currentIndex` 变化里调用任何 serial 命令（`qml_nav_check` 的 Scenario H 将断言"激活页面不产生任何业务副作用"）。
+
+### 34.11 离线可测性调查（§11，不造假）
+
+现有 seam 盘点：
+
+| 层 | seam | 能力 | 局限 |
+| --- | --- | --- | --- |
+| C++ adapter | `test_serial_adapter.cpp` `i01-i05` | 失败打开/有界错误/静默关闭/初始态/未开就读 | **无依赖注入**：`QSerialPort port_` 是具体成员（SerialPortAdapter.h:71），无法替换为 fake port |
+| C++ controller | `publishSerialResult(...)`、`handleSerialTransactionCompleted(...)`（非 Q_INVOKABLE） | 在无硬件下证明 publish 映射、单结果批次、**stale guard**（s05/s06/s07/s10） | 不经 QML；无法产生"connected=true" |
+| QML | `connectSerial("不存在的端口", baud)` | **真实失败路径**：非空校验→open 失败→transportError→错误置位且状态原子保留 | 只能覆盖失败分支 |
+
+**结论**：**完整 connected/pending 跨导航验证继续 DEFER**（无硬件、无 DI seam、不制造与真实行为不一致的 fake contract）。**新增诚实的部分覆盖（Scenario G′，B3.3 落地）**：调用 `connectSerial(不存在端口)` → 断言错误置位且 `serialConnected==false` → 三页往返 → 断言错误与状态逐值不变（真实语义，非 fake）。人工验收覆盖 UI 行为；**不得宣称真实 hardware connection PASS**。
+
+### 34.12 Stale Completion Guard（§12）
+
+真实机制：`handleSerialTransactionCompleted` 首行 `if (!pendingSerialAddress_.has_value()) return;`（cpp:1032-1044）——没有 pending 元数据的完成**永不覆盖**当前 Simulator/Replay 批次；`publishSerialResult` 之后 `pendingSerialAddress_.reset()`。`readHoldingRegistersOnce` 只在 adapter **真正接受**后写 pending（cpp:986）。
+
+**为什么 UI 迁移理论上不应触碰它**：迁移只移动 QML 控件，pending 的写入/判定全在 C++ 路径（按钮 onClicked → 命令 → adapter → 完成回调）。
+
+**B3 最危险的误操作（只列真实风险）**：① 页面销毁/重建时断开 adapter 信号（StackLayout 下不会发生，但若有人改用 Loader 就会）② 切页时"顺手取消在途请求"（违反 §34.10，且会把 stale guard 掩盖的真问题变成常态）③ 在页面复制 `serialBusy` 状态（第二份事实源，硬件完成时不同步）④ 在页面包装 `connectSerial` 做"预校验后自行切换来源"（绕过原子语义）。全部列为禁止项。
+
+### 34.13 CommunicationPage Ownership（§13）
+
+与 B2 一致：`required property var analysisController`（显式注入，无全局、无第二实例）；页面负责 form/draft presentation、binding、用户动作；Controller 负责 session state/commands/异步事实。**允许 Page 本地的 draft property** = §34.3 表中的"否/Page 本地"四项（端口/波特率 index、四个 SpinBox value、焦点与装饰）。
+
+### 34.14 Draft Persistence（§14）
+
+StackLayout 常驻实例使 draft 天然保留：切走再回来，SpinBox/ComboBox 值不变（Scenario F 将断言）。规则：**draft 保留是页面生命周期的自然结果，不把 draft 写回 Controller**；"已执行请求的 authoritative facts"（批次行/统计/错误）与 draft 是两个层级，前者永远来自 Controller。
+
+### 34.15 Validation / 输入语义（§15）
+
+既有范围（逐字）：slave 1..247、start 0..65535、quantity 1..125、timeout 100..10000、baud ∈ 固定五项、连接需 `currentIndex >= 0`；C++ 端 `s04_inputValidation` 再验一遍（防御 QML 侧被绕过）。**B3 只迁移，不新增 validation layer**；任何新校验（如地址区间提示）DEFER 到 M10/独立任务。
+
+### 34.16 Serial 错误位置（§16）
+
+推荐：**错误详情归 Communication 页**（命令上下文错误的自然位置）；**AppBar 只保留简洁状态**（来源 chip 已有 `· 已连接`；不新增错误文本到 AppBar）。理由：AppBar 是会话身份条，错误需要"触发它的上下文"（哪个命令、什么参数）；`serialErrorMessage` 是会话级**事实**但呈现归上下文页——状态在 Controller、呈现单一化。
+
+### 34.17 Legacy after B3（§17）
+
+Legacy 保留：Load Replay（单按钮行）→ Replay error/notice → **StatisticsOverview(legacy)** → 分隔线 → SplitView(诊断|事务)。串口 GroupBox 与 Serial 错误行移出后：SplitView 净增 ≈140px 垂直空间（**不是空洞，是增益**）。允许最小收口（注释/间距），不做视觉重设计；不动 Replay/Diagnosis/Transactions。
+
+### 34.18 导航模型（§18）
+
+索引契约扩展（Main.qml 集中定义）：`workspaceCommunicationIndex: 2`；启用**工作台/总览/通信**；保持 disabled：回放(3)/诊断(4)/设备(5)。**不重排**；rail 顺序、StackLayout 顺序（child2 = CommunicationPage）、测试三方继续共读同一契约。
+
+### 34.19 跨导航持久化场景（§19）
+
+- **Scenario E**：Dashboard → Communication → Dashboard：统计全字段与 mode/source 不变（复用 B2 快照机制）。
+- **Scenario F**：在 Communication 设置 draft（slave=7, start=10, qty=3, timeout=2500, baudIndex=2）→ 三页往返 → draft 逐值保留（页面本地，非 Controller）。
+- **Scenario G′（部分，真实语义）**：见 §34.11；完整 connected/pending 场景 **DEFER**（不造假）。
+- **Scenario H**：激活 Communication 前后**全字段业务快照相等**（无 connect/disconnect/read/source transition）——可观察证据 = nav check 快照 diff 为空 + 页面激活轨迹日志。
+
+### 34.20 qml_nav_check 扩展（§20）
+
+不新建第二套机制：现有 `--qml-nav-check` 扩为 **3 个真实 workspace**，路径 `legacy → dashboard → communication → legacy`；断言：page identity（3 指针）、visibility 随选中、index 合法、禁用项（3/4/5）invoke 不可切、Scenario E/F/H（+G′）；全部消费 root 上的 index 契约属性。
+
+### 34.21 布局预算（§21）
+
+```text
+700 高：host 659 − 页内缩 32 = 627 可用
+Communication 内容 = 页标题 21 + 12 + Connection 区（一行控件 34 + PanelCard 内边距 24 ≈ 58）+ 12
+                   + Request 区（一行 34 + 24 ≈ 58）+ 12 + 错误行（可见时 ≈17）≈ 190
+→ 余量 ≈ 437px（无需滚动；不填填充物）
+未来 M10 约束（只记录）：写入值列表需 ≈300+ 宽、可变高；当前余量足够，但 M10 落地前需按实际控件复核。
+宽度：页内容 911/935；控制行最宽组合实测在 1024 下无换行需求（横向 RowLayout + 尾部 spacer 保留）
+```
+
+### 34.22 UI 结构方案（§22 比较与推荐）
+
+| 方案 | migration risk | clarity | M10 | visual change | testability |
+| --- | --- | --- | --- | --- | --- |
+| A 单 GroupBox 直接 MOVE | 最低 | 连接/请求混杂 | 仍需拆分 | 最小 | 好 |
+| **B 拆两个 presentation section：Connection / Request（推荐）** | 低（先整块 MOVE，再纯结构拆分） | 清晰 | **Request 区即 M10 落点** | 受控（控件与表达式逐字不变） | 好 |
+| C 再拆 Result 区 | 中 | 更细 | 过度预拆 | 大 | 一般（Result 目前只有一行错误） |
+
+**推荐 B**，分两提交落地：B3.1 整块 MOVE（零结构改动）→ B3.2 纯结构拆分（两个 PanelCard 区）。C 无真实内容支撑，拒绝。
+
+### 34.23 可复用组件需求（§23，逐候选裁决）
+
+| 候选 | 本 B3 使用点 | 裁决 |
+| --- | --- | --- |
+| FieldRow（label+control 对齐） | 逻辑上 ≥10 个 label+control 对，但全是**同一行内的内联 Label**；提取会重写布局结构 | **DEFER 到 M10**（届时请求参数数量翻倍，收益最大化；B3 保持逐字迁移以压低风险） |
+| StatusBadge | 无（状态=chip 文本 + 连接按钮 enabled） | DEFER |
+| ErrorBanner/InfoBanner | 1 处（serial error 行） | DEFER（单使用点，M9-C 统一处理） |
+
+### 34.24 Accessibility（§24）
+
+Tab 顺序（页内自然顺序）：端口 → 刷新 → 波特率 → 连接 → 断开 → 从站 → 起始 → 数量 → 超时 → 读取。切到 Communication 后**焦点继续留在 rail 项**（B2 先例，不抢焦点）；键盘用户 Tab 进入页面；disabled/busy 语义沿用 §34.9 表达式（busy 期间参数禁用 + 读取按钮变"读取中..."）。
+
+### 34.25 V1 / V2 契约风险清单（§25）
+
+| 契约 | 真实证据 | B3 红线 |
+| --- | --- | --- |
+| connect/disconnect 语义 | cpp:898-943 + `s02` + adapter `i01-i03` | 只搬控件；命令与原子律零改动 |
+| refresh ports | cpp:883-896（发现-only 注释） | 恒可用语义保持（无 enabled 绑定） |
+| 串口 source transition | cpp:918-934（成功才切换） | 不得在页面做预校验/自行切换 |
+| busy/pending | cpp:986-987 + `s05/s06` | 不得复制 busy；pending 只由 C++ 写 |
+| 超时/读取参数 | session `a06/a07`、`s06` | 参数逐字传递，不做界面层裁剪 |
+| stale completion | cpp:1032-1044 + `s10` | §34.12 四个禁止项 |
+| 请求匹配/异常 | session `a04/a11/a15/a16` | 不触及 |
+| serial errors | `s09`、T015 双 lane 语义 | 错误 lane 不变；呈现移到 Communication |
+| clearResults | `r08`/`s08` | AppBar 不动 |
+| statistics/transactions/诊断存续 | B2 场景 A/B/D 断言 + `d07` | 导航不得改变（Scenario E 复验） |
+| M9 shell/nav + index 契约 | `qml_geometry_check`/`qml_nav_check` + §34.18 | 三页共读同一契约，不散落 magic number |
+| 最小窗口 | 1000×700（T013 Policy）+ §34.21 预算 | M10 落地前复核 |
+
+### 34.26 增量实施计划（§26）
+
+- **B3.1 — CommunicationPage 外壳 + 整块 MOVE**：新建 `pages/CommunicationPage.qml`（页根纯 Item + 标题 + 原 GroupBox **逐字**内嵌）；index 契约 + `workspaceCommunicationIndex: 2`；rail `通信` 启位；StackLayout child2；**Legacy 同步删除串口 GroupBox 与错误行**（单入口，无重复窗口）。验证：build + qml_smoke + geometry（五趟：三页×尺寸循环按现有四趟模式扩展）+ ctest 26。
+- **B3.2 — 结构拆分**（纯呈现）：Connection / Request 两个 PanelCard 区（表达式逐字不变）。验证同 B3.1（geometry 断言按新结构微调、语义断言不变）。
+- **B3.3 — nav check 三 workspace 扩展**：`legacy → dashboard → communication → legacy`；Scenario E/F/H + G′。验证：ctest（26，断言扩展；如实报告是否新增 target）。
+- **B3.4 — 收尾**：截图（三页 × 两尺寸）、deploy + 无 PATH smoke（含部署版 nav check）、人工验收包。
+- 每步可 build/test/rollback；回滚 = revert 单提交。
+
+### 34.27 测试计划（§27）
+
+- **Baseline**：26（qml_smoke / qml_geometry_check / qml_nav_check 全保留）。
+- **扩展**：nav check 三 workspace + 场景 E/F/H/G′；geometry check 第五趟纳入 Communication（按其真实布局断言，隐藏页零断言规则沿用）。
+- **新增 offline serial 覆盖**：仅 G′ 的真实失败路径（§34.11）；**不新建脆弱 UI test、不造 fake port**。
+- **人工**（两尺寸）：Communication nav 与选中态 / draft 跨页保留 / 刷新串口（本机枚举真实端口列表）/ 连接与断开按钮 enabled 逻辑（**无硬件时不宣称真实连接**）/ FC03 参数范围 / Serial 错误显示 / Dashboard·Legacy 状态不变 / 其余三项仍 disabled / resize 与无裁切。
+
+### 34.28 Knowledge Before Implementation（§28，10 项各自对应真实问题）
+
+| # | 知识点 | 解决 ModbusLens 的哪个真实问题 |
+| --- | --- | --- |
+| 1 | authoritative session state | 防止迁移期把"会话事实"搬进页面导致跨页不一致（connected/busy/source 必须单一来源） |
+| 2 | command draft state | 解释为什么 Slave=5 未提交前不是设备事实——避免把 draft 误当事实写进 Controller |
+| 3 | presentation state | focus/装饰/输入候选不进业务层，页面边界清晰 |
+| 4 | command vs state | 命令是**动作**（可产生 source transition），状态是**结果**；混淆两者正是"切页误切源"类事故的来源 |
+| 5 | async operation ownership | 完成回调必须由 Controller 承接（B3 若让页面接回调，切页即丢） |
+| 6 | stale completion | 无 pending 的完成绝不覆盖当前批次——UI 迁移最不该碰的机制，四个禁止项即防线 |
+| 7 | UI extraction vs behavior rewrite | extraction 的验收标准是"表达式逐字 + 行为等价可证"，不是"看起来一样" |
+| 8 | form persistence | 用户切页回来参数还在——由页面生命周期天然提供，不需要把 draft 写回 Controller |
+| 9 | connected configuration vs editable draft | `COM3 @ 9600`（事实）与 ComboBox 选择（候选）是两个概念，失败连接不留痕（s02） |
+| 10 | future-compatible UI boundary | Connection/Request/Status 三段边界让 M10 只动中段——避免"未来推倒重来" |
+
+### 34.29 Documentation / Status
+
+- 本文档 append 于 T017 §34；**M9-B3 Phase 1 = Learning / Design 完成（docs-only）；Implementation = NOT STARTED**。
+- 下一步：**B3 Phase 1 Review（用户）**；批准后按 §34.26 从 B3.1 开始。
