@@ -811,3 +811,88 @@ B2.3 gate：nav check 场景 A/B/D 逐值断言全绿 → ctest 26/26
 
 - **M9-B2 Manual Visual Review = PENDING USER REVIEW**（candidate HEAD `387dcaf`；四张截图 + deploy 候选；清单 §31.8）。随后的哈希回填（docs-only）为其后一提交，不作 LKGC。
 - PASS 之前：不推进 LKGC（保持 `189c62c`）、不 push、不开始 B3（Communication extraction）。
+## 33. M9-B2 Completion / Archive（2026-09-16）
+
+### 33.1 Manual Visual Review = PASS（用户）
+
+用户已人工复核真实界面（Dashboard 1024×720、Legacy Workbench 1024×720），确认：
+
+**Dashboard**：总览选中态正确；工作台仍可进入；Communication / Replay / Diagnosis / Device 仍明显 disabled；Run Demo 位于 Dashboard；session/source AppBar 信息正常；Statistics 无裁切、无重叠；M9-A statistics visual contract 保持。
+
+**Legacy**：Run Demo 已移除、**无重复入口**；Load Replay 仍可用；Serial Controls 完整；Statistics 与 Dashboard 一致；Diagnosis 完整；Transactions 完整；无迁移导致的明显布局空洞或回归。
+
+**行为链确认**：workspace navigation 只改变 presentation view，**不产生额外 source transition**。
+
+### 33.2 PASS 边界（明确声明）
+
+本 PASS 表示 **M9-B2 Dashboard Extraction 的功能、导航、状态保持与当前视觉达到本阶段验收要求**；**不表示** Dashboard 最终视觉设计完成。当前 Dashboard 较大的空白空间属 **M9-C Dashboard Redesign** 的未来可利用区域，**不是 B2 regression**；closure 阶段不得为了填满空白新增 widget。
+
+### 33.3 LKGC 候选的 Git 证据裁定（原样命令）
+
+```text
+$ git show --stat --oneline 53685d5
+53685d5 M9-B2.3: nav check persistence scenarios (A/B/D)
+ src/main.cpp | 140 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 138 insertions(+), 2 deletions(-)
+
+$ git show --stat --oneline 387dcaf
+387dcaf M9-B2.4: dashboard extraction candidate (docs + visual evidence)
+ docs/BACKLOG.md                     |   3 ++-
+ docs/INTERVIEW_NOTES.md             |   7 +++++++
+ docs/PROJECT_STATUS.md              |  16 +++++++++-------
+ docs/assets/screenshots/m9b2-*.png  | Bin ×4
+ docs/devlog/2026-09-16-m9b2-phase2.md | 8 ++++++++
+ docs/tasks/T017-...md               | 21 ++++++++++++---------
+ 9 files changed, 38 insertions(+), 17 deletions(-)
+```
+
+**分类**：`53685d5` = production/test **behavior-bearing**（唯一改动文件 `src/main.cpp`，即 `--qml-nav-check` 的真实行为——场景 A/B/D 断言）；`387dcaf` = **docs/screenshots/evidence-only**（零 src/tests/QML/CMake/scripts 改动）。
+
+**裁定**：按 §3 规则（最后一个包含真实 product/QML/test behavior change 且处于本轮终验范围内的提交）→ **V2 verified LKGC 推进 `189c62c` → `53685d5`**。`387dcaf`（candidate 命名）与 `dd8bd12`（回填）均为 docs/evidence-only，**不得作为 LKGC**——命名不构成证据。终验范围覆盖 `53685d5` 的行为：最终 `qml_nav_check` PASS（场景断言即该提交实现）、ctest 26/26、部署版 nav check PASS 均为其验证证据。
+
+### 33.4 B2 Final Status = COMPLETE
+
+**交付清单**：StatisticsOverview feature component · DashboardPage · Run Demo migration（单入口）· two real workspaces · Dashboard navigation enabled · single workspace index contract · `qml_nav_check` · Scenario A（导航存续）· Scenario B（诊断存续）· Scenario D（clear 双视图同步）· dual-view authoritative statistics · dual-size geometry protection（四趟）· deploy validation · **manual visual PASS**。
+
+提交链：`c4291db`（B2.1）→ `93aabb2`（B2.2）→ `53685d5`（B2.3，**= verified LKGC**）→ `387dcaf`（候选：docs+截图）→ `dd8bd12`（回填）→ 本 closure 提交（docs-only，非 LKGC）。
+
+### 33.5 架构决策（已验证事实，正式记录）
+
+1. **Workspace navigation ≠ Source transition**：切页仅改 `currentWorkspaceIndex`/`currentIndex`；业务命令只由页面内显式用户动作触发（nav check 的全字段快照断言 + 人工行为链确认共同证明）。
+2. **Legacy 与 Dashboard 是两个 View，共享同一个 authoritative Controller state**：场景 D 在 Dashboard 断言与 Workbench 同态；场景 A 全字段跨页相等。
+3. **StatisticsOverview 是 feature presentation component，不是 Design System primitive**：含 Modbus 业务词汇，归 `components/`；`DS/` 保持业务无关（guardrail A）。
+4. **StackLayout 中两页面同时存在、页面 identity 稳定**：nav check 以指针相等证明（切换前后同对象）。
+5. **Object lifetime evidence 与 business-state evidence 必须分别验证**：身份（生命周期）与全字段快照（业务正确性）是两类独立断言，互不替代。
+6. **Serial persistence 自动测试仍 DEFER**：无硬件、无可靠 offline seam——**不得把未验证内容写成已验证**；Serial Controls 可达性由人工 PASS 覆盖。
+
+### 33.6 Deferred Work（不得在 B2 closure 提前实现）
+
+M9-B3 Communication Extraction · M9-B4 Replay Extraction · M9-B5 Diagnosis Extraction · M9-C Dashboard Redesign / visual enrichment（含利用 Dashboard 空白的视觉丰富化）。
+
+### 33.7 最终验证记录（终验结论，不因 closure 重新宣称）
+
+| 验证项 | 结果 |
+| --- | --- |
+| qml_smoke | **PASS**（EXITCODE=0） |
+| qml_geometry_check | **PASS**（Legacy/Dashboard × 1024×720/1000×700 四趟） |
+| qml_nav_check | **PASS**（结构 + 场景 A/B/D） |
+| full ctest | **26/26** |
+| deploy smoke | **PASS**（含部署版 nav check） |
+| manual visual | **PASS**（用户，Dashboard + Legacy） |
+
+本 closure 为 docs/status-only，**不产生新的产品验证结果**——上表即为 `53685d5` 行为的终验证据。
+
+### 33.8 B2 Knowledge Closure（基于本轮真实过程）
+
+1. **View duplication vs state duplication**：Legacy/Dashboard 各有一个 StatisticsOverview 实例（两份 markup、两份绑定），但零状态副本——两处渲染同一 Controller 快照。判定法：删掉任一视图，另一视图与全部业务行为不受影响；反之若某处存了副本，删视图会连带丢状态（场景 A/D 即为该判定的机器证据）。
+2. **Feature component vs generic DS component**：归属看**语义**不看复用次数——StatisticsOverview 携带事务状态名、成功率口径等 Modbus 词汇 → feature 层；DS 只放业务无关 primitive/token。
+3. **Workspace navigation vs source transition**：两者是不同维度的状态变更；把"切页"误当"切源"会引入静默的 source 变化（本项目用快照断言把这条不变量钉死，人工行为链复核确认）。
+4. **Explicit Controller dependency**：`required property var analysisController` 让依赖出现在组件签名上（可静态检查、可测试注入），并且**不引入全局单例、不做字符串解析**。
+5. **Workspace index contract**：一处定义（Main.qml readonly properties）→ rail 顺序 + StackLayout 顺序 + 测试三方消费；行为断言（激活后目标页必须可见）兜底顺序漂移。
+6. **Object identity vs authoritative-state verification**：身份证据（指针相等）证明"没重建/没丢页本地状态"；状态证据（全字段快照）证明"业务值没变"。两类证据分开写、分别失败——避免用弱证据冒充强结论。
+7. **隐藏 StackLayout 页面不应做未经验证的 geometry 假设**：本轮实测**从未激活的隐藏页几何为 0×0**，首次激活后才获得尺寸；因此几何断言一律"先切到目标 workspace 再验证其活动实例"，隐藏页零断言。
+8. **verification oracle itself must have verifiable inputs**：本轮真实问题——像素验证脚本的路径覆盖行未生效，脚本**一直在读 M9-A 时期的旧截图**做 B1 区域的测量，产出大量 false FAIL（追查链：ASCII 图 → 颜色包围盒 → 逐区域计数 → 同图并排实现对比）。经验固化为设计原则（**仅记录，不要求本轮继续开发脚本**）：未来 pixel helper 最低应显式声明并回显 `VERIFY_INPUT`（被验证文件路径+哈希）、`IMAGE_SIZE`（读取到的实际尺寸）、`EXPECTED_PAGE`（该图应对应哪个 workspace），使"检查器读错输入"在输出里立刻可见。
+
+### 33.9 Next
+
+- **M9-B3 — Communication Extraction（Learning / Design Gate）**：待用户 GO；**本轮不开始实现**。
