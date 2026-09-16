@@ -27,7 +27,7 @@ Rectangle {
         { label: qsTr("工作台"), enabled: true },   // the legacy workspace (B1)
         { label: qsTr("总览"), enabled: true },     // Dashboard (M9-B2)
         { label: qsTr("通信"), enabled: true },     // Communication (M9-B3)
-        { label: qsTr("回放"), enabled: false },    // future Replay
+        { label: qsTr("回放"), enabled: true },     // Replay (M9-B4)
         { label: qsTr("诊断"), enabled: false },    // future Diagnosis
         { label: qsTr("设备"), enabled: false }     // future Device (M12)
     ]

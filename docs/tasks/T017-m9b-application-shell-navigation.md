@@ -1700,7 +1700,39 @@ git diff --check                  → 通过
 
 见 §40 回填（B4.1 提交；不 push、不推进 LKGC——待 B4.2/B4.3/B4.4 与人工验收）。
 
-## 40. Next
+### 39.1 B4.2 — Atomic Replay Workflow Migration + Activation（Implementation Record，2026-09-16）
 
-- **B4.2 — 原子工作流迁移 + 启位**（§38.31.3）：四件套逐字 MOVE + `workspaceReplayIndex: 3` + rail 启位 + 四 workspace 基础导航断言（同一提交内完成，禁止"已迁移但不可达"）。
-- **等待用户 GO**；本轮不开始 B4.2。
+按 §38.31.3 原子执行（用户批准；**同一提交内完成迁移与启位，无"已迁移但不可达"中间态**）：
+
+- **四件套逐字 MOVE**：Load Replay AppButton（tone/text/onClicked→`replayFileDialog.open()` 逐字）· `replayFileDialog`（title/nameFilters/onAccepted→`loadReplayFile(selectedFile)` 逐字；selectedFile 瞬时候选语义不变）· Replay error Label（`visible: hasReplayError` + `replayErrorMessage`）· Replay notice Label（`visible: hasReplayNotice` + `replayNoticeText`）。唯一文本替换：两个字面色 → `DS.error`/`DS.notice`（**按构造等值**：#B03030/#806000），沿用 B3.1 既有的"主题访问器等值替换"惯例并注明。
+- **启位**：`workspaceReplayIndex: 3`（集中契约）+ rail `回放` 启位（诊断/设备仍 disabled）+ StackLayout child3（**复用 B4.1 实例**，未重建）；终态导航矩阵：工作台/总览/通信/回放 enabled，诊断/设备 disabled。
+- **护栏扩展**：NAV 矩阵四真实 workspace（navItem_0..3 enabled；4/5 disabled + invoke 校验）；runNavAssertions/runShellNavAssertions 的 real-workspace 集与可见性检查扩至 replayWorkspace；nav check 结构路径扩为 **`Legacy → Dashboard → Communication → Replay → Dashboard → Legacy`**（新增 stage 5/6：切 Replay + 身份/可见性/快照断言；场景编号相应 +2，kLastStage 27）；PASS 文案更新为 four workspaces。
+- **零行为变化证明**：nav check 全字段业务快照逐站比较通过（导航到 Replay 未改变任何 authoritative 值——navigation ≠ source transition 的第四次实证）；r01–r08 全绿。
+
+### 39.2 Verification（真命令 + 真输出）
+
+```text
+build（debug-local）→ Linking modbuslens.exe（干净）
+首轮 smoke → EXITCODE=-1：「ReplayPage.qml:104:5: FileDialog is not a type」（ReplayPage 缺 import QtQuick.Dialogs——Main.qml 有而新页文件没有；与 B3 的 Label 教训同族）→ 修复后 EXITCODE=0
+qml_nav_check → EXITCODE=0；`NAV [replay]: index=3 … replayVisible=1`；全字段快照不变
+qml_geometry_check → 六趟 PASS（replayWorkspace 六趟 0×0 信息性记录——八趟矩阵属 B4.3，未提前实现）
+full ctest → 26/26（r01–r08 全绿）
+git diff --check → 通过
+```
+
+### 39.3 Problems / RCA
+
+1. **FileDialog import 缺失**（smoke 抓到，EXITCODE=-1）：ReplayPage 使用 FileDialog 但未 import QtQuick.Dialogs——同 B3 的 "Label is not a type"（逐文件 import 纪律）。修复=补 import；已列入该教训的第二次实证。
+
+### 39.4 Files Changed（B4.2）
+
+`src/ui/qml/pages/ReplayPage.qml`（shell→工作流填充 + Dialogs import）、`src/ui/qml/Main.qml`（-FileDialog/-Load 行/-error·notice 行/+workspaceReplayIndex）、`src/ui/qml/components/NavigationRail.qml`（回放启位）、`src/main.cpp`（四页 NAV 矩阵/断言/阶段机）。
+
+### 39.5 Candidate Commit
+
+见 §41 回填（B4.2 提交；不 push、不推进 LKGC——待 B4.3/B4.4 与人工验收）。
+
+## 41. Next
+
+- **B4.2 Review（用户）**；通过后 **B4.3 — Scenario I/J/K/K′ + 必需 fixture + 八趟 geometry**（§38.31.4；本轮未开始，含 `MODBUSLENS_UNSUPPORTED_MLOG_PATH` 接线）。
+- **B4.4（deploy/截图/人工）与 LKGC 裁定在 B4.3 之后**；本轮均未开始。

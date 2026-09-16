@@ -37,6 +37,7 @@ ApplicationWindow {
     readonly property int workspaceLegacyIndex: 0
     readonly property int workspaceDashboardIndex: 1
     readonly property int workspaceCommunicationIndex: 2
+    readonly property int workspaceReplayIndex: 3
 
     width: 1024
     height: 720
@@ -62,16 +63,6 @@ ApplicationWindow {
         // Test seam (nav check reads authoritative properties/calls
         // existing invokable commands through this name).
         objectName: "analysisController"
-    }
-
-    FileDialog {
-        id: replayFileDialog
-        title: qsTr("加载回放日志")
-        nameFilters: [
-            qsTr("ModbusLens 回放日志 (*.mlog)"),
-            qsTr("所有文件 (*)")
-        ]
-        onAccepted: analysisController.loadReplayFile(selectedFile)
     }
 
     // ------------------------------------------------------------------
@@ -202,43 +193,6 @@ ApplicationWindow {
                         spacing: DS.spacingM
 
                         // Demo controls (M9-B2: Run Demo moved to the
-                        // Dashboard workspace — one contextual command,
-                        // one entry; Clear Results stays in the AppBar).
-                        // This single-button row is a migration-period
-                        // state; the Replay workflow moves out in M9-B4.
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: DS.spacingS
-
-                            AppButton {
-                                tone: "secondary"
-                                text: qsTr("加载回放...")
-                                onClicked: replayFileDialog.open()
-                            }
-                            Item {
-                                Layout.fillWidth: true
-                            }
-                        }
-
-                        // Replay error area (lightweight, visible only on failure)
-                        Label {
-                            visible: analysisController.hasReplayError
-                            text: analysisController.replayErrorMessage
-                            color: "#B03030"
-                            wrapMode: Text.Wrap
-                            Layout.fillWidth: true
-                        }
-
-                        // T015 non-fatal disclosure: some records are valid Modbus but not
-                        // supported for analysis yet (they never enter the statistics pool).
-                        Label {
-                            visible: analysisController.hasReplayNotice
-                            text: analysisController.replayNoticeText
-                            color: "#806000"
-                            wrapMode: Text.Wrap
-                            Layout.fillWidth: true
-                        }
-
                         // Statistics (M9-B2): extracted to the shared
                         // feature component; during the migration the
                         // Legacy and Dashboard instances render the SAME

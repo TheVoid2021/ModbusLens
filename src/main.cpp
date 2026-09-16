@@ -308,15 +308,17 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
                  .arg(index));
     const int communicationIndex =
         rootObj->property("workspaceCommunicationIndex").toInt();
+    const int replayIndex = rootObj->property("workspaceReplayIndex").toInt();
     if (index != legacyIndex && index != dashboardIndex
-        && index != communicationIndex)
+        && index != communicationIndex && index != replayIndex)
         fail(QStringLiteral("NAV currentWorkspaceIndex %1 is not one of the "
                             "real workspaces (legacy=%2 dashboard=%3 "
-                            "communication=%4)")
+                            "communication=%4 replay=%5)")
                  .arg(index)
                  .arg(legacyIndex)
                  .arg(dashboardIndex)
-                 .arg(communicationIndex));
+                 .arg(communicationIndex)
+                 .arg(replayIndex));
 
     // Visibility must follow the selection (page-independent form: this
     // guard runs at EVERY workspace now).
@@ -324,6 +326,7 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     auto *dashboard = findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
     auto *communication =
         findNamedItem(roots, QStringLiteral("communicationWorkspace"));
+    auto *replay = findNamedItem(roots, QStringLiteral("replayWorkspace"));
     if (!legacy)
         fail(QStringLiteral("NAV legacyWorkspace not found"));
     else if (legacy->isVisible() != (index == legacyIndex))
@@ -345,6 +348,13 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
                             "not follow the selection %2")
                  .arg(communication->isVisible())
                  .arg(index));
+    if (!replay)
+        fail(QStringLiteral("NAV replayWorkspace not found"));
+    else if (replay->isVisible() != (index == replayIndex))
+        fail(QStringLiteral("NAV replayWorkspace visibility (%1) does not "
+                            "follow the selection %2")
+                 .arg(replay->isVisible())
+                 .arg(index));
 
     auto *item0 = findNamedItem(roots, QStringLiteral("navItem_0"));
     auto *item1 = findNamedItem(roots, QStringLiteral("navItem_1"));
@@ -353,8 +363,8 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
         return failures;
     }
 
-    // M9-B3 matrix: 工作台 / 总览 / 通信 are REAL workspaces (enabled); the
-    // remaining three stay disabled until their own extraction steps.
+    // M9-B4 matrix: 工作台 / 总览 / 通信 / 回放 are REAL workspaces
+    // (enabled); 诊断 / 设备 stay disabled until their own extraction steps.
     if (!item0->property("enabled").toBool())
         fail(QStringLiteral("NAV navItem_0 (workbench) must be enabled"));
     if (!item1->property("enabled").toBool())
@@ -362,7 +372,10 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     auto *item2 = findNamedItem(roots, QStringLiteral("navItem_2"));
     if (!item2 || !item2->property("enabled").toBool())
         fail(QStringLiteral("NAV navItem_2 (communication) must be enabled"));
-    for (int i = 3; i <= 5; ++i) {
+    auto *item3 = findNamedItem(roots, QStringLiteral("navItem_3"));
+    if (!item3 || !item3->property("enabled").toBool())
+        fail(QStringLiteral("NAV navItem_3 (replay) must be enabled"));
+    for (int i = 4; i <= 5; ++i) {
         auto *item = findNamedItem(roots,
                                    QStringLiteral("navItem_%1").arg(i));
         if (!item) {
@@ -551,9 +564,10 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     auto switchWorkspace = [&](int pageIndex, QStringList &fails) {
         QObject *rootObj = roots.value(0);
-        const char *key = (pageIndex == 0) ? "workspaceLegacyIndex"
-                        : (pageIndex == 1) ? "workspaceDashboardIndex"
-                                           : "workspaceCommunicationIndex";
+        const char *key = (pageIndex == 0)   ? "workspaceLegacyIndex"
+                        : (pageIndex == 1)   ? "workspaceDashboardIndex"
+                        : (pageIndex == 2)   ? "workspaceCommunicationIndex"
+                                             : "workspaceReplayIndex";
         const int idx = rootObj->property(key).toInt();
         auto *item = findNamedItem(
             roots, QStringLiteral("navItem_%1").arg(idx));
@@ -674,23 +688,30 @@ QStringList runNavAssertions(const QList<QObject *> &roots,
         rootObj->property("workspaceDashboardIndex").toInt();
     const int communicationIndex =
         rootObj->property("workspaceCommunicationIndex").toInt();
+    const int replayIndex = rootObj->property("workspaceReplayIndex").toInt();
     const int index = rail->property("currentWorkspaceIndex").toInt();
 
     auto *communication =
         findNamedItem(roots, QStringLiteral("communicationWorkspace"));
+    auto *replay = findNamedItem(roots, QStringLiteral("replayWorkspace"));
     if (!communication)
         fail(QStringLiteral("NAVFAIL communicationWorkspace not found"));
+    if (!replay)
+        fail(QStringLiteral("NAVFAIL replayWorkspace not found"));
 
     const bool realWorkspace = (index == legacyIndex)
                             || (index == dashboardIndex)
-                            || (index == communicationIndex);
+                            || (index == communicationIndex)
+                            || (index == replayIndex);
     if (!realWorkspace)
         fail(QStringLiteral("NAVFAIL selection %1 is not a real workspace "
-                            "(legacy=%2 dashboard=%3 communication=%4)")
+                            "(legacy=%2 dashboard=%3 communication=%4 "
+                            "replay=%5)")
                  .arg(index)
                  .arg(legacyIndex)
                  .arg(dashboardIndex)
-                 .arg(communicationIndex));
+                 .arg(communicationIndex)
+                 .arg(replayIndex));
     if (legacy->isVisible() != (index == legacyIndex))
         fail(QStringLiteral("NAVFAIL legacyWorkspace visibility does not "
                             "follow selection %1")
@@ -702,6 +723,10 @@ QStringList runNavAssertions(const QList<QObject *> &roots,
     if (communication && communication->isVisible() != (index == communicationIndex))
         fail(QStringLiteral("NAVFAIL communicationWorkspace visibility does "
                             "not follow selection %1")
+                 .arg(index));
+    if (replay && replay->isVisible() != (index == replayIndex))
+        fail(QStringLiteral("NAVFAIL replayWorkspace visibility does not "
+                            "follow selection %1")
                  .arg(index));
 
     return failures;
@@ -741,12 +766,13 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 25;
+    constexpr int kLastStage = 27;
 
     // Shared state across stages.
     auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
     auto dashboardPtr = std::make_shared<QQuickItem *>(nullptr);
     auto communicationPtr = std::make_shared<QQuickItem *>(nullptr);
+    auto replayPtr = std::make_shared<QQuickItem *>(nullptr);
     auto snapshot0 = std::make_shared<QMap<QString, QVariant>>();
     auto scenarioA = std::make_shared<QMap<QString, QVariant>>();
     auto scenarioB = std::make_shared<QMap<QString, QVariant>>();
@@ -766,9 +792,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     };
 
     auto switchTo = [&](int pageIndex) {
-        const char *key = (pageIndex == 0) ? "workspaceLegacyIndex"
-                        : (pageIndex == 1) ? "workspaceDashboardIndex"
-                                           : "workspaceCommunicationIndex";
+        const char *key = (pageIndex == 0)   ? "workspaceLegacyIndex"
+                        : (pageIndex == 1)   ? "workspaceDashboardIndex"
+                        : (pageIndex == 2)   ? "workspaceCommunicationIndex"
+                                             : "workspaceReplayIndex";
         const int idx = rootObj->property(key).toInt();
         auto *item = findNamedItem(
             roots, QStringLiteral("navItem_%1").arg(idx));
@@ -802,9 +829,9 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, schedule, failures, legacyPtr, dashboardPtr,
-                 communicationPtr, snapshot0, scenarioA, scenarioB, draftValues,
-                 gPre, stage, ctrl, takeSnapshot, compareAgainst, switchTo,
-                 verifyStructureAndIdentity]() {
+                 communicationPtr, replayPtr, snapshot0, scenarioA, scenarioB,
+                 draftValues, gPre, stage, ctrl, takeSnapshot,
+                 compareAgainst, switchTo, verifyStructureAndIdentity]() {
         auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
         const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
         const int dashboardIndex =
@@ -826,13 +853,12 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 roots, QStringLiteral("communicationWorkspace"));
             if (!*communicationPtr)
                 fail(QStringLiteral("NAVFAIL communicationWorkspace not found"));
-            // M9-B4.1: the Replay shell exists as the fourth child but its
-            // navigation entry stays disabled — existence only, no geometry
-            // and no behavioural assertions for the hidden page.
-            auto *replayShell =
-                findNamedItem(roots, QStringLiteral("replayWorkspace"));
-            if (!replayShell)
-                fail(QStringLiteral("NAVFAIL replayWorkspace shell not found"));
+            // M9-B4.2: the Replay page exists as the fourth child; its
+            // navigation entry is enabled by now. Identity is captured so
+            // every later stage can prove the instance never changes.
+            *replayPtr = findNamedItem(roots, QStringLiteral("replayWorkspace"));
+            if (!*replayPtr)
+                fail(QStringLiteral("NAVFAIL replayWorkspace not found"));
             *snapshot0 = takeSnapshot(ctrl);
             qInfo().noquote()
                 << QStringLiteral("NAV [initial]: index=%1 legacy=%2x%3 "
@@ -876,15 +902,34 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                        .arg((*communicationPtr)->isVisible());
             break;
         }
-        case 5: switchTo(1); break;
+        case 5: switchTo(3); break;
         case 6: {
+            verifyStructureAndIdentity(QStringLiteral("replay"));
+            if (findNamedItem(roots, QStringLiteral("replayWorkspace"))
+                != *replayPtr)
+                fail(QStringLiteral("NAVFAIL replay page identity changed"));
+            compareAgainst(*snapshot0, takeSnapshot(ctrl),
+                           QStringLiteral("to replay"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [replay]: index=%1 legacyVisible=%2 "
+                                  "dashboardVisible=%3 communicationVisible=%4 "
+                                  "replayVisible=%5")
+                       .arg(rail->property("currentWorkspaceIndex").toInt())
+                       .arg((*legacyPtr)->isVisible())
+                       .arg((*dashboardPtr)->isVisible())
+                       .arg((*communicationPtr)->isVisible())
+                       .arg((*replayPtr)->isVisible());
+            break;
+        }
+        case 7: switchTo(1); break;
+        case 8: {
             verifyStructureAndIdentity(QStringLiteral("dashboard again"));
             compareAgainst(*snapshot0, takeSnapshot(ctrl),
                            QStringLiteral("communication -> dashboard"));
             break;
         }
-        case 7: switchTo(0); break;
-        case 8: {
+        case 9: switchTo(0); break;
+        case 10: {
             verifyStructureAndIdentity(QStringLiteral("workbench return"));
             compareAgainst(*snapshot0, takeSnapshot(ctrl),
                            QStringLiteral("back to workbench"));
@@ -896,12 +941,12 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario A: deterministic batch survives navigation ----
-        case 9: {
+        case 11: {
             if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
                 fail(QStringLiteral("NAVFAIL runDemoBatch() not invokable"));
             break;
         }
-        case 10: {
+        case 12: {
             *scenarioA = takeSnapshot(ctrl);
             if (scenarioA->value(QStringLiteral("observedCount")).toInt() != 4)
                 fail(QStringLiteral("NAVFAIL scenario A: expected the "
@@ -909,7 +954,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 11: {
+        case 13: {
             compareAgainst(*scenarioA, takeSnapshot(ctrl),
                            QStringLiteral("scenario A @dashboard"));
             qInfo().noquote()
@@ -921,7 +966,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(0);
             break;
         }
-        case 12: {
+        case 14: {
             compareAgainst(*scenarioA, takeSnapshot(ctrl),
                            QStringLiteral("scenario A return"));
             if (!QMetaObject::invokeMethod(ctrl, "runBaselineDiagnosis"))
@@ -931,7 +976,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario B: diagnosis survives navigation ----
-        case 13: {
+        case 15: {
             scenarioB->insert(QStringLiteral("hasBaselineDiagnosis"),
                               ctrl->property("hasBaselineDiagnosis"));
             scenarioB->insert(QStringLiteral("baselineDiagnosisText"),
@@ -942,7 +987,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 14: {
+        case 16: {
             if (ctrl->property("hasBaselineDiagnosis")
                     != scenarioB->value(QStringLiteral("hasBaselineDiagnosis"))
                 || ctrl->property("baselineDiagnosisText")
@@ -952,7 +997,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(0);
             break;
         }
-        case 15: {
+        case 17: {
             if (ctrl->property("hasBaselineDiagnosis")
                     != scenarioB->value(QStringLiteral("hasBaselineDiagnosis")))
                 fail(QStringLiteral("NAVFAIL scenario B (return): diagnosis "
@@ -963,7 +1008,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario D: clear is reflected by every view ----
-        case 16: {
+        case 18: {
             const QStringList zeroKeys = {
                 QStringLiteral("observedCount"),  QStringLiteral("pendingCount"),
                 QStringLiteral("completedCount"), QStringLiteral("successCount"),
@@ -983,7 +1028,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 17: {
+        case 19: {
             if (ctrl->property("observedCount").toInt() != 0
                 || ctrl->property("hasSuccessRate").toBool()
                 || ctrl->property("hasAverageSuccessLatency").toBool())
@@ -998,7 +1043,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(0);
             break;
         }
-        case 18: {
+        case 20: {
             if (ctrl->property("observedCount").toInt() != 0)
                 fail(QStringLiteral("NAVFAIL scenario D (return): workbench "
                                     "not cleared"));
@@ -1006,7 +1051,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario F: page-local drafts survive navigation ----
-        case 19: {
+        case 21: {
             struct DraftSpec {
                 const char *objectName;
                 const char *property;
@@ -1049,7 +1094,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(2);
             break;
         }
-        case 20: {
+        case 22: {
             for (auto it = draftValues->cbegin(); it != draftValues->cend(); ++it) {
                 auto *item = findNamedItem(roots, it.key());
                 if (!item) {
@@ -1085,7 +1130,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario G': the REAL failure path of a connect attempt ----
-        case 21: {
+        case 23: {
             if (ctrl->property("serialConnected").toBool())
                 fail(QStringLiteral("NAVFAIL scenario G': serialConnected "
                                     "became true for a non-existent port"));
@@ -1109,8 +1154,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 22: switchTo(2); break;
-        case 23: {
+        case 24: switchTo(2); break;
+        case 25: {
             if (ctrl->property("serialConnected").toBool()
                 || !ctrl->property("hasSerialError").toBool())
                 fail(QStringLiteral("NAVFAIL scenario G': connect-failure "
@@ -1119,11 +1164,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario F verification after the round trip ----
-        case 24: {
+        case 26: {
             switchTo(0);
             break;
         }
-        case 25: {
+        case 27: {
             switchTo(2);
             for (auto it = draftValues->cbegin(); it != draftValues->cend(); ++it) {
                 auto *item = findNamedItem(roots, it.key());
@@ -1155,7 +1200,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         if (failures->isEmpty())
-            qInfo() << "NAV CHECK PASS (three workspaces; identity stable; "
+            qInfo() << "NAV CHECK PASS (four workspaces; identity stable; "
                        "navigation changed no business values; scenarios "
                        "A/B/D/E/F/G'/H asserted)";
         else
