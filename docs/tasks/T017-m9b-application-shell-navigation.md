@@ -452,4 +452,9 @@ deploy_windows.bat + 无开发 PATH deploy smoke      → [OK] + EXITCODE=0
 
 ### 22.9 Candidate Commit
 
-见 §23 回填（candidate 提交，不 push、不推进 LKGC）。
+- `189c62c`（main，未 push）— `M9-B1: application shell skeleton`（12 files：NavigationRail 新增 + Main.qml/DS/main.cpp/CMakeLists + docs + 两张截图；**candidate 提交，不推进 LKGC**——待 Manual Visual Review PASS 后再议）。
+
+## 23. Next
+
+- **M9-B1 Manual Visual Review = PENDING USER REVIEW**（截图 `m9b1-shell-1024x720.png` / `m9b1-shell-1000x700.png`；复核清单见 §22.6）。
+- PASS 之前：不推进 LKGC（verified 保持 `6562dd3`）、不 push、不开始 B2（Dashboard extraction）。
