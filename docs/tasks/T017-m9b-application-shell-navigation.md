@@ -2734,3 +2734,401 @@ closure commit 为 **docs-only**，**不得成为新的 verified LKGC**（LKGC �
 
 - **M9-C — Dashboard Redesign**，从 **Learning / Design Gate** 开始（先读 PROJECT_STATUS / BACKLOG / ARCHITECTURE / §13 边界与 M9-C 登记项，产出设计并**停止待 Review**；本轮不开始 implementation）。
 - M9-D（Transaction & Diagnosis Workspace）/ M9-E（Branding/Packaging）/ M9-F（Manual Visual Acceptance）未开始；**M9 整体未关闭**。
+
+## 52. M9-C Phase 1 — Dashboard Redesign / Information Hierarchy（Learning & Design，2026-09-17）
+
+**本轮严格只做：学习 / 取证 / 设计 / 方案比较 / 文档归档。零 production / QML / tests / harness / DesignSystem 改动；不开始 implementation；不 push；不推进 verified LKGC。**
+
+### 52.1 Preflight（真实）
+
+```text
+branch = main；HEAD = b565516；working tree clean；git diff --check PASS
+V2 verified LKGC = 6cc84c3；v1.0.0^{commit} = ae067ab（annotated tag 对象 2cee626，已 peel，未与 commit 目标混淆）
+origin/main = a40d935；ahead 43 / behind 0（已知允许）
+```
+
+### 52.2 强制重读履行记录
+
+已读真实文件：`AGENTS.md`、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/02_ARCHITECTURE.md`（D1–D7 + 依赖方向）、`docs/04_TEST_STRATEGY.md`、`docs/06_UI_LANGUAGE_POLICY.md`、`docs/11_V2_UPGRADE_PLAN.md`（§1 冻结契约 / §3 门禁 / §4 M9-C 定位 / §8 协议）；
+T017：§13 迁移计划、§14 响应预算、§30（B2 Dashboard 边界 + 4 案比较 + defer 表）、§31 B2 closure（"空白属 M9-C、不是 regression"）、§37.7（surplus-space 知识）、§37.8（oracle 四原则）、§43/§46/§48/§50（B5 全链与最终规则）；
+真实 QML：`Main.qml`（shell/AppBar/Legacy）、`DashboardPage.qml`、`components/StatisticsOverview.qml`、`components/{AppButton,PanelCard,SectionHeader,StatCard,NavigationRail}.qml`、`DS/DesignSystem.qml`；
+真实 C++：`AnalysisController.h`（Q_PROPERTY 全表）、`TransactionListModel.h`（7 roles）；
+harness：`qml_smoke` / `qml_nav_check`（86 段状态机、14 项判决）/ `qml_geometry_check`（10 趟）/ `--qml-evidence-capture`。
+**未依据聊天摘要决定 Dashboard 要画什么。**
+
+### 52.3 Current Dashboard UI Map（真实代码 + 真实几何）
+
+`pages/DashboardPage.qml` = `Item` 根 → `ColumnLayout(anchors.fill, margins DS.spacingL=16, spacing DS.spacingM=12)`：
+
+| # | UI element（objectName） | current owner | authoritative data source | action | 当前几何角色 | 共享组件 | 当前测试 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `dashboardHeader`（"总览"/"当前会话概览"） | DashboardPage | 静态文案 | — | natural（h≈15） | `SectionHeader` | 无直接断言 |
+| 2 | `dashboardRunDemo`（"运行演示批次"，primary） | DashboardPage | — | `runDemoBatch()` | natural（h=34=DS.controlHeight） | `AppButton` | 无直接断言；行为经 nav check Scenario A/D 间接覆盖 |
+| 3 | `dashboardEmptyHint`（一行提示） | DashboardPage | `observedCount === 0` | 纯文案 | natural（visible 时 h≈13） | 无（内联 Label，B2 决定不建 EmptyState 组件） | **无任何断言** |
+| 4 | `statisticsHeader_dashboard`（"运行统计"） | StatisticsOverview | 静态 | — | natural | `SectionHeader` | 经 `statisticsHeader_*` 前缀通用断言（存在性） |
+| 5 | `statisticsPanel_dashboard` | StatisticsOverview | — | — | natural 168 高（implicit=864×168 @1024） | `PanelCard` | 非零/尺寸/与 header 不重叠 |
+| 6 | `statisticsRow1_dashboard`（5 卡：已观测/已完成/进行中/成功率/平均延迟） | StatisticsOverview | observed/completed/pending/successRate(+has)/averageSuccessLatencyMs(+has) | — | natural 72 | `StatCard` | 行存在、visible 卡非零 |
+| 7 | `statisticsRow2_dashboard`（6 卡：成功/异常/CRC/超时/协议错误/预期无响应） | StatisticsOverview | 六个 count 属性 | — | natural 64 | `StatCard`（tone=DS.*） | 行不重叠 row1；卡非零 |
+| 8 | AppBar 区（`appBar` + `sessionChipMode/source/connection` + `appBarClearResults`） | Main.qml shell | modeLabel/sourceLabel/serialConnected | `clearResults()` | 固定 40 高 | `AppButton` | shell 几何断言 |
+
+**信息关系（AppBar ↔ Dashboard）**：AppBar 是**会话/source 的唯一常驻呈现**（模式 · 来源 · 已连接 + 清空结果）；Dashboard 是**会话数据的聚合视图**。二者不共享 state，只共享 Controller 事实。AppBar 不随 workspace 变化。
+
+### 52.4 Current StatisticsOverview Inventory
+
+- **分类（重申）**：`components/StatisticsOverview.qml` 是 **feature/presentation component**（携带 Modbus 业务词汇：状态名、成功率口径），**不是 Design System primitive**；不得把 Modbus 语义塞进 `DS/`。
+- **properties**：`required var analysisController`、`required string instanceId`（呈现身份，保证测试 objectName 唯一）。
+- **bindings**：全部单向只读 Controller 属性；成功率格式 = `(successRate*100).toFixed(1)+"%"`（`successRate` 是**分数**）；延迟 = `averageSuccessLatencyMs.toFixed(1)+" ms"`；optional → `hasX ? value : "—"`。**零状态副本、零重算、零重判**。
+- **layout assumptions**：`ColumnLayout(spacing=12)`[SectionHeader, PanelCard[RowLayout row1, RowLayout row2]]；每行尾部一个 `Item{Layout.fillWidth:true}` 吸收水平余量。
+- **implicit size contract（ISSUE-012 遗产）**：`PanelCard.implicitHeight = 内容 implicit + 2×padding`；`StatCard.implicit*` 由 label 列 implicit 派生——**anchors 不回馈 implicit**，这是当年塌缩的根因，迁移/拆分时**不得退回 anchored-only** 写法。
+- **StatCard composition**：`label`（caption 11，tone 着色）+ `valueText`（fontMetric 20 bold）；`Layout.preferredWidth` 由调用点覆盖（KPI 140/180、状态 110）、`preferredHeight` 72/64。
+- **outcome distribution 现状**：6 个状态各一张卡（**数量**呈现），**没有任何比例/分布呈现**。
+- **几何（实测，1024×720 / 1000×700）**：panel 935×168 / 911×168（implicit 864×168）；row1 911×72 / 887×72；row2 911×64 / 887×64；卡列 x=0/152/304/456/648 与 0/122/244/366/488/610（间距 12）。
+- **共享面（关键）**：`StatisticsOverview` **有两个真实实例**——`instanceId: "legacy"` 与 `instanceId: "dashboard"`。**任何对它的改造都会同时改变 Legacy 的视觉**（Legacy 已两次人工验收）。
+
+### 52.5 现状几何取证（本轮实测，来自已提交证据图，非猜测）
+
+方法：对已提交的 1024×720 证据图做**逐行内容密度**测量（workspace 列内、非白非卡面像素），得到真实的纵向布局带。125% DPI → logical = pixel/1.25。**测的是墨迹行，不是 item box**（box 起点略高）。
+
+| 页面（证据图） | 内容带（logical y） | 关键空档 | 尾部空白 |
+| --- | --- | --- | --- |
+| Dashboard（`m9b4-dashboard-replay`，有数据 observed=4） | header 74–88；action 142–177；**统计段 361–558** | header→action 54；**action→统计 184.8** | **161.6** |
+| Dashboard（`m9b2-dashboard`，空态，含提示行） | header 73–86；action 136–170；**提示行 214–226**；统计段 380–578 | 提示→统计 ~154 | ~142 |
+| Legacy（`m9b3-legacy`） | 内容直到 703 | — | **16.8（紧致填满）** |
+| Communication（`m9b3-communication`） | 内容止于 261 | — | **459.2（B3 显式尾部 spacer：紧凑置顶 + 余量在末尾）** |
+
+**结构侧算术**：Dashboard 内容 implicit ≈ 15（header）+12+34（action）+12+195（统计 15+12+168）= **268**；可用高 = 679−32 = **647**（@1024×720）、659−32 = **627**（@1000×700）⇒ **未分配 ≈ 379 / 359**。
+
+**结论（与 B3 记录一致、本轮以实测确认）**：Dashboard 既不是"紧凑置顶 + 余量在末尾"（Communication 模式），也不是"填满"（Legacy 模式）——**余量既被散布到 item 之间（action→统计 ~185），又在末尾留下 ~162**。这就是 `surplus-space ownership unclear`（**不是** ISSUE-012 的尺寸链塌缩）。B2 已裁定其非 regression，留给 M9-C。
+
+### 52.6 Dashboard 的用户任务（先回答，不答"更好看"）
+
+| 候选任务 | 价值 | 是否已有 deterministic 支撑 | 与其它 workspace 的关系 |
+| --- | --- | --- | --- |
+| **A. 一眼判断当前 session 有没有数据 / 是否异常** | 高（冷启动第一问） | 有（observed/completed + 六状态 count） | Dashboard 独有 |
+| **B. 一眼看清异常类型分布** | 高（第二问：哪里出问题） | 有（六状态 count，**当前无比例呈现**） | Dashboard 独有 |
+| **C. 知道"下一步去哪"（Communication / Replay / Diagnosis / Transactions）** | 中（导航指引） | 部分（导航由 rail 承担；诊断侧有 `hasBaselineDiagnosis`） | 与 rail 有重叠 |
+| **D. 运行 deterministic Demo（展示 / smoke 入口）** | 中（演示与验收必需） | 有（`runDemoBatch()` 单点命令） | 与验收流程强绑定 |
+
+**优先级：A > B > D > C。**
+
+**原则（本轮确立）**：**Dashboard = current-session situational awareness**（当前会话态势感知）。它**不是** full transaction inspector（→ M9-D）、不是 full diagnosis workspace（→ Diagnosis 页）、不是 AI chat、不是 device configuration page。
+
+### 52.7 现有数据能力审计（先核验数据，再设计卡片）
+
+| 期望的 Dashboard 元素 | 现有 deterministic 来源（真实 property/API） | 需要新业务数据？ | M9-C 安全？ | 为什么 |
+| --- | --- | --- | --- | --- |
+| 主 KPI（已观测/已完成/进行中） | `observedCount`/`completedCount`/`pendingCount` | 否 | ✅ | 现成属性，单点权威 |
+| 成功率 / 平均延迟 | `hasSuccessRate`+`successRate`（**分数**）/ `hasAverageSuccessLatency`+`averageSuccessLatencyMs` | 否 | ✅ | optional→hasX 已就绪；**不得**在 QML 重算分母 |
+| 结果分布（六状态） | `successCount`/`exceptionCount`/`crcErrorCount`/`timeoutCount`/`protocolErrorCount`/`expectedNoResponseCount` | 否 | ✅ | 与 `summarizeTransactions` 同源；**不得**重算 |
+| **比例/分布条** | 同上（分子=各 count，分母=**completed**） | 否 | ✅ | 纯派生视图，零新状态；见 §52.17 |
+| 会话/来源上下文 | `modeLabel`/`sourceLabel`/`serialConnected` | 否 | ⚠️ 与 AppBar 重复 | 见 §52.15：**不新增重复块** |
+| 回放非致命披露 | `hasReplayNotice`/`replayNoticeText` | 否 | ⚠️ 第二呈现点 | 现仅 Replay 页呈现；Dashboard 复现属"同权威第二视图"（允许但非必需） |
+| 诊断可用性线索 | `hasBaselineDiagnosis`（+ `baselineDiagnosisText` 存在但**不复制**） | 否 | ✅ | 见 §52.19 |
+| **finding 计数 / 健康分** | **不存在**（baseline 只有格式化文本 + bool） | **是** | ❌ | 计数需解析文案（禁止）或新 Core API；**健康分无业务定义 ⇒ 禁止**（§52.16） |
+| **最近异常 / 事务预览** | `transactionModel`（7 roles，整批替换） | 否（但需过滤语义） | ❌ 本轮 | 见 §52.18：QML 过滤会复制"anomaly predicate"且对无界模型有 perf 风险 ⇒ DEFER M9-D |
+| 趋势 / 时间序列 | **不存在**（无历史时间轴；批次是快照） | 是 | ❌ | §52.10 明令：**不得用当前 snapshot 伪装趋势** |
+| AI 解释 / Agent 回答 | `hasAiDiagnosis`/`aiDiagnosisText`/`hasAgentAnswer`/`agentAnswerText` | 否 | ❌ | **禁止**复制进 Dashboard（§52.19） |
+| 设备健康 / profile | **不存在**（M12 才有 Device Profile） | 是 | ❌ | §52.10 明令：**不得造"设备健康卡"** |
+
+**红线**：先有数据能力，才有 widget。**禁止先画 widget 再发明 backing data。**
+
+### 52.8 Frozen Semantic Boundary（M9-C 是 presentation redesign）
+
+**不得重新定义**：statistics 公式（`observed=pending+completed`、`completed=Σ6`、`rate=success/(completed−expectedNoResponse)`）、`TransactionStatus` 七值、`ExpectedNoResponse` 正交语义、request/response issue 语义、Replay analyzed subset、source transition、Diagnosis authority、AI authority（interpreter not detector）、Agent authority（3 只读工具）。
+
+**不得新增第二份** statistics state / 派生缓存 / 语义权威。唯一数据流：
+
+```text
+AnalysisController  ──authoritative facts──▶  Dashboard presentation
+        （任何反向写入、副本、重算、字符串解析 = 违规）
+```
+
+### 52.9 Information Architecture 三案比较
+
+| 维度 | **A. Refined Statistics Only** | **B. Session Overview（推荐）** | **C. Rich Operational** |
+| --- | --- | --- | --- |
+| 结构 | Header / Quick Action / Statistics（重排 spacing·层级·分组·余量归属） | Header / Quick Action / **Primary KPIs** / **Outcome distribution** / **compact attention（文本）** | B + recent anomalies + 事务预览 + 趋势图 + diagnosis 摘要 + AI insight |
+| 用户任务覆盖 | A、D（B 部分） | **A、B、D**（C 以文本线索） | A、B、C、D（但多数元素无数据） |
+| 新数据需求 | 无 | 无 | **趋势/预览/健康分/AI 摘要全部无权威来源** |
+| 与 M9-D 重叠 | 无 | 无（不出现逐笔事务） | **高**（事务预览/异常列表正是 M9-D 主场） |
+| 1000×700 密度 | 松（余量仍 ~380） | 松→中（余量被显式归属，见 §52.14） | 不可控（塞入后仍需假数据填充） |
+| 测试成本 | 低 | 中（新增分布条 + 空态断言） | 高且部分不可自动化 |
+| 视觉价值 | 低（信息价值不变） | **中高**（比例感知 + 层级清晰 + 余量有主） | 表面高，**实质靠 fabrication** |
+| 风险 | 低 | 低 | **高（伪造 + 越界 M9-D）** |
+
+**结论：B**。理由：B 用**已有** deterministic 数据完成"态势感知"闭环（多少 / 是否异常 / 分布 / 下一步），不引入任何新语义；C 里真正有价值的两项（逐笔异常、事务预览）**没有**本轮可用的安全机制（§52.18），其余（趋势/健康分/AI 摘要）**没有**权威数据——按 §52.10 与 §52.16 属禁止项。
+
+### 52.10 B2 遗留 deferred 候选逐项裁定
+
+| 候选 | 裁定 | 理由 |
+| --- | --- | --- |
+| Charts（含时间序列/趋势） | **REJECT FOR M9-C（趋势部分）** | 无历史时间轴数据集；**当前 snapshot 不得伪装趋势**。分布类图表另见 §52.17（属"可由 count 直接派生"，与"趋势"不同类） |
+| 趋势图 | **REJECT FOR M9-C** | 同上；需先有真实时间序列（未来任务） |
+| 最近异常紧凑视图 | **DEFER → M9-D** | §52.18：无边界安全的呈现机制；属事务域 IA |
+| 设备卡片 / 设备健康 | **REJECT FOR M9-C** | 无 Device Profile（M12）；不得造"设备健康卡" |
+| AI insight card | **REJECT FOR M9-C** | AI 未运行则不得造内容；AI 永不作为 Dashboard deterministic health authority |
+| SessionChip visual refinement（T017:474 登记） | **NOW（轻量）** | 属 Dashboard 相邻的会话呈现；仅在**不新增数据**前提下调整层级/密度（若 Review 认为属 M9-E，可再 defers） |
+| ErrorBanner/InfoBanner 统一（T017:1079 登记，单使用点） | **DEFER（保持单使用点内联）** | §52.25：仅 1 个真实使用点，抽象无复用价值 |
+| EmptyState 组件化（B2 登记"不新建"） | **NOW（仅内联文案升级）** | 重新评估后仍只有 1 个真实使用点（Dashboard），**不建组件**，只更新措辞（§52.22） |
+| 三个冻结字面量 → DS token（B5 登记 M9-C 候选） | **NOW（建议，独立小步）** | `#98A2B3`/`#B6BDC8`/`#C0392B` 与 `DS.disabledText`/新 token 有真实第二使用点；**但属 Diagnosis 域**，若纳入则单列一步并回归 Diagnosis |
+
+### 52.11 M9-C ↔ M9-D 边界
+
+- **M9-C = Dashboard information hierarchy + visual enrichment + session overview presentation。**
+- **M9-D = Transaction & Diagnosis Workspace 的更深 IA / redesign。**
+
+因此 Dashboard 允许的选择：
+
+| 选项 | 裁定 | 理由 |
+| --- | --- | --- |
+| A. 完全不出现 transaction preview | ✅ **采纳** | 零越界；Dashboard 不需要逐笔信息即可完成 A/B 任务 |
+| B. 只显示 compact recent/anomaly summary | ⚠️ 仅限**聚合**（"4 笔：1 成功/1 异常/1 CRC/1 超时"——**来自 count，不来自逐笔 model**） | 聚合摘要不进入事务域 |
+| C. 显示少量 recent transaction rows | ❌ **本轮不做** | 需要过滤无界 model（§52.18）+ 表格几何迁移 + 与 M9-D（"需处理双表"）重叠 |
+
+Diagnosis 同理：Dashboard 可以有 **deterministic 状态线索**（`hasBaselineDiagnosis` 布尔/文案指引），**不得复制完整 Diagnosis workspace**（TabBar/StackView/问题草稿/基线全文）。
+
+### 52.12 Legacy 边界（B5 后 Legacy = StatisticsOverview + Transactions）
+
+| 方案 | duplication | regression risk | component ownership | future M9-D | Legacy 退役 |
+| --- | --- | --- | --- | --- | --- |
+| **A. 只改 Dashboard，Legacy 冻结** | 无（但 Dashboard 必须自带一套卡片 → **实为重复实现**） | 无 | 不清 | 中 | 无影响 |
+| **B. 共享 redesign 后的 StatisticsOverview** | 无 | **高：Legacy 被顺带 redesign**（两次人工验收的视觉被改动） | 混 | 中 | 无 |
+| **C. 拆出更小 presentation pieces；Dashboard 组合；Legacy 保持现有 Overview 组合** | 无 | **低（Legacy 组合不变 ⇒ 视觉不变，可几何/像素证明）** | 清晰（Overview=组合层，pieces=呈现层） | 好（M9-D 可复用 pieces） | 无影响 |
+
+**结论：C**。**不默认改共享组件导致 Legacy 被顺带 redesign**；Legacy 的最终命运（退役/改造）留给 M9-D。
+
+### 52.13 StatisticsOverview 策略（Phase 1 关键问题）
+
+比较（§11 三案，结合 §52.12）：
+
+| 方案 | 内容 | 判定 |
+| --- | --- | --- |
+| A. 直接 redesign 共享组件 | Dashboard/Legacy 同时变 | ❌ 违反 §52.12 结论 |
+| B. 保留 Overview，Dashboard 外围加新 composition | Dashboard 仍只有"一整块统计"，无法重组层级 | ❌ 不足以支撑 §52.9-B |
+| **C. 拆出更小 presentation pieces，Dashboard 组合** | 见下 | ✅ **采纳** |
+
+**采纳的拆分（按"真实复用价值"判定，不为组件数量而拆）**：
+
+1. **`StatisticsMetrics`**（从 row1 抽出）：已观测/已完成/进行中/成功率/平均延迟 —— **消费者 2 个**（Legacy Overview + Dashboard）。
+2. **`StatisticsOutcomes`**（从 row2 抽出）：六状态 count 卡 —— **消费者 2 个**。
+3. **`OutcomeDistribution`**（新增，**仅 Dashboard 使用**）：比例分布条 + 字幕，分子=六 count、分母=**completed**（§52.17）—— **消费者 1 个，但它是本轮唯一"新呈现"，作为独立件而非塞进共享件，保证 Legacy 零变化**。
+4. **`StatisticsOverview`**（保留）：`SectionHeader + PanelCard[StatisticsMetrics + StatisticsOutcomes]` —— **Legacy 的组合与视觉逐像素不变**（同嵌套、同卡、同行高）。
+
+**判定依据（拒绝"为抽象而抽象"）**：拆分#1/#2 有**两个真实消费者**且是"改 Dashboard 不动 Legacy"的**唯一**实现路径；#3 单独成件是为隔离新视觉。**不引入** ViewModel/Manager/Copy 层（§52.8）。
+
+### 52.14 Surplus-space 归属策略（B3 遗留问题，本轮给出结论）
+
+水平与垂直实测见 §52.5（Dashboard：item 间 ~185 + 末尾 ~162；Communication：末尾 459；Legacy：末尾 17）。
+
+| 方案 | 效果 | 判定 |
+| --- | --- | --- |
+| tail spacer（紧凑置顶） | 余量全落末尾；B3 已验证的机制 | ✅ **作为兜底机制保留** |
+| balanced cards（卡片随余量长高，带上限） | 用真实数据吸收部分余量、提升远距离可读性 | ✅ **采纳（带上限）** |
+| secondary overview section | 需真实内容才成立 | ⚠️ 仅在 §52.9-B 的 attention 文本处**轻度**使用 |
+| centered content | 产生上下两个随机空档 | ❌ 拒绝 |
+| stretchable status distribution | 让分布条随余量变高会失真（比例条高度无语义） | ❌ 拒绝（宽度才有语义） |
+
+**采纳的组合（"主区可长高 + 余量显式归尾"）**：
+
+1. **消除 item 间散布**：内容从页顶以 12px 均匀间距紧凑堆叠——**这是本轮必须修掉的实际缺陷**（§52.5 实测 184.8px 空档）。
+2. **KPI 卡与结果卡允许有限长高**：`Layout.fillHeight: true` + `Layout.maximumHeight`（如 KPI 72→110、结果 100→140）⇒ 在 1000×700 / 1024×720 下用真实内容吸收约 80–110。
+3. **剩余余量归一个显式尾部 spacer**（`Item{Layout.fillHeight:true}`，B3 同机制），并在文档中记为**预留容量**（M10 Request Builder / M11 读数摘要的真实位置）。Replay 页 B4 的"预留容量"表述已被用户接受，判据一致。
+4. **禁止**为消灭空白塞入无价值 widget 或伪造数据。
+
+**验收口径**：`action → KPI` 与 `KPI → outcome` 的间距必须 ≤ 2×DS.spacingM（24），且内容块顶端 = 页顶 + margin（可断言，见 §52.26）。
+
+### 52.15 视觉层级（三层）
+
+| 层 | 内容 | 一眼可见？ |
+| --- | --- | --- |
+| **L1 — Session scale & health** | 已观测 / 已完成 / 成功率 / 平均延迟（KPI，metric 20 号字） | ✅ 必须 |
+| **L2 — Outcome composition** | 六状态 count + **比例分布条** + 聚合 attention 一行 | ✅ 必须（同屏） |
+| **L3 — Context & next step** | 空态提示 / 诊断可用性线索 / （可选）回放 notice 第二呈现 | ✅ 首屏底部；长文可滚动 |
+
+- **允许需要滚动**：baseline 全文、AI/Agent 输出、notice 长文——**都不在 Dashboard**（分属 Diagnosis/Replay）。
+- **不应出现在 Dashboard**：逐笔事务列表、诊断工作流控件、AI/Agent 内容、设备配置、任何假数据 widget。
+- **不新增与 AppBar 重复的 session 块**：mode/source/connected 已由 AppBar 常驻呈现（§52.3 #8），Dashboard 不再复制一份。
+
+### 52.16 Color Semantics（沿用 DS，不新建严重度）
+
+- 现有 `DS.success/exception/crcError/timeout/protocolError/expectedNoResponse/pending` **已是**每状态的辅助色，`StatCard.tone` 正是接它。
+- **规则**：颜色只是**辅助编码**——每个色块旁边**始终有文字标签 + 数值**；**色盲可用性**由文字保证。
+- **不得**为了"彩色"重定义业务 severity；**不得**建立 0–100 health score（无业务定义 ⇒ **当前默认禁止**，见 §52.7）。
+- 分布条沿用同一套状态色，且必须附**文字图例**（标签 + 数量），不得仅靠颜色区分。
+
+### 52.17 Chart Decision Gate
+
+| 问题 | 回答 |
+| --- | --- |
+| 1. 图表表达什么真实维度？ | **已完成事务的结果构成（比例）** —— 六状态占比 |
+| 2. Controller 是否有对应 deterministic dataset？ | **有**：六个 count + completed 总计，全部来自 `summarizeTransactions` |
+| 3. 是否比数字/比例条提供额外信息？ | 提供**比例感知**（"哪一类占多数"）；纯数字卡需要逐个读数比较，比例条一眼可得 |
+| 4. 1000×700 是否值得占空间？ | 值得：单行条 ~12px + 4px 间距 + 字幕 ~13px ≈ **30px** |
+| 5. 无数据时是否仍合理？ | **合理**：completed=0 时**整条不渲染**（连同字幕隐藏），显示空态提示 |
+
+| 候选 | 判定 |
+| --- | --- |
+| donut / pie | ❌ 七类（含 pending）需图例、小尺寸下 0/1 计数段不可见、易读性差 |
+| **horizontal stacked bar** | ✅ **采纳**（单条、无坐标轴、宽度 ∝ count/completed） |
+| simple progress/distribution bar（单一进度） | ⚠️ 只能表达一个比例（如成功率），**丢失**六状态构成，信息量低于 stacked |
+| no chart | ⚠️ 可行但放弃 B 任务的比例感知 |
+| 时间序列 / 折线 | ❌ **REJECT**：无历史数据集（§52.10） |
+
+**采纳细节（冻结为准）**：
+- **分母 = `completedCount`**（**不含 pending**）；`completedCount == 0` ⇒ 不渲染条。
+- 段宽 = `count / completed × 可用宽`；段顺序**固定为** 成功→异常→CRC→超时→协议错误→预期无响应（与 row2 卡序一致）。
+- 必须附文字图例（标签+数值）；**颜色非唯一载体**。
+- 该元素**只出现在 Dashboard**（Legacy 不含），故不影响 Legacy 视觉。
+- 命名与 objectName 见 §52.26（供 data-derived 断言）。
+
+### 52.18 Recent Anomaly / Transaction Preview 决策（调查结论）
+
+调查 `TransactionListModel`（真实代码：`QAbstractListModel`，7 roles，`setEntries()` 整批替换，只读）：
+
+| 方案 | 可行性 | 风险 |
+| --- | --- | --- |
+| QML 过滤整个 model（Repeater + JS filter） | 技术上可行 | **① 语义复制**：anomaly predicate 现由 Agent 工具层拥有（status-anomaly ∨ requestIssues 非空），QML 再实现一份 = 第二权威；**② 性能/内存**：model 是**无界**的（Replay 整文件），Repeater 会实例化全部 delegate；**③ 排序语义**：需要"最近 N 条"，而 model 无时间索引语义保证 |
+| 新建 proxy/业务模型（QSortFilterProxyModel 或小 C++ helper） | 可行 | **属新增 Adapter 组件 + 事务域语义** ⇒ 越界 M9-D；且引入新的过滤规则权威 |
+| 只读 model 尾部 N 行（按位置） | 可行但 | 仍需视图机制；"最近"= 文件顺序 ≠ 时间语义，易误导 |
+
+**裁定：DEFER → M9-D**（明确理由：无"边界安全且不复制语义"的呈现机制；逐笔事务正是 M9-D 的主场）。**M9-C 只做聚合 attention 文本**（由 count 派生，零 model 访问）。
+
+### 52.19 Diagnosis Summary 决策
+
+| 选项 | 裁定 |
+| --- | --- |
+| A. 仅"尚未运行基线诊断"状态 | ✅ **采纳（作为一行线索）** |
+| B. baseline finding count / compact status | ❌ **不可做**：Controller 无 finding count（只有 bool + 格式化全文），计数需**解析文案**（禁止）或新 Core API（越界） |
+| C. 完整 baseline text | ❌ 禁止（复制 Diagnosis 内容） |
+| D. AI result | ❌ 禁止 |
+| E. Agent answer | ❌ 禁止 |
+
+**采纳形态**：L3 一行文本（由 `hasBaselineDiagnosis` 派生）：未运行时提示"可在诊断页运行基线诊断"，已运行提示"已有基线诊断结果，可在诊断页查看"。**纯线索，不复制内容**；**AI 永不作为 Dashboard 的 deterministic health authority**。
+
+### 52.20 Navigation Cue / CTA 决策
+
+- `NavigationRail` 是**唯一导航权威**（`activate()` 单点、禁用项不可改 index、被 nav check 断言）。
+- **本轮结论：不新增 CTA 按钮**。理由：①按钮天然像"命令"，而导航必须与执行命令（connect/load/run baseline/Ask/切 source）**明确区分**；②rail 常驻可见，导航已一键可达；③新增按钮会引入"二次导航入口"，与 §52.12 单点原则冲突。
+- **允许的引导形式**：**纯文本**（空态提示 / attention 行）中**点名**目标 workspace（如"可加载回放日志查看批次"）。文本不触发任何副作用。
+- 若未来需要 CTA：必须**只**改 `currentWorkspaceIndex`，且必须与命令按钮在视觉与措辞上可区分——记为规则。
+
+### 52.21 Run Demo 位置
+
+- **保持为 Dashboard 顶部 action row 的 primary 按钮，始终可见**（不改为"仅空态显示"）。
+- 理由：`runDemoBatch()` 是验收/smoke/演示的确定性入口（人工清单 D 依赖它）；隐藏会导致"有数据时无法再跑演示"的能力缺失。
+- **冻结**：只由用户显式点击触发；**进入 Dashboard / 切页 / 可见性变化绝不自动运行**（B2 §30.4 冻结，B5 async visibility rule 同源）。
+
+### 52.22 Empty State（observed = 0）
+
+- **现状**：一行内联 Label（`dashboardEmptyHint`），措辞为"暂无通信数据。可运行演示批次，或在工作台加载回放日志。"
+- **B2 时代的措辞限制已过期**：当时 **回放 workspace 仍 disabled**，故文案只能指向"工作台"；现在 **Communication / Replay / Diagnosis 均为 active workspace** ⇒ **M9-C 必须重评估并更新措辞**，直接指向"回放"页加载日志。
+- **禁止**：伪造趋势、伪造 health、伪造 recent anomaly；空态只说明"当前无数据"并给出**真实可达**的下一步。
+- **不新建 EmptyState 组件**（唯一使用点；若未来第二个真实使用点出现再抽象）。
+- 空态下 **KPI 仍显示真实值**（0 / "—"），因为"零"本身是诚实事实（B2 已确立）。
+
+### 52.23 Responsive Budget（两尺寸硬门槛）
+
+固定量（真实）：AppBar 40 + 分隔 1；rail 折叠 56 + 分隔 1；页 margins 16×2；页内 spacing 12。
+
+**@1024×720**：workspaceHost 967×679 → 页内容宽 **935**、可用高 **647**。
+**@1000×700**：workspaceHost 943×659 → 页内容宽 **911**、可用高 **627**。
+
+目标结构的高度预算（proposed，实施以实测为准）：
+
+| 区块 | 自然高 | 可长高上限 | 备注 |
+| --- | --- | --- | --- |
+| SectionHeader（总览） | 15 | — | L1 标题 |
+| Action row（Run Demo） | 34 | — | primary 单按钮 |
+| KPI 段（SectionHeader 15 + 卡 ≤110） | 15+12+72 = 99 | ≤ 137 | fillHeight+maximumHeight |
+| 结果段（SectionHeader 15 + 卡 ≤140） | 15+12+100 = 127 | ≤ 167 | 含分布条 30 |
+| L3 线索行 | 13–26 | — | 空态或诊断线索（互斥/可叠加） |
+| **合计** | **≈ 288** | **≤ 380** | 余量 → 尾部 spacer（预留容量） |
+
+水平：KPI 行 5 卡（140/140/140/180/180 + 4×12 = 828 ≤ 911 ✓）；结果行 6×110 + 5×12 = 720 ≤ 911 ✓（@935 更宽）。**两尺寸均无换行需求**；若未来卡片数增加，优先"缩小 preferredWidth + 保持单行"，**不引入 wrap**（wrap 会让高度不可预测）。
+
+### 52.24 Accessibility（不得回退 M9-B baseline）
+
+- **键盘可达**：Run Demo 为唯一新增/保留的焦点前导元素；Tab 顺序 = 页内自然顺序（header → action → KPI → outcome → L3）。
+- **焦点可见**：`AppButton` 保留 `focusPolicy: Qt.StrongFocus` + 平台 focus 轮廓（**不得**为视觉统一而移除）。
+- **按钮文案自解释**：不改用图标代替文案（"运行演示批次"）。
+- **颜色非唯一载体**：状态卡/分布条旁**恒有文字标签 + 数值**（§52.16）。
+- **空态可读**：空态为完整句子（非图标 + 省略号）。
+- **屏幕阅读**：新元素必须给出 `objectName` 与可读 `text`/`Accessible.name`（分布条作为整体给出一句可读摘要，例如"已完成 4 笔：成功 1、异常 1、CRC 错误 1、超时 1"）——**避免用纯 Rectangle 表达信息而不给文本替代**。
+- **导航一致性**：rail 的 tab/键盘行为不变。
+
+### 52.25 Design System Reuse / Gap Audit
+
+| 现有资产 | 是否够用 | 说明 |
+| --- | --- | --- |
+| spacing/radius/font/control 尺寸 | ✅ | `spacingXS..XL`、`fontTitle/Section/Body/Caption/Metric`、`controlHeight` |
+| surface/border/text 色 | ✅ | 卡面 `cardSurface`，页底 `background`，边框 `border` |
+| 六状态色 + pending/error/notice | ✅ | 直接复用，不新增严重度 |
+| `AppButton`（primary/secondary） | ✅ | Run Demo 用 primary；无需新 tone |
+| `PanelCard`（padding/toned） | ✅ | 分段容器 |
+| `SectionHeader`（title/subtitle） | ✅ | 段落标题；**注意** subtitle 与 tab 名的轻度重复问题（B5 polish note）不在此扩大 |
+| `StatCard`（label/valueText/tone/emphasized） | ✅ | 卡尺寸由调用点覆盖 |
+| **缺少的 primitive** | **无强制缺口** | 分布条 = **feature 级**（携带业务状态词汇），**不放 DS**；若未来出现"第二个非业务比例条"消费者，再评估提升为 DS primitive |
+
+**结论：M9-C 不新增任何 DS primitive**（最多新增 0–2 个**语义 token**，如"分布条轨道色"，且必须满足"≥2 真实复用场景"门槛才立项）。**拒绝一次性建十几个组件。**
+
+### 52.26 Verification Design（未来 implementation 的门禁）
+
+- 保留全部既有门禁：build / `--qml-smoke-test` / `--qml-nav-check`（86 段、14 判决、M deferred）/ full ctest（26）/ `git diff --check`。
+- **几何矩阵仍为 5 workspaces × 2 sizes = 10 趟**（不删旧矩阵），并在其中新增 **Dashboard 专属断言**：
+  1. `dashboardHeader` / `dashboardRunDemo` 非零且在页内；
+  2. **无 surplus 散布**：`dashboardRunDemo` 底 → KPI 段顶的垂直间距 ≤ 2×DS.spacingM；KPI 段底 → 结果段顶同理（**直接把 §52.14 的设计意图变成可证伪断言**）；
+  3. 内容块顶端 == 页顶 + margin（容差 0.5）；
+  4. 结果段内的分布条：`bar` 宽度 == 卡内容宽；`segment_i` 宽度 == 内容宽 × `count_i/completed`（容差 1px）——**data-derived，不用像素 oracle**；
+  5. 空态：`observedCount == 0` ⇒ 提示行可见且分布条**不渲染**；有数据 ⇒ 反向；
+  6. 沿用非空转守卫（`activePage` 必须等于该趟目标 workspace）。
+- **Legacy 视觉不变证明**（若采纳 §52.13 拆分）：Legacy 的 `statisticsPanel_legacy`/`statisticsRow1_legacy`/`statisticsRow2_legacy` 与 11 张卡的**几何逐值与拆分前完全相同**（B2/B3 用过的同口径证据法）。
+- **禁止**：脆弱的固定像素带作为业务正确性；删除/弱化旧断言；以删测试解决回归。
+
+### 52.27 Screenshot / Visual Oracle Plan（M9-C 必需，因是视觉重设计）
+
+最少 3 张（**部署版产出**）：`m9c-dashboard-demo-1024x720` / `m9c-dashboard-demo-1000x700` / `m9c-dashboard-empty-1024x720`；若实现中新增次要状态再按真实设计追加。
+必须继续执行既有 oracle 纪律（B4/B5 教训，全部有效）：**candidate identity**（由通过门禁的同一部署二进制同轮产出）、**workspace identity**（截图前断言 `currentWorkspaceIndex` / `navItem_N.selected` / 页面可见性）、**state assertion**（observed/completed/六 count/baseline bool 等真实字段）、**logical vs pixel size 分别记录**（125% DPI：1024×720→1280×900）、**filename 永不作为 state oracle**、自检只证明"证据完整性"（非空、尺寸、互不相同），**视觉正确性归人工**。
+
+### 52.28 Regression Surface
+
+**可能被 M9-C 影响（必须回归）**：`DashboardPage.qml`、`StatisticsOverview.qml` 与拆分出的 `StatisticsMetrics`/`StatisticsOutcomes`、**`Legacy`（若共享组件被拆分 ⇒ 明确列为 regression surface）**、`DS`（若新增 token）、geometry harness、evidence harness。
+**必须不受影响（断言 + 人工）**：Communication、Replay、Diagnosis（B5 刚验收）、navigation 状态与 index 契约、source/session 语义、statistics 公式、transaction model、AI/Agent authority（源码级 grep 锚 + 既有 fake/offline 测试）。
+**特别回归**：nav check 14 项判决全 PASS；几何 10 趟 0 GEOFAIL；Legacy 几何逐值不变。
+
+### 52.29 Implementation Sequencing（每步 runnable/testable/rollbackable）
+
+> 不机械采用模板；下面按"先护栏/先机械、后视觉"排序，每步独立提交且可单独 revert。
+
+- **C1 — 布局骨架与余量归属**：Dashboard 页改为"紧凑堆叠 + 显式尾部 spacer"，消除 item 间散布（§52.14 第 1 条）；新增 §52.26 的间距/顶端断言。**零新组件、零新数据** ⇒ 视觉变化最小、风险最低。
+- **C2 — 呈现件拆分（行为中性）**：抽出 `StatisticsMetrics` / `StatisticsOutcomes`；`StatisticsOverview` 重组为 Legacy 组合，**视觉逐像素不变**（同卡同行高）；用几何逐值证据证明 Legacy 无变化。
+- **C3 — Dashboard 组合与分布条**：Dashboard 使用新 pieces + 新分段结构；新增 `OutcomeDistribution`（含 §52.17 冻结规则与零态）；L3 线索行；空态措辞更新（§52.22）。
+- **C4 — KPI/结果卡的可长高（带上限）+ attention 文本**：按 §52.14 第 2–3 条调整余量分配；确认两尺寸无重叠/无裁切。
+- **C5 — geometry/evidence candidate**：补齐 Dashboard 专属断言与三张截图，deploy + 严格最小 PATH + 人工包。
+
+**每步 DoD**：build + smoke + nav check + 10 趟 geometry + full ctest + diff-check +（涉及视觉的步骤）截图证据；**大改禁止一次落地**。
+
+### 52.30 Manual Acceptance Plan（提前设计，不执行）
+
+1. Dashboard 1024×720（有数据）；2. Dashboard 1000×700；3. **空态**（清空结果后）；4. demo 态（Run Demo 后）；5. source/session 未因导航改变（切页往返）；6. **Run Demo 仅显式触发**（进入 Dashboard 不自动跑）；7. Dashboard 统计值与 Legacy 统计值一致（同权威）；8. **无假图表/假 insight/假健康分**；9. 状态色可读且**非唯一载体**（文字标签在位）；10. 无 overlap / clipping（两尺寸）；11. Communication / Replay / Diagnosis 无回归；12. **Legacy 无回归**（若共享件被拆分则逐项确认视觉不变）；13. resize 行为正常；14. 键盘 Tab 顺序与 focus 可见。
+
+### 52.31 Knowledge Questions（Phase 1 必须回答）
+
+1. **Dashboard 的用户任务是什么？** → current-session situational awareness：A 有没有数据/是否异常 > B 异常类型分布 > D 运行确定性 Demo > C 下一步去哪（§52.6）。不是事务检查器/诊断工作区/AI 对话/设备配置。
+2. **为什么有些信息应在 Dashboard，另一些属于 M9-D？** → 判据是"**聚合 vs 逐笔**"：Dashboard 只需对**已聚合的确定性事实**做呈现；一旦需要**逐笔**信息（哪一笔、哪个设备、哪个 issue、最近 N 条），就进入事务域 IA 与过滤语义 ⇒ M9-D（§52.11/§52.18）。
+3. **视觉丰富化如何不新增 semantic authority？** → 只允许"**派生视图**"：输入是 Controller 既有属性，输出是布局/比例/文案，**不缓存、不重算、不解析字符串**；唯一数据流固定为 controller → presentation（§52.8）。
+4. **surplus space 由谁拥有？** → 由**设计显式拥有**：item 间不得散布（间距恒为 12）；允许主区**有限长高**吸收一部分；**余量最终归尾部 spacer**，并记为 M10/M11 的预留容量（§52.14）。
+5. **如果不用 chart，为什么不用？如果用，为什么它表达的是现有真实数据？** → 本轮**不用趋势图**（无历史时间轴，用 snapshot 冒充趋势即造假）；**用一条 stacked 分布条**，因为它的分子分母都直接来自既有六 count 与 completed，且回答"哪类占多数"这个数字卡不擅长的问题（§52.17）。
+6. **共享 StatisticsOverview 应保留、拆分还是重构？** → **保留其组合角色，拆出其 pieces**：Legacy 组合不变 ⇒ 零视觉回归；Dashboard 用同一批 pieces 重组层级 ⇒ 零重复实现（§52.13）。
+7. **如何避免 redesign Dashboard 顺带破坏 Legacy？** → ①不直接改共享组件的视觉；②拆分点选在"两个消费者都需要的呈现件"；③把 Legacy 显式列为 regression surface，用**几何逐值不变**证据（拆分前后同口径比对）+ 人工复检（§52.26/§52.28）。
+
+### 52.32 Status
+
+- **M9-C — Dashboard Redesign：IN PROGRESS — Phase 1 Learning / Design（本文档）**；
+- **Implementation = NOT STARTED**（本轮零 src/QML/tests/harness/DS/scripts 改动）；
+- verified LKGC **不变 = `6cc84c3`**；未 push；
+- 下一步：**M9-C Phase 1 Review（用户）**；批准后按 §52.29 从 **C1** 开始。
+
+## 53. Next
+
+- **M9-C Phase 1 Review（用户）** → 批准后 **C1（布局骨架与余量归属）** → C2 → C3 → C4 → C5。
+- **M9-D / M9-E / M9-F 未开始**；M9 整体未关闭。
