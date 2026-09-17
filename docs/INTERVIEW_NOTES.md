@@ -319,3 +319,11 @@
 - **Q：一张"广播批次"的 Dashboard 截图，怎么证明它不是误导性的？** A：三层证据合流——机器状态断言（expectedNoResponse=1、completed=1、hasSuccessRate=0、attention=0）在 grab 之前完成；分布条的 ENR 段宽度经 item 几何断言为整条；然后才是截图本身。截图证明"这个状态被正常呈现了"，断言证明"这个状态语义正确"——顺序不能反。
 - **Q：可见性断言为什么会在别的页面上"误报"？** A：可见性是**相对于激活页**的契约。Dashboard 的 attention/cue 在 Legacy 激活时不可见，这是 StackLayout 常驻多页的正常表现，不是回归。教训：把契约函数应用到新场景前，先问"这条断言隐含的前置条件是什么"——本轮的修复是把 Legacy 趟的断言收窄到 Legacy 自己的契约。
 - **Q：deploy checklist 和 module 自动部署的区别是什么？** A：xcopy 全树是**机制**，它保证文件跟着模块走；checklist 是**守卫**，它在部署完成的那一刻验证关键文件真的存在。机制正确时 checklist 是冗余的，但机制失效（比如未来有人改部署方式）时它是第一道报警——为 5 个承载 Dashboard 核心呈现的新组件补上条目，成本一行、收益是"空工作区"类回归在部署期就被拦截。
+
+
+## 35. Post-T018 M9-C closure 条目（2026-09-18 追加）
+
+- **Q：一个里程碑的"最后一个 behavior-bearing commit"凭什么当 LKGC？** A：凭两件事同时成立——①它的文件列表里有真实 product/test/harness/deploy 行为变更（`git show --name-only` 说话，不看 commit message）；②它的**完整仓库树**通过了全部门禁与人工验收。M9-C 的 `bc754be`（evidence harness + deploy checklist + 截图）满足两者；其后的三个 docs-only 提交不改变产品树，所以不能把它顶掉。
+- **Q：working tree 里出现旋转副本，为什么不直接"修好再提交"？** A：因为逐像素比对证明旋转发生在 commit **之后**、仓库之外——capture 产物（committed blob）本来就是正确的 landscape。此时"修复 capture"是修一个不存在的缺陷，而"提交旋转副本"是把变异固化进历史。正确动作是：用 `git restore --source=HEAD` 把 working tree 恢复到已验证状态，把"哪个外部步骤旋转了文件"如实记录为 NOT IDENTIFIED。
+- **Q：M9-C 之后，Dashboard 的信息架构还能再改吗？** A：能，但分层已经冻结——Dashboard=态势感知；attention=四计数的呈现聚合（非 health score）；distribution 分母=completed；successRate 分母=completed−expectedNoResponse；diagnosis cue=存在性线索。未来 M9-D 的 transaction 域、M10 的主动控制、M11 的寄存器读数各有自己的入口预算，Dashboard 不吞并它们。
+- **Q：这轮 closure 里最重要的可复用纪律是什么？** A：**"证据分层 + 术语收紧"**。orientation 事件里我们把证据分成 capture output / committed blob / working-tree mutation 三层，每层独立验证；结论只写到证据能支撑的精度——已证明的清白逐条列出，未证明的变异步骤明确写 NOT IDENTIFIED。宁可结论窄而真，不可宽而假。

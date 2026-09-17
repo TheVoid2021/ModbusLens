@@ -851,7 +851,196 @@ non-blank, mutually distinct)
 - 术语冻结：根因 = **unknown post-commit working-tree image mutation**（已证明清白的：capture/save path、build 原件、committed blobs、Git attributes/filter；未证明的：具体变异步骤）。
 - 下一步 = **M9-C Final Closure**（Git classification；**不预先认定 LKGC 落点**）。
 
-## C6（后续，未开始）
+## C6 — M9-C Final Closure + verified LKGC Classification + Knowledge Closure（2026-09-18）
+
+**本轮只做：Git classification、状态归档、Knowledge Closure、docs-only completion commit。零 product/QML/harness/deploy-script/截图改动。**
+
+### C6.1 Acceptance Provenance（精确来源记录）
+
+- **Screenshot Visual Review = PASS**（reviewer = external review / user-side reviewer interaction；覆盖六张 M9-C evidence 的方向正确性、内容对应性与视觉层级——不使用"用户视觉裁定"这一模糊表述，除非指本条精确来源）。
+- **Manual Interaction Review = PASS**（confirmed by user；六项交互清单见 §C5.12/§C4.15）。
+- **Screenshot product visual judgment 在 orientation RCA 后继续有效**：因为 portrait working copy 经逐像素证明 = committed landscape evidence 的 90° CW rotation，product tree 未变化，且最终 committed evidence 已恢复并通过 landscape/integrity/distinctness check（§C5.13/§C5.16）。
+- **边界（继续有效）**：real AI/Agent/ModelScope Provider call = NOT REQUIRED / NOT CLAIMED；real Serial hardware = NOT REQUIRED / NOT CLAIMED。
+
+### C6.2 Git Classification（M9-C 全链，按 `git show --name-only` 真实文件列表）
+
+| commit | 实际文件（非 docs 部分） | 分类 |
+| --- | --- | --- |
+| `e45b1b9` M9-C Phase 1 design | docs ×5 | **docs-only** |
+| `6d242de` T018 canonicalization / guardrails | docs ×4（含新建 T018） | **docs-only** |
+| `a94a7b5` C1 layout + surplus ownership | `src/main.cpp`、`src/ui/qml/pages/DashboardPage.qml` | **behavior-bearing** |
+| `cea044c` C1 hash backfill | docs ×1 | **docs-only** |
+| `07b03d1` C2 statistics extraction | `CMakeLists.txt`、`src/main.cpp`、`StatisticsMetrics.qml`、`StatisticsOutcomes.qml`、`StatisticsOverview.qml` | **behavior-bearing** |
+| `4e14022` C2 hash backfill | docs ×1 | **docs-only** |
+| `9471772` C3 composition + distribution | `CMakeLists.txt`、`src/main.cpp`、`OutcomeDistribution.qml`、`DashboardPage.qml` | **behavior-bearing** |
+| `2af2e05` C3 hash backfill | docs ×1 | **docs-only** |
+| `f41d081` C4 attention / cue / fixture | `CMakeLists.txt`、`src/main.cpp`、`DashboardPage.qml` | **behavior-bearing** |
+| `4af3e3b` C4 hash backfill | docs ×1 | **docs-only** |
+| `bc754be` C5 evidence + deploy checklist | `src/main.cpp`、`scripts/deploy_windows.bat`、截图 ×6、docs | **behavior-bearing** |
+| `259fb59` C5 hash backfill | docs ×1 | **docs-only** |
+| `956dc67` orientation RCA verification | docs ×4 | **docs-only** |
+| `96ea638` restoration / RCA closure | docs ×3 | **docs-only** |
+
+⇒ 与预期完全一致；**不按 commit message 分类**。
+
+### C6.3 Final verified LKGC = `bc754be`
+
+按 B2/B3/B4/B5 precedent（判据 = 真实文件列表 + 该完整仓库树是否通过全部验收）：
+
+1. `bc754be` 是 M9-C **最后一个 behavior-bearing commit**（`src/main.cpp` evidence harness + `scripts/deploy_windows.bat` checklist + 6 张截图；后续 `259fb59/956dc67/96ea638` 均 docs-only，不得覆盖它）。
+2. 其**完整仓库树**正是：deployed candidate + screenshot candidate + manual accepted product tree，且已通过：build / qml_smoke / qml_nav_check（14 判决 + DASHBOARD PRESENTATION CHECK）/ qml_geometry_check（10 标准 + 2 targeted）/ full ctest 26/26 / deploy_windows / **严格最小 PATH** 部署版 smoke·nav·geometry / screenshot evidence（16 张）/ **Screenshot Visual Review = PASS** / **Manual Interaction Review = PASS**。
+3. **Orientation RCA 不否定其资格**：已证明 `bc754be` 的 committed screenshot blobs 本身正确 landscape（portrait 只存在于 commit 之后的 working-tree mutation）。
+
+⇒ **V2 verified LKGC 推进：`6cc84c3` → `bc754be`**。
+
+### C6.4 M9-C — Dashboard Redesign = **COMPLETE**
+
+最终交付（全部落地并验证）：
+
+- **Dashboard Session Overview IA**（Phase 1 方案 B）
+- **explicit surplus-space ownership**（C1：natural content + tail flexible spacer；间距 = DS token）
+- **StatisticsMetrics extraction**（C2，双消费者）
+- **StatisticsOutcomes extraction**（C2，双消费者）
+- **StatisticsOverview Legacy wrapper preservation**（C2，Legacy 视觉逐值不变）
+- **Dashboard direct statistics composition**（C3，弃用 wrapper）
+- **OutcomeDistribution**（C3）
+- **completedCount denominator**（guardrail A）
+- **six outcome segments**（冻结顺序）
+- **ExpectedNoResponse inclusion**（属 completed outcome）
+- **Pending exclusion**
+- **success-rate denominator separation**（rateEligible = completed − expectedNoResponse）
+- **deterministic attention summary**（C4）
+- **ProtocolError inclusion**（t014 fixture runtime 证明）
+- **ExpectedNoResponse anomaly exclusion**（broadcast runtime 证明）
+- **diagnosis existence cue**（hasBaselineDiagnosis 存在性线索）
+- **refreshed empty-state wording**（"通信"/"回放"可达）
+- **1000×700 responsive acceptance**
+- **Legacy visual preservation**（几何逐值证明）
+- **deploy validation** + **strict minimal-PATH validation**
+- **evidence screenshots**（6 张 M9-C + 5 B4/5 B5 复验）
+- **Screenshot Visual PASS** + **Manual Interaction PASS**
+
+### C6.5 Final Dashboard Semantics（冻结）
+
+**Dashboard = current-session situational awareness**——不是 transaction inspector、不是 Diagnosis workspace、不是 AI insight authority、不是 device health authority。
+
+数据流冻结：
+
+```text
+AnalysisController
+        ↓ deterministic authoritative facts
+        ↓
+Dashboard presentation（无副本、无缓存、无重算、无字符串解析）
+```
+
+不得建立第二套 Dashboard business state。
+
+### C6.6 Statistics Component Boundary（冻结）
+
+- **`StatisticsMetrics` / `StatisticsOutcomes` = reusable feature/presentation components**（各 2 个真实消费者：Legacy wrapper + Dashboard）。
+- **`StatisticsOverview` = Legacy-compatible composition wrapper**（SectionHeader + PanelCard[Metrics + Outcomes]）。
+- **Legacy** = StatisticsOverview + Transactions（不动）；**Dashboard** = direct composition（Metrics + OutcomeDistribution + Outcomes）。
+- **均不是 DesignSystem primitives**（携带 Modbus 业务词汇，永远不入 `DS/`）。
+
+### C6.7 OutcomeDistribution Freeze（P0 语义）
+
+- **denominator = `completedCount`**；segments 冻结顺序 = Success → Exception → CrcError → Timeout → ProtocolError → ExpectedNoResponse；六段之和 = completedCount；**Pending 不进入**；**ExpectedNoResponse 必须进入**（它是 completed outcome）但**不是 anomaly**。
+
+### C6.8 Success Rate Separation（冻结）
+
+**distribution denominator ≠ success-rate denominator**。`successRate` 继续使用既有 Core 语义：`rateEligibleCompleted = completedCount − expectedNoResponseCount`；当其为 0 ⇒ `successRate` undefined ⇒ UI 显示 "—"。**不得从 distribution 反推 successRate**（broadcast 探针：ENR 段满宽 + hasSuccessRate=0 同屏成立，即此分离的机器锁）。
+
+### C6.9 Attention Freeze
+
+`attentionCount = exceptionCount + crcErrorCount + timeoutCount + protocolErrorCount`；**明确排除** Success / Pending / ExpectedNoResponse。attention **只是 presentation aggregation**——不是 Core statistic、不是 Diagnosis finding、不是 severity、不是 health score、不是 Healthy/Unhealthy、不是 device condition。
+
+### C6.10 Diagnosis Cue Freeze
+
+cue 只表达 **`hasBaselineDiagnosis` 存在性**："尚未运行基线诊断。" / "已有基线诊断结果，可在诊断工作区查看。"（冻结等价文案）。不得解析 baseline text、显示 finding count、复制全文、显示 AI/Agent 内容、自动运行 diagnosis、自动 navigation。
+
+### C6.11 Empty State Freeze
+
+observed == 0 ⇒ 显示真实 empty guidance（可指向 Run Demo / Communication / Replay）；**文本提示 ≠ navigation command**；rail 仍是 workspace navigation authority；**不得**自动 Demo / 自动 connect / 自动 Replay load。
+
+### C6.12 Legacy Boundary（最终）
+
+M9-C 后 Legacy = **StatisticsOverview + Transactions**；**没有** OutcomeDistribution / attention summary / diagnosis cue（均为 Dashboard-only presentation）。C2/C3/C4 未顺带 redesign Legacy（Legacy 几何逐值 IDENTICAL 证明贯穿 C1–C5）。
+
+### C6.13 Deferred / Rejected Closure（最终口径）
+
+**Deferred**：recent transactions → **M9-D**；SessionChip/AppBar refinement → M9-C scope 外 / later polish；B5 frozen literals → DS token → 未来真实复用需求时重评。
+**Rejected for M9-C**：time-series trend、fake history chart、device health card、health score、AI insight、recent transaction duplication。
+**不得在 closure 把 deferred 写成 implemented** ✓。
+
+### C6.14 Layout Knowledge Closure
+
+- **A. surplus vertical space 必须有明确 owner**：C1 最终解 = natural content + tail flexible spacer；消除 stretch 派生的随机 gap（实测修复前 46/44/155）。
+- **B. tail spacer 是 surplus owner**——不是"永远 >0"契约，也不是专属 M10/M11 保留区（C4 已随内容增长合法缩短）。
+- **C. implicit size 仍是 feature component contract**——ISSUE-012 教训继续有效（wrapper `implicit>0` 常驻断言）。
+
+### C6.15 Verification Knowledge Closure
+
+- **A. 先 RED 再修布局**：验证 oracle 自身必须可证伪（C1 的 46/44/155 RED 取证）。
+- **B. geometry comparison 必须按 item identity 对齐**，不能按 dump 行序 zip（C2 自捕获的比对缺陷）。
+- **C. logical size tag 必须与真实 resized window 一致**（C4 修复 default/min transition 漏恢复）。
+- **D. screenshot filename 不是 state oracle**（B4 教训，C5 延续）。
+- **E. screenshot integrity/distinctness 不是 visual correctness**。
+- **F. screenshot orientation 必须区分 capture output / committed blob / working-tree mutation 三层**；最终 RCA = **unknown post-commit working-tree image mutation**，具体 mutating process **NOT IDENTIFIED**。
+
+### C6.16 Screenshot Evidence Closure
+
+最终 M9-C screenshots（`docs/assets/screenshots/`，committed = `bc754be` blobs）：
+
+```text
+m9c-dashboard-empty-1024x720.png            1280×900
+m9c-dashboard-demo-1024x720.png             1280×900
+m9c-dashboard-demo-1000x700.png             1250×875
+m9c-dashboard-broadcast-1024x720.png        1280×900
+m9c-dashboard-baseline-cue-1024x720.png     1280×900
+m9c-legacy-regression-1024x720.png          1280×900
+```
+
+logical：1024×720 / 1000×700；**125% DPI 不是 failure**。closure-time：landscape 6/6、integrity 6/6、distinct 6/6、SHA == committed blob 6/6 —— **PASS**。
+
+### C6.17 Screenshot Acceptance Closure（人工视觉结论）
+
+Empty Dashboard **PASS** · Demo 1024×720 **PASS** · Demo 1000×700 **PASS** · Broadcast **PASS** · Diagnosis cue **PASS** · Legacy regression **PASS**。
+**OutcomeDistribution 有实际信息价值，不是纯装饰**；六 outcome cards + distribution + attention 存在**轻微信息重复**，人工裁定 **acceptable、非 blocker**。
+**Broadcast：ExpectedNoResponse 视觉保持中性 outcome，未呈现为 error/anomaly。**
+
+### C6.18 Manual Interaction Closure
+
+用户确认：① 进入 Dashboard 不自动产数据；② 显式 Run Demo 才更新；③ Dashboard→Replay→Communication→Dashboard facts 保持；④ Baseline 后 cue 翻转；⑤ Clear Diagnosis 后 cue 按既有语义恢复、statistics/source 不误清；⑥ Broadcast visual semantics 正常。**Manual Interaction Review = PASS。**
+**real Provider = NOT REQUIRED / NOT CLAIMED**；**real Serial hardware = NOT REQUIRED / NOT CLAIMED**。
+
+### C6.19 Validation Record（最终已完成项）
+
+```text
+build PASS
+qml_smoke PASS
+qml_nav_check PASS（basic five-workspace path PASS；A/B/D/E/F/G'/H/I/J/K/K'/L/N PASS；M DEFERRED BY DESIGN；
+  Dashboard demo probe PASS；broadcast probe PASS；protocol-error probe PASS）
+geometry：标准 10-pass + C4 targeted Dashboard passes 全部 PASS
+full ctest 26/26 PASS
+deploy_windows PASS
+strict minimal-PATH PASS（deployed smoke/nav/geometry PASS）
+screenshot capture PASS；screenshot integrity PASS；orientation closure PASS
+Screenshot Visual PASS；Manual Interaction PASS
+```
+
+### C6.20 Documentation Corrections（确认）
+
+- deploy checklist C5 新增 = **+4 statistics-related QML guards**（非 +5）——已更正。
+- C5 状态历史（append 保留）：C1–C4 Review PASS → C5 automated/deploy/evidence PASS → orientation packaging 曾 HOLD → RCA 后 packaging PASS → **C5 Review 于本 closure 正式 PASS**。
+
+### C6.21 Closure Commit Scope
+
+Final Closure 仅 docs/status；**不得**修改 src/QML/tests/scripts/CMakeLists/samples/screenshots。已执行 `git diff --name-only/--stat/--check`、`git status` 确认 **production/test/deploy/evidence 零新增变化**。
+
+## C7. Next
+
+- **M9-D — Transaction & Diagnosis Workspace**：只允许从 **Learning / Design Gate** 开始（先读 PROJECT_STATUS/BACKLOG/ARCHITECTURE/T018 §C6 边界，产出设计并**停止待 Review**）。
+- **M9-E（Branding/Icon/Packaging）**、**M9-F（Final Manual Visual Acceptance）** 未开始；**M9 整体 IN PROGRESS**。
 
 - **M9-C Final Closure**：用户 Screenshot Visual Review + Manual Interaction Review 均 PASS 后，做 Git classification 与 M9-C closure（**不预先认定 LKGC 落点**——若本 commit 含 harness/deploy 变更，LKGC 很可能落在本 behavior-bearing tree；一切按 `git show` 决定）。
 
