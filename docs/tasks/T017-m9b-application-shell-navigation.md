@@ -2222,6 +2222,8 @@ git diff --check → （无输出，通过）
 ### 44.33 B5.2 Result
 
 - 迁移+启位+收口同提交完成（§38.31.1 原子性 ✓）；五 workspace 基础导航全绿；既有 12 场景（A/B/D/E/F/G'/H/I/J/K/K′）全部保留并 PASS；26/26 ctest；8 趟几何保持（未提前 B5.3）。
+
+【B5.3 批注（2026-09-17）】此行的"12 场景"计数有误，原文保留：源码核验后该列表实际是 **11 个既有 named scenarios**（A/B/D/E/F/G'/H/I/J/K/K'），B5.2 实际新增覆盖是 **1 条 basic five-workspace navigation path**（结构相位 0..12：identity/visibility/index/禁用项），不是既有 Scenario。正确表述见 §46.2。
 - **Manual Review = PENDING USER REVIEW**（§43.19 人工项未执行——B5.4 打包）。
 - verified LKGC **不变 = 207ae96**；未 push。
 
@@ -2229,3 +2231,132 @@ git diff --check → （无输出，通过）
 
 - **B5.2 Review（用户）**；通过后 **B5.3 — Scenario L/N + 10-pass geometry**（§43.14/§43.15：L 七站巡回扩展快照、N 草稿逐字保留、M 维持 DEFER 如实标注、五页×两尺寸几何）。
 - **B5.4 — deploy/截图/人工包** 未开始；B5 closure/M9-C/M10 未开始。
+
+## 46. M9-B5.3 — Diagnosis Persistence Scenarios + 10-pass Geometry（Implementation Record，2026-09-17）
+
+本轮目标：**证明 Diagnosis workspace 的状态保持与几何契约**。不做 deploy、不做 manual candidate、不开始 B5.4、不推进 LKGC、不 push。
+
+### 46.1 B5.2 Review = PASS（用户）+ 页框决议归档
+
+- 用户裁定 **B5.2 Review = PASS**。
+- **页框决议（接受）**：DiagnosisPage 使用 `SectionHeader` + 标准 page margins(DS.spacingL)/spacing(DS.spacingM)。**不恢复**旧 18px standalone Label 与 pane card 外框。**理由**：这是 workspace shell 的容器适配（与 Dashboard/Communication/Replay 同构），不是 business workflow redesign。
+- **附条件**：B5.4 的人工验收必须检查最终视觉层级、密度与可读性。
+
+### 46.2 计数修正（§44.33 批注的展开）
+
+源码核验结论（`grep -n "^        case"` + case 内容归属）：
+
+- 既有 **11 个 named scenarios**：A、B、D、E、F、G'、H、I、J、K、K'（各自有独立断言体与日志行）。
+- B5.2 新增的是 **1 条 basic five-workspace navigation path**（阶段 0..12 的结构相位：page identity 五指针、visibility 随选中、index 合法性、禁用项 invoke 不可切、逐站快照相等）——**它是路径，不是既有 Scenario**，不得混称。
+- 因此 §44.33 的"既有 12 场景（A/B/D/E/F/G'/H/I/J/K/K′）"是**计数错误**（把 basic path 计入了 named scenarios）。原文保留，批注见该行下方。
+- 本次修正**只改文档事实，不改任何测试行为**。
+
+### 46.3 Scenario L — Baseline Persistence（§43.14 冻结设计的实施）
+
+**Setup（一次性，绝不重跑）**：`runDemoBatch()` → `runBaselineDiagnosis()`；断言 `hasBaselineDiagnosis == true`、`baselineDiagnosisText` 非空、`observedCount == 4`；随后捕获**扩展快照**（`takeExtendedSnapshot`：16 个核心字段 = mode/source/serial + 11 项统计 + 两个 availability flag，加 `transactionRowCount`、`hasBaselineDiagnosis`、`baselineDiagnosisText`、`hasReplayError`、`hasReplayNotice`、`replayNoticeText`、`replayErrorMessage`）。
+
+**路径（冻结）**：Diagnosis → Dashboard → Replay → Communication → Diagnosis → Legacy → Diagnosis（7 站），逐站断言：
+
+1. `verifyStructureAndIdentity`（page identity + 五 workspace 可见性跟随选中）；
+2. `compareAgainst(扩展快照)` —— **authoritative batch facts 全等**；
+3. `assertBaselinePersisted` —— `hasBaselineDiagnosis == true` 且 `baselineDiagnosisText` 逐值相等；
+4. 该站扩展快照的 **FNV-1a digest**（编码无关的 ASCII 指纹）必须等于 setup 时的 digest（证据日志每站一行）。
+
+**revision 可观测性裁定（重要，如实申报）**：`activeBatchRevision_` **没有 Q_PROPERTY**，harness 没有、也**不新增** Controller API（§15 backend freeze）。可证伪的代理是**失效不变量**：源码核验 `++activeBatchRevision_` 只出现在 `invalidateAiForBatchChange()`（AnalysisController.cpp:779），而该函数无条件调用 `clearDiagnosisState()`（:798）⇒ **revision 一动，baseline 必被清空**。因此"每一站 baseline 仍在且逐值不变"即证明导航期间 revision 未移动。该函数仅由 5 条命令路径调用（connectSerial / publishSerialResult / runDemoBatch / clearResults / loadReplayFile），**没有任何一条是导航动作**。
+
+**结果**：digest `6915f49af5442768` 在 setup + 7 站共 8 次输出中完全相同；`observed=4`、`baselineChars=112`、`mode=模拟器模式`、`source=确定性演示`。**没有通过重跑 baseline 让测试"恢复"**（persistence test 而非 recomputation test）。
+
+### 46.4 Scenario M — DEFERRED BY DESIGN（不是遗漏）
+
+⚠️ **Scenario M（AI result 跨导航存续）= DEFERRED BY DESIGN，不是 accidentally missing。**
+
+- **原因**：nav harness 目前**没有低成本的 AI provider injection seam**（`configureAiClient` 是 C++ 测试 seam；真实 ModelScope 在自动门禁中禁用）。为一次 extraction 测试引入新的 transport/fake-HTTP harness，风险大于收益。
+- **覆盖组合**：既有 `ui_bridge` `ai01`–`ai11`（fake localhost server，语义层：结果/错误/busy/取消/身份守卫）+ Controller 持有事实的结构性论证（B2/B3/B4 已证 Controller 事实跨页存续）+ **B5.4 人工工作流**。
+- **红线**：**不伪造 AI result**。harness 不 mock、不注入、不写死任何 AI 文本。
+
+### 46.5 Scenario N — Page-local Draft Persistence（§43.14）
+
+- **真实 QML 属性**：`DiagnosisPage.qml` 的 Agent 问题 `TextArea`（`id: agentQuestionInput`）。B5.2 时它只有 `id`，没有稳定 objectName ⇒ 本轮**只增加一个 test-observability objectName**：`diagnosisAgentQuestion`（零产品行为变化；同批共加 13 个 objectName 供几何断言定位，见 §46.11）。
+- **写入真实草稿**：harness 直接 `setProperty("text", "B5.3 draft persistence sentinel")` 并**立即回读**确认写进去了（否则该场景会空转通过）。
+- **路径（冻结）**：Diagnosis → Dashboard → Communication → Replay → Legacy → Diagnosis；逐站：identity/可见性 + 扩展快照全等（对照 Scenario L 的捕获）+ 终点回读 `TextArea.text` **逐字相等**。
+- **结果**：草稿逐字保留（且是在 **Agent Tab 未被选中**（隐藏）的状态下保留——StackLayout 常驻的直接证据）；同一 digest `6915f49af5442768` 在终点复现 ⇒ Controller authoritative facts 未受影响。
+- **边界**：N **只**锁 page-local 草稿。**Agent authoritative answer 不塞进 N**（不引入 fake provider 基础设施）；其生命周期由既有 Agent fake/offline 测试保护。draft **不写回** AnalysisController、不新增 draft property、不用截图猜 text。
+
+### 46.6 10-pass Geometry + Diagnosis 几何契约
+
+**矩阵（5 active workspaces × 2 sizes = 10 趟）**：旧八趟**标签/页/尺寸全部保持**，新增 `m9b5-diagnosis-1024x720` 与 `m9b5-diagnosis-1000x700`（插在最小值切换之前，使"一次性下切"的尺寸迁移语义不变）。
+
+**Tab sweep（关键设计）**：几何契约只属于**当前选中的 tab**（隐藏 tab 内容不构成契约，§43.15）。因此每个 Diagnosis 趟会**依次选中 0/1/2 三个 tab**、各自经过一个 settle 回合后再断言，全部通过才判定该趟通过。这使得"AI 主要控件区""Agent TextArea + Ask/Cancel"这些**非默认 tab** 的契约真正被执行，而不是空转。
+
+**Diagnosis active 断言**：`diagnosisPage` 非零且在 workspace bounds 内；`SectionHeader` 非零且**不与其下内容重叠**（tabs 顶 ≥ header 底）；`TabBar` 非零/可见/在 page bounds 内；`diagnosisTabContent` 非零/在 page bounds 内；选中 tab 的 root/控件/视口非零、可见、`mapToItem` 后完全落在 page 内；**视口高度不得大于页高**（bounded-scroll）；`clip == true`（契约不可丢）。
+
+**非空转守卫（新增，覆盖全部 10 趟）**：每趟测量前断言 `activePage(roots)` **确实**是该趟目标 workspace。若某页没真正激活，页专属断言会整段跳过而"PASS"——这正是 ISSUE-013 的同类风险，故显式证伪。
+
+**实测值（Diagnosis 1024×720）**：page 967×679 (=host)；header 935×15 @y=0；tabs 935×17 @y=27；tabContent 935×591 @y=56；Baseline tab 935×591、视口 935×561 @y=30（Run/Clear 80×24 @y=0 在其上方）；AI tab 935×591、视口 935×543 @y=48；Agent tab 935×591、视口 935×487 @y=104。
+**实测值（Diagnosis 1000×700）**：page 943×659；header 911×15；tabs 911×17 @y=27；tabContent 911×571 @y=56；三个视口分别 911×541 / 911×523 / 911×467。
+
+**长内容边界（§11 裁定）**：不生成超长 AI/Agent 真实响应。结构证明已足够：三 tab 的文本区都是 `Flickable{clip:true; Layout.fillHeight; Layout.minimumHeight: 0}`，视口高度由**页高**（而非内容 implicit）决定——实测视口 561/543/487 < page 679，且页高恒等于 host 高。**没有为了测试制造新 Controller API**；超长内容视觉留给 B5.4 人工。
+
+**隐藏几何策略**：隐藏 tab 的几何**不断言**。实测也证实它不可作为契约——从未被选中的 tab 停留在 implicit 尺寸（如 444×48 / 196×104），被选中过又隐藏的 tab 则保留上次的实际尺寸；二者差异纯属历史，与正确性无关。
+
+### 46.7 每场景 PASS 记账（verdict accounting）
+
+nav check 结束时输出逐场景判决：
+
+```text
+NAV SCENARIOS: basic five-workspace path PASS, A PASS, B PASS, D PASS, E PASS,
+  F PASS, G' PASS, H PASS, I PASS, J PASS, K PASS, K' PASS, L PASS, N PASS
+NAV SCENARIO M: DEFERRED BY DESIGN — …（不伪造 AI result）
+```
+
+**判定规则**：某场景 PASS ⟺ 其**阶段区间内失败计数增量为 0**（区间取该场景自身断言的**保守外包**）。外包只会**少给**通过、绝不会在其断言失败时给出 PASS；未跑完（早先失败中断遍历）的场景报 **NOT RUN 并计入失败**。E/H 与 basic path 共用结构相位区间（E = D→C→D 往返、H = Communication 激活无业务副作用），三者互不替代。
+
+### 46.8 ISSUE-013 延续回归
+
+B5.2 修复保持：`row2/header/panel` 均为**真实外层指针**（源码核验无 shadowed locals）——两条复活断言（行重叠、下缘侵入）在 10 趟中每趟真实执行。本轮**未再跑破坏性变异探针**（§12：B5.2 证据已足够）；要求的是"10 趟全部走可证伪路径并 PASS"，已满足（另新增 §46.6 的 activePage 非空转守卫）。
+
+### 46.9 Lifecycle-hook 负向检查 + backend freeze
+
+- **lifecycle 负向检查（源码级）**：`DiagnosisPage.qml` 中 `onVisibleChanged` / `Component.onCompleted` / `Component.onDestruction` 出现次数 = **0**；六个业务命令（runBaselineDiagnosis / clearDiagnosis / askAiDiagnosis / cancelAiDiagnosis / askAgent / cancelAgent）**全部且仅**出现在 `onClicked` 处理器中。⇒ 没有任何页面生命周期钩子会触发业务动作；Scenario L/N 的通过**不可能**来自 lifecycle hook。
+- **backend freeze**：`git diff --name-only` = `src/main.cpp`、`src/ui/qml/pages/DiagnosisPage.qml`。**未触及** AnalysisController/Diagnosis Core/AI Client/Agent Runtime/Agent Client/Replay/Serial/Statistics。
+
+### 46.10 Validation（真实命令与输出）
+
+```text
+cmake --build --preset debug-local → [4/4] Linking modbuslens.exe（0 error）
+--qml-smoke-test                    → EXITCODE=0
+--qml-nav-check                     → EXITCODE=0；NAV CHECK PASS（五 workspace；A/B/D/E/F/G'/H/I/J/K/K'/L/N asserted；M deferred by design）
+  NAV [scenario L setup]: observed=4 baselineChars=112 digest=6915f49af5442768 mode=模拟器模式 source=确定性演示
+  NAV [L stop] scenario L @diagnosis:    digest=6915f49af5442768
+  NAV [L stop] scenario L @dashboard:    digest=6915f49af5442768
+  NAV [L stop] scenario L @replay:       digest=6915f49af5442768
+  NAV [L stop] scenario L @communication: digest=6915f49af5442768
+  NAV [L stop] scenario L @diagnosis again: digest=6915f49af5442768
+  NAV [L stop] scenario L @legacy:       digest=6915f49af5442768
+  NAV [L stop] scenario L @diagnosis final: digest=6915f49af5442768
+  NAV [scenario N]: page-local Agent draft preserved byte for byte …
+  NAV SCENARIOS: …（14 项全部 PASS，见 §46.7）
+--qml-geometry-check                → EXITCODE=0；0 GEOFAIL；GEOMETRY CHECK PASS(10 passes …)
+  14 个 dump 段 = 4（默认尺寸 前四页）+ 3+3（Diagnosis 两趟 × 三 tab）+ 4（最小值 后四页）
+ctest --preset debug-local          → 100% tests passed, 0 tests failed out of 26
+git diff --check                    → PASS
+case 标签连续性/唯一性检查（build/b53_case_check.py）→ 87 个标签 0..86 连续且唯一
+```
+
+### 46.11 Files Changed（B5.3）
+
+- `src/main.cpp`：Scenario L（case 61–76）、Scenario N（case 77–86）、`kLastStage` 60→86、逐场景记账（begin/end marks ×28 + verdict 汇总 + M 声明）、`activePage()` 增 Diagnosis、Diagnosis 几何断言块、10 趟矩阵、tab sweep、FNV-1a 快照 digest、activePage 非空转守卫。
+- `src/ui/qml/pages/DiagnosisPage.qml`：+13 个 **test-observability objectName**（页头/TabBar 已有；新增三 tab root、六个按钮、三个视口、Agent 问题 TextArea）。**零行为变化**（纯属性，无绑定/命令改动）。
+- **未动**：AnalysisController/Core/backend/CMakeLists/tests/其他页面。
+
+### 46.12 Result（B5.3）
+
+- Scenario L = **PASS**（7 站 digest 全等 + baseline 逐值存续 + revision 代理不变量成立）；Scenario N = **PASS**（真实 TextArea 草稿逐字保留，facts 未动）；**M = DEFERRED BY DESIGN（如实标注，不伪造）**。
+- 10/10 几何通过（含 Diagnosis 两尺寸 × 三 tab）；既有 11 个 named scenario + basic five-workspace path 全部保留并 PASS。
+- ISSUE-013 修复持续生效；backend freeze 保持；**未 deploy**、**未做 manual candidate**、**未推进 LKGC（仍 `207ae96`）**、**未 push**。
+- **M9-B5 尚未 COMPLETE**（B5.4 deploy + 人工验收未做）。
+
+## 47. Next
+
+- **B5.3 Review（用户）**；通过后 **B5.4 — deploy + 截图证据 + manual candidate**（含 §46.1 的页框视觉人工检查项）。
+- B5 closure / M9-C / M10 均未开始。

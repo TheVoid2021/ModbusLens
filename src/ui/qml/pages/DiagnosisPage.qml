@@ -119,20 +119,24 @@ Item {
 
             // ---- Tab 1: Baseline ----
             ColumnLayout {
+                objectName: "diagnosisBaselineTab"
                 spacing: 6
                 RowLayout {
                     spacing: 6
                     Button {
+                        objectName: "diagnosisRunBaselineButton"
                         text: qsTr("运行基线诊断")
                         onClicked: page.analysisController.runBaselineDiagnosis()
                     }
                     Button {
+                        objectName: "diagnosisClearDiagnosisButton"
                         text: qsTr("清除诊断")
                         onClicked: page.analysisController.clearDiagnosis()
                     }
                     Item { Layout.fillWidth: true }
                 }
                 Flickable {
+                    objectName: "diagnosisBaselineViewport"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: 0
@@ -181,6 +185,7 @@ Item {
 
             // ---- Tab 2: AI 解释 ----
             ColumnLayout {
+                objectName: "diagnosisAiTab"
                 spacing: 6
                 Label {
                     text: page.analysisController.aiConfigured
@@ -192,6 +197,7 @@ Item {
                 RowLayout {
                     spacing: 6
                     Button {
+                        objectName: "diagnosisAiAskButton"
                         text: qsTr("生成 AI 解释")
                         enabled: page.analysisController.aiConfigured
                                  && page.analysisController.hasBaselineDiagnosis
@@ -199,6 +205,7 @@ Item {
                         onClicked: page.analysisController.askAiDiagnosis()
                     }
                     Button {
+                        objectName: "diagnosisAiCancelButton"
                         text: qsTr("取消")
                         enabled: page.analysisController.aiDiagnosisBusy
                         onClicked: page.analysisController.cancelAiDiagnosis()
@@ -212,6 +219,7 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
                 Flickable {
+                    objectName: "diagnosisAiViewport"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: 0
@@ -269,9 +277,11 @@ Item {
 
             // ---- Tab 3: Agent 问答 ----
             ColumnLayout {
+                objectName: "diagnosisAgentTab"
                 spacing: 6
                 TextArea {
                     id: agentQuestionInput
+                    objectName: "diagnosisAgentQuestion"
                     Layout.fillWidth: true
                     Layout.preferredHeight: 68
                     placeholderText: qsTr("例如：本批次主要有什么异常？")
@@ -280,6 +290,7 @@ Item {
                 RowLayout {
                     spacing: 6
                     Button {
+                        objectName: "diagnosisAgentAskButton"
                         text: qsTr("询问 Agent")
                         enabled: page.analysisController.agentAvailable
                                  && !page.analysisController.cloudAiBusy
@@ -287,6 +298,7 @@ Item {
                         onClicked: page.analysisController.askAgent(agentQuestionInput.text)
                     }
                     Button {
+                        objectName: "diagnosisAgentCancelButton"
                         text: qsTr("取消")
                         enabled: page.analysisController.agentBusy
                         onClicked: page.analysisController.cancelAgent()
@@ -300,6 +312,7 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
                 Flickable {
+                    objectName: "diagnosisAgentViewport"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: 0
