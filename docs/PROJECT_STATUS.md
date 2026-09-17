@@ -13,10 +13,10 @@
 | Build 状态 | ✅ **通过** — Debug/MinGW 13.1.0/Qt 6.11.1（含 QtSerialPort 组件）/CMake 3.30.5（构建与链接零 error；仅 harness 内既有无害告警） |
 | Test 状态 | ✅ **26/26 通过** + **10/10 几何趟**（B5 closure：部署版在**严格最小 PATH**（仅 System32）下 smoke/nav/geometry 全 0；nav 14 项判决全 PASS、M DEFERRED BY DESIGN） |
 | 已完成任务 | T001 · T001.1 · T002 · T003 · T004 · T005 · T006 · T007 · T008 · T009 · T010 · T011 · T012 · T013 · T014 · T015（V1 主线）· T016（M9-A UI Foundation / Design System）· **T017（M9-B Application Shell & Navigation = ✅ COMPLETE）** |
-| 当前任务（Current Task） | **M9-C — Dashboard Redesign（IN PROGRESS）**：canonical task doc = [T018](tasks/T018-m9c-dashboard-redesign.md)；C1/C2/C3/C4 = 实施完成（**C3、C4 Review = PASS**）；C5 automated/deploy/evidence implementation = PASS；**Screenshot evidence orientation correction = 进行中**（捕获路径已证清白，见 T018 §C5.13）；**Manual Interaction Review = PASS** |
+| 当前任务（Current Task） | **M9-C — Dashboard Redesign（IN PROGRESS）**：canonical task doc = [T018](tasks/T018-m9c-dashboard-redesign.md)；C1/C2/C3/C4 = 实施完成（**C3、C4 Review = PASS**）；C5 automated/deploy/evidence implementation = PASS；**Screenshot evidence packaging = PASS**（working tree 已恢复 committed landscape evidence，closure-time landscape check 6/6 PASS）；**Manual Interaction Review = PASS** |
 | 最近完成任务（Last Completed Task） | **T017 — M9-B App Shell & Navigation = ✅ COMPLETE**（B5 Manual Visual/Interaction Review = PASS；verified LKGC 推进 `207ae96` → `6cc84c3`）。此前：M9-B5.4（`6cc84c3`）、M9-B5.3（`28e6592`）、M9-B5.2（`3b1ca93`）、M9-B5.1（`b8a47a1`）、M9-B4（`207ae96`）、M9-B3（`382ecfb`）、M9-B2（`53685d5`）、M9-B1（`189c62c`）、M9-A（`6562dd3`） |
-| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh（M9-A ✅ / M9-B ✅）；Current Task Phase：M9-C — C5 evidence packaging = HOLD（orientation 取证完成，待用户处置旋转副本后收口）** |
-| 下一步动作（Next Action） | **等待用户对 6 个 working-tree 旋转 PNG 的处置确认**（仓库 committed blobs = landscape 1280×900/1250×875，已 raw-IHDR + 逐像素 90° CW 旋转比对证明；`build/_evidence_c5` 原件同样 landscape）。确认后可 `git checkout -- <6 png>` 恢复并收口 C5 packaging；**M9-C Final Closure 暂停**；M9-D 未开始 |
+| 当前阶段（Current Phase） | **Project Phase：V2 Upgrade；Current Milestone：M9 — UI / UX Refresh（M9-A ✅ / M9-B ✅）；Current Task Phase：M9-C — C5 evidence packaging = PASS；下一动作 = M9-C Final Closure（Git classification）** |
+| 下一步动作（Next Action） | **M9-C Final Closure（Git classification）**：C5.16 证据恢复+closure-time landscape check PASS 后，按 `git show` 事实裁定 verified LKGC 落点（**不预先认定**）；随后关闭 M9-C（若 classification 无异议）。M9-D 未开始 |
 | 下一 Part（Next Part） | 无（T012 Part B Phase 2 已随 T012 完成） |
 | 下一任务（Next Task After T016） | **M9-B Application Shell & Navigation = T017 进行中**（Phase 1 Learning & Design 已落库待 Review；实施按 T017 §13 的 B1→B5 逐步进行，每步独立 Review/提交） |
 | Known Issues | 见 §4 |
@@ -49,8 +49,8 @@
 - **M9-C — Dashboard Redesign（IN PROGRESS）**，canonical task doc = [T018](tasks/T018-m9c-dashboard-redesign.md)。
 - **C1/C2/C3/C4 = 实施完成（C2、C3、C4 Review = PASS）**。
 - **C5 = automated/deploy/evidence implementation PASS；Manual Interaction Review = PASS**。
-- **Screenshot evidence packaging = HOLD（orientation 取证完成，2026-09-18）**：用户复核发现 6 张 M9-C PNG 为 portrait（900×1280 / 875×1250）。逐层取证结论：**committed blobs（HEAD `259fb59`）与 `build/_evidence_c5` 原件均为 landscape（1280×900 / 1250×875）**，捕获日志一致；working tree 的 6 个 portrait 文件（未提交修改）经**逐像素比对 = committed blob 的 90° CW 旋转**（无 eXIf；`*.png binary` 无 git 变换）⇒ **旋转发生在 C5 commit 之后、仓库工具链之外（用户复核/导出环节），capture/save 路径（grabWindow→QImage→save）清白**。orientation 契约已由自检的"像素尺寸 vs 逻辑尺寸"断言承担（portrait 即 FAIL，已实测演示）。working tree 的 6 个旋转副本未提交、未动，待用户处置确认。
-- verified LKGC **`6cc84c3`** 不变；未 push。详见 [T018 §C5.13](tasks/T018-m9c-dashboard-redesign.md)。
+- **Screenshot evidence packaging = PASS（orientation RCA 收口，2026-09-18）**：working tree 的 6 个 portrait 副本（未提交修改）已经逐像素证明 = committed landscape blobs 的 90° CW 旋转（unknown post-commit working-tree image mutation——**变异步骤未证明**，术语冻结）；已按用户指令 `git restore --source=HEAD` 恢复 6 张 committed evidence（SHA256 == HEAD blob、IHDR 5×1280×900 + 1×1250×875、全部 landscape）；closure-time landscape check **6/6 PASS**（尺寸/非空白/互异）。**Screenshot Visual Review = PASS、Manual Interaction Review = PASS 保留**（product tree 未变，无需重跑门禁）。
+- **下一步 = M9-C Final Closure（Git classification；不预先认定 LKGC 落点）**；verified LKGC **`6cc84c3`** 暂不变；未 push。详见 [T018 §C5.16](tasks/T018-m9c-dashboard-redesign.md)。
 
 ## 3. 下一任务
 

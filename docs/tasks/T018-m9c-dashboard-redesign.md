@@ -808,6 +808,49 @@ git status --ignored               → 一次性脚本全部在 ignored build/ �
 - **M9-C 未 COMPLETE**；**verified LKGC 不变 = `6cc84c3`**；**未 push**；M9-D 未开始。
 - working tree 保留 6 个未提交的旋转 PNG（用户侧产物，未动）。
 
+### C5.16 Orientation RCA Review = PASS + evidence restoration（2026-09-18）
+
+用户裁定 **C5 orientation RCA Review = PASS**，并对根因结论做**收紧**：
+
+- **已证明**：capture/save path 未旋转；`build/_evidence_c5` 原件为 landscape；committed blobs 为 landscape；Git attributes/filter 未导致旋转；当前 working-tree 6 PNG 是 committed blobs 的 90° CW 旋转副本。
+- **未证明**：具体哪个 post-commit 程序/步骤执行了旋转。
+- **最终术语**：**unknown post-commit working-tree image mutation** —— 不得写成已确认的"用户导出步骤导致"。
+
+**Evidence restoration（按用户指令执行）**：
+
+```text
+git restore --source=HEAD -- <6 个 m9c-*.png>
+git status --porcelain → 0（clean）
+6 张 working-tree PNG SHA256 == HEAD committed blob 对应内容（逐张 YES）
+raw IHDR：1280×900 ×5 + 1250×875 ×1，全部 width > height（landscape）
+```
+
+**Closure-time evidence integrity check**（`build/c5_closure_evidence_check.py`，ignored scratch，**未改 src/main.cpp**）：
+
+```text
+image                          logicalWxH   pixelWxH   orientation
+m9c-dashboard-empty-1024x720    1024x720    1280x900   landscape  OK
+m9c-dashboard-demo-1024x720     1024x720    1280x900   landscape  OK
+m9c-dashboard-demo-1000x700     1000x700    1250x875   landscape  OK
+m9c-dashboard-broadcast-1024x720 1024x720   1280x900   landscape  OK
+m9c-dashboard-baseline-cue-1024x720 1024x720 1280x900   landscape  OK
+m9c-legacy-regression-1024x720  1024x720    1280x900   landscape  OK
+distinct images: 6/6
+CLOSURE-TIME EVIDENCE CHECK PASS (6/6: landscape orientation, valid dimensions,
+non-blank, mutually distinct)
+```
+
+契约：`logicalWidth > logicalHeight ⇒ pixelWidth > pixelHeight`（不硬编码 1280×900——DPI 可变，方向必须与逻辑窗口一致）。
+
+**Acceptance preservation**：因 portrait working copies 已证**逐像素 = committed landscape evidence 旋转 90°**、且 product tree 未变 ⇒ **Screenshot Visual Review = PASS** 与 **Manual Interaction Review = PASS** 保留；不要求重新人工操作，也不要求重跑 ctest/qml_smoke/qml_nav/qml_geometry/deploy（本轮零 code/QML/script 变更，仅把 working tree 恢复到已完整验证过的 committed evidence blob）。
+
+**状态更新**：
+
+- **Screenshot evidence packaging = PASS**（restored working tree == committed evidence；closure-time landscape check PASS）。
+- **Screenshot Visual Review = PASS（用户）**；**Manual Interaction Review = PASS（用户）**。
+- 术语冻结：根因 = **unknown post-commit working-tree image mutation**（已证明清白的：capture/save path、build 原件、committed blobs、Git attributes/filter；未证明的：具体变异步骤）。
+- 下一步 = **M9-C Final Closure**（Git classification；**不预先认定 LKGC 落点**）。
+
 ## C6（后续，未开始）
 
 - **M9-C Final Closure**：用户 Screenshot Visual Review + Manual Interaction Review 均 PASS 后，做 Git classification 与 M9-C closure（**不预先认定 LKGC 落点**——若本 commit 含 harness/deploy 变更，LKGC 很可能落在本 behavior-bearing tree；一切按 `git show` 决定）。
