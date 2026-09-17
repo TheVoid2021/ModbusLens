@@ -73,6 +73,7 @@ qt_add_qml_module(modbuslens
         src/ui/qml/components/StatCard.qml
         src/ui/qml/components/StatisticsMetrics.qml
         src/ui/qml/components/StatisticsOutcomes.qml
+        src/ui/qml/components/OutcomeDistribution.qml
         src/ui/qml/components/StatisticsOverview.qml
         src/ui/qml/pages/DashboardPage.qml
         src/ui/qml/pages/CommunicationPage.qml
@@ -273,6 +274,12 @@ if(BUILD_TESTING)
     # (Gate F) in the M9-B4.3 navigation scenarios.
     configure_file(samples/t015_unsupported_fc08.mlog
         "${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_unsupported_fc08.mlog" COPYONLY)
+    # T015 broadcast sample (one FC06 broadcast with NO_RESPONSE): drives the
+    # M9-C C3 distribution-denominator probe -- a batch whose completed
+    # outcomes are ALL ExpectedNoResponse, so the distribution bar is 100%
+    # ExpectedNoResponse while successRate stays undefined ("—").
+    configure_file(samples/t015_broadcast.mlog
+        "${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_broadcast.mlog" COPYONLY)
 
     add_executable(modbuslens_replay_log_tests tests/test_replay_log.cpp)
     target_link_libraries(modbuslens_replay_log_tests PRIVATE modbuslens_core Qt6::Test)
@@ -472,7 +479,8 @@ if(BUILD_TESTING)
     # same mechanism as the demo_v1 test_data above -- no absolute paths).
     target_compile_definitions(modbuslens PRIVATE
         MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog"
-        MODBUSLENS_UNSUPPORTED_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_unsupported_fc08.mlog")
+        MODBUSLENS_UNSUPPORTED_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_unsupported_fc08.mlog"
+        MODBUSLENS_BROADCAST_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_broadcast.mlog")
 
     # Headless-safe on every platform (no display server needed).
     set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check PROPERTIES

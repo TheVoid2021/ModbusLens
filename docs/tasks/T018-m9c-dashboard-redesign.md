@@ -348,7 +348,137 @@ git diff --check → PASS
 
 - **C2 code commit = `07b03d1`**（`M9-C C2: extract statistics presentation components`）；hash 回填 = 本 docs-only 提交；**不 amend `a94a7b5`、不 rebase、不 push**。
 
-## C3–C5（后续，未开始）
+### C2.20 C2 Review = PASS（用户）+ Review Addendum
+
+用户裁定 **M9-C C2 Review = PASS**。补充裁定（对本文件既有内容的收紧与澄清）：
+
+- **A. `analysisController` / `instanceId` / implicit-size behavior 属于 component contract**（组件被谁实例化、注入什么、自然尺寸来自哪里——这些是消费方可见的行为契约）。
+- **B. `objectName` 属于 verification observability contract，不是 public product API**——它服务于 harness 与证据链；改名/增名只影响测试寻址，不构成产品语义变化（但仍须按 §C2.8 保持稳定）。
+- **C. C2 的 before/after geometry equality 证明的是本轮 extraction 的 **structural neutrality**（同一候选环境、同一测试机制下的结构中立），**不是跨平台 pixel-perfect guarantee**。
+
+## C3 — Dashboard Composition + OutcomeDistribution + Empty-state Refresh（Implementation Record，2026-09-17）
+
+### C3.1 Preflight
+
+```text
+branch = main；HEAD = 4e14022；working tree clean；git diff --check PASS
+V2 verified LKGC = 6cc84c3；v1.0.0^{commit} = ae067ab（annotated tag 对象 2cee626）
+origin/main = a40d935；ahead 49 / behind 0
+```
+
+### C3.2 强制重读与 property 核验
+
+T018 全文（Phase 1 IA / guardrails A–F / C1 / C2 / C3 计划）；真实 `DashboardPage.qml`、`StatisticsOverview.qml`、`StatisticsMetrics.qml`、`StatisticsOutcomes.qml`、`StatCard`、`PanelCard`、`SectionHeader`、`DesignSystem`、`CMakeLists.txt`、harness。Controller 统计属性逐一以 `AnalysisController.h` 源码为准：`observedCount/completedCount/pendingCount/successCount/exceptionCount/crcErrorCount/timeoutCount/protocolErrorCount/expectedNoResponseCount/hasSuccessRate/successRate/hasAverageSuccessLatency/averageSuccessLatencyMs`。
+
+### C3.3 broadcast fixture 审计（§21）
+
+`samples/t015_broadcast.mlog`（tracked）= `MODBUSLENS_MLOG|1|timeout_ms=1000` + 一条 `TXN|25|00 06 00 01 00 01 18 1B|NO_RESPONSE`：**地址 0x00 + FC06 = 广播写单寄存器、无响应** ⇒ 语义上应产出 **ExpectedNoResponse**（广播能力集 ∋ FC06；request 字段合法 ⇒ 无 request issue）。此前无任何测试消费它。按既有机制接线：`configure_file(... COPYONLY)` 进 `test_data/` + `MODBUSLENS_BROADCAST_MLOG_PATH` compile definition（repo-relative，无机器绝对路径）。**实测（探针 stage 91）证实**：`sourceLabel=t015_broadcast.mlog`、`expectedNoResponseCount=1`、`completedCount=1`、`hasSuccessRate=0`。
+
+### C3.4 Dashboard composition before → after
+
+**Before（C2）**：Dashboard 持有共享 wrapper `StatisticsOverview { instanceId: "dashboard" }`。
+
+**After（C3）**：Dashboard **直接组合**（wrapper 不再实例化；`statisticsOverview_dashboard` 从树中消失，由断言证明）：
+
+```text
+DashboardPage ColumnLayout
+├─ dashboardHeader / dashboardRunDemo / dashboardEmptyHint（措辞刷新）
+├─ SectionHeader  statisticsHeader_dashboard          （标题迁到本页，同名）
+├─ PanelCard      statisticsPanel_dashboard           （同名）
+│   ├─ StatisticsMetrics   statisticsRow1_dashboard   （C2 注入决策沿用）
+│   ├─ OutcomeDistribution outcomeDistribution_dashboard ← 新增（Dashboard-only）
+│   └─ StatisticsOutcomes  statisticsRow2_dashboard   （C2 注入决策沿用）
+└─ dashboardTailSpacer（唯一 stretch owner，随内容变高而合理缩短）
+```
+
+**Legacy 不变**：仍 `StatisticsOverview { instanceId: "legacy" }`（wrapper + Metrics + Outcomes），`Main.qml` diff = 0。
+
+### C3.5 OutcomeDistribution 组件（P0 语义）
+
+- **分母 = `completedCount`**（guardrail A；**不是** observedCount、**不是** successRate 的 `completed − expectedNoResponse` 分母）。
+- **segments 六项、顺序冻结**：Success → Exception → CRC 错误 → 超时 → 协议错误 → 预期无响应；`completedCount == 六段之和`；**Pending 不进入**；**ExpectedNoResponse 不得从 bar 中删掉**。
+- **段宽**：`unitWidth = bar.width / completedTotal`（completedTotal == 0 时 **unitWidth = 0**，全程无除零/NaN/Infinity）；`segment_i.x = unitWidth × segmentStartCount(i)`（累计边界）；**最后一段以剩余宽度收口**（`parent.width − x`，杜绝浮点漂移留缝）；**无 minimum segment width**（不扭曲比例）；count == 0 ⇒ 段宽 0。
+- **零态**：`visible: completedTotal > 0`（整个组件隐藏，bar 与 caption 一起消失）；隐藏态几何**不是 contract**。
+- **颜色**：沿用与六张 outcome 卡**相同的 DS 状态色**；无新 severity/semantic/health color；**ExpectedNoResponse 沿用既有呈现 tone**（`DS.expectedNoResponse`），不被编码成 error/anomaly。
+- **无障碍**：bar 挂 `Accessible.role: Graphic` + `Accessible.name`（"已完成结果分布（共 N 笔）：成功 N，异常 N，CRC 错误 N，超时 N，协议错误 N，预期无响应 N"）；同时 **StatisticsOutcomes 六卡仍完整提供全部标签与数字** —— bar 不是唯一信息来源。
+- **文字图例策略**：不复制第二排相同六项数字（避免信息重复）——六张 outcome 卡就是 legend；bar 上方仅一行简洁说明 `已完成结果分布`。
+- **文本层**：caption `outcomeDistributionCaption_<id>`；bar `outcomeDistributionBar_<id>`；segments `outcomeSegment_0..5_<id>`（frozen order = index）。
+
+### C3.6 Empty-state wording（B2 遗留刷新）
+
+`dashboardEmptyHint` 措辞从 B2 的 "…或在工作台加载回放日志。"（当时回放 workspace 尚不可达）刷新为：
+
+> 暂无通信数据。可运行演示批次，或前往"通信"、"回放"工作区获取数据。
+
+**仅导航指引**——不暗示切到 Communication 会自动连接、切到 Replay 会自动加载文件；**无 CTA 按钮**（rail 仍是唯一导航权威）。harness 断言：可见时 `text` 含 "回放" 且 **不含 "工作台"**（锁住刷新语义）。
+
+### C3.7 RED → GREEN
+
+- **RED（harness 先行，QML 已同分支编写但先跑旧断言目标）**：nav check exit 1 —— `distribution demo: outcomeSegment_0..3 width 0 != expected 227.75 (bar 911, completed 4)`、`outcomeSegment_5 width 911 != expected 0`，即**段宽全错、ENR 段吃满整条**。
+- **RCA（真实产品 bug，harness 抓到）**：`OutcomeDistribution.qml:60: ReferenceError: barTrack is not defined` —— bar 的 `Item` **漏写 `id: barTrack`**，`unitWidth` 绑定求值失败回退 0 ⇒ 所有段宽 0、末段收口吃满整条。**分类：product QML（presentation）**，由 DISTRIBUTION DIAG（`qml.completedTotal=4 qml.unitWidth=0`）+ stderr ReferenceError 双证据定位。修复 = 补 `id: barTrack`。
+- **GREEN**：`DISTRIBUTION DIAG: qml.completedTotal=4 qml.unitWidth=227.75`；段宽/顺序/收口断言通过；broadcast 探针 `enrSegmentWidth=911 = barWidth`；zero 态干净。
+
+### C3.8 Verification（真实命令与输出）
+
+```text
+cmake --preset debug-local && cmake --build --preset debug-local → [79/79] Linking modbuslens.exe（0 error）
+--qml-smoke-test   → EXITCODE=0；stderr 卫生计数 0
+--qml-nav-check    → EXITCODE=0
+  NAV [distribution demo]: completed=4 success=1 exception=1 crc=1 timeout=1 protocol=0 expectedNoResponse=0 hasSuccessRate=1
+  NAV [distribution broadcast]: expectedNoResponse=1 completed=1 hasSuccessRate=0 barWidth=911 enrSegmentWidth=911
+  NAV [distribution zero]: completed=0 distribution hidden, zero state clean
+  NAV DISTRIBUTION CHECK: PASS (denominator = completedCount; 6 segments in the frozen order; demo + 100% ExpectedNoResponse broadcast probe + zero state)
+  NAV SCENARIOS: basic five-workspace path PASS, A PASS, B PASS, D PASS, E PASS, F PASS, G' PASS, H PASS, I PASS, J PASS, K PASS, K' PASS, L PASS, N PASS
+  NAV SCENARIO M: DEFERRED BY DESIGN（不变）
+  NAV CHECK PASS（five workspaces；scenarios …/L/N asserted；M deferred by design）
+--qml-geometry-check → EXITCODE=0；10/10 PASS、0 GEOFAIL
+  DASHBOARD LAYOUT: header.top=16 action.top=43 stats.top=113 spacer.height=343（1024×720，空态下分布条隐藏 ⇒ 与 C1 一致）
+  DASHBOARD LAYOUT: … spacer.height=323（1000×700）
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check → PASS
+stderr 卫生：ReferenceError/TypeError/binding loop/NaN/Infinity/required missing/module missing 计数 = 0（geo/nav/smoke）
+```
+
+**case 标签连续性**：94 个标签 0..93 连续且唯一（新增 87..93 为分布探针；**未伪称 Scenario O**）。
+
+### C3.9 Legacy 零变化证明
+
+`c2_green.txt`（C2 后）vs `c3_geo.txt`（C3 后）的 **Legacy 两趟**逐 item（x/y/w/h/implicit）比较 ⇒ **IDENTICAL**（`statisticsOverview_legacy` wrapper、panel、两行、11 卡全部逐值不变；`Main.qml` diff = 0）。
+
+### C3.10 负向 scope 检查
+
+`attentionCount/attention/diagnosisCue/recentTxn/sessionChip/healthScore/insight/deviceCard/timeSeries/ViewModel/cache` 在 DashboardPage 与三个统计组件中计数 **0**（`CTA` 的 1 次命中为 `Rectangle` 子串误报，已人工核实）；无 DS primitive、无 Controller 新 property、无 statistics cache；`deploy_windows.bat` 未顺手扩展（§26：module 自动部署已覆盖新组件；正式 deploy candidate 归 C5）。
+
+### C3.11 Backend freeze
+
+`git diff --name-only` 与 `AnalysisController` / `TransactionListModel` / `core/*` / `tests/*` / AI / Agent / Replay / Serial **零交集**；OutcomeDistribution 只消费既有 deterministic facts；**未发现需要新增 Controller statistics property 的情况**（§28 的停止条件未触发）。
+
+### C3.12 Files Changed（C3）
+
+新增 `src/ui/qml/components/OutcomeDistribution.qml`；修改 `src/ui/qml/pages/DashboardPage.qml`（wrapper→直接组合 + 措辞刷新）、`CMakeLists.txt`（注册 + fixture）、`src/main.cpp`（共享分布契约函数 + C2 断言重构 + dump + 探针 87..93 + verdict 行）；docs：本文件、PROJECT_STATUS、BACKLOG、devlog、INTERVIEW_NOTES。
+
+### C3.13 Result
+
+- Dashboard 现为**直接组合**：SectionHeader + PanelCard[Metrics + OutcomeDistribution + Outcomes]；Legacy 保持 wrapper（`statisticsOverview_legacy` 存在性由断言锁住）。
+- 分布条三态全部机器证明：demo（比例正确、顺序正确、hasSuccessRate=1）、broadcast（**100% ExpectedNoResponse 且 hasSuccessRate=0** —— 两个分母不可混淆的直接证据）、zero（隐藏、无除零）。
+- 空态措辞刷新并锁定（含 "回放"、不含 "工作台"）；无 CTA。
+- C1 shell 契约不变（空态下布局与 C1 完全一致，spacer 343/323；有数据时 spacer 合法缩短）。
+- **Manual Review = PENDING**（C3 视觉终验并入 C5）；verified LKGC **不变 = `6cc84c3`**；未 push。
+
+### C3.14 Knowledge Learned / Ownership
+
+- **通过哪件真实事情理解了"分母即语义"**：broadcast 探针让 `completed=1、expectedNoResponse=1、hasSuccessRate=0` 与 `bar=100% ExpectedNoResponse` **同屏成立**——如果 distribution 用了 successRate 的分母（completed−expectedNoResponse=0），这条 bar 会消失或除零。一条 fixture 把"两个分母不可混淆"从口头纪律变成机器断言。
+- **通过哪件真实事情理解了 QML 的 id 作用域**：`barTrack` 漏写 id 时**应用照常启动、布局照常工作**，只是 `unitWidth` 绑定静默失败为 0，表现为"段宽全 0、末段吃满"——ReferenceError 只在 stderr。教训：**stderr 卫生检查（ReferenceError 计数 0）必须是一级门禁**，并且"宽度断言 + DIAG 输出"能在一次运行内把问题定位到具体绑定。
+- **通过哪件真实事情理解了"零态是布局契约的一部分"**：空态下分布条整件隐藏 ⇒ 面板高度回到 168、spacer 回到 343/323——零态不是"有数据情形的退化版"，而是**独立状态**，其可见性与几何都要断言。
+
+### C3.15 Potential Interview Questions
+
+- **Q：同一个"已完成"集合，为什么分布条和成功率要用不同分母？** A：它们回答不同问题。分布条回答"完成的事里每类占多少"，分母是 completed（ExpectedNoResponse 是一种完成的结局，必须占一段）；成功率回答"该得到响应的事里多少得到了正常响应"，分母刻意剔除 ExpectedNoResponse。混用分母会把"广播写没有响应"算成"失败率"——broadcast 探针（bar 100% ENR + successRate 为 "—"）就是防混淆的机器锁。
+- **Q：段宽用浮点除法，怎么保证视觉上没有缝隙？** A：前五段按 `unitWidth × count` 定宽，**最后一段不按公式，而是用剩余宽度收口**（`bar.width − x`）；同时断言"段连续、末段右缘 ≈ bar 右缘"。这样浮点舍入误差只会落在最后一段内部，不会在段间留白。
+- **Q：为什么隐藏组件还要防除零？** A：`visible: false` 不阻止绑定求值。若宽度绑定写成 `bar.width / completed`，空态时 completed=0 会产生 NaN/Infinity 并在状态切换瞬间传播；实现把单位宽在零态显式置 0，NaN 从根上不可能出现。
+- **Q：怎么防止"为了测试而保留一个假 wrapper"？** A：Dashboard 侧断言 `statisticsOverview_dashboard` **不存在**，Legacy 侧断言 wrapper **必须存在**——两侧同时锁，防止"删了组合但留个空壳保 objectName"这类假迁移。
+
+## C4–C5（后续，未开始）
 
 - **C3 — Dashboard 组合 + `OutcomeDistribution`**：分布条（分母 = `completedCount`，segments 六项，零态不渲染，文字图例，颜色非唯一载体）+ L3 状态线索行 + 空态措辞更新（B2 的"工作台"指向已过期）。
 - **C3 — Dashboard 组合 + `OutcomeDistribution`**：分布条（分母 = `completedCount`，segments 六项，零态不渲染，文字图例，颜色非唯一载体）+ L3 状态线索行 + 空态措辞更新（B2 的"工作台"指向已过期）。

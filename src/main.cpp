@@ -70,6 +70,153 @@ ActivePage activePage(const QList<QObject *> &roots)
     return ActivePage::Legacy;
 }
 
+// M9-C C3: the outcome-distribution presentation contract, shared by the
+// geometry check (zero state) and the nav-check distribution probe (demo and
+// broadcast states). Denominator = completedCount (Review guardrail A — NOT
+// the successRate denominator); segments in the frozen order Success ->
+// Exception -> CRC -> Timeout -> ProtocolError -> ExpectedNoResponse; the
+// zero state renders nothing. Segment widths are asserted from the
+// controller counts against the bar width — never from pixels.
+void assertOutcomeDistribution(const QList<QObject *> &roots,
+                               const QString &contextLabel,
+                               QStringList &failures)
+{
+    auto fail = [&failures, &contextLabel](const QString &message) {
+        failures << contextLabel + QStringLiteral(": ") + message;
+    };
+    auto *ctrl = roots.value(0)
+                     ? roots.value(0)->findChild<QObject *>(
+                           QStringLiteral("analysisController"))
+                     : nullptr;
+    if (!ctrl) {
+        fail(QStringLiteral("analysisController not found"));
+        return;
+    }
+    const int completed = ctrl->property("completedCount").toInt();
+    const int observed = ctrl->property("observedCount").toInt();
+
+    auto *panel = findNamedItem(roots, QStringLiteral("statisticsPanel_dashboard"));
+    auto *metrics = findNamedItem(roots, QStringLiteral("statisticsRow1_dashboard"));
+    auto *outcomes = findNamedItem(roots, QStringLiteral("statisticsRow2_dashboard"));
+    auto *distribution =
+        findNamedItem(roots, QStringLiteral("outcomeDistribution_dashboard"));
+
+    // composition identity: every piece lives in the dashboard panel, the
+    // two rows are distinct, and the shared wrapper is gone from this page
+    auto under = [](QQuickItem *item, QQuickItem *ancestor) {
+        for (auto *p = item ? item->parentItem() : nullptr; p;
+             p = p->parentItem())
+            if (p == ancestor)
+                return true;
+        return false;
+    };
+    for (auto *piece : { metrics, outcomes, distribution }) {
+        if (!piece) {
+            fail(QStringLiteral("a dashboard statistics piece is missing "
+                                "(metrics/outcomes/distribution)"));
+            continue;
+        }
+        if (panel && !under(piece, panel))
+            fail(QStringLiteral("a dashboard statistics piece is not inside "
+                                "statisticsPanel_dashboard"));
+    }
+    if (metrics && outcomes && metrics == outcomes)
+        fail(QStringLiteral("statistics metrics and outcomes rows resolved to "
+                            "the SAME item"));
+    if (findNamedItem(roots, QStringLiteral("statisticsOverview_dashboard")))
+        fail(QStringLiteral("statisticsOverview_dashboard still exists — since "
+                            "C3 the dashboard composes the statistics pieces "
+                            "directly (Legacy keeps the wrapper)"));
+
+    if (completed <= 0) {
+        // zero state: the whole component renders nothing
+        if (distribution && distribution->isVisible())
+            fail(QStringLiteral("outcomeDistribution is visible while "
+                                "completedCount == %1").arg(completed));
+        if (observed == 0) {
+            if (auto *hint =
+                    findNamedItem(roots, QStringLiteral("dashboardEmptyHint"))) {
+                if (!hint->isVisible())
+                    fail(QStringLiteral("dashboard empty hint is invisible in "
+                                        "the empty state"));
+                const QString wording = hint->property("text").toString();
+                if (!wording.contains(QStringLiteral("回放"))
+                    || wording.contains(QStringLiteral("工作台")))
+                    fail(QStringLiteral("dashboard empty hint wording predates "
+                                        "the C3 navigation refresh"));
+            }
+        }
+        return;
+    }
+
+    if (!distribution) {
+        fail(QStringLiteral("outcomeDistribution not found"));
+        return;
+    }
+    if (!distribution->isVisible())
+        fail(QStringLiteral("outcomeDistribution is invisible while "
+                            "completedCount == %1").arg(completed));
+
+    // C3 diagnostics: the QML-side values that drive the segment math.
+    qInfo().noquote()
+        << QStringLiteral("DISTRIBUTION DIAG: qml.completedTotal=%1 "
+                          "qml.unitWidth=%2 qml.visible=%3 bar.visible=%4")
+               .arg(distribution->property("completedTotal").toInt())
+               .arg(distribution->property("unitWidth").toDouble())
+               .arg(distribution->isVisible())
+               .arg(distribution->property("visible").toBool());
+
+    auto *bar = findNamedItem(roots,
+                              QStringLiteral("outcomeDistributionBar_dashboard"));
+    if (!bar || bar->width() <= 0 || bar->height() <= 0) {
+        fail(QStringLiteral("outcomeDistributionBar missing or collapsed "
+                            "(w=%1 h=%2)")
+                 .arg(bar ? bar->width() : -1)
+                 .arg(bar ? bar->height() : -1));
+        return;
+    }
+
+    const int counts[6] = {
+        ctrl->property("successCount").toInt(),
+        ctrl->property("exceptionCount").toInt(),
+        ctrl->property("crcErrorCount").toInt(),
+        ctrl->property("timeoutCount").toInt(),
+        ctrl->property("protocolErrorCount").toInt(),
+        ctrl->property("expectedNoResponseCount").toInt()
+    };
+    double prevRight = 0.0;
+    for (int i = 0; i < 6; ++i) {
+        auto *seg = findNamedItem(
+            roots, QStringLiteral("outcomeSegment_%1_dashboard").arg(i));
+        if (!seg) {
+            fail(QStringLiteral("outcomeSegment_%1_dashboard not found").arg(i));
+            return;
+        }
+        const double expectedWidth =
+            static_cast<double>(bar->width()) * counts[i] / completed;
+        if (qAbs(seg->width() - expectedWidth) > 0.5)
+            fail(QStringLiteral("outcomeSegment_%1 width %2 != expected %3 "
+                                "(bar %4, count %5, completed %6)")
+                     .arg(i)
+                     .arg(seg->width())
+                     .arg(expectedWidth)
+                     .arg(bar->width())
+                     .arg(counts[i])
+                     .arg(completed));
+        if (i > 0 && qAbs(seg->x() - prevRight) > 0.5)
+            fail(QStringLiteral("outcomeSegment_%1 is not consecutive "
+                                "(x=%2, previous right=%3)")
+                     .arg(i)
+                     .arg(seg->x())
+                     .arg(prevRight));
+        prevRight = seg->x() + seg->width();
+    }
+    if (qAbs(prevRight - bar->width()) > 0.5)
+        fail(QStringLiteral("last segment right edge %1 != bar right edge %2")
+                 .arg(prevRight)
+                 .arg(bar->width()));
+}
+
 QStringList runGeometryAssertions(const QList<QObject *> &roots,
                                   const QString &contextLabel)
 {
@@ -262,14 +409,22 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
         auto *outcomesRow =
             findNamedItem(roots, suffixed(QStringLiteral("statisticsRow2")));
 
-        if (!overview)
-            fail(suffixed(QStringLiteral("statisticsOverview"))
-                 + QStringLiteral(" not found"));
-        else if (overview->implicitWidth() <= 0 || overview->implicitHeight() <= 0)
-            fail(QStringLiteral("statisticsOverview implicit size %1x%2 — the "
-                                "wrapper lost its content-derived size")
-                     .arg(overview->implicitWidth())
-                     .arg(overview->implicitHeight()));
+        if (page == ActivePage::Legacy) {
+            if (!overview)
+                fail(suffixed(QStringLiteral("statisticsOverview"))
+                     + QStringLiteral(" not found"));
+            else if (overview->implicitWidth() <= 0
+                     || overview->implicitHeight() <= 0)
+                fail(QStringLiteral("statisticsOverview implicit size %1x%2 — "
+                                    "the wrapper lost its content-derived "
+                                    "size")
+                         .arg(overview->implicitWidth())
+                         .arg(overview->implicitHeight()));
+        } else if (page == ActivePage::Dashboard && overview) {
+            fail(QStringLiteral("statisticsOverview_dashboard still exists — "
+                                "since C3 the dashboard composes the "
+                                "statistics pieces directly"));
+        }
 
         auto under = [](QQuickItem *item, QQuickItem *ancestor) {
             for (auto *p = item ? item->parentItem() : nullptr; p;
@@ -449,6 +604,10 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
                            .arg(dashSpacer->height());
             }
         }
+
+        // M9-C C3: the dashboard statistics composition + distribution
+        // contract (zero state here — the geometry passes never run a batch).
+        assertOutcomeDistribution(roots, contextLabel, failures);
     }
 
     // ---- Communication page (M9-B3) ----
@@ -893,15 +1052,25 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
               << suffixed(QStringLiteral("statusCard_2"))
               << suffixed(QStringLiteral("statusCard_3"))
               << suffixed(QStringLiteral("statusCard_4"))
-              << suffixed(QStringLiteral("statusCard_5"))
-              << suffixed(QStringLiteral("statisticsOverview"));
-        // M9-C C1: the Dashboard layout shell (natural content region plus
-        // its explicit tail surplus owner).
+              << suffixed(QStringLiteral("statusCard_5"));
+        // M9-C C2/C3: the Legacy wrapper keeps its observability name; since
+        // C3 the Dashboard composes the pieces directly, so its dump lists
+        // the distribution instead of the wrapper.
+        if (page == ActivePage::Legacy)
+            names << suffixed(QStringLiteral("statisticsOverview"));
         if (page == ActivePage::Dashboard)
             names << QStringLiteral("dashboardHeader")
                   << QStringLiteral("dashboardRunDemo")
                   << QStringLiteral("dashboardEmptyHint")
-                  << QStringLiteral("dashboardTailSpacer");
+                  << QStringLiteral("dashboardTailSpacer")
+                  << QStringLiteral("outcomeDistribution_dashboard")
+                  << QStringLiteral("outcomeDistributionBar_dashboard")
+                  << QStringLiteral("outcomeSegment_0_dashboard")
+                  << QStringLiteral("outcomeSegment_1_dashboard")
+                  << QStringLiteral("outcomeSegment_2_dashboard")
+                  << QStringLiteral("outcomeSegment_3_dashboard")
+                  << QStringLiteral("outcomeSegment_4_dashboard")
+                  << QStringLiteral("outcomeSegment_5_dashboard");
     } else {
         names << QStringLiteral("communicationContentLayout")
               << QStringLiteral("communicationHeader")
@@ -1332,7 +1501,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 86;
+    constexpr int kLastStage = 93;
 
     // Shared state across stages.
     auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
@@ -1350,6 +1519,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto scenarioL = std::make_shared<QMap<QString, QVariant>>();
     auto scenarioN = std::make_shared<QMap<QString, QVariant>>();
     auto scenarioLDigest = std::make_shared<QString>();
+    // M9-C C3 distribution presentation check (NOT a named scenario — it is
+    // a presentation contract, not a business persistence scenario).
+    auto distributionStart = std::make_shared<int>(-1);
+    auto distributionEnd = std::make_shared<int>(-1);
     QMap<QString, QVariant> scenarioJExpected;
     scenarioJExpected.insert(QStringLiteral("observedCount"), 4);
     scenarioJExpected.insert(QStringLiteral("completedCount"), 4);
@@ -1500,7 +1673,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                  scenarioB,
                  scenarioI, scenarioJ, scenarioKPre, scenarioKNotice,
                  scenarioL, scenarioN, scenarioLDigest, scenarioStart,
-                 scenarioEnd, snapshotDigest,
+                 scenarioEnd, snapshotDigest, distributionStart, distributionEnd,
                  draftValues, gPre, stage, ctrl, takeSnapshot, takeExtendedSnapshot,
                  compareAgainst, switchTo, verifyStructureAndIdentity,
                  beginScenario, endScenario, assertBaselinePersisted]() {
@@ -2376,6 +2549,120 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
 
+        // ---- M9-C C3: Dashboard Distribution Presentation Check ----
+        // A PRESENTATION contract check (denominator = completedCount, frozen
+        // segment order, zero state), not a business persistence scenario —
+        // deliberately not numbered as "Scenario O". Runs after every
+        // existing scenario so none of them changes semantics.
+        case 87: {
+            *distributionStart = failures->size();
+            // deterministic demo state: observed=4, completed=4, golden
+            // outcome counts straight from the controller
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("NAVFAIL distribution probe: "
+                                    "runDemoBatch() not invokable"));
+            break;
+        }
+        case 88: switchTo(1); break;
+        case 89: {
+            assertOutcomeDistribution(roots,
+                                      QStringLiteral("distribution demo"),
+                                      *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [distribution demo]: completed=%1 "
+                                  "success=%2 exception=%3 crc=%4 timeout=%5 "
+                                  "protocol=%6 expectedNoResponse=%7 "
+                                  "hasSuccessRate=%8")
+                       .arg(ctrl->property("completedCount").toInt())
+                       .arg(ctrl->property("successCount").toInt())
+                       .arg(ctrl->property("exceptionCount").toInt())
+                       .arg(ctrl->property("crcErrorCount").toInt())
+                       .arg(ctrl->property("timeoutCount").toInt())
+                       .arg(ctrl->property("protocolErrorCount").toInt())
+                       .arg(ctrl->property("expectedNoResponseCount").toInt())
+                       .arg(ctrl->property("hasSuccessRate").toBool());
+            break;
+        }
+        case 90: {
+            // denominator probe: a batch whose completed outcomes are ALL
+            // ExpectedNoResponse — the bar is 100% ExpectedNoResponse while
+            // successRate stays undefined. Locked so the distribution
+            // denominator can never drift into the successRate denominator.
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_BROADCAST_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("NAVFAIL distribution probe: "
+                                    "loadReplayFile() not invokable"));
+            break;
+        }
+        case 91: {
+            if (ctrl->property("sourceLabel").toString()
+                != QStringLiteral("t015_broadcast.mlog"))
+                fail(QStringLiteral("NAVFAIL distribution probe: broadcast "
+                                    "fixture not loaded (source=%1)")
+                         .arg(ctrl->property("sourceLabel").toString()));
+            if (ctrl->property("hasReplayError").toBool())
+                fail(QStringLiteral("NAVFAIL distribution probe: the broadcast "
+                                    "fixture produced a replay error"));
+            if (ctrl->property("expectedNoResponseCount").toInt() <= 0)
+                fail(QStringLiteral("NAVFAIL distribution probe: the broadcast "
+                                    "fixture produced no ExpectedNoResponse "
+                                    "outcome — fixture audit required"));
+            if (ctrl->property("hasSuccessRate").toBool())
+                fail(QStringLiteral("NAVFAIL distribution probe: successRate is "
+                                    "DEFINED for an all-ExpectedNoResponse "
+                                    "batch — the distribution denominator and "
+                                    "the successRate denominator have been "
+                                    "confused"));
+            // still on the dashboard: the bar must now be 100%
+            // ExpectedNoResponse and every other segment zero-width
+            assertOutcomeDistribution(roots,
+                                      QStringLiteral("distribution broadcast"),
+                                      *failures);
+            auto *bar = findNamedItem(
+                roots, QStringLiteral("outcomeDistributionBar_dashboard"));
+            auto *enr = findNamedItem(
+                roots, QStringLiteral("outcomeSegment_5_dashboard"));
+            if (bar && enr
+                && qAbs(enr->width() - bar->width()) > 0.5)
+                fail(QStringLiteral("NAVFAIL distribution probe: the "
+                                    "ExpectedNoResponse segment is not the "
+                                    "full bar (%1 of %2)")
+                         .arg(enr->width())
+                         .arg(bar->width()));
+            qInfo().noquote()
+                << QStringLiteral("NAV [distribution broadcast]: "
+                                  "expectedNoResponse=%1 completed=%2 "
+                                  "hasSuccessRate=%3 barWidth=%4 "
+                                  "enrSegmentWidth=%5")
+                       .arg(ctrl->property("expectedNoResponseCount").toInt())
+                       .arg(ctrl->property("completedCount").toInt())
+                       .arg(ctrl->property("hasSuccessRate").toBool())
+                       .arg(bar ? bar->width() : -1)
+                       .arg(enr ? enr->width() : -1);
+            break;
+        }
+        case 92: {
+            if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+                fail(QStringLiteral("NAVFAIL distribution probe: clearResults() "
+                                    "not invokable"));
+            break;
+        }
+        case 93: {
+            // closing the probe in the zero state: nothing rendered, no
+            // divide-by-zero artefacts, hint wording refreshed
+            assertOutcomeDistribution(roots,
+                                      QStringLiteral("distribution zero"),
+                                      *failures);
+            *distributionEnd = failures->size();
+            qInfo().noquote()
+                << QStringLiteral("NAV [distribution zero]: completed=%1 "
+                                  "distribution hidden, zero state clean")
+                       .arg(ctrl->property("completedCount").toInt());
+            break;
+        }
+
         default:
             break;
         }
@@ -2405,6 +2692,22 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         qInfo().noquote() << QStringLiteral("NAV SCENARIOS:")
                           << verdicts.join(QStringLiteral(", "));
+        // M9-C C3: the distribution presentation check is NOT a named
+        // scenario — it reports its own verdict.
+        if (*distributionStart < 0 || *distributionEnd < 0) {
+            fail(QStringLiteral("NAVFAIL the dashboard distribution check never "
+                                "ran to completion"));
+            qInfo().noquote() << QStringLiteral("NAV DISTRIBUTION CHECK: NOT RUN");
+        } else {
+            const bool ok = *distributionStart == *distributionEnd;
+            qInfo().noquote()
+                << QStringLiteral("NAV DISTRIBUTION CHECK: %1 (denominator = "
+                                  "completedCount; 6 segments in the frozen "
+                                  "order; demo + 100%% ExpectedNoResponse "
+                                  "broadcast probe + zero state)")
+                       .arg(ok ? QStringLiteral("PASS")
+                               : QStringLiteral("FAIL"));
+        }
         // Scenario M is deferred BY DESIGN, not by omission: see T017 §43.14.
         qInfo().noquote()
             << QStringLiteral("NAV SCENARIO M: DEFERRED BY DESIGN — AI result "

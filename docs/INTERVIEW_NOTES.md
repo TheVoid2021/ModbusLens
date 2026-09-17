@@ -295,3 +295,12 @@
 - **Q：instanceId 为什么由 wrapper 向下传，而不是让子组件自己生成身份？** A：因为身份的所有者是"使用场景"（legacy/dashboard 两个实例），不是组件类型。子组件自取名会让 wrapper 与子件的身份脱钩，harness 就无法证明"这一行的面板是哪一个实例的"。向下传还让旧 objectName（`statisticsRow1_legacy` 等）原地保留——改名是最廉价的破坏方式。
 - **Q：怎么向 Reviewer 证明"抽取前后完全一样"？** A：按 **item 名**对齐前后两份几何 dump，逐项比较 x/y/w/h/implicitW/implicitH，并单独列出 parent 名变化与新增项。第一版比对按行序 zip，被新增的 wrapper 行整体错位，误报了 10 处"差异"——**证据工具本身也要按可辨识的键对齐，而不是按出现顺序**。
 - **Q：传整个 Controller 给子组件，不怕耦合吗？** A：这里的耦合判据是"是否引入第二权威或业务计算"，不是"引用传递的深度"。该组件与 StatisticsOverview 同属一个 feature 家族，本来就是 Controller 事实的呈现面；改成 11 个标量反而要在 wrapper 复制整份绑定，制造新的失同步点。真正禁止的是：缓存、重算、字符串解析。
+
+
+## 32. Post-T018 M9-C C3 条目（2026-09-17 追加）
+
+- **Q：一个"看起来只是画条"的组件，最容易做错的是什么？** A：**分母**。分布条的分母是 completed（ExpectedNoResponse 是一种完成结局，必须占一段）；成功率的分母刻意剔除 ExpectedNoResponse。两者只差一个状态，但语义完全不同。所以本轮专门造了一条全 ExpectedNoResponse 的批次做探针：bar 应该 100% 是 ExpectedNoResponse、而成功率仍是 "—" —— 两个分母一旦混淆，这条断言立刻红。
+- **Q：一条没有数据的 bar 有什么可测的？** A：零态本身就是契约：整个组件隐藏（不渲染空轨道）、宽度计算里不能出现除零或 NaN。而且 `visible: false` 不阻止绑定求值，所以"隐藏"并不能豁免"数学必须安全"——单位宽在零态被显式置 0，NaN 从根上不可能出现。
+- **Q：这次 bar 的 bug 是怎么被抓住的？** A：段宽断言 + 一行 DIAG 输出。症状是"段宽全 0、末段却吃满整条"，DIAG 显示 `completedTotal=4` 但 `unitWidth=0`，stderr 里 `ReferenceError: barTrack is not defined` —— bar 的 Item 忘了写 id，绑定静默失败成 0。教训有二：①新绑定的依赖目标必须真实存在（缺 id 不报加载错误）；②stderr 的 ReferenceError 计数必须是一级门禁，不能只看 exit code。
+- **Q：为什么在 Dashboard 上断言"wrapper 不存在"，在 Legacy 上断言"wrapper 必须存在"？** A：两侧同时锁，才能证明这次是**真迁移**而不是"复制一份新组合、旧壳留着冒充"。消失与存在都是契约——结构迁移的验证必须同时覆盖"新形态在"与"旧形态不在"。
+- **Q：分布条的信息已经和六张卡重复了，为什么还画它？** A：它们回答的问题不同：卡片回答"每类**多少**"，条回答"哪类**占多数**"。重复的只是数字来源，不是信息维度；并且刻意不再复制第二排文字图例——六张卡就是 legend，颜色只是辅助通道。
