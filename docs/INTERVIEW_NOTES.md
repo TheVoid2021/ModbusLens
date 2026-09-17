@@ -312,3 +312,10 @@
 - **Q：三个 runtime 状态为什么是 demo/broadcast/protocol-error 这一组？** A：它们把 attention 公式的每个输入维度都推到非零：demo 证明 breakdown 的省略规则（protocol=0 不出现）、broadcast 证明 ExpectedNoResponse 不进和且零 attention 时措辞仍是 outcome-limited、protocol-error 证明协议错误真的参与求和（demo 无法证明这一点）。剩下一个 pending 只能靠公式审计——为它伪造串口状态得不偿失，但报告里必须诚实标注"formula covered，非 runtime"。
 - **Q：为什么 diagnosis cue 选在这一轮实现而不是再 DEFER？** A：因为 C4 是最后一个内容阶段，C5 只做 deploy/截图/人工。Phase 1 已把 cue 裁定为 NOW，如果 C4 不做，它就变成"无主设计项"——要么现在实现（成本一行文本 + 一个布尔读取），要么正式改判 DEFER 并说明原因。规则是：**设计决策的消失必须有解释**。
 - **Q：新增 targeted geometry pass 时踩了什么坑？** A：demo 趟跟在最小尺寸趟后面，而 transition 只会"缩到最小"——结果 tag 写 1024×720、实际量的是 1000×700。修复是给测量步骤加"恢复默认尺寸"的能力。教训：**步骤标签是承诺，机器必须验证量到的尺寸和承诺一致**（本轮正是靠 dump 里的 page 高度发现）。
+
+
+## 34. Post-T018 M9-C C5 条目（2026-09-18 追加）
+
+- **Q：一张"广播批次"的 Dashboard 截图，怎么证明它不是误导性的？** A：三层证据合流——机器状态断言（expectedNoResponse=1、completed=1、hasSuccessRate=0、attention=0）在 grab 之前完成；分布条的 ENR 段宽度经 item 几何断言为整条；然后才是截图本身。截图证明"这个状态被正常呈现了"，断言证明"这个状态语义正确"——顺序不能反。
+- **Q：可见性断言为什么会在别的页面上"误报"？** A：可见性是**相对于激活页**的契约。Dashboard 的 attention/cue 在 Legacy 激活时不可见，这是 StackLayout 常驻多页的正常表现，不是回归。教训：把契约函数应用到新场景前，先问"这条断言隐含的前置条件是什么"——本轮的修复是把 Legacy 趟的断言收窄到 Legacy 自己的契约。
+- **Q：deploy checklist 和 module 自动部署的区别是什么？** A：xcopy 全树是**机制**，它保证文件跟着模块走；checklist 是**守卫**，它在部署完成的那一刻验证关键文件真的存在。机制正确时 checklist 是冗余的，但机制失效（比如未来有人改部署方式）时它是第一道报警——为 5 个承载 Dashboard 核心呈现的新组件补上条目，成本一行、收益是"空工作区"类回归在部署期就被拦截。

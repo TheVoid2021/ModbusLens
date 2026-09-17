@@ -3210,6 +3210,57 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
                             .size());
     };
 
+    // The demo golden COUNTS for the C5 dashboard captures. Same constants
+    // as assertDemoGoldenFacts, minus the baseline requirement -- the demo
+    // screenshot legitimately precedes a baseline run (the baseline-cue
+    // capture asserts that state separately).
+    auto assertDashboardGoldenCounts = [&](const QString &ctx) {
+        struct Expect { const char *key; int value; };
+        const Expect ints[] = {
+            { "observedCount", 4 },   { "completedCount", 4 },
+            { "pendingCount", 0 },    { "successCount", 1 },
+            { "exceptionCount", 1 },  { "crcErrorCount", 1 },
+            { "timeoutCount", 1 },    { "protocolErrorCount", 0 },
+            { "expectedNoResponseCount", 0 },
+        };
+        for (const Expect &e : ints) {
+            const int got = ctrl->property(e.key).toInt();
+            if (got != e.value)
+                fail(QStringLiteral("EVIDENCE %1: %2 = %3, expected %4")
+                         .arg(ctx)
+                         .arg(QLatin1String(e.key))
+                         .arg(got)
+                         .arg(e.value));
+        }
+        if (!ctrl->property("hasSuccessRate").toBool()
+            || qAbs(ctrl->property("successRate").toDouble() - 0.25) > 1e-9)
+            fail(QStringLiteral("EVIDENCE %1: success rate is not 25%%")
+                     .arg(ctx));
+        if (!ctrl->property("hasAverageSuccessLatency").toBool()
+            || qAbs(ctrl->property("averageSuccessLatencyMs").toDouble() - 25.0)
+                   > 1e-9)
+            fail(QStringLiteral("EVIDENCE %1: average success latency is not "
+                                "25 ms").arg(ctx));
+        auto *summary = findNamedItem(
+            roots, QStringLiteral("dashboardAttentionSummary"));
+        const int expectedAttention = 3;
+        if (!summary)
+            fail(QStringLiteral("EVIDENCE %1: dashboardAttentionSummary not "
+                                "found").arg(ctx));
+        else if (summary->property("attentionCount").toInt()
+                 != expectedAttention)
+            fail(QStringLiteral("EVIDENCE %1: attentionCount %2 != %3")
+                     .arg(ctx)
+                     .arg(summary->property("attentionCount").toInt())
+                     .arg(expectedAttention));
+        qInfo().noquote()
+            << QStringLiteral("EVIDENCE FACTS %1: observed=4 completed=4 "
+                              "pending=0 success=1 exception=1 crc=1 "
+                              "timeout=1 protocol=0 enr=0 rate=25%% "
+                              "avgLatency=25ms attention=3")
+                   .arg(ctx);
+    };
+
     auto countNamed = [&](const QString &name) {
         int count = 0;
         std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
@@ -3469,18 +3520,173 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
             break;
         }
 
+        case 30: {
+            // M9-C C5 Dashboard set. Start from the clean session so the
+            // empty state is the app's REAL initial state.
+            if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+                fail(QStringLiteral("clearResults() not invokable"));
+            break;
+        }
+        case 31: switchTo(dashboardIndex); break;
+        case 32: {
+            // A. Empty dashboard: real zero values, no distribution, no
+            // attention, the refreshed hint — never fake enrichment.
+            assertFrame(QStringLiteral("A"), dashboardIndex, -1);
+            assertOutcomeDistribution(roots,
+                                      QStringLiteral("evidence A"),
+                                      *failures);
+            assertDashboardAttention(roots,
+                                     QStringLiteral("evidence A"),
+                                     *failures);
+            grab(QStringLiteral("m9c-dashboard-empty-1024x720"));
+            break;
+        }
+        case 33: {
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("runDemoBatch() not invokable"));
+            break;
+        }
+        case 34: {
+            // B. Demo dashboard at the default size.
+            assertFrame(QStringLiteral("B"), dashboardIndex, -1);
+            assertDashboardGoldenCounts(QStringLiteral("B"));
+            assertOutcomeDistribution(roots,
+                                      QStringLiteral("evidence B"),
+                                      *failures);
+            assertDashboardAttention(roots,
+                                     QStringLiteral("evidence B"),
+                                     *failures);
+            grab(QStringLiteral("m9c-dashboard-demo-1024x720"));
+            break;
+        }
+        case 35:
+            window->resize(1000, 700);
+            break;
+        case 36: {
+            // C. The same deterministic state at the minimum size -- the
+            // density screenshot.
+            assertFrame(QStringLiteral("C"), dashboardIndex, -1);
+            assertDashboardGoldenCounts(QStringLiteral("C"));
+            assertOutcomeDistribution(roots,
+                                      QStringLiteral("evidence C"),
+                                      *failures);
+            assertDashboardAttention(roots,
+                                     QStringLiteral("evidence C"),
+                                     *failures);
+            grab(QStringLiteral("m9c-dashboard-demo-1000x700"));
+            break;
+        }
+        case 37:
+            window->resize(1024, 720);
+            break;
+        case 38: {
+            // D. Broadcast session: a completed outcome set that is 100%
+            // ExpectedNoResponse -- the bar stays full-width, successRate is
+            // "—", and the attention sum stays 0 (ENR is not an anomaly).
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_BROADCAST_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("loadReplayFile() not invokable"));
+            break;
+        }
+        case 39: {
+            if (ctrl->property("sourceLabel").toString()
+                != QStringLiteral("t015_broadcast.mlog")
+                || ctrl->property("expectedNoResponseCount").toInt() != 1
+                || ctrl->property("completedCount").toInt() != 1
+                || ctrl->property("hasSuccessRate").toBool())
+                fail(QStringLiteral("broadcast session state invalid"));
+            assertFrame(QStringLiteral("D"), dashboardIndex, -1);
+            assertOutcomeDistribution(roots,
+                                      QStringLiteral("evidence D"),
+                                      *failures);
+            assertDashboardAttention(roots,
+                                     QStringLiteral("evidence D"),
+                                     *failures);
+            qInfo().noquote()
+                << QStringLiteral("EVIDENCE BROADCAST: expectedNoResponse=1 "
+                                  "completed=1 attention=0 hasSuccessRate=0 "
+                                  "(ENR is a normal outcome presentation, "
+                                  "not an anomaly; no broadcast success is "
+                                  "implied)");
+            grab(QStringLiteral("m9c-dashboard-broadcast-1024x720"));
+            break;
+        }
+        case 40: {
+            // E. Back to the deterministic demo, then a real baseline run so
+            // the diagnosis cue flips to the result-available state.
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("runDemoBatch() not invokable"));
+            break;
+        }
+        case 41: {
+            if (!QMetaObject::invokeMethod(ctrl, "runBaselineDiagnosis"))
+                fail(QStringLiteral("runBaselineDiagnosis() not invokable"));
+            break;
+        }
+        case 42: {
+            if (!ctrl->property("hasBaselineDiagnosis").toBool())
+                fail(QStringLiteral("baseline did not produce a result"));
+            assertFrame(QStringLiteral("E"), dashboardIndex, -1);
+            assertDashboardGoldenCounts(QStringLiteral("E"));
+            assertDashboardAttention(roots,
+                                     QStringLiteral("evidence E"),
+                                     *failures);
+            auto *cue = findNamedItem(
+                roots, QStringLiteral("dashboardDiagnosisCue"));
+            if (!cue)
+                fail(QStringLiteral("dashboardDiagnosisCue not found"));
+            else if (cue->property("text").toString()
+                     != QStringLiteral("已有基线诊断结果，可在诊断工作区查看。"))
+                fail(QStringLiteral("the diagnosis cue did not flip to the "
+                                    "result-available state"));
+            grab(QStringLiteral("m9c-dashboard-baseline-cue-1024x720"));
+            break;
+        }
+        case 43: {
+            // Optional Legacy regression shot: the C2 split must not have
+            // changed the Legacy statistics presentation.
+            switchTo(legacyIndex);
+            break;
+        }
+        case 44: {
+            assertFrame(QStringLiteral("F"), legacyIndex, -1);
+            auto *legacyPage =
+                findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+            auto *stats =
+                findNamedItem(roots, QStringLiteral("statisticsPanel_legacy"));
+            auto *pane = findNamedItem(
+                roots, QStringLiteral("legacyTransactionsPane"));
+            if (!legacyPage || !legacyPage->isVisible())
+                fail(QStringLiteral("EVIDENCE F: legacyWorkspace is not "
+                                    "visible"));
+            if (!stats || stats->width() <= 0 || stats->height() <= 0)
+                fail(QStringLiteral("EVIDENCE F: legacy statistics block has "
+                                    "no geometry"));
+            if (!pane || pane->width() <= 0 || pane->height() <= 0)
+                fail(QStringLiteral("EVIDENCE F: legacy transactions pane has "
+                                    "no geometry"));
+            // No attention/cue visibility contract here: those lines belong
+            // to the DASHBOARD page, which is a hidden StackLayout child
+            // while Legacy is active — hidden-page visibility is not a
+            // contract (the same rule as hidden tabs).
+            grab(QStringLiteral("m9c-legacy-regression-1024x720"));
+            break;
+        }
+
         default:
             break;
         }
 
-        if (failures->isEmpty() && *stage < 29) {
+        if (failures->isEmpty() && *stage < 44) {
             ++*stage;
             QTimer::singleShot(settleMs, &app, *schedule);
             return;
         }
 
         if (failures->isEmpty())
-            qInfo() << "EVIDENCE CAPTURE PASS (5 B4 screenshots + 5 B5 "
+            qInfo() << "EVIDENCE CAPTURE PASS (5 B4 + 5 B5 + 6 M9-C "
                        "screenshots; every capture preceded by an explicit "
                        "state assertion)";
         else

@@ -649,7 +649,129 @@ case 标签：0..97 连续唯一（98 个）
 - **Q：怎么证明一个"应该计入"和"不应该计入"的状态？** A：两条 fixture 对冲——demo（protocol=0）证明 breakdown 会省略零类；t014（protocol=1）证明 protocolError 真的进和；broadcast（ENR=1）证明 ExpectedNoResponse 不进和。三个 runtime 状态 + 一条源码级公式审计（不含 pending/observed/completed/success）合起来覆盖全部六个候选输入。
 - **Q：为什么 attention 放在统计 panel 里，diagnosis cue 放在面板外？** A：attention 聚合的就是这个 panel 正在呈现的计数，属于同一段数据的"导读"；diagnosis cue 指向**另一个 workspace** 的能力状态，是页面级线索。数据归属决定呈现归属。
 
-## C5（后续，未开始）
+### C4.17 C4 Review = PASS（用户）+ Review note
+
+用户裁定 **M9-C C4 Review = PASS**。三条 Review note 入档：
+
+- **A.** attention 的 exact 中文文案属于 **wording contract**；业务权威 oracle 仍是 **`attentionCount` + Controller outcome breakdown**。
+- **B.** all-Pending 呈现为 **formula/source covered，NOT runtime covered**；C5 不新增 fake Serial 只为补这一状态。
+- **C.** tail spacer 是 **surplus owner**——不是"必须始终 > 0"的契约，也不是专属 M10/M11 的永久产品 contract。
+
+## C5 — Deploy + Screenshot Evidence + Manual Visual Candidate（Implementation Record，2026-09-18）
+
+### C5.1 Preflight
+
+```text
+branch = main；HEAD = 4af3e3b；working tree clean；git diff --check PASS
+V2 verified LKGC = 6cc84c3；v1.0.0^{commit} = ae067ab（annotated tag 对象 2cee626）
+origin/main = a40d935；ahead 53 / behind 0
+```
+
+Mandatory re-read：T018 全文（Phase 1 final IA / guardrails / C1–C4 / C5 readiness——**确认无未分配的 Phase-1 NOW product item**）+ 全部 Dashboard 相关 QML + DesignSystem + harness + deploy script + PROJECT_STATUS/BACKLOG。
+
+### C5.2 Deploy candidate
+
+`scripts/deploy_windows.bat` 从当前 tree 重建 `build/deploy`：
+
+- `build\deploy\ModbusLens.exe`（**33,645,549 bytes**）。
+- Qt runtime：Core/Gui/Qml/Quick/QuickControls2/QuickLayouts/QuickDialogs2/Network/SerialPort/Svg + `platforms\qwindows.dll` + imageformats；qml 运行时树（QtQuick/{Controls,Dialogs,Layouts,…}）。
+- QML module：`ModbusLens\qmldir` + 镜像源码树 —— **components/ 含全部 9 个 QML 文件**（AppButton/NavigationRail/PanelCard/SectionHeader/StatCard/StatisticsOverview/StatisticsMetrics/StatisticsOutcomes/OutcomeDistribution），**pages/ 含 4 页**。
+- samples：`demo_v1.mlog`。
+
+**Deploy checklist audit（§5）**：module 自动部署（xcopy 全树）与 deploy-script existence checklist 是两件事。M9-C 的 5 个统计 QML 文件此前不在 checklist（B5.4 只补了 pages）；本轮**最小补齐**：`StatisticsOverview/StatisticsMetrics/StatisticsOutcomes/OutcomeDistribution.qml` 加入存在性守卫。**未建立第二套手工 QML copy 路径**。修改 `scripts/` ⇒ 本 commit 为 **behavior-bearing**（非 docs-only）。
+
+### C5.3 严格最小 PATH 部署门禁（deployed binary）
+
+```text
+STRICT PATH = C:\Windows\System32;C:\Windows（替换，非追加；无 Qt/MinGW/Anaconda）
+build\deploy\ModbusLens.exe
+--qml-smoke-test    → EXITCODE=0
+--qml-nav-check     → EXITCODE=0
+  NAV SCENARIOS: basic five-workspace path PASS, A PASS, B PASS, D PASS, E PASS,
+    F PASS, G' PASS, H PASS, I PASS, J PASS, K PASS, K' PASS, L PASS, N PASS
+  NAV DASHBOARD PRESENTATION CHECK: PASS（distribution/attention/cue + broadcast
+    + protocol-error 探针）
+  NAV SCENARIO M: DEFERRED BY DESIGN
+--qml-geometry-check → EXITCODE=0；GEOMETRY CHECK PASS(10 standard passes … + 2
+  targeted demo-dashboard passes from M9-C C4)；0 GEOFAIL；dump 段 16 = 12 趟
+```
+
+⇒ **deployed binary 不依赖开发环境 PATH**；标准 10 趟 + C4 targeted 趟全部由部署版通过。
+
+### C5.4 截图证据（deployed binary，16 张 = 5 B4 复验 + 5 B5 复验 + 6 M9-C 新增）
+
+每张 grab 前显式机器断言（workspace index / `navItem_N.selected` / 页面可见性 / golden counts / attentionCount / distribution 段几何 / baseline 状态），grab 记录**逻辑尺寸与像素尺寸**：
+
+| 文件 | 断言的状态（摘要） | 逻辑 | 像素 | ws |
+| --- | --- | --- | --- | --- |
+| `m9c-dashboard-empty-1024x720.png` | observed=0/completed=0；分布条与 attention **隐藏**（零态）；hint 可见 | 1024×720 | 1280×900 | 1 |
+| `m9c-dashboard-demo-1024x720.png` | observed=4/completed=4/pending=0/1-1-1-1-0-0；**attentionCount=3**；分布段几何 PASS | 1024×720 | 1280×900 | 1 |
+| `m9c-dashboard-demo-1000x700.png` | 同上（同 deterministic 状态，最小尺寸密度截图） | 1000×700 | 1250×875 | 1 |
+| `m9c-dashboard-broadcast-1024x720.png` | source=t015_broadcast.mlog；**expectedNoResponse=1/completed=1/attention=0/hasSuccessRate=0**；**ENR 段=整条 bar**（"预期无响应"是正常 outcome presentation，非 error/anomaly；不暗示广播写成功） | 1024×720 | 1280×900 | 1 |
+| `m9c-dashboard-baseline-cue-1024x720.png` | demo + `runBaselineDiagnosis` ⇒ **hasBaselineDiagnosis=true**；cue=「已有基线诊断结果，可在诊断工作区查看。」（不复制全文、不跳页、不触发 AI/Agent） | 1024×720 | 1280×900 | 1 |
+| `m9c-legacy-regression-1024x720.png` | Legacy 可见；statistics 块与 transactions pane 非零（C2 拆分零回归的视觉旁证） | 1024×720 | 1280×900 | 0 |
+
+**DPI 说明**：125% —— 逻辑 1024×720 → 像素 **1280×900**；逻辑 1000×700 → 像素 **1250×875**；分别记录，非 failure。
+
+**business oracle = Controller 字段**（截图前断言），**非 OCR/像素**。
+
+### C5.5 截图完整性自检（`build/c5_selfcheck.py`，scratch）
+
+```text
+6 张全部 OK（identity 来自捕获日志而非文件名；尺寸有效；内容非纯色）
+distinct images: 6/6（互不相同）
+SELF-CHECK PASS (6/6)
+```
+
+完整性/distinctness **≠ visual correctness** —— 视觉判断归用户（§14）；未建立固定像素带 PASS oracle。
+
+### C5.6 Provider / Serial boundary
+
+**real AI/Agent/ModelScope = NOT REQUIRED / NOT CLAIMED**；evidence harness **未读取、未打印、未记录、未截图 credential**，**未触发真实 Provider request**（`aiConfigured=1` 只代表 app 既有配置机制的判定）。**real Serial hardware = NOT REQUIRED / NOT CLAIMED**。
+
+### C5.7 Evidence harness diff + 分类
+
+`src/main.cpp`（evidence harness：`assertDashboardGoldenCounts`（demo 计数断言，无 baseline 前置）+ C5 捕获阶段 30..44）⇒ **test/evidence harness behavior-bearing，不是 docs-only**。未新增 Controller API、未注入 fake facts、未伪造 AI/Agent、未调 Provider、未改业务语义。`scripts/deploy_windows.bat`（checklist 补 5 统计组件）同属 behavior-bearing。**产品 QML 全部 zero diff**（DashboardPage/Metrics/Outcomes/Overview/OutcomeDistribution/DS/shell/其它页）。
+
+### C5.8 Problems / RCA
+
+| # | 现象 | 分类 | 处理 |
+| --- | --- | --- | --- |
+| 1 | 首次捕获 run exit 1：`evidence F: attention summary visibility 0 does not match observed 4`（×2） | **evidence/state oracle 缺陷** | `assertDashboardAttention` 的可见性契约是 **Dashboard-active 专属**；Legacy 趟（stage 44）误用了它——Legacy 激活时 Dashboard 是隐藏 StackLayout 子项，其内部元素不可见属正常（隐藏页可见性非契约，与 C3 tab sweep 同规则）。修复 = Legacy 趟只断言 Legacy 自身契约（statistics/transactions），不做 attention/cue 可见性断言；重跑至 exit 0。**非产品 bug**；A–E 五张与 F 图均已在修复后的干净一轮重新产出 |
+| 2 | 部署 checklist 更新脚本首跑失败（bat 路径反斜杠被 Python 转义） | **工具/转义** | 改用 raw string 脚本；checklist 修改生效后重新部署 |
+
+### C5.9 Validation（真实命令与输出）
+
+```text
+cmake --build --preset debug-local → Linking modbuslens.exe（0 error）
+scripts\deploy_windows.bat         → [OK] Deployment directory ready
+严格最小 PATH 部署门禁（见 C5.3）  → smoke 0 / nav 0 / geometry 0（12 趟，dump 16 段）
+--qml-evidence-capture（部署版）   → EXITCODE=0；EVIDENCE CAPTURE PASS（16 张）
+自检                                → SELF-CHECK PASS 6/6；distinct 6/6
+ctest --preset debug-local         → 100% tests passed, 0 failed out of 26
+git diff --check                   → PASS
+git status --ignored               → 一次性脚本全部在 ignored build/ 内，未误提交
+```
+
+### C5.10 Files Changed（C5）
+
+`src/main.cpp`（evidence harness：golden-counts 断言 + C5 阶段 30..44 + Legacy oracle 修正）、`scripts/deploy_windows.bat`（checklist +5 统计组件）、`docs/assets/screenshots/m9c-*.png` ×6、docs（本文件、PROJECT_STATUS、BACKLOG、devlog、INTERVIEW_NOTES）。**产品 QML/Controller/Core/tests 零改动。**
+
+### C5.11 Result
+
+- **C5 candidate 完成**：部署版在严格最小 PATH 下通过全部自动门禁；16 张截图（含 6 张 M9-C Dashboard/Legacy）全部"先断言后截图"并通过完整性/distinctness 自检。
+- **Manual Visual / Interaction = WAITING FOR USER**（清单见 §C5.12）——**本文件不宣称 PASS**。
+- **M9-C 未 COMPLETE**；verified LKGC **不变 = `6cc84c3`**；未 push。
+
+### C5.12 人工验收清单（交给用户）
+
+**Visual**：A Empty 1024×720（层级自然、空态无随机大空白、Run Demo 可见不抢眼、分布条/attention 空态合理）；B Demo 1024×720（KPI 一眼可读、分布条清晰、六卡不拥挤、attention 是辅助信息、无 "health dashboard" 错觉）；C Demo 1000×700（无裁切/重叠、分布条不过薄、attention/cue 可读、tail space 合理）；D Broadcast（**ExpectedNoResponse 不像 error/anomaly**、成功率 "—" 合理、attention 不错误报 1、不暗示广播写成功）；E Diagnosis cue（两态措辞清楚、不像按钮、不跳页、不复制内容）；G Legacy（Statistics/Transactions 正常、C2 拆分无视觉回归）；I Resize 两尺寸。
+**Interaction**：1 进入 Dashboard 无自动数据；2 Run Demo 更新为 demo facts；3 Dashboard→Replay→Communication→Dashboard facts 保持无自动重跑；4 运行 Baseline 后 cue 翻转；5 Clear Diagnosis 后 cue 按既有语义恢复、statistics/source 不被误清；6 broadcast visual 语义合理。
+**边界**：real Provider / real Serial hardware = NOT REQUIRED / NOT CLAIMED。
+
+## C6（后续，未开始）
+
+- **M9-C Final Closure**：用户 Screenshot Visual Review + Manual Interaction Review 均 PASS 后，做 Git classification 与 M9-C closure（**不预先认定 LKGC 落点**——若本 commit 含 harness/deploy 变更，LKGC 很可能落在本 behavior-bearing tree；一切按 `git show` 决定）。
 
 - **C5 — deploy + screenshot evidence + manual visual candidate**：Dashboard demo@1024/demo@1000/empty@1024 等截图、部署版门禁、人工清单。**无产品结构开发计划**（见 §C4.15）。
 
