@@ -679,7 +679,7 @@ Mandatory re-read：T018 全文（Phase 1 final IA / guardrails / C1–C4 / C5 r
 - QML module：`ModbusLens\qmldir` + 镜像源码树 —— **components/ 含全部 9 个 QML 文件**（AppButton/NavigationRail/PanelCard/SectionHeader/StatCard/StatisticsOverview/StatisticsMetrics/StatisticsOutcomes/OutcomeDistribution），**pages/ 含 4 页**。
 - samples：`demo_v1.mlog`。
 
-**Deploy checklist audit（§5）**：module 自动部署（xcopy 全树）与 deploy-script existence checklist 是两件事。M9-C 的 5 个统计 QML 文件此前不在 checklist（B5.4 只补了 pages）；本轮**最小补齐**：`StatisticsOverview/StatisticsMetrics/StatisticsOutcomes/OutcomeDistribution.qml` 加入存在性守卫。**未建立第二套手工 QML copy 路径**。修改 `scripts/` ⇒ 本 commit 为 **behavior-bearing**（非 docs-only）。
+**Deploy checklist audit（§5）**：module 自动部署（xcopy 全树）与 deploy-script existence checklist 是两件事。M9-C 的 5 个统计 QML 文件此前不在 checklist（B5.4 只补了 pages）；本轮**最小补齐**：`StatisticsOverview/StatisticsMetrics/StatisticsOutcomes/OutcomeDistribution.qml` 加入存在性守卫。【C5 verification 批注】实际新增为 **+4 个 statistics-related QML guards**（上述 4 文件；此前"5 个"系计数错误，见 §C5.14-A）。**未建立第二套手工 QML copy 路径**。修改 `scripts/` ⇒ 本 commit 为 **behavior-bearing**（非 docs-only）。
 
 ### C5.3 严格最小 PATH 部署门禁（deployed binary）
 
@@ -769,6 +769,44 @@ git status --ignored               → 一次性脚本全部在 ignored build/ �
 **Visual**：A Empty 1024×720（层级自然、空态无随机大空白、Run Demo 可见不抢眼、分布条/attention 空态合理）；B Demo 1024×720（KPI 一眼可读、分布条清晰、六卡不拥挤、attention 是辅助信息、无 "health dashboard" 错觉）；C Demo 1000×700（无裁切/重叠、分布条不过薄、attention/cue 可读、tail space 合理）；D Broadcast（**ExpectedNoResponse 不像 error/anomaly**、成功率 "—" 合理、attention 不错误报 1、不暗示广播写成功）；E Diagnosis cue（两态措辞清楚、不像按钮、不跳页、不复制内容）；G Legacy（Statistics/Transactions 正常、C2 拆分无视觉回归）；I Resize 两尺寸。
 **Interaction**：1 进入 Dashboard 无自动数据；2 Run Demo 更新为 demo facts；3 Dashboard→Replay→Communication→Dashboard facts 保持无自动重跑；4 运行 Baseline 后 cue 翻转；5 Clear Diagnosis 后 cue 按既有语义恢复、statistics/source 不被误清；6 broadcast visual 语义合理。
 **边界**：real Provider / real Serial hardware = NOT REQUIRED / NOT CLAIMED。
+
+### C5.13 Screenshot Orientation Verification（blocker RCA，2026-09-18）
+
+**报告的 blocker**：用户复核发现 6 张 M9-C PNG 为 portrait（900×1280 / 875×1250），怀疑 `--qml-evidence-capture` 的 capture/save 路径发生宽高交换。
+
+**逐层取证（raw bytes，非推测）**：
+
+| 层 | 结果 |
+| --- | --- |
+| `git show HEAD:docs/assets/screenshots/m9c-*.png`（committed blobs，raw IHDR） | **全部 landscape**：1280×900 ×5、1250×875 ×1 |
+| `build/_evidence_c5/*.png`（第二次 evidence run 原件） | **全部 landscape**（同上尺寸） |
+| 捕获日志（`EVIDENCE: … pixels=…`，grab 时 `QImage::size()`） | **全部 landscape**（与上述一致） |
+| working tree 当前 6 个 PNG（**未提交修改**） | **全部 portrait**：900×1280 ×5、875×1250 ×1 |
+| 内容级比对（committed blob vs working tree） | 6/6 working tree = committed blob 的 **90° 顺时针旋转**（逐像素相等；尺寸交换即由此而来） |
+| eXIf chunk | 两版均无 |
+| `.gitattributes` | `*.png binary`（git 无旋转/尺寸变换；`git show` 与工作树内容已直接比对） |
+
+**结论**：
+
+1. **capture/save 路径（`QQuickWindow::grabWindow` → `QImage` → `save`）没有发生宽高交换或旋转**——三处独立证据（捕获日志、build 树原件、committed blobs）全部 landscape 且相互一致；C5 报告声称的 1280×900 / 1250×875 对 **committed artifacts** 而言是**正确的**。
+2. portrait 文件**只存在于当前 working tree 的未提交修改中**，且逐像素等于 committed blob 的 90° CW 旋转 ⇒ 旋转发生在 **C5 commit 之后、本仓库工具链之外**（用户复核/导出环节），而非 capture 代码。
+3. **因此不存在可修的 capture 缺陷**：对 capture 路径做"旋转修复"会是对不存在缺陷的伪造修复；本轮**未修改任何 capture/产品代码**。
+
+**orientation oracle（已存在并被实证）**：`c5_selfcheck.py` 对每张 PNG 断言 `pixels ≥ requested logical`（宽 < 逻辑宽即 FAIL）——portrait 文件（900 < 1024）**会被该断言拒绝**（已用当前 working-tree 文件实测演示）。即：landscape 契约已有机器守卫，无需新增。
+
+**证据处置建议（待用户裁定后执行）**：working tree 中 6 个旋转副本未提交、不影响仓库证据；如确认其为复核工具产物，可用 `git checkout -- <6 个 png>` 一条命令恢复为 committed landscape 版本。
+
+### C5.14 文档更正（两处事实性修正，同轮提交）
+
+- **A（计数更正）**：C5 deploy checklist 实际新增的是 **+4 个 statistics-related QML guards**（StatisticsOverview / StatisticsMetrics / StatisticsOutcomes / OutcomeDistribution）——此前多处写作 "补 5 个统计组件" 系计数错误（NavigationRail 系 B5.4 所加，不在本次范围）。PROJECT_STATUS/BACKLOG 描述行已就地更正；devlog/T018 以追加批注更正（档案区不改原文）。
+- **B（C5 状态措辞更正）**：准确状态 = **C1–C4 Review PASS；C5 automated/deploy/evidence implementation PASS；Screenshot evidence orientation correction = 本轮（见 C5.13）；Manual Interaction Review = PASS（product visual judgment PASS）**；**不写 "C5 Review PASS"**（证据修正后由用户真正裁定）。
+
+### C5.15 状态（本轮结束时）
+
+- **C5 evidence packaging = HOLD**（orientation 事实已查明；working-tree 旋转副本处置待用户确认）。
+- **Manual Interaction Review = PASS**；**Dashboard product visual judgment = PASS**（两者保留，不受本轮影响）。
+- **M9-C 未 COMPLETE**；**verified LKGC 不变 = `6cc84c3`**；**未 push**；M9-D 未开始。
+- working tree 保留 6 个未提交的旋转 PNG（用户侧产物，未动）。
 
 ## C6（后续，未开始）
 
