@@ -11,22 +11,33 @@ import ModbusLens
 // vocabulary (transaction status names, success-rate semantics) and
 // therefore lives in components/, never in DS/.
 //
+// M9-C C2: the overview is now a COMPOSITION. Its two real visual
+// responsibilities live in their own presentation pieces —
+// StatisticsMetrics (primary metrics row) and StatisticsOutcomes (outcome
+// count row) — and this wrapper keeps exactly its previous structure:
+// SectionHeader + PanelCard[metrics row, outcomes row]. The wrapper is the
+// only thing the two consumers (Legacy and Dashboard) instantiate, so the
+// public contract is unchanged: same required properties, same instanceId
+// scheme, same object names on the same visual items, same implicit size
+// derived from the content (ISSUE-012 contract).
+//
 // Presentation only: every value, the rate/latency formatting and the
 // "—" placeholders come from the injected authoritative controller. The
 // overview keeps NO state copy, never recomputes successRate, never
 // redefines the eligible denominator and never re-interprets
 // ExpectedNoResponse.
 //
-// Two instances coexist during the B2..B4 migration (Legacy + Dashboard).
-// `instanceId` is the presentation identity that keeps the test
-// objectNames distinct — tests must address a specific instance instead
-// of "whichever same-named object is found first".
+// Two instances coexist (Legacy + Dashboard). `instanceId` is the
+// presentation identity that keeps the test objectNames distinct — it is
+// also forwarded to both pieces so their row identities stay unique per
+// instance.
 ColumnLayout {
     id: overview
 
     required property var analysisController
     required property string instanceId
 
+    objectName: "statisticsOverview_" + overview.instanceId
     Layout.fillWidth: true
     spacing: DS.spacingM
 
@@ -40,77 +51,14 @@ ColumnLayout {
         objectName: "statisticsPanel_" + overview.instanceId
         Layout.fillWidth: true
 
-        RowLayout {
-            objectName: "statisticsRow1_" + overview.instanceId
-            Layout.fillWidth: true
-            spacing: DS.spacingM
-
-            Repeater {
-                model: [
-                    { label: qsTr("已观测"), value: overview.analysisController.observedCount },
-                    { label: qsTr("已完成"), value: overview.analysisController.completedCount },
-                    { label: qsTr("进行中"), value: overview.analysisController.pendingCount }
-                ]
-
-                delegate: StatCard {
-                    objectName: "statCard_" + index + "_" + overview.instanceId
-                    label: modelData.label
-                    valueText: String(modelData.value)
-                }
-            }
-
-            StatCard {
-                objectName: "statCard_rate_" + overview.instanceId
-                Layout.preferredWidth: 180
-                label: qsTr("成功率")
-                valueText: overview.analysisController.hasSuccessRate
-                      ? (overview.analysisController.successRate * 100).toFixed(1) + "%"
-                      : qsTr("—")
-            }
-
-            StatCard {
-                objectName: "statCard_latency_" + overview.instanceId
-                Layout.preferredWidth: 180
-                label: qsTr("平均延迟")
-                valueText: overview.analysisController.hasAverageSuccessLatency
-                      ? overview.analysisController.averageSuccessLatencyMs.toFixed(1) + qsTr(" ms")
-                      : qsTr("—")
-            }
-
-            Item {
-                Layout.fillWidth: true
-            }
+        StatisticsMetrics {
+            analysisController: overview.analysisController
+            instanceId: overview.instanceId
         }
 
-        // Status count cards
-        RowLayout {
-            objectName: "statisticsRow2_" + overview.instanceId
-            Layout.fillWidth: true
-            spacing: DS.spacingM
-
-            Repeater {
-                model: [
-                    { label: qsTr("成功"), value: overview.analysisController.successCount, color: DS.success },
-                    { label: qsTr("异常"), value: overview.analysisController.exceptionCount, color: DS.exception },
-                    { label: qsTr("CRC 错误"), value: overview.analysisController.crcErrorCount, color: DS.crcError },
-                    { label: qsTr("超时"), value: overview.analysisController.timeoutCount, color: DS.timeout },
-                    { label: qsTr("协议错误"), value: overview.analysisController.protocolErrorCount, color: DS.protocolError },
-                    { label: qsTr("预期无响应"), value: overview.analysisController.expectedNoResponseCount, color: DS.expectedNoResponse }
-                ]
-
-                delegate: StatCard {
-                    objectName: "statusCard_" + index + "_" + overview.instanceId
-                    Layout.preferredWidth: 110
-                    Layout.preferredHeight: 64
-                    label: modelData.label
-                    valueText: String(modelData.value)
-                    tone: modelData.color
-                }
-            }
-
-            Item {
-                Layout.fillWidth: true
-            }
+        StatisticsOutcomes {
+            analysisController: overview.analysisController
+            instanceId: overview.instanceId
         }
     }
 }

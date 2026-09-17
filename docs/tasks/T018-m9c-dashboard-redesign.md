@@ -214,9 +214,143 @@ git diff --check → PASS
 - **C1 code commit = `a94a7b5`**（`M9-C C1: define dashboard layout and surplus-space ownership`）；prelude = `6d242de`；**不 amend 任何既有提交、不 rebase、不 push**。
 
 
-## C2–C5（后续，未开始）
+## C2 — Statistics Presentation Extraction（Implementation Record，2026-09-17）
 
-- **C2 — 呈现件拆分**：抽出 `StatisticsMetrics` / `StatisticsOutcomes`（各 2 个真实消费者）；`StatisticsOverview` 保持 Legacy 组合不变（视觉不变，以项几何证明）。
+### C2.14 Implementation Record（2026-09-17）
+
+**C2.1 Preflight**
+
+```text
+branch = main；HEAD = cea044c；working tree clean；git diff --check PASS
+V2 verified LKGC = 6cc84c3；v1.0.0^{commit} = ae067ab（annotated tag 对象 2cee626）
+origin/main = a40d935；ahead 47 / behind 0
+```
+
+**C2.2 强制重读**
+
+T018 全文（Phase 1 引用、guardrails、C1 记录、C2 计划）；真实 `StatisticsOverview.qml`（改前 115 行逐行）、`DashboardPage.qml`、`Main.qml` Legacy 段、`StatCard`/`PanelCard`/`SectionHeader`/`DesignSystem`、`CMakeLists.txt` 的 `qt_add_qml_module QML_FILES`、`main.cpp` geometry harness。**先画出改前 item tree**（见 C2.3），未按 Phase 1 文档猜结构。
+
+**C2.3 StatisticsOverview 对外 contract（改前冻结记录）**
+
+| 项 | 改前（cea044c） | C2 后 |
+| --- | --- | --- |
+| required properties | `analysisController`、`instanceId` | **不变** |
+| 根类型 / implicit | `ColumnLayout`，implicit **864×195**（= header 15 + spacing 12 + panel 168） | **不变**（新增 `objectName: "statisticsOverview_" + instanceId` 使其可观测，断言 implicit > 0） |
+| `Layout.fillWidth` | true | 不变 |
+| spacing | `DS.spacingM`（12） | 不变 |
+| objectName 方案 | `statisticsHeader_/statisticsPanel_/statisticsRow1_/statisticsRow2_/statCard_N_/statCard_rate_/statCard_latency_/statusCard_N_ + instanceId` | **全部保留且仍在同一视觉 item 上**（行名随组件根走）；新增 `statisticsOverview_<id>` |
+| 消费者 | Legacy（Main.qml）、Dashboard（DashboardPage.qml）**都只实例化 wrapper** | **不变**（两个 consumer 均未改，仍只写 `StatisticsOverview { … }`） |
+| visible/enabled 语义 | 无特殊 | 不变 |
+
+**改前 item tree（实测）**：
+
+```text
+ColumnLayout(overview, spacing=12)                      implicit 864×195
+├─ SectionHeader  statisticsHeader_<id>                 15
+└─ PanelCard      statisticsPanel_<id>  fillWidth       implicit 864×168
+   └─ ColumnLayout(contentLayout, anchors.fill+margins 12, spacing=8)
+      ├─ RowLayout statisticsRow1_<id> fillWidth sp=12   implicit 840×72
+      │   5×StatCard(140/140/140/180/180×72) + Item(fillWidth)   （6 子项 ⇒ 5×12 间距）
+      └─ RowLayout statisticsRow2_<id> fillWidth sp=12   implicit 732×64
+          6×StatCard(110×64, tone=DS.*) + Item(fillWidth)        （7 子项 ⇒ 6×12 间距）
+```
+
+**C2.4 Baseline evidence（改前取证）**
+
+`cea044c` 树（未改 QML）运行 `--qml-geometry-check` → `build/c2_baseline.txt`：**10/10 PASS、0 GEOFAIL**，含 Legacy/Dashboard × 2 sizes 的 panel/rows/11 卡几何。此为 extraction before/after 的**同候选环境结构证据**（非新 golden pixel）。
+
+**C2.5 StatisticsMetrics 抽取**
+
+新文件 `components/StatisticsMetrics.qml`：**根就是原 row1 的 RowLayout**（无额外包裹层），`objectName: "statisticsRow1_" + instanceId`，内容**逐字**搬运：3 卡 Repeater（已观测/已完成/进行中）+ 成功率卡（`hasSuccessRate ? (successRate*100).toFixed(1)+"%" : "—"`）+ 平均延迟卡（`hasAverageSuccessLatency ? averageSuccessLatencyMs.toFixed(1)+" ms" : "—"`）+ 尾部 `Item{Layout.fillWidth}`。**绑定表达式、optional 语义、格式、单位、StatCard 用法、accessibility（文本 label + 数值）全部机械保持**；`successRate` 仍直接消费 Controller 冻结值（**未**在 QML 重算 success/completed，**未**改分母）。
+
+**C2.6 StatisticsOutcomes 抽取**
+
+新文件 `components/StatisticsOutcomes.qml`：根 = 原 row2 的 RowLayout，`objectName: "statisticsRow2_" + instanceId`，6 卡 Repeater（成功/异常/CRC 错误/超时/协议错误/预期无响应，`tone: DS.*`）+ 尾部 Item。**未加入** Pending / attention / severity / health / percent / chart / distribution bar；`ExpectedNoResponse` 仍只是既有 outcome count（guardrail B）。
+
+**C2.7 依赖注入决策**
+
+**方案 A：向两个新组件注入整个 `analysisController` 引用**（`required property var analysisController`），**不**改为传 11 个标量。理由：①与 `StatisticsOverview` 现有注入风格一致（feature 组件持 Controller 引用）；②避免在 wrapper 里复制 11 条绑定（第二处失同步点）；③两种方案都不引入业务计算，A 的绑定面更小；④为 C3 的 `OutcomeDistribution` 保持注入形态对称。**authoritative source 仍只有 Controller**；数据流 = `AnalysisController → StatisticsOverview → 注入子件`。
+
+**C2.8 instanceId / objectName 契约**
+
+`instanceId` 继续由 wrapper 持有并**向下传递**（`instanceId: overview.instanceId`）；两个新组件的根 objectName = 原行名（`statisticsRow1_/statisticsRow2_ + instanceId`）——**不改任何 harness 已使用的旧名**，原 objectName 仍附着在同一视觉 item 上。每个实例的 rows 唯一（`_legacy` / `_dashboard`）；harness 断言两行是**不同 item** 且都位于**本实例的 panel** 之内。
+
+**C2.9 Implicit size 结果（ISSUE-012 契约）**
+
+- wrapper 新 objectName 使其可观测：`statisticsOverview_<id>` **implicit 864×195**（与改前推算值一致），断言 `implicit > 0` 通过 ⇒ **内容派生尺寸未丢**。
+- 未引入任何 `anchors.fill` 尺寸依赖；两个新组件根都有真实 implicit（由 StatCard 的 implicit + Layout 偏好派生）⇒ 可独立作为 presentation building block。
+- PanelCard implicit 保持 **864×168**（contentLayout implicit 144 + 2×12 padding）。
+
+**C2.10 RED → GREEN**
+
+- **RED（先落断言、未改 QML）**：`--qml-geometry-check` exit 1 ⇒ `GEOFAIL: DEFAULT legacy: statisticsOverview_legacy not found`（新 wrapper 名尚不存在；同时证明新断言可达、非空转）。
+- **GREEN（抽取 + 注册后）**：exit 0，**10/10 PASS、0 GEOFAIL**。
+
+**C2.11 中立性证据（per-item 比较，非像素）**
+
+对 `c2_baseline.txt`（改前）与 `c2_green.txt`（改后）的 **4 个含统计的趟**（Legacy/Dashboard × 2 sizes）按 **item 名**比较 x/y/w/h/implicitW/implicitH：
+
+```text
+GEOMETRY (x/y/w/h/implicitW/implicitH): IDENTICAL across all 4 passes
+PARENT changes（仅有、且为命名可见化）:
+  statisticsPanel_{legacy,dashboard}: parent <unnamed> -> statisticsOverview_{…}（4 趟）
+NEW items: statisticsOverview_{legacy,dashboard}（4 趟，即被命名后的 wrapper 本身）
+```
+
+⇒ **11 张卡、两行、panel 的几何逐值不变**；唯一差异是 wrapper 获得名字（panel 的 parent 名从 `<unnamed>` 变为可见名，嵌套结构本身未变）与新增的 wrapper 行。
+
+**C2.12 注册**
+
+`CMakeLists.txt` 的 `qt_add_qml_module QML_FILES` 增加 `StatisticsMetrics.qml` / `StatisticsOutcomes.qml`（**同一 module 机制**，build-tree 与未来 deploy 共用；无手写第二套 qmldir、无运行时复制旁路、无 Loader——ISSUE-011 教训）。
+
+**C2.13 Verification**
+
+```text
+cmake --preset debug-local && cmake --build --preset debug-local → [63/63] Linking modbuslens.exe（0 error）
+--qml-smoke-test   → EXITCODE=0；stderr 无 ReferenceError/TypeError/binding loop/is not a type/Required property …（计数 0）
+--qml-nav-check    → EXITCODE=0；14 项判决全 PASS；M DEFERRED BY DESIGN；stderr 卫生计数 0
+--qml-geometry-check → EXITCODE=0；10/10 PASS、0 GEOFAIL；statistics 几何 4 趟逐 item IDENTICAL
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check → PASS
+```
+
+**C2.14 负向 scope 检查**
+
+- 新文件中 `OutcomeDistribution/attention/healthScore/cache/ViewModel` 计数 = 0；`anomaly/percent/severity` 各 1 次命中**均在注释中**（"adds NO interpretation — no anomaly predicate / no percentage, no chart / no severity"——是边界声明，不是实现）。
+- `git diff --name-only`：`CMakeLists.txt`、`src/main.cpp`、`StatisticsOverview.qml`、新 2 文件。**`DashboardPage.qml` diff = 0**、**`Main.qml` diff = 0**（Legacy 消费层零架构变化）、`DesignSystem.qml`/`StatCard`/`PanelCard`/`SectionHeader`/`NavigationRail`/三页/`AnalysisController`/`TransactionListModel` **零改动**。
+- 无 StatisticsViewModel、无 statistics cache、无 health score、无 Controller 新 property。
+
+**C2.15 Problems / RCA**
+
+- 无布局/语义失败。一次比较脚本缺陷（自捕获）：首轮 before/after 比对按**行序** zip，被新增的 wrapper dump 行错位，误报 10 处差异；改为**按 item 名对齐**后结论为 IDENTICAL + 2 类预期差异。**分类：geometry oracle（比对方法）**，非产品问题。
+- 无因 extraction 红灯而触碰 Controller/统计公式/业务语义。
+
+**C2.16 Result**
+
+- `StatisticsOverview` 现为**兼容 wrapper/composition**（SectionHeader + PanelCard[Metrics + Outcomes]），public contract 不变；两个消费者（Legacy/Dashboard）**一行未改**仍只实例化 wrapper。
+- **Legacy 外观/布局不变、Dashboard 外观/布局不变、statistics 语义不变、public binding contract 不变**——全部由逐 item 几何 IDENTICAL + 既有断言证明。
+- 为 C3 铺平：Dashboard 侧未来可直接组合 pieces + 新增 `OutcomeDistribution`，而 Legacy 继续走 wrapper。
+- verified LKGC **不变 = `6cc84c3`**；未 push。
+
+**C2.17 Knowledge Learned / Ownership**
+
+- **通过哪件真实事情理解了"组合式抽取的中立性判据"**：把 row1/row2 变成组件根（而不是再包一层 Item），使 `statisticsRow1_<id>` 这个**旧 objectName 继续落在同一个视觉 item 上**——harness 的 4 趟逐 item 比对因此能直接证明"抽取前后几何逐值相同"。若当初多包一层，parent 链和隐式尺寸都会变，中立性就得靠更多解释。
+- **通过哪件真实事情理解了 implicit size 在组合中的传播**：PanelCard 的 implicit = 内容 implicit + padding；把两行换成两个组件根后，contentLayout 的 implicit 仍是 max(840,732) × (72+8+64) ⇒ panel 864×168 不变——**ISSUE-012 的教训（implicit 必须来自内容）在拆分时是可验证的**，wrapper 新增的 `implicit>0` 断言把它变成常驻护栏。
+- **通过哪件真实事情理解了 instanceId 的作用**：`_legacy`/`_dashboard` 后缀让同一组件的两个实例在 harness 里可分别寻址；抽取时把 instanceId **向下传**而不是让子件自取名，避免了"两个组件各自取名导致 wrapper 与子件身份脱钩"。
+
+**C2.18 Potential Interview Questions**
+
+- **Q：抽取组件时如何做到"视觉零变化"可被证明？** A：三件事——①组件根直接沿用原 item（不新增层级，旧 objectName 原地保留）；②抽取前后在同一候选环境跑同一几何 dump，按 item 名比较 x/y/w/h/implicit；③把 wrapper 的 implicit size 变成常驻断言。像素比对不必要也不够稳健（DPI/抗锯齿噪声）。
+- **Q：为什么给子组件传整个 Controller 而不是 11 个标量？** A：标量注入看似更"纯"，但会在 wrapper 处复制一整份绑定清单，成为新的失同步点；而该组件本来就是同一 feature 家族的呈现件，持引用与现有风格一致。判据是"是否引入业务计算/第二权威"，不是"引用传得深不深"。
+- **Q：required property 在这里起什么作用？** A：它把"忘了注入"从静默错误变成加载期错误——若 wrapper 没传 `instanceId`/`analysisController`，组件无法实例化，QML 直接报错；这正是本轮 RED（`statisticsOverview_legacy not found`）与后续卫生检查（stderr 计数 0）所依赖的机制。
+
+**C2.19 Git Commit**
+
+- C2 code commit：见 §Git 表回填（`M9-C C2: extract statistics presentation components`）；hash 回填用独立 docs-only commit；**不 amend `a94a7b5`、不 rebase、不 push**。
+
+## C3–C5（后续，未开始）
+
+- **C3 — Dashboard 组合 + `OutcomeDistribution`**：分布条（分母 = `completedCount`，segments 六项，零态不渲染，文字图例，颜色非唯一载体）+ L3 状态线索行 + 空态措辞更新（B2 的"工作台"指向已过期）。
 - **C3 — Dashboard 组合 + `OutcomeDistribution`**：分布条（分母 = `completedCount`，segments 六项，零态不渲染，文字图例，颜色非唯一载体）+ L3 状态线索行 + 空态措辞更新（B2 的"工作台"指向已过期）。
 - **C4 — 有限长高 + attention 聚合**：KPI/结果卡 `fillHeight` + `maximumHeight`；attention 文本按 guardrail B 的口径。
 - **C5 — geometry/evidence candidate**：补齐 Dashboard 断言与截图（demo@1024、demo@1000、empty@1024），deploy + 严格最小 PATH + 人工包。

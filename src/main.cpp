@@ -246,6 +246,56 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
                  .arg(row1->y())
                  .arg(row1->height()));
 
+    // ---- Statistics presentation extraction (M9-C C2) ----
+    // The overview is a composition: a wrapper (SectionHeader + PanelCard)
+    // over two presentation pieces (metrics row, outcomes row). Guard the
+    // extraction contract for the ACTIVE instance: the wrapper keeps a real
+    // content-derived implicit size (ISSUE-012: never anchors/parent
+    // allocation), both pieces exist, each lives inside that instance's
+    // panel, and the two pieces are distinct items.
+    {
+        auto *overview =
+            findNamedItem(roots, suffixed(QStringLiteral("statisticsOverview")));
+        auto *panel = findNamedItem(roots, suffixed(QStringLiteral("statisticsPanel")));
+        auto *metricsRow =
+            findNamedItem(roots, suffixed(QStringLiteral("statisticsRow1")));
+        auto *outcomesRow =
+            findNamedItem(roots, suffixed(QStringLiteral("statisticsRow2")));
+
+        if (!overview)
+            fail(suffixed(QStringLiteral("statisticsOverview"))
+                 + QStringLiteral(" not found"));
+        else if (overview->implicitWidth() <= 0 || overview->implicitHeight() <= 0)
+            fail(QStringLiteral("statisticsOverview implicit size %1x%2 — the "
+                                "wrapper lost its content-derived size")
+                     .arg(overview->implicitWidth())
+                     .arg(overview->implicitHeight()));
+
+        auto under = [](QQuickItem *item, QQuickItem *ancestor) {
+            for (auto *p = item ? item->parentItem() : nullptr; p;
+                 p = p->parentItem())
+                if (p == ancestor)
+                    return true;
+            return false;
+        };
+        for (auto *row : { metricsRow, outcomesRow }) {
+            if (!row || row->width() <= 0 || row->height() <= 0) {
+                fail(QStringLiteral("statistics presentation row missing or "
+                                    "collapsed (w=%1 h=%2)")
+                         .arg(row ? row->width() : -1)
+                         .arg(row ? row->height() : -1));
+                continue;
+            }
+            if (panel && !under(row, panel))
+                fail(QStringLiteral("a statistics presentation row is not inside "
+                                    "its instance panel (extraction misplaced "
+                                    "it)"));
+        }
+        if (metricsRow && outcomesRow && metricsRow == outcomesRow)
+            fail(QStringLiteral("statistics metrics and outcomes rows resolved "
+                                "to the SAME item"));
+    }
+
     } // end statsVisible
 
     // ---- Dashboard layout shell (M9-C C1) ----
@@ -843,7 +893,8 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
               << suffixed(QStringLiteral("statusCard_2"))
               << suffixed(QStringLiteral("statusCard_3"))
               << suffixed(QStringLiteral("statusCard_4"))
-              << suffixed(QStringLiteral("statusCard_5"));
+              << suffixed(QStringLiteral("statusCard_5"))
+              << suffixed(QStringLiteral("statisticsOverview"));
         // M9-C C1: the Dashboard layout shell (natural content region plus
         // its explicit tail surplus owner).
         if (page == ActivePage::Dashboard)
