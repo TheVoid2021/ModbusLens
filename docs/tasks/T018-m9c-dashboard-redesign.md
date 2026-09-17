@@ -348,7 +348,8 @@ git diff --check → PASS
 
 - **C2 code commit = `07b03d1`**（`M9-C C2: extract statistics presentation components`）；hash 回填 = `4e14022`（docs-only）；**不 amend `a94a7b5`、不 rebase、不 push**。
 - **C3 code commit = `9471772`**（`M9-C C3: compose dashboard statistics distribution`）；hash 回填 = `2af2e05`（docs-only）；**不 amend `07b03d1`、不 rebase、不 push**。
-- **C4 code commit = `f41d081`**（`M9-C C4: add deterministic dashboard attention summary`）；hash 回填 = 本 docs-only 提交；**不 amend `9471772`、不 rebase、不 push**。
+- **C4 code commit = `f41d081`**（`M9-C C4: add deterministic dashboard attention summary`）；hash 回填 = `4af3e3b`（docs-only）；**不 amend `9471772`、不 rebase、不 push**。
+- **C5 code commit = `bc754be`**（`M9-C C5: prepare dashboard manual visual candidate`；evidence harness + deploy checklist + 6 张截图）；hash 回填 = 本 docs-only 提交；**不 amend `f41d081`、不 rebase、不 push**。
 
 ### C2.20 C2 Review = PASS（用户）+ Review Addendum
 
@@ -791,5 +792,7 @@ git status --ignored               → 一次性脚本全部在 ignored build/ �
 | C3 | `9471772` | DashboardPage 组合 + OutcomeDistribution + CMake fixture + harness 探针 |
 | C3 hash 回填 | `2af2e05` | 文档 hash 回填 |
 | C4 | `f41d081` | DashboardPage attention/cue + CMake fixture + harness 契约/探针/12 趟 |
-| C4 hash 回填 | 本 docs-only 提交 | 文档 hash 回填 |
+| C4 hash 回填 | `4af3e3b` | 文档 hash 回填 |
+| C5 | `bc754be` | evidence harness（golden-counts 断言 + 阶段 30..44）+ deploy checklist + 6 张截图 |
+| C5 hash 回填 | 本 docs-only 提交 | 文档 hash 回填 |
 | LKGC | **不变 = `6cc84c3`** | 直到 M9-C 有人工验收通过后按 Git tree classification 裁定 |
