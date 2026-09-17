@@ -239,3 +239,12 @@
 - **Q：AI 请求进行中切到别的页面，结果会丢吗？** A：不会——结构上 aiClient_/AgentRuntime 在 Controller，完成回调按（generation × batchRevision）二维守卫核对身份，与页面可见性无关；B2 起的页面 identity 断言证明页面只是呈现面。切页≠cancel，这是冻结契约而非实现巧合。
 - **Q：Ask AI 和 Ask Agent 能同时进行吗？** A：不能——single-flight 双向互斥（cloudAiBusy=AI busy ∨ Agent busy，无第三个 bool）。两边的前置检查顺序不同（AI 先查 Agent busy、Agent 先查 AI busy）但语义同为"云工作流单飞"；迁移时这两个前置序必须逐字保留。
 - **Q：Agent 的问题草稿算会话事实吗？** A：不算——它是 QML 页本地 draft（askAgent 参数直传，Controller 从不存储问题文本）；切页往返草稿保留由 StackLayout 常驻自然提供，不需要也不应该写回 Controller。
+
+
+## 26. Post-T017 M9-B5.2 条目（2026-09-17 追加）
+
+- **Q：怎么证明一次"迁移"没有偷偷改需求？** A：把判据做成可执行的比对，而不是靠人眼读 diff。以迁移前的原文件为基准，把两边都规范化成**语义语句多重集**（controller 绑定/命令、qsTr 文案、冻结色、visible/enabled/onClicked 表达式），再做差集：107 条语句、78 条唯一 → 迁移后 78/78 全在、零发明，只剩 4 行"页面外框"差异（18px 标题与 pane 卡片外框被统一页骨架替代）需要单独申报。把"有意替换"和"意外丢失"分开计数，是迁移类改动的验证核心。
+- **Q：把 SplitView 换成 Layout 之后，Transactions 面板为什么必须重新指定 objectName？** A：因为它同时是**布局子项**和**几何断言的锚点**。旧守卫用 `diagnosisWorkspace`（被删除的 SplitView）判断"工作区下缘不侵入统计面板"；若不同步改锚点，`findNamedItem` 返回空，`if (ptr && ...)` 短路 → 断言**静默变成永真**。删掉一个被测对象时必须回头找它的所有断言消费者。
+- **Q：什么是"空转的断言"，为什么会长期存活？** A：`if (p && p->… )` 形守卫只证明"当 p 存在且违规时失败"，不证明 p 存在。ISSUE-013 里内层 `auto *row2/header/panel` 遮蔽了外层同名局部，外层恒为 nullptr ⇒ 行重叠与下缘侵入两条断言从加入起就没生效过。它存活的原因正是**它的失败路径从未被走过**。修法除了去掉遮蔽，还要做**变异探针**：故意让断言在正确输入下应当 FAIL（本轮把比较常数 +1000.0），确认它真的报 FAIL，再还原。
+- **Q：为什么"迁移+启位"必须在同一个提交里完成？** A：拆开会产生一个已提交的中间态：能力已经搬走，但入口还没打开——用户在那次提交上无法使用诊断功能（B4 序列修正确立的不变量）。B3/B4/B5 三次迁移都遵循同一条：`move` 与 `enabled: true` 同提交，`workspaceXIndex` 同提交，Legacy 侧的删除也同提交。
+- **Q：Legacy 工作台在 B5.2 之后还剩下什么？** A：只剩统计总览（legacy 实例）与最近通信记录两件，且从"左右分栏"变成"上下全宽"——这是移除左栏的**机械后果**（SplitView 包装消失、右子提升为列直接子项、min 520 作为内部约束保留），不是重新设计。判断标准是：新功能落共享层（Controller/DS/共享组件），页面只做呈现；本轮 `git diff --stat` 里没有任何 Controller/Core/backend 文件。

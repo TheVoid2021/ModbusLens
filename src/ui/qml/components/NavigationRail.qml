@@ -28,7 +28,7 @@ Rectangle {
         { label: qsTr("总览"), enabled: true },     // Dashboard (M9-B2)
         { label: qsTr("通信"), enabled: true },     // Communication (M9-B3)
         { label: qsTr("回放"), enabled: true },     // Replay (M9-B4)
-        { label: qsTr("诊断"), enabled: false },    // future Diagnosis
+        { label: qsTr("诊断"), enabled: true },     // Diagnosis (M9-B5)
         { label: qsTr("设备"), enabled: false }     // future Device (M12)
     ]
 

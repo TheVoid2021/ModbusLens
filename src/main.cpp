@@ -164,13 +164,17 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
     QQuickItem *header = nullptr;
     QQuickItem *panel = nullptr;
     if (statsVisible) {
-    row1 = findNamedItem(roots, suffixed(QStringLiteral("statisticsRow1")));
-    auto *row2 = findNamedItem(roots, suffixed(QStringLiteral("statisticsRow2")));
-    const auto row1Count = row1 ? row1->childItems().size() : -1;
-    const auto row2Count = row2 ? row2->childItems().size() : -1;
+        // ISSUE-013: these four MUST assign the outer locals. Declaring them
+        // again here (`auto *row2 = ...`) shadowed the outer ones, which left
+        // the row-overlap guard and the ISSUE-004 guard below comparing
+        // against a permanently null pointer — unfalsifiable, always "pass".
+        row1 = findNamedItem(roots, suffixed(QStringLiteral("statisticsRow1")));
+        row2 = findNamedItem(roots, suffixed(QStringLiteral("statisticsRow2")));
+        const auto row1Count = row1 ? row1->childItems().size() : -1;
+        const auto row2Count = row2 ? row2->childItems().size() : -1;
 
-    auto *header = findNamedItem(roots, suffixed(QStringLiteral("statisticsHeader")));
-    auto *panel = findNamedItem(roots, suffixed(QStringLiteral("statisticsPanel")));
+        header = findNamedItem(roots, suffixed(QStringLiteral("statisticsHeader")));
+        panel = findNamedItem(roots, suffixed(QStringLiteral("statisticsPanel")));
     if (header && panel && panel->y() + 1e-6 < header->y() + header->height())
         fail(QStringLiteral("statisticsPanel y=%1 overlaps header "
                             "(y=%2 h=%3)")
@@ -298,12 +302,17 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
             fail(QStringLiteral("replay content exceeds the workspace width"));
     }
 
-    auto *diag = findNamedItem(roots, QStringLiteral("diagnosisWorkspace"));
-    if (legacyVisible && panel && diag
-        && diag->y() + 1e-6 < panel->y() + panel->height())
-        fail(QStringLiteral("diagnosisWorkspace y=%1 invades statisticsPanel "
+    // ISSUE-004 guard, repointed in M9-B5.2: the Legacy SplitView is gone
+    // (the Diagnosis workflow moved to its own workspace), so the element
+    // that must stay below the statistics panel is the promoted Transactions
+    // pane. Same intent, same measured pair.
+    auto *legacyLower =
+        findNamedItem(roots, QStringLiteral("legacyTransactionsPane"));
+    if (legacyVisible && panel && legacyLower
+        && legacyLower->y() + 1e-6 < panel->y() + panel->height())
+        fail(QStringLiteral("legacyTransactionsPane y=%1 invades statisticsPanel "
                             "(y=%2 h=%3)")
-                 .arg(diag->y())
+                 .arg(legacyLower->y())
                  .arg(panel->y())
                  .arg(panel->height()));
 
@@ -342,16 +351,20 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     const int communicationIndex =
         rootObj->property("workspaceCommunicationIndex").toInt();
     const int replayIndex = rootObj->property("workspaceReplayIndex").toInt();
+    const int diagnosisIndex =
+        rootObj->property("workspaceDiagnosisIndex").toInt();
     if (index != legacyIndex && index != dashboardIndex
-        && index != communicationIndex && index != replayIndex)
+        && index != communicationIndex && index != replayIndex
+        && index != diagnosisIndex)
         fail(QStringLiteral("NAV currentWorkspaceIndex %1 is not one of the "
                             "real workspaces (legacy=%2 dashboard=%3 "
-                            "communication=%4 replay=%5)")
+                            "communication=%4 replay=%5 diagnosis=%6)")
                  .arg(index)
                  .arg(legacyIndex)
                  .arg(dashboardIndex)
                  .arg(communicationIndex)
-                 .arg(replayIndex));
+                 .arg(replayIndex)
+                 .arg(diagnosisIndex));
 
     // Visibility must follow the selection (page-independent form: this
     // guard runs at EVERY workspace now).
@@ -360,6 +373,7 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     auto *communication =
         findNamedItem(roots, QStringLiteral("communicationWorkspace"));
     auto *replay = findNamedItem(roots, QStringLiteral("replayWorkspace"));
+    auto *diagnosis = findNamedItem(roots, QStringLiteral("diagnosisPage"));
     if (!legacy)
         fail(QStringLiteral("NAV legacyWorkspace not found"));
     else if (legacy->isVisible() != (index == legacyIndex))
@@ -388,6 +402,13 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
                             "follow the selection %2")
                  .arg(replay->isVisible())
                  .arg(index));
+    if (!diagnosis)
+        fail(QStringLiteral("NAV diagnosisPage not found"));
+    else if (diagnosis->isVisible() != (index == diagnosisIndex))
+        fail(QStringLiteral("NAV diagnosisPage visibility (%1) does not "
+                            "follow the selection %2")
+                 .arg(diagnosis->isVisible())
+                 .arg(index));
 
     auto *item0 = findNamedItem(roots, QStringLiteral("navItem_0"));
     auto *item1 = findNamedItem(roots, QStringLiteral("navItem_1"));
@@ -396,8 +417,8 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
         return failures;
     }
 
-    // M9-B4 matrix: 工作台 / 总览 / 通信 / 回放 are REAL workspaces
-    // (enabled); 诊断 / 设备 stay disabled until their own extraction steps.
+    // M9-B5.2 matrix: 工作台 / 总览 / 通信 / 回放 / 诊断 are REAL workspaces
+    // (enabled); 设备 stays disabled until its own extraction step.
     if (!item0->property("enabled").toBool())
         fail(QStringLiteral("NAV navItem_0 (workbench) must be enabled"));
     if (!item1->property("enabled").toBool())
@@ -408,7 +429,10 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     auto *item3 = findNamedItem(roots, QStringLiteral("navItem_3"));
     if (!item3 || !item3->property("enabled").toBool())
         fail(QStringLiteral("NAV navItem_3 (replay) must be enabled"));
-    for (int i = 4; i <= 5; ++i) {
+    auto *item4 = findNamedItem(roots, QStringLiteral("navItem_4"));
+    if (!item4 || !item4->property("enabled").toBool())
+        fail(QStringLiteral("NAV navItem_4 (diagnosis) must be enabled"));
+    for (int i = 5; i <= 5; ++i) {
         auto *item = findNamedItem(roots,
                                    QStringLiteral("navItem_%1").arg(i));
         if (!item) {
@@ -499,7 +523,10 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
               << QStringLiteral("communicationRequestSection")
               << QStringLiteral("communicationSerialError");
     }
-    names << QStringLiteral("diagnosisWorkspace");
+    // M9-B5.2: the Legacy SplitView is gone; the promoted Transactions pane
+    // took its place below the statistics panel and is dumped under its own
+    // name (the old "diagnosisWorkspace" name no longer resolves).
+    names << QStringLiteral("legacyTransactionsPane");
     QStringList lines;
     lines << QStringLiteral("GEOMETRY [%1]:").arg(contextLabel);
     for (const QString &name : names) {
@@ -611,7 +638,8 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         const char *key = (pageIndex == 0)   ? "workspaceLegacyIndex"
                         : (pageIndex == 1)   ? "workspaceDashboardIndex"
                         : (pageIndex == 2)   ? "workspaceCommunicationIndex"
-                                             : "workspaceReplayIndex";
+                        : (pageIndex == 3)   ? "workspaceReplayIndex"
+                                             : "workspaceDiagnosisIndex";
         const int idx = rootObj->property(key).toInt();
         auto *item = findNamedItem(
             roots, QStringLiteral("navItem_%1").arg(idx));
@@ -733,29 +761,36 @@ QStringList runNavAssertions(const QList<QObject *> &roots,
     const int communicationIndex =
         rootObj->property("workspaceCommunicationIndex").toInt();
     const int replayIndex = rootObj->property("workspaceReplayIndex").toInt();
+    const int diagnosisIndex =
+        rootObj->property("workspaceDiagnosisIndex").toInt();
     const int index = rail->property("currentWorkspaceIndex").toInt();
 
     auto *communication =
         findNamedItem(roots, QStringLiteral("communicationWorkspace"));
     auto *replay = findNamedItem(roots, QStringLiteral("replayWorkspace"));
+    auto *diagnosis = findNamedItem(roots, QStringLiteral("diagnosisPage"));
     if (!communication)
         fail(QStringLiteral("NAVFAIL communicationWorkspace not found"));
     if (!replay)
         fail(QStringLiteral("NAVFAIL replayWorkspace not found"));
+    if (!diagnosis)
+        fail(QStringLiteral("NAVFAIL diagnosisPage not found"));
 
     const bool realWorkspace = (index == legacyIndex)
                             || (index == dashboardIndex)
                             || (index == communicationIndex)
-                            || (index == replayIndex);
+                            || (index == replayIndex)
+                            || (index == diagnosisIndex);
     if (!realWorkspace)
         fail(QStringLiteral("NAVFAIL selection %1 is not a real workspace "
                             "(legacy=%2 dashboard=%3 communication=%4 "
-                            "replay=%5)")
+                            "replay=%5 diagnosis=%6)")
                  .arg(index)
                  .arg(legacyIndex)
                  .arg(dashboardIndex)
                  .arg(communicationIndex)
-                 .arg(replayIndex));
+                 .arg(replayIndex)
+                 .arg(diagnosisIndex));
     if (legacy->isVisible() != (index == legacyIndex))
         fail(QStringLiteral("NAVFAIL legacyWorkspace visibility does not "
                             "follow selection %1")
@@ -770,6 +805,10 @@ QStringList runNavAssertions(const QList<QObject *> &roots,
                  .arg(index));
     if (replay && replay->isVisible() != (index == replayIndex))
         fail(QStringLiteral("NAVFAIL replayWorkspace visibility does not "
+                            "follow selection %1")
+                 .arg(index));
+    if (diagnosis && diagnosis->isVisible() != (index == diagnosisIndex))
+        fail(QStringLiteral("NAVFAIL diagnosisPage visibility does not "
                             "follow selection %1")
                  .arg(index));
 
@@ -835,13 +874,14 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 58;
+    constexpr int kLastStage = 60;
 
     // Shared state across stages.
     auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
     auto dashboardPtr = std::make_shared<QQuickItem *>(nullptr);
     auto communicationPtr = std::make_shared<QQuickItem *>(nullptr);
     auto replayPtr = std::make_shared<QQuickItem *>(nullptr);
+    auto diagnosisPtr = std::make_shared<QQuickItem *>(nullptr);
     auto snapshot0 = std::make_shared<QMap<QString, QVariant>>();
     auto scenarioA = std::make_shared<QMap<QString, QVariant>>();
     auto scenarioB = std::make_shared<QMap<QString, QVariant>>();
@@ -878,7 +918,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         const char *key = (pageIndex == 0)   ? "workspaceLegacyIndex"
                         : (pageIndex == 1)   ? "workspaceDashboardIndex"
                         : (pageIndex == 2)   ? "workspaceCommunicationIndex"
-                                             : "workspaceReplayIndex";
+                        : (pageIndex == 3)   ? "workspaceReplayIndex"
+                                             : "workspaceDiagnosisIndex";
         const int idx = rootObj->property(key).toInt();
         auto *item = findNamedItem(
             roots, QStringLiteral("navItem_%1").arg(idx));
@@ -908,11 +949,18 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (!replayShell)
             fail(QStringLiteral("NAVFAIL %1: replayWorkspace shell vanished")
                      .arg(ctx));
+        // M9-B5.2: the Diagnosis page is a real workspace now — its identity
+        // must survive every later switch exactly like the other four.
+        if (findNamedItem(roots, QStringLiteral("diagnosisPage"))
+            != *diagnosisPtr)
+            fail(QStringLiteral("NAVFAIL %1: diagnosis page identity changed")
+                     .arg(ctx));
     };
 
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, schedule, failures, legacyPtr, dashboardPtr,
-                 communicationPtr, replayPtr, snapshot0, scenarioA, scenarioB,
+                 communicationPtr, replayPtr, diagnosisPtr, snapshot0, scenarioA,
+                 scenarioB,
                  scenarioI, scenarioJ, scenarioKPre, scenarioKNotice,
                  draftValues, gPre, stage, ctrl, takeSnapshot, takeExtendedSnapshot,
                  compareAgainst, switchTo, verifyStructureAndIdentity]() {
@@ -925,7 +973,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
         switch (*stage) {
         // ---- Structural phase: Legacy -> Dashboard -> Communication ->
-        // Dashboard -> Legacy (Scenario E and H live in these switches) ----
+        // Replay -> Diagnosis -> Dashboard -> Legacy (M9-B5.2 adds the
+        // Diagnosis stop; Scenario E and H live in these switches) ----
         case 0: {
             if (!ctrl) {
                 fail(QStringLiteral("NAVFAIL analysisController not found"));
@@ -943,16 +992,13 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             *replayPtr = findNamedItem(roots, QStringLiteral("replayWorkspace"));
             if (!*replayPtr)
                 fail(QStringLiteral("NAVFAIL replayWorkspace not found"));
-            // M9-B5.1: the Diagnosis shell exists as the fifth child but its
-            // navigation entry stays disabled — existence/not-visible only,
-            // no geometry or behavioural assertions for the hidden page.
-            if (!findNamedItem(roots, QStringLiteral("diagnosisPage")))
-                fail(QStringLiteral("NAVFAIL diagnosisPage shell not found"));
-            else if (auto *diagnosisShell =
-                         findNamedItem(roots, QStringLiteral("diagnosisPage"));
-                     diagnosisShell->isVisible())
-                fail(QStringLiteral("NAVFAIL diagnosisPage must not be visible "
-                                    "while 诊断 navigation is disabled"));
+            // M9-B5.2: the Diagnosis page is the FIFTH real workspace and its
+            // navigation entry is enabled. Identity is captured here so every
+            // later stage can prove the instance never changes; visibility
+            // follows the selection (asserted by runNavAssertions above).
+            *diagnosisPtr = findNamedItem(roots, QStringLiteral("diagnosisPage"));
+            if (!*diagnosisPtr)
+                fail(QStringLiteral("NAVFAIL diagnosisPage not found"));
             *snapshot0 = takeSnapshot(ctrl);
             qInfo().noquote()
                 << QStringLiteral("NAV [initial]: index=%1 legacy=%2x%3 "
@@ -1015,15 +1061,38 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                        .arg((*replayPtr)->isVisible());
             break;
         }
-        case 7: switchTo(1); break;
+        case 7: switchTo(4); break;
         case 8: {
+            // M9-B5.2: Diagnosis is the FIFTH real workspace. Same shape as
+            // every other stop: identity + visibility (runNavAssertions) +
+            // an unchanged core snapshot.
+            verifyStructureAndIdentity(QStringLiteral("diagnosis"));
+            if (findNamedItem(roots, QStringLiteral("diagnosisPage"))
+                != *diagnosisPtr)
+                fail(QStringLiteral("NAVFAIL diagnosis page identity changed"));
+            compareAgainst(*snapshot0, takeSnapshot(ctrl),
+                           QStringLiteral("to diagnosis"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [diagnosis]: index=%1 legacyVisible=%2 "
+                                  "dashboardVisible=%3 communicationVisible=%4 "
+                                  "replayVisible=%5 diagnosisVisible=%6")
+                       .arg(rail->property("currentWorkspaceIndex").toInt())
+                       .arg((*legacyPtr)->isVisible())
+                       .arg((*dashboardPtr)->isVisible())
+                       .arg((*communicationPtr)->isVisible())
+                       .arg((*replayPtr)->isVisible())
+                       .arg((*diagnosisPtr)->isVisible());
+            break;
+        }
+        case 9: switchTo(1); break;
+        case 10: {
             verifyStructureAndIdentity(QStringLiteral("dashboard again"));
             compareAgainst(*snapshot0, takeSnapshot(ctrl),
                            QStringLiteral("communication -> dashboard"));
             break;
         }
-        case 9: switchTo(0); break;
-        case 10: {
+        case 11: switchTo(0); break;
+        case 12: {
             verifyStructureAndIdentity(QStringLiteral("workbench return"));
             compareAgainst(*snapshot0, takeSnapshot(ctrl),
                            QStringLiteral("back to workbench"));
@@ -1035,12 +1104,12 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario A: deterministic batch survives navigation ----
-        case 11: {
+        case 13: {
             if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
                 fail(QStringLiteral("NAVFAIL runDemoBatch() not invokable"));
             break;
         }
-        case 12: {
+        case 14: {
             *scenarioA = takeSnapshot(ctrl);
             if (scenarioA->value(QStringLiteral("observedCount")).toInt() != 4)
                 fail(QStringLiteral("NAVFAIL scenario A: expected the "
@@ -1048,7 +1117,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 13: {
+        case 15: {
             compareAgainst(*scenarioA, takeSnapshot(ctrl),
                            QStringLiteral("scenario A @dashboard"));
             qInfo().noquote()
@@ -1060,7 +1129,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(0);
             break;
         }
-        case 14: {
+        case 16: {
             compareAgainst(*scenarioA, takeSnapshot(ctrl),
                            QStringLiteral("scenario A return"));
             if (!QMetaObject::invokeMethod(ctrl, "runBaselineDiagnosis"))
@@ -1071,33 +1140,33 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
         // ---- Scenario I: navigation is not a source transition (all four
         // workspaces with a NON-EMPTY demo session + diagnosis facts) ----
-        case 15: {
+        case 17: {
             *scenarioI = takeExtendedSnapshot(ctrl);
             switchTo(3);
             break;
         }
-        case 16: {
+        case 18: {
             verifyStructureAndIdentity(QStringLiteral("scenario I @replay"));
             compareAgainst(*scenarioI, takeExtendedSnapshot(ctrl),
                            QStringLiteral("scenario I @replay"));
             break;
         }
-        case 17: switchTo(2); break;
-        case 18: {
+        case 19: switchTo(2); break;
+        case 20: {
             verifyStructureAndIdentity(QStringLiteral("scenario I @communication"));
             compareAgainst(*scenarioI, takeExtendedSnapshot(ctrl),
                            QStringLiteral("scenario I @communication"));
             break;
         }
-        case 19: switchTo(3); break;
-        case 20: {
+        case 21: switchTo(3); break;
+        case 22: {
             verifyStructureAndIdentity(QStringLiteral("scenario I @replay again"));
             compareAgainst(*scenarioI, takeExtendedSnapshot(ctrl),
                            QStringLiteral("scenario I @replay again"));
             break;
         }
-        case 21: switchTo(0); break;
-        case 22: {
+        case 23: switchTo(0); break;
+        case 24: {
             verifyStructureAndIdentity(QStringLiteral("scenario I @workbench"));
             compareAgainst(*scenarioI, takeExtendedSnapshot(ctrl),
                            QStringLiteral("scenario I @workbench"));
@@ -1108,7 +1177,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario B: diagnosis survives navigation ----
-        case 23: {
+        case 25: {
             scenarioB->insert(QStringLiteral("hasBaselineDiagnosis"),
                               ctrl->property("hasBaselineDiagnosis"));
             scenarioB->insert(QStringLiteral("baselineDiagnosisText"),
@@ -1119,7 +1188,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 24: {
+        case 26: {
             if (ctrl->property("hasBaselineDiagnosis")
                     != scenarioB->value(QStringLiteral("hasBaselineDiagnosis"))
                 || ctrl->property("baselineDiagnosisText")
@@ -1129,7 +1198,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(0);
             break;
         }
-        case 25: {
+        case 27: {
             if (ctrl->property("hasBaselineDiagnosis")
                     != scenarioB->value(QStringLiteral("hasBaselineDiagnosis")))
                 fail(QStringLiteral("NAVFAIL scenario B (return): diagnosis "
@@ -1140,7 +1209,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario D: clear is reflected by every view ----
-        case 26: {
+        case 28: {
             const QStringList zeroKeys = {
                 QStringLiteral("observedCount"),  QStringLiteral("pendingCount"),
                 QStringLiteral("completedCount"), QStringLiteral("successCount"),
@@ -1160,7 +1229,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 27: {
+        case 29: {
             if (ctrl->property("observedCount").toInt() != 0
                 || ctrl->property("hasSuccessRate").toBool()
                 || ctrl->property("hasAverageSuccessLatency").toBool())
@@ -1175,7 +1244,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(0);
             break;
         }
-        case 28: {
+        case 30: {
             if (ctrl->property("observedCount").toInt() != 0)
                 fail(QStringLiteral("NAVFAIL scenario D (return): workbench "
                                     "not cleared"));
@@ -1183,7 +1252,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario F: page-local drafts survive navigation ----
-        case 29: {
+        case 31: {
             struct DraftSpec {
                 const char *objectName;
                 const char *property;
@@ -1226,7 +1295,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(2);
             break;
         }
-        case 30: {
+        case 32: {
             for (auto it = draftValues->cbegin(); it != draftValues->cend(); ++it) {
                 auto *item = findNamedItem(roots, it.key());
                 if (!item) {
@@ -1262,7 +1331,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario G': the REAL failure path of a connect attempt ----
-        case 31: {
+        case 33: {
             if (ctrl->property("serialConnected").toBool())
                 fail(QStringLiteral("NAVFAIL scenario G': serialConnected "
                                     "became true for a non-existent port"));
@@ -1286,8 +1355,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 32: switchTo(2); break;
-        case 33: {
+        case 34: switchTo(2); break;
+        case 35: {
             if (ctrl->property("serialConnected").toBool()
                 || !ctrl->property("hasSerialError").toBool())
                 fail(QStringLiteral("NAVFAIL scenario G': connect-failure "
@@ -1296,11 +1365,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario F verification after the round trip ----
-        case 34: {
+        case 36: {
             switchTo(0);
             break;
         }
-        case 35: {
+        case 37: {
             switchTo(2);
             for (auto it = draftValues->cbegin(); it != draftValues->cend(); ++it) {
                 auto *item = findNamedItem(roots, it.key());
@@ -1322,7 +1391,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario J: canonical replay load + navigation persistence ----
-        case 36: {
+        case 38: {
             const QUrl fixture = QUrl::fromLocalFile(
                 QStringLiteral(MODBUSLENS_DEMO_MLOG_PATH));
             if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
@@ -1330,7 +1399,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 fail(QStringLiteral("NAVFAIL loadReplayFile() not invokable"));
             break;
         }
-        case 37: {
+        case 39: {
             // Canonical golden semantics (mirrors r01; no presentation
             // strings parsed): the source is the BASENAME only.
             const QMap<QString, QVariant> now = takeSnapshot(ctrl);
@@ -1367,35 +1436,35 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(3);
             break;
         }
-        case 38: {
+        case 40: {
             verifyStructureAndIdentity(QStringLiteral("scenario J @replay"));
             compareAgainst(*scenarioJ, takeSnapshot(ctrl),
                            QStringLiteral("scenario J @replay"));
             break;
         }
-        case 39: switchTo(1); break;
-        case 40: {
+        case 41: switchTo(1); break;
+        case 42: {
             verifyStructureAndIdentity(QStringLiteral("scenario J @dashboard"));
             compareAgainst(*scenarioJ, takeSnapshot(ctrl),
                            QStringLiteral("scenario J @dashboard"));
             break;
         }
-        case 41: switchTo(2); break;
-        case 42: {
+        case 43: switchTo(2); break;
+        case 44: {
             verifyStructureAndIdentity(QStringLiteral("scenario J @communication"));
             compareAgainst(*scenarioJ, takeSnapshot(ctrl),
                            QStringLiteral("scenario J @communication"));
             break;
         }
-        case 43: switchTo(3); break;
-        case 44: {
+        case 45: switchTo(3); break;
+        case 46: {
             verifyStructureAndIdentity(QStringLiteral("scenario J @replay 2"));
             compareAgainst(*scenarioJ, takeSnapshot(ctrl),
                            QStringLiteral("scenario J @replay 2"));
             switchTo(0);
             break;
         }
-        case 45: {
+        case 47: {
             verifyStructureAndIdentity(QStringLiteral("scenario J @legacy"));
             compareAgainst(*scenarioJ, takeSnapshot(ctrl),
                            QStringLiteral("scenario J @legacy"));
@@ -1410,7 +1479,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
         // ---- Scenario K: ordinary failed replacement is atomic (against a
         // NON-EMPTY replay session) ----
-        case 46: {
+        case 48: {
             *scenarioKPre = takeSnapshot(ctrl);
             const QUrl missing = QUrl::fromLocalFile(
                 QStringLiteral("MODBUSLENS_NO_SUCH_DIR/missing_replay.mlog"));
@@ -1419,7 +1488,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 fail(QStringLiteral("NAVFAIL loadReplayFile() not invokable"));
             break;
         }
-        case 47: {
+        case 49: {
             if (!ctrl->property("hasReplayError").toBool())
                 fail(QStringLiteral("NAVFAIL scenario K: expected the "
                                     "authoritative hasReplayError flag"));
@@ -1428,19 +1497,19 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             switchTo(1);
             break;
         }
-        case 48: {
+        case 50: {
             compareAgainst(*scenarioKPre, takeSnapshot(ctrl),
                            QStringLiteral("scenario K @dashboard"));
             switchTo(2);
             break;
         }
-        case 49: {
+        case 51: {
             compareAgainst(*scenarioKPre, takeSnapshot(ctrl),
                            QStringLiteral("scenario K @communication"));
             switchTo(3);
             break;
         }
-        case 50: {
+        case 52: {
             compareAgainst(*scenarioKPre, takeSnapshot(ctrl),
                            QStringLiteral("scenario K @replay"));
             qInfo().noquote()
@@ -1451,7 +1520,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         // ---- Scenario K': replayNotice lifecycle across a failed attempt ----
-        case 51: {
+        case 53: {
             const QUrl fixture = QUrl::fromLocalFile(
                 QStringLiteral(MODBUSLENS_UNSUPPORTED_MLOG_PATH));
             if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
@@ -1459,7 +1528,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 fail(QStringLiteral("NAVFAIL loadReplayFile() not invokable"));
             break;
         }
-        case 52: {
+        case 54: {
             // Successful load of the unsupported-function sample: NOT an
             // error; the notice discloses the unsupported record; analyzed
             // records = 0, so rows/statistics are the zero batch.
@@ -1491,7 +1560,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                        .arg(ctrl->property("sourceLabel").toString(), notice);
             break;
         }
-        case 53: {
+        case 55: {
             // Deterministic failed replacement (same construction as K).
             const QUrl missing = QUrl::fromLocalFile(
                 QStringLiteral("MODBUSLENS_NO_SUCH_DIR/missing_replay.mlog"));
@@ -1500,7 +1569,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 fail(QStringLiteral("NAVFAIL loadReplayFile() not invokable"));
             break;
         }
-        case 54: {
+        case 56: {
             if (!ctrl->property("hasReplayError").toBool())
                 fail(QStringLiteral("NAVFAIL scenario K': expected replayError "
                                     "after the failed attempt"));
@@ -1523,10 +1592,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            QStringLiteral("scenario K' failed replacement"));
             break;
         }
-        case 55: switchTo(1); break;
-        case 56: switchTo(2); break;
-        case 57: switchTo(3); break;
-        case 58: {
+        case 57: switchTo(1); break;
+        case 58: switchTo(2); break;
+        case 59: switchTo(3); break;
+        case 60: {
             if (ctrl->property("replayNoticeText")
                 != scenarioKNotice->value(QStringLiteral("replayNoticeText")))
                 fail(QStringLiteral("NAVFAIL scenario K' (round trip): notice "
@@ -1555,9 +1624,9 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
 
         if (failures->isEmpty())
-            qInfo() << "NAV CHECK PASS (four workspaces; identity stable; "
+            qInfo() << "NAV CHECK PASS (five workspaces; identity stable; "
                        "navigation changed no business values; scenarios "
-                       "A/B/D/E/F/G'/H asserted)";
+                       "A/B/D/E/F/G'/H/I/J/K/K' asserted)";
         else
             for (const QString &f : *failures)
                 qWarning().noquote() << "GEOFAIL:" << f;

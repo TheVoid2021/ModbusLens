@@ -2134,7 +2134,98 @@ ctest --preset debug-local → 26/26 全绿（含 qml_smoke/nav/geometry）
 
 见 §44 回填（B5.1 提交；不 push、不推进 LKGC——待 B5.2/B5.3/B5.4 与人工验收）。
 
-## 44. Next
+### 44.27 B5.2 Baseline（实施前，2026-09-17，用户修正版 preflight）
 
-- **B5.1 Review（用户）**；通过后 **B5.2 — 原子 MOVE + `诊断` 启位**（§43.13：同一提交内完成迁移+启位+SplitView 收口，禁止"已迁移但不可达"）。
-- **B5.3/B5.4 未开始**；**B5 closure/M9-C/M10 均未开始**。
+```text
+branch=main；HEAD=b8a47a1（B5.1）；working tree 仅 B5.2 四文件；
+git diff --check pass
+V2 verified LKGC=207ae96（不变）；v1.0.0=ae067ab；ahead 39 / behind 0（已知允许）
+ctest --preset debug-local → 26/26 全绿
+```
+
+用户边界（逐条在案）：完整 MOVE Baseline+AI+Agent Legacy→DiagnosisPage；同提交启用 `诊断` nav；`workspaceDiagnosisIndex=4`；设备(5) 保持 disabled；Transactions 留 Legacy；SplitView 最小机械收口；不改 Controller/Core/backend 业务语义；不新增 page visibility lifecycle authority；不改变 clearDiagnosis/AI/Agent 生命周期；保留全部 A/B/D/E/F/G'/H/I/J/K/K′；只做基础五 workspace navigation；不做 B5.3 Scenario L/N 与 10-pass geometry；不开始 B5.4；不 push；LKGC 保持 207ae96。
+
+### 44.28 B5.2 — 原子迁移 + 启位（Implementation Record，2026-09-17）
+
+**1. DiagnosisPage 填充（§43.3 清单 21 项整块迁入）**
+
+- 页根沿用 B1–B4 模式：`Item` + `required property var analysisController` + `ColumnLayout(anchors.fill)` + **三个 `Layout.fillHeight` 有界 Flickable**（§43.16 缓解：页尺寸链上 Flickable 不会无限撑高）。
+- 三 Tab（基线诊断/AI 解释/Agent 问答）逐字迁移：TabBar 自定义 background/contentItem、`StackLayout.currentIndex: diagnosisTabs.currentIndex`（**页本地 draft**，§43.10）、运行/清除按钮（无 enabled 绑定——空批次合法输入）、AI 配置 Label + 生成/取消/请求中…、Agent TextArea（`preferredHeight: 68`、页本地草稿）+ 询问/取消/分析中…、三个 Flickable（clip/StopAtBounds/VerticalFlick/ScrollBar 8px/0.15/圆角 4、`contentHeight: …childrenRect.height`）及其 error/output/空态 Label。
+- **文本替换仅三类**（构造等价）：`root.<alias>` → `DS.<alias>`（同一 singleton 值）；`root.busyAccent` → `DS.primary`（alias 原值）；三个无 DS token 的 V1 冻结字面量落为页内 `frozenActiveTabBorder(#98A2B3)/frozenScrollThumb(#B6BDC8)/frozenErrorAccent(#C0392B)`（M9-C 候选）。
+- **页框替换（有意、单独申报）**：Legacy pane 的 18px 标题 Label 与 card 外框（surface/border/radius）不迁——页面使用与 Dashboard/Communication/Replay 完全一致的 `SectionHeader`（DS.fontSection=15 bold + 副标题）+ 页内 margins(DS.spacingL)/spacing(DS.spacingM)。此为 §43.9 "与 B2/B3/B4 一致" 的页面骨架，非 workflow 语义变化；faithfulness 检查将其单列为 4 行 chrome 差异（见 §44.30）。
+- **零 Controller/Core/backend 改动**：`git diff --stat` 无 src/ui/AnalysisController.*、无 core/、无 backend/。
+
+**2. 同提交启位（§38.31.1 原子性）**
+
+- `NavigationRail.qml`：`诊断` `enabled: true`（设备 5 仍 disabled）。
+- `Main.qml`：`readonly property int workspaceDiagnosisIndex: 4`；StackLayout child4 注释更新为"holds the whole workflow / became reachable in the same change"。
+
+**3. Legacy SplitView 最小机械收口（§43.11）**
+
+- 左 Diagnosis pane（≈330 行）删除；`SplitView` 包装删除；**Transactions pane 提升为 Legacy 列直接子项**（`SplitView.fillWidth/Height/minimumWidth` → `Layout.*`，整体 dedent 4）；新 `objectName: "legacyTransactionsPane"`（供几何守卫，替代随 SplitView 消失的 `diagnosisWorkspace` 名）。
+- 迁移后 Main.qml 净减 332 行（774→442 行）。
+- 附带机械清理：Main.qml 根部 5 个仅被诊断 pane 消费的颜色 token（baselineAccent/agentAccent/busyAccent/activeTabBorder/scrollThumb）随迁删除并留注释；`errorAccent`/`aiAccent`/`separator` 仍被 Transactions/调色板使用而保留。Legacy 剩余 controller 引用仅 5 个（clearResults/modeLabel/serialConnected/sourceLabel/transactionModel）——无任何诊断域残留（grep 实证）。
+
+**4. main.cpp 守卫扩展（基础五 workspace navigation）**
+
+- `runShellNavAssertions`：real-workspace 集合 + `diagnosisPage` 可见性跟随 selection + `navItem_4 must be enabled`；disabled 循环起点 4→5（仅设备）。
+- `runNavAssertions`：同上（diagnosisIndex/diagnosis 存在性/可见性）。
+- nav check 状态机 58→60 段：结构路径变为 Legacy→Dashboard→Communication→Replay→**Diagnosis**→Dashboard→Legacy（新 case 7/8：switchTo(4) + identity/可见性/快照不变）；case 7..58 → 9..60（脚本重编号，61 个 case 标签 0..60 连续唯一，程序化断言）；`switchTo`/`switchWorkspace` 键映射补 `workspaceDiagnosisIndex`（防未知索引静默回落 replay 的隐性错配）。
+- geometry 8 趟**保持不变**（10 趟与 Diagnosis-active 断言属 B5.3）；ISSUE-004 下缘守卫重指 `legacyTransactionsPane`；dump 表 `diagnosisWorkspace` 条目替换为 `legacyTransactionsPane`。
+- Scenario L/N 未做（B5.3）；M 仍按 §43.14 DEFER。
+
+### 44.29 B5.2 — ISSUE-013（守卫空转，修复于本提交）
+
+重指 ISSUE-004 守卫时发现 `runGeometryAssertions` 内层 `auto *row2/header/panel` **遮蔽**外层同名局部：外层恒 nullptr ⇒ ① `statisticsRow2 overlaps row1` ② workspace 下缘侵入 statisticsPanel 两条断言**长期不可证伪**。修复=去遮蔽直赋外层；**变异探针**（比较常数各 +1000.0）证明两断言真实触发（GEOFAIL ×2，exit 1）后还原。详见 [ISSUE-013](../issues/ISSUE-013-geometry-guard-shadowed-locals.md)。
+
+### 44.30 B5.2 — Faithfulness 检查（迁移忠实性，一次性证据）
+
+`build/b52_faithfulness.py`（未入库 scratch 工具）以 HEAD 的 Legacy 诊断 pane 为基准，规范化三类文本替换后比较**语义语句多重集**（controller 绑定/命令、qsTr 文案、冻结色、visible/enabled/onClicked…）：
+
+```text
+legacy diagnosis-pane semantic statements: 107 (unique 78)
+diagnosis-page semantic statements:        105 (unique 78)
+workflow lost: 0
+page-frame chrome (documented substitution): ~ border.color: DS.border / color: DS.surface /
+    color: DS.textPrimary / font.bold: true（pane 外框+18px 标题 → SectionHeader/无外框）
+invented: + title: qsTr("诊断") / + subtitle: qsTr("基线诊断 · AI 解释 · Agent 问答")
+RESULT: FAITHFUL
+```
+
+78/78 唯一语义语句全保留、零发明（SectionHeader 两行除外）；§43.3 清单 21 项全部落位（#1 标题为页框替换、#2-#20 逐字、#21 SplitView 关系按 §43.11 收口）。
+
+### 44.31 B5.2 Verification（真实命令与输出）
+
+```text
+cmake --build --preset debug-local        → [4/4] Linking modbuslens.exe（0 error）
+./build/debug/modbuslens.exe --qml-smoke-test                          → EXITCODE=0
+./build/debug/modbuslens.exe --qml-nav-check   （offscreen+QT_ASSUME_STDERR_HAS_CONSOLE=1）
+  → NAV CHECK PASS (five workspaces; identity stable; navigation changed no
+     business values; scenarios A/B/D/E/F/G'/H/I/J/K/K' asserted)   EXITCODE=0
+  关键行：NAV [diagnosis]: index=4 … diagnosisVisible=1（结构路径含诊断站）
+./build/debug/modbuslens.exe --qml-geometry-check
+  → GEOMETRY CHECK PASS(legacy + dashboard + communication + replay at
+     default size and 1000x700)  8 趟 / 0 GEOFAIL                EXITCODE=0
+  legacyTransactionsPane: y=220 w=935 h=427@1024x720；y=220 w=911 h=407@1000x700
+  （= statisticsPanel 下缘 195 之下、全列宽——ISSUE-004 守卫复活后实测非空转）
+ctest --preset debug-local → 100% tests passed, 0 tests failed out of 26
+git diff --check → （无输出，通过）
+变异探针（还原前）→ exit 1：
+  GEOFAIL: DEFAULT legacy: legacyTransactionsPane y=220 invades statisticsPanel (y=27 h=168)
+  GEOFAIL: DEFAULT legacy: statisticsRow2 y=80 overlaps row1 (y=0 h=72)
+```
+
+### 44.32 B5.2 Files Changed
+
+修改：`src/ui/qml/pages/DiagnosisPage.qml`（shell→完整工作流，+331）、`src/ui/qml/Main.qml`（−diag pane/−SplitView/−死 token/Transactions 提升，净 −332）、`src/ui/qml/components/NavigationRail.qml`（启位 1 行）、`src/main.cpp`（守卫五 workspace + 状态机 60 段 + ISSUE-013 修复 + dump 重指）。新增 docs：`docs/issues/ISSUE-013-…md`、本节。未动：AnalysisController/Core/backend/CMakeLists。
+
+### 44.33 B5.2 Result
+
+- 迁移+启位+收口同提交完成（§38.31.1 原子性 ✓）；五 workspace 基础导航全绿；既有 12 场景（A/B/D/E/F/G'/H/I/J/K/K′）全部保留并 PASS；26/26 ctest；8 趟几何保持（未提前 B5.3）。
+- **Manual Review = PENDING USER REVIEW**（§43.19 人工项未执行——B5.4 打包）。
+- verified LKGC **不变 = 207ae96**；未 push。
+
+## 45. Next
+
+- **B5.2 Review（用户）**；通过后 **B5.3 — Scenario L/N + 10-pass geometry**（§43.14/§43.15：L 七站巡回扩展快照、N 草稿逐字保留、M 维持 DEFER 如实标注、五页×两尺寸几何）。
+- **B5.4 — deploy/截图/人工包** 未开始；B5 closure/M9-C/M10 未开始。
