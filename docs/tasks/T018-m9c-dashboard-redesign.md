@@ -211,7 +211,7 @@ git diff --check → PASS
 
 ### C1.13 Git Commit
 
-- C1 code commit：见 §Git 表回填（`M9-C C1: define dashboard layout and surplus-space ownership`）；**不 amend 任何既有提交、不 rebase、不 push**。
+- **C1 code commit = `a94a7b5`**（`M9-C C1: define dashboard layout and surplus-space ownership`）；prelude = `6d242de`；**不 amend 任何既有提交、不 rebase、不 push**。
 
 
 ## C2–C5（后续，未开始）
@@ -226,5 +226,5 @@ git diff --check → PASS
 | 阶段 | commit | 说明 |
 | --- | --- | --- |
 | Prelude（T018 canonicalization + Review guardrails） | `6d242de` | docs-only；**不推进 LKGC** |
-| C1 | 见 §C1.13 回填（本提交） | QML + harness（`DashboardPage.qml` + `src/main.cpp`） |
+| C1 | `a94a7b5` | QML + harness（`DashboardPage.qml` + `src/main.cpp`） |
 | LKGC | **不变 = `6cc84c3`** | 直到 M9-C 有人工验收通过后按 Git tree classification 裁定 |
