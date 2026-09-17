@@ -2244,27 +2244,209 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
     auto fail = [failures](const QString &m) { *failures << m; };
     auto fail2 = [failures](const QString &m) { *failures << m; };
 
+    // Screenshot oracle rule (B4 lesson): never infer the captured state
+    // from the file name. Every capture logs the state that was ASSERTED
+    // immediately before the grab — requested logical size, actual grabbed
+    // pixel size (they legitimately differ under DPI scaling), workspace
+    // index, selected nav item, Diagnosis tab and the deterministic facts.
     auto grab = [&, window, &dir](const QString &tag) {
+        auto *railItem = findNamedItem(roots, QStringLiteral("navigationRail"));
+        auto *tabContent =
+            findNamedItem(roots, QStringLiteral("diagnosisTabContent"));
+        auto *diagPage = findNamedItem(roots, QStringLiteral("diagnosisPage"));
         const QImage image = window->grabWindow();
         const QString path = QDir(dir).filePath(tag + QStringLiteral(".png"));
-        if (image.save(path))
-            qInfo().noquote() << QStringLiteral("EVIDENCE: %1 (%2x%3)")
-                                     .arg(path)
-                                     .arg(image.size().width())
-                                     .arg(image.size().height());
-        else
+        if (!image.save(path)) {
             *failures << QStringLiteral("EVIDENCE FAILED: %1").arg(path);
+            return;
+        }
+        qInfo().noquote()
+            << QStringLiteral("EVIDENCE: %1").arg(path)
+            << QStringLiteral("| logical=%1x%2 pixels=%3x%4")
+                   .arg(window->width())
+                   .arg(window->height())
+                   .arg(image.size().width())
+                   .arg(image.size().height())
+            << QStringLiteral("| workspaceIndex=%1 navItem=%2 diagnosisVisible=%3 "
+                              "diagnosisTab=%4")
+                   .arg(railItem
+                            ? railItem->property("currentWorkspaceIndex").toInt()
+                            : -1)
+                   .arg(railItem
+                            ? QStringLiteral("navItem_%1")
+                                  .arg(railItem->property("currentWorkspaceIndex")
+                                           .toInt())
+                            : QStringLiteral("<none>"))
+                   .arg(diagPage ? diagPage->isVisible() : false)
+                   .arg(tabContent
+                            ? tabContent->property("currentIndex").toInt()
+                            : -1)
+            << QStringLiteral("| mode=%1 source=%2 observed=%3 baseline=%4")
+                   .arg(ctrl->property("modeLabel").toString(),
+                        ctrl->property("sourceLabel").toString())
+                   .arg(ctrl->property("observedCount").toInt())
+                   .arg(ctrl->property("hasBaselineDiagnosis").toBool());
     };
 
     auto switchTo = [&](int pageIndex) {
         const char *key = (pageIndex == 0)   ? "workspaceLegacyIndex"
                         : (pageIndex == 1)   ? "workspaceDashboardIndex"
                         : (pageIndex == 2)   ? "workspaceCommunicationIndex"
-                                             : "workspaceReplayIndex";
+                        : (pageIndex == 3)   ? "workspaceReplayIndex"
+                                             : "workspaceDiagnosisIndex";
         const int idx = rootObj->property(key).toInt();
         auto *item = findNamedItem(roots, QStringLiteral("navItem_%1").arg(idx));
         if (!item || !QMetaObject::invokeMethod(item, "activate"))
             fail(QStringLiteral("NAVFAIL activation failed for page %1").arg(idx));
+    };
+
+    // ---- B5.4 state oracles ----
+    const int diagnosisIndex =
+        rootObj->property("workspaceDiagnosisIndex").toInt();
+    const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
+
+    auto selectTab = [&](int tab) {
+        auto *tabBar = findNamedItem(roots, QStringLiteral("diagnosisTabs"));
+        if (!tabBar) {
+            fail(QStringLiteral("diagnosisTabs not found"));
+            return;
+        }
+        tabBar->setProperty("currentIndex", tab);
+    };
+
+    // Assert the ALREADY-OBSERVED identity of the frame, not the file name:
+    // workspace index, the selected nav item, the page's visibility and the
+    // selected Diagnosis tab must all agree with what we are about to claim.
+    auto assertFrame = [&](const QString &ctx, int wantPage, int wantTab) {
+        auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
+        auto *diagPage = findNamedItem(roots, QStringLiteral("diagnosisPage"));
+        auto *legacyPage =
+            findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+        auto *tabContent =
+            findNamedItem(roots, QStringLiteral("diagnosisTabContent"));
+        const int pageIndex =
+            rail ? rail->property("currentWorkspaceIndex").toInt() : -1;
+        if (pageIndex != wantPage)
+            fail(QStringLiteral("EVIDENCE %1: workspace index %2 != %3")
+                     .arg(ctx)
+                     .arg(pageIndex)
+                     .arg(wantPage));
+        auto *navItem = findNamedItem(
+            roots, QStringLiteral("navItem_%1").arg(wantPage));
+        if (!navItem)
+            fail(QStringLiteral("EVIDENCE %1: navItem_%2 not found")
+                     .arg(ctx)
+                     .arg(wantPage));
+        else if (!navItem->property("selected").toBool())
+            fail(QStringLiteral("EVIDENCE %1: navItem_%2 is not the selected "
+                                "item")
+                     .arg(ctx)
+                     .arg(wantPage));
+        if (!diagPage)
+            fail(QStringLiteral("EVIDENCE %1: diagnosisPage not found").arg(ctx));
+        else if (diagPage->isVisible() != (wantPage == diagnosisIndex))
+            fail(QStringLiteral("EVIDENCE %1: diagnosisPage visibility (%2) "
+                                "does not match the claimed page %3")
+                     .arg(ctx)
+                     .arg(diagPage->isVisible())
+                     .arg(wantPage));
+        if (legacyPage && legacyPage->isVisible() != (wantPage == legacyIndex))
+            fail(QStringLiteral("EVIDENCE %1: legacyWorkspace visibility does "
+                                "not match the claimed page").arg(ctx));
+        int tab = -1;
+        if (wantPage == diagnosisIndex) {
+            tab = tabContent ? tabContent->property("currentIndex").toInt() : -1;
+            if (tab != wantTab)
+                fail(QStringLiteral("EVIDENCE %1: Diagnosis tab %2 != %3")
+                         .arg(ctx)
+                         .arg(tab)
+                         .arg(wantTab));
+        }
+        qInfo().noquote()
+            << QStringLiteral("EVIDENCE ASSERT %1: page=%2 tab=%3 ok")
+                   .arg(ctx)
+                   .arg(pageIndex)
+                   .arg(tab);
+    };
+
+    // The demo golden facts, asserted from the Controller (T008 DEMO-1..4
+    // constants — never from pixels or OCR).
+    auto assertDemoGoldenFacts = [&](const QString &ctx) {
+        struct Expect { const char *key; int value; };
+        const Expect ints[] = {
+            { "observedCount", 4 },   { "completedCount", 4 },
+            { "pendingCount", 0 },    { "successCount", 1 },
+            { "exceptionCount", 1 },  { "crcErrorCount", 1 },
+            { "timeoutCount", 1 },    { "protocolErrorCount", 0 },
+            { "expectedNoResponseCount", 0 },
+        };
+        for (const Expect &e : ints) {
+            const int got =
+                ctrl->property(e.key).toInt();
+            if (got != e.value)
+                fail(QStringLiteral("EVIDENCE %1: %2 = %3, expected %4")
+                         .arg(ctx)
+                         .arg(QLatin1String(e.key))
+                         .arg(got)
+                         .arg(e.value));
+        }
+        if (!ctrl->property("hasSuccessRate").toBool()
+            || qAbs(ctrl->property("successRate").toDouble() - 0.25) > 1e-9)
+            fail(QStringLiteral("EVIDENCE %1: success rate is not 25%% "
+                                "(successRate is a FRACTION here; the QML "
+                                "multiplies it by 100 for display)").arg(ctx));
+        if (!ctrl->property("hasAverageSuccessLatency").toBool()
+            || qAbs(ctrl->property("averageSuccessLatencyMs").toDouble() - 25.0)
+                   > 1e-9)
+            fail(QStringLiteral("EVIDENCE %1: average success latency is not "
+                                "25 ms").arg(ctx));
+        if (!ctrl->property("hasBaselineDiagnosis").toBool())
+            fail(QStringLiteral("EVIDENCE %1: no baseline diagnosis").arg(ctx));
+        if (ctrl->property("baselineDiagnosisText").toString().isEmpty())
+            fail(QStringLiteral("EVIDENCE %1: baseline text is empty").arg(ctx));
+        // No AI/Agent activity may have happened: the AI tab screenshot shows
+        // the configuration state only, and Ask AI / Ask Agent are never
+        // clicked (no provider call, no fabricated answer).
+        if (ctrl->property("aiDiagnosisBusy").toBool()
+            || ctrl->property("hasAiDiagnosis").toBool()
+            || !ctrl->property("aiDiagnosisErrorMessage").toString().isEmpty())
+            fail(QStringLiteral("EVIDENCE %1: AI state is not the untouched "
+                                "configuration state").arg(ctx));
+        if (ctrl->property("agentBusy").toBool()
+            || ctrl->property("hasAgentAnswer").toBool()
+            || !ctrl->property("agentErrorText").toString().isEmpty())
+            fail(QStringLiteral("EVIDENCE %1: Agent state is not the untouched "
+                                "state").arg(ctx));
+        qInfo().noquote()
+            << QStringLiteral("EVIDENCE FACTS %1: observed=4 success=1 "
+                              "exception=1 crc=1 timeout=1 rate=25%% "
+                              "avgLatency=25ms baselineChars=%2")
+                   .arg(ctx)
+                   .arg(ctrl->property("baselineDiagnosisText")
+                            .toString()
+                            .size());
+    };
+
+    auto countNamed = [&](const QString &name) {
+        int count = 0;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            if (!item)
+                return;
+            if (item->objectName() == name)
+                ++count;
+            for (auto *child : item->childItems())
+                walk(child);
+        };
+        if (window)
+            walk(window->contentItem());
+        return count;
+    };
+    auto isUnder = [](QQuickItem *item, QQuickItem *ancestor) {
+        for (auto *p = item ? item->parentItem() : nullptr; p;
+             p = p->parentItem())
+            if (p == ancestor)
+                return true;
+        return false;
     };
 
     auto schedule = std::make_shared<std::function<void()>>();
@@ -2348,18 +2530,176 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
             grab(QStringLiteral("m9b4-dashboard-replay-1024x720"));
             break;
         }
+        case 12: {
+            // B5.4 Diagnosis set. Deterministic demo batch first: the SAME
+            // product command the manual flow uses, no test-only state.
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("runDemoBatch() not invokable"));
+            break;
+        }
+        case 13: {
+            if (!QMetaObject::invokeMethod(ctrl, "runBaselineDiagnosis"))
+                fail(QStringLiteral("runBaselineDiagnosis() not invokable"));
+            break;
+        }
+        case 14: {
+            assertDemoGoldenFacts(QStringLiteral("baseline setup"));
+            switchTo(diagnosisIndex);
+            break;
+        }
+        case 15: {
+            selectTab(0);
+            break;
+        }
+        case 16: {
+            // A. Baseline tab at the default size.
+            assertFrame(QStringLiteral("A"), diagnosisIndex, 0);
+            assertDemoGoldenFacts(QStringLiteral("A"));
+            grab(QStringLiteral("m9b5-diagnosis-baseline-1024x720"));
+            break;
+        }
+        case 17:
+            window->resize(1000, 700);
+            break;
+        case 18: {
+            // B. The same deterministic state at the application minimum.
+            assertFrame(QStringLiteral("B"), diagnosisIndex, 0);
+            assertDemoGoldenFacts(QStringLiteral("B"));
+            grab(QStringLiteral("m9b5-diagnosis-baseline-1000x700"));
+            break;
+        }
+        case 19:
+            window->resize(1024, 720);
+            break;
+        case 20:
+            selectTab(1);
+            break;
+        case 21: {
+            // C. AI tab: the real configuration state only. Ask AI is never
+            // clicked (asserted in assertDemoGoldenFacts: no request, no
+            // result, no error) and no credential ever reaches the UI.
+            assertFrame(QStringLiteral("C"), diagnosisIndex, 1);
+            assertDemoGoldenFacts(QStringLiteral("C"));
+            qInfo().noquote()
+                << QStringLiteral("EVIDENCE AI CONFIG: aiConfigured=%1 "
+                                  "(model name is shown by the UI itself; no "
+                                  "token is read, logged or captured)")
+                       .arg(ctrl->property("aiConfigured").toBool());
+            grab(QStringLiteral("m9b5-diagnosis-ai-1024x720"));
+            break;
+        }
+        case 22:
+            selectTab(2);
+            break;
+        case 23: {
+            // D-step 1: write the draft into the REAL page-local TextArea.
+            auto *draft =
+                findNamedItem(roots, QStringLiteral("diagnosisAgentQuestion"));
+            if (!draft) {
+                fail(QStringLiteral("diagnosisAgentQuestion not found"));
+                break;
+            }
+            const QString sentinel =
+                QStringLiteral("B5.4 manual draft persistence");
+            draft->setProperty("text", sentinel);
+            if (draft->property("text").toString() != sentinel)
+                fail(QStringLiteral("the sentinel draft did not stick"));
+            break;
+        }
+        case 24: switchTo(dashboardIndex); break;
+        case 25: switchTo(replayIndex); break;
+        case 26: switchTo(diagnosisIndex); break;
+        case 27: {
+            // D. Agent tab after the round trip: the draft must be back
+            // byte for byte (visual companion to Scenario N — the automated
+            // nav check remains the authoritative machine evidence).
+            assertFrame(QStringLiteral("D"), diagnosisIndex, 2);
+            assertDemoGoldenFacts(QStringLiteral("D"));
+            auto *draft =
+                findNamedItem(roots, QStringLiteral("diagnosisAgentQuestion"));
+            const QString want =
+                QStringLiteral("B5.4 manual draft persistence");
+            if (!draft)
+                fail(QStringLiteral("diagnosisAgentQuestion vanished"));
+            else if (draft->property("text").toString() != want)
+                fail(QStringLiteral("the page-local draft did not survive the "
+                                    "round trip: \"%1\"")
+                         .arg(draft->property("text").toString()));
+            else
+                qInfo().noquote()
+                    << QStringLiteral("EVIDENCE DRAFT: page-local draft "
+                                      "preserved across Dashboard -> Replay -> "
+                                      "Diagnosis (\"%1\")").arg(want);
+            grab(QStringLiteral("m9b5-diagnosis-agent-draft-1024x720"));
+            break;
+        }
+        case 28: {
+            // E. Legacy after the extraction: statistics + transactions, no
+            // duplicated Diagnosis UI, and the promoted pane really lives in
+            // the Legacy column (not inside the removed SplitView).
+            switchTo(legacyIndex);
+            break;
+        }
+        case 29: {
+            assertFrame(QStringLiteral("E"), legacyIndex, -1);
+            auto *legacyPage =
+                findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+            auto *stats =
+                findNamedItem(roots, QStringLiteral("statisticsPanel_legacy"));
+            auto *pane = findNamedItem(
+                roots, QStringLiteral("legacyTransactionsPane"));
+            if (!legacyPage || !legacyPage->isVisible())
+                fail(QStringLiteral("EVIDENCE E: legacyWorkspace is not "
+                                    "visible"));
+            if (!stats || stats->width() <= 0 || stats->height() <= 0)
+                fail(QStringLiteral("EVIDENCE E: legacy statistics block has no "
+                                    "geometry"));
+            if (!pane || pane->width() <= 0 || pane->height() <= 0)
+                fail(QStringLiteral("EVIDENCE E: legacy transactions pane has no "
+                                    "geometry"));
+            if (legacyPage && pane && !isUnder(pane, legacyPage))
+                fail(QStringLiteral("EVIDENCE E: legacyTransactionsPane is not "
+                                    "inside the legacy workspace"));
+            if (legacyPage && stats && pane
+                && pane->y() + 1e-6 < stats->y() + stats->height())
+                fail(QStringLiteral("EVIDENCE E: the transactions pane overlaps "
+                                    "the statistics block"));
+            if (countNamed(QStringLiteral("diagnosisTabContent")) != 1)
+                fail(QStringLiteral("EVIDENCE E: expected exactly one "
+                                    "diagnosisTabContent in the tree"));
+            if (legacyPage && isUnder(
+                    findNamedItem(roots, QStringLiteral("diagnosisTabContent")),
+                    legacyPage))
+                fail(QStringLiteral("EVIDENCE E: Diagnosis UI is still inside "
+                                    "the legacy workspace"));
+            assertDemoGoldenFacts(QStringLiteral("E"));
+            qInfo().noquote()
+                << QStringLiteral("EVIDENCE LEGACY: statistics=%1x%2 "
+                                  "transactionsPane=%3x%4 y=%5 (no SplitView, "
+                                  "no duplicated Diagnosis UI)")
+                       .arg(stats ? stats->width() : -1)
+                       .arg(stats ? stats->height() : -1)
+                       .arg(pane ? pane->width() : -1)
+                       .arg(pane ? pane->height() : -1)
+                       .arg(pane ? pane->y() : -1);
+            grab(QStringLiteral("m9b5-legacy-after-diagnosis-extraction-1024x720"));
+            break;
+        }
+
         default:
             break;
         }
 
-        if (failures->isEmpty() && *stage < 11) {
+        if (failures->isEmpty() && *stage < 29) {
             ++*stage;
             QTimer::singleShot(settleMs, &app, *schedule);
             return;
         }
 
         if (failures->isEmpty())
-            qInfo() << "EVIDENCE CAPTURE PASS (5 screenshots)";
+            qInfo() << "EVIDENCE CAPTURE PASS (5 B4 screenshots + 5 B5 "
+                       "screenshots; every capture preceded by an explicit "
+                       "state assertion)";
         else
             for (const QString &f : *failures)
                 qWarning().noquote() << "EVIDENCE FAIL:" << f;

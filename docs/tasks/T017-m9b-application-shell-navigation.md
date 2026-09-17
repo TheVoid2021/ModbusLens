@@ -2360,3 +2360,149 @@ case 标签连续性/唯一性检查（build/b53_case_check.py）→ 87 个标�
 
 - **B5.3 Review（用户）**；通过后 **B5.4 — deploy + 截图证据 + manual candidate**（含 §46.1 的页框视觉人工检查项）。
 - B5 closure / M9-C / M10 均未开始。
+
+## 48. M9-B5.4 — Deploy + Screenshot Evidence + Manual Visual Candidate（Implementation Record，2026-09-17）
+
+本轮目标：从 `28e6592` 构建正式 deploy candidate、验证 deployed binary、生成 Diagnosis 截图证据、准备**用户**人工验收。**不替用户宣称 Manual Visual PASS；不关闭 M9-B5；不开始 M9-C；不 push；不推进 LKGC。**
+
+### 48.1 B5.3 Review = PASS（用户）+ 本轮 preflight
+
+- 用户裁定 **B5.3 Review = PASS**；权威状态：HEAD `28e6592`、branch main、working tree clean、verified LKGC `207ae96`、`v1.0.0^{commit}` = `ae067ab`（**annotated tag**：tag 对象 `2cee626`，判定不可变目标必须 peel 到 commit）、origin/main `a40d935`、ahead 41 / behind 0、`git diff --check` PASS。
+
+### 48.2 Deploy candidate
+
+`scripts/deploy_windows.bat`（仓库唯一部署机制，路径全部从 CMakeCache 派生，不含机器特定常量）从**当前工作树**重新生成 `build/deploy`：
+
+- `build\deploy\ModbusLens.exe`（30,965,927 bytes，debug）。
+- Qt runtime：`Qt6Core/Gui/Qml/Quick/QuickControls2/QuickLayouts/QuickDialogs2/QuickTemplates2/QuickDialogs2QuickImpl/Qt6Network/Qt6SerialPort/Qt6Svg` …；平台插件 `platforms\qwindows.dll`；`imageformats\*`。
+- QML runtime：`qml\QtQuick\{Controls,Dialogs,Layouts,Templates,Effects,Shapes,NativeStyle,...}`（B5 未删除任何既有 Replay/Serial 运行时依赖）。
+- 应用模块：`ModbusLens\qmldir` + 镜像源码树，**四个 page 文件全部在位**（DashboardPage/CommunicationPage/ReplayPage/DiagnosisPage）。
+- 业务样本：`samples\demo_v1.mlog`（289 bytes，单一源头来自 `samples/`）。
+
+**deploy 脚本扩展（behavior-bearing，非 docs-only）**：脚本第 8 步的"关键文件存在性"清单此前只覆盖 Main.qml + 5 个组件，**不含 M9-B2..B5 抽出的 4 个 page**，也不含 `Qt6Network.dll` / `Qt6SerialPort.dll`——缺 page 只会在运行时表现为空工作区。本轮把 4 个 page + `NavigationRail.qml` + 上述两个 DLL 加入清单。这是部署门禁覆盖面的补齐，不改变部署机制。
+
+### 48.3 部署版最小 PATH 验证（严格）
+
+首次脚本用了 `$env:PATH = 'C:\Windows\System32;' + $env:PATH`——**是前置不是替换**，Qt/MinGW 仍在 PATH 里，**证明不了独立部署**。改为**严格替换**：
+
+```text
+STRICT PATH = C:\Windows\System32;C:\Windows      （无 Qt / MinGW / Anaconda）
+exe         = build\deploy\ModbusLens.exe
+
+--qml-smoke-test      EXITCODE=0
+--qml-nav-check       EXITCODE=0
+  NAV SCENARIOS: basic five-workspace path PASS, A PASS, B PASS, D PASS, E PASS,
+    F PASS, G' PASS, H PASS, I PASS, J PASS, K PASS, K' PASS, L PASS, N PASS
+  NAV SCENARIO M: DEFERRED BY DESIGN …（不伪造 AI result）
+  NAV CHECK PASS (five workspaces; … A/B/D/E/F/G'/H/I/J/K/K'/L/N asserted; M deferred by design)
+  关键行：NAV [scenario L setup]: observed=4 baselineChars=112 digest=6915f49af5442768
+--qml-geometry-check  EXITCODE=0
+  GEOMETRY CHECK PASS(10 passes: legacy + dashboard + communication + replay + diagnosis x 2 sizes;
+    the diagnosis pass sweeps its three tabs)      0 GEOFAIL；dump 段 14 = 10 趟（Diagnosis 各 3 tab 子测量）
+```
+
+⇒ **deployed binary 不依赖开发环境 PATH**，且五 workspace / 11 个 named scenario + basic path / L / N / 10 趟几何全部由**部署版**通过。
+
+### 48.4 截图证据（deployed binary，严格最小 PATH）
+
+证据由 `--qml-evidence-capture <dir>`（**扩展后的 harness**）在**部署版**上生成，输出 10 张：5 张 B4 复验 + 5 张 B5 新增。日志逐张记录"断言过的状态 + 逻辑尺寸 + 实际像素尺寸"：
+
+| 文件 | 断言的状态 | 逻辑 | 像素 | ws | tab |
+| --- | --- | --- | --- | --- | --- |
+| `m9b5-diagnosis-baseline-1024x720.png` | page=4, navItem_4 selected, diagnosisVisible=1, tab=0, observed=4, baseline=1 | 1024×720 | 1280×900 | 4 | 0 |
+| `m9b5-diagnosis-baseline-1000x700.png` | 同上，最小尺寸 | 1000×700 | 1250×875 | 4 | 0 |
+| `m9b5-diagnosis-ai-1024x720.png` | page=4, tab=1, aiConfigured=1（**未点击 Ask AI**：hasAiDiagnosis=0 / busy=0 / error 空） | 1024×720 | 1280×900 | 4 | 1 |
+| `m9b5-diagnosis-agent-draft-1024x720.png` | page=4, tab=2, 草稿 `"B5.4 manual draft persistence"` 经 Dashboard→Replay→Diagnosis 往返后逐字保留（未点击 Ask Agent） | 1024×720 | 1280×900 | 4 | 2 |
+| `m9b5-legacy-after-diagnosis-extraction-1024x720.png` | page=0, navItem_0 selected; statistics 935×168；transactionsPane 935×422 @y=225（在 statistics 之下、位于 legacy 列内、全树仅 1 个 `diagnosisTabContent`、且不在 legacy 子树内） | 1024×720 | 1280×900 | 0 | — |
+
+**DPI 说明**：本机 125% —— 请求的逻辑尺寸（1024×720 / 1000×700）与 PNG 像素尺寸（1280×900 / 1250×875）**不同且分别记录**；二者不可混为一个"尺寸"。
+
+**截图 oracle 规则（B4 教训）**：**不**用文件名推断页面状态。每张截图前显式断言 `workspace index` / `navItem_N.selected` / `diagnosisPage` 可见性 / `legacyWorkspace` 可见性 / Diagnosis `tab` 索引，并打印 `EVIDENCE ASSERT <X>: page=… tab=… ok`；`grab()` 再记录该状态 + 逻辑/像素尺寸 + mode/source/observed/baseline。
+
+**baseline 语义断言（machine，非 OCR）**：截图前断言 demo golden facts —— observed=4 / completed=4 / pending=0 / success=1 / exception=1 / crc=1 / timeout=1 / protocolError=0 / expectedNoResponse=0、successRate=0.25（**分数字段**，QML 显示时 ×100）、averageSuccessLatencyMs=25、`hasBaselineDiagnosis=true`、baseline 文本非空（112 字符）。**不依赖逐像素/OCR 作为业务真值。**
+
+**草稿持久性断言**：截图 harness 内做了 `Agent tab → 写 draft → Dashboard → Replay → Diagnosis → 逐字回读`，作为 Scenario N 的**视觉补充**；自动 nav check 的 Scenario N 仍是权威机器证据。
+
+**截图自检（`build/b54_selfcheck.py`，一次性工具，未入库）**：
+
+```text
+image                                          pixels    logical    ws tab  result
+m9b5-diagnosis-baseline-1024x720               1280x900  1024x720    4  0   OK
+m9b5-diagnosis-baseline-1000x700               1250x875  1000x700    4  0   OK
+m9b5-diagnosis-ai-1024x720                     1280x900  1024x720    4  1   OK
+m9b5-diagnosis-agent-draft-1024x720            1280x900  1024x720    4  2   OK
+m9b5-legacy-after-diagnosis-extraction-1024x720 1280x900 1024x720    0  —   OK
+distinct images: 5/5
+SELF-CHECK PASS (5/5: identity from the capture log, dimensions, non-flat content)
+```
+
+自检**只**证明：capture identity（来自捕获日志，不来自文件名）、尺寸有效、内容非纯色、5 张互不相同（防"同一帧复制成 5 个名字"）。**不**发明脆弱的固定像素带契约。视觉判断归用户。
+
+**provider / 凭据边界**：harness **不**调用 Ask AI / Ask Agent、**不**发网络请求、**不**写死或伪造任何 AI/Agent 文本；`aiConfigured=1`（本机确有环境配置）时 UI 自行显示模型名——harness 只读 `aiConfigured` 布尔并**不读取、不记录任何 token**，截图不含凭据。**real AI/Agent provider call NOT REQUIRED FOR B5.4。**
+
+### 48.5 证据 harness 变更分类
+
+本 commit 修改 `src/main.cpp`（+354/-10）⇒ **test/evidence harness behavior-bearing change，不是 docs-only**。新增：`grab()` 状态日志（逻辑/像素尺寸 + ws/tab/navItem/可见性/mode/source/observed/baseline）、`selectTab`、`assertFrame`、`assertDemoGoldenFacts`、`countNamed`/`isUnder`（"无重复 Diagnosis UI"检查）、B5 捕获阶段 12..29、evidence `switchTo` 补 diagnosis 键映射。**未改 Controller 语义、未注入 AI/Agent answer、未调网络、未加 production-only state。**
+
+### 48.6 Bounded-layout 与长期内容边界
+
+- bounded 结构由 B5.3 的 10 趟几何保护（三 tab 视口 561/543/487 @1024×720、541/523/467 @1000×700，均 >0、在页内、`clip==true`）。
+- 本轮**不**为截图生成超长 AI/Agent 文本，**不**调用真实 Provider。人工验收允许在 Agent 问题 TextArea 输入多行长本地文本（**不提交**）以观察 TextArea bounded / 页面不被撑高 / Tab 与 header 不消失 / 滚动正常。
+
+### 48.7 Problems / RCA
+
+| # | 现象 | 分类 | 根因 | 处理 |
+| --- | --- | --- | --- | --- |
+| 1 | `EVIDENCE baseline setup: success rate is not 25%`（首次证据运行 exit 1，未产出任何 B5 截图） | **test oracle** | 断言把 `successRate` 当百分数（25.0）；实际是**分数** 0.25（`tests/test_diagnosis.cpp:224` 同证），QML 显示时才 ×100 | 修断言为 0.25 并注明单位；重跑至 PASS。**不是产品缺陷** |
+| 2 | 首次"最小 PATH"脚本写成 `'C:\Windows\System32;' + $env:PATH`（前置而非替换） | **evidence 方法缺陷**（evidence validity） | 复制了 B4 脚本写法而未核对其语义 | 改为**严格替换** `C:\Windows\System32;C:\Windows` 并重跑全部部署门禁；日志记录 STRICT PATH |
+| 3 | 自检把 Legacy 截图期望为 `tab=-1`，实际日志 `diagnosisTab=2` | **self-check oracle** | 隐藏的 Diagnosis 页**保留**其页本地 tab 选择（StackLayout 常驻），日志如实记录，但自检错误地把它当作该图的断言 | 自检对非 Diagnosis 截图不比较 tab（仍记录），并在脚本内注明原因 |
+
+**三次都不是产品/布局/持久化回归**；**未因证据红灯改 Controller**。
+
+### 48.8 Validation（本轮全部真实输出）
+
+```text
+cmake --build --preset debug-local → [4/4] Linking modbuslens.exe（0 error；仅既有无害警告）
+scripts\deploy_windows.bat         → [OK] Deployment directory ready: build\deploy
+部署版（严格最小 PATH）smoke/nav/geometry → 0 / 0 / 0（10 趟、0 GEOFAIL、14 dump 段）
+--qml-evidence-capture（部署版）    → EVIDENCE CAPTURE PASS（5 B4 + 5 B5 张）
+自检                                → SELF-CHECK PASS 5/5；distinct 5/5
+ctest --preset debug-local         → 100% tests passed, 0 tests failed out of 26
+git diff --check                   → PASS
+git status                         → 仅 scripts/deploy_windows.bat、src/main.cpp、5 张新 PNG（probe 脚本全在 ignored build/ 内）
+```
+
+### 48.9 Files Changed（B5.4）
+
+- `src/main.cpp`：evidence harness 扩展（B5 五张截图 + state oracle + 捕获日志 + 无重复-Diagnosis-UI 检查）。
+- `scripts/deploy_windows.bat`：第 8 步清单补 4 个 page + NavigationRail + Qt6Network/Qt6SerialPort。
+- `docs/assets/screenshots/m9b5-*.png`：5 张新增证据（部署版产出）。
+- docs：本 §48、PROJECT_STATUS、BACKLOG、devlog、INTERVIEW_NOTES。**未动** AnalysisController/Core/backend/CMakeLists/tests/其他页面。
+
+### 48.10 Result（B5.4）
+
+- deploy candidate 构建成功并在**严格最小 PATH** 下通过 smoke / nav / 10 趟 geometry（deployed binary）。
+- 5 张 Diagnosis/Legacy 证据截图 + 5 张 B4 复验截图，全部"先断言后截图"，自检 5/5。
+- **Manual Visual = WAITING FOR USER**（§48.11 清单；**本文件不宣称 PASS**）。
+- **M9-B5 未 COMPLETE**（等人工 PASS + B5 Final Closure）；**未推进 verified LKGC（仍 `207ae96`）**；**未 push**。
+
+### 48.11 人工验收清单（交给用户；不预先判定）
+
+**A. Navigation**：工作台/总览/通信/回放/诊断 enabled；设备 disabled；切到诊断不触发任何业务动作。
+**B. Diagnosis 1024×720**：SectionHeader 层级自然；三 Tab 可读；无 clipping/overlap；page margins 与其它 workspace 一致。
+**C. Diagnosis 1000×700**：同样无裁切；Run/Clear 可达；Tab 不挤坏；内容可滚动。
+**D. Baseline**：Run Demo Batch → Diagnosis → Run Baseline Diagnosis；deterministic findings 正常；Dashboard facts 未被 Diagnosis 改变。
+**E. Persistence**：有 baseline 后 Diagnosis→Dashboard→Replay→Communication→Diagnosis，baseline 仍在、未被自动重跑或清除。
+**F. Clear Diagnosis**：按 Controller 既有真实语义执行；确认 Dashboard facts / transactions / source 不被清除；**不为 B5 重新定义 Agent clear 语义**。
+**G. AI Tab**：控件完整；provider/model/config 状态可读；busy/error/output 布局正常；**不要求真实 ModelScope**；不泄露凭据。
+**H. Agent Tab**：question TextArea 正常；Ask/Cancel 正常显示；长本地 draft 不撑坏页面；draft 在 workspace 导航后保持；不需要真实 Provider。
+**I. Legacy**：Diagnosis 已迁出；仍有 Statistics + Transactions；无重复 Diagnosis UI；无大空洞/错位。
+**J. Regression**：Dashboard / Communication / Replay 视觉与基本交互无回归。
+**K. 两尺寸**：1024×720 与 1000×700 均确认。
+
+**Provider 边界**：B5.4 **不要求** Live ModelScope AI PASS、不要求 Live Agent PASS，**不要求用户为 UI extraction 提供 token**；用户若已有配置，验收时也**不要**默认触发网络调用。
+
+## 49. Next
+
+- **B5.4 Manual Visual Review（用户）**；通过后 **B5 Final Closure**（届时按实际 Git tree classification 决定 verified LKGC 候选——`28e6592` 与本 commit 都是 behavior-bearing tree，**不提前锁定**）。
+- M9-C / M10 未开始。

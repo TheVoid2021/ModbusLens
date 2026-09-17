@@ -119,7 +119,11 @@ mkdir "%DEPLOY_DIR%\samples"
 copy /y "%SOURCE_DIR%\samples\demo_v1.mlog" "%DEPLOY_DIR%\samples\demo_v1.mlog" >nul
 
 rem ---- 8. verify key deployment files ----
-for %%F in (ModbusLens.exe Qt6Core.dll Qt6Gui.dll Qt6Qml.dll Qt6Quick.dll Qt6QuickControls2.dll libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll platforms\qwindows.dll ModbusLens\qmldir ModbusLens\src\ui\qml\Main.qml ModbusLens\src\ui\qml\DS\DesignSystem.qml ModbusLens\src\ui\qml\components\AppButton.qml ModbusLens\src\ui\qml\components\PanelCard.qml ModbusLens\src\ui\qml\components\SectionHeader.qml ModbusLens\src\ui\qml\components\StatCard.qml samples\demo_v1.mlog) do (
+rem The QML list must cover every type the app actually instantiates: the
+rem module root, the design system, the shared components AND the workspace
+rem pages extracted in M9-B2..M9-B5. A missing page file would only surface
+rem as an empty workspace at runtime, so the deploy gate checks it here.
+for %%F in (ModbusLens.exe Qt6Core.dll Qt6Gui.dll Qt6Qml.dll Qt6Quick.dll Qt6QuickControls2.dll Qt6Network.dll Qt6SerialPort.dll libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll platforms\qwindows.dll ModbusLens\qmldir ModbusLens\src\ui\qml\Main.qml ModbusLens\src\ui\qml\DS\DesignSystem.qml ModbusLens\src\ui\qml\components\AppButton.qml ModbusLens\src\ui\qml\components\PanelCard.qml ModbusLens\src\ui\qml\components\SectionHeader.qml ModbusLens\src\ui\qml\components\StatCard.qml ModbusLens\src\ui\qml\components\NavigationRail.qml ModbusLens\src\ui\qml\pages\DashboardPage.qml ModbusLens\src\ui\qml\pages\CommunicationPage.qml ModbusLens\src\ui\qml\pages\ReplayPage.qml ModbusLens\src\ui\qml\pages\DiagnosisPage.qml samples\demo_v1.mlog) do (
     if not exist "%DEPLOY_DIR%\%%F" (
         echo [ERROR] Missing deployment file: %%F
         exit /b 1
