@@ -304,3 +304,11 @@
 - **Q：这次 bar 的 bug 是怎么被抓住的？** A：段宽断言 + 一行 DIAG 输出。症状是"段宽全 0、末段却吃满整条"，DIAG 显示 `completedTotal=4` 但 `unitWidth=0`，stderr 里 `ReferenceError: barTrack is not defined` —— bar 的 Item 忘了写 id，绑定静默失败成 0。教训有二：①新绑定的依赖目标必须真实存在（缺 id 不报加载错误）；②stderr 的 ReferenceError 计数必须是一级门禁，不能只看 exit code。
 - **Q：为什么在 Dashboard 上断言"wrapper 不存在"，在 Legacy 上断言"wrapper 必须存在"？** A：两侧同时锁，才能证明这次是**真迁移**而不是"复制一份新组合、旧壳留着冒充"。消失与存在都是契约——结构迁移的验证必须同时覆盖"新形态在"与"旧形态不在"。
 - **Q：分布条的信息已经和六张卡重复了，为什么还画它？** A：它们回答的问题不同：卡片回答"每类**多少**"，条回答"哪类**占多数**"。重复的只是数字来源，不是信息维度；并且刻意不再复制第二排文字图例——六张卡就是 legend，颜色只是辅助通道。
+
+
+## 33. Post-T018 M9-C C4 条目（2026-09-18 追加）
+
+- **Q："attention 求和"和"health score"的边界到底在哪？** A：求和是**可逆的呈现动作**——四个权威计数相加，用户能从 breakdown 还原每个输入；health score 是**不可逆的语义发明**——权重、阈值、Healthy/Unhealthy 分档都不是数据里有的东西。本轮把边界写进测试：数值 oracle 锁"和=四计数之和"，措辞契约锁"只谈事务结果"，任何分档/命名都会同时破坏两者。
+- **Q：三个 runtime 状态为什么是 demo/broadcast/protocol-error 这一组？** A：它们把 attention 公式的每个输入维度都推到非零：demo 证明 breakdown 的省略规则（protocol=0 不出现）、broadcast 证明 ExpectedNoResponse 不进和且零 attention 时措辞仍是 outcome-limited、protocol-error 证明协议错误真的参与求和（demo 无法证明这一点）。剩下一个 pending 只能靠公式审计——为它伪造串口状态得不偿失，但报告里必须诚实标注"formula covered，非 runtime"。
+- **Q：为什么 diagnosis cue 选在这一轮实现而不是再 DEFER？** A：因为 C4 是最后一个内容阶段，C5 只做 deploy/截图/人工。Phase 1 已把 cue 裁定为 NOW，如果 C4 不做，它就变成"无主设计项"——要么现在实现（成本一行文本 + 一个布尔读取），要么正式改判 DEFER 并说明原因。规则是：**设计决策的消失必须有解释**。
+- **Q：新增 targeted geometry pass 时踩了什么坑？** A：demo 趟跟在最小尺寸趟后面，而 transition 只会"缩到最小"——结果 tag 写 1024×720、实际量的是 1000×700。修复是给测量步骤加"恢复默认尺寸"的能力。教训：**步骤标签是承诺，机器必须验证量到的尺寸和承诺一致**（本轮正是靠 dump 里的 page 高度发现）。

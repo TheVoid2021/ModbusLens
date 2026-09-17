@@ -102,6 +102,67 @@ Item {
                 analysisController: page.analysisController
                 instanceId: "dashboard"
             }
+
+            // M9-C C4 deterministic attention summary (T018 §C4): a
+            // presentation aggregation of exactly FOUR outcome counts —
+            // exception + crcError + timeout + protocolError. ExpectedNoResponse
+            // is NOT an anomaly and never enters this sum (Review guardrail B);
+            // neither do success or pending. It is not a health score and uses
+            // no severity colour: the wording stays scoped to completed
+            // transaction outcomes, and zero-count categories are omitted from
+            // the breakdown. In a session without completed outcomes it says
+            // so instead of claiming "no anomalies".
+            Label {
+                id: attentionSummary
+                objectName: "dashboardAttentionSummary"
+                Layout.fillWidth: true
+                visible: page.analysisController.observedCount > 0
+
+                readonly property int attentionCount:
+                    page.analysisController.exceptionCount
+                    + page.analysisController.crcErrorCount
+                    + page.analysisController.timeoutCount
+                    + page.analysisController.protocolErrorCount
+
+                readonly property string attentionBreakdown: {
+                    var parts = [];
+                    if (page.analysisController.exceptionCount > 0)
+                        parts.push(qsTr("异常 %1").arg(page.analysisController.exceptionCount));
+                    if (page.analysisController.crcErrorCount > 0)
+                        parts.push(qsTr("CRC 错误 %1").arg(page.analysisController.crcErrorCount));
+                    if (page.analysisController.timeoutCount > 0)
+                        parts.push(qsTr("超时 %1").arg(page.analysisController.timeoutCount));
+                    if (page.analysisController.protocolErrorCount > 0)
+                        parts.push(qsTr("协议错误 %1").arg(page.analysisController.protocolErrorCount));
+                    return parts.join(" · ");
+                }
+
+                text: page.analysisController.completedCount === 0
+                      ? qsTr("尚无已完成结果。")
+                      : (attentionCount > 0
+                         ? qsTr("需关注结果 %1 条：%2")
+                               .arg(attentionCount)
+                               .arg(attentionBreakdown)
+                         : qsTr("已完成结果中暂未观察到异常、CRC 错误、超时或协议错误。"))
+                color: DS.textSecondary
+                wrapMode: Text.Wrap
+            }
+        }
+
+        // M9-C C4 diagnosis status cue (Phase 1 §52.19 decision, implemented
+        // here): an EXISTENCE line only — it reads hasBaselineDiagnosis and
+        // never shows findings, the baseline text, AI or Agent content. Pure
+        // text guidance: no CTA, the navigation rail stays the only
+        // navigation authority.
+        Label {
+            objectName: "dashboardDiagnosisCue"
+            Layout.fillWidth: true
+            visible: page.analysisController.observedCount > 0
+            text: page.analysisController.hasBaselineDiagnosis
+                  ? qsTr("已有基线诊断结果，可在诊断工作区查看。")
+                  : qsTr("尚未运行基线诊断。")
+            color: DS.textSecondary
+            wrapMode: Text.Wrap
         }
 
         // ------------------------------------------------------------------

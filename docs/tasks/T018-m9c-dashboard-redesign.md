@@ -479,7 +479,178 @@ stderr 卫生：ReferenceError/TypeError/binding loop/NaN/Infinity/required miss
 - **Q：为什么隐藏组件还要防除零？** A：`visible: false` 不阻止绑定求值。若宽度绑定写成 `bar.width / completed`，空态时 completed=0 会产生 NaN/Infinity 并在状态切换瞬间传播；实现把单位宽在零态显式置 0，NaN 从根上不可能出现。
 - **Q：怎么防止"为了测试而保留一个假 wrapper"？** A：Dashboard 侧断言 `statisticsOverview_dashboard` **不存在**，Legacy 侧断言 wrapper **必须存在**——两侧同时锁，防止"删了组合但留个空壳保 objectName"这类假迁移。
 
-## C4–C5（后续，未开始）
+### C3.20 C3 Review = PASS（用户）+ Review Addendum
+
+用户裁定 **M9-C C3 Review = PASS**。两项裁定入档：
+
+- **A. RCA 措辞更正（append 更正，不改历史原文）**：C3.7 中 "barTrack 漏写 id" **不是 pre-existing product bug** —— 正确分类 = **C3 implementation-time QML presentation defect**（本轮新增代码的呈现缺陷），由**本轮新增的 harness 在 candidate 完成前捕获**，修复后全部门禁 PASS。
+- **B. `outcomeSegment_0..5_dashboard` 是 verification observability anchor，不是 public product API**（同 C2 Addendum 对 objectName 的定性）。
+
+## C4 — Deterministic Attention Summary + Final Dashboard Content Geometry（Implementation Record，2026-09-18）
+
+### C4.1 Preflight
+
+```text
+branch = main；HEAD = 2af2e05；working tree clean；git diff --check PASS
+V2 verified LKGC = 6cc84c3；v1.0.0^{commit} = ae067ab（annotated tag 对象 2cee626）
+origin/main = a40d935；ahead 51 / behind 0
+```
+
+### C4.2 Phase-1 decision reconciliation（design-delta audit，实施前）
+
+| Phase 1 元素 | 状态 | 落点 |
+| --- | --- | --- |
+| C1 shell / surplus ownership | **IMPLEMENTED** | C1 |
+| primary metrics（row1） | **IMPLEMENTED** | StatisticsMetrics（C2 抽出，wrapper 与 Dashboard 复用） |
+| outcome counts（row2） | **IMPLEMENTED** | StatisticsOutcomes（同上） |
+| OutcomeDistribution | **IMPLEMENTED** | C3 |
+| **attention summary** | **IMPLEMENTED（本轮 C4）** | Dashboard 页内（见 C4.5） |
+| **empty state（措辞刷新）** | **IMPLEMENTED** | C3 |
+| **diagnosis status cue（§52.19 = NOW）** | **IMPLEMENTED（本轮 C4，裁定 = A 实现）** | 页内一行存在性线索（见 C4.8）——**不被偷偷丢掉** |
+| Run Demo（顶部 primary、仅显式触发） | **IMPLEMENTED** | B2 起保持 |
+| recent transactions / 事务预览 | **DEFERRED → M9-D**（§52.18） | — |
+| 趋势图 / 时间序列 | **REJECTED**（无历史数据集） | — |
+| 设备卡 / 设备健康 | **REJECTED → M12** | — |
+| AI insight card | **REJECTED**（AI 非 Dashboard 权威） | — |
+| health score / Healthy-Unhealthy / severity | **REJECTED**（无业务定义；guardrail B） | — |
+| SessionChip / AppBar polish | **DEFERRED**（C3 Addendum guardrail C：移出 M9-C） | — |
+| B5 冻结字面量 → DS token | **DEFERRED**（guardrail D：须 ≥2 复用点） | — |
+
+⇒ **无未解释消失的 Phase 1 NOW 项**；C4 后 Dashboard 产品内容收敛。
+
+### C4.3 Attention formula（冻结）
+
+```text
+attentionCount = exceptionCount + crcErrorCount + timeoutCount + protocolErrorCount
+```
+
+**明确排除**：Success、Pending、**ExpectedNoResponse**（不是 anomaly，guardrail B）。**不得建立** healthScore / healthy / unhealthy / warning level / severity level / quality score。`attentionCount` 只是既有 deterministic counts 的**呈现层聚合**：不是新的 domain statistic、不进 Core snapshot、不写回 Controller、无 Q_PROPERTY、无 DashboardViewModel、无缓存。
+
+### C4.4 Component decision（§8 比较）
+
+| 方案 | 判定 |
+| --- | --- |
+| **A. 直接写在 DashboardPage（采纳）** | 单一消费者；公式 ~10 行；Dashboard 本就是 C3 后的组合所有者；避免 +1 文件 +1 注册的单消费者组件 |
+| B. 新增 AttentionSummary.qml | 拒绝——"可测试"不足以证明必须抽组件（guardrail：≥2 真实复用或明确 ownership 改善）；其契约已由页内 objectName + 属性 + harness 断言承担 |
+
+**不进 DesignSystem** ✓。**数据所有权**：直接派生自 AnalysisController 既有 count properties；QML 仅做这一处**冻结的、纯呈现的求和**（与 successRate / statistics formulas 不同层级，T018 §C4 明确记录）。
+
+### C4.5 Attention 呈现与措辞（边界）
+
+- **位置**：statistics PanelCard 内、StatisticsOutcomes 之后（它聚合的就是该 panel 呈现的六项计数中的四项）；`objectName: "dashboardAttentionSummary"`；内部间距 = `DS.spacingS`（panel 内容布局 token）。
+- **可见性**：`observedCount > 0`（observed == 0 时隐藏——空态提示已覆盖，避免重复）。
+- **三态措辞**（全部 outcome-limited，不涉设备健康）：
+  1. `completedCount == 0`（含全 Pending）⇒ **"尚无已完成结果。"**（不写"无异常/无需关注"——结果尚未完成）；
+  2. `attentionCount > 0` ⇒ **"需关注结果 N 条：异常 N · CRC 错误 N · 超时 N · 协议错误 N"**（**零计数类别从 breakdown 中省略**——demo 即 "需关注结果 3 条：异常 1 · CRC 错误 1 · 超时 1"）；
+  3. `attentionCount == 0 且 completed > 0` ⇒ **"已完成结果中暂未观察到异常、CRC 错误、超时或协议错误。"**（用户认可的有限语义句——**不写**"系统健康/一切正常"）。
+- **颜色不参与 attention 判定**：`DS.textSecondary` 中性文本，无红点/徽章/信号灯；纯文本即可访问（§22）。
+
+### C4.6 Zero / Pending / Broadcast 语义（§6）
+
+| 状态 | attention 表现 | 依据 |
+| --- | --- | --- |
+| A. observed == 0 | 隐藏（空态 hint 负责） | §6-A |
+| B. completed == 0 且 observed > 0（如全 Pending） | 显示"尚无已完成结果。"——**绝不显示"无异常/无需关注"** | §6-B |
+| C. broadcast-only（ENR=1） | `attentionCount = 0` ⇒ 无 attention 文案；分布条仍 100% ENR | §6-C |
+
+### C4.7 Diagnosis cue（§14 裁定 = A：本轮实现）
+
+- **一行存在性线索**：`dashboardDiagnosisCue`，读 **`hasBaselineDiagnosis`**（唯一数据），两向措辞："尚未运行基线诊断。" / "已有基线诊断结果，可在诊断工作区查看。"
+- **禁止项全部遵守**：无 finding count、不解析 baseline text、不复制全文、无 AI/Agent 内容、无 CTA 按钮。
+- 位置：页级（统计 panel 之外——诊断是另一个 workspace 域）；`observedCount > 0` 时可见。
+
+### C4.8 Runtime 证据（探针 87..97，全部机器断言）
+
+| 状态 | attentionCount（QML property = 数值 oracle） | 文案契约 | 其它 |
+| --- | --- | --- | --- |
+| demo（87..89） | **3** = 1+1+1+0 ✓ | "需关注结果 3 条：异常 1 · CRC 错误 1 · 超时 1"（零类省略 ✓） | hasBaselineDiagnosis=0 ⇒ cue="尚未运行基线诊断。" ✓ |
+| baseline 后（90..91） | 3（baseline 不影响 attention）✓ | 不变 | cue 翻转 = "已有基线诊断结果，可在诊断工作区查看。" ✓ |
+| broadcast（92..93） | **0**（ENR 不计入）✓ | "已完成结果中暂未观察到…" ✓ | ENR 段 = 整条 bar 911 ✓、hasSuccessRate=0 ✓ |
+| protocol-error（94..95） | **1**（protocol 计入）✓ | "需关注结果 1 条：协议错误 1" ✓ | `protocolErrorCount=1>0`（**runtime covered**）+ 分布条 protocol 段满宽 |
+| zero（96..97） | 隐藏（observed=0）✓ | —（隐藏态无措辞契约） | attention/cue 与 session 一起隐藏 |
+
+**protocolError 计入 = runtime covered**（t014_protocol_error.mlog：FC06 响应回显 0x0065 ≠ 请求 0x0064、双 CRC 程序化验证有效 ⇒ WriteSingleRegisterEchoMismatch → ProtocolError=1；fixture 按既有机制 COPYONLY+宏接线）。**Pending 排除 = formula/source covered**（源码级审计：`attentionCount` 公式仅引用四个 outcome counts，不含 pendingCount/observedCount/completedCount/successCount/expectedNoResponseCount/hasSuccessRate —— 已程序化验证；**无** all-pending runtime 状态，未为此引入 fake Serial，**明确没有 runtime claim**）。
+
+### C4.9 Final content geometry（§16/§17）
+
+geometry matrix 扩为 **10 标准趟（保持原样，空态）+ 2 趟 targeted demo-dashboard（新增，M9-C C4）**：
+
+| 量 | 1024×720（demo） | 1000×700（demo） |
+| --- | --- | --- |
+| page | 967×679 | 943×659 |
+| header.top / action.top | 16 / 43 | 16 / 43 |
+| statsHeader.top | **89**（hint 因 observed>0 隐藏） | **89** |
+| statisticsPanel | 935×**227**（+分布条 +attention） | 911×227 |
+| attention summary | y=191 h=12 可见 | 可见 |
+| diagnosis cue | y=339 h=12 可见 | 可见 |
+| tail spacer | h=**284** | h=**264** |
+
+- 空态标准趟与 C1/C3 完全一致（343/323——分布条隐藏不占位）。
+- **natural-height rule**：主内容全部自然 implicit 高 + DS spacing；**无任何主区 `Layout.fillHeight`**；tail spacer 仍是**唯一** stretch owner；两尺寸下 spacer 均 > 0（无挤压需求）。
+- 无 overlap / 无 clipping / 全部在 page bounds（既有断言 + 新元素断言）。
+
+### C4.10 Regression
+
+- **C1 spacing contract** ✓（gap=token 断言继续 PASS；未再出现 46/44/155 类 stretch gap）。
+- **C3 distribution regression** ✓（zero/demo/broadcast 三态断言全部保留并 PASS；distribution math 未改）。
+- **Legacy freeze** ✓：`c3_geo` vs `c4_geo` 的 Legacy 两趟逐 item **IDENTICAL**（`Main.qml` diff=0；attention 未进入 StatisticsOverview）。
+- **Statistics components freeze** ✓：`StatisticsMetrics/StatisticsOutcomes/StatisticsOverview/OutcomeDistribution` **本轮零 diff**（未重命名/未整理颜色/未改 spacing）。
+- **Navigation** ✓：14 项判决 PASS；M DEFERRED；导航不触发 Demo/attention 状态变化/Diagnosis/source transition。
+- **负向 scope**：无 health score/Healthy-Unhealthy/severity/recent rows/transaction filtering/diagnosis text/AI insight/Agent answer/SessionChip/AppBar/CTA/DS primitive/Controller Q_PROPERTY/statistics Core 改动（grep + `git diff --name-only` 双证）。
+
+### C4.11 Verification（真实命令与输出）
+
+```text
+cmake --preset debug-local && cmake --build --preset debug-local → Linking modbuslens.exe（0 error）
+--qml-smoke-test   → EXITCODE=0
+--qml-nav-check    → EXITCODE=0
+  NAV [attention baseline]: hasBaselineDiagnosis=1 attention=3
+  NAV [attention protocol]: protocol=1 attention=1 (protocol errors are part of the attention sum)
+  NAV [distribution broadcast]: expectedNoResponse=1 completed=1 hasSuccessRate=0 barWidth=911 enrSegmentWidth=911
+  NAV DASHBOARD PRESENTATION CHECK: PASS (distribution denominator = completedCount + 6 frozen segments + zero state; deterministic attention = exception+crc+timeout+protocolError; diagnosis existence cue; broadcast + protocol-error probes)
+  NAV SCENARIOS: 14 项全 PASS；M DEFERRED BY DESIGN
+--qml-geometry-check → EXITCODE=0；0 GEOFAIL
+  GEOMETRY CHECK PASS(10 standard passes … + 2 targeted demo-dashboard passes from M9-C C4)
+  空态趟：header.top=16 action.top=43 stats.top=113 spacer.height=343/323（与 C1/C3 一致）
+  demo 趟：stats.top=89 spacer.height=284/264（attention/cue 可见、分布条可见）
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check → PASS
+stderr 卫生：ReferenceError/TypeError/binding loop/NaN/Infinity/required missing 计数 = 0（geo/nav/smoke）
+case 标签：0..97 连续唯一（98 个）
+```
+
+### C4.12 Problems / RCA
+
+1. **demo-1024 趟尺寸缺陷（自捕获，harness 定位）**：首个 targeted demo 趟的 tag 标 1024×720，但实测 `dashboardWorkspace h=659`（1000×700）——因为 targeted 趟跟在最小尺寸趟之后，而 transition 只会"缩到最小"不会"恢复默认"。修复 = `MeasureStep.resizeToDefault`（首个 demo 趟恢复 1024×720）。**分类：geometry oracle / harness**，非产品问题。
+2. **失败消息引号缺陷（自捕获，编译期）**：4 条新失败消息里用了会被源码转义破坏的引号字符，编译报 `operator%` 错误；改为无引号措辞。**分类：harness 编码**。
+3. **无 layout/implicit/共享组件/业务语义问题**；未因红灯触碰 Controller/统计公式。
+
+### C4.13 Files Changed（C4）
+
+`src/ui/qml/pages/DashboardPage.qml`（attention + cue，+61）；`src/main.cpp`（attention/cue 契约函数 + dump + 2 targeted 趟 + 探针扩至 0..97，+345 净区域）；`CMakeLists.txt`（t014 fixture 接线）；docs。**未动**：Statistics 四组件/DesignSystem/Main.qml/其它页/Controller/Core/tests/deploy script。
+
+### C4.14 Result
+
+- Dashboard 内容收敛：**C1 布局 + C2 抽件 + C3 组合/分布 + C4 attention/cue** 全部落地；Phase 1 无未解释消失项。
+- attention 三态（demo=3 / broadcast=0 / zero=隐藏）+ protocolError 计入（runtime）+ Pending 排除（formula）全部机器证明。
+- **C5 readiness**：见 §C4.15。
+- verified LKGC **不变 = `6cc84c3`**；未 push。
+
+### C4.15 C5 Readiness Audit
+
+**Implemented（Dashboard 最终内容）**：C1 布局/余量 · C2 呈现件 · C3 组合+分布+空态措辞 · C4 attention+cue。**Deferred**：recent transactions→M9-D；SessionChip/AppBar→移出 M9-C；B5 字面量→DS token（须 ≥2 复用点）；Transactions redesign→M9-D。**Rejected**：趋势图/设备健康/AI insight/health score/健康分。**无未分配的 Phase 1 NOW 项。**
+
+⇒ **C5 只需要：deploy + screenshot evidence + manual visual review**，**不再需要产品结构开发**（C5 为 deploy/截图/人工包，无新 QML 结构变更计划）。
+
+### C4.16 Potential Interview Questions
+
+- **Q：为什么 attention 不做成 health score？** A：health score 需要业务定义权重与阈值，而本产品没有设备健康权威——把四个计数加总已经是"呈现层聚合"的边界，再多走一步（加权、分档、命名 Healthy/Unhealthy）就是发明语义。措辞也刻意 outcome-limited："需关注结果 N 条"说的是**事务结果**，不是设备状态。
+- **Q：怎么证明一个"应该计入"和"不应该计入"的状态？** A：两条 fixture 对冲——demo（protocol=0）证明 breakdown 会省略零类；t014（protocol=1）证明 protocolError 真的进和；broadcast（ENR=1）证明 ExpectedNoResponse 不进和。三个 runtime 状态 + 一条源码级公式审计（不含 pending/observed/completed/success）合起来覆盖全部六个候选输入。
+- **Q：为什么 attention 放在统计 panel 里，diagnosis cue 放在面板外？** A：attention 聚合的就是这个 panel 正在呈现的计数，属于同一段数据的"导读"；diagnosis cue 指向**另一个 workspace** 的能力状态，是页面级线索。数据归属决定呈现归属。
+
+## C5（后续，未开始）
+
+- **C5 — deploy + screenshot evidence + manual visual candidate**：Dashboard demo@1024/demo@1000/empty@1024 等截图、部署版门禁、人工清单。**无产品结构开发计划**（见 §C4.15）。
 
 - **C3 — Dashboard 组合 + `OutcomeDistribution`**：分布条（分母 = `completedCount`，segments 六项，零态不渲染，文字图例，颜色非唯一载体）+ L3 状态线索行 + 空态措辞更新（B2 的"工作台"指向已过期）。
 - **C3 — Dashboard 组合 + `OutcomeDistribution`**：分布条（分母 = `completedCount`，segments 六项，零态不渲染，文字图例，颜色非唯一载体）+ L3 状态线索行 + 空态措辞更新（B2 的"工作台"指向已过期）。

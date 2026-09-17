@@ -217,6 +217,143 @@ void assertOutcomeDistribution(const QList<QObject *> &roots,
                  .arg(bar->width()));
 }
 
+// M9-C C4: the deterministic attention summary + diagnosis status cue
+// contract. attentionCount is a PRESENTATION aggregation of exactly FOUR
+// outcome counts (exception + crcError + timeout + protocolError) --
+// ExpectedNoResponse is NOT an anomaly and never enters the sum (Review
+// guardrail B), and neither do success or pending. It is not a health score:
+// every wording variant stays scoped to completed transaction outcomes. The
+// cue is an EXISTENCE line driven by hasBaselineDiagnosis only.
+void assertDashboardAttention(const QList<QObject *> &roots,
+                              const QString &contextLabel,
+                              QStringList &failures)
+{
+    auto fail = [&failures, &contextLabel](const QString &message) {
+        failures << contextLabel + QStringLiteral(": ") + message;
+    };
+    auto *ctrl = roots.value(0)
+                     ? roots.value(0)->findChild<QObject *>(
+                           QStringLiteral("analysisController"))
+                     : nullptr;
+    if (!ctrl) {
+        fail(QStringLiteral("analysisController not found"));
+        return;
+    }
+    const int exception = ctrl->property("exceptionCount").toInt();
+    const int crc = ctrl->property("crcErrorCount").toInt();
+    const int timeout = ctrl->property("timeoutCount").toInt();
+    const int protocol = ctrl->property("protocolErrorCount").toInt();
+    const int observed = ctrl->property("observedCount").toInt();
+    const int completed = ctrl->property("completedCount").toInt();
+    const bool hasBaseline = ctrl->property("hasBaselineDiagnosis").toBool();
+    const int expectedAttention = exception + crc + timeout + protocol;
+
+    auto *summary =
+        findNamedItem(roots, QStringLiteral("dashboardAttentionSummary"));
+    auto *cue = findNamedItem(roots, QStringLiteral("dashboardDiagnosisCue"));
+    if (!summary) {
+        fail(QStringLiteral("dashboardAttentionSummary not found"));
+        return;
+    }
+    if (!cue) {
+        fail(QStringLiteral("dashboardDiagnosisCue not found"));
+        return;
+    }
+
+    // numeric oracle: the QML property must equal the frozen formula
+    const int qmlAttention = summary->property("attentionCount").toInt();
+    if (qmlAttention != expectedAttention)
+        fail(QStringLiteral("attentionCount %1 != the frozen formula %2 "
+                            "(exception %3 + crc %4 + timeout %5 + protocol "
+                            "%6)")
+                 .arg(qmlAttention)
+                 .arg(expectedAttention)
+                 .arg(exception)
+                 .arg(crc)
+                 .arg(timeout)
+                 .arg(protocol));
+
+    // visibility: both lines exist for the session states and hide together
+    // with the session (the empty hint owns the observed == 0 state)
+    const bool shouldBeVisible = observed > 0;
+    if (summary->isVisible() != shouldBeVisible)
+        fail(QStringLiteral("attention summary visibility %1 does not match "
+                            "observed %2")
+                 .arg(summary->isVisible())
+                 .arg(observed));
+    if (cue->isVisible() != shouldBeVisible)
+        fail(QStringLiteral("diagnosis cue visibility %1 does not match "
+                            "observed %2")
+                 .arg(cue->isVisible())
+                 .arg(observed));
+    if (!shouldBeVisible)
+        return;
+
+    // wording contract for the deterministic states
+    const QString text = summary->property("text").toString();
+    if (completed <= 0) {
+        const QString expected = QStringLiteral("尚无已完成结果。");
+        if (text != expected)
+            fail(QStringLiteral("attention wording for a session without "
+                                "completed outcomes — got %1, expected %2")
+                     .arg(text, expected));
+    } else if (expectedAttention > 0) {
+        const QString prefix =
+            QStringLiteral("需关注结果 %1 条：").arg(expectedAttention);
+        if (!text.startsWith(prefix))
+            fail(QStringLiteral("attention wording must open with %1 — "
+                                "got %2")
+                     .arg(prefix, text));
+        if (exception > 0
+            && !text.contains(QStringLiteral("异常 %1").arg(exception)))
+            fail(QStringLiteral("attention breakdown omits 异常 %1")
+                     .arg(exception));
+        if (crc > 0
+            && !text.contains(QStringLiteral("CRC 错误 %1").arg(crc)))
+            fail(QStringLiteral("attention breakdown omits CRC 错误 %1")
+                     .arg(crc));
+        if (timeout > 0
+            && !text.contains(QStringLiteral("超时 %1").arg(timeout)))
+            fail(QStringLiteral("attention breakdown omits 超时 %1")
+                     .arg(timeout));
+        if (protocol > 0
+            && !text.contains(QStringLiteral("协议错误 %1").arg(protocol)))
+            fail(QStringLiteral("attention breakdown omits 协议错误 %1")
+                     .arg(protocol));
+        // zero categories are omitted from the breakdown (frozen wording rule)
+        if (exception == 0 && text.contains(QStringLiteral("异常")))
+            fail(QStringLiteral("attention breakdown mentions 异常 with a zero "
+                                "count"));
+        if (crc == 0 && text.contains(QStringLiteral("CRC 错误")))
+            fail(QStringLiteral("attention breakdown mentions CRC 错误 with a "
+                                "zero count"));
+        if (timeout == 0 && text.contains(QStringLiteral("超时")))
+            fail(QStringLiteral("attention breakdown mentions 超时 with a zero "
+                                "count"));
+        if (protocol == 0 && text.contains(QStringLiteral("协议错误")))
+            fail(QStringLiteral("attention breakdown mentions 协议错误 with a "
+                                "zero count"));
+    } else {
+        const QString expected = QStringLiteral(
+            "已完成结果中暂未观察到异常、CRC 错误、超时或协议错误。");
+        if (text != expected)
+            fail(QStringLiteral("attention wording for a session without "
+                                "attention — got %1, expected %2")
+                     .arg(text, expected));
+    }
+
+    // cue wording: an existence line in both directions
+    const QString cueText = cue->property("text").toString();
+    const QString expectedCue =
+        hasBaseline ? QStringLiteral("已有基线诊断结果，可在诊断工作区查看。")
+                    : QStringLiteral("尚未运行基线诊断。");
+    if (cueText != expectedCue)
+        fail(QStringLiteral("diagnosis cue wording — got %1, expected %2 "
+                            "(hasBaselineDiagnosis=%3)")
+                 .arg(cueText, expectedCue)
+                 .arg(hasBaseline));
+}
+
 QStringList runGeometryAssertions(const QList<QObject *> &roots,
                                   const QString &contextLabel)
 {
@@ -606,8 +743,11 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
         }
 
         // M9-C C3: the dashboard statistics composition + distribution
-        // contract (zero state here — the geometry passes never run a batch).
+        // contract (zero state here — the standard geometry passes never run
+        // a batch; the C4 targeted demo passes below do).
         assertOutcomeDistribution(roots, contextLabel, failures);
+        // M9-C C4: the deterministic attention summary + diagnosis cue.
+        assertDashboardAttention(roots, contextLabel, failures);
     }
 
     // ---- Communication page (M9-B3) ----
@@ -1070,7 +1210,9 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
                   << QStringLiteral("outcomeSegment_2_dashboard")
                   << QStringLiteral("outcomeSegment_3_dashboard")
                   << QStringLiteral("outcomeSegment_4_dashboard")
-                  << QStringLiteral("outcomeSegment_5_dashboard");
+                  << QStringLiteral("outcomeSegment_5_dashboard")
+                  << QStringLiteral("dashboardAttentionSummary")
+                  << QStringLiteral("dashboardDiagnosisCue");
     } else {
         names << QStringLiteral("communicationContentLayout")
               << QStringLiteral("communicationHeader")
@@ -1153,6 +1295,12 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         bool resizeToMin;
         QString tag;
         QString label;
+        bool runDemo = false; // C4 targeted passes: publish the deterministic
+                              // demo batch before measuring (default off, so
+                              // the standard 10 passes keep their empty state)
+        bool resizeToDefault = false; // C4: the targeted demo passes follow the
+                                      // minimum-size passes, so the first one
+                                      // must restore the default window size
     };
     // M9-B5.3: five active workspaces x two sizes = 10 passes. The original
     // B4 eight are unchanged (same tags, pages and sizes); the two Diagnosis
@@ -1179,6 +1327,14 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
           QStringLiteral("MIN 1000x700 dashboard") },
         { 0, false, QStringLiteral("m9b4-legacy-1000x700"),
           QStringLiteral("MIN 1000x700 legacy") },
+        // M9-C C4: two TARGETED demo-dashboard passes so the attention line,
+        // the diagnosis cue and the distribution are measured with real
+        // content at both sizes. They are additive — the standard 10 passes
+        // keep their empty state and remain the matrix of record.
+        { 1, false, QStringLiteral("m9c-dashboard-demo-1024x720"),
+          QStringLiteral("DEMO dashboard"), true, true },
+        { 1, true, QStringLiteral("m9c-dashboard-demo-1000x700"),
+          QStringLiteral("MIN 1000x700 demo dashboard"), true },
     };
     // The Diagnosis pass measures each tab in turn: only the SELECTED tab
     // carries the geometry contract, so the pass selects, settles and
@@ -1195,9 +1351,10 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto finish = [&app](const QStringList &fails) {
         if (fails.isEmpty())
             qInfo() << "GEOMETRY CHECK PASS"
-                       "(10 passes: legacy + dashboard + communication + "
-                       "replay + diagnosis x 2 sizes; the diagnosis pass "
-                       "sweeps its three tabs)";
+                       "(10 standard passes: legacy + dashboard + "
+                       "communication + replay + diagnosis x 2 sizes, the "
+                       "diagnosis pass sweeps its three tabs; + 2 targeted "
+                       "demo-dashboard passes from M9-C C4)";
         else
             for (const QString &f : fails)
                 qWarning().noquote() << "GEOFAIL:" << f;
@@ -1234,21 +1391,39 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // sweepApplied = tab already selected in the TabBar (-1 = none yet).
     auto sweepTab = std::make_shared<int>(0);
     auto sweepApplied = std::make_shared<int>(-1);
+    // M9-C C4: the targeted demo passes publish the deterministic demo batch
+    // exactly once, before their first measurement.
+    auto demoPublished = std::make_shared<bool>(false);
 
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, schedule, failures, attempt, stepIndex, currentPageIndex,
-                 transitionDone, pendingPre, sweepTab, sweepApplied]() {
+                 transitionDone, pendingPre, sweepTab, sweepApplied,
+                 demoPublished]() {
         const MeasureStep &step = steps.at(*stepIndex);
         QStringList pre;
         if (!*transitionDone) {
             const bool needSwitch = (step.pageIndex != *currentPageIndex);
-            if (needSwitch || step.resizeToMin) {
+            if (needSwitch || step.resizeToMin || step.resizeToDefault
+                || (step.runDemo && !*demoPublished)) {
                 if (needSwitch) {
                     switchWorkspace(step.pageIndex, pre);
                     *currentPageIndex = step.pageIndex;
                 }
                 if (step.resizeToMin && window)
                     window->resize(1000, 700);
+                if (step.resizeToDefault && window)
+                    window->resize(1024, 720);
+                if (step.runDemo && !*demoPublished) {
+                    auto *ctrl = roots.value(0)
+                                     ? roots.value(0)->findChild<QObject *>(
+                                           QStringLiteral("analysisController"))
+                                     : nullptr;
+                    if (!ctrl
+                        || !QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                        pre << step.label
+                            + QStringLiteral(": runDemoBatch() not invokable");
+                    *demoPublished = true;
+                }
                 *transitionDone = true;
                 *pendingPre = pre;  // measured on the re-entry below
                 QTimer::singleShot(settleMs, &app, *schedule);
@@ -1501,7 +1676,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 93;
+    constexpr int kLastStage = 97;
 
     // Shared state across stages.
     auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
@@ -2549,9 +2724,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
 
-        // ---- M9-C C3: Dashboard Distribution Presentation Check ----
-        // A PRESENTATION contract check (denominator = completedCount, frozen
-        // segment order, zero state), not a business persistence scenario —
+        // ---- M9-C C3/C4: Dashboard Presentation Probe ----
+        // A PRESENTATION contract check (distribution denominator = completed
+        // count + frozen segment order + zero state; deterministic attention;
+        // diagnosis existence cue), NOT a business persistence scenario —
         // deliberately not numbered as "Scenario O". Runs after every
         // existing scenario so none of them changes semantics.
         case 87: {
@@ -2568,11 +2744,17 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             assertOutcomeDistribution(roots,
                                       QStringLiteral("distribution demo"),
                                       *failures);
+            // M9-C C4: the demo batch carries exception=1 crc=1 timeout=1
+            // protocol=0, so the frozen attention sum is exactly 3 and the
+            // baseline was invalidated by the batch change.
+            assertDashboardAttention(roots,
+                                     QStringLiteral("attention demo"),
+                                     *failures);
             qInfo().noquote()
                 << QStringLiteral("NAV [distribution demo]: completed=%1 "
                                   "success=%2 exception=%3 crc=%4 timeout=%5 "
                                   "protocol=%6 expectedNoResponse=%7 "
-                                  "hasSuccessRate=%8")
+                                  "hasSuccessRate=%8 attention=%9")
                        .arg(ctrl->property("completedCount").toInt())
                        .arg(ctrl->property("successCount").toInt())
                        .arg(ctrl->property("exceptionCount").toInt())
@@ -2580,14 +2762,39 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                        .arg(ctrl->property("timeoutCount").toInt())
                        .arg(ctrl->property("protocolErrorCount").toInt())
                        .arg(ctrl->property("expectedNoResponseCount").toInt())
-                       .arg(ctrl->property("hasSuccessRate").toBool());
+                       .arg(ctrl->property("hasSuccessRate").toBool())
+                       .arg(ctrl->property("exceptionCount").toInt()
+                            + ctrl->property("crcErrorCount").toInt()
+                            + ctrl->property("timeoutCount").toInt()
+                            + ctrl->property("protocolErrorCount").toInt());
             break;
         }
         case 90: {
+            // the cue flips on a real baseline run (existence line only)
+            if (!QMetaObject::invokeMethod(ctrl, "runBaselineDiagnosis"))
+                fail(QStringLiteral("NAVFAIL distribution probe: "
+                                    "runBaselineDiagnosis() not invokable"));
+            break;
+        }
+        case 91: {
+            assertDashboardAttention(roots,
+                                     QStringLiteral("attention baseline"),
+                                     *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [attention baseline]: "
+                                  "hasBaselineDiagnosis=%1 attention=%2")
+                       .arg(ctrl->property("hasBaselineDiagnosis").toBool())
+                       .arg(ctrl->property("exceptionCount").toInt()
+                            + ctrl->property("crcErrorCount").toInt()
+                            + ctrl->property("timeoutCount").toInt()
+                            + ctrl->property("protocolErrorCount").toInt());
+            break;
+        }
+        case 92: {
             // denominator probe: a batch whose completed outcomes are ALL
             // ExpectedNoResponse — the bar is 100% ExpectedNoResponse while
-            // successRate stays undefined. Locked so the distribution
-            // denominator can never drift into the successRate denominator.
+            // successRate stays undefined, and the attention sum stays 0
+            // because ExpectedNoResponse is not an anomaly.
             const QUrl fixture = QUrl::fromLocalFile(
                 QStringLiteral(MODBUSLENS_BROADCAST_MLOG_PATH));
             if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
@@ -2596,7 +2803,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                     "loadReplayFile() not invokable"));
             break;
         }
-        case 91: {
+        case 93: {
             if (ctrl->property("sourceLabel").toString()
                 != QStringLiteral("t015_broadcast.mlog"))
                 fail(QStringLiteral("NAVFAIL distribution probe: broadcast "
@@ -2616,10 +2823,14 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                     "the successRate denominator have been "
                                     "confused"));
             // still on the dashboard: the bar must now be 100%
-            // ExpectedNoResponse and every other segment zero-width
+            // ExpectedNoResponse, every other segment zero-width, and the
+            // attention sum must stay 0 with the outcome-limited wording
             assertOutcomeDistribution(roots,
                                       QStringLiteral("distribution broadcast"),
                                       *failures);
+            assertDashboardAttention(roots,
+                                     QStringLiteral("attention broadcast"),
+                                     *failures);
             auto *bar = findNamedItem(
                 roots, QStringLiteral("outcomeDistributionBar_dashboard"));
             auto *enr = findNamedItem(
@@ -2643,18 +2854,58 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                        .arg(enr ? enr->width() : -1);
             break;
         }
-        case 92: {
+        case 94: {
+            // protocol-error runtime coverage: the demo cannot prove that
+            // protocolError contributes to the attention sum (its protocol
+            // count is 0), so a tracked fixture that yields exactly one
+            // WriteSingleRegisterEchoMismatch ProtocolError does.
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_PROTOCOL_ERROR_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("NAVFAIL distribution probe: "
+                                    "loadReplayFile() not invokable"));
+            break;
+        }
+        case 95: {
+            if (ctrl->property("protocolErrorCount").toInt() <= 0)
+                fail(QStringLiteral("NAVFAIL attention probe: the "
+                                    "protocol-error fixture produced no "
+                                    "ProtocolError outcome — fixture audit "
+                                    "required"));
+            assertOutcomeDistribution(roots,
+                                      QStringLiteral("distribution protocol"),
+                                      *failures);
+            assertDashboardAttention(roots,
+                                     QStringLiteral("attention protocol"),
+                                     *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [attention protocol]: protocol=%1 "
+                                  "attention=%2 (protocol errors are part of "
+                                  "the attention sum)")
+                       .arg(ctrl->property("protocolErrorCount").toInt())
+                       .arg(ctrl->property("exceptionCount").toInt()
+                            + ctrl->property("crcErrorCount").toInt()
+                            + ctrl->property("timeoutCount").toInt()
+                            + ctrl->property("protocolErrorCount").toInt());
+            break;
+        }
+        case 96: {
             if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
                 fail(QStringLiteral("NAVFAIL distribution probe: clearResults() "
                                     "not invokable"));
             break;
         }
-        case 93: {
+        case 97: {
             // closing the probe in the zero state: nothing rendered, no
-            // divide-by-zero artefacts, hint wording refreshed
+            // divide-by-zero artefacts, hint wording refreshed, attention and
+            // cue hidden with the session
             assertOutcomeDistribution(roots,
                                       QStringLiteral("distribution zero"),
                                       *failures);
+            assertDashboardAttention(roots,
+                                     QStringLiteral("attention zero"),
+                                     *failures);
             *distributionEnd = failures->size();
             qInfo().noquote()
                 << QStringLiteral("NAV [distribution zero]: completed=%1 "
@@ -2701,10 +2952,12 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         } else {
             const bool ok = *distributionStart == *distributionEnd;
             qInfo().noquote()
-                << QStringLiteral("NAV DISTRIBUTION CHECK: %1 (denominator = "
-                                  "completedCount; 6 segments in the frozen "
-                                  "order; demo + 100%% ExpectedNoResponse "
-                                  "broadcast probe + zero state)")
+                << QStringLiteral("NAV DASHBOARD PRESENTATION CHECK: %1 "
+                                  "(distribution denominator = completedCount "
+                                  "+ 6 frozen segments + zero state; "
+                                  "deterministic attention = exception+crc+"
+                                  "timeout+protocolError; diagnosis existence "
+                                  "cue; broadcast + protocol-error probes)")
                        .arg(ok ? QStringLiteral("PASS")
                                : QStringLiteral("FAIL"));
         }

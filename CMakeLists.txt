@@ -280,6 +280,11 @@ if(BUILD_TESTING)
     # ExpectedNoResponse while successRate stays undefined ("—").
     configure_file(samples/t015_broadcast.mlog
         "${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_broadcast.mlog" COPYONLY)
+    # T014 protocol-error sample (FC06 response echoing a different register
+    # value -> WriteSingleRegisterEchoMismatch): drives the M9-C C4 attention
+    # probe -- protocolErrorCount > 0 must contribute to the attention sum.
+    configure_file(samples/t014_protocol_error.mlog
+        "${CMAKE_CURRENT_BINARY_DIR}/test_data/t014_protocol_error.mlog" COPYONLY)
 
     add_executable(modbuslens_replay_log_tests tests/test_replay_log.cpp)
     target_link_libraries(modbuslens_replay_log_tests PRIVATE modbuslens_core Qt6::Test)
@@ -480,7 +485,8 @@ if(BUILD_TESTING)
     target_compile_definitions(modbuslens PRIVATE
         MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog"
         MODBUSLENS_UNSUPPORTED_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_unsupported_fc08.mlog"
-        MODBUSLENS_BROADCAST_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_broadcast.mlog")
+        MODBUSLENS_BROADCAST_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t015_broadcast.mlog"
+        MODBUSLENS_PROTOCOL_ERROR_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t014_protocol_error.mlog")
 
     # Headless-safe on every platform (no display server needed).
     set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check PROPERTIES
