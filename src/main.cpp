@@ -108,6 +108,22 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
         failures << contextLabel + QStringLiteral(": ") + message;
     };
 
+    // M9-C C1: read the DesignSystem spacing tokens from the SAME singleton
+    // instance the QML consumes, so the Dashboard layout contract is asserted
+    // against live token values instead of hardcoded pixels.
+    double dsSpacingM = -1.0;
+    double dsSpacingL = -1.0;
+    if (auto *ctx = roots.isEmpty() ? nullptr : qmlContext(roots.value(0))) {
+        if (auto *ds =
+                ctx->contextProperty(QStringLiteral("DS")).value<QObject *>()) {
+            dsSpacingM = ds->property("spacingM").toDouble();
+            dsSpacingL = ds->property("spacingL").toDouble();
+        }
+    }
+    if (dsSpacingM <= 0.0 || dsSpacingL <= 0.0)
+        fail(QStringLiteral("DS spacing tokens could not be read — every "
+                            "spacing assertion below would be vacuous"));
+
     // ---- Shell guards (M9-B1) ----
     // Minimum business content width for the workspace host: the legacy
     // SplitView minimums (300 diagnosis + 520 transactions) plus the legacy
@@ -231,6 +247,159 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
                  .arg(row1->height()));
 
     } // end statsVisible
+
+    // ---- Dashboard layout shell (M9-C C1) ----
+    // Contract: the content region is a tight vertical stack whose section
+    // gaps are bound to DS.spacingM, and the leftover height is owned by an
+    // explicit tail spacer. A gap equal to the token (not merely bounded) is
+    // assertable BECAUSE the QML binds it to the token, and it is exactly
+    // what catches the real regression this guards: surplus space being
+    // distributed between sections again (the pre-C1 Dashboard spread the
+    // action row and the statistics section ~185 px apart).
+    if (page == ActivePage::Dashboard) {
+        auto *dashPage =
+            findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
+        auto *dashHeader =
+            findNamedItem(roots, QStringLiteral("dashboardHeader"));
+        auto *dashAction =
+            findNamedItem(roots, QStringLiteral("dashboardRunDemo"));
+        auto *dashHint =
+            findNamedItem(roots, QStringLiteral("dashboardEmptyHint"));
+        auto *dashSpacer =
+            findNamedItem(roots, QStringLiteral("dashboardTailSpacer"));
+        auto *dashStatsHeader =
+            findNamedItem(roots, QStringLiteral("statisticsHeader_dashboard"));
+        auto *dashStatsPanel =
+            findNamedItem(roots, QStringLiteral("statisticsPanel_dashboard"));
+
+        auto nonzero = [&fail](QQuickItem *item, const QString &name) {
+            if (!item) {
+                fail(name + QStringLiteral(" not found"));
+                return false;
+            }
+            if (item->width() <= 0 || item->height() <= 0) {
+                fail(QStringLiteral("%1 size %2x%3 (implicit %4x%5)")
+                         .arg(name)
+                         .arg(item->width())
+                         .arg(item->height())
+                         .arg(item->implicitWidth())
+                         .arg(item->implicitHeight()));
+                return false;
+            }
+            return true;
+        };
+        auto insidePage = [&fail, dashPage](QQuickItem *item,
+                                            const QString &name) {
+            if (!item || !dashPage)
+                return;
+            const QPointF origin = item->mapToItem(dashPage, QPointF(0, 0));
+            const QRectF box(origin, QSizeF(item->width(), item->height()));
+            const QRectF pageRect(0, 0, dashPage->width(), dashPage->height());
+            if (!pageRect.adjusted(-0.5, -0.5, 0.5, 0.5).contains(box))
+                fail(QStringLiteral("%1 escapes the dashboard page "
+                                    "(x=%2 y=%3 w=%4 h=%5 in %6x%7)")
+                         .arg(name)
+                         .arg(box.x())
+                         .arg(box.y())
+                         .arg(box.width())
+                         .arg(box.height())
+                         .arg(pageRect.width())
+                         .arg(pageRect.height()));
+        };
+
+        if (!dashPage)
+            fail(QStringLiteral("dashboardWorkspace not found"));
+        nonzero(dashHeader, QStringLiteral("dashboardHeader"));
+        nonzero(dashAction, QStringLiteral("dashboardRunDemo"));
+        nonzero(dashStatsPanel, QStringLiteral("statisticsPanel_dashboard"));
+        insidePage(dashHeader, QStringLiteral("dashboardHeader"));
+        insidePage(dashAction, QStringLiteral("dashboardRunDemo"));
+        insidePage(dashStatsPanel, QStringLiteral("statisticsPanel_dashboard"));
+
+        if (dashPage && dashHeader) {
+            struct Band {
+                QString name;
+                QQuickItem *item;
+            };
+            const QVector<Band> bands = {
+                { QStringLiteral("dashboardHeader"), dashHeader },
+                { QStringLiteral("dashboardRunDemo"), dashAction },
+                { QStringLiteral("dashboardEmptyHint"),
+                  dashHint && dashHint->isVisible() ? dashHint : nullptr },
+                { QStringLiteral("statisticsHeader_dashboard"),
+                  dashStatsHeader },
+                { QStringLiteral("statisticsPanel_dashboard"), dashStatsPanel },
+            };
+            auto topIn = [dashPage](QQuickItem *item) {
+                return item ? item->mapToItem(dashPage, QPointF(0, 0)).y()
+                            : 0.0;
+            };
+            // 1. the content region starts exactly at the page margin
+            if (qAbs(topIn(dashHeader) - dsSpacingL) > 0.5)
+                fail(QStringLiteral("dashboard content starts at y=%1, expected "
+                                    "the page margin %2")
+                         .arg(topIn(dashHeader))
+                         .arg(dsSpacingL));
+            // 2. every consecutive gap equals the section spacing token
+            QQuickItem *prev = nullptr;
+            QString prevName;
+            for (const Band &band : bands) {
+                if (!band.item)
+                    continue;
+                if (prev) {
+                    const double gap =
+                        topIn(band.item)
+                        - (topIn(prev) + prev->height());
+                    if (gap < -0.5)
+                        fail(QStringLiteral("%1 overlaps %2 (gap %3)")
+                                 .arg(band.name, prevName)
+                                 .arg(gap));
+                    else if (qAbs(gap - dsSpacingM) > 0.5)
+                        fail(QStringLiteral("gap %1 -> %2 is %3, expected the "
+                                            "DS.spacingM token %4 (surplus "
+                                            "space must not be distributed "
+                                            "between sections)")
+                                 .arg(prevName, band.name)
+                                 .arg(gap)
+                                 .arg(dsSpacingM));
+                }
+                prev = band.item;
+                prevName = band.name;
+            }
+            // 3. the tail spacer exists, is visible and owns the remainder
+            if (!nonzero(dashSpacer, QStringLiteral("dashboardTailSpacer"))) {
+                // reported above
+            } else {
+                if (!dashSpacer->isVisible())
+                    fail(QStringLiteral("dashboardTailSpacer is not visible"));
+                if (dashStatsPanel && topIn(dashSpacer) + 0.5
+                                          < topIn(dashStatsPanel)
+                                                + dashStatsPanel->height())
+                    fail(QStringLiteral("dashboardTailSpacer (y=%1) does not "
+                                        "follow the statistics block "
+                                        "(bottom=%2)")
+                             .arg(topIn(dashSpacer))
+                             .arg(topIn(dashStatsPanel)
+                                  + dashStatsPanel->height()));
+                const double spacerBottom =
+                    topIn(dashSpacer) + dashSpacer->height();
+                const double expectedBottom = dashPage->height() - dsSpacingL;
+                if (qAbs(spacerBottom - expectedBottom) > 0.5)
+                    fail(QStringLiteral("dashboardTailSpacer bottom is %1, "
+                                        "expected the page content bottom %2")
+                             .arg(spacerBottom)
+                             .arg(expectedBottom));
+                qInfo().noquote()
+                    << QStringLiteral("DASHBOARD LAYOUT: header.top=%1 "
+                                      "action.top=%2 stats.top=%3 "
+                                      "spacer.height=%4")
+                           .arg(topIn(dashHeader))
+                           .arg(topIn(dashAction))
+                           .arg(topIn(dashStatsHeader))
+                           .arg(dashSpacer->height());
+            }
+        }
+    }
 
     // ---- Communication page (M9-B3) ----
     if (page == ActivePage::Communication) {
@@ -675,6 +844,13 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
               << suffixed(QStringLiteral("statusCard_3"))
               << suffixed(QStringLiteral("statusCard_4"))
               << suffixed(QStringLiteral("statusCard_5"));
+        // M9-C C1: the Dashboard layout shell (natural content region plus
+        // its explicit tail surplus owner).
+        if (page == ActivePage::Dashboard)
+            names << QStringLiteral("dashboardHeader")
+                  << QStringLiteral("dashboardRunDemo")
+                  << QStringLiteral("dashboardEmptyHint")
+                  << QStringLiteral("dashboardTailSpacer");
     } else {
         names << QStringLiteral("communicationContentLayout")
               << QStringLiteral("communicationHeader")

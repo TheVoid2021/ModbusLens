@@ -125,29 +125,94 @@ DashboardPage (Item)
 4. **两个尺寸**：1024×720 与 1000×700 均满足上述。
 5. 既有门禁全绿；nav check 场景语义不变；10 趟矩阵保留。
 
-### C1.7 Implementation Record
+### C1.7 Implementation Record（2026-09-17）
 
-（C1 提交时补齐）
+**结构变更（最小）**：`DashboardPage.qml` 的页内 `ColumnLayout` 末尾新增**唯一**一个 `Item { objectName: "dashboardTailSpacer"; Layout.fillWidth: true; Layout.fillHeight: true }`（+18 行，含解释性注释）。**未新增任何内容元素、未改任何绑定、未改 Run Demo 接线、未改 `StatisticsOverview` 调用点参数**。
+
+**机制**：`ColumnLayout` 在**没有任何 `fillHeight` 子项**时不会把多余高度留在末尾，而是把余量分摊进各个 section 行内（实测证据见 C1.8）。加入尾部 `fillHeight` 项后，余量**全部**归它，其余子项保持 implicit 高度、按 `spacing` 紧凑排列——与 B3 Communication 的尾部 spacer 同族机制，但**不复用其结构**（Dashboard 只有一层页内布局）。
+
+**harness 扩展（`src/main.cpp`，+176 行，纯验证）**：
+
+1. 从**同一个 DS 单例**（`qmlContext(...)->contextProperty("DS")`）读取 `spacingM`/`spacingL`——**断言直接对 token 取值**，不是硬编码像素；读不到即 fail（防止断言静默退化）。
+2. `dumpGeometryTable` 在 Dashboard 页增加 4 个条目：`dashboardHeader` / `dashboardRunDemo` / `dashboardEmptyHint` / `dashboardTailSpacer`。
+3. `runGeometryAssertions` 新增 **Dashboard layout shell 断言块**：
+   - 内容区顶端 **= `DS.spacingL`**（±0.5）；
+   - 顺序 band（header → action → [hint 若可见] → statisticsHeader → statisticsPanel）**每一段相邻 gap = `DS.spacingM`（±0.5）**，且 gap ≥ 0（无重叠）——**该契约正是"余量再次被分摊到 section 之间"这一真实 regression 的探针**；
+   - `dashboardTailSpacer` 存在、可见、非零、位于统计块之下，且其**底边 = 页面内容底边**（`page.height − DS.spacingL`，±0.5）——证明"余量确实由它拥有"。
+
+**未做（严格按 scope）**：无 `OutcomeDistribution`、无 attention summary、无 diagnosis cue、无 recent rows、无 CTA、无 SessionChip/AppBar 改动、无新 DS primitive、无新 Controller property、无 statistics 副本或缓存。
 
 ### C1.8 Problems / RCA
 
-（C1 提交时补齐）
+**问题（RED 取证，先证断言可证伪）**：先落 harness 断言、**不改 QML** 直接跑 `--qml-geometry-check` ⇒ exit 1，精确量化了缺陷：
 
-### C1.9 Verification
+```text
+GEOFAIL: DEFAULT dashboard: dashboard content starts at y=27, expected the page margin 16
+GEOFAIL: DEFAULT dashboard: gap dashboardHeader -> dashboardRunDemo is 46, expected the DS.spacingM token 12
+GEOFAIL: DEFAULT dashboard: gap dashboardRunDemo -> dashboardEmptyHint is 44, expected the DS.spacingM token 12
+GEOFAIL: DEFAULT dashboard: gap dashboardEmptyHint -> statisticsHeader_dashboard is 155, expected the DS.spacingM token 12
+GEOFAIL: DEFAULT dashboard: dashboardTailSpacer not found
+```
 
-（C1 提交时补齐：真实命令与输出，含两尺寸的 section geometry / gaps / tail spacer 实测值）
+dump 同时给出机制证据：`dashboardHeader: y=11`（**section 行被撑高、header 在行内垂直居中**）、`dashboardEmptyHint: y=150`、`statisticsPanel_dashboard: y=27`（其自身嵌套内）。
+
+- **分类：layout ownership（非 implicit size / 非共享组件 / 非业务语义）**。
+- **根因**：`ColumnLayout` 无 `fillHeight` 子项时把余量分摊到各行（Qt 行为，B3 已记录同族现象）；Dashboard 是唯一一个既没有 `fillHeight` 子项、也没有显式尾部 spacer 的页面。
+- **修复**：加显式尾部余量所有者（上述结构变更）。**未触碰任何 statistics/business state**（§15 红线）。
+
+### C1.9 Verification（真实命令与输出）
+
+```text
+cmake --build --preset debug-local → [7/7] Linking modbuslens.exe（0 error）
+--qml-smoke-test → EXITCODE=0
+--qml-nav-check  → EXITCODE=0；NAV CHECK PASS（five workspaces）
+   NAV SCENARIOS: basic five-workspace path PASS, A PASS, B PASS, D PASS, E PASS,
+     F PASS, G' PASS, H PASS, I PASS, J PASS, K PASS, K' PASS, L PASS, N PASS
+   NAV SCENARIO M: DEFERRED BY DESIGN（不变）
+--qml-geometry-check → EXITCODE=0；10/10 PASS、0 GEOFAIL、14 dump 段
+   DASHBOARD LAYOUT: header.top=16 action.top=43 stats.top=113 spacer.height=343   （1024x720）
+   DASHBOARD LAYOUT: header.top=16 action.top=43 stats.top=113 spacer.height=323   （1000x700）
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check → PASS
+```
+
+**两尺寸实测（Dashboard）**：
+
+| 量 | 1024×720 | 1000×700 | 说明 |
+| --- | --- | --- | --- |
+| page 尺寸 | 967×679 | 943×659 | workspaceHost 内 |
+| `dashboardHeader.top` | **16** | **16** | = `DS.spacingL` ✓ |
+| `dashboardRunDemo.top` | **43** | **43** | gap = 12 ✓ |
+| `dashboardEmptyHint`（本次运行 observed=0 ⇒ 可见） | y=73、h=12 | y=73、h=12 | gap = 12 ✓ |
+| `statisticsHeader_dashboard.top` | **113** | **113** | gap = 12 ✓ |
+| `statisticsPanel_dashboard` | 935×168 @y(嵌套)=27 | 911×168 @y=27 | **与 C1 前一致**（shared component 未改） |
+| `dashboardTailSpacer` | y=304、h=**343** | y=304、h=**323** | 底边 = 679−16 / 659−16 ✓ |
+
+**Legacy 零变化证明（项几何，非像素）**：把 C1 前的完整 10 趟 dump 与 C1 后的 dump 中**两个 Legacy 趟**（`DEFAULT legacy` / `MIN 1000x700 legacy`）的全部行逐字比较 ⇒ **IDENTICAL**（`StatisticsOverview` / `Transactions` 的既有 contract 全绿）。
 
 ### C1.10 Result
 
-（C1 提交时补齐）
+- Dashboard 的 **surplus space 现在有明确所有者**：section 间距恒为 `DS.spacingM`，余量（343/323）落在页面末尾的显式尾部容量中；**不再出现"顶部少量控件 + 中间被随机摊开 + 统计块被推到中段"**。
+- **零新增内容**、零语义改动、零共享组件改动、零 Controller/DS/shell 改动；Legacy 几何逐字不变；nav 场景语义不变（14 项判决 PASS、M 仍 DEFERRED）。
+- **Manual Review = PENDING**（C1 为布局骨架，最终视觉验收在 C3/C5；本轮人工只需确认"Dashboard 不再摊开、空白归末尾"）。
+- verified LKGC **不变 = `6cc84c3`**；未 push。
 
 ### C1.11 Knowledge Learned / Ownership
 
-（C1 提交时补齐：必须写明"通过哪件真实事情理解了它"）
+- **通过哪件真实事情理解了"余量所有权"**：先写断言再改 QML，**RED 输出直接给出了机制**——`dashboardHeader: y=11`（section 行被撑高、item 在行内居中）而不是"间距变大"。这纠正了我原先"Qt 把余量加进 spacing"的含糊理解：**余量分配发生在"行"，表现出来才是 item 之间的视觉空档**。因此修法不是去调 spacing，而是**引入一个吃掉余量的子项**（tail spacer），让所有行回到 implicit 高度。
+- **通过哪件真实事情理解了"断言可以等于 token"**：`DS.spacingM` 是**活的 token**（从 QML 使用的同一单例读取），所以"gap == 12"不是硬编码 magic number，而是"gap 必须等于设计系统声明的间距"——这正是 guardrail 允许的形态，也让断言能捕获"余量又被分摊回去"这种回归。
+- **通过哪件真实事情理解了"零回归要被证明而不是被相信"**：C1 不改共享组件，理论上 Legacy 不受影响；但仍然用**两个 Legacy 趟的逐行几何比对**给出 IDENTICAL 证据——"理论不变量"要用机器证据兜底。
 
 ### C1.12 Potential Interview Questions
 
-（C1 提交时补齐）
+- **Q：为什么加一个空的 `Item` 就能修掉"被摊开的空白"？** A：因为空白不是被"加"出来的，而是被布局引擎**分配**掉的。`ColumnLayout` 没有 `fillHeight` 子项时会自行决定余量去向（分摊到各行 ⇒ item 在行内居中、视觉上表现为巨大间距）；给它一个 `fillHeight` 的尾部项，余量就有了唯一合法去处，其余子项回到 implicit 高度。
+- **Q：怎么保证这次修复不是"看起来好了"，而是可回归的？** A：把设计意图写成可证伪断言——间距=token、内容顶端=页边距、尾部项底边=页面内容底边；并且**先让断言在旧布局上 FAIL**（46/44/155 vs 12），再改代码让它 PASS。
+- **Q：改动这么小，为什么还要动测试 harness？** A：因为 harness 的 dump 里**没有** Dashboard 的段落条目，也就无法观察这三个 section 的真实几何——只能靠肉眼或像素猜。补 dump + 断言让"是否被摊开"变成机器可判定的属性。
+
+### C1.13 Git Commit
+
+- C1 code commit：见 §Git 表回填（`M9-C C1: define dashboard layout and surplus-space ownership`）；**不 amend 任何既有提交、不 rebase、不 push**。
+
 
 ## C2–C5（后续，未开始）
 
@@ -160,6 +225,6 @@ DashboardPage (Item)
 
 | 阶段 | commit | 说明 |
 | --- | --- | --- |
-| Prelude（T018 canonicalization + Review guardrails） | 见下文回填 | docs-only；**不推进 LKGC** |
-| C1 | 见下文回填 | QML + harness |
+| Prelude（T018 canonicalization + Review guardrails） | `6d242de` | docs-only；**不推进 LKGC** |
+| C1 | 见 §C1.13 回填（本提交） | QML + harness（`DashboardPage.qml` + `src/main.cpp`） |
 | LKGC | **不变 = `6cc84c3`** | 直到 M9-C 有人工验收通过后按 Git tree classification 裁定 |

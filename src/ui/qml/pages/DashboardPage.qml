@@ -66,5 +66,23 @@ Item {
             analysisController: page.analysisController
             instanceId: "dashboard"
         }
+
+        // ------------------------------------------------------------------
+        // Surplus-space owner (M9-C C1). Before this element existed the
+        // page had NO fillHeight child, so ColumnLayout distributed the
+        // leftover height into the section rows themselves — measured at
+        // 1024x720: the header sat 11px inside its row and the gaps between
+        // sections grew to 46 / 44 / 155 px instead of the 12px token. With
+        // an explicit tail owner the surplus lands HERE, the content region
+        // stays a tight stack whose gaps are exactly DS.spacingM, and the
+        // remaining height becomes deliberate tail capacity for the later
+        // M10/M11 work instead of an accident. No content is added here:
+        // empty space with a stated owner is not a bug (T018 §C1).
+        // ------------------------------------------------------------------
+        Item {
+            objectName: "dashboardTailSpacer"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
     }
 }
