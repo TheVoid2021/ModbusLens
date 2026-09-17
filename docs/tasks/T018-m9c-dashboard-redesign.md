@@ -346,7 +346,8 @@ git diff --check → PASS
 
 **C2.19 Git Commit**
 
-- **C2 code commit = `07b03d1`**（`M9-C C2: extract statistics presentation components`）；hash 回填 = 本 docs-only 提交；**不 amend `a94a7b5`、不 rebase、不 push**。
+- **C2 code commit = `07b03d1`**（`M9-C C2: extract statistics presentation components`）；hash 回填 = `4e14022`（docs-only）；**不 amend `a94a7b5`、不 rebase、不 push**。
+- **C3 code commit = `9471772`**（`M9-C C3: compose dashboard statistics distribution`）；hash 回填 = 本 docs-only 提交；**不 amend `07b03d1`、不 rebase、不 push**。
 
 ### C2.20 C2 Review = PASS（用户）+ Review Addendum
 
@@ -492,5 +493,7 @@ stderr 卫生：ReferenceError/TypeError/binding loop/NaN/Infinity/required miss
 | Prelude（T018 canonicalization + Review guardrails） | `6d242de` | docs-only；**不推进 LKGC** |
 | C1 | `a94a7b5` | QML + harness（`DashboardPage.qml` + `src/main.cpp`） |
 | C2 | `07b03d1` | 新组件 ×2 + Overview 组合化 + CMake 注册 + harness 断言 |
-| C2 hash 回填 | 本 docs-only 提交 | 文档 hash 回填 |
+| C2 hash 回填 | `4e14022` | 文档 hash 回填 |
+| C3 | `9471772` | DashboardPage 组合 + OutcomeDistribution + CMake fixture + harness 探针 |
+| C3 hash 回填 | 本 docs-only 提交 | 文档 hash 回填 |
 | LKGC | **不变 = `6cc84c3`** | 直到 M9-C 有人工验收通过后按 Git tree classification 裁定 |
