@@ -268,3 +268,12 @@
 - **Q：截图的业务真值能不能靠像素/OCR？** A：不能。业务断言在截图之前用 Controller 的字段完成（golden facts、successRate、baseline 文本长度），像素只负责"这张图确实被渲染出来了、内容非纯色、五张互不相同"。图像自检证明的是**证据完整性**，不是业务正确性。
 - **Q：`successRate` 为什么断言成 0.25 而不是 25？** A：因为它在 Core/Controller 里是**分数**，QML 显示时才 ×100。测试里写错单位会造出"产品缺陷"的假象——遇到这种红灯要先查数据语义，再怀疑产品（本轮正是 test oracle 错误）。
 - **Q：为什么不允许为了截图去触发一次真实 AI 请求？** A：截图要证明的是"UI 在真实配置状态下布局正确"，不是"Provider 可用"。触发请求会把网络、凭据、配额、非确定性带进证据链，还可能把 token 写进日志或截图。所以 harness 只读 `aiConfigured` 布尔并断言 `hasAiDiagnosis`/busy/error 都处于"未发生"状态——**用断言证明"没有发生"，而不是用假设**。
+
+
+## 29. M9-B (T017) Closure 条目（2026-09-17 追加）
+
+- **Q：workspace 与 lifecycle 的区别是什么，为什么 B5 反复强调？** A：workspace 是**呈现归属**，lifecycle 是**状态生命周期**。把诊断 UI 搬进独立页面只改变"内容画在哪里"，不改变"谁拥有状态、什么事件会取消/清空它"。所以 `DiagnosisPage.qml` 里没有任何 `onVisibleChanged`/`Component.onCompleted` 调用业务命令——否则切页就会变成隐式生命周期事件，AI 请求会被页面可见性取消，跨页结果持久性也就不复存在。
+- **Q：怎么判断一个页面该持有什么？** A：按"事实 vs 呈现"分：**事实**（批次、统计、事务、baseline、AI/Agent 状态、source/mode、revision）只能由既有 Controller/backend owner 持有；**页本地呈现**（当前 tab、问题草稿、滚动位置）由常驻页面持有并跨导航保留。草稿尤其不能为了"能持久化"而回写 Controller——它是**候选输入**，不是**事实**，回写会污染 `askAgent(question)` 的参数边界。
+- **Q：extraction 阶段最容易被顺手改坏的是什么？** A：语义冻结项。B5 只搬 UI，所以 `clearDiagnosis`、Ask AI/Ask Agent 的前置序、single-flight 互斥、失败清 error 保旧文本全部逐字保留；特别地**不能**因为 Baseline/AI/Agent 现在同处一个 workspace 就推导出"三者应该有相同的 clear/cancel 生命周期"——那是产品重设计，不是迁移。
+- **Q："evidence commit" 能不能因为名字而不算 LKGC？** A：不能。LKGC 的判据是**文件列表 + 该树是否经过完整验证（含人工验收）**。B4 的 `207ae96` 本身就是 harness+截图提交且被裁定为 LKGC；B5 的 `6cc84c3` 含 `src/main.cpp` 与部署脚本行为变更，判据一致适用。反过来 docs-only 提交永不成为 LKGC。
+- **Q：为什么照片自检不能替代视觉验收？** A：自检只能证明"截的是那个状态、尺寸有效、不是同一帧复制"——它证明的是**证据完整性**，不是**设计正确性**。视觉正确性只能由人看：层级、密度、可读性、有无裁切，这些都不是像素计数能判定的。

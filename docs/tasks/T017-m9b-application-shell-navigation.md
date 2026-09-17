@@ -2440,6 +2440,8 @@ SELF-CHECK PASS (5/5: identity from the capture log, dimensions, non-flat conten
 
 **provider / 凭据边界**：harness **不**调用 Ask AI / Ask Agent、**不**发网络请求、**不**写死或伪造任何 AI/Agent 文本；`aiConfigured=1`（本机确有环境配置）时 UI 自行显示模型名——harness 只读 `aiConfigured` 布尔并**不读取、不记录任何 token**，截图不含凭据。**real AI/Agent provider call NOT REQUIRED FOR B5.4。**
 
+【B5 Closure 措辞收紧（2026-09-17）】上句「不读取、不记录任何 token」属**过强表述**，原文保留不改。准确表述见 §50.12：evidence harness **未读取、未打印、未记录、未截图 credential**；**未触发真实 Provider request**。本机 `aiConfigured = 1` 只代表 app 按既有配置机制判定为 configured，**不代表本轮发生过 Provider call**。
+
 ### 48.5 证据 harness 变更分类
 
 本 commit 修改 `src/main.cpp`（+354/-10）⇒ **test/evidence harness behavior-bearing change，不是 docs-only**。新增：`grab()` 状态日志（逻辑/像素尺寸 + ws/tab/navItem/可见性/mode/source/observed/baseline）、`selectTab`、`assertFrame`、`assertDemoGoldenFacts`、`countNamed`/`isUnder`（"无重复 Diagnosis UI"检查）、B5 捕获阶段 12..29、evidence `switchTo` 补 diagnosis 键映射。**未改 Controller 语义、未注入 AI/Agent answer、未调网络、未加 production-only state。**
@@ -2506,3 +2508,229 @@ git status                         → 仅 scripts/deploy_windows.bat、src/main
 
 - **B5.4 Manual Visual Review（用户）**；通过后 **B5 Final Closure**（届时按实际 Git tree classification 决定 verified LKGC 候选——`28e6592` 与本 commit 都是 behavior-bearing tree，**不提前锁定**）。
 - M9-C / M10 未开始。
+
+## 50. M9-B5 Final Closure + verified LKGC Classification + M9-B Closure（2026-09-17）
+
+**本轮只做最终归档与 Git classification。零 production/QML/tests/harness/deploy script 改动。**
+
+### 50.1 Manual Visual / Interaction Review = PASS（用户，2026-09-17）
+
+用户在 `6cc84c3` tree 上确认 **B5 Manual Visual / Interaction Review = PASS**。归档逐项：
+
+| # | 人工确认项 | 结论 |
+| --- | --- | --- |
+| A | Diagnosis navigation 正常；**Device 仍 disabled** | PASS |
+| B | Diagnosis **1024×720** 视觉正常 | PASS |
+| C | Diagnosis **1000×700** 视觉正常 | PASS |
+| D | Baseline：Run Demo Batch → Run Baseline Diagnosis，结果正常 | PASS |
+| E | Baseline persistence：Diagnosis→Dashboard→Replay→Communication→Diagnosis 后结果仍在，**无自动 rerun / clear** | PASS |
+| F | Clear Diagnosis **保持既有真实语义**：Diagnosis 派生状态按 Controller 规则清理，Dashboard statistics / transactions / source-session **未被误清** | PASS |
+| G | AI tab：controls / config / layout 正常（**本 B5 acceptance 不要求真实 ModelScope request**） | PASS |
+| H | Agent tab：question draft 导航后保持；本地多行 draft 未撑坏页面（**不要求真实 Provider**） | PASS |
+| I | Legacy：Statistics + Transactions 正常；**无重复 Diagnosis pane**；**无 SplitView 残留空洞** | PASS |
+| J | Dashboard / Communication / Replay 无明显回归 | PASS |
+| K | 两尺寸 1024×720 与 1000×700 均正常 | PASS |
+
+**PASS 边界（明示）**：
+- **real AI / Agent Provider call = NOT REQUIRED / NOT CLAIMED**。
+- **real Serial hardware = NOT CLAIMED**。
+- F 项按 §50.7 的"不重新解释 clear 语义"执行：本轮**没有**为 B5 改动或重定义 `clearDiagnosis()`，也**没有**推导"Baseline/AI/Agent 同处一个 workspace ⇒ 三者必须共享同一 clear/cancel 生命周期"。
+
+### 50.2 Git Classification（按真实文件列表，不按 commit message）
+
+```text
+2067b99  M9-B5: design diagnosis extraction and persistence contracts (learning)
+  docs/BACKLOG.md · docs/INTERVIEW_NOTES.md · docs/PROJECT_STATUS.md
+  docs/devlog/2026-09-17-m9b5-phase1.md · docs/tasks/T017-...md
+  ⇒ DOCS-ONLY
+
+b8a47a1  M9-B5.1: add diagnosis page shell only
+  CMakeLists.txt · src/main.cpp · src/ui/qml/Main.qml
+  src/ui/qml/pages/DiagnosisPage.qml · + docs
+  ⇒ BEHAVIOR-BEARING（QML/CMake/test-harness）
+
+3b1ca93  M9-B5.2: atomic diagnosis workflow migration + activation
+  src/main.cpp · src/ui/qml/Main.qml · src/ui/qml/components/NavigationRail.qml
+  src/ui/qml/pages/DiagnosisPage.qml · docs/issues/ISSUE-013-...md · + docs
+  ⇒ BEHAVIOR-BEARING（product QML 迁移 + navigation/test behavior）
+
+28e6592  M9-B5.3: verify diagnosis persistence and geometry
+  src/main.cpp · src/ui/qml/pages/DiagnosisPage.qml · + docs
+  ⇒ BEHAVIOR-BEARING（nav/geometry harness + QML test observability）
+
+6cc84c3  M9-B5.4: prepare diagnosis manual visual candidate
+  src/main.cpp · scripts/deploy_windows.bat
+  docs/assets/screenshots/m9b5-*.png ×5 · + docs
+  ⇒ BEHAVIOR-BEARING（evidence harness + deploy script behavior）
+    **NOT docs-only** —— "evidence / candidate / manual" 这些词不改变文件列表事实
+```
+
+### 50.3 Final verified LKGC = `6cc84c3`
+
+判定链条（沿用 B3/B4 precedent，判据是**文件列表 + 是否经过完整验证**，不是命名）：
+
+1. `6cc84c3` 含真实 behavior-bearing 变更：`src/main.cpp`（evidence harness 行为，+354/−10）与 `scripts/deploy_windows.bat`（部署清单行为）。**不是 docs-only。**
+2. 该 commit 的**完整仓库树**经过了本轮全部验证：build → qml_smoke → qml_nav_check（14 项判决全 PASS）→ **10 趟** qml_geometry_check → full ctest 26/26 → deploy → **严格最小 PATH** 验证 → 部署版 smoke/nav/geometry → 截图证据 → 截图完整性/distinctness 自检 → **Screenshot Visual Review = PASS** → **Manual Interaction Review = PASS**。
+3. 人工验收运行的正是 `6cc84c3` 的树（PASS 记录见 §50.1）。
+
+⇒ **V2 verified LKGC 推进：`207ae96` → `6cc84c3`**。
+
+**不因"evidence commit"排除它的理由**：B4 closure 时 `207ae96` 本身也是"HARNESS(+181 main.cpp) + 截图"的提交并被裁定为 LKGC——同一判据必须一致适用。反过来，`2067b99` 是 docs-only，即使它是本阶段第一个提交也不作 LKGC。
+
+### 50.4 M9-B5 — Diagnosis Extraction = **COMPLETE**
+
+最终交付清单（全部已落地并被验证）：
+
+- **DiagnosisPage persistent workspace**（StackLayout child 4）
+- `workspaceDiagnosisIndex = 4`（集中契约，测试与 QML 共读）
+- **Diagnosis nav enabled**；**Device nav disabled**
+- **Baseline + AI + Agent 从 Legacy 原子迁入 DiagnosisPage**（同一提交完成迁移+启位+Legacy 删除，禁止"已迁移但不可达"）
+- **Transactions 留 Legacy**
+- **Legacy SplitView 最小机械收口**（Transactions 提升为列直接子项、全宽）
+- **authoritative diagnosis facts 仍由 Controller / 既有 owner 持有**（本阶段零 Controller 改动）
+- **page-local tab state retained**
+- **Agent question draft retained**
+- **navigation has no business lifecycle authority**
+- **bounded Flickable contracts**
+- **Scenario L**（Baseline persistence）
+- **Scenario N**（page-local Agent draft persistence）
+- **Scenario M deferred by design**
+- **five-workspace navigation**
+- **existing 11 named scenarios** 全保留
+- **10-pass geometry**
+- **deployed validation**（严格最小 PATH）
+- **screenshot evidence**（5 张新增 + 5 张 B4 复验）
+- **Manual PASS**
+
+### 50.5 M9-B — App Shell / Navigation = **COMPLETE**
+
+roadmap 核验：T017 §13 的迁移计划为 **B1→B5**，无 B6/B7（仓库内 M8 的 "B1~B7" 是 M8 Phase B Knowledge Ownership，与本里程碑无关）。
+
+| 阶段 | 交付 | 状态 | verified LKGC 轨迹 |
+| --- | --- | --- | --- |
+| B1 | Shell Skeleton（AppBar + compact NavigationRail + WorkspaceHost/StackLayout + Legacy） | ✅ COMPLETE | `189c62c` |
+| B2 | Dashboard Extraction | ✅ COMPLETE | `53685d5` |
+| B3 | Communication Extraction | ✅ COMPLETE | `382ecfb` |
+| B4 | Replay Extraction | ✅ COMPLETE | `207ae96` |
+| B5 | Diagnosis Extraction | ✅ COMPLETE | **`6cc84c3`** |
+
+⇒ **M9-B — App Shell / Navigation = COMPLETE**。**M9 overall 不关闭**：M9-C / M9-D / M9-E / M9-F 仍待进行。
+
+### 50.6 Final Architecture Knowledge（B5 最终规则）
+
+- **A. Diagnosis Workspace ≠ Diagnosis lifecycle.** 进入/离开 Diagnosis **只改变 presentation index**。不得自动触发：run baseline / clear diagnosis / Ask AI / Cancel AI / Ask Agent / Cancel Agent。源码级负向证据：`DiagnosisPage.qml` 中 `onVisibleChanged` / `Component.onCompleted` / `Component.onDestruction` 出现次数 = 0，六个业务命令**仅**出现在 `onClicked`（B5.3 §46.9、B5.4 复核）。
+- **B. Authoritative state** 继续由真实 Controller/backend owner 持有：deterministic batch、statistics、transactions、baseline result、AI state/result/error、Agent state/result/error、source/mode、**revision**。
+- **C. Page-local state** 允许由常驻 DiagnosisPage 持有并跨 navigation 保持：selected tab、Agent question draft、scroll position。
+- **D. Draft ≠ authoritative fact.** 草稿**不得**为了持久化被复制进 Controller（`askAgent(question)` 参数直传，Controller 从不存储问题文本）。
+
+### 50.7 Clear Diagnosis Freeze
+
+**B5 是 extraction，没有重新定义 `clearDiagnosis()`。** 其最终产品语义继续以**当前真实 Controller 与既有测试**为准。特别地：**不得**因为 Baseline + AI + Agent 现在位于同一 workspace，就推导出三者必须拥有完全相同的 clear/cancel 生命周期（各自的前置序、取消路径与失效时机保持原样冻结，见 §43.6）。
+
+### 50.8 Async Visibility Rule（正式记录）
+
+**page visible / hidden 不是 async lifecycle event。** Workspace navigation **不得**成为以下任一事件的原因：
+- AI cancel、Agent cancel、diagnosis invalidation、batch revision change。
+
+真正的 lifecycle 继续由既有业务事件控制：explicit user action（Cancel 按钮）、accepted batch change（`runDemoBatch` / `loadReplayFile` / `clearResults` / serial 发布路径）、`clearDiagnosis` / `clearResults`、以及 generation/revision 守卫。机器证据：Scenario L 的七站巡回首尾 digest 一致（`6915f49af5442768`），且每站 `hasBaselineDiagnosis=true`（revision 若移动必清 baseline）。
+
+### 50.9 Scenario Closure（最终准确计数）
+
+- **existing named scenarios = 11**：A、B、D、E、F、G'、H、I、J、K、K'。
+- **另有 1 条 basic five-workspace navigation path**（结构相位，非 named scenario）。
+- **B5 新增**：**L** = Baseline persistence；**N** = page-local Agent draft persistence。
+- **M = DEFERRED BY DESIGN**。
+
+**M 的准确说明**：nav harness **没有**为 AI-result persistence 引入新的 fake transport seam；AI authority/lifecycle 由**既有 fake/offline `ui_bridge` 测试**（`ai01`–`ai11`）保护；**B5 Manual Review 只证明 extraction/UI 未破坏既有行为**，不声称验证了真实 Provider 语义。
+
+⚠️ 不得再写"existing 12 scenarios"（该计数错误已在 §44.33 与 §46.2 批注更正，本文为最终口径）。
+
+### 50.10 Geometry Closure
+
+- 最终矩阵：**5 active workspaces × 2 sizes = 10 passes**（Legacy ×2、Dashboard ×2、Communication ×2、Replay ×2、Diagnosis ×2）。
+- Diagnosis 趟额外做 **Baseline / AI / Agent tab sweep**（每个 tab 单独 settle 后测量）。
+- **hidden page/tab 的 geometry 继续不是非零 contract**（实测隐藏 tab 会保留历史尺寸，纯属历史）。
+- 每趟增加 **activePage 非空转守卫**：证明"本趟测量的确实是目标 workspace"，防止页面未激活导致页专属断言整段跳过。
+- **ISSUE-013 闭环**：shadowed-local geometry oracle defect 已修复（`row2`/`header`/`panel` 直赋外层）；B5.2 的 **mutation probe** 曾证明两条 guard 确实可证伪（比较常数 +1000 → GEOFAIL ×2、exit 1，随后还原）；B5.3/B5.4 在**复活后的 guard** 上持续全绿（10 趟 / 0 GEOFAIL）。
+
+### 50.11 Screenshot / Evidence Knowledge
+
+截图证据必须**显式绑定**：candidate HEAD、workspace identity、selected nav item、selected tab、state assertions、**logical window size**、**actual image pixel size**。
+
+- **filename 不能充当 state oracle**（B4 教训）。
+- **DPI 事实**：1024×720 logical → **1280×900** pixels；1000×700 logical → **1250×875** pixels（125% scaling，**不是 failure**，两个尺寸必须分别记录）。
+- **distinctness oracle 只能证明**"五张图不是同一帧复制"，**不能证明视觉设计正确**。视觉正确性来自 **Screenshot Visual Review + Manual Interaction Review**（本轮均为用户 PASS）。
+
+### 50.12 Provider / Secret Wording（最终口径）
+
+**正确表述**：evidence harness **未读取、未打印、未记录、未截图 credential**；**未触发真实 Provider request**。本机 `aiConfigured = 1` **只代表** app 按既有配置机制判定为 configured，**不代表本轮发生过 Provider call**。
+
+（§48.4 中"不读取、不记录任何 token"的过强表述已在该行下方追加批注收紧，原文保留。）
+
+### 50.13 Page-frame Decision（最终）
+
+**接受**：DiagnosisPage 使用 `SectionHeader` + 标准 page margins / spacing。
+**不恢复**：旧 18px standalone Label、旧 pane card outer chrome。
+**理由**：这是 **workspace container adaptation**（与 Dashboard/Communication/Replay 同构），**不是 Diagnosis workflow redesign**。截图人工复核已 PASS。
+
+### 50.14 Legacy Final Boundary
+
+B5 之后 Legacy 仅剩：**StatisticsOverview + Transactions**。Diagnosis workflow **只存在**于 `DiagnosisPage`。
+
+**不得存在**：duplicate Baseline、duplicate AI、duplicate Agent、duplicate question draft。机器证据：全树 `diagnosisTabContent` 恰好 1 个且不在 legacy 子树内（B5.4 evidence 阶段 E 断言 + `countNamed`/`isUnder`）。
+
+**Transactions 仍未进行 M9-D redesign**（留给 M9-D）。
+
+### 50.15 Final Validation Record（当前完整事实）
+
+```text
+build                                  PASS
+qml_smoke                              PASS
+qml_nav_check                          PASS
+  basic five-workspace path            PASS
+  11 existing named scenarios          PASS
+  L  PASS
+  N  PASS
+  M  DEFERRED BY DESIGN
+qml_geometry_check                     10/10 PASS
+ctest                                  26/26 PASS
+deploy_windows                         PASS
+strict minimal-PATH smoke              PASS
+deployed qml_smoke                     PASS
+deployed qml_nav_check                 PASS
+deployed geometry                      10/10 PASS
+screenshot capture                     PASS
+screenshot integrity / distinctness    PASS
+Screenshot Visual Review               PASS（用户）
+Manual Visual / Interaction Review     PASS（用户）
+real AI/Agent Provider call            NOT REQUIRED / NOT CLAIMED
+real Serial hardware                   NOT CLAIMED
+```
+
+### 50.16 Screenshots Archive（B5 evidence，`docs/assets/screenshots/`）
+
+```text
+m9b5-diagnosis-baseline-1024x720.png
+m9b5-diagnosis-baseline-1000x700.png
+m9b5-diagnosis-ai-1024x720.png
+m9b5-diagnosis-agent-draft-1024x720.png
+m9b5-legacy-after-diagnosis-extraction-1024x720.png
+```
+
+人工视觉裁定：Diagnosis 1024×720 **PASS** · Diagnosis 1000×700 **PASS** · Baseline **PASS** · AI tab **PASS** · Agent tab **PASS** · Legacy post-extraction **PASS** · page-frame **ACCEPTED**。
+
+**非阻塞 polish notes（记录，不在 closure 中修改）**：
+- 空内容状态下 scrollbar 的视觉可在后续 polish 评估；
+- header subtitle 与 tab 名存在少量信息重复；
+- 二者**均不属于 B5 blocker**，**不在本次 closure 中修改**（留待 M9-C/D 的视觉打磨或 BACKLOG）。
+
+### 50.17 Closure Commit Scope（本轮）
+
+只允许 `docs/`（status/archive）变更；**不得**改动 `src/` / `tests/` / QML / `CMakeLists.txt` / `scripts/` / `samples/`。已执行 `git diff --stat` / `git status` 确认 production/test/deploy tree **零新增变化**；`git diff --check` PASS。
+
+closure commit 为 **docs-only**，**不得成为新的 verified LKGC**（LKGC 继续指向 `6cc84c3`）。
+
+## 51. Next
+
+- **M9-C — Dashboard Redesign**，从 **Learning / Design Gate** 开始（先读 PROJECT_STATUS / BACKLOG / ARCHITECTURE / §13 边界与 M9-C 登记项，产出设计并**停止待 Review**；本轮不开始 implementation）。
+- M9-D（Transaction & Diagnosis Workspace）/ M9-E（Branding/Packaging）/ M9-F（Manual Visual Acceptance）未开始；**M9 整体未关闭**。
