@@ -373,7 +373,127 @@ transaction table scanability · 1000×700 · selection（鼠标 + 键盘）· d
 - 独立 **docs-only** commit（建议信息：`M9-D: design transaction and diagnosis workspace`）；**不 amend `5b1879e`**、不 rebase、不 push。
 - **verified LKGC 继续 = `bc754be`**（本 Phase 1 docs-only 不推进）。
 
-## 38. Next
+## D1 — Transactions Workspace Shell + Navigation / Index Contract（Implementation Record，2026-09-18）
+
+### D1.0 Phase 1 Review = PASS（用户）+ 四条 binding corrections
+
+用户裁定 **M9-D Phase 1 Review = PASS**，并追加以下**约束性更正**（后续阶段必须遵守）：
+
+- **A. Geometry count correction**：**navigation entry 数 ≠ active workspace 数**。
+  - **D1**：active = Legacy/Dashboard/Communication/Replay/Diagnosis（5）；disabled = Transactions/Device ⇒ **标准 geometry 仍为 5 active × 2 sizes = 10 passes**。
+  - **D2**（Transactions enabled 后）：**6 active × 2 = 12 standard passes**。
+  - **D5**（Legacy 退役后）：**5 active × 2 = 10 standard passes**。
+  - **disabled 的 Device / disabled 的 Transactions 不建立非零 hidden geometry contract**。
+- **B. Selection lifetime**：selected transaction 仍是 **page-local presentation state**，但 **navigation persistence ≠ batch replacement persistence**：
+  - **same model/batch + workspace navigation → selection may persist**；
+  - **authoritative transaction model replacement/reset → selection/detail 必须 invalidate**；
+  - **failed source replacement 且 model/batch 未变 → selection 应保持有效**；
+  - **不得**为做到这一点把 selection 搬进 Controller。
+- **C. Detail data-access seam**：**D3 之前**必须基于真实 Qt/QML 确定 selected-row roles 如何被 detail pane 读取；**不得默认 `ListView.currentItem` 一定是长期 authority**；**不得**为 detail 新增 `Controller.selectedTransaction*` 类 authoritative properties。若采用 page-local snapshot，必须证明：①只是 presentation copy ②model reset 时清除 ③不成为业务 authority ④不产生 stale detail。
+- **D. Legacy reference audit**：**D5 之前**必须把 29 处 legacy harness 引用**分类**——presentation index / geometry target / navigation station / state-persistence station / Legacy-specific regression / Statistics-Transactions oracle——**逐类处理**；**禁止** blind global replace（legacy → transactions）。
+
+### D1.1 Preflight
+
+```text
+branch = main；HEAD = 79c6517；working tree clean；git diff --check PASS
+V2 verified LKGC = bc754be；v1.0.0^{commit} = ae067ab（annotated tag 对象 2cee626）
+origin/main = a40d935；ahead 59 / behind 0
+```
+
+### D1.2 Exact Product Scope（本轮只做这些）
+
+1. `TransactionsPage.qml` **shell**（页根契约 + 标题，**零事务内容**）。
+2. `workspaceTransactionsIndex = 5` + `workspaceDeviceIndex = 6`（集中契约）。
+3. `NavigationRail` 增加 **事务**（**enabled = false**）；**设备** index 5 → 6（**继续 disabled**）。
+4. StackLayout 注册 child 5（持久实例化）。
+5. 最小 harness 扩展（§D1.9）。
+
+**明确不做**：迁移任何 transaction UI（表/表头/delegate/issue 文本/空态）、启用 Transactions nav、selection、detail pane、filter/search、proxy model、raw/hex、request/response 分轴 role、Diagnosis linkage、AI/Agent、Legacy 退役、StatisticsOverview 删除、M10/M11/M12 能力。
+
+**D1 不可能造成能力消失**：Legacy 仍完整拥有 StatisticsOverview + Transactions（本轮零改动）。
+
+### D1.3 Index Contract（D1 的 presentation indices）
+
+```text
+Legacy = 0　Dashboard = 1　Communication = 2　Replay = 3　Diagnosis = 4
+Transactions = 5　Device = 6
+```
+
+由 `Main.qml` 根的 **presentation-level index contract** 集中声明（`workspaceLegacyIndex` … `workspaceDeviceIndex`）；**active workspace indices 0–4 不变**；唯一变化 = **Device 5 → 6**（它仍 disabled，新的 disabled Transactions 占 5）。
+
+### D1.4 Navigation Entry（disabled 契约）
+
+- 新增 **事务**（`qsTr("事务")`），D1 `enabled = false`；**设备**继续 disabled；两者沿用既有 disabled 呈现（视觉上明确不可用）。
+- **disabled Transactions 被点击不得**：改变 `currentWorkspaceIndex` / source / model / selection，也不运行 Diagnosis 或任何 Controller command —— 由既有 disabled-entry guard（`activate()` invoke + index 不变，循环 5..5 → **5..6**）覆盖两个 disabled 条目。
+
+### D1.5 TransactionsPage Shell
+
+`Item` root（页根契约）、`objectName: "transactionsPage"`、`required property var analysisController`、`ColumnLayout(anchors.fill, margins DS.spacingL, spacing DS.spacingM)`、`SectionHeader { objectName: "transactionsPageHeader"; title: qsTr("事务"); subtitle: qsTr("通信记录与事务详情") }`。**零事务内容、零 placeholder card**（D1 不可通过 nav 到达）。
+
+### D1.6 Persistent StackLayout 注册
+
+作为 **child 5** 加入持久 StackLayout ⇒ D2 后沿用稳定 page identity（与 B2–B5 页身份断言同机制）。D1 中 Transactions **disabled** ⇒ 不建立 visible-page user workflow；`navigation 只改变 presentation index` 继续冻结。
+
+### D1.7 Hidden Geometry Rule（D1 边界）
+
+**不要求** hidden Transactions page 有非零 geometry；**不得**直接设 `currentWorkspaceIndex = 5` 再把隐藏页几何当产品契约。只验证 object exists / 正确 parent / index mapping / required dependency 已注入；**hidden geometry unspecified**（dump 仅信息性：实测 `transactionsPage: x=0 y=0 w=0 h=0 parent=workspaceHost`）。
+
+### D1.8 Legacy / Diagnosis / Backend Freeze
+
+- `Main.qml` 的 Legacy 内容（StatisticsOverview + Transactions pane）**全部原样**；D1 不移动任何 transaction UI。
+- `DiagnosisPage.qml` **零修改**。
+- `AnalysisController` / `TransactionListModel` / Core / Replay / Serial / Diagnosis / AI / Agent **零语义修改**；**未新增** `selectedTransaction` / `transactionSelection` / detail state / new transaction role（`git diff --name-only` 证实）。
+
+### D1.9 D1 Structural / Nav Assertions（最小扩展，不重写旧场景语义）
+
+在 `runShellNavAssertions` 内新增：`workspaceTransactionsIndex == 5`、`workspaceDeviceIndex == 6`；`navItem_5`/`navItem_6` **disabled** 且点击不改 index；`transactionsPage` **存在** + **直接父级 = workspaceHost** + **`analysisController` 注入非空** + **在 5 个 active workspace 选中时不可见**；`currentWorkspaceIndex` 合法范围 **0..6**。**未改**：real-workspace 集合（0..4）、`activePage()`、geometry 趟数、旧场景语义。
+
+### D1.10 Problems / RCA（RED → GREEN）
+
+- **RED**：首轮 nav check `exit 1` —— `GEOFAIL: diagnosis: NAVFAIL diagnosisPage visibility does not follow selection 4`（14 场景全部 NOT RUN）。
+- **根因**：`TransactionsPage` 被插到 `DiagnosisPage` **之前**，在 StackLayout 里成为 **child 4**，抢占了"诊断"的槽位 ⇒ 选中 index 4 时显示的是空事务页，`diagnosisPage` 不可见。
+- **分类**：**presentation index / StackLayout 顺序**（child 顺序就是 index 契约的物理载体）。
+- **修复**：把 `TransactionsPage` 移到 `DiagnosisPage` **之后**（child 5）。重跑 → **GREEN**。
+- **教训（写入知识条目）**：**StackLayout 的 child 顺序和 rail 的 entry 顺序是同一份 index 契约的两个物理表示**；插入新页必须同时核对两处顺序，且"诊断站"这类既有断言的失败正是顺序错位的直接信号。
+
+### D1.11 Validation（真实命令与输出）
+
+```text
+cmake --preset debug-local && cmake --build --preset debug-local → [68/68] / [7/7] Linking modbuslens.exe（0 error）
+--qml-smoke-test   → EXITCODE=0（stderr 卫生计数 0）
+--qml-nav-check    → EXITCODE=0
+  NAV SCENARIOS: basic five-workspace path PASS, A PASS, B PASS, D PASS, E PASS, F PASS,
+    G' PASS, H PASS, I PASS, J PASS, K PASS, K' PASS, L PASS, N PASS
+  NAV DASHBOARD PRESENTATION CHECK: PASS；NAV SCENARIO M: DEFERRED BY DESIGN
+  NAV CHECK PASS (five workspaces; ...；M deferred by design)
+--qml-geometry-check → EXITCODE=0；**标准 10 passes（5 active × 2 sizes）** + 2 targeted demo-dashboard
+  passes（C4）；0 GEOFAIL；dump 16 段；`transactionsPage` 信息性条目 0×0（隐藏页无几何契约）
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26（数量不变）
+git diff --check → PASS
+```
+
+**未伪称** D1 已有 Transactions geometry acceptance。
+
+### D1.12 Files Changed（D1）
+
+新增 `src/ui/qml/pages/TransactionsPage.qml`；修改 `src/ui/qml/Main.qml`（index 契约 + child 5）、`src/ui/qml/components/NavigationRail.qml`（+事务 disabled；设备 5→6）、`CMakeLists.txt`（QML 注册）、`src/main.cpp`（D1 断言 + dump 信息性条目）、`scripts/deploy_windows.bat`（page existence checklist 补 `TransactionsPage.qml` —— **deploy behavior-bearing**）；docs：本文件、PROJECT_STATUS、BACKLOG、devlog、INTERVIEW_NOTES。
+
+### D1.13 Result
+
+- D1 shell 与 index 契约落地：**rail 7 条目**（5 active + 2 disabled）、**标准 geometry 仍 10 趟**、14 项场景零语义变化、Legacy/Diagnosis/backend 全部冻结、**无能力消失窗口**。
+- **Manual Review = PENDING**（D1 为 shell 阶段；人工验收在 D6）。
+- verified LKGC **不变 = `bc754be`**；未 push。
+
+## D2. Next
+
+- **M9-D D1 Review（用户）**；通过后 **D2 — 原子迁移 + 启位**（Transactions 表整块迁入 + `事务` 启位 + Legacy 同提交移出事务 pane；geometry 届时扩为 **6 active × 2 = 12 standard passes**；每阶段独立 Review/提交）。
+- **D3（selection/detail）**、**D4（filters，默认不做）**、**D5（Legacy 退役）**、**D6（geometry/evidence/manual）** 未开始；M9-E/F 未开始。
+
+## 39. Next（Phase 1 之后的追加）
+
+- **M9-D D1 Review（用户）** → **D2** → D3 → D4（默认不做）→ D5 → D6；每阶段独立 Review/提交。
+- **M9-E / M9-F 未开始**；M9 整体 IN PROGRESS。
+
 
 - **M9-D Phase 1 Review（用户）**；批准后按 §33 从 **D1** 开始实施（每阶段独立 Review/提交）。
 - **M9-E（Branding/Icon/Packaging）**、**M9-F（Final Manual Visual Acceptance）** 未开始；**M9 整体 IN PROGRESS**。

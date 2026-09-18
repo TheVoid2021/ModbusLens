@@ -37,6 +37,11 @@ ApplicationWindow {
     readonly property int workspaceCommunicationIndex: 2
     readonly property int workspaceReplayIndex: 3
     readonly property int workspaceDiagnosisIndex: 4
+    // M9-D D1: the Transactions workspace shell takes index 5 (disabled
+    // until D2) and the disabled Device entry moves to index 6. The active
+    // workspace indices 0..4 are unchanged.
+    readonly property int workspaceTransactionsIndex: 5
+    readonly property int workspaceDeviceIndex: 6
 
     width: 1024
     height: 720
@@ -429,6 +434,17 @@ ApplicationWindow {
                 // same change (T017 §43.13).
                 DiagnosisPage {
                     objectName: "diagnosisPage"
+                    analysisController: analysisController
+                }
+
+                // Transactions workspace page (M9-D D1) — StackLayout child 5.
+                // SHELL ONLY: the transaction table (header, delegates, issue
+                // text, empty state) still lives in the Legacy workbench and
+                // migrates here ATOMICALLY WITH the 事务 navigation
+                // enablement in D2 (T019 §33). Until then the rail entry is
+                // disabled and this page is unreachable with zero bindings.
+                TransactionsPage {
+                    objectName: "transactionsPage"
                     analysisController: analysisController
                 }
             }

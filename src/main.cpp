@@ -1008,8 +1008,11 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
         rootObj->property("workspaceDashboardIndex").toInt();
 
     const int index = rail->property("currentWorkspaceIndex").toInt();
-    if (index < 0 || index > 5)
-        fail(QStringLiteral("NAV currentWorkspaceIndex %1 out of range 0..5")
+    // M9-D D1: the rail carries seven entries (five ACTIVE workspaces 0..4
+    // plus the disabled Transactions shell at 5 and the disabled Device
+    // entry at 6) — entry count != active workspace count.
+    if (index < 0 || index > 6)
+        fail(QStringLiteral("NAV currentWorkspaceIndex %1 out of range 0..6")
                  .arg(index));
     const int communicationIndex =
         rootObj->property("workspaceCommunicationIndex").toInt();
@@ -1095,7 +1098,8 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     auto *item4 = findNamedItem(roots, QStringLiteral("navItem_4"));
     if (!item4 || !item4->property("enabled").toBool())
         fail(QStringLiteral("NAV navItem_4 (diagnosis) must be enabled"));
-    for (int i = 5; i <= 5; ++i) {
+    // M9-D D1: the disabled range is now Transactions(5) + Device(6).
+    for (int i = 5; i <= 6; ++i) {
         auto *item = findNamedItem(roots,
                                    QStringLiteral("navItem_%1").arg(i));
         if (!item) {
@@ -1118,6 +1122,38 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
             fail(QStringLiteral("NAV disabled navItem_%1 changed "
                                 "currentWorkspaceIndex")
                      .arg(i));
+    }
+
+    // ---- M9-D D1: transactions shell + index contract ----
+    const int transactionsIndex =
+        rootObj->property("workspaceTransactionsIndex").toInt();
+    const int deviceIndex = rootObj->property("workspaceDeviceIndex").toInt();
+    if (transactionsIndex != 5)
+        fail(QStringLiteral("NAV workspaceTransactionsIndex is %1, expected 5")
+                 .arg(transactionsIndex));
+    if (deviceIndex != 6)
+        fail(QStringLiteral("NAV workspaceDeviceIndex is %1, expected 6")
+                 .arg(deviceIndex));
+    auto *transactionsPage =
+        findNamedItem(roots, QStringLiteral("transactionsPage"));
+    if (!transactionsPage)
+        fail(QStringLiteral("NAV transactionsPage shell not found"));
+    else {
+        // the shell must be a direct StackLayout child with the injected
+        // controller; hidden geometry is deliberately NOT asserted (D1 §D1.7)
+        auto *host = findNamedItem(roots, QStringLiteral("workspaceHost"));
+        if (host && transactionsPage->parentItem() != host)
+            fail(QStringLiteral("NAV transactionsPage is not a direct child of "
+                                "workspaceHost"));
+        if (transactionsPage->property("analysisController")
+                .value<QObject *>()
+            == nullptr)
+            fail(QStringLiteral("NAV transactionsPage did not receive the "
+                                "analysisController injection"));
+        // while Transactions stays disabled the page must never be visible
+        if (transactionsPage->isVisible())
+            fail(QStringLiteral("NAV transactionsPage must not be visible while "
+                                "事务 navigation is disabled"));
     }
 
     // Re-activating the currently selected entry is a no-op.
@@ -1213,6 +1249,10 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
                   << QStringLiteral("outcomeSegment_5_dashboard")
                   << QStringLiteral("dashboardAttentionSummary")
                   << QStringLiteral("dashboardDiagnosisCue");
+        // M9-D D1: informational only — the hidden transactions shell has no
+        // geometry contract while it is unreachable.
+        if (page == ActivePage::Dashboard)
+            names << QStringLiteral("transactionsPage");
     } else {
         names << QStringLiteral("communicationContentLayout")
               << QStringLiteral("communicationHeader")

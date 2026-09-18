@@ -79,6 +79,7 @@ qt_add_qml_module(modbuslens
         src/ui/qml/pages/CommunicationPage.qml
         src/ui/qml/pages/ReplayPage.qml
         src/ui/qml/pages/DiagnosisPage.qml
+        src/ui/qml/pages/TransactionsPage.qml
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
