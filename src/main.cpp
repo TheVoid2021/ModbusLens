@@ -108,7 +108,10 @@ void assertTransactionsPresentation(const QList<QObject *> &roots,
     auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
     auto *empty =
         findNamedItem(roots, QStringLiteral("transactionsEmptyHint"));
-    auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+    // M9-D D5 retirement oracle: the Legacy workspace must not exist at all.
+    if (findNamedItem(roots, QStringLiteral("legacyWorkspace")))
+        fail(QStringLiteral("legacyWorkspace still exists — the Legacy "
+                            "workspace was not retired"));
 
     if (!page || !page->isVisible())
         fail(QStringLiteral("the transactions page is not visible"));
@@ -121,9 +124,6 @@ void assertTransactionsPresentation(const QList<QObject *> &roots,
     if (page && !underItem(pane, page))
         fail(QStringLiteral("transactionsPane is not under the transactions "
                             "page"));
-    if (legacy && underItem(pane, legacy))
-        fail(QStringLiteral("transactionsPane is still under the legacy "
-                            "workspace (duplicate owner)"));
     if (!list) {
         fail(QStringLiteral("transactionsList not found"));
         return;
@@ -347,12 +347,12 @@ void assertTransactionDetailMapping(const QList<QObject *> &roots,
 // M9-B3: which workspace page is currently visible (drives which page's
 // geometry gets asserted — hidden pages are never asserted).
 enum class ActivePage {
-    Legacy,
     Dashboard,
     Communication,
     Replay,
     Diagnosis,
-    Transactions
+    Transactions,
+    None
 };
 
 ActivePage activePage(const QList<QObject *> &roots)
@@ -372,7 +372,9 @@ ActivePage activePage(const QList<QObject *> &roots)
     if (auto *page = findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
         page && page->isVisible())
         return ActivePage::Dashboard;
-    return ActivePage::Legacy;
+    // M9-D D5: the Legacy workspace is retired — a tree with NO visible page
+    // is a defect the caller must report, not a Legacy fallback.
+    return ActivePage::None;
 }
 
 // M9-C C3: the outcome-distribution presentation contract, shared by the
@@ -431,7 +433,7 @@ void assertOutcomeDistribution(const QList<QObject *> &roots,
     if (findNamedItem(roots, QStringLiteral("statisticsOverview_dashboard")))
         fail(QStringLiteral("statisticsOverview_dashboard still exists — since "
                             "C3 the dashboard composes the statistics pieces "
-                            "directly (Legacy keeps the wrapper)"));
+                            "directly"));
 
     if (completed <= 0) {
         // zero state: the whole component renders nothing
@@ -669,12 +671,16 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
     // fragile geometry assertions — T017 §31.7/§20). The suffix is the
     // StatisticsOverview instanceId.
     const ActivePage page = activePage(roots);
-    const bool legacyVisible = (page == ActivePage::Legacy);
-    const bool statsVisible = (page == ActivePage::Legacy
-                               || page == ActivePage::Dashboard);
-    QString suffix = (page == ActivePage::Dashboard)
-                         ? QStringLiteral("dashboard")
-                         : QStringLiteral("legacy");
+    if (page == ActivePage::None)
+        failures << contextLabel + QStringLiteral(": no workspace page is "
+                                                  "visible — the geometry "
+                                                  "dispatch has no target");
+    // M9-D D5: the Legacy workspace is retired, so the Dashboard is the only
+    // StatisticsOverview consumer left. The suffix mechanism stays (the
+    // overview objectNames still carry the instanceId) without a "legacy"
+    // branch.
+    const bool statsVisible = (page == ActivePage::Dashboard);
+    const QString suffix = QStringLiteral("dashboard");
     auto suffixed = [&suffix](const QString &base) {
         return base + QLatin1Char('_') + suffix;
     };
@@ -696,6 +702,19 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
     auto fail = [&failures, &contextLabel](const QString &message) {
         failures << contextLabel + QStringLiteral(": ") + message;
     };
+
+    // M9-D D5 retirement oracle: the Legacy workspace must be REMOVED from
+    // the runtime tree (retirement = actual removal, never visible:false).
+    // Checked at every pass, whatever the active page is.
+    for (const QString &retired : {QStringLiteral("legacyWorkspace"),
+                                   QStringLiteral("statisticsOverview_legacy"),
+                                   QStringLiteral("legacyTailSpacer")}) {
+        if (findNamedItem(roots, retired))
+            fail(QStringLiteral("%1 still exists - the Legacy workspace was "
+                                "not retired from the runtime tree (expected "
+                                "D5 missing retirement)")
+                     .arg(retired));
+    }
 
     // M9-C C1: read the DesignSystem spacing tokens from the SAME singleton
     // instance the QML consumes, so the Dashboard layout contract is asserted
@@ -851,18 +870,7 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
         auto *outcomesRow =
             findNamedItem(roots, suffixed(QStringLiteral("statisticsRow2")));
 
-        if (page == ActivePage::Legacy) {
-            if (!overview)
-                fail(suffixed(QStringLiteral("statisticsOverview"))
-                     + QStringLiteral(" not found"));
-            else if (overview->implicitWidth() <= 0
-                     || overview->implicitHeight() <= 0)
-                fail(QStringLiteral("statisticsOverview implicit size %1x%2 — "
-                                    "the wrapper lost its content-derived "
-                                    "size")
-                         .arg(overview->implicitWidth())
-                         .arg(overview->implicitHeight()));
-        } else if (page == ActivePage::Dashboard && overview) {
+        if (page == ActivePage::Dashboard && overview) {
             fail(QStringLiteral("statisticsOverview_dashboard still exists — "
                                 "since C3 the dashboard composes the "
                                 "statistics pieces directly"));
@@ -1430,43 +1438,6 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
         }
     }
 
-    // M9-D D2 ownership guard: the Legacy workbench is statistics-only now,
-    // so the ISSUE-004 lower-band measurement is gone with the pane it
-    // measured. What must hold instead is the single-owner contract —
-    // the one transactions presentation lives under the Transactions page
-    // and NEVER under the Legacy workspace (proved at runtime, not by grep).
-    if (legacyVisible) {
-        auto *legacyPage =
-            findNamedItem(roots, QStringLiteral("legacyWorkspace"));
-        // Statistics block stays at the page top: the transactions extraction
-        // removed the only fillHeight child, so the surplus must be owned by
-        // the legacy tail spacer instead of drifting the statistics down
-        // (measured before the fix: overview y=226 instead of the margin).
-        auto *legacyOverview =
-            findNamedItem(roots, QStringLiteral("statisticsOverview_legacy"));
-        auto *legacySpacer =
-            findNamedItem(roots, QStringLiteral("legacyTailSpacer"));
-        if (legacyOverview && legacyPage) {
-            const double top =
-                legacyOverview->mapToItem(legacyPage, QPointF(0, 0)).y();
-            if (qAbs(top - dsSpacingL) > 0.5)
-                fail(QStringLiteral("legacy statistics block top %1 drifted "
-                                    "from the page margin %2")
-                         .arg(top)
-                         .arg(dsSpacingL));
-        }
-        if (!legacySpacer)
-            fail(QStringLiteral("legacyTailSpacer not found — the legacy "
-                                "column has no surplus owner"));
-        auto *pane = findNamedItem(roots, QStringLiteral("transactionsPane"));
-        if (!pane)
-            fail(QStringLiteral("transactionsPane not found — the single "
-                                "transactions presentation is missing"));
-        else if (legacyPage && underItem(pane, legacyPage))
-            fail(QStringLiteral("transactionsPane is still inside the Legacy "
-                                "workspace (duplicate owner)"));
-    }
-
     return failures;
 }
 
@@ -1490,17 +1461,25 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     }
 
     QObject *rootObj = roots.value(0);
-    const int legacyIndex =
-        rootObj->property("workspaceLegacyIndex").toInt();
+    // M9-D D5 retirement oracle: the Legacy workspace and its remnants must
+    // be GONE from the runtime tree (retirement = actual removal).
+    for (const QString &retired : {QStringLiteral("legacyWorkspace"),
+                                   QStringLiteral("statisticsOverview_legacy"),
+                                   QStringLiteral("legacyTailSpacer")}) {
+        if (findNamedItem(roots, retired))
+            fail(QStringLiteral("NAV %1 still exists — the Legacy workspace "
+                                "was not retired from the runtime tree")
+                     .arg(retired));
+    }
     const int dashboardIndex =
         rootObj->property("workspaceDashboardIndex").toInt();
 
     const int index = rail->property("currentWorkspaceIndex").toInt();
-    // M9-D D1: the rail carries seven entries (five ACTIVE workspaces 0..4
-    // plus the disabled Transactions shell at 5 and the disabled Device
-    // entry at 6) — entry count != active workspace count.
-    if (index < 0 || index > 6)
-        fail(QStringLiteral("NAV currentWorkspaceIndex %1 out of range 0..6")
+    // M9-D D5: the compact rail carries six entries — five ACTIVE workspaces
+    // 0..4 plus the disabled Device entry at 5. The retired Legacy entry is
+    // gone, so entry count is 6 and the index range is 0..5.
+    if (index < 0 || index > 5)
+        fail(QStringLiteral("NAV currentWorkspaceIndex %1 out of range 0..5")
                  .arg(index));
     const int communicationIndex =
         rootObj->property("workspaceCommunicationIndex").toInt();
@@ -1509,24 +1488,21 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
         rootObj->property("workspaceDiagnosisIndex").toInt();
     const int transactionsIndex =
         rootObj->property("workspaceTransactionsIndex").toInt();
-    if (index != legacyIndex && index != dashboardIndex
+    if (index != dashboardIndex
         && index != communicationIndex && index != replayIndex
         && index != diagnosisIndex && index != transactionsIndex)
         fail(QStringLiteral("NAV currentWorkspaceIndex %1 is not one of the "
-                            "real workspaces (legacy=%2 dashboard=%3 "
-                            "communication=%4 replay=%5 diagnosis=%6 "
-                            "transactions=%7)")
+                            "real workspaces (transactions=%2 dashboard=%3 "
+                            "communication=%4 replay=%5 diagnosis=%6)")
                  .arg(index)
-                 .arg(legacyIndex)
+                 .arg(transactionsIndex)
                  .arg(dashboardIndex)
                  .arg(communicationIndex)
                  .arg(replayIndex)
-                 .arg(diagnosisIndex)
-                 .arg(transactionsIndex));
+                 .arg(diagnosisIndex));
 
     // Visibility must follow the selection (page-independent form: this
     // guard runs at EVERY workspace now).
-    auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"));
     auto *dashboard = findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
     auto *communication =
         findNamedItem(roots, QStringLiteral("communicationWorkspace"));
@@ -1534,13 +1510,6 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     auto *diagnosis = findNamedItem(roots, QStringLiteral("diagnosisPage"));
     auto *transactions =
         findNamedItem(roots, QStringLiteral("transactionsPage"));
-    if (!legacy)
-        fail(QStringLiteral("NAV legacyWorkspace not found"));
-    else if (legacy->isVisible() != (index == legacyIndex))
-        fail(QStringLiteral("NAV legacyWorkspace visibility (%1) does not "
-                            "follow the selection %2")
-                 .arg(legacy->isVisible())
-                 .arg(index));
     if (!dashboard)
         fail(QStringLiteral("NAV dashboardWorkspace not found"));
     else if (dashboard->isVisible() != (index == dashboardIndex))
@@ -1584,10 +1553,11 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
         return failures;
     }
 
-    // M9-B5.2 matrix: 工作台 / 总览 / 通信 / 回放 / 诊断 are REAL workspaces
-    // (enabled); 设备 stays disabled until its own extraction step.
+    // M9-D D5 matrix: 事务 / 总览 / 通信 / 回放 / 诊断 are REAL workspaces
+    // (enabled); 设备 stays disabled (M12). The retired 工作台 entry no
+    // longer exists and navItem_6+ must not either.
     if (!item0->property("enabled").toBool())
-        fail(QStringLiteral("NAV navItem_0 (workbench) must be enabled"));
+        fail(QStringLiteral("NAV navItem_0 (transactions) must be enabled"));
     if (!item1->property("enabled").toBool())
         fail(QStringLiteral("NAV navItem_1 (dashboard) must be enabled"));
     auto *item2 = findNamedItem(roots, QStringLiteral("navItem_2"));
@@ -1599,12 +1569,7 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
     auto *item4 = findNamedItem(roots, QStringLiteral("navItem_4"));
     if (!item4 || !item4->property("enabled").toBool())
         fail(QStringLiteral("NAV navItem_4 (diagnosis) must be enabled"));
-    // M9-D D2: Transactions(5) is a REAL workspace now; only Device(6),
-    // still disabled, remains in the disabled-range guard.
-    auto *item5 = findNamedItem(roots, QStringLiteral("navItem_5"));
-    if (!item5 || !item5->property("enabled").toBool())
-        fail(QStringLiteral("NAV navItem_5 (transactions) must be enabled"));
-    for (int i = 6; i <= 6; ++i) {
+    for (int i = 5; i <= 5; ++i) {
         auto *item = findNamedItem(roots,
                                    QStringLiteral("navItem_%1").arg(i));
         if (!item) {
@@ -1629,13 +1594,13 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
                      .arg(i));
     }
 
-    // ---- M9-D D2: transactions workspace + index contract ----
+    // ---- M9-D D5: compact index contract ----
     const int deviceIndex = rootObj->property("workspaceDeviceIndex").toInt();
-    if (transactionsIndex != 5)
-        fail(QStringLiteral("NAV workspaceTransactionsIndex is %1, expected 5")
+    if (transactionsIndex != 0)
+        fail(QStringLiteral("NAV workspaceTransactionsIndex is %1, expected 0")
                  .arg(transactionsIndex));
-    if (deviceIndex != 6)
-        fail(QStringLiteral("NAV workspaceDeviceIndex is %1, expected 6")
+    if (deviceIndex != 5)
+        fail(QStringLiteral("NAV workspaceDeviceIndex is %1, expected 5")
                  .arg(deviceIndex));
     if (!transactions)
         fail(QStringLiteral("NAV transactionsPage not found"));
@@ -1650,22 +1615,18 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
                                 "analysisController injection"));
     }
 
-    // ---- M9-D D2: runtime single-owner proof ----
-    // The ONE transactions presentation lives under the Transactions page and
-    // never under the Legacy workspace — proved by walking the real tree, not
-    // by grepping source text.
+    // ---- M9-D D2/D5: runtime single-owner proof ----
+    // The ONE transactions presentation lives under the Transactions page —
+    // proved by walking the real tree, not by grepping source text. (The
+    // retired Legacy workspace is asserted absent by the retirement oracle
+    // at the top of this guard.)
     auto *pane = findNamedItem(roots, QStringLiteral("transactionsPane"));
     if (!pane)
         fail(QStringLiteral("NAV transactionsPane not found (the moved "
                             "presentation is missing)"));
-    else {
-        if (transactions && !underItem(pane, transactions))
-            fail(QStringLiteral("NAV transactionsPane is not under the "
-                                "Transactions page"));
-        if (legacy && underItem(pane, legacy))
-            fail(QStringLiteral("NAV transactionsPane is still under the Legacy "
-                                "workspace (duplicate owner)"));
-    }
+    else if (transactions && !underItem(pane, transactions))
+        fail(QStringLiteral("NAV transactionsPane is not under the "
+                            "Transactions page"));
 
     // Re-activating the currently selected entry is a no-op.
     auto *activeItem = findNamedItem(
@@ -1689,16 +1650,14 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
     // Names follow the currently VISIBLE page (same rule as the assertions).
     const ActivePage page = activePage(roots);
     const bool statsVisible = (page != ActivePage::Communication);
-    QString suffix = (page == ActivePage::Legacy) ? QStringLiteral("legacy")
-                                                  : QStringLiteral("dashboard");
+    const QString suffix = QStringLiteral("dashboard");
     auto suffixed = [&suffix](const QString &base) {
         return base + QLatin1Char('_') + suffix;
     };
 
     QStringList names = {
         QStringLiteral("appBar"),          QStringLiteral("navigationRail"),
-        QStringLiteral("workspaceHost"),   QStringLiteral("legacyWorkspace"),
-        QStringLiteral("dashboardWorkspace"),
+        QStringLiteral("workspaceHost"),   QStringLiteral("dashboardWorkspace"),
         QStringLiteral("communicationWorkspace"),
         QStringLiteral("replayWorkspace"),
         QStringLiteral("diagnosisPage"),
@@ -1740,11 +1699,6 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
               << suffixed(QStringLiteral("statusCard_3"))
               << suffixed(QStringLiteral("statusCard_4"))
               << suffixed(QStringLiteral("statusCard_5"));
-        // M9-C C2/C3: the Legacy wrapper keeps its observability name; since
-        // C3 the Dashboard composes the pieces directly, so its dump lists
-        // the distribution instead of the wrapper.
-        if (page == ActivePage::Legacy)
-            names << suffixed(QStringLiteral("statisticsOverview"));
         if (page == ActivePage::Dashboard)
             names << QStringLiteral("dashboardHeader")
                   << QStringLiteral("dashboardRunDemo")
@@ -1852,8 +1806,8 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // switches to the target workspace first and then verifies the ACTIVE
     // instance at the current size.
     struct MeasureStep {
-        int pageIndex; // 0 legacy / 1 dashboard / 2 communication / 3 replay
-                       // / 4 diagnosis
+        int pageIndex; // 0 transactions / 1 dashboard / 2 communication
+                       // / 3 replay / 4 diagnosis (M9-D D5 compact rail)
         bool resizeToMin;
         QString tag;
         QString label;
@@ -1866,32 +1820,31 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                       // minimum-size passes, so the first one
                                       // must restore the default window size
     };
-    // M9-B5.3: five active workspaces x two sizes = 10 passes. The original
-    // B4 eight are unchanged (same tags, pages and sizes); the two Diagnosis
-    // passes are inserted before the resize so the minimum-size sweep keeps
-    // its single downward transition.
+    // M9-D D5: five active workspaces x two sizes = 10 standard passes —
+    // the same matrix M9-B5.3 built, with the retired Legacy pair replaced
+    // by the Transactions pair and the compact rail order as the sweep
+    // order. The Diagnosis passes stay before the resize so the
+    // minimum-size sweep keeps its single downward transition.
     const QVector<MeasureStep> steps = {
-        { 0, false, QStringLiteral("m9b4-legacy-1024x720"),
-          QStringLiteral("DEFAULT legacy") },
+        { 0, false, QStringLiteral("m9d-transactions-1024x720"),
+          QStringLiteral("DEFAULT transactions") },
         { 1, false, QStringLiteral("m9b4-dashboard-1024x720"),
           QStringLiteral("DEFAULT dashboard") },
         { 2, false, QStringLiteral("m9b4-communication-1024x720"),
           QStringLiteral("DEFAULT communication") },
         { 3, false, QStringLiteral("m9b4-replay-1024x720"),
           QStringLiteral("DEFAULT replay") },
-        { 5, false, QStringLiteral("m9d-transactions-1024x720"),
-          QStringLiteral("DEFAULT transactions") },
         { 4, false, QStringLiteral("m9b5-diagnosis-1024x720"),
           QStringLiteral("DEFAULT diagnosis") },
         { 4, true, QStringLiteral("m9b5-diagnosis-1000x700"),
           QStringLiteral("MIN 1000x700 diagnosis") },
-        { 5, true, QStringLiteral("m9d-transactions-1000x700"),
+        { 0, true, QStringLiteral("m9d-transactions-1000x700"),
           QStringLiteral("MIN 1000x700 transactions") },
         // M9-D D3: two TARGETED selected-detail passes (the standard 12 keep
         // their no-selection state). Additive only.
-        { 5, false, QStringLiteral("m9d-transactions-detail-1024x720"),
+        { 0, false, QStringLiteral("m9d-transactions-detail-1024x720"),
           QStringLiteral("SELECTED DETAIL transactions"), true, 2, true },
-        { 5, true, QStringLiteral("m9d-transactions-detail-1000x700"),
+        { 0, true, QStringLiteral("m9d-transactions-detail-1000x700"),
           QStringLiteral("MIN 1000x700 selected detail"), false, 2 },
         { 3, false, QStringLiteral("m9b4-replay-1000x700"),
           QStringLiteral("MIN 1000x700 replay") },
@@ -1899,11 +1852,9 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
           QStringLiteral("MIN 1000x700 communication") },
         { 1, false, QStringLiteral("m9b4-dashboard-1000x700"),
           QStringLiteral("MIN 1000x700 dashboard") },
-        { 0, false, QStringLiteral("m9b4-legacy-1000x700"),
-          QStringLiteral("MIN 1000x700 legacy") },
         // M9-C C4: two TARGETED demo-dashboard passes so the attention line,
         // the diagnosis cue and the distribution are measured with real
-        // content at both sizes. They are additive — the standard 10 passes
+        // content at both sizes. They are additive — the standard passes
         // keep their empty state and remain the matrix of record.
         { 1, false, QStringLiteral("m9c-dashboard-demo-1024x720"),
           QStringLiteral("DEMO dashboard"), true, true },
@@ -1925,11 +1876,11 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto finish = [&app](const QStringList &fails) {
         if (fails.isEmpty())
             qInfo() << "GEOMETRY CHECK PASS"
-                       "(12 standard passes: legacy + dashboard + "
-                       "communication + replay + diagnosis + transactions x 2 "
-                       "sizes, the diagnosis pass sweeps its three tabs; + 2 "
-                       "targeted demo-dashboard passes from M9-C C4; + 2 "
-                       "targeted selected-detail passes from M9-D D3)";
+                       "(10 standard passes: transactions + dashboard + "
+                       "communication + replay + diagnosis x 2 sizes, the "
+                       "diagnosis pass sweeps its three tabs; + 2 targeted "
+                       "demo-dashboard passes from M9-C C4; + 2 targeted "
+                       "selected-detail passes from M9-D D3)";
         else
             for (const QString &f : fails)
                 qWarning().noquote() << "GEOFAIL:" << f;
@@ -1938,12 +1889,12 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     auto switchWorkspace = [&](int pageIndex, QStringList &fails) {
         QObject *rootObj = roots.value(0);
-        const char *key = (pageIndex == 0)   ? "workspaceLegacyIndex"
+        const char *key = (pageIndex == 0)   ? "workspaceTransactionsIndex"
                         : (pageIndex == 1)   ? "workspaceDashboardIndex"
                         : (pageIndex == 2)   ? "workspaceCommunicationIndex"
                         : (pageIndex == 3)   ? "workspaceReplayIndex"
                         : (pageIndex == 4)   ? "workspaceDiagnosisIndex"
-                                             : "workspaceTransactionsIndex";
+                                             : "workspaceDeviceIndex";
         const int idx = rootObj->property(key).toInt();
         auto *item = findNamedItem(
             roots, QStringLiteral("navItem_%1").arg(idx));
@@ -2029,7 +1980,7 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             // page that failed to become visible would silently skip every
             // page-specific assertion (the ISSUE-013 vacuity class).
             const ActivePage expected =
-                (step.pageIndex == 0)   ? ActivePage::Legacy
+                (step.pageIndex == 0)   ? ActivePage::Transactions
                 : (step.pageIndex == 1) ? ActivePage::Dashboard
                 : (step.pageIndex == 2) ? ActivePage::Communication
                 : (step.pageIndex == 3) ? ActivePage::Replay
@@ -2121,9 +2072,8 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 // business correctness — neither one substitutes for the other.
 // ---------------------------------------------------------------------------
 QStringList runNavAssertions(const QList<QObject *> &roots,
-                             const QString &contextLabel,
-                             QQuickItem **legacyPageOut,
-                             QQuickItem **dashboardPageOut)
+                                  const QString &contextLabel,
+                                  QQuickItem **dashboardPageOut)
 {
     QStringList failures;
     auto fail = [&failures, &contextLabel](const QString &message) {
@@ -2131,23 +2081,22 @@ QStringList runNavAssertions(const QList<QObject *> &roots,
     };
 
     auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
-    auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"));
     auto *dashboard = findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
     if (!rail)
         fail(QStringLiteral("NAVFAIL navigationRail not found"));
-    if (!legacy)
-        fail(QStringLiteral("NAVFAIL legacyWorkspace not found"));
     if (!dashboard)
         fail(QStringLiteral("NAVFAIL dashboardWorkspace not found"));
-    if (legacyPageOut)
-        *legacyPageOut = legacy;
     if (dashboardPageOut)
         *dashboardPageOut = dashboard;
-    if (!rail || !legacy || !dashboard)
+    if (!rail || !dashboard)
         return failures;
 
+    // M9-D D5 retirement oracle: the retired Legacy workspace must not exist.
+    if (findNamedItem(roots, QStringLiteral("legacyWorkspace")))
+        fail(QStringLiteral("NAVFAIL legacyWorkspace still exists — the "
+                            "Legacy workspace was not retired"));
+
     QObject *rootObj = roots.value(0);
-    const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
     const int dashboardIndex =
         rootObj->property("workspaceDashboardIndex").toInt();
     const int communicationIndex =
@@ -2174,26 +2123,21 @@ QStringList runNavAssertions(const QList<QObject *> &roots,
     if (!transactions)
         fail(QStringLiteral("NAVFAIL transactionsPage not found"));
 
-    const bool realWorkspace = (index == legacyIndex)
-                            || (index == dashboardIndex)
+    const bool realWorkspace = (index == dashboardIndex)
                             || (index == communicationIndex)
                             || (index == replayIndex)
                             || (index == diagnosisIndex)
                             || (index == transactionsIndex);
     if (!realWorkspace)
         fail(QStringLiteral("NAVFAIL selection %1 is not a real workspace "
-                            "(legacy=%2 dashboard=%3 communication=%4 "
+                            "(transactions=%2 dashboard=%3 communication=%4 "
                             "replay=%5 diagnosis=%6)")
                  .arg(index)
-                 .arg(legacyIndex)
+                 .arg(transactionsIndex)
                  .arg(dashboardIndex)
                  .arg(communicationIndex)
                  .arg(replayIndex)
                  .arg(diagnosisIndex));
-    if (legacy->isVisible() != (index == legacyIndex))
-        fail(QStringLiteral("NAVFAIL legacyWorkspace visibility does not "
-                            "follow selection %1")
-                 .arg(index));
     if (dashboard->isVisible() != (index == dashboardIndex))
         fail(QStringLiteral("NAVFAIL dashboardWorkspace visibility does not "
                             "follow selection %1")
@@ -2278,10 +2222,9 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 146;
+    constexpr int kLastStage = 157;
 
     // Shared state across stages.
-    auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
     auto dashboardPtr = std::make_shared<QQuickItem *>(nullptr);
     auto communicationPtr = std::make_shared<QQuickItem *>(nullptr);
     auto replayPtr = std::make_shared<QQuickItem *>(nullptr);
@@ -2298,6 +2241,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto scenarioLDigest = std::make_shared<QString>();
     auto scenarioO = std::make_shared<QMap<QString, QVariant>>();
     auto transactionsPtr = std::make_shared<QQuickItem *>(nullptr);
+    // M9-D D5 Scenario S1: the rail index observed at STARTUP (stage 0),
+    // captured once so the retirement scenario can prove the DEFAULT
+    // workspace without re-deriving it mid-walk.
+    auto startupIndex = std::make_shared<int>(-1);
+    auto snapshotS = std::make_shared<QMap<QString, QVariant>>();
     // M9-C C3 distribution presentation check (NOT a named scenario — it is
     // a presentation contract, not a business persistence scenario).
     auto distributionStart = std::make_shared<int>(-1);
@@ -2356,13 +2304,14 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // walk) is reported NOT RUN and counted as a harness failure.
     // -----------------------------------------------------------------------
     const QStringList scenarioOrder = {
-        QStringLiteral("basic six-workspace path"), QStringLiteral("A"),
+        QStringLiteral("basic five-workspace path"),
+        QStringLiteral("A"),
         QStringLiteral("B"),   QStringLiteral("D"),  QStringLiteral("E"),
         QStringLiteral("F"),   QStringLiteral("G'"), QStringLiteral("H"),
         QStringLiteral("I"),   QStringLiteral("J"),  QStringLiteral("K"),
         QStringLiteral("K'"),  QStringLiteral("L"),  QStringLiteral("N"),
         QStringLiteral("O"),   QStringLiteral("P"),  QStringLiteral("Q"),
-        QStringLiteral("R"),
+        QStringLiteral("R"),  QStringLiteral("S"),
     };
     auto scenarioStart = std::make_shared<QMap<QString, int>>();
     auto scenarioEnd = std::make_shared<QMap<QString, int>>();
@@ -2406,12 +2355,12 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     };
 
     auto switchTo = [&](int pageIndex) {
-        const char *key = (pageIndex == 0)   ? "workspaceLegacyIndex"
+        const char *key = (pageIndex == 0)   ? "workspaceTransactionsIndex"
                         : (pageIndex == 1)   ? "workspaceDashboardIndex"
                         : (pageIndex == 2)   ? "workspaceCommunicationIndex"
                         : (pageIndex == 3)   ? "workspaceReplayIndex"
                         : (pageIndex == 4)   ? "workspaceDiagnosisIndex"
-                                             : "workspaceTransactionsIndex";
+                                             : "workspaceDeviceIndex";
         const int idx = rootObj->property(key).toInt();
         auto *item = findNamedItem(
             roots, QStringLiteral("navItem_%1").arg(idx));
@@ -2421,15 +2370,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     };
 
     auto verifyStructureAndIdentity = [&](const QString &ctx) {
-        *failures += runNavAssertions(roots, ctx, nullptr, nullptr);
-        auto *legacy = findNamedItem(roots, QStringLiteral("legacyWorkspace"));
+        *failures += runNavAssertions(roots, ctx, nullptr);
         auto *dashboard =
             findNamedItem(roots, QStringLiteral("dashboardWorkspace"));
         auto *communication =
             findNamedItem(roots, QStringLiteral("communicationWorkspace"));
-        if (legacy != *legacyPtr)
-            fail(QStringLiteral("NAVFAIL %1: legacy page identity changed")
-                     .arg(ctx));
         if (dashboard != *dashboardPtr)
             fail(QStringLiteral("NAVFAIL %1: dashboard page identity changed")
                      .arg(ctx));
@@ -2450,7 +2395,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     };
 
     auto schedule = std::make_shared<std::function<void()>>();
-    *schedule = [&, schedule, failures, legacyPtr, dashboardPtr,
+    *schedule = [&, schedule, failures, dashboardPtr,
                  communicationPtr, replayPtr, diagnosisPtr, snapshot0, scenarioA,
                  scenarioB,
                  scenarioI, scenarioJ, scenarioKPre, scenarioKNotice,
@@ -2461,7 +2406,6 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                  compareAgainst, switchTo, verifyStructureAndIdentity,
                  beginScenario, endScenario, assertBaselinePersisted]() {
         auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
-        const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
         const int dashboardIndex =
             rootObj->property("workspaceDashboardIndex").toInt();
         const int communicationIndex =
@@ -2472,7 +2416,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         // Replay -> Diagnosis -> Dashboard -> Legacy (M9-B5.2 adds the
         // Diagnosis stop; Scenario E and H live in these switches) ----
         case 0: {
-            beginScenario(QStringLiteral("basic six-workspace path"));
+            beginScenario(QStringLiteral("basic five-workspace path"));
             beginScenario(QStringLiteral("E"));
             beginScenario(QStringLiteral("H"));
             if (!ctrl) {
@@ -2480,7 +2424,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 break;
             }
             *failures += runNavAssertions(roots, QStringLiteral("initial"),
-                                          legacyPtr.get(), dashboardPtr.get());
+                                          dashboardPtr.get());
             *communicationPtr = findNamedItem(
                 roots, QStringLiteral("communicationWorkspace"));
             if (!*communicationPtr)
@@ -2505,14 +2449,16 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 findNamedItem(roots, QStringLiteral("transactionsPage"));
             if (!*transactionsPtr)
                 fail(QStringLiteral("NAVFAIL transactionsPage not found"));
+            *startupIndex =
+                rail ? rail->property("currentWorkspaceIndex").toInt() : -1;
             *snapshot0 = takeSnapshot(ctrl);
             qInfo().noquote()
-                << QStringLiteral("NAV [initial]: index=%1 legacy=%2x%3 "
+                << QStringLiteral("NAV [initial]: index=%1 transactions=%2x%3 "
                                   "dashboard=%4x%5 communication=%6x%7")
                        .arg(rail ? rail->property("currentWorkspaceIndex").toInt()
                                  : -1)
-                       .arg((*legacyPtr) ? (*legacyPtr)->width() : -1)
-                       .arg((*legacyPtr) ? (*legacyPtr)->height() : -1)
+                       .arg((*transactionsPtr) ? (*transactionsPtr)->width() : -1)
+                       .arg((*transactionsPtr) ? (*transactionsPtr)->height() : -1)
                        .arg((*dashboardPtr) ? (*dashboardPtr)->width() : -1)
                        .arg((*dashboardPtr) ? (*dashboardPtr)->height() : -1)
                        .arg((*communicationPtr) ? (*communicationPtr)->width() : -1)
@@ -2525,10 +2471,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             compareAgainst(*snapshot0, takeSnapshot(ctrl),
                            QStringLiteral("to dashboard"));
             qInfo().noquote()
-                << QStringLiteral("NAV [dashboard]: index=%1 legacyVisible=%2 "
-                                  "dashboardVisible=%3 communicationVisible=%4")
+                << QStringLiteral("NAV [dashboard]: index=%1 "
+                                  "transactionsVisible=%2 dashboardVisible=%3 "
+                                  "communicationVisible=%4")
                        .arg(rail->property("currentWorkspaceIndex").toInt())
-                       .arg((*legacyPtr)->isVisible())
+                       .arg((*transactionsPtr)->isVisible())
                        .arg((*dashboardPtr)->isVisible())
                        .arg((*communicationPtr)->isVisible());
             break;
@@ -2541,10 +2488,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            QStringLiteral("to communication"));
             qInfo().noquote()
                 << QStringLiteral("NAV [communication]: index=%1 "
-                                  "legacyVisible=%2 dashboardVisible=%3 "
+                                  "transactionsVisible=%2 dashboardVisible=%3 "
                                   "communicationVisible=%4")
                        .arg(rail->property("currentWorkspaceIndex").toInt())
-                       .arg((*legacyPtr)->isVisible())
+                       .arg((*transactionsPtr)->isVisible())
                        .arg((*dashboardPtr)->isVisible())
                        .arg((*communicationPtr)->isVisible());
             break;
@@ -2558,11 +2505,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             compareAgainst(*snapshot0, takeSnapshot(ctrl),
                            QStringLiteral("to replay"));
             qInfo().noquote()
-                << QStringLiteral("NAV [replay]: index=%1 legacyVisible=%2 "
+                << QStringLiteral("NAV [replay]: index=%1 transactionsVisible=%2 "
                                   "dashboardVisible=%3 communicationVisible=%4 "
                                   "replayVisible=%5")
                        .arg(rail->property("currentWorkspaceIndex").toInt())
-                       .arg((*legacyPtr)->isVisible())
+                       .arg((*transactionsPtr)->isVisible())
                        .arg((*dashboardPtr)->isVisible())
                        .arg((*communicationPtr)->isVisible())
                        .arg((*replayPtr)->isVisible());
@@ -2580,22 +2527,24 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             compareAgainst(*snapshot0, takeSnapshot(ctrl),
                            QStringLiteral("to diagnosis"));
             qInfo().noquote()
-                << QStringLiteral("NAV [diagnosis]: index=%1 legacyVisible=%2 "
-                                  "dashboardVisible=%3 communicationVisible=%4 "
-                                  "replayVisible=%5 diagnosisVisible=%6")
+                << QStringLiteral("NAV [diagnosis]: index=%1 "
+                                  "transactionsVisible=%2 dashboardVisible=%3 "
+                                  "communicationVisible=%4 replayVisible=%5 "
+                                  "diagnosisVisible=%6")
                        .arg(rail->property("currentWorkspaceIndex").toInt())
-                       .arg((*legacyPtr)->isVisible())
+                       .arg((*transactionsPtr)->isVisible())
                        .arg((*dashboardPtr)->isVisible())
                        .arg((*communicationPtr)->isVisible())
                        .arg((*replayPtr)->isVisible())
                        .arg((*diagnosisPtr)->isVisible());
             break;
         }
-        case 9: switchTo(5); break;
+        case 9: switchTo(0); break;
         case 10: {
-            // M9-D D2: the Transactions workspace is the SIXTH real workspace.
-            // Same shape as every other stop: identity + visibility
-            // (runNavAssertions) + an unchanged core snapshot.
+            // M9-D D5: the Transactions workspace is the FIRST rail entry and
+            // the default workspace. Same shape as every other stop:
+            // identity + visibility (runNavAssertions) + an unchanged core
+            // snapshot.
             verifyStructureAndIdentity(QStringLiteral("transactions"));
             if (findNamedItem(roots, QStringLiteral("transactionsPage"))
                 != *transactionsPtr)
@@ -2605,10 +2554,9 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            QStringLiteral("to transactions"));
             qInfo().noquote()
                 << QStringLiteral("NAV [transactions]: index=%1 "
-                                  "legacyVisible=%2 dashboardVisible=%3 "
-                                  "diagnosisVisible=%4 transactionsVisible=%5")
+                                  "dashboardVisible=%2 diagnosisVisible=%3 "
+                                  "transactionsVisible=%4")
                        .arg(rail->property("currentWorkspaceIndex").toInt())
-                       .arg((*legacyPtr)->isVisible())
                        .arg((*dashboardPtr)->isVisible())
                        .arg((*diagnosisPtr)->isVisible())
                        .arg((*transactionsPtr)->isVisible());
@@ -2624,13 +2572,13 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         case 13: switchTo(0); break;
         case 14: {
-            endScenario(QStringLiteral("basic six-workspace path"));
-            verifyStructureAndIdentity(QStringLiteral("workbench return"));
+            endScenario(QStringLiteral("basic five-workspace path"));
+            verifyStructureAndIdentity(QStringLiteral("transactions return"));
             compareAgainst(*snapshot0, takeSnapshot(ctrl),
-                           QStringLiteral("back to workbench"));
+                           QStringLiteral("back to transactions"));
             qInfo().noquote()
-                << QStringLiteral("NAV [workbench]: index=%1 round-trip trace "
-                                  "complete")
+                << QStringLiteral("NAV [transactions]: index=%1 post-Legacy "
+                                  "five-workspace round trip complete")
                        .arg(rail->property("currentWorkspaceIndex").toInt());
             break;
         }
@@ -3011,9 +2959,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         case 49: {
             endScenario(QStringLiteral("J"));
-            verifyStructureAndIdentity(QStringLiteral("scenario J @legacy"));
+            verifyStructureAndIdentity(
+                QStringLiteral("scenario J @transactions"));
             compareAgainst(*scenarioJ, takeSnapshot(ctrl),
-                           QStringLiteral("scenario J @legacy"));
+                           QStringLiteral("scenario J @transactions"));
             qInfo().noquote()
                 << QStringLiteral("NAV [scenario J]: replay session survived "
                                   "five switches (source=%1)")
@@ -3254,10 +3203,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         case 75: switchTo(0); break;
         case 76: {
-            verifyStructureAndIdentity(QStringLiteral("scenario L @legacy"));
+            verifyStructureAndIdentity(
+                QStringLiteral("scenario L @transactions"));
             compareAgainst(*scenarioL, takeExtendedSnapshot(ctrl),
-                           QStringLiteral("scenario L @legacy"));
-            assertBaselinePersisted(QStringLiteral("scenario L @legacy"));
+                           QStringLiteral("scenario L @transactions"));
+            assertBaselinePersisted(QStringLiteral("scenario L @transactions"));
             break;
         }
         case 77: switchTo(4); break;
@@ -3274,7 +3224,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 << QStringLiteral("NAV [scenario L]: baseline + authoritative "
                                   "batch facts identical across Diagnosis -> "
                                   "Dashboard -> Replay -> Communication -> "
-                                  "Diagnosis -> Legacy -> Diagnosis");
+                                  "Diagnosis -> Transactions -> Diagnosis");
             break;
         }
 
@@ -3326,9 +3276,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         case 85: switchTo(0); break;
         case 86: {
-            verifyStructureAndIdentity(QStringLiteral("scenario N @legacy"));
+            verifyStructureAndIdentity(
+                QStringLiteral("scenario N @transactions"));
             compareAgainst(*scenarioL, takeExtendedSnapshot(ctrl),
-                           QStringLiteral("scenario N @legacy"));
+                           QStringLiteral("scenario N @transactions"));
             break;
         }
         case 87: switchTo(4); break;
@@ -3357,8 +3308,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 << QStringLiteral("NAV [scenario N]: page-local Agent draft "
                                   "preserved byte for byte across Diagnosis -> "
                                   "Dashboard -> Communication -> Replay -> "
-                                  "Legacy -> Diagnosis (authoritative facts "
-                                  "untouched)");
+                                  "Transactions -> Diagnosis (authoritative "
+                                  "facts untouched)");
             break;
         }
 
@@ -3567,7 +3518,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 fail(QStringLiteral("NAVFAIL scenario O: expected the "
                                     "deterministic 4-transaction batch"));
             *scenarioO = takeExtendedSnapshot(ctrl);
-            switchTo(5);
+            switchTo(0);
             break;
         }
         case 102: {
@@ -3586,7 +3537,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
         case 103: switchTo(1); break;
-        case 104: switchTo(5); break;
+        case 104: switchTo(0); break;
         case 105: {
             verifyStructureAndIdentity(QStringLiteral("scenario O round trip"));
             compareAgainst(*scenarioO, takeExtendedSnapshot(ctrl),
@@ -3613,7 +3564,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
         case 107: {
-            switchTo(5);
+            switchTo(0);
             break;
         }
         case 108: {
@@ -3709,7 +3660,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             if (rowCountOf(ctrl) != 4)
                 fail(QStringLiteral("NAVFAIL scenario P: expected the "
                                     "deterministic 4-transaction batch"));
-            switchTo(5);
+            switchTo(0);
             break;
         }
         case 114: {
@@ -3796,7 +3747,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             // is invalidated, never silently re-pointed at row 0. Switch back
             // to the transactions page first so the post-reset UI state is
             // asserted on the ACTIVE page.
-            switchTo(5);
+            switchTo(0);
             const QUrl fixture = QUrl::fromLocalFile(
                 QStringLiteral(MODBUSLENS_BROADCAST_MLOG_PATH));
             if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
@@ -3910,7 +3861,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
                 fail(QStringLiteral("NAVFAIL scenario Q: clearResults() not "
                                     "invokable"));
-            switchTo(5);
+            switchTo(0);
             break;
         }
         case 130: {
@@ -4089,7 +4040,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
                 fail(QStringLiteral("NAVFAIL scenario R: runDemoBatch() not "
                                     "invokable"));
-            switchTo(5);
+            switchTo(0);
             break;
         }
         case 136: {
@@ -4162,7 +4113,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         case 143: {
             // R4: navigation alone must not move the cue (hide/show is not a
             // diagnosis lifecycle event — B5 freeze).
-            switchTo(5);
+            switchTo(0);
             if (!ctrl->property("hasBaselineDiagnosis").toBool())
                 fail(QStringLiteral("NAVFAIL scenario R: navigation cleared the "
                                     "baseline authority"));
@@ -4249,6 +4200,183 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
 
+        // ---- M9-D D5 Scenario S: LEGACY RETIREMENT. The Legacy workspace
+        // must be REMOVED from the runtime tree (retirement = actual removal,
+        // never visible:false), the rail must be compacted to six entries
+        // (Transactions 0 .. Device 5 disabled), the centralized index
+        // contract must move Transactions to 0 and Device to 5 with NO
+        // workspaceLegacyIndex left, and the five active workspaces must
+        // round-trip without touching business facts.
+        case 147: {
+            beginScenario(QStringLiteral("S"));
+            // S1: startup selected Transactions (captured at stage 0) and
+            // Legacy is absent from the runtime tree.
+            if (*startupIndex
+                != rootObj->property("workspaceTransactionsIndex").toInt()
+                || rootObj->property("workspaceTransactionsIndex").toInt() != 0)
+                fail(QStringLiteral("NAVFAIL scenario S1: the startup workspace "
+                                    "is %1, expected Transactions at index 0 "
+                                    "(property says %2) — expected D5 missing "
+                                    "retirement")
+                         .arg(*startupIndex)
+                         .arg(rootObj->property("workspaceTransactionsIndex")
+                                  .toInt()));
+            if (rootObj->metaObject()->indexOfProperty(
+                    "workspaceLegacyIndex") != -1)
+                fail(QStringLiteral("NAVFAIL scenario S1: workspaceLegacyIndex "
+                                    "still exists — the retired index contract "
+                                    "must be deleted, not aliased"));
+            if (findNamedItem(roots, QStringLiteral("legacyWorkspace")))
+                fail(QStringLiteral("NAVFAIL scenario S1: legacyWorkspace still "
+                                    "exists in the runtime tree — expected D5 "
+                                    "missing retirement"));
+            *snapshotS = takeSnapshot(ctrl);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario S1]: startup workspace is "
+                                  "Transactions (index 0) and no Legacy "
+                                  "workspace exists (retirement = removal)");
+            break;
+        }
+        case 148: {
+            // S2: the compact rail — six entries, final order and enablement.
+            for (int i = 0; i <= 4; ++i) {
+                auto *item = findNamedItem(
+                    roots, QStringLiteral("navItem_%1").arg(i));
+                if (!item || !item->property("enabled").toBool())
+                    fail(QStringLiteral("NAVFAIL scenario S2: navItem_%1 must "
+                                        "exist and be enabled (active "
+                                        "workspace)").arg(i));
+            }
+            auto *device = findNamedItem(roots, QStringLiteral("navItem_5"));
+            if (!device)
+                fail(QStringLiteral("NAVFAIL scenario S2: navItem_5 (Device) "
+                                    "not found"));
+            else if (device->property("enabled").toBool())
+                fail(QStringLiteral("NAVFAIL scenario S2: navItem_5 (Device) "
+                                    "must stay disabled"));
+            if (rootObj->property("workspaceTransactionsIndex").toInt() != 0
+                || rootObj->property("workspaceDeviceIndex").toInt() != 5)
+                fail(QStringLiteral("NAVFAIL scenario S2: the centralized index "
+                                    "contract is Transactions=%1 Device=%2, "
+                                    "expected 0/5")
+                         .arg(rootObj->property("workspaceTransactionsIndex")
+                                  .toInt())
+                         .arg(rootObj->property("workspaceDeviceIndex")
+                                  .toInt()));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario S2]: rail = Transactions(0) "
+                                  "Dashboard(1) Communication(2) Replay(3) "
+                                  "Diagnosis(4) Device(5, disabled)");
+            break;
+        }
+        case 149: {
+            // S3 + S4: no Legacy nav entry, no Legacy statistics instance, no
+            // Legacy surplus owner anywhere in the runtime tree.
+            if (findNamedItem(roots, QStringLiteral("navItem_6")))
+                fail(QStringLiteral("NAVFAIL scenario S3: navItem_6 still exists "
+                                    "— the rail must be compacted to six "
+                                    "entries"));
+            if (findNamedItem(roots,
+                              QStringLiteral("statisticsOverview_legacy")))
+                fail(QStringLiteral("NAVFAIL scenario S4: the legacy "
+                                    "StatisticsOverview instance still exists"));
+            if (findNamedItem(roots, QStringLiteral("legacyTailSpacer")))
+                fail(QStringLiteral("NAVFAIL scenario S4: legacyTailSpacer still "
+                                    "exists — the Legacy column remnants were "
+                                    "not removed"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario S3/S4]: legacy nav count = 0, "
+                                  "legacy StatisticsOverview instance absent, "
+                                  "legacyTailSpacer absent");
+            break;
+        }
+        case 150: {
+            // S5: TransactionsPage is StackLayout child 0 and still owns the
+            // whole transactions presentation (pane/detail/cue).
+            auto *host =
+                findNamedItem(roots, QStringLiteral("workspaceHost"));
+            auto *tx =
+                findNamedItem(roots, QStringLiteral("transactionsPage"));
+            if (!host || !tx)
+                fail(QStringLiteral("NAVFAIL scenario S5: workspaceHost or "
+                                    "transactionsPage not found"));
+            else if (tx->parentItem() != host
+                     || host->childItems().indexOf(tx) != 0)
+                fail(QStringLiteral("NAVFAIL scenario S5: transactionsPage is "
+                                    "not StackLayout child 0 (parent ok=%1, "
+                                    "child index %2)")
+                         .arg(tx->parentItem() == host)
+                         .arg(host->childItems().indexOf(tx)));
+            auto *pane = findNamedItem(roots, QStringLiteral("transactionsPane"));
+            auto *detail =
+                findNamedItem(roots, QStringLiteral("transactionDetail"));
+            auto *cue = findNamedItem(
+                roots, QStringLiteral("transactionsDiagnosisCue"));
+            if (!pane || !detail || !cue
+                || !underItem(pane, tx) || !underItem(detail, tx)
+                || !underItem(cue, tx))
+                fail(QStringLiteral("NAVFAIL scenario S5: the transactions "
+                                    "presentation (pane/detail/cue) is not "
+                                    "fully under the Transactions page"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario S5]: transactionsPage is child "
+                                  "0; pane/detail/cue all inside its subtree");
+            break;
+        }
+        case 151: switchTo(1); break;
+        case 152: {
+            verifyStructureAndIdentity(QStringLiteral("scenario S @dashboard"));
+            compareAgainst(*snapshotS, takeSnapshot(ctrl),
+                           QStringLiteral("scenario S @dashboard"));
+            break;
+        }
+        case 153: switchTo(2); break;
+        case 154: {
+            verifyStructureAndIdentity(
+                QStringLiteral("scenario S @communication"));
+            compareAgainst(*snapshotS, takeSnapshot(ctrl),
+                           QStringLiteral("scenario S @communication"));
+            break;
+        }
+        case 155: switchTo(3); break;
+        case 156: {
+            verifyStructureAndIdentity(QStringLiteral("scenario S @replay"));
+            compareAgainst(*snapshotS, takeSnapshot(ctrl),
+                           QStringLiteral("scenario S @replay"));
+            break;
+        }
+        case 157: {
+            // S6 (tail) + S7: Diagnosis station, back to Transactions, and a
+            // direct Device activation must never move the selection.
+            verifyStructureAndIdentity(QStringLiteral("scenario S @diagnosis"));
+            compareAgainst(*snapshotS, takeSnapshot(ctrl),
+                           QStringLiteral("scenario S @diagnosis"));
+            switchTo(rootObj->property("workspaceTransactionsIndex").toInt());
+            verifyStructureAndIdentity(QStringLiteral("scenario S @transactions"));
+            compareAgainst(*snapshotS, takeSnapshot(ctrl),
+                           QStringLiteral("scenario S @transactions return"));
+            auto *device = findNamedItem(roots, QStringLiteral("navItem_5"));
+            const int before =
+                rail->property("currentWorkspaceIndex").toInt();
+            if (!device || !QMetaObject::invokeMethod(device, "activate"))
+                fail(QStringLiteral("NAVFAIL scenario S7: the Device entry "
+                                    "activation path is not invokable — the "
+                                    "guard would be vacuous"));
+            if (rail->property("currentWorkspaceIndex").toInt() != before)
+                fail(QStringLiteral("NAVFAIL scenario S7: the Device activation "
+                                    "changed currentWorkspaceIndex (%1 -> %2)")
+                         .arg(before)
+                         .arg(rail->property("currentWorkspaceIndex").toInt()));
+            endScenario(QStringLiteral("S"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario S]: legacy retirement verified "
+                                  "(startup=Transactions at 0 / compact rail / "
+                                  "no legacy runtime objects / child 0 owns the "
+                                  "presentation / five-workspace round trip "
+                                  "neutral / Device activation inert)");
+            break;
+        }
+
         default:
             break;
         }
@@ -4307,10 +4435,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                               "workflow. No AI result is fabricated here.");
 
         if (failures->isEmpty())
-            qInfo() << "NAV CHECK PASS (six workspaces; identity stable; "
-                       "navigation changed no business values; scenarios "
-                       "A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R asserted; M "
-                       "deferred by design)";
+            qInfo() << "NAV CHECK PASS (post-Legacy five workspaces; identity "
+                       "stable; navigation changed no business values; "
+                       "scenarios A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R/S "
+                       "asserted; M deferred by design)";
         else
             for (const QString &f : *failures)
                 qWarning().noquote() << "GEOFAIL:" << f;
@@ -4407,12 +4535,12 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
     };
 
     auto switchTo = [&](int pageIndex) {
-        const char *key = (pageIndex == 0)   ? "workspaceLegacyIndex"
+        const char *key = (pageIndex == 0)   ? "workspaceTransactionsIndex"
                         : (pageIndex == 1)   ? "workspaceDashboardIndex"
                         : (pageIndex == 2)   ? "workspaceCommunicationIndex"
                         : (pageIndex == 3)   ? "workspaceReplayIndex"
                         : (pageIndex == 4)   ? "workspaceDiagnosisIndex"
-                                             : "workspaceTransactionsIndex";
+                                             : "workspaceDeviceIndex";
         const int idx = rootObj->property(key).toInt();
         auto *item = findNamedItem(roots, QStringLiteral("navItem_%1").arg(idx));
         if (!item || !QMetaObject::invokeMethod(item, "activate"))
@@ -4422,7 +4550,6 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
     // ---- B5.4 state oracles ----
     const int diagnosisIndex =
         rootObj->property("workspaceDiagnosisIndex").toInt();
-    const int legacyIndex = rootObj->property("workspaceLegacyIndex").toInt();
 
     auto selectTab = [&](int tab) {
         auto *tabBar = findNamedItem(roots, QStringLiteral("diagnosisTabs"));
@@ -4439,8 +4566,6 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
     auto assertFrame = [&](const QString &ctx, int wantPage, int wantTab) {
         auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
         auto *diagPage = findNamedItem(roots, QStringLiteral("diagnosisPage"));
-        auto *legacyPage =
-            findNamedItem(roots, QStringLiteral("legacyWorkspace"));
         auto *tabContent =
             findNamedItem(roots, QStringLiteral("diagnosisTabContent"));
         const int pageIndex =
@@ -4469,9 +4594,6 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
                      .arg(ctx)
                      .arg(diagPage->isVisible())
                      .arg(wantPage));
-        if (legacyPage && legacyPage->isVisible() != (wantPage == legacyIndex))
-            fail(QStringLiteral("EVIDENCE %1: legacyWorkspace visibility does "
-                                "not match the claimed page").arg(ctx));
         int tab = -1;
         if (wantPage == diagnosisIndex) {
             tab = tabContent ? tabContent->property("currentIndex").toInt() : -1;
@@ -4804,48 +4926,20 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
             break;
         }
         case 28: {
-            // E. Legacy after the extractions: STATISTICS ONLY since M9-D D2
-            // (the transactions presentation moved to its own workspace).
-            switchTo(legacyIndex);
-            break;
-        }
-        case 29: {
-            assertFrame(QStringLiteral("E"), legacyIndex, -1);
-            auto *legacyPage =
-                findNamedItem(roots, QStringLiteral("legacyWorkspace"));
-            auto *stats =
-                findNamedItem(roots, QStringLiteral("statisticsPanel_legacy"));
-            if (!legacyPage || !legacyPage->isVisible())
-                fail(QStringLiteral("EVIDENCE E: legacyWorkspace is not "
-                                    "visible"));
-            if (!stats || stats->width() <= 0 || stats->height() <= 0)
-                fail(QStringLiteral("EVIDENCE E: legacy statistics block has no "
-                                    "geometry"));
-            // M9-D D2: the transactions presentation must NOT be here anymore.
-            if (legacyPage && isUnder(
-                    findNamedItem(roots, QStringLiteral("transactionsPane")),
-                    legacyPage))
-                fail(QStringLiteral("EVIDENCE E: the transactions pane is "
-                                    "still inside the legacy workspace"));
+            // M9-D D5: the Legacy evidence stage (statistics-only
+            // workbench shot + single-owner probes) is RETIRED with the
+            // workspace; the single-owner contract lives in the nav/geometry
+            // retirement oracles now, and the user-facing statistics
+            // evidence is the Dashboard shot (stage F successor).
             if (countNamed(QStringLiteral("transactionsPane")) != 1)
                 fail(QStringLiteral("EVIDENCE E: expected exactly one "
                                     "transactionsPane in the whole tree"));
             if (countNamed(QStringLiteral("diagnosisTabContent")) != 1)
                 fail(QStringLiteral("EVIDENCE E: expected exactly one "
                                     "diagnosisTabContent in the tree"));
-            if (legacyPage && isUnder(
-                    findNamedItem(roots, QStringLiteral("diagnosisTabContent")),
-                    legacyPage))
-                fail(QStringLiteral("EVIDENCE E: Diagnosis UI is still inside "
-                                    "the legacy workspace"));
-            assertDemoGoldenFacts(QStringLiteral("E"));
             qInfo().noquote()
-                << QStringLiteral("EVIDENCE LEGACY: statistics=%1x%2 "
-                                  "transactionsPaneUnderLegacy=0 (statistics-"
-                                  "only legacy, single transactions owner)")
-                       .arg(stats ? stats->width() : -1)
-                       .arg(stats ? stats->height() : -1);
-            grab(QStringLiteral("m9b5-legacy-after-diagnosis-extraction-1024x720"));
+                << QStringLiteral("EVIDENCE RETIRED: legacyWorkspace absent; "
+                                  "single transactions owner asserted");
             break;
         }
 
@@ -4974,33 +5068,17 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
             break;
         }
         case 43: {
-            // Legacy regression shot: statistics must survive the M9-D D2
-            // transactions extraction untouched (statistics-only legacy).
-            switchTo(legacyIndex);
+            // M9-D D5: the Legacy regression shot retired with the
+            // workspace; the transactions stop (its stage successor) is the
+            // regression station now.
+            switchTo(rootObj->property("workspaceTransactionsIndex").toInt());
             break;
         }
         case 44: {
-            assertFrame(QStringLiteral("F"), legacyIndex, -1);
-            auto *legacyPage =
-                findNamedItem(roots, QStringLiteral("legacyWorkspace"));
-            auto *stats =
-                findNamedItem(roots, QStringLiteral("statisticsPanel_legacy"));
-            if (!legacyPage || !legacyPage->isVisible())
-                fail(QStringLiteral("EVIDENCE F: legacyWorkspace is not "
-                                    "visible"));
-            if (!stats || stats->width() <= 0 || stats->height() <= 0)
-                fail(QStringLiteral("EVIDENCE F: legacy statistics block has "
-                                    "no geometry"));
-            if (legacyPage && isUnder(
-                    findNamedItem(roots, QStringLiteral("transactionsPane")),
-                    legacyPage))
-                fail(QStringLiteral("EVIDENCE F: the transactions pane is "
-                                    "still inside the legacy workspace"));
-            // No attention/cue visibility contract here: those lines belong
-            // to the DASHBOARD page, which is a hidden StackLayout child
-            // while Legacy is active — hidden-page visibility is not a
-            // contract (the same rule as hidden tabs).
-            grab(QStringLiteral("m9c-legacy-regression-1024x720"));
+            assertFrame(
+                QStringLiteral("F"),
+                rootObj->property("workspaceTransactionsIndex").toInt(), -1);
+            grab(QStringLiteral("m9d-transactions-regression-1024x720"));
             break;
         }
 

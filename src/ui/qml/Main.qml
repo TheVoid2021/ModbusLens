@@ -28,20 +28,20 @@ ApplicationWindow {
     // Diagnosis panes, which now own those values locally in DiagnosisPage.
 
     // ---- Workspace index contract (M9-B2, presentation-only) ----
-    // Single source of truth for the Legacy/Dashboard indexes: the
-    // NavigationRail entry order and the StackLayout child order below
-    // must match these constants 1:1. Automated checks read THESE
-    // properties (never a hardcoded 0/1 of their own).
-    readonly property int workspaceLegacyIndex: 0
+    // Single source of truth for the workspace indexes: the NavigationRail
+    // entry order and the StackLayout child order below must match these
+    // constants 1:1. Automated checks read THESE properties (never a
+    // hardcoded 0/1 of their own).
+    // M9-D D5: the Legacy workspace is RETIRED (removed from the runtime
+    // tree, not hidden) and the rail is compacted — Transactions takes
+    // index 0 and becomes the default workspace, Device returns to 5.
+    // There is deliberately NO workspaceLegacyIndex alias left behind.
+    readonly property int workspaceTransactionsIndex: 0
     readonly property int workspaceDashboardIndex: 1
     readonly property int workspaceCommunicationIndex: 2
     readonly property int workspaceReplayIndex: 3
     readonly property int workspaceDiagnosisIndex: 4
-    // M9-D D1: the Transactions workspace shell takes index 5 (disabled
-    // until D2) and the disabled Device entry moves to index 6. The active
-    // workspace indices 0..4 are unchanged.
-    readonly property int workspaceTransactionsIndex: 5
-    readonly property int workspaceDeviceIndex: 6
+    readonly property int workspaceDeviceIndex: 5
 
     width: 1024
     height: 720
@@ -179,47 +179,30 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 currentIndex: navigationRail.currentWorkspaceIndex
 
-                // ---- LegacyWorkspace (M9-B1): the entire not-yet-split V1
-                // content — minus the old header (now the AppBar) and the
-                // Clear button (now in the AppBar). Extracted page by page
-                // in M9-B2..B5; until then it is the ONLY real workspace.
-                // Page root pattern: StackLayout children are plain Items
-                // and the layout owns their geometry (no anchors and no
-                // Layout.margins on the child itself — Layout.margins is not
-                // honored by StackLayout, measured). The page inset lives
-                // INSIDE this Item, anchored to a plain non-layout parent.
-                Item {
-                    objectName: "legacyWorkspace"
+                // Page root pattern (since M9-B1): StackLayout children are
+                // plain Items and the layout owns their geometry (no anchors
+                // and no Layout.margins on the child itself — Layout.margins
+                // is not honored by StackLayout, measured). The page inset
+                // lives INSIDE each page, anchored to a plain non-layout
+                // parent.
+                //
+                // M9-D D5: the Legacy workspace (M9-B1's not-yet-split V1
+                // content, statistics-only since D2) is RETIRED — the Item
+                // and its StatisticsOverview instanceId "legacy" plus the
+                // legacyTailSpacer surplus owner are removed from the runtime
+                // tree. Its two capabilities keep their M9-B2..D2 homes:
+                // statistics on the Dashboard, transactions below.
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: DS.spacingL
-                        spacing: DS.spacingM
-
-                        // M9-D D2: the Legacy workbench is STATISTICS
-                        // ONLY now — the transactions presentation moved
-                        // to the Transactions workspace in the same
-                        // change that enabled its navigation entry (no
-                        // window where the capability is unreachable).
-                        // The legacy workspace itself is retired in D5.
-                        StatisticsOverview {
-                            analysisController: analysisController
-                            instanceId: "legacy"
-                        }
-
-                        // M9-D D2 mechanical closure: with the transactions
-                        // pane gone this column has NO fillHeight child left,
-                        // so Qt would spread the surplus into the row and
-                        // push the statistics block down (measured: y=226).
-                        // The same surplus owner the Dashboard got in M9-C C1
-                        // keeps the statistics block at the page top.
-                        Item {
-                            objectName: "legacyTailSpacer"
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                        }
-
-                    }
+                // Transactions workspace page (M9-D D1 shell, D2 migration,
+                // D3 selection/detail, D4 diagnosis cue) — StackLayout
+                // child 0 since the D5 compact reindex, matching
+                // workspaceTransactionsIndex above. Being index 0 also makes
+                // Transactions the DEFAULT workspace: it only ever presents
+                // the current authoritative state (no run/load/connect/clear
+                // happens by virtue of being shown).
+                TransactionsPage {
+                    objectName: "transactionsPage"
+                    analysisController: analysisController
                 }
 
                 // Dashboard workspace page (M9-B2) — StackLayout child 1,
@@ -259,16 +242,6 @@ ApplicationWindow {
                     analysisController: analysisController
                 }
 
-                // Transactions workspace page (M9-D D1) — StackLayout child 5.
-                // SHELL ONLY: the transaction table (header, delegates, issue
-                // text, empty state) still lives in the Legacy workbench and
-                // migrates here ATOMICALLY WITH the 事务 navigation
-                // enablement in D2 (T019 §33). Until then the rail entry is
-                // disabled and this page is unreachable with zero bindings.
-                TransactionsPage {
-                    objectName: "transactionsPage"
-                    analysisController: analysisController
-                }
             }
         }
     }

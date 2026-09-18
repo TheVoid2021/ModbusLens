@@ -21,16 +21,17 @@ Rectangle {
     property int currentWorkspaceIndex: 0
 
     readonly property var entries: [
-        // Entry ORDER is the workspace index contract 1:1 (see the
-        // workspaceLegacyIndex / workspaceDashboardIndex constants in
-        // Main.qml).
-        { label: qsTr("工作台"), enabled: true },   // the legacy workspace (B1)
-        { label: qsTr("总览"), enabled: true },     // Dashboard (M9-B2)
-        { label: qsTr("通信"), enabled: true },     // Communication (M9-B3)
-        { label: qsTr("回放"), enabled: true },     // Replay (M9-B4)
-        { label: qsTr("诊断"), enabled: true },     // Diagnosis (M9-B5)
-        { label: qsTr("事务"), enabled: true },     // Transactions (M9-D D2)
-        { label: qsTr("设备"), enabled: false }     // future Device (M12)
+        // M9-D D5: the rail is COMPACTED to its final order. The M9-B1
+        // extraction order (工作台 first, 事务 last) existed only to keep
+        // every migration atomic; with the Legacy workspace retired the
+        // entry order is the USER order: Transactions (the evidence table)
+        // leads, Device stays a disabled placeholder for M12.
+        { label: qsTr("事务"), enabled: true },     // Transactions (0)
+        { label: qsTr("总览"), enabled: true },     // Dashboard (1)
+        { label: qsTr("通信"), enabled: true },     // Communication (2)
+        { label: qsTr("回放"), enabled: true },     // Replay (3)
+        { label: qsTr("诊断"), enabled: true },     // Diagnosis (4)
+        { label: qsTr("设备"), enabled: false }     // future Device (5)
     ]
 
     // Compact rail only in B1 (no expanded mode — T017 §21-D).

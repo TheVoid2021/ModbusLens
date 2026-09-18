@@ -1121,6 +1121,154 @@ git diff --check      → PASS
 
 - **M9-D D4 Review（用户）**；通过后 **D5 — Legacy retirement**（替换 index 0、零 index churn、紧凑重排回 6 项/设备@5）。
 - **D6（deploy/evidence/manual candidate）** 未开始；M9-E/F 未开始。
+## D4 Review = PASS（用户，2026-09-18，append-only）
+
+> 归档本轮 Review 结论。不重写 §D4 原文。
+
+- **M9-D D4 Review = PASS**。接受项：cue authority（既有 `hasBaselineDiagnosis` 为唯一 authority）、non-command boundary（纯文本、无任何命令/导航）、**selection / outcome / diagnosis 三轴独立**、**filters/search 继续 DEFER**、**"No additional polish required" 结论被接受**（无真实 defect 时不为阶段名义凑工作量）。
+
+**两个非阻塞 note（记录）**：
+
+- **A. 导航场景计数今后分开报告**：**basic path** 与 **named scenarios** 分开列出，不要只写一个容易歧义的总数（如"18 场景"）。
+- **B. 既有 unused-variable warning 不属于 D4/D5 scope**：不得顺手 cleanup（保持既有 harmless 告警原样）。
+
+## D5 — Legacy Workspace Retirement + Compact Navigation Reindex（Implementation Record，2026-09-18）
+
+### D5.0 D4 Review = PASS（用户）+ 归档
+
+- 见 §「D4 Review = PASS」：cue authority / non-command boundary / 三轴独立 / filters DEFER / No-additional-polish 全部接受。**两个非阻塞 note**：A）导航场景计数今后 **basic path 与 named scenarios 分开报告**；B）既有 unused-variable warning **不在 D4/D5 scope**，不顺手 cleanup（本轮遵守：2 处告警原样保留）。
+
+### D5.1 Mandatory Re-read（真实源码 @ HEAD `70dd88c`）
+
+- `Main.qml`：集中式 index 契约（`workspaceLegacyIndex: 0` … `workspaceTransactionsIndex: 5`、`workspaceDeviceIndex: 6`）；StackLayout 7 children（child 0 = `legacyWorkspace`，内含 `StatisticsOverview { instanceId: "legacy" }` + `legacyTailSpacer`）；rail `currentIndex` 绑定 StackLayout。
+- `NavigationRail.qml`：`entries` 数组驱动（objectName = `navItem_ + index`），`currentWorkspaceIndex: 0` 默认，`activate()` 是唯一 mutation path。
+- `StatisticsOverview.qml`：`objectName: "statisticsOverview_" + instanceId` 生成逻辑（component contract，不动）。
+- `TransactionsPage.qml`：D3/D4 后的完整呈现（表/selection/detail/cue）。
+- `main.cpp`：legacy 引用 **144 行**（含注释）——见 §D5.2 分类。
+
+### D5.2 Reference 重计 + 六分类（§3，完整表存 `build/d5_classification.md`，Review evidence）
+
+**真实数量：不硬凑 Phase 1 的 29。** 当前 HEAD 实搜：`src/main.cpp` **144 行**（127 代码/邻接 + 17 纯注释）；Main.qml 14 行；NavigationRail.qml 3 行；其它 page 仅历史注释（preserve）。分类动作：
+
+| 类别 | 代表位置 | 动作 |
+| --- | --- | --- |
+| **A. presentation index reference** | `workspaceLegacyIndex` 读取 ×4；Transactions/Device index 契约 | remove / **retarget（0/5）** |
+| **B. geometry target** | `m9b4-legacy-*` 两 step；pageIndex 注释/key 映射/PASS 文案/expected-page 映射 | **remove-retired**（两 step）+ retarget |
+| **C. navigation station** | basic path（Legacy→…→Legacy）；J/L/N `@legacy` 站 | **retarget-to-Transactions**（路由改、断言不动、标签随语义更新） |
+| **D. state-persistence station** | `legacyPtr` ×11、`verifyStructureAndIdentity` legacy 形参/visibility | **remove-retired**（指针全删，count=0）+ **retirement assertion** |
+| **E. Legacy-specific oracle** | legacy 统计 implicit-size oracle；D2 ownership guard legacy 块；`statisticsPanel_legacy` evidence E/F；dump legacy 分支 | **remove-retired / replace-with-retirement-assertion** |
+| **F. shared/historical** | 单 owner 证明 legacy 半边；`ActivePage::Legacy`；`legacyVisible/suffix`；历史注释 | replace-with-retirement-assertion / retarget / **preserve-historical** |
+
+**禁止 blind replace 的落实**：所有 `switchTo(0)` 调用点**保持原位**（路由语义自然变为 Transactions，station 的快照/persistence 断言逐字未动）；仅 context 标签（`@legacy`→`@transactions`）与两条汇总文案随语义更新；8 处 `switchTo(5)`（旧 Transactions）→ `switchTo(0)`；每个删除都伴随 absence assertion 或明确退役理由。
+
+### D5.3 RED（§30，D4 tree + D5 harness）
+
+- **nav**：`RED_EXIT=1`、`GEOFAIL: scenario S1: the startup workspace is 0, expected Transactions at index 0 (property says 5) — expected D5 missing retirement` + `workspaceLegacyIndex still exists` + `legacyWorkspace still exists`；`NAV SCENARIOS: … R PASS, S NOT RUN`——**全部业务场景（A–R）PASS**。
+- **geometry**：`RED_EXIT=1`、`GEOFAIL: DEFAULT legacy: legacyWorkspace/statisticsOverview_legacy/legacyTailSpacer still exists … expected D5 missing retirement`。
+- RED 全部建立在 **retirement/index-contract 断言**上，无业务语义失败 ✓。
+
+### D5.4 Final Index Contract（§4）
+
+| workspace | 旧 | **新** |
+| --- | --- | --- |
+| **Transactions** | 5 | **0**（默认工作台） |
+| Dashboard | 1 | 1 |
+| Communication | 2 | 2 |
+| Replay | 3 | 3 |
+| Diagnosis | 4 | 4 |
+| Device（disabled） | 6 | **5** |
+| ~~Legacy~~ | 0 | **已删除**（`workspaceLegacyIndex` 无 alias 残留） |
+
+集中式声明在 Main.qml（rail entries 顺序与 StackLayout child 顺序 1:1 对应，无临时重复 index、无裸 magic integer——harness 读取 properties 而非硬编码）。
+
+### D5.5 Rail / StackLayout（§5/§6）
+
+- **Rail 最终序**：`0 事务（enabled）/ 1 总览 / 2 通信 / 3 回放 / 4 诊断 / 5 设备（disabled）`；Legacy entry **完全消失**（navItem_6 不存在，S3 断言）；无 hidden compatibility entry / dummy item。
+- **StackLayout 最终 5 children**：`child 0 transactionsPage / 1 dashboardWorkspace / 2 communicationWorkspace / 3 replayWorkspace / 4 diagnosisPage`；Legacy Item（含 `statisticsOverview_legacy` + `legacyTailSpacer`）**运行树删除**（非 `visible:false`）；Device 无 page child（仅 disabled nav）。
+
+### D5.6 Default Workspace（§7/§27/§28）
+
+- 启动默认 = **Transactions**（rail `currentWorkspaceIndex: 0` = `workspaceTransactionsIndex: 0`）；S1 从 stage-0 捕获的 `startupIndex` 机器证明。
+- 启动**无业务副作用**：smoke test（EXIT=0）即冷启动路径；空态自然（`暂无通信记录` + no-selection detail + cue 隐藏，`rowCount=0`、source/mode 保持真实初始值）；**无**自动 runDemo/loadReplay/connect/clear/自动选行。
+
+### D5.7 Legacy Runtime Absence（§8/§25）
+
+四重 retirement oracle（geometry 每趟 + shell-nav 每次 + runNavAssertions 每次 + Scenario S）：`legacyWorkspace` / `statisticsOverview_legacy` / `legacyTailSpacer` 运行树 **count = 0**；`workspaceLegacyIndex` property **metaObject 不存在**（不是 0 值 alias）。`verifyPageTreeSingleOwner` 的单 owner 证明保留（pane under transactionsPage），legacy 半边替换为 absence。
+
+### D5.8 StatisticsOverview Boundary（§9/§17/§35）
+
+- **保留**：`StatisticsOverview.qml` 文件、QML module registration、deploy guard（CMakeLists.txt / deploy script **zero diff**）。
+- **真实 consumer count = 0**（S4 证明 legacy 实例不存在；Dashboard 自 C3 起直接组合 pieces）。
+- **未删** abstraction / 未改内部实现 / 未改注释（zero-consumer 去留 = 另行 ownership decision，Phase 1 已登记）。
+- Legacy 统计几何不再是 runtime contract（随 workspace 退役）；统计业务语义由 Controller/Core tests + Dashboard presentation regression 继续覆盖。
+
+### D5.9 Page Freezes（§10/§11）
+
+**`TransactionsPage.qml` zero diff**（成为 index 0 不改任何行为/layout/文案/selection）；Dashboard/Communication/Replay/Diagnosis **zero diff**。产品 diff 仅 `Main.qml` + `NavigationRail.qml`。
+
+### D5.10 Navigation Path（§12/§13/§14）
+
+- **post-Legacy five-workspace path**（改名 `basic five-workspace path`）：Transactions(启动) → Dashboard → Communication → Replay → Diagnosis → Transactions → Dashboard → Transactions；**Device disabled**。每站 identity + visibility + 16 字段权威快照不变。
+- **Named scenarios 全部保留**（A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R），M 仍 DEFERRED BY DESIGN。J/L/N 的 `@legacy` 站 retarget 为 `@transactions`（§13：原站语义只是"去另一工作台证明状态不变"，Transactions 即合规站）；I/K/K' 的 Replay/source、L 的 Diagnosis persistence、N 的 Agent draft、P/Q 的 selection lifecycle、R 的 cue **业务权威语义零变化**（全部 PASS）。
+
+### D5.11 Scenario S（§15，stages 147–157，kLastStage=157，scenarioOrder + PASS 文案 + S）
+
+| 步骤 | 断言 | 结果 |
+| --- | --- | --- |
+| S1 | startup workspace == Transactions(0)（stage-0 捕获）；`workspaceLegacyIndex` property 不存在；legacyWorkspace 不存在 | PASS |
+| S2 | navItem_0..4 全 enabled；navItem_5（设备）disabled；index 契约 0/5 | PASS |
+| S3 | navItem_6 不存在（rail 6 条） | PASS |
+| S4 | `statisticsOverview_legacy` / `legacyTailSpacer` 不存在 | PASS |
+| S5 | transactionsPage 是 StackLayout **child 0**（`host->childItems().indexOf(tx)==0`）；pane/detail/cue 全在其子树 | PASS |
+| S6 | 五 active workspace 往返（S@dashboard/communication/replay/diagnosis/transactions）16 字段快照不变 | PASS |
+| S7 | Device `activate()` 直调不改 currentWorkspaceIndex | PASS |
+
+### D5.12 Geometry（§19–§22/§27/§28）
+
+- **geometry steps = 14**（**10 standard** = 5 active × 2 + **2 C4 targeted** + **2 D3 targeted**）；**printed segments = 18**（10 standard steps 中 diagnosis 2 step → 6 段 ⇒ 8 + 6 = 14 standard 段 + 2 + 2 = **18**）。两口径分列（Re-review 冻结术语）。
+- 减少的只有 Legacy 两尺寸 step；其它 active workspace coverage 无一减少。
+- **Transactions @ index 0 两尺寸**：1024×720 selected-detail 列表 911×457 / detail 911×56 / cue @y=584——**与 D4 逐值相同**（objectName 查找与 index 无关，无 stale pointer/wrong page）；1000×700 空态 list 887×501、cue 隐藏零占位。
+- 证据链：geometry dump 对 Transactions 的所有断言（pane/list/detail/cue、列宽、≥216）继续 PASS，0 GEOFAIL。
+
+### D5.13 Pointer / ObjectName / A11y（§24/§25/§26/§23）
+
+- **`legacyPtr` 计数 = 0**；evidence/nav 的 legacy 查找全部删除或替换为 absence assertion——无 dangling/null pointer 靠"不走分支"过测。
+- Legacy objectName 运行树 count = 0；`StatisticsOverview.qml` 的通用 objectName 生成逻辑原样保留（不为 count=0 删 component contract）。
+- Rail：index0 可 focus/activate（basic path + S 证明）；Device disabled 不可切换（S7）；其余 nav a11y 不退化（D4 cue 的文字自明性不受影响）。
+
+### D5.14 Gates（§32）
+
+```text
+build（Ninja）→ 0 error（2 处既有 unused-variable 告警保持原样，note B）
+--qml-smoke-test      → EXIT=0（冷启动 = 默认 Transactions 的空态路径）
+--qml-nav-check       → EXIT=0；basic five-workspace path PASS + named
+                        scenarios A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R/S 全
+                        PASS；M DEFERRED BY DESIGN
+--qml-geometry-check  → EXIT=0；steps = 14（10+2+2）/ printed segments = 18；
+                        0 GEOFAIL
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check      → PASS
+stderr 卫生（三模式）  → ReferenceError/TypeError/binding loop/NaN/Infinity/
+                        is-not-a-type 全 0
+```
+
+### D5.15 Negative Scope（§33）
+
+无 StatisticsOverview deletion、无 filters/search、无 proxy model、无新 transaction role、无 Controller selection、无 selected-transaction diagnosis、无 AI explain、无 Agent copy、无 Dashboard recent transactions、无 style/token cleanup（unused-variable 告警未动）、无 M10/M11/M12、无 D6 deploy/evidence changes（evidence capture 的 Legacy shot 移除属 retirement 本体，非 D6 新 evidence 设计）。
+
+### D5.16 Files Changed（§43 前置）
+
+`src/ui/qml/Main.qml`（index 契约 + Legacy child 删除 + children 重排）、`src/ui/qml/components/NavigationRail.qml`（entries 重排）、`src/main.cpp`（enum/两套 nav 断言/geometry steps/switchTo 映射/retirement oracles/Scenario S/evidence Legacy 阶段退役）、docs。**TransactionsPage/其它四页/Controller/Core/tests/CMakeLists/deploy script zero diff。**
+
+### D5.17 Result
+
+- D5 完成：**Legacy workspace 退休 = 实际删除**（四重 absence oracle 机器证明），导航紧凑重排为 **Transactions(0)/Dashboard(1)/Communication(2)/Replay(3)/Diagnosis(4)/Device(5 disabled)**，默认工作台变为 Transactions（无业务副作用），StatisticsOverview 进入 **zero-consumer 但保留** 状态。
+- **Manual Review = PENDING**（视觉 + 交互在 **D6**）；verified LKGC **不变 = `bc754be`**；未 push。
+
+## D6. Next
+
+- **M9-D D5 Review（用户）**；通过后 **D6 — deploy + evidence rebuild + manual candidate**（evidence 清单需按 post-Legacy 工作台重建：Legacy 两张截图已随 workspace 退役，Transactions 截图顶替）。
+- M9-E（Branding/Icon/Packaging）、M9-F（Final Manual Visual Acceptance）未开始。
 ## 39. Next（Phase 1 之后的追加）
 
 - **M9-D D1 Review（用户）** → **D2** → D3 → D4（默认不做）→ D5 → D6；每阶段独立 Review/提交。
