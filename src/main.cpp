@@ -185,6 +185,28 @@ QVariantMap selectedEntryOf(const QList<QObject *> &roots)
     return page->property("selectedEntry").toMap();
 }
 
+// M9-D D3 review (P0-2): the deferred half of the selection seam. A request
+// whose delegate is not instantiated is parked in pendingSelectionRow and
+// retried through Qt.callLater; the harness reads that state directly so a
+// stale completion is observable, not merely argued from the source.
+int pendingSelectionRowOf(const QList<QObject *> &roots)
+{
+    auto *page = findNamedItem(roots, QStringLiteral("transactionsPage"));
+    return page ? page->property("pendingSelectionRow").toInt() : -2;
+}
+
+// Requests a selection through the page's OWN entry point (the function the
+// ListView's onCurrentIndexChanged calls) — no new production API is added
+// for testing, and a row index that cannot be materialized takes exactly the
+// same deferred path a keyboard move onto an unbuilt delegate would take.
+bool requestTransactionSelection(const QList<QObject *> &roots, int row)
+{
+    auto *page = findNamedItem(roots, QStringLiteral("transactionsPage"));
+    if (!page)
+        return false;
+    return QMetaObject::invokeMethod(page, "selectRow", Q_ARG(QVariant, row));
+}
+
 void assertTransactionDetailMapping(const QList<QObject *> &roots,
                                     const QString &contextLabel,
                                     QStringList &failures)
@@ -2177,7 +2199,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 128;
+    constexpr int kLastStage = 134;
 
     // Shared state across stages.
     auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
@@ -2260,7 +2282,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         QStringLiteral("F"),   QStringLiteral("G'"), QStringLiteral("H"),
         QStringLiteral("I"),   QStringLiteral("J"),  QStringLiteral("K"),
         QStringLiteral("K'"),  QStringLiteral("L"),  QStringLiteral("N"),
-        QStringLiteral("O"),   QStringLiteral("P"),
+        QStringLiteral("O"),   QStringLiteral("P"),  QStringLiteral("Q"),
     };
     auto scenarioStart = std::make_shared<QMap<QString, int>>();
     auto scenarioEnd = std::make_shared<QMap<QString, int>>();
@@ -3794,6 +3816,186 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
 
+        // ---- M9-D D3 review (P0-2) Scenario Q: DEFERRED selection safety.
+        // P1..P5 all drive selection while every delegate is materialized, so
+        // they never exercise the pendingSelectionRow / Qt.callLater path.
+        // Q enters that path deterministically: a request for a row that
+        // cannot be materialized is parked, and the harness then performs the
+        // authoritative reset IN THE SAME EVENT-LOOP TURN, before the queued
+        // callback can run. The callback must then read the (already cleared)
+        // pending value and do nothing — a stale completion must never
+        // resurrect a selection into the replacement model.
+        case 129: {
+            beginScenario(QStringLiteral("Q"));
+            if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+                fail(QStringLiteral("NAVFAIL scenario Q: clearResults() not "
+                                    "invokable"));
+            switchTo(5);
+            break;
+        }
+        case 130: {
+            if (rowCountOf(ctrl) != 0)
+                fail(QStringLiteral("NAVFAIL scenario Q: expected an empty "
+                                    "model to start from, got %1 rows")
+                         .arg(rowCountOf(ctrl)));
+            if (selectedRowOf(roots) != -1
+                || pendingSelectionRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario Q: a stale selection "
+                                    "survived into the Q walk"));
+            // THE deferred request: with no rows there is no delegate to
+            // snapshot, so this parks in pendingSelectionRow and schedules
+            // the retry. This is the real pending path, entered through the
+            // page's own selectRow (no test-only production API).
+            if (!requestTransactionSelection(roots, 0))
+                fail(QStringLiteral("NAVFAIL scenario Q: selectRow() is not "
+                                    "invokable on the transactions page"));
+            // Same-turn proof that the DEFERRED path was really taken: if the
+            // delegate had been available the snapshot would be complete and
+            // the pending slot would already be back to -1.
+            if (pendingSelectionRowOf(roots) != 0)
+                fail(QStringLiteral("NAVFAIL scenario Q: the request did not "
+                                    "park in the deferred path (pending=%1) — "
+                                    "this scenario would be vacuous")
+                         .arg(pendingSelectionRowOf(roots)));
+            if (selectedRowOf(roots) != -1
+                || !selectedEntryOf(roots).isEmpty())
+                fail(QStringLiteral("NAVFAIL scenario Q: a parked request must "
+                                    "not present a selection yet"));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario Q parked request"), *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario Q1]: a selection request is "
+                                  "parked in the deferred path (pending row 0, "
+                                  "empty model)");
+            // Same event-loop turn: the authoritative model is replaced BEFORE
+            // the queued callback can run. modelReset clears the pending slot
+            // synchronously (direct connection, same thread).
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("NAVFAIL scenario Q: runDemoBatch() not "
+                                    "invokable"));
+            if (pendingSelectionRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario Q: the model reset left "
+                                    "a parked request alive (pending=%1)")
+                         .arg(pendingSelectionRowOf(roots)));
+            if (selectedRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario Q: the model reset left "
+                                    "a selection behind"));
+            break;
+        }
+        case 131: {
+            // The queued completion has now run. Row 0 EXISTS in the
+            // replacement model, so a stale callback would have had something
+            // real to select — the selection must nevertheless be absent.
+            if (rowCountOf(ctrl) != 4)
+                fail(QStringLiteral("NAVFAIL scenario Q: expected the "
+                                    "deterministic 4-transaction batch after "
+                                    "the replacement, got %1")
+                         .arg(rowCountOf(ctrl)));
+            if (pendingSelectionRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario Q: the deferred "
+                                    "completion re-parked a request (pending=%1)")
+                         .arg(pendingSelectionRowOf(roots)));
+            if (selectedRowOf(roots) != -1
+                || !selectedEntryOf(roots).isEmpty())
+                fail(QStringLiteral("NAVFAIL scenario Q: a STALE deferred "
+                                    "selection resurrected into the "
+                                    "replacement model (selectedRow=%1)")
+                         .arg(selectedRowOf(roots)));
+            auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
+            if (!list)
+                fail(QStringLiteral("NAVFAIL scenario Q: transactionsList not "
+                                    "found"));
+            else if (list->property("currentIndex").toInt() != -1)
+                fail(QStringLiteral("NAVFAIL scenario Q: currentIndex is %1, "
+                                    "expected -1 after the reset")
+                         .arg(list->property("currentIndex").toInt()));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario Q after reset"), *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario Q1]: the reset ran before the "
+                                  "deferred completion; row 0 exists in the "
+                                  "new model and is NOT selected — a stale "
+                                  "selection cannot resurrect across a reset");
+            break;
+        }
+        case 132: {
+            // Q2: an older deferred request must never overwrite a NEWER
+            // selection. Row 99 cannot be materialized (4 rows), so it parks;
+            // row 2 is then requested through the ListView's own currentIndex
+            // (the path Qt's tap and keyboard share) and completes at once.
+            if (selectedRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario Q: expected no selection "
+                                    "before the latest-request probe"));
+            if (!requestTransactionSelection(roots, 99))
+                fail(QStringLiteral("NAVFAIL scenario Q: selectRow() is not "
+                                    "invokable on the transactions page"));
+            if (pendingSelectionRowOf(roots) != 99)
+                fail(QStringLiteral("NAVFAIL scenario Q: the out-of-range "
+                                    "request did not park (pending=%1)")
+                         .arg(pendingSelectionRowOf(roots)));
+            auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
+            if (!list)
+                fail(QStringLiteral("NAVFAIL scenario Q: transactionsList not "
+                                    "found"));
+            else
+                list->setProperty("currentIndex", 2);
+            // Same turn: the newer request completed, so the older parked one
+            // must have been superseded already.
+            if (pendingSelectionRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario Q: the newer selection "
+                                    "did not clear the older parked request "
+                                    "(pending=%1)")
+                         .arg(pendingSelectionRowOf(roots)));
+            if (selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario Q: selectedRow is %1, "
+                                    "expected the newer request 2")
+                         .arg(selectedRowOf(roots)));
+            break;
+        }
+        case 133: {
+            // Same oracle as above, now after the queued completion ran: a
+            // capture-the-old-row implementation would fail HERE (it would
+            // clear the selection because row 99 has no delegate).
+            if (selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario Q: an OLDER deferred "
+                                    "request clobbered the newer selection "
+                                    "(selectedRow=%1, expected 2)")
+                         .arg(selectedRowOf(roots)));
+            if (pendingSelectionRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario Q: unexpected parked "
+                                    "request after the latest-request probe"));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario Q latest request wins"),
+                *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario Q2]: the older deferred "
+                                  "request did not clobber the newer explicit "
+                                  "selection (row 2 still selected, detail "
+                                  "mapping intact)");
+            break;
+        }
+        case 134: {
+            if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+                fail(QStringLiteral("NAVFAIL scenario Q: clearResults() not "
+                                    "invokable"));
+            endScenario(QStringLiteral("Q"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario Q]: deferred selection "
+                                  "safety verified (parked request + "
+                                  "same-turn reset -> no resurrection; "
+                                  "older request superseded by newer). "
+                                  "BOUNDARY: the pending-onto-pending "
+                                  "variant (two successive unfulfillable "
+                                  "requests with no reset) is NOT separately "
+                                  "exercised — its outcome (no selection) is "
+                                  "indistinguishable from a stale capture, so "
+                                  "it proves nothing extra; and a real 4-row "
+                                  "batch materializes every delegate, so the "
+                                  "parked path is entered through the page's "
+                                  "own selectRow rather than a keyboard move.");
+            break;
+        }
+
         default:
             break;
         }
@@ -3854,8 +4056,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (failures->isEmpty())
             qInfo() << "NAV CHECK PASS (six workspaces; identity stable; "
                        "navigation changed no business values; scenarios "
-                       "A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P asserted; M deferred by "
-                       "design)";
+                       "A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q asserted; M deferred "
+                       "by design)";
         else
             for (const QString &f : *failures)
                 qWarning().noquote() << "GEOFAIL:" << f;

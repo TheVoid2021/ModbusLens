@@ -819,11 +819,160 @@ case 标签：0..128 连续唯一（129 个）
 - D3 完成：**selection 为 page-local**、三类 lifetime 分支全部机器实证、detail 只呈现既有 8 roles 中的 7 个显示字段且**逐字段与 model 相等**、正交/ENR/ProtocolError/Unsupported 边界全部遵守、垂直 master-detail 在两尺寸成立（表格保持全宽、viewport ≥ 6 行）。
 - **Manual Review = PENDING**（鼠标/键盘实机与视觉均在 **D6**）；verified LKGC **不变 = `bc754be`**；未 push。
 
-## D4. Next
+## D3 Review HOLD + Correction（2026-09-18，append-only）
 
-- **M9-D D3 Review（用户）**；通过后 **D4 — Phase 1 已接受的 Diagnosis existence cue + 必要的 Transactions polish**（filters/search 继续 DEFER）。
-- **D5（Legacy retirement）**、**D6（geometry/evidence/manual candidate）** 未开始。
-## 39. Next（Phase 1 之后的追加）
+> 本节为 **D3 Review = HOLD** 的两个 P0 闭环记录。**不重写 §D3 历史原文**；上文任何与本节冲突处，以本节为准。
+
+### R0. D3 Review = HOLD（用户裁定）
+
+两个 P0：
+
+1. **geometry pass-count contradiction**（完成报告写 14 趟，与 12+2+2=16 不自洽）；
+2. **deferred selection stale-callback safety**（`pendingSelectionRow` / `Qt.callLater` 路径在 D3 中**从未被测试覆盖**，其"陈旧完成不能跨 reset 复活"的结论只是源码论证）。
+
+Scope freeze（本轮严格遵守）：不实现 Diagnosis cue、不做 filters/search、不做 style cleanup、不退休 Legacy、不删 StatisticsOverview、不改 model roles、不加 Controller selection、不做 mouse/keyboard 新功能、不开始 D4。
+
+---
+
+### R1. P0-1 Geometry Count Reconciliation（**Case A**）
+
+**先不改代码**，重跑 `--qml-geometry-check`（EXIT=0）并逐趟分类。**exact stage list**（按 `steps` 向量顺序，tag = 步骤标识）：
+
+| # | step tag | 打印标签 | 分类 |
+| --- | --- | --- | --- |
+| 1 | `m9b4-legacy-1024x720` | DEFAULT legacy | **A standard** |
+| 2 | `m9b4-dashboard-1024x720` | DEFAULT dashboard | **A standard** |
+| 3 | `m9b4-communication-1024x720` | DEFAULT communication | **A standard** |
+| 4 | `m9b4-replay-1024x720` | DEFAULT replay | **A standard** |
+| 5 | `m9d-transactions-1024x720` | DEFAULT transactions | **A standard** |
+| 6 | `m9b5-diagnosis-1024x720` | DEFAULT diagnosis **[tab 0/1/2]** | **A standard**（1 步 → 3 次测量） |
+| 7 | `m9b5-diagnosis-1000x700` | MIN 1000x700 diagnosis **[tab 0/1/2]** | **A standard**（1 步 → 3 次测量） |
+| 8 | `m9d-transactions-1000x700` | MIN 1000x700 transactions | **A standard** |
+| 9 | `m9d-transactions-detail-1024x720` | SELECTED DETAIL transactions | **C D3 targeted** |
+| 10 | `m9d-transactions-detail-1000x700` | MIN 1000x700 selected detail | **C D3 targeted** |
+| 11 | `m9b4-replay-1000x700` | MIN 1000x700 replay | **A standard** |
+| 12 | `m9b4-communication-1000x700` | MIN 1000x700 communication | **A standard** |
+| 13 | `m9b4-dashboard-1000x700` | MIN 1000x700 dashboard | **A standard** |
+| 14 | `m9b4-legacy-1000x700` | MIN 1000x700 legacy | **A standard** |
+| 15 | `m9c-dashboard-demo-1024x720` | DEMO dashboard | **B C4 targeted** |
+| 16 | `m9c-dashboard-demo-1000x700` | MIN 1000x700 demo dashboard | **B C4 targeted** |
+
+**计数（真实）**：
+
+- **A standard = 12 steps**（6 active workspaces × 2 sizes = 12，**与冻结预期一致**）；
+- **B C4 targeted = 2**；**C D3 targeted = 2**；
+- **total steps = 16 = 12 + 2 + 2**（**与冻结预期一致**）；
+- **打印出的 `GEOMETRY [...]` 段落数 = 20**，因为 diagnosis 的 2 个 step **各自 sweep 三个 tab**（2 个 step → 6 段）：10 个非 diagnosis standard step + 6 段 diagnosis + 2 + 2 = **20 段**。该 tab sweep 是 **M9-B5.3 的既有设计**（不是 D3 引入），且 harness 自身的 PASS 文案已声明 "…x 2 sizes, **the diagnosis pass sweeps its three tabs**"。
+
+**RCA（矛盾根因）**：`16`（step）与 `20`（打印段落）两个真实数字之外，**完成报告与 PROJECT_STATUS 的 Test 状态行写成了 "14 趟"** —— 这是**报告内的加法错误**（12+2+2 被写成 14），并叠加了"趟"一词在 step / 打印段落之间**指代不清**。**14 不对应任何真实计数**：既不是 16 也不是 20。
+
+**结论 = Case A**：真实输出自始就是 **16 = 12 + 2 + 2**（steps），**覆盖零缺失**（6 workspace × 2 尺寸 + 2 C4 + 2 D3 全部在列，无任何 step 被替换或吞掉）。因此：
+
+- **产品代码不改**（`TransactionsPage.qml` 本轮零 diff）；
+- **test/harness 计数逻辑不改**（`steps` 向量、PASS 文案、diagnosis tab sweep 全部保持原样）；
+- **仅文档纠正**：PROJECT_STATUS Test 状态行的 `14 趟几何` → `16 趟几何（12 standard steps + 2 C4 targeted + 2 D3 targeted；diagnosis 的 2 个 step 各 sweep 3 个 tab，故打印 20 段）`。
+
+### R2. P0-2 Deferred-selection Audit（逐行，真实源码）
+
+源码位置：`src/ui/qml/pages/TransactionsPage.qml`（D3 冻结版本，无改动）。
+
+| 位置 | 行 | 行为 |
+| --- | --- | --- |
+| `selectRow(row)` | 62–78 | `row < 0` ⇒ 三清（selected/entry/pending）；`itemAtIndex(row)` 命中 ⇒ 立即快照；**未命中 ⇒ `pendingSelectionRow = row` + `Qt.callLater(page.applyPendingSelection)`** |
+| `applyPendingSelection()` | 80–93 | **`const row = pendingSelectionRow;`（执行时读）**；`row < 0` ⇒ **return（no-op）**；`itemAtIndex(row)` 仍无 ⇒ **显式 no-selection**（`-1` + 清 entry + pending = -1） |
+| `onCurrentIndexChanged` | 223 | `page.selectRow(currentIndex)` —— 与鼠标 `TapHandler`（269–271）**共用同一入口** |
+| `modelReset` handler | 98–109 | 清 `selectedRow` / `selectedEntry` / **`pendingSelectionRow`** / `currentIndex`（后者带 `if (transactionList)` 守卫） |
+| `Qt.callLater` 实参 | 72 | **传的是函数引用 `page.applyPendingSelection`，不带参数** ⇒ **没有行号被捕获**；且 Qt 对**同一函数**的多次 `callLater` 会**合并为一次**调用 |
+
+**A. callback 读取执行时的 pendingSelectionRow，还是捕获旧 row value？**
+**读取执行时值**（`applyPendingSelection` 第一行现读 `pendingSelectionRow`）。第 72 行传入的是**无参函数引用**，闭包内**不存在任何捕获的行号**。⇒ **无 stale capture**。
+
+**B. modelReset 是否清 currentIndex / selectedRow / selectedEntry / pendingSelectionRow？**
+**四者全清**（98–108：`currentIndex = -1`、`selectedRow = -1`、`selectedEntry = null`、`pendingSelectionRow = -1`）。
+
+**C. 旧 callback 在 reset 后执行时如何变成 no-op？**
+reset 把 `pendingSelectionRow` 置 **-1** ⇒ callback 现读得 **-1** ⇒ 命中 `if (row < 0) return;` **直接返回，不写任何状态**。它**不可能**用旧行号复活，因为**旧行号从未被保存**。
+
+**D. 若 currentIndex 在 callback 前再次改变，旧 callback 如何避免覆盖新 selection？**
+两种子情形，均安全：
+- **新请求可立即完成**（delegate 在）：`selectRow(M)` 把 `pendingSelectionRow = -1` ⇒ 旧 callback 现读 -1 ⇒ **no-op**，新 selection 保留 —— **这正是 Scenario Q2 的机器实证**。
+- **新请求同样被 park**：`pendingSelectionRow` 被**覆写为最新行号**（且 `callLater` 合并为一次）⇒ 后续 callback 读到的**就是最新请求**，结果只可能是 **最新行** 或 **显式 no-selection**，**绝不回到旧行**。
+- 源码级 guard 归纳：`pendingSelectionRow ≥ 0` ⟺ "存在一个**尚未被消费**的**最新**请求，且自该请求以来**未发生 model reset**"（reset 必然清它会 -1，而 reset 是模型的**唯一**变更路径，见 §D3.2）。因此 `row < 0` 这一条判断同时覆盖了**"仍属于当前 model"**与**"仍属于当前请求"**两个条件。
+
+**是否需要 generation token？** **不需要**：源码已满足"执行时读最新 pending + reset 清 pending + 应用前检查 `row >= 0`"三条件（用户 §4 的首段判据）。**未新增 generation / modelGeneration / Controller state**（§4 末段禁令遵守）。
+
+**一处如实记录的观察（非缺陷）**：`applyPendingSelection` 读 `transactionList.itemAtIndex(row)` **未加 `if (transactionList)` 守卫**，而 reset handler 有该守卫。二者暴露面相同（`selectRow` 先解引用同一 id，能 park 就说明 list 已存在），且本应用页面是 StackLayout **常驻子项**、运行期不销毁 ⇒ **不构成活缺陷**；按 scope freeze **不做形式性改动**，仅记录。
+
+### R3. Binding Safety Contract 逐条证明
+
+| 契约 | 结论 | 证据 |
+| --- | --- | --- |
+| **A. Reset before callback** | `currentIndex = -1`、`selectedRow = -1`、`selectedEntry` 空、**pending = -1**、detail = no-selection；**旧 row 不复活** | **Scenario Q1**（130–131）：park 后**同一 turn** 替换模型；131 断言行 0 **存在于**新模型却**未被选中** |
+| **B. Latest selection wins** | 最终只能是**最新行**或**显式 no-selection**；绝不回到旧行 | **Scenario Q2**（132–133）：row 99 park → 同 turn row 2（真实入口）⇒ 133 断言仍为 row 2 且 detail 逐字段一致 |
+| **C. Failed replacement** | model 未 reset ⇒ 有效 pending/current selection **继续有效**，**不无条件清 selection** | **Scenario P3** 不变（失败替换保留 selection + detail）；本轮**未**把 P3 改成"失败也清" |
+
+### R4. Targeted Deferred-path Test（**新增 Scenario Q**）
+
+`--qml-nav-check` 新增 **Scenario Q**（stages 129–134，`kLastStage = 134`；`scenarioOrder` 追加 `"Q"`；PASS 文案追加 `Q`）。
+
+- **进入 pending 路径的方式**：`transactionsPage.selectRow(row)` —— **页面自身的入口函数**（与 `onCurrentIndexChanged` 调用的**同一个**），**未新增任何 production API**（遵守 §5）；空模型 / 越界行 ⇒ `itemAtIndex` 必为 null ⇒ **确定性地**走 park 分支。**非空洞性**由同 turn 断言 `pendingSelectionRow == 0` **保证**（若委托已实例化则该断言失败并显式写明 "this scenario would be vacuous"）。
+- **同一 event-loop turn 内触发 authoritative reset**（§5 步骤 4）：`runDemoBatch()` 与 park 在**同一个 stage 回调**内执行，`Qt.callLater` 回调不可能插入；`modelReset` 经**同线程直连**同步清 pending。
+- **不用 sleep 猜**：所有断言要么在**同 turn**、要么在**固定 settle tick 之后**读取真实状态。
+
+**Q1 runtime result = PASS**：
+```text
+NAV [scenario Q1]: a selection request is parked in the deferred path (pending row 0, empty model)
+NAV [scenario Q1]: the reset ran before the deferred completion; row 0 exists in the new model and is NOT selected — a stale selection cannot resurrect across a reset
+```
+
+**Q2 runtime result = PASS**：
+```text
+NAV [scenario Q2]: the older deferred request did not clobber the newer explicit selection (row 2 still selected, detail mapping intact)
+```
+
+**RED 判别力证明（mutation probe，已完整回滚）**：把 callback 临时改成**捕获行号**的缺陷版（`Qt.callLater(function() { page.applySelectionOfRow(row); })`），重建后：
+
+```text
+RED_EXIT=1
+GEOFAIL: NAVFAIL scenario Q: a STALE deferred selection resurrected into the replacement model (selectedRow=0)
+NAV SCENARIOS: ... P PASS, Q NOT RUN
+```
+
+⇒ §D3 的 P0-2 隐患类别（**stale capture 跨 reset 复活**）**被 Scenario Q 捕获**。随后 `git checkout -- src/ui/qml/pages/TransactionsPage.qml` **完整回滚**（`grep -c applySelectionOfRow = 0`，工作树仅 `src/main.cpp` 被改），重建后 **Q PASS / EXIT=0**。
+
+**Coverage boundary（如实申报，§6 允许）**：
+- **pending → pending**（两次连续不可满足请求且无 reset）**未单独覆盖**：其结果（no-selection）与 stale capture **不可区分** ⇒ **不构成判别性证据**，不做假测试；
+- 真实 4 行批次**会把全部委托实例化**，故 park 路径由页面的 `selectRow` 直接进入，**不是键盘移动**产生（键盘/鼠标实机仍在 D6）。
+
+### R5. 回归（本轮全部重跑）
+
+- **P1–P5 全 PASS**（原文不变）：P1 显式选中 / P2 导航保留 / P3 失败替换保留 / P4 成功替换失效（不重选第 0 行）/ P5 clear·新批次失效。
+- **ENR 回归**：P4 detail 仍中性；O broadcast 行 `status=预期无响应` 中性。
+- **ProtocolError 回归**：O protocol 行 `status=协议错误 hasIssueDetail=1`（正交保留）。
+- **Detail mapping 回归**：两趟 targeted 均 `DETAIL MAPPING: row=2 status=CRC 错误 issue=<none>`。
+- **Geometry 回归**：**16 steps（12+2+2）/ 20 段**，**0 GEOFAIL**；选中态两尺寸：1024×720 → 列表 911×477、detail 911×56 @y=540；1000×700 → pane 911×600、列表 **887×457（≥216）**、detail **887×56** @y=520；detail 非零、不重叠、列表 viewport 达标。
+
+### R6. 门禁（本轮真实输出）
+
+```text
+build（Ninja）→ 0 error（仅既有无害告警）
+--qml-smoke-test       → EXIT=0；stderr 卫生 0
+--qml-nav-check        → EXIT=0；scenarios …/O/P/Q 全 PASS；M DEFERRED BY DESIGN；stderr 卫生 0
+--qml-geometry-check   → EXIT=0；16 steps（12 standard + 2 C4 + 2 D3）/ 20 段；0 GEOFAIL；stderr 卫生 0
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check       → PASS
+```
+
+### R7. Result
+
+- **P0-1 = Case A**：真实计数 **16 = 12 + 2 + 2**（steps；20 段因 diagnosis tab sweep），**无缺失覆盖**；**仅文档数字纠正**（PROJECT_STATUS Test 状态行）。
+- **P0-2 = 实现原本安全**（执行时读取最新 pending；reset 四清；无 stale capture）⇒ **未加 generation token、产品代码零 diff**；**新增 Scenario Q 以机器证据替代源码论证**，并以 mutation probe 证明其**判别力**。
+- **Manual Review = PENDING**（鼠标/键盘实机 + 视觉仍在 D6）；verified LKGC **不变 = `bc754be`**；未 push。
+
+## D4. Next（D3 Review HOLD 之后的追加）
+
+- **等待 M9-D D3 Re-review（用户）**；通过后进入 **D4 — Phase 1 已接受的 Diagnosis existence cue + 必要的 Transactions polish**（filters/search 继续 DEFER）。
+- **D5（Legacy retirement）**、**D6（geometry/evidence/manual）** 未开始。## 39. Next（Phase 1 之后的追加）
 
 - **M9-D D1 Review（用户）** → **D2** → D3 → D4（默认不做）→ D5 → D6；每阶段独立 Review/提交。
 - **M9-E / M9-F 未开始**；M9 整体 IN PROGRESS。
