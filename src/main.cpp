@@ -2,6 +2,7 @@
 #include <QGuiApplication>
 #include <QDir>
 #include <QImage>
+#include <QKeyEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -2222,7 +2223,77 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 157;
+    constexpr int kLastStage = 165;
+
+    // M9-D D6 correction: REAL Qt key-event synthesis. A QKeyEvent sent via
+    // QCoreApplication::sendEvent to the window's active focus item
+    // exercises the genuine key-handling path (QQuickItem::keyPressEvent ->
+    // QQuickItemView navigation) that setting currentIndex directly never
+    // touches. It is still not an OS-level physical key press; the physical
+    // path stays with the manual re-test.
+    // Real mouse-click synthesis through the WINDOW delivery path (pick ->
+    // handlers): MouseArea onClicked, TapHandler onTapped and Control focus
+    // taking all behave as with a physical click.
+    auto clickItem = [roots](const QString &name) -> bool {
+        auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+        auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+        if (!window || !item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    auto clickItemPoint = [roots](QQuickItem *item) -> bool {
+        auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+        if (!window || !item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    auto sendKey = [roots](Qt::Key key) -> bool {
+        auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+        if (!window)
+            return false;
+        QObject *target = window->activeFocusItem();
+        if (!target)
+            return false;
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(target, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(target, &release);
+        return true;
+    };
+    // Focus audit: who owns keyboard focus right now? (observation only)
+    auto focusAudit = [roots](const QString &ctx) {
+        auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+        auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
+        QObject *afi = window ? window->activeFocusItem() : nullptr;
+        qInfo().noquote()
+            << QStringLiteral(
+                   "NAV [focus audit %1]: list.focus=%2 list.activeFocus=%3 "
+                   "activeFocusItem=%4 (%5)")
+                   .arg(ctx)
+                   .arg(list ? list->property("focus").toBool() : false)
+                   .arg(list ? list->property("activeFocus").toBool() : false)
+                   .arg(afi ? afi->objectName() : QStringLiteral("<null>"))
+                   .arg(afi ? afi->metaObject()->className()
+                            : QStringLiteral("<null>"));
+    };
 
     // Shared state across stages.
     auto dashboardPtr = std::make_shared<QQuickItem *>(nullptr);
@@ -2312,6 +2383,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         QStringLiteral("K'"),  QStringLiteral("L"),  QStringLiteral("N"),
         QStringLiteral("O"),   QStringLiteral("P"),  QStringLiteral("Q"),
         QStringLiteral("R"),  QStringLiteral("S"),
+        QStringLiteral("T"),
     };
     auto scenarioStart = std::make_shared<QMap<QString, int>>();
     auto scenarioEnd = std::make_shared<QMap<QString, int>>();
@@ -4377,6 +4449,181 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
 
+        // ---- M9-D D6 correction Scenario T: PHYSICAL-KEY-PATH coverage.
+        // The manual interaction review found that Up/Down/Home/End do
+        // nothing after a mouse row selection. This scenario synthesizes
+        // real QKeyEvents through the window's active focus item so the
+        // four keys are tested on their genuine path, and audits who owns
+        // keyboard focus. Round A (audit): Up/Down are hard-asserted (Qt
+        // native capability); Home/End are REPORT-ONLY until their native
+        // behavior is measured.
+        case 158: {
+            beginScenario(QStringLiteral("T"));
+            if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+                fail(QStringLiteral("NAVFAIL scenario T: clearResults() not "
+                                    "invokable"));
+            switchTo(rootObj->property("workspaceDashboardIndex").toInt());
+            break;
+        }
+        case 159: {
+            // REAL click on Run Demo: a Control with StrongFocus takes
+            // keyboard focus exactly like a physical click would.
+            if (!clickItem(QStringLiteral("dashboardRunDemo")))
+                fail(QStringLiteral("NAVFAIL scenario T: the Run Demo click "
+                                    "could not be delivered"));
+            if (rowCountOf(ctrl) != 4)
+                fail(QStringLiteral("NAVFAIL scenario T: the Run Demo click "
+                                    "did not publish the batch"));
+            focusAudit(QStringLiteral("after REAL Run Demo click"));
+            break;
+        }
+        case 160: {
+            // REAL click on the rail entry (MouseArea onClicked -> activate):
+            // a plain-Item MouseArea does NOT take keyboard focus.
+            const int txIndex =
+                rootObj->property("workspaceTransactionsIndex").toInt();
+            if (!clickItem(QStringLiteral("navItem_%1").arg(txIndex)))
+                fail(QStringLiteral("NAVFAIL scenario T: the transactions rail "
+                                    "click could not be delivered"));
+            auto *rail = findNamedItem(roots, QStringLiteral("navigationRail"));
+            if (!rail || rail->property("currentWorkspaceIndex").toInt()
+                             != txIndex)
+                fail(QStringLiteral("NAVFAIL scenario T: the rail click did "
+                                    "not switch the workspace"));
+            focusAudit(QStringLiteral("after REAL rail click"));
+            break;
+        }
+        case 161: {
+            // Best-effort row click; delegates may not be materialized yet
+            // (the model was published while the page was hidden). The
+            // authoritative click happens at stage 162 after a settle tick.
+            auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
+            QQuickItem *row = nullptr;
+            if (list) {
+                QMetaObject::invokeMethod(list, "itemAtIndex",
+                                          Q_RETURN_ARG(QQuickItem *, row),
+                                          Q_ARG(int, 2));
+            }
+            if (row && row->isVisible())
+                clickItemPoint(row);
+            focusAudit(QStringLiteral("after REAL row click (the manual defect "
+                                     "state)"));
+            break;
+        }
+        case 162: {
+            // Authoritative row-2 click after a settle tick, then the
+            // post-fix contract: the click must have focused the LIST (the
+            // TapHandler focus call) and selected row 2.
+            auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
+            bool rowClicked = false;
+            for (int attempt = 0; attempt < 4 && !rowClicked; ++attempt) {
+                QQuickItem *row = nullptr;
+                if (list) {
+                    QMetaObject::invokeMethod(list, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, row),
+                                              Q_ARG(int, 2));
+                }
+                if (row && row->isVisible() && clickItemPoint(row)
+                    && selectedRowOf(roots) == 2)
+                    rowClicked = true;
+                else {
+                    qInfo().noquote()
+                        << QStringLiteral("NAV [scenario T]: attempt %1: list.count=%2 list=%3x%4 visible=%5")
+                               .arg(attempt)
+                               .arg(list ? list->property("count").toInt() : -1)
+                               .arg(list ? list->width() : -1)
+                               .arg(list ? list->height() : -1)
+                               .arg(list ? list->isVisible() : false);
+                    QCoreApplication::processEvents();
+                }
+            }
+            if (!rowClicked)
+                fail(QStringLiteral("NAVFAIL scenario T: the row-2 click could "
+                                    "not be delivered (delegate never "
+                                    "materialized)"));
+            if (rowCountOf(ctrl) != 4 || selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario T: rows=%1 selected=%2")
+                         .arg(rowCountOf(ctrl))
+                         .arg(selectedRowOf(roots)));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario T after real click"), *failures);
+            focusAudit(QStringLiteral("after REAL row click + fix"));
+            auto *lst = findNamedItem(roots, QStringLiteral("transactionsList"));
+            if (!lst || !lst->property("activeFocus").toBool())
+                fail(QStringLiteral("NAVFAIL scenario T: the real row click "
+                                    "did not leave the list in keyboard focus "
+                                    "— the TapHandler focus fix is not "
+                                    "effective"));
+            break;
+        }
+        case 163: {
+            // The manual blocker, as an automated assertion: with the focus
+            // the REAL click left behind, Up must move the selection (the
+            // delegate forwards the key to the view).
+            if (!sendKey(Qt::Key_Up))
+                fail(QStringLiteral("NAVFAIL scenario T: the Up key could not "
+                                    "be delivered (no active focus item)"));
+            if (selectedRowOf(roots) != 1)
+                fail(QStringLiteral("NAVFAIL scenario T (Up after real click): "
+                                    "selectedRow is %1, expected 1")
+                         .arg(selectedRowOf(roots)));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario T Up"), *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario T]: Up moved the selection to "
+                                  "row 1 (delegate forwards the key to the "
+                                  "view)");
+            break;
+        }
+        case 164: {
+            // The remaining three keys, each asserted with the single
+            // selectRow path and the detail mapping in sync.
+            auto *lst = qobject_cast<QQuickItem *>(
+                findNamedItem(roots, QStringLiteral("transactionsList")));
+            if (!sendKey(Qt::Key_Down))
+                fail(QStringLiteral("NAVFAIL scenario T: Down undeliverable"));
+            if (selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario T (Down): selectedRow is "
+                                    "%1, expected 2")
+                         .arg(selectedRowOf(roots)));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario T Down"), *failures);
+            if (!sendKey(Qt::Key_Home))
+                fail(QStringLiteral("NAVFAIL scenario T: Home undeliverable"));
+            if (selectedRowOf(roots) != 0)
+                fail(QStringLiteral("NAVFAIL scenario T (Home): selectedRow is "
+                                    "%1, expected 0 (QQuickItemView does not "
+                                    "implement Home natively; the view-level "
+                                    "handler must cover it)")
+                         .arg(selectedRowOf(roots)));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario T Home"), *failures);
+            if (!sendKey(Qt::Key_End))
+                fail(QStringLiteral("NAVFAIL scenario T: End undeliverable"));
+            const int last = rowCountOf(ctrl) - 1;
+            if (selectedRowOf(roots) != last)
+                fail(QStringLiteral("NAVFAIL scenario T (End): selectedRow is "
+                                    "%1, expected %2 (QQuickItemView does not "
+                                    "implement End natively)")
+                         .arg(selectedRowOf(roots))
+                         .arg(last));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario T End"), *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario T]: Down/Home/End all moved "
+                                  "the selection with the detail mapping in "
+                                  "sync (single selectRow path)");
+            break;
+        }
+        case 165: {
+            endScenario(QStringLiteral("T"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario T]: physical path covered "
+                                  "(REAL mouse-click synthesis + QKeyEvent "
+                                  "synthesis; focus ownership asserted)");
+            break;
+        }
+
         default:
             break;
         }
@@ -4437,7 +4684,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (failures->isEmpty())
             qInfo() << "NAV CHECK PASS (post-Legacy five workspaces; identity "
                        "stable; navigation changed no business values; "
-                       "scenarios A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R/S "
+                       "scenarios A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R/S/T "
                        "asserted; M deferred by design)";
         else
             for (const QString &f : *failures)

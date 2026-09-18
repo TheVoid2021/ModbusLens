@@ -221,6 +221,28 @@ Item {
                         // selection (no hand-written key state machine).
                         focus: true
                         onCurrentIndexChanged: page.selectRow(currentIndex)
+                        // M9-D D6 correction: Qt navigates Up/Down natively
+                        // but does NOT implement Home/End; the two missing
+                        // keys are added on the view itself so every keyboard
+                        // move flows through the same
+                        // onCurrentIndexChanged -> selectRow path (no second
+                        // detail-update logic). Empty models and the
+                        // no-selection state are safe: the guards keep
+                        // currentIndex within 0..count-1, and a key press is
+                        // an explicit user action, not an implicit pick.
+                        Keys.onPressed: (event) => {
+                            // Qt Quick Keys has no onHomePressed/onEndPressed
+                            // handlers, so Home/End use the generic handler.
+                            if (event.key === Qt.Key_Home) {
+                                if (count > 0)
+                                    currentIndex = 0
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_End) {
+                                if (count > 0)
+                                    currentIndex = count - 1
+                                event.accepted = true
+                            }
+                        }
                         // Viewport containment (ISSUE-004): delegates must
                         // NEVER paint outside the list.
                         clip: true
@@ -243,6 +265,14 @@ Item {
                             // nested children must read this flag instead.
                             readonly property bool rowSelected:
                                 ListView.view.currentIndex === index
+                            // M9-D D6 correction: QQuickItemView hands active
+                            // focus to the current delegate when the view is
+                            // focused, and a plain Item then swallows every
+                            // key. Forward the keys to the view so Up/Down
+                            // reach the native navigation and Home/End reach
+                            // the view’s own handlers — all through the one
+                            // currentIndex -> selectRow path.
+                            Keys.forwardTo: [transactionList]
 
                             width: ListView.view.width
                             // T014/T015: rows carrying deterministic detail
@@ -267,7 +297,19 @@ Item {
                             }
 
                             TapHandler {
-                                onTapped: transactionList.currentIndex = index
+                                onTapped: {
+                                    // M9-D D6 correction (manual interaction
+                                    // HOLD): a TapHandler does NOT move
+                                    // keyboard focus, so the last clicked
+                                    // Control (e.g. Run Demo) kept activeFocus
+                                    // even while hidden and the four arrow
+                                    // keys died with it. Focus the list FIRST
+                                    // (Qt's native Up/Down then navigates and
+                                    // onCurrentIndexChanged keeps driving the
+                                    // single selectRow path).
+                                    transactionList.currentIndex = index
+                                    transactionList.forceActiveFocus()
+                                }
                             }
 
                             Column {

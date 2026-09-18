@@ -1389,6 +1389,112 @@ git diff --check → PASS
 
 - **用户执行 Screenshot Visual Review（§21 A–G）+ Manual Interaction Review（§22 1–10）**。
 - 双 PASS 后：**M9-D Final Closure**（Git classification / LKGC 裁定 / M9-D COMPLETE，docs-only closure commit）。
+## D6 Manual Interaction Review = HOLD（用户，2026-09-19，append-only）
+
+> 人工实测 deployed candidate（`build/deploy/ModbusLens.exe`）发现的 blocker。不重写 §D6 原文。
+
+- **Screenshot Visual Review = PASS**（用户，7 张 `docs/assets/screenshots/m9d-*.png`）。
+- **Manual Interaction Review = HOLD**。
+
+**失败项**：Transactions 列表**鼠标选中一行后**，按 **Up / Down / Home / End 全部无响应**（highlight/current row/detail 均不动）。鼠标 selection / detail 本身正常。
+
+**责任边界（如实确认）**：此前 harness 一直**直接设置 `currentIndex`**（本仓库无 Qt input synthesis），所以自动 P/Q 的 PASS **从未证明 physical keyboard path**——不得把自动 P/Q PASS 当作本项通过。该缺口在 §D3.6/D6.9 已如实申报，本轮人工测试命中了它。
+
+**处置**：不 Final Closure、不推进 verified LKGC、不开始 M9-E/F；先复现 + focus/key 能力审计，再做最小修复。
+
+## D6 Correction — Manual Interaction HOLD：键盘导航修复（2026-09-19，append-only）
+
+> D6 Manual Interaction Review = HOLD 的闭环记录（§「D6 Manual Interaction Review = HOLD」）。**Screenshot Visual Review = PASS 保持有效**（本轮产品 diff 仅为 focus/Keys 行为，无可见 UI 变化，见 §C7）。
+
+### C1. 复现（§2，真实鼠标点击合成）
+
+新增 **REAL mouse-click synthesis**（`QMouseEvent` 经 window 投递，走真实 pick → handler 路径；MouseArea/TapHandler/Control focus-taking 与物理点击行为一致），按用户流程逐步复现并审计：
+
+| 步骤 | activeFocusItem | 观察 |
+| --- | --- | --- |
+| REAL click Run Demo（Control, StrongFocus） | `dashboardRunDemo (AppButton)` | 按钮夺走键盘焦点；list.focus 变 **false**（同 FocusScope 内 focus 标志被消费） |
+| REAL click rail 事务（MouseArea → activate） | **仍是 dashboardRunDemo（已隐藏！）** | MouseArea/TapHandler **不移交焦点** |
+| REAL click row 2（TapHandler → currentIndex=2） | **仍是 dashboardRunDemo（隐藏）** | selection/detail 正常，但键盘按键全部投给隐藏按钮 ⇒ **四键无响应 = 用户所见缺陷** |
+
+**复现结论**：缺陷在真实点击路径上 100% 重现。
+
+### C2. Focus ownership 审计（§3 A–F 答案）
+
+- **A**：`transactionList` 不是 FocusScope；它处于 window `contentItem`（顶层 FocusScope）的作用域内，Layouts/StackLayout 不产生 FocusScope。
+- **B**：`focus: true` 在**启动时**确实产生了 `activeFocus == true`（programmatic 路径审计证明）；但被任何 Control 的真实点击消费后 **`list.focus` 归 false**，不会自行恢复。
+- **C**：鼠标点击 delegate 后 `activeFocusItem` 仍是最后点击的 Control（Run Demo 按钮，即使已隐藏）——TapHandler（pointer handler）不抓键盘焦点。
+- **D**：修复前 TapHandler **没有** `forceActiveFocus()`（这就是缺口）。
+- **E**：唯一的焦点竞争者是可点击 Control（Run Demo 按钮）；rail delegate 用 MouseArea（同样不夺焦点）。
+- **F**：页面 hide/show 会使隐藏 Control 的 activeFocus 失效，但**不会**把焦点还给 list（focus 标志已被消费）——所以"回到 Transactions"后键盘仍然死。
+
+### C3. Key capability 审计（§4，direct-to-list QKeyEvent 实测）
+
+`QKeyEvent` 经 `sendEvent` 直达 ListView（绕过 focus 位置问题）实测：**Up=1 ✓、Down=2 ✓（原生导航可用）；Home=2 ✗、End=2 ✗（QQuickItemView 不实现 Home/End）**。⇒ 命中 §4 的 **Case A + Case B 组合**：焦点不在 ListView（A）+ Qt 原生只支持 Up/Down（B）。
+
+**附带的 harness 教训**：首轮 probe 用 `page.selectRow(2)` 建立状态，而 `selectRow` **不设置 currentIndex**（它只写页本地 selectedRow）——导致 Up 从 -1 出发"无响应"的假象。这再次确认：**selectRow 是 presentation 入口，currentIndex 是 Qt 导航的权威输入**，两者在鼠标路径通过 `TapHandler → currentIndex` 正确耦合。
+
+### C4. 修复（§5/§6/§7 preferred minimal）
+
+`src/ui/qml/pages/TransactionsPage.qml`（仅此一个产品文件）：
+
+1. **TapHandler（焦点优先序实测）**：
+   ```qml
+   onTapped: {
+       transactionList.currentIndex = index
+       transactionList.forceActiveFocus()
+   }
+   ```
+   实测注意：**必须先设 currentIndex 再 forceActiveFocus**——QQuickItemView 在视图持焦时会将 activeFocus 交给 current delegate（先 focus 后设 index 的顺序实测得到 activeFocusItem=delegate，delegate 吞键）。先 index 后 focus 最终让 **list 持有 activeFocus**。
+2. **delegate 根**：`Keys.forwardTo: [transactionList]`——QQuickItemView 会让 current delegate 成为 activeFocusItem，普通 Item 的默认 key 处理会吞掉按键；forward 把事件先交给视图（Up/Down 走原生导航、Home/End 走视图层 handler）。
+3. **ListView**：`Keys.onPressed` 处理 **Home → currentIndex = 0**、**End → currentIndex = count - 1**（Qt Quick 的 Keys attached property **没有** onHomePressed/onEndPressed 专用 handler，且 QQuickItemView 原生不实现这两键）。`count > 0` 守卫 ⇒ 空 model 安全；全部仍经 `onCurrentIndexChanged → page.selectRow(...)` **同一条** selection/detail path（未写第二套 detail 更新逻辑、未搬 Controller、无新 model state）。
+
+**顺序与机制均为实测**（符合 §5 "顺序需实测"）。
+
+### C5. Initial no-selection semantics（§8）
+
+- **不改**初始契约：进入页面仍 `currentIndex = -1`、无自动选行；`focus: true` ≠ selection。
+- **无 selection 时的按键行为（明确申报）**：Home → 选 **row 0**、End → 选**最后一行**（显式按键 = 显式用户动作，非隐式自动选中）；Up/Down → **无动作**（Qt 原生相对导航在 currentIndex=-1 时不动）——Qt 原生行为即此，按 §8 如实报告。
+- 有 selection 时四键按 0..count-1 邻域移动，不越界（原生 Up/Down 自带边界；Home/End handler 有 `count > 0` 守卫）。
+
+### C6. 回归（§9–§12）
+
+- **Mouse regression**：REAL click row 2 仍只改 page-local selection（selectedRow/currentIndex==2、detail 逐字段==model），不触发 Diagnosis/不切 source/不切 workspace/不改 Controller；选中视觉不变（geometry 18 段 0 GEOFAIL）。
+- **Scenario T（新增，stages 158–165，`kLastStage=165`）**：**REAL 鼠标点击合成**（Run Demo → rail → row 2，每步 focusAudit）+ **真实 QKeyEvent 合成**（Up/Down/Home/End 逐键断言 selectedRow + detail mapping 同步）。**Up/Down/Home/End 全部 PASS**。
+- **Focus regression across navigation**（§11）：S 场景导航往返后 P2/P4 selection 保留照旧；REAL click 后键盘可操作由 T 的链条直接证明（点击 → activeFocus 在 list → 按键生效）。
+- **P1–P5 / Q1–Q2 / R / S**：全部继续 PASS（selection lifecycle 未被键盘修复破坏）。
+- **不虚报**：QKeyEvent 合成走的是 Qt 真实按键处理路径（keyPressEvent → ItemView 导航），但**不是 OS 级物理按键**；物理键盘的最终确认 = §15 的用户手动 re-test。
+
+### C7. Visual zero-diff（§13）
+
+- 产品 diff 仅 focus/Keys 行为：`forceActiveFocus()`、`Keys.forwardTo`、`Keys.onPressed`（Home/End）与注释——**无 layout/row height/detail geometry/cue placement/color/typography 变化**。
+- **像素级证据**：修复后部署版重摄的 7 张 M9-D 截图 vs 提交版：**灰度差 max delta = 1/255、差值 >8 的像素 = 0**（纯渲染噪声，不可感知）⇒ 截图视觉 PASS 保持有效，无需重做 Screenshot Visual Review；已用修复后 binary 的重摄件**刷新** `docs/assets/screenshots/m9d-*.png`（provenance 对齐最终 candidate）。
+
+### C8. Full Gates（§14）
+
+```text
+build（Ninja）→ 0 error（2 处既有 unused-variable 告警保持原样）
+--qml-smoke-test      → EXIT=0
+--qml-nav-check       → EXIT=0；basic five-workspace path + A–S + **T** 全 PASS（20 项判决）；M DEFERRED
+--qml-geometry-check  → EXIT=0；steps = 14（10+2+2）/ printed segments = 18；0 GEOFAIL
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check      → PASS
+stderr 卫生（三模式）  → 全 0
+重新部署后（严格最小 PATH）→ smoke 0 / nav 0（含 T PASS）/ geometry 0（18 段）
+```
+
+### C9. Files Changed（§21）
+
+`src/ui/qml/pages/TransactionsPage.qml`（TapHandler 焦点调用 + delegate `Keys.forwardTo` + ListView Home/End handler，共 ~25 行含注释）、`src/main.cpp`（Scenario T：真实点击合成 + QKeyEvent 合成 + focus 审计，stages 158–165）、7 张 `docs/assets/screenshots/m9d-*.png`（修复后部署版重摄）、docs。**Controller/Core/其它页/CMake/deploy script zero diff。**
+
+### C10. Result
+
+- **Manual Interaction blocker 已修复并机器覆盖**：REAL click → focus 归 list → 四键全部经单一 selectRow path 导航。
+- **Next Action = Manual Keyboard Re-test（用户，§15）**：Run Demo → 鼠标点 row 2 → Up/Down/Home/End → 确认 highlight/current/detail 同步；再 navigation away/back → 鼠标点击 → 键盘仍可用。无需重做完整截图视觉（视觉零 diff）。
+- verified LKGC **仍 = `bc754be`**；未 push；M9-D 未关闭。
+
+## D7. Next（correction 之后的追加）
+
+- **用户 Manual Keyboard Re-test（§15）**；通过后回到 **M9-D Final Closure**（Git classification / LKGC 裁定）。
 ## 39. Next（Phase 1 之后的追加）
 
 - **M9-D D1 Review（用户）** → **D2** → D3 → D4（默认不做）→ D5 → D6；每阶段独立 Review/提交。
