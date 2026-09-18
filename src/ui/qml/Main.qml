@@ -196,207 +196,29 @@ ApplicationWindow {
                         anchors.margins: DS.spacingL
                         spacing: DS.spacingM
 
-                        // Demo controls (M9-B2: Run Demo moved to the
-                        // Statistics (M9-B2): extracted to the shared
-                        // feature component; during the migration the
-                        // Legacy and Dashboard instances render the SAME
-                        // authoritative facts (view duplication, never
-                        // state duplication).
+                        // M9-D D2: the Legacy workbench is STATISTICS
+                        // ONLY now — the transactions presentation moved
+                        // to the Transactions workspace in the same
+                        // change that enabled its navigation entry (no
+                        // window where the capability is unreachable).
+                        // The legacy workspace itself is retired in D5.
                         StatisticsOverview {
                             analysisController: analysisController
                             instanceId: "legacy"
                         }
 
-                        Rectangle {
-                            Layout.fillWidth: true
-                            height: 1
-                            color: "#D0D0D0"
-                        }
-
-                        // ------------------------------------------------------------------
-                        // Lower workspace (ISSUE-004 layout fix; M9-B5.2 mechanical closure):
-                        // the Diagnosis workflow moved to the Diagnosis workspace page, so the
-                        // horizontal SplitView is gone and Recent Transactions takes the whole
-                        // remaining height directly. Root layout does NOT scroll; the
-                        // transaction list scrolls inside its own ListView.
-                        // ------------------------------------------------------------------
-                        Rectangle {
-                            id: transactionsPane
-                            objectName: "legacyTransactionsPane"
+                        // M9-D D2 mechanical closure: with the transactions
+                        // pane gone this column has NO fillHeight child left,
+                        // so Qt would spread the surplus into the row and
+                        // push the statistics block down (measured: y=226).
+                        // The same surplus owner the Dashboard got in M9-C C1
+                        // keeps the statistics block at the page top.
+                        Item {
+                            objectName: "legacyTailSpacer"
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            Layout.minimumWidth: 520
-                            color: root.surface
-                            border.color: root.border
-                            border.width: 1
-                            radius: 6
-                            clip: true
-
-                            // Single column-geometry owner (Phase D): header AND
-                            // every row reference exactly these widths — no
-                            // independent layout distribution may drift columns.
-                            // Phase E: proportional widths derived from ONE owner.
-                            // mins protect the 1000x700 minimum window.
-                            readonly property int tableUsableWidth:
-                                Math.max(transactionsPane.width - 24, 0)
-                            readonly property int deviceColumnWidth:
-                                Math.max(64, Math.round(tableUsableWidth * 0.15))
-                            readonly property int functionColumnWidth:
-                                Math.max(60, Math.round(tableUsableWidth * 0.15))
-                            readonly property int statusColumnWidth:
-                                Math.max(96, Math.round(tableUsableWidth * 0.20))
-                            readonly property int latencyColumnWidth:
-                                Math.max(84, Math.round(tableUsableWidth * 0.18))
-                            readonly property int leadingColumnsWidth:
-                                deviceColumnWidth + functionColumnWidth
-                                + statusColumnWidth + latencyColumnWidth
-                            readonly property int exceptionColumnWidth:
-                                Math.max(tableUsableWidth - leadingColumnsWidth, 96)
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                spacing: 8
-
-                                Label {
-                                    text: qsTr("最近通信记录")
-                                    font.pixelSize: 18
-                                    font.bold: true
-                                    color: root.textPrimary
-                                }
-
-                                // Fixed header row — same column geometry source as
-                                // the row delegate below (single owner, Phase D).
-                                Row {
-                                    Layout.fillWidth: true
-                                    spacing: 0
-                                    Label {
-                                        text: qsTr("设备"); width: transactionsPane.deviceColumnWidth
-                                        leftPadding: 6; font.bold: true
-                                        color: root.textSecondary; font.pixelSize: 12
-                                    }
-                                    Label {
-                                        text: qsTr("功能码"); width: transactionsPane.functionColumnWidth
-                                        leftPadding: 6; font.bold: true
-                                        color: root.textSecondary; font.pixelSize: 12
-                                    }
-                                    Label {
-                                        text: qsTr("状态"); width: transactionsPane.statusColumnWidth
-                                        leftPadding: 6; font.bold: true
-                                        color: root.textSecondary; font.pixelSize: 12
-                                    }
-                                    Label {
-                                        text: qsTr("耗时"); width: transactionsPane.latencyColumnWidth
-                                        leftPadding: 6; font.bold: true
-                                        color: root.textSecondary; font.pixelSize: 12
-                                    }
-                                    Label {
-                                        text: qsTr("异常码")
-                                        width: parent.width - transactionsPane.leadingColumnsWidth
-                                        leftPadding: 6; font.bold: true
-                                        color: root.textSecondary; font.pixelSize: 12
-                                    }
-                                }
-
-                                Item {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    Layout.minimumHeight: 120
-
-                                    ListView {
-                                        id: transactionList
-                                        anchors.fill: parent
-                                        // Viewport containment (ISSUE-004): delegates must
-                                        // NEVER paint outside the list.
-                                        clip: true
-                                        boundsBehavior: Flickable.StopAtBounds
-                                        model: analysisController.transactionModel
-                                        spacing: 4
-
-                                        delegate: Rectangle {
-                                            width: ListView.view.width
-                                            // T014/T015: rows carrying deterministic detail
-                                            // get a secondary line; a multi-request-issue
-                                            // join may wrap to two lines, so the delegate
-                                            // reserves 64px and the label wraps instead
-                                            // of clipping.
-                                            height: model.issueText !== "" ? 64 : 36
-                                            color: root.surfaceAlt
-                                            radius: 4
-
-                                            Column {
-                                                anchors.fill: parent
-
-                                                Row {
-                                                    width: parent.width
-                                                    height: 36
-                                                    spacing: 0
-
-                                                    Label {
-                                                        text: qsTr("设备 %1").arg(model.deviceAddress)
-                                                        width: transactionsPane.deviceColumnWidth
-                                                        leftPadding: 6
-                                                        elide: Text.ElideRight
-                                                    }
-                                                    Label {
-                                                        text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
-                                                        width: transactionsPane.functionColumnWidth
-                                                        leftPadding: 6
-                                                    }
-                                                    Label {
-                                                        text: model.statusText
-                                                        width: transactionsPane.statusColumnWidth
-                                                        leftPadding: 6
-                                                        elide: Text.ElideRight
-                                                    }
-                                                    Label {
-                                                        text: model.elapsedMs + qsTr(" ms")
-                                                        width: transactionsPane.latencyColumnWidth
-                                                        leftPadding: 6
-                                                        elide: Text.ElideRight
-                                                    }
-                                                    Label {
-                                                        text: model.hasExceptionCode
-                                                              ? qsTr("异常码 0x%1").arg(
-                                                                    ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
-                                                              : qsTr("—")
-                                                        color: model.hasExceptionCode ? root.errorAccent : root.textSecondary
-                                                        width: parent.width - transactionsPane.leadingColumnsWidth
-                                                        leftPadding: 6
-                                                        elide: Text.ElideRight
-                                                    }
-                                                }
-
-                                                // T014: deterministic detail, only for
-                                                // ProtocolError rows (adapter-formatted
-                                                // observed facts, never root-cause prose).
-                                                Label {
-                                                    width: parent.width
-                                                    height: 28
-                                                    visible: model.issueText !== ""
-                                                    text: model.issueText
-                                                    color: root.textSecondary
-                                                    leftPadding: 6
-                                                    rightPadding: 6
-                                                    font.pixelSize: 11
-                                                    wrapMode: Text.Wrap
-                                                    // Two wrapped lines must never clip.
-                                                    maximumLineCount: 2
-                                                    elide: Text.ElideRight
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    Label {
-                                        anchors.centerIn: parent
-                                        visible: transactionList.count === 0
-                                        text: qsTr("暂无通信记录")
-                                        color: root.textSecondary
-                                    }
-                                }
-                            }
                         }
+
                     }
                 }
 

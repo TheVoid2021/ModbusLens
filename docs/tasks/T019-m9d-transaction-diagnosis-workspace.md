@@ -484,7 +484,177 @@ git diff --check → PASS
 - **Manual Review = PENDING**（D1 为 shell 阶段；人工验收在 D6）。
 - verified LKGC **不变 = `bc754be`**；未 push。
 
-## D2. Next
+## D2 — Atomic Transactions Migration + Workspace Activation（Implementation Record，2026-09-18）
+
+### D2.0 D1 Review = PASS（用户）+ 一条 binding guardrail
+
+用户裁定 **M9-D D1 Review = PASS**（index contract accepted / disabled shell accepted / child-order RED-RCA accepted；**D1 不单独要求人工视觉，最终人工包归 D6**），并新增：
+
+- **truthful subtitle guardrail**：**D2 启用 Transactions 后，任何用户可见文案只能描述 D2 已真实存在的能力**。因此 D1 的副标题「通信记录与事务详情」**在本轮必须撤下**（detail 到 D3 才存在）——D2 使用真实文案 **「通信记录」**；D3 落地 detail 后才可恢复/更新为扩展文案。
+
+### D2.1 Preflight
+
+```text
+branch = main；HEAD = ce57d9a；working tree clean；git diff --check PASS
+V2 verified LKGC = bc754be；v1.0.0^{commit} = ae067ab（annotated tag 对象 2cee626）
+origin/main = a40d935；ahead 60 / behind 0
+```
+
+### D2.2 Mandatory Inventory / 真实 item tree（迁移前实读）
+
+Legacy 事务呈现（`Main.qml`）：`Rectangle transactionsPane`（`objectName: "legacyTransactionsPane"`，fillWidth/fillHeight、min 520、surface/border/radius 6/clip）→ `ColumnLayout(anchors.fill, margins 12, spacing 8)` → 标题「最近通信记录」(18px bold) → 固定表头 `Row`（5 个 Label：设备/功能码/状态/耗时/异常码，宽度由 pane 的**单一 owner** 派生：`tableUsableWidth = max(w−24,0)`，15%/15%/20%/18%/剩余，min 64/60/96/84/96）→ `Item(fillWidth/fillHeight, minimumHeight 120)` → `ListView`（**delegate 虚拟化**、`clip`、`StopAtBounds`、`spacing 4`、`model: analysisController.transactionModel`）→ delegate `Rectangle`（`h = issueText !== "" ? 64 : 36`；主行 5 列；issue 次行 11px、`maximumLineCount 2`）→ 空态 Label「暂无通信记录」。**objectName 审计**：`legacyTransactionsPane` = **B 类（legacy 语义）**（迁移后重命名为 `transactionsPane`）；`transactionList` 等仅为 `id`（中性，保留）。**harness 引用**：`legacyTransactionsPane` 出现在 geometry 守卫 + dump + 两处 evidence 断言。
+
+### D2.3 Before baseline（D1 tree；`build/d1_geo.txt`）
+
+同候选环境下的搬运前证据：Legacy 事务 pane **935×427 @1024×720**、**911×407 @1000×700**（外加 C1 时代的 935×422 记录），列几何由**未改动**的公式派生。**如实说明**：本轮未单独跑"empty + demo 两状态"的专用 baseline 采集，而是复用 D1 候选的 geometry dump（两尺寸、空态）+ 迁移后的同名宽对比；demo 行的运行时映射由 **Scenario O** 的断言覆盖（见 §D2.7）。
+
+### D2.4 RED（先契约后搬运）
+
+先落 D2 harness 契约、不动 QML ⇒ `--qml-geometry-check` **exit 1**：
+
+```text
+GEOFAIL: DEFAULT legacy: transactionsPane not found — the single transactions presentation is missing
+GEOFAIL: DEFAULT legacy: NAV navItem_5 (transactions) must be enabled
+GEOFAIL: DEFAULT legacy: NAV transactionsPane not found (the moved presentation is missing)
+```
+
+RED 明确是 **expected D2 missing capability**（单 owner 未建立 + 导航未启用），**不是**破坏旧场景。
+
+### D2.5 Atomic MOVE（一个 behavior-bearing candidate 内同时成立）
+
+同一提交内完成（A–E 全部成立，无 committed 中间态）：
+
+- **A** rail `navItem_5 (事务) enabled = true`；
+- **B** `TransactionsPage` 拥有完整事务呈现（整块机械搬运）；
+- **C** Legacy **不再拥有**事务呈现（pane、标题、表头、ListView、空态、以及**只为事务存在的分隔线**与 layout wrapper 一并移除）；
+- **D** 旧事务能力未消失（同一 `TransactionListModel`、同一 role 绑定、同一 formatter、同一列宽 owner、同一行高规则、同一 issueText 语义、同一空态语义）；
+- **E** 最终**只有一个** transaction presentation owner（运行时父子链证明）。
+
+**Move, not reimplement**：未改列、未改文案语义、未改 status 映射、未加 detail/selection/filter、未重做 delegate。**文本替换仅一类**：`root.<alias>` → `DS.<alias>`（同值），以及 `root.errorAccent` → 页内 `frozenErrorAccent: "#C0392B"`（V1 冻结字面量，无 DS token；沿用 B5 先例）。
+
+### D2.6 Object identity / observability
+
+- `legacyTransactionsPane` → **`transactionsPane`**（不再保留语义错误名称；**无 alias/dummy**；**不同时保留两个 pane**；containment 断言锁到新 owner）。
+- 迁移时为"验证可观测性"补 **4 个 objectName**（original 只有 `id`）：`transactionsTableHeader`（表头 Row）、`transactionsList`（ListView）、`transactionsEmptyHint`（空态 Label）、以及页内 `frozenErrorAccent` 属性名。**均为中性命名的可观测性契约，不是 public product API**。
+
+### D2.7 Runtime single-owner proof（禁止只靠 grep）
+
+`runShellNavAssertions` 与 `assertTransactionsPresentation` 逐项在**真实 item 树**上断言：
+
+- `transactionsPane` 存在；`underItem(pane, transactionsPage)` **= true**；`underItem(pane, legacyWorkspace)` **= false**；
+- 全树中 `transactionsPane` 恰好 **1 个**（evidence 阶段另以 `countNamed()` 断言）；
+- `transactionsList` 视口非零且 `ListView.count == rowCountOf(ctrl)`（视图与 model 一致）；
+- `transactionsEmptyHint` 可见性 = (`rowCount == 0`)；
+- 首行高度 = `issueText !== "" ? 64 : 36`（**数据驱动的行高规则随迁移存活**）。
+
+### D2.8 Legacy after extraction（统计-only）
+
+Legacy 现只剩 `StatisticsOverview(legacy)` + **新增 `legacyTailSpacer`**。
+
+**真实 RCA**：事务 pane 是 Legacy 列里**唯一的 `fillHeight` 子项**；移除后 Qt 把余量分摊进行内，统计块被推到 **y=226**（实测）——违反"top 不漂移"。修复 = Dashboard C1 的同机制**尾部余量所有者**（`legacyTailSpacer`），并新增常驻断言 **`statisticsOverview_legacy` 顶端 == 页面 margin（`DS.spacingL`）**。修复后实测 **y=0**（overview）/**panel y=27**、`implicit 864×195` 保持不变 ⇒ **统计几何无漂移**。分隔线（仅为事务存在）与事务 wrapper 已删除，**无空洞 separator / 无 0 高度 ghost pane / 无隐形事务 UI**；未 redesign StatisticsOverview、未加 filler card。
+
+### D2.9 TransactionsPage final D2 composition
+
+`SectionHeader(title「事务」，subtitle「通信记录」—— truthfulness guardrail) + 迁移后的 pane`。**无 placeholder detail pane、无「选中一条查看详情」类不存在能力的文案**。
+
+### D2.10 Navigation activation / index contract
+
+`事务 index = 5 enabled = true`；`设备 index = 6 enabled = false`；其余 index 不变（Legacy 0 / Dashboard 1 / Communication 2 / Replay 3 / Diagnosis 4）。点击 Transactions **只改变 `currentWorkspaceIndex`**：不 runDemo/load replay/switch source/clear/run diagnosis/select transaction/mutate model（nav 场景与快照比较继续保证）。
+
+### D2.11 Basic six-workspace path
+
+结构相位升级为 **basic six-workspace path**（Legacy → Dashboard → Communication → Replay → Diagnosis → **Transactions** → Dashboard → Legacy），判决行与最终 PASS 行同步更新为 six workspaces。**旧 A/B/D/E/F/G'/H/I/J/K/K'/L/N 业务意图不变**（未机械塞入 Transactions）；新增独立 **Scenario O** 专测迁移与导航中性。
+
+### D2.12 Scenario O（迁移 / 导航中性 / 行呈现）
+
+| 阶段 | 断言 | 实测输出 |
+| --- | --- | --- |
+| demo 建立 | `runDemoBatch()` → `rowCount == 4` + 扩展快照 | `rows=4 observed=4 source=确定性演示` |
+| 进入 Transactions | identity/可见性 + 快照逐值相等 + 单 owner + 视图/model 一致 + 空态 + 行高规则 | `NAV [scenario O @transactions]: rows=4 observed=4` |
+| 离开再回来 | 快照逐值相等 + 单 owner + 行呈现 | `NAV [scenario O]: the transactions workspace shows the same model across navigation (no business change)` |
+| **ExpectedNoResponse 行**（`t015_broadcast.mlog`） | `rowCount == 1` 且 `statusText == "预期无响应"`（**中性：非 成功/超时/失败/写入成功**） | `NAV [scenario O broadcast]: rows=1 status=预期无响应 (neutral, not an anomaly)` |
+| **ProtocolError 行**（`t014_protocol_error.mlog`） | `rowCount == 1` 且 `statusText == "协议错误"` 且 `issueText` 非空（**确定性详情随迁移存活**） | `NAV [scenario O protocol]: rows=1 status=协议错误 hasIssueDetail=1 (orthogonal axes)` |
+| **正交性** | `statusText` 不得包含 `issueText`（issue 未改写 status） | 断言通过 |
+| 清空 | `clearResults()` → `rowCount == 0` + 空态 | `NAV [scenario O]: transactions empty state clean after clearResults` |
+
+**Replay 成功/失败保持**：沿用既有 J/K/K′ 语义（成功加载 → Transactions 显示权威 model；失败替换 → 旧 source/model 保留、Transactions 继续显示旧行），**未新增 source 语义**；O 的快照比较覆盖"导航不改业务值"。
+
+### D2.13 可视中性证据（同宽对比）
+
+| 量 | 迁移前（D1 tree, Legacy pane） | 迁移后（D2, Transactions pane） |
+| --- | --- | --- |
+| 1024×720 pane | 935×427 | **935×620** |
+| 1000×700 pane | 911×407 | **911×600** |
+| 列宽（1024/1000） | 由同一未改公式派生 | `device 137/133`、`function 137/133`、`status 182/177`、`latency 164/160`、`exception 291/284` |
+
+**同尺寸下 content width 完全相同（935 / 911）** ⇒ 列宽逐值一致；y 偏移与高度差异来自不同父页面，**不是迁移回归**（§20）。
+
+### D2.14 Transactions geometry contract（D2 §21）
+
+`--qml-geometry-check` 新增 Transactions-active 断言块：page/header/pane/表头/ListView **非零且在界内**、pane 完全落在 page 内（无越界）、表头在列表之上（无重叠）、**列宽由单一 owner 派生且总和 ≤ 可用宽**（实测 911/887）、**空态可见性跟随 `observedCount`**。实测（1024×720）：`transactionsPane 935×620 @y=27`、`transactionsTableHeader 911×12`、`transactionsList 911×550`、`transactionsEmptyHint 72×12`（居中）。
+
+### D2.15 Geometry matrix
+
+**12 standard passes = 6 active workspaces × 2 sizes**（Legacy/Dashboard/Communication/Replay/Diagnosis/Transactions）**+ 2 targeted demo-dashboard passes（C4 继续保留）**；隐藏的 Device **不进入标准 geometry、无几何契约**。0 GEOFAIL。
+
+### D2.16 Freezes
+
+- **DiagnosisPage zero diff**；导航到 Transactions 不 cancel AI / 不 invalidate Agent / 不 run Baseline / 不切 tab（O 与 L/N 快照断言继续覆盖）。
+- **Dashboard / Communication / Replay zero diff**；旧 navigation/source 测试继续 PASS。
+- **Controller / TransactionListModel / Core / Replay parser / Serial / Diagnosis / AI / Agent zero diff**；**未新增 role**（D2 是 presentation MOVE）。
+- **CMakeLists.txt / deploy_windows.bat zero diff**（D1 已注册并进入 checklist）。
+
+### D2.17 Negative scope（明确不包含）
+
+无 detail pane / 无 selected transaction product state / 无 filter-search / 无 proxy model / 无 raw-hex / 无新 transaction role / 无 request-response 分轴 / 无 Diagnosis redesign / 无 AI-Agent 复制 / 无 Dashboard recent-transactions preview / **无 Legacy 退役** / 无 StatisticsOverview 删除 / 无 M10 主动写 / 无 M11 解码 / 无 M12 profile-intelligence。**未把旧 ListView 的 `currentIndex` 升级成产品契约**（D3 才设计 selection lifetime）。
+
+### D2.18 Problems / RCA（全部真实、逐条留痕）
+
+| # | 现象 | 分类 | 根因 | 修复 |
+| --- | --- | --- | --- | --- |
+| 1 | RED 阶段断言未命中 nav 切换（`NAV [transactions]: index=4`） | **harness / index mapping** | nav-check 的 `switchTo` 未补 `pageIndex == 5 → workspaceTransactionsIndex`（fallback 落到 diagnosis） | 补映射（并同步 evidence `switchTo`） |
+| 2 | `transactionsList not found` | **observability 缺口** | 原 Legacy 项只有 `id`，没有 objectName；迁移后 harness 找不到 | 补 3 个中性 objectName（表头/List/空态） |
+| 3 | `TransactionsPage.qml: Label is not a type`（QML 加载失败，exit 127） | **QML import** | 迁移块使用 `Label` 而页面缺 `import QtQuick.Controls` | 补 import |
+| 4 | **Segmentation fault（exit 139）** | **harness / 空指针** | 新增 `transactionsPtr` 共享状态只在 capture list 里声明，**stage 0 漏了赋值**，`verifyStructureAndIdentity` 解引用空指针 | stage 0 补捕获 + 存在性断言 |
+| 5 | **Legacy 统计块被推到 y=226** | **layout ownership（真实产品回归）** | 事务 pane 是 Legacy 列里唯一 `fillHeight` 子项；移除后余量被分摊进行内（B3/C1 同族现象） | 加 `legacyTailSpacer`（C1 同机制）+ 常驻"top == margin"断言；实测回到 y=0 |
+
+**没有任何一条是"改 Controller/业务语义"解决的**。
+
+### D2.19 Validation（真实命令与输出）
+
+```text
+cmake --build --preset debug-local → Linking modbuslens.exe（0 error）
+--qml-smoke-test   → EXITCODE=0
+--qml-nav-check    → EXITCODE=0
+  NAV [transactions]: index=5 … transactionsVisible=1（六 workspace 结构站）
+  NAV [scenario O @transactions]: rows=4 observed=4 source=确定性演示
+  NAV [scenario O broadcast]: rows=1 status=预期无响应（中性）
+  NAV [scenario O protocol]: rows=1 status=协议错误 hasIssueDetail=1（正交轴）
+  NAV SCENARIOS: basic six-workspace path PASS, A PASS, B PASS, D PASS, E PASS, F PASS,
+    G' PASS, H PASS, I PASS, J PASS, K PASS, K' PASS, L PASS, N PASS, O PASS
+  NAV DASHBOARD PRESENTATION CHECK: PASS；NAV SCENARIO M: DEFERRED BY DESIGN
+  NAV CHECK PASS (six workspaces; …；M deferred by design)
+--qml-geometry-check → EXITCODE=0；12 standard passes（6 active × 2）+ 2 targeted（C4）；0 GEOFAIL
+  TRANSACTIONS COLUMNS: pane=935 usable=911 device=137 function=137 status=182 latency=164 exception=291
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check → PASS
+stderr 卫生：ReferenceError/TypeError/binding loop/NaN/Infinity/required missing/is not a type 计数 0（geo/nav/smoke）
+case 标签：0..111 连续唯一（112 个）
+```
+
+### D2.20 Files Changed（D2）
+
+`src/ui/qml/pages/TransactionsPage.qml`（shell → 完整事务呈现 + 4 个观测名 + 别名映射）、`src/ui/qml/Main.qml`（移出 pane/分隔线、Legacy 只剩统计 + `legacyTailSpacer`）、`src/ui/qml/components/NavigationRail.qml`（事务 enabled）、`src/main.cpp`（ActivePage/守卫/12 趟/六 workspace 结构站/Scenario O/证据块更新）；docs。**CMakeLists / deploy script 零 diff**（D1 已注册）。
+
+### D2.21 Result
+
+- **原子迁移+启位完成**：Transactions 成为第六个 active workspace，Legacy 只剩统计，**任何时刻事务能力都可达**，**最终只有一个 presentation owner**（运行时证明）。
+- **Manual Review = PENDING**（D6 人工包）；verified LKGC **不变 = `bc754be`**；未 push。
+
+## D3. Next
+
+- **M9-D D2 Review（用户）**；通过后 **D3 — selection + detail**（须先按 Phase 1 Review guardrail C 确定 detail data-access seam；selection lifetime 三分支冻结；geometry 保持 12 趟）。
+- **D4（filters，默认不做）**、**D5（Legacy 退役）**、**D6（geometry/evidence/manual）** 未开始。
 
 - **M9-D D1 Review（用户）**；通过后 **D2 — 原子迁移 + 启位**（Transactions 表整块迁入 + `事务` 启位 + Legacy 同提交移出事务 pane；geometry 届时扩为 **6 active × 2 = 12 standard passes**；每阶段独立 Review/提交）。
 - **D3（selection/detail）**、**D4（filters，默认不做）**、**D5（Legacy 退役）**、**D6（geometry/evidence/manual）** 未开始；M9-E/F 未开始。

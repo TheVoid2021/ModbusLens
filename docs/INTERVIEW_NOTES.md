@@ -344,3 +344,12 @@
 - **Q：navigation entry 数为什么不能直接等于 geometry 趟数？** A：趟数只统计**可达（active）**的 workspace。D1 有两个 disabled 条目（事务/设备），它们是"入口占位"而不是"可测量页面"；给隐藏页写非零几何契约等于给未来的自己埋假失败。D1 的矩阵因此仍是 5×2=10，D2 启用事务后才是 6×2=12，D5 退役 Legacy 后回到 5×2=10。
 - **Q：为什么页本地 selection 的"存续规则"要分三种情况？** A：因为"切页"与"换批次"是两种不同的事件。同一个 model/批次下切页往返，selection 只是呈现态，保留它符合用户预期；但 authoritative model 被替换（新批次/新来源成功加载）时，旧 selection 指向的行可能已不存在，**必须失效**；而"来源替换失败、model 未变"时数据没变，selection 反而**必须继续有效**。把三种情况写进契约，才能避免"切页就丢选中"或"换批次后 detail 指向幽灵行"两种错误。
 - **Q：为什么不在 D1 顺手把表迁过来？** A：那会造成"已迁移但不可达"或"两个入口各有一份表"的中间态。项目已确立的纪律是**迁移与启位必须同提交**（B3/B4/B5 的原子性不变量），所以 D1 只放一个真正空的 shell，用 disabled 条目占位，D2 再一次性搬表并启用。
+
+
+## 38. Post-T019 M9-D D2 条目（2026-09-18 追加）
+
+- **Q：一次"搬页面"的迁移，为什么会在产品里留下真实布局回归？** A：因为页面里隐式存在"谁吃掉多余高度"的契约。事务 pane 是 Legacy 列里**唯一**带 `fillHeight` 的子项，它一走，列布局就把余量分摊到行内，统计块被推到 y=226 ——**迁移删掉的不只是 UI，还删掉了一个布局角色**。修法与 Dashboard C1 完全相同：给余量一个显式所有者，并加一条"统计块顶端 == 页面 margin"的常驻断言。
+- **Q：怎么证明"只有一个呈现所有者"而不是嘴上说说？** A：在真实 item 树上走父子链——`underItem(pane, transactionsPage)` 必须为真、`underItem(pane, legacyWorkspace)` 必须为假，再配合全树同名校验（恰好 1 个）与"视图行数 == model 行数"。grep 源码只能证明"某处写了"，运行时父子链才能证明"树里真的只有一个"。
+- **Q：为什么迁移时要补 objectName？** A：原实现只给了 `id`（QML 内部引用够用），但 `id` 不是可寻址的观测契约——harness 只能按 objectName 找。补的名字是**中性、稳定**的（`transactionsTableHeader`/`transactionsList`/`transactionsEmptyHint`），并把旧名 `legacyTransactionsPane` 换成 `transactionsPane`，避免在新页里长期挂一个语义错误的旧名。
+- **Q：搬完页面却 segfault，最可能是什么？** A：新加的共享状态只声明、没赋值。本轮 `transactionsPtr` 只进了 lambda 的 capture 列表，stage 0 忘了捕获实例，第一次 `(*transactionsPtr)->isVisible()` 就崩了。教训：**指针型共享状态必须在同一处声明与赋值**（或统一写成一个 capture 回调），否则崩溃点离原因很远。
+- **Q：为什么用同一批次在三处（demo/broadcast/protocol）验证"行呈现"?** A：因为三种状态分别代表三种语义边界：demo 证明多行 + 行高规则；broadcast 证明 `ExpectedNoResponse` 是**中性结局**（不是成功、不是超时、不是失败）；protocol 证明**确定性 issue 详情与 status 是两条正交轴**（详情存在但状态不被改写）。三个 fixture 都是仓库既有的 tracked 样本，没有为测试新造数据。
