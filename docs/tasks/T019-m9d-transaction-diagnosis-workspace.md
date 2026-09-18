@@ -1269,6 +1269,126 @@ stderr 卫生（三模式）  → ReferenceError/TypeError/binding loop/NaN/Infi
 
 - **M9-D D5 Review（用户）**；通过后 **D6 — deploy + evidence rebuild + manual candidate**（evidence 清单需按 post-Legacy 工作台重建：Legacy 两张截图已随 workspace 退役，Transactions 截图顶替）。
 - M9-E（Branding/Icon/Packaging）、M9-F（Final Manual Visual Acceptance）未开始。
+## D5 Review = PASS（用户，2026-09-19，append-only）
+
+> 归档本轮 Review 结论。不重写 §D5 原文。
+
+- **M9-D D5 Review = PASS**。接受项：**Legacy actual removal**（retirement = 运行树实际删除，四重 absence oracle）、**compact index contract**（Transactions=0 默认 / Device=5、无 `workspaceLegacyIndex` alias）、**StatisticsOverview zero-consumer 但保留**（去留另行 ownership decision）、**O/P/Q/R regression**（业务语义零变化）、**geometry steps = 14 / printed segments = 18**（两口径分列）、**filters/search 继续 DEFER**。
+- **计数规约确认（长期）**：basic path 与 named scenarios **今后分开计数**，不写歧义总数。
+- **六类 Legacy-reference audit 的保存要求**：分类的 **category / count / migration rule / representative examples** 已在 T019 §D5.2 长期保存；完整逐行 scratch（`build/d5_classification.md`，ignored）不要求提交。
+
+## D6 — Deploy + Screenshot Evidence + Manual Candidate（Implementation Record，2026-09-19）
+
+### D6.0 D5 Review = PASS（用户）+ 归档
+
+- 见 §「D5 Review = PASS」：Legacy actual removal / compact index contract / StatisticsOverview zero-consumer 但保留 / O·P·Q·R regression / steps=14·segments=18 / filters DEFER 全部接受；basic path 与 named scenarios 分开计数；六类 Legacy-reference audit 的 category/count/rule/examples 在 §D5.2 长期保存。
+
+### D6.1 Phase-1 NOW items 核对
+
+Phase 1 §33 的 D1–D6 序列中，D6 之前所有已接受的 Phase-1 条目均已分配：shell/索引（D1）、迁移/启位（D2）、selection/detail（D3，含 HOLD 纠正）、Diagnosis cue（D4）、Legacy retirement（D5）。**无未分配 NOW 项遗留**；StatisticsOverview 去留为 Phase 1 显式另行决策（非 NOW）。
+
+### D6.2 Candidate Build / Deploy（§4/§5）
+
+- `scripts/deploy_windows.bat` 从当前完整 tree 重新构建部署（**非旧 build/deploy 复用**）：`build/deploy/ModbusLens.exe`（**34,782,210 bytes**）+ windeployqt QML/module 结果 OK。
+- **Deploy checklist audit（zero diff）**：deploy script 的 for-loop 清单已含 `TransactionsPage.qml`（D1 登记）、全部五个 page、**`StatisticsOverview.qml`（packaged present）**、qmldir、samples。无漏项 ⇒ 无需修改。
+- **两个事实分列（§19）**：StatisticsOverview **runtime instance = 0**（retirement oracle）与 **component packaged = present**（deploy checklist 实测存在）同时成立、互不混淆。
+
+### D6.3 Strict Minimal PATH（§6，M9-C 已接受方式）
+
+PowerShell（`build/d6_deploy_checks.ps1`）：`$env:PATH = 'C:\Windows\System32;C:\Windows'`（**替换**，非 prepend）→ 从 `build\deploy\ModbusLens.exe` 启动。证明不依赖 Qt dev PATH / MinGW / Anaconda / build-tree DLL。
+
+**RCA（本轮真实问题）**：首次脚本加了 `QT_QPA_PLATFORM=offscreen` ⇒ `SMOKE EXITCODE=-1073740286`（STATUS_DLL_INIT_FAILED）——deploy checklist **不含 qoffscreen 平台插件**（windeployqt 默认不装）。修正 = 移除该环境变量，按 M9-C 先例使用真实 windows 平台插件；三模式随即全绿。此为**验证脚本问题**，非产品缺陷。
+
+### D6.4 Deployed Automated Gates（§7/§8）
+
+```text
+STRICT PATH=C:\Windows\System32;C:\Windows
+SMOKE EXITCODE=0
+NAV EXITCODE=0
+  NAV SCENARIOS: basic five-workspace path PASS, A PASS, B PASS, D PASS, E PASS,
+  F PASS, G' PASS, H PASS, I PASS, J PASS, K PASS, K' PASS, L PASS, N PASS,
+  O PASS, P PASS, Q PASS, R PASS, S PASS        （19 项判决；M DEFERRED BY DESIGN）
+  NAV CHECK PASS (post-Legacy five workspaces; … scenarios A/B/D/E/F/G'/H/I/J/
+  K/K'/L/N/O/P/Q/R/S asserted; M deferred by design)
+GEOMETRY EXITCODE=0
+  GEOMETRY CHECK PASS(10 standard passes: transactions + dashboard +
+  communication + replay + diagnosis x 2 sizes, the diagnosis pass sweeps its
+  three tabs; + 2 targeted demo-dashboard passes from M9-C C4; + 2 targeted
+  selected-detail passes from M9-D D3)
+  GEOMETRY SEGMENTS=18（steps=14 = 10 standard + 2 C4 + 2 D3）
+build-tree ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check → PASS
+```
+
+**不得用 build-tree exe 代替**的纪律已遵守：三模式 + evidence 全部从 `build\deploy\ModbusLens.exe` 运行（build-tree 另跑过一遍作为回归，两者均 0）。
+
+### D6.5 Evidence Harness（§9）
+
+`src/main.cpp` **最小扩展**（behavior-bearing）：`--qml-evidence-capture` 追加 7 个 M9-D 状态（stages 45–61），只复用既有机器断言（`assertFrame` / `assertTransactionDetailMapping` / `assertTransactionsDiagnosisCue` / `runGeometryAssertions` / `assertDashboardGoldenCounts` / `assertDashboardAttention`）+ 既有 Controller 命令（runDemoBatch / runBaselineDiagnosis / clearDiagnosis / clearResults / loadReplayFile）+ 既有 harness seam（`requestTransactionSelection`）。**未**新增 Controller API / model role / 伪造 transaction / 伪造 diagnosis / fake selectedTransaction authority。
+
+### D6.6 Screenshot Set（§10/§11，deployed binary 实拍，`docs/assets/screenshots/`）
+
+| 文件 | 状态机断言（grab 前全部 PASS） | 逻辑/像素 | 关键观察点 |
+| --- | --- | --- | --- |
+| `m9d-transactions-empty-1024x720.png` | index=0/navItem_0、rows=0、currentIndex=-1、selectedRow=-1、cue 隐藏、legacyWorkspace 不存在 | 1024×720 / 1280×900 | 最终 rail 六条目、无 Legacy、设备 disabled、空态 + no-selection detail |
+| `m9d-transactions-demo-selected-1024x720.png` | rows=4、selectedRow=2、detail 逐字段==model、cue=尚未运行基线诊断（clearDiagnosis 后真实态） | 1024×720 / 1280×900 | 表格可扫读、选中行视觉、detail 层级、cue 位置 |
+| `m9d-transactions-demo-selected-1000x700.png` | 同态 + `runGeometryAssertions` 全跑（viewport ≥ 6×36、detail 容纳、cue 位置、retirement oracle） | 1000×700 / 1250×875 | 密度截图：无裁切/重叠、detail/cue 不拥挤 |
+| `m9d-transactions-broadcast-1024x720.png` | source=t015_broadcast.mlog、rows=1、selectedRow=0、status=**预期无响应**、detail==model | 1024×720 / 1280×900 | ENR 中性（不像成功/超时/错误/写入成功） |
+| `m9d-transactions-protocol-error-1024x720.png` | source=t014_protocol_error.mlog、rows=1、selectedRow=0、status=**协议错误**、issueText 非空、detail==model | 1024×720 / 1280×900 | Status 与 Detail 是两个字段，issue 不是 status authority |
+| `m9d-transactions-diagnosis-cue-1024x720.png` | rows=4、selectedRow=2、**hasBaselineDiagnosis=true**、cue=「已有基线诊断结果，可在诊断工作区查看。」 | 1024×720 / 1280×900 | cue 是存在性提示（非按钮/非单条诊断），selection/detail 仍属 evidence |
+| `m9d-dashboard-regression-1024x720.png`（可选） | Demo 后 Dashboard：golden counts + attention（exception/crc/timeout=3） | 1024×720 / 1280×900 | Legacy 退役后统计能力有正式归宿 |
+
+另有 `m9d-transactions-regression-1024x720.png`（D5 迁移时保留的 stage-44 捕获，demo+baseline 无选中态），一并实拍。
+
+### D6.7 Capture Identity / Orientation / Integrity（§12/§13/§14）
+
+- **Capture identity oracle**：每张 grab 前记录 `workspaceIndex / navItem / diagnosisVisible / diagnosisTab / mode / source / observed / baseline`（52 条 EVIDENCE 断言行）——**filename 永远不是 state oracle**。
+- **Orientation/dimension oracle**（M9-C RCA 教训吸收）：EVIDENCE 行同时记录 logical 与 pixel 尺寸；实测 125% DPI：1024×720→**1280×900**、1000×700→**1250×875**；**logical 横向 ⇒ pixel 横向** 双向成立（非"pixel >= logical"式弱断言）；DPI 未硬编码（报告真实值）。
+- **Integrity/distinctness**（PIL 实测）：M9-D 集 **8/8 valid、8/8 landscape、8/8 nonblank（flat=False）、8/8 distinct（SHA256 全不同）**。明确：**integrity ≠ visual correctness**——像素级检查不是视觉正确性的 PASS oracle，视觉判断归人工。
+
+### D6.8 Automated Regression 保全（§16/§17/§18）
+
+- P1–P5 / Q1/Q2 / R1–R13 / S1–S7 全部在 deployed nav run 中 PASS（截图阶段未削弱任何机器回归）。
+- Legacy retirement oracle 在 deployed geometry/nav 每趟运行（非"截图里看不见"）；`workspaceLegacyIndex` 不存在。
+- StatisticsOverview packaged-present + runtime-0 两事实同时成立（§D6.2）。
+
+### D6.9 Selection Evidence Boundary（§15）
+
+部署版 evidence 的 selection 通过 `page.selectRow()` / `currentIndex` 建立（harness seam）。**如实申报**：这不证明物理鼠标点击或键盘 Up/Down/Home/End——真实交互留给 **Manual Interaction Review**（§22 第 3/4 步）。不把 harness selection 写成"键盘 PASS"。
+
+### D6.10 Provider / Serial Boundary（§20）
+
+`real Provider = NOT REQUIRED / NOT CLAIMED`；`real Serial hardware = NOT REQUIRED / NOT CLAIMED`。evidence 全程未触发真实 Provider/Agent/Serial（assertDemoGoldenFacts 断言无请求/无结果/无错误；G' 场景 serialConnected=0）。
+
+### D6.11 Manual Status（§21/§22/§34）
+
+- **Manual Visual Review = WAITING FOR USER**（清单 §21 A–G：空态自然性 / 表格可扫读 / 1000×700 密度 / ENR 中性 / ProtocolError 双字段 / cue 存在性 / 最终 rail）。
+- **Manual Interaction Review = WAITING FOR USER**（清单 §22 1–10：冷启动 / Run Demo / 鼠标选行 / 键盘导航 / 往返保留 / 成功回放清除 / 失败回放保留（可用 P3 自动证据）/ Baseline cue / Clear Diagnosis / resize）。
+- **未代用户标 PASS**；M9-D **未关闭**。
+
+### D6.12 Problems / RCA（§35）
+
+| # | 问题 | RCA | 处置 |
+| --- | --- | --- | --- |
+| 1 | 部署版三模式 `EXITCODE=-1073740286`（STATUS_DLL_INIT_FAILED） | 验证脚本设置了 `QT_QPA_PLATFORM=offscreen`，而 deploy checklist 不含 qoffscreen 插件（windeployqt 默认不装）——M9-C 的部署验证脚本本就未设该变量 | 移除该环境变量，按 M9-C 先例用真实平台插件；**验证脚本问题，非产品缺陷** |
+| 2 | evidence capture 首跑 `EVIDENCE FAILED: ...m9b4-replay-...png` | `image.save()` 不创建缺失目录（M9-C 时目录由脚本预建） | `New-Item -Force` 预建输出目录；工作流修正 |
+| 3 | （继承说明）`m9c-legacy-regression` 截图文件仍在 docs/assets（历史 evidence 档案区，只增不改），其对应工作台已退休——该图是 D5 之前的历史证据 | — | 保留不删（档案原则），D6 新集不含它 |
+
+### D6.13 Git Classification（§24/§25）
+
+- **D6 candidate = behavior-bearing**（`src/main.cpp` evidence-harness 扩展 + 新 PNG evidence）。
+- **verified LKGC 仍 = `bc754be`**（本轮不推进）。M9-D Final Closure（下一轮）将按 `git show --name-only` 做全链分类：若 Manual 双 PASS，最终 LKGC 很可能落在本 D6 accepted tree（其完整树 = deployed candidate + evidence tree）。
+
+### D6.14 Files Changed / Result（§36/§43）
+
+`src/main.cpp`（evidence stages 45–61 + PASS 文案）、`docs/assets/screenshots/m9d-*.png` ×7（新增）、T019 + PROJECT_STATUS/BACKLOG/devlog/INTERVIEW_NOTES。**产品 QML 全部 zero diff**（§23：Main.qml/NavigationRail/TransactionsPage/其它 pages/StatisticsOverview）；deploy script **zero diff**。
+
+**D6 完成**：deployed candidate + deployed automated validation + M9-D screenshot evidence + manual candidate 就绪；**Manual Visual/Interaction = WAITING FOR USER**；M9-D IN PROGRESS；未 push。
+
+## D7. Next
+
+- **用户执行 Screenshot Visual Review（§21 A–G）+ Manual Interaction Review（§22 1–10）**。
+- 双 PASS 后：**M9-D Final Closure**（Git classification / LKGC 裁定 / M9-D COMPLETE，docs-only closure commit）。
 ## 39. Next（Phase 1 之后的追加）
 
 - **M9-D D1 Review（用户）** → **D2** → D3 → D4（默认不做）→ D5 → D6；每阶段独立 Review/提交。

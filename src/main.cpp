@@ -5082,20 +5082,214 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
             break;
         }
 
+        // ---- M9-D D6 set: the Transactions workspace evidence. The state
+        // left by stage 44 (demo batch + baseline, Transactions active) is
+        // exactly shot F's precondition once a row is selected; every grab
+        // is preceded by explicit state assertions, and filenames are never
+        // the state oracle.
+        case 45: {
+            if (!requestTransactionSelection(roots, 2))
+                fail(QStringLiteral("selectRow() is not invokable on the "
+                                    "transactions page"));
+            break;
+        }
+        case 46: {
+            // F. Diagnosis-cue available: demo batch + row 2 + a real
+            // baseline. The cue is an existence line next to the evidence —
+            // not a button, not a selected-row diagnosis.
+            const int txIndex =
+                rootObj->property("workspaceTransactionsIndex").toInt();
+            assertFrame(QStringLiteral("M9-D F"), txIndex, -1);
+            if (rowCountOf(ctrl) != 4 || selectedRowOf(roots) != 2)
+                fail(QStringLiteral("M9-D F: rows=%1 selected=%2, expected "
+                                    "4/2")
+                         .arg(rowCountOf(ctrl))
+                         .arg(selectedRowOf(roots)));
+            if (!ctrl->property("hasBaselineDiagnosis").toBool())
+                fail(QStringLiteral("M9-D F: hasBaselineDiagnosis is false"));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("M9-D F detail"), *failures);
+            assertTransactionsDiagnosisCue(
+                roots, QStringLiteral("M9-D F cue"), *failures);
+            grab(QStringLiteral("m9d-transactions-diagnosis-cue-1024x720"));
+            break;
+        }
+        case 47: {
+            // Back to the no-baseline presentation for the core shots: the
+            // diagnosis-only clear must leave rows/selection untouched.
+            if (!QMetaObject::invokeMethod(ctrl, "clearDiagnosis"))
+                fail(QStringLiteral("clearDiagnosis() not invokable"));
+            break;
+        }
+        case 48: {
+            if (ctrl->property("hasBaselineDiagnosis").toBool())
+                fail(QStringLiteral("clearDiagnosis did not clear the "
+                                    "authority"));
+            if (rowCountOf(ctrl) != 4 || selectedRowOf(roots) != 2)
+                fail(QStringLiteral("clearDiagnosis touched the model or the "
+                                    "selection (rows=%1 selected=%2)")
+                         .arg(rowCountOf(ctrl))
+                         .arg(selectedRowOf(roots)));
+            // B. Demo + selected row 2 at the default size.
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("M9-D B detail"), *failures);
+            assertTransactionsDiagnosisCue(
+                roots, QStringLiteral("M9-D B cue"), *failures);
+            grab(QStringLiteral("m9d-transactions-demo-selected-1024x720"));
+            break;
+        }
+        case 49:
+            window->resize(1000, 700);
+            break;
+        case 50: {
+            // C. The same state at the minimum size — the density shot. The
+            // full geometry contract for the ACTIVE transactions page runs
+            // here (viewport >= 6x36, detail containment, cue placement,
+            // retirement oracle).
+            *failures += runGeometryAssertions(
+                roots, QStringLiteral("M9-D C geometry"));
+            if (rowCountOf(ctrl) != 4 || selectedRowOf(roots) != 2)
+                fail(QStringLiteral("M9-D C: state drifted across resize"));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("M9-D C detail"), *failures);
+            grab(QStringLiteral("m9d-transactions-demo-selected-1000x700"));
+            break;
+        }
+        case 51: {
+            window->resize(1024, 720);
+            if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+                fail(QStringLiteral("clearResults() not invokable"));
+            break;
+        }
+        case 52: {
+            // A. Empty startup presentation: the real cleared state — no
+            // rows, no selection, the cue hidden, Legacy still retired.
+            const int txIndex =
+                rootObj->property("workspaceTransactionsIndex").toInt();
+            assertFrame(QStringLiteral("M9-D A"), txIndex, -1);
+            if (rowCountOf(ctrl) != 0)
+                fail(QStringLiteral("M9-D A: %1 rows after clearResults")
+                         .arg(rowCountOf(ctrl)));
+            auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
+            if (!list || list->property("currentIndex").toInt() != -1)
+                fail(QStringLiteral("M9-D A: the list kept a selection"));
+            if (selectedRowOf(roots) != -1)
+                fail(QStringLiteral("M9-D A: a selection survived the clear"));
+            if (findNamedItem(roots, QStringLiteral("legacyWorkspace")))
+                fail(QStringLiteral("M9-D A: legacyWorkspace still exists"));
+            assertTransactionsDiagnosisCue(
+                roots, QStringLiteral("M9-D A cue"), *failures);
+            grab(QStringLiteral("m9d-transactions-empty-1024x720"));
+            break;
+        }
+        case 53: {
+            // D. Broadcast ENR: load the real fixture, select its only row.
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_BROADCAST_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("loadReplayFile() not invokable"));
+            break;
+        }
+        case 54: {
+            const int txIndex =
+                rootObj->property("workspaceTransactionsIndex").toInt();
+            assertFrame(QStringLiteral("M9-D D"), txIndex, -1);
+            if (rowCountOf(ctrl) != 1)
+                fail(QStringLiteral("M9-D D: rows=%1, expected the single "
+                                    "broadcast transaction")
+                         .arg(rowCountOf(ctrl)));
+            if (!requestTransactionSelection(roots, 0))
+                fail(QStringLiteral("selectRow() is not invokable"));
+            break;
+        }
+        case 55: {
+            const QVariantMap entry = selectedEntryOf(roots);
+            if (selectedRowOf(roots) != 0
+                || entry.value(QStringLiteral("statusText")).toString()
+                       != QStringLiteral("预期无响应"))
+                fail(QStringLiteral("M9-D D: selected=%1 status=%2, expected "
+                                    "row 0 / 预期无响应 (neutral ENR)")
+                         .arg(selectedRowOf(roots))
+                         .arg(entry.value(QStringLiteral("statusText"))
+                                  .toString()));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("M9-D D detail"), *failures);
+            grab(QStringLiteral("m9d-transactions-broadcast-1024x720"));
+            break;
+        }
+        case 56: {
+            // E. ProtocolError: status and detail stay two different fields.
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_PROTOCOL_ERROR_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("loadReplayFile() not invokable"));
+            break;
+        }
+        case 57: {
+            const int txIndex =
+                rootObj->property("workspaceTransactionsIndex").toInt();
+            assertFrame(QStringLiteral("M9-D E"), txIndex, -1);
+            if (rowCountOf(ctrl) != 1)
+                fail(QStringLiteral("M9-D E: rows=%1, expected the single "
+                                    "protocol-error transaction")
+                         .arg(rowCountOf(ctrl)));
+            if (!requestTransactionSelection(roots, 0))
+                fail(QStringLiteral("selectRow() is not invokable"));
+            break;
+        }
+        case 58: {
+            const QVariantMap entry = selectedEntryOf(roots);
+            if (selectedRowOf(roots) != 0
+                || entry.value(QStringLiteral("statusText")).toString()
+                       != QStringLiteral("协议错误"))
+                fail(QStringLiteral("M9-D E: selected=%1 status=%2, expected "
+                                    "row 0 / 协议错误")
+                         .arg(selectedRowOf(roots))
+                         .arg(entry.value(QStringLiteral("statusText"))
+                                  .toString()));
+            if (entry.value(QStringLiteral("issueText")).toString().isEmpty())
+                fail(QStringLiteral("M9-D E: the ProtocolError row lost its "
+                                    "issue detail"));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("M9-D E detail"), *failures);
+            grab(QStringLiteral("m9d-transactions-protocol-error-1024x720"));
+            break;
+        }
+        case 59: {
+            // Optional regression companion: after a demo batch the
+            // Dashboard statistics keep working — the statistics capability
+            // has a real home after the Legacy retirement.
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("runDemoBatch() not invokable"));
+            break;
+        }
+        case 60: switchTo(dashboardIndex); break;
+        case 61: {
+            assertFrame(QStringLiteral("M9-D G"), dashboardIndex, -1);
+            assertDashboardGoldenCounts(QStringLiteral("M9-D G"));
+            assertDashboardAttention(roots,
+                                     QStringLiteral("M9-D G"),
+                                     *failures);
+            grab(QStringLiteral("m9d-dashboard-regression-1024x720"));
+            break;
+        }
+
         default:
             break;
         }
 
-        if (failures->isEmpty() && *stage < 44) {
+        if (failures->isEmpty() && *stage < 61) {
             ++*stage;
             QTimer::singleShot(settleMs, &app, *schedule);
             return;
         }
 
         if (failures->isEmpty())
-            qInfo() << "EVIDENCE CAPTURE PASS (5 B4 + 5 B5 + 6 M9-C "
-                       "screenshots; every capture preceded by an explicit "
-                       "state assertion)";
+            qInfo() << "EVIDENCE CAPTURE PASS (5 B4 + 5 B5 + 6 M9-C + 7 "
+                       "M9-D screenshots; every capture preceded by an "
+                       "explicit state assertion)";
         else
             for (const QString &f : *failures)
                 qWarning().noquote() << "EVIDENCE FAIL:" << f;
