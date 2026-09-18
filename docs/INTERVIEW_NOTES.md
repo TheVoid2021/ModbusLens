@@ -327,3 +327,12 @@
 - **Q：working tree 里出现旋转副本，为什么不直接"修好再提交"？** A：因为逐像素比对证明旋转发生在 commit **之后**、仓库之外——capture 产物（committed blob）本来就是正确的 landscape。此时"修复 capture"是修一个不存在的缺陷，而"提交旋转副本"是把变异固化进历史。正确动作是：用 `git restore --source=HEAD` 把 working tree 恢复到已验证状态，把"哪个外部步骤旋转了文件"如实记录为 NOT IDENTIFIED。
 - **Q：M9-C 之后，Dashboard 的信息架构还能再改吗？** A：能，但分层已经冻结——Dashboard=态势感知；attention=四计数的呈现聚合（非 health score）；distribution 分母=completed；successRate 分母=completed−expectedNoResponse；diagnosis cue=存在性线索。未来 M9-D 的 transaction 域、M10 的主动控制、M11 的寄存器读数各有自己的入口预算，Dashboard 不吞并它们。
 - **Q：这轮 closure 里最重要的可复用纪律是什么？** A：**"证据分层 + 术语收紧"**。orientation 事件里我们把证据分成 capture output / committed blob / working-tree mutation 三层，每层独立验证；结论只写到证据能支撑的精度——已证明的清白逐条列出，未证明的变异步骤明确写 NOT IDENTIFIED。宁可结论窄而真，不可宽而假。
+
+
+## 36. Post-T019 M9-D Phase 1 条目（2026-09-18 追加）
+
+- **Q：为什么"选中的那一行"通常不该进 Controller？** A：selection 只有本页 detail 消费它，没有任何 backend 或其它 subsystem 需要它的权威引用——而 `ListView.currentIndex` 本身就是呈现态。把它写进 Controller 会造成页面状态污染事实层；跨页往返的保留需求由 StackLayout 常驻自然满足（与 B5 的 tab/草稿同机制）。
+- **Q：为什么一条 transaction 的 issue 不能改写它的 status？** A：两者是正交轴。status 是事务**结论**（七值），issue 是确定性**观察细节**（响应侧 9 值 / 请求侧 4 值），`Success + InvalidRequestByteCount` 是合法组合。用 issue 改写 status 会把观察事实升级成结论——这正是 V1 冻结契约禁止的语义漂移。
+- **Q：什么时候可以删掉一个页面？** A：当它**不再有任何独有能力**、且保留会造成**长期重复呈现**时；同时拆除过程必须满足三点——可回滚（单提交）、无能力真空（新承载先验证）、最小索引扰动（M9-D 用"替换 index 0"而不是"新增 index"，让 rail 形状与设备 disabled 位完全不变）。"终于能删"本身不是理由，证据才是。
+- **Q：为什么不能为选中的 transaction 做个"原始报文"视图？** A：因为**数据根本不存在**：`TransactionAnalysis` 只保存 status/elapsed/exceptionCode/issue，没有任何字节；adapter 也不存。做出来只能是假报文。审计后端"确实有什么"这一步，往往比设计界面更早决定方案的边界。
+- **Q：milestone 名字里有 Diagnosis，为什么这轮不动 Diagnosis 页？** A：因为 B5 刚以人工验收交付了它，而 milestone 名字不构成重构理由。M9-D 与 Diagnosis 的接触面被收窄到"一行存在性文本线索"，写在 Transactions 页——批次级 Baseline 语义因此不会被逐条选择污染。
