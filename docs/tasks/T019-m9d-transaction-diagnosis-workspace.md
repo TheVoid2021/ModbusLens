@@ -651,14 +651,178 @@ case 标签：0..111 连续唯一（112 个）
 - **原子迁移+启位完成**：Transactions 成为第六个 active workspace，Legacy 只剩统计，**任何时刻事务能力都可达**，**最终只有一个 presentation owner**（运行时证明）。
 - **Manual Review = PENDING**（D6 人工包）；verified LKGC **不变 = `bc754be`**；未 push。
 
-## D3. Next
+## D3 — Transaction Selection + Read-only Detail Presentation（Implementation Record，2026-09-18）
 
-- **M9-D D2 Review（用户）**；通过后 **D3 — selection + detail**（须先按 Phase 1 Review guardrail C 确定 detail data-access seam；selection lifetime 三分支冻结；geometry 保持 12 趟）。
-- **D4（filters，默认不做）**、**D5（Legacy 退役）**、**D6（geometry/evidence/manual）** 未开始。
+### D3.0 D2 Review = PASS（用户）+ 三条 note
 
-- **M9-D D1 Review（用户）**；通过后 **D2 — 原子迁移 + 启位**（Transactions 表整块迁入 + `事务` 启位 + Legacy 同提交移出事务 pane；geometry 届时扩为 **6 active × 2 = 12 standard passes**；每阶段独立 Review/提交）。
-- **D3（selection/detail）**、**D4（filters，默认不做）**、**D5（Legacy 退役）**、**D6（geometry/evidence/manual）** 未开始；M9-E/F 未开始。
+- **A. before-baseline 性质**：D2 实际取得的是 **partial migration baseline**（D1 候选的 geometry dump + 同尺寸 content-width 对比），**不是**完整 empty+demo 双状态专门 baseline。现有证据足以接受 D2，但**不得以后夸大**。
+- **B. 正交性的 oracle 层级**：「`statusText` 不包含 `issueText`」只是**辅助 negative oracle**；outcome/issue 正交的**主要依据**是 ①`TransactionStatus` role 的真实来源 ②`issueText` 的真实来源 ③QML **没有**用 issueText 重新解释 status。
+- **C. `root.*` → `DS.*` 与 `frozenErrorAccent`**：按**等值机械迁移**接受；**D3 不继续做 style/token cleanup**。
 
+### D3.1 Sequencing bookkeeping（本轮冻结）
+
+- **D3 = selection + detail only**；
+- **D4 = Phase 1 已接受的 Diagnosis existence cue + 必要的 Transactions polish**（filters/search **继续 DEFER**，不因存在 D4 编号就自动实现）；
+- **D5 = Legacy retirement**；**D6 = deploy/evidence/manual candidate**。
+- ⇒ Phase 1 已接受的 Diagnosis textual clue **不会无声丢失**（有明确归属阶段）。
+
+### D3.2 Mandatory Selection-Seam Audit（真实源码）
+
+`TransactionListModel` 的 mutation API **实读**（`TransactionListModel.cpp`）：
+
+| mutation operation | emitted model signal | selected row 是否仍代表同一事务 | D3 结论 |
+| --- | --- | --- | --- |
+| `setEntries(entries)`（**唯一** API，6 个调用点） | `beginResetModel()` → `entries_ = std::move(entries)` → `endResetModel()` | 否（行集合整体替换） | **invalidate** |
+| 逐行原地更新（Pending → completed 等） | **不存在**（全模型无 `dataChanged`） | — | 无需实时跟随 |
+| `rowsInserted/rowsRemoved` | **不存在** | — | — |
+
+调用点：`connectSerial`（清空）、`publishSerialResult`（单条）、`setTransactionEntries`、`runDemoBatch`、`clearResults`、`loadReplayFile`（成功路径）。**失败的回放替换在 `setEntries` 之前返回** ⇒ 不触发 reset。
+
+**QML 侧实读**：`TransactionsPage` 的 `ListView`（`transactionsList`）delegate 绑定 8 roles 中的 7 个显示字段；`currentIndex` 原先只是 Qt 的默认呈现属性（D2 明确未升级为契约）。
+
+### D3.3 Detail data-access seam 比较与选择
+
+| 方案 | virtualization / lifetime | model reset | dataChanged | navigation hide/show | stale detail | backend |
+| --- | --- | --- | --- | --- | --- | --- |
+| A. `ListView.currentItem` 直读 | **差**：代理项会随滚动销毁/回收 ⇒ detail 读不到或读到空 | 未处理 | — | 可用 | **存在** | 无改动 |
+| **B. page-local presentation snapshot（采纳）** | 好：在**选中那一刻**从屏幕上的代理项拷贝（`itemAtIndex`），之后与代理项生命周期无关 | `Connections.onModelReset` 清 selection + snapshot | 不适用（无 dataChanged） | 自然保留 | **不可能**（唯一 mutation 就是 reset，而 reset 会清） | **零改动** |
+| C. 新增 model read-only row accessor | 好 | 需自行处理 | 需自行处理 | 可用 | 可控 | **需改 C++（STOP 条件 A）** |
+
+**采纳 B**，其安全性**由 §D3.2 的审计证明**：数据只有一条变更路径（整批 reset），因此快照不可能滞后；`modelReset` 即失效。**未新增任何后端 API**；**未**引入 `AnalysisController.selectedTransaction*`（绝对禁止项）。
+
+**Stop conditions（§34）逐条核对**：A 需新 C++ accessor → 否；B mutation 语义无法区分 stale → 否；C 必须改 Controller → 否；D 需新 domain role → 否；E 1000×700 垂直 master-detail 无法成立 → 否（实测 detail 56px、表格 457px）。**均未触发。**
+
+### D3.4 Selection authority 与初始/reset 契约
+
+- selection = **page-local presentation state**（`page.selectedRow` / `page.selectedEntry`），**不是** Controller / domain / Diagnosis / Replay source state。
+- **`currentIndex = -1` = no explicit selection**；**model 有行时不自动选第 0 行**（D3 §8）——detail 显示 **「选择一条事务查看详情」**（`transactionDetailEmpty`）。empty model 复用同一 no-selection 态（列表另有「暂无通信记录」空态）。
+- **model reset 后不得自动「重新选第 0 行」来伪装 persistence** ✓（P4 断言）。
+
+### D3.5 Selection lifetime（冻结三类，Scenario P 实证）
+
+| 分支 | 契约 | 实证 |
+| --- | --- | --- |
+| **A. same model + navigation only** | selection 保持、detail 保持 | P2：`NAV [scenario P2]: selection + detail survived Transactions -> Dashboard -> Replay -> Transactions` |
+| **B. authoritative model replacement/reset**（成功回放 / `runDemoBatch` / `clearResults`） | **invalidate**：`currentIndex = -1`、snapshot 清除、detail 回 no-selection | P4：`successful replacement reset the model and invalidated the selection (no row-0 re-pick)`；P5：`a new batch reset the model; the old selection did not leak`；clearResults 后同样 |
+| **C. failed replacement（model 未变）** | selection 保持、detail 保持（与 B4 的 authority 原则一致） | P3：`failed replacement kept the model, the selection and the detail` |
+
+**exact signal**：`QAbstractItemModel::modelReset`（`Connections.onModelReset`）—— 这是 D3 实现依赖的**唯一**失效信号，在此明确记录。**未使用**「延时后猜状态」作为 lifecycle oracle：所有断言都在操作完成后的**同一轮**读取真实状态（回放加载为同步批处理）。
+
+### D3.6 Mouse / keyboard selection
+
+- **产品路径**：delegate 的 `TapHandler.onTapped: transactionList.currentIndex = index`（鼠标）+ `ListView.focus: true`（Qt 自身的 Up/Down/Home/End 行为）；页面统一以 `onCurrentIndexChanged: page.selectRow(currentIndex)` 把 currentIndex 映射为 selection ⇒ **鼠标与键盘共用一条路径**，未手写键盘状态机。
+- **选中态呈现**：`DS.navigationSelectedSurface` 背景 + 2px `DS.primary` 左侧强调条（**复用既有 DS token，无 severity/health 色彩**）。
+- **harness 边界（§23 如实申报）**：本仓库无可靠的 Qt input synthesis ⇒ D3 由 harness **直接设置 `transactionsList.currentIndex`** 驱动 selection-state → detail mapping 与 lifecycle。**这不是 mouse/keyboard 物理交互证明**；鼠标 + 键盘的实机验证**列入 D6 Manual**。未为 D3 引入 QtTest 依赖。
+
+### D3.7 Detail presentation boundary（逐字段，按真实 8 roles）
+
+| detail 字段 | 来源 role | 呈现（复用既有 formatter 语义） |
+| --- | --- | --- |
+| 设备 | `deviceAddress` | `设备 %1`（与行内一致） |
+| 功能码 | `functionCode` | `0xNN`（与行内一致的 hex 规则） |
+| **状态** | `statusText` | **独立字段**（`transactionDetailStatus`） |
+| 耗时 | `elapsedMs` | `%1 ms` |
+| 异常码 | `hasExceptionCode` → `exceptionCode` | `异常码 0xNN` / `—`（hasX 先行，沿用行内规则与 `frozenErrorAccent`） |
+| 详情 | `issueText` | **独立字段**（`transactionDetailIssue`）：`详情：%1` / `详情：—`，**完整不解析、不截断语义** |
+
+**禁止项全部遵守**：无 raw/hex 报文、无起始地址/quantity/请求参数、无 request/response 分轴、无寄存器解码、无 AI 解释；**未解析 `issueText`** 反推 anomaly/severity/issue 类型。QML 未重实现 status/exception/latency formatter（沿用与行内**同一表达式**）。
+
+### D3.8 Outcome / Issue 正交 + ENR + ProtocolError + Unsupported
+
+- **正交性**：`transactionDetailStatus.text == selectedEntry.statusText`（不掺 issue）；`transactionDetailIssue` 独立呈现；断言「status 文本不得包含 issue 文本」。**主要依据仍是 §D3.0-B 的三条来源事实**，negative oracle 为辅。
+- **ExpectedNoResponse detail**（`t015_broadcast.mlog`，选中唯一行）：`statusText == 预期无响应`，**中性**（无 写入成功/失败/Timeout/异常/warning）；`issue` 为空 ⇒ 按既有约定显示 **`详情：—`**（不发明解释）。
+- **ProtocolError detail**（`t014_protocol_error.mlog`）：`statusText == 协议错误`，`issueText` 非空且与 model presentation **逐值一致**（`assertTransactionDetailMapping` 的 7 字段逐一相等）；**issueText 未充当 status authority**。
+- **Unsupported replay**：仍不进 model ⇒ 无 selection/detail/伪造行；B4 notice lifecycle 零变化。
+
+### D3.9 Detail UI shape / surplus ownership
+
+- **垂直 master-detail**（Phase 1 批准；**未引入第二个 workspace、未用横向 split 压窄表格、未用可拖动 SplitView**）：`SectionHeader` → pane → 表头 → **ListView（`Layout.fillHeight` = 唯一 surplus owner）** → 分隔线 → **detail（自然高度、`Layout.fillWidth`，不参与 surplus 分配）**。
+- surplus 归表格（它本身就是主 evidence viewport，与 C1 的"section gap 被 stretch"不同类）；detail 高度由内容决定（实测 56px）；**无随机大 gap、section 间距未被撑开**。
+- **Detail component decision**：**直接放在 TransactionsPage**（单 consumer；未新增 `TransactionDetail.qml`；未放入 DS）。
+
+### D3.10 Geometry contract（§30）
+
+- **标准 12 趟保持**（6 active × 2 尺寸）**+ C4 的 2 趟 targeted**；
+- **新增 2 趟 targeted selected-detail**（`m9d-transactions-detail-1024x720` / `-1000x700`，先建批次、**后**选行、再测量）——**附加而非替代**；
+- Transactions-active 断言新增：`transactionDetail` 非零/在页内/**不与列表重叠**；**`transactionsList` 高度 ≥ 6×36**（viewport capacity）；选中时 detail 字段逐值映射。
+
+**实测（选中态）**：
+
+| 尺寸 | pane | 表头 | ListView | detail |
+| --- | --- | --- | --- | --- |
+| 1024×720 | 935×620 | 911×12 | **911×477**（≥216 ✓） | **911×56** @y=540 |
+| 1000×700 | 911×600 | 887×12 | **887×457**（≥216 ✓） | **887×56** @y=520 |
+
+`transactionDetailStatus 72×12`、`transactionDetailIssue 887×12`；**无裁切、无重叠、page header/表头/列表/detail 全部完整**。
+
+### D3.11 ObjectName / observability
+
+最小稳定 anchor：既有 `transactionsList` 保留；新增 `transactionDetail`、`transactionDetailEmpty`、`transactionDetailStatus`、`transactionDetailIssue`（+ `transactionDetailDevice/Function/Latency/Exception`）。**未给每个 Label 都堆 objectName**；足够 harness 证明 selection/mapping/reset/containment。
+
+### D3.12 Subtitle 更新（D1 Review guardrail 闭环）
+
+detail 真正可用后，副标题由 **「通信记录」** 更新为 **「通信记录与事务详情」** ✓。
+
+### D3.13 Freezes
+
+- **DiagnosisPage zero diff**；Transactions 页**无** baseline result / finding count / AI 输出 / Agent 回答 / Provider 控件；**Phase 1 accepted 的 Diagnosis existence clue 明确留到 D4**。
+- **Legacy zero diff**（StatisticsOverview + tail spacer 原样；未提前 retirement、未删 StatisticsOverview）。
+- **Dashboard / Communication / Replay zero diff**；selection 页面状态不影响 Dashboard 统计、Communication 草稿、Replay selectedFile/source authority。
+- **Controller / TransactionListModel / Core / tests / CMake / deploy script zero diff**（`git diff --name-only` 证实）。
+
+### D3.14 Negative scope
+
+无 `Controller.selectedTransaction*`、无新 model role、无 raw/hex、无 request/response 分轴、无 filters/search、无 proxy、无 Diagnosis cue、无 Diagnosis redesign、无 AI/Agent、无 Legacy retirement、无 StatisticsOverview 删除、无 Dashboard recent transactions、无 M10 write / M11 decode / M12 profile。
+
+### D3.15 Problems / RCA（5 条，全部真实留痕）
+
+| # | 现象 | 分类 | 根因 | 修复 |
+| --- | --- | --- | --- | --- |
+| 1 | `NAVFAIL scenario P after reset: the no-selection hint is not visible` | **harness / hidden-page 契约** | helper 在 **Transactions 页隐藏时**（当轮停在 Replay）仍断言 detail 空态可见；隐藏页可见性不是契约 | helper 仅在页面可见时断言空态可见性；并让 P4 先切回 Transactions 再替换 |
+| 2 | `TransactionsPage.qml:259 TypeError: Cannot read property 'currentIndex' of null`（33×） | **product QML / attached-property 作用域** | delegate 的**嵌套子项**中用了 `ListView.view.currentIndex`——该 attached property 只挂在 **delegate 根**上 | 委托根新增 `readonly property bool rowSelected`，子项读 `parent.rowSelected` |
+| 3 | `TransactionsPage.qml:256 TypeError`（启动期） | **product QML / 生命周期** | `Connections.onModelReset` 在 ListView 创建前可能触发（启动期首批发布）⇒ id 仍为 null | 处理器加 `if (transactionList)` 守卫 |
+| 4 | 1024 的 targeted detail 趟 detail 仅 12px（未选中） | **harness 顺序** | transition 里 **selection 设在 `runDemoBatch` 之前**，批次发布 reset model ⇒ selection 按契约被清除 | selection 移到批次发布**之后**（这本身是 D3 契约 B 的正向印证） |
+| 5 | D2 遗留的 pane 块整体缩进少 4 格 | **可读性 / 机械** | D2 dedent 基准算错 4（与 brace depth 不符） | 本轮按 brace depth 统一 +4（纯空白，无语义变化） |
+
+### D3.16 Validation（真实命令与输出）
+
+```text
+cmake --build --preset debug-local → Linking modbuslens.exe（0 error）
+--qml-smoke-test   → EXITCODE=0（stderr 卫生 0）
+--qml-nav-check    → EXITCODE=0
+  NAV [scenario P1]: row 2 selected, detail mapping verified field by field
+  NAV [scenario P2]: selection + detail survived Transactions -> Dashboard -> Replay -> Transactions
+  NAV [scenario P3]: failed replacement kept the model, the selection and the detail
+  NAV [scenario P4]: successful replacement reset the model and invalidated the selection (no row-0 re-pick)
+  NAV [scenario P4 detail]: expectedNoResponse kept its neutral wording
+  NAV [scenario P5]: a new batch reset the model; the old selection did not leak
+  NAV [scenario P]: selection lifecycle (initial -1 / navigation persists / replacement invalidates /
+    failed replacement preserves / clear resets) verified
+  NAV SCENARIOS: basic six-workspace path PASS, A PASS, B PASS, D PASS, E PASS, F PASS, G' PASS,
+    H PASS, I PASS, J PASS, K PASS, K' PASS, L PASS, N PASS, O PASS, P PASS
+  NAV DASHBOARD PRESENTATION CHECK: PASS；NAV SCENARIO M: DEFERRED BY DESIGN
+  NAV CHECK PASS (six workspaces; …；M deferred by design)
+--qml-geometry-check → EXITCODE=0；**12 standard passes + 2 targeted (C4) + 2 targeted (D3)**；0 GEOFAIL
+  DETAIL MAPPING: row=2 status=CRC 错误 issue=<none>
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check → PASS
+stderr 卫生：ReferenceError/TypeError/binding loop/NaN/Infinity/required missing/is not a type 计数 0（geo/nav/smoke）
+case 标签：0..128 连续唯一（129 个）
+```
+
+### D3.17 Files Changed（D3）
+
+`src/ui/qml/pages/TransactionsPage.qml`（selection/snapshot/modelReset 失效/鼠标+键盘路径/选中态/detail 区域/副标题/缩进统一）、`src/main.cpp`（detail 契约 helper + Scenario P + geometry selectRow 步与 detail 断言 + dump 条目）；docs。**未动** Controller/Core/tests/其它页/Main.qml/rail/CMake/deploy。
+
+### D3.18 Result
+
+- D3 完成：**selection 为 page-local**、三类 lifetime 分支全部机器实证、detail 只呈现既有 8 roles 中的 7 个显示字段且**逐字段与 model 相等**、正交/ENR/ProtocolError/Unsupported 边界全部遵守、垂直 master-detail 在两尺寸成立（表格保持全宽、viewport ≥ 6 行）。
+- **Manual Review = PENDING**（鼠标/键盘实机与视觉均在 **D6**）；verified LKGC **不变 = `bc754be`**；未 push。
+
+## D4. Next
+
+- **M9-D D3 Review（用户）**；通过后 **D4 — Phase 1 已接受的 Diagnosis existence cue + 必要的 Transactions polish**（filters/search 继续 DEFER）。
+- **D5（Legacy retirement）**、**D6（geometry/evidence/manual candidate）** 未开始。
 ## 39. Next（Phase 1 之后的追加）
 
 - **M9-D D1 Review（用户）** → **D2** → D3 → D4（默认不做）→ D5 → D6；每阶段独立 Review/提交。

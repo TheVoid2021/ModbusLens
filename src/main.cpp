@@ -165,6 +165,113 @@ void assertTransactionsPresentation(const QList<QObject *> &roots,
     }
 }
 
+// M9-D D3: the page-local selection + detail contract. The authoritative
+// model has exactly ONE mutation path (setEntries -> beginResetModel/
+// endResetModel; no dataChanged anywhere), so the page-local snapshot can
+// never go stale: every data change resets the model, and the page clears
+// the selection on modelReset. The snapshot is a presentation copy only —
+// never a Controller authority.
+int selectedRowOf(const QList<QObject *> &roots)
+{
+    auto *page = findNamedItem(roots, QStringLiteral("transactionsPage"));
+    return page ? page->property("selectedRow").toInt() : -2;
+}
+
+QVariantMap selectedEntryOf(const QList<QObject *> &roots)
+{
+    auto *page = findNamedItem(roots, QStringLiteral("transactionsPage"));
+    if (!page)
+        return {};
+    return page->property("selectedEntry").toMap();
+}
+
+void assertTransactionDetailMapping(const QList<QObject *> &roots,
+                                    const QString &contextLabel,
+                                    QStringList &failures)
+{
+    auto fail = [&failures, &contextLabel](const QString &message) {
+        failures << contextLabel + QStringLiteral(": ") + message;
+    };
+    auto *ctrl = roots.value(0)
+                     ? roots.value(0)->findChild<QObject *>(
+                           QStringLiteral("analysisController"))
+                     : nullptr;
+    auto *detail = findNamedItem(roots, QStringLiteral("transactionDetail"));
+    if (!detail) {
+        fail(QStringLiteral("transactionDetail not found"));
+        return;
+    }
+    const int selected = selectedRowOf(roots);
+    const QVariantMap snapshot = selectedEntryOf(roots);
+    const int rows = rowCountOf(ctrl);
+
+    if (selected < 0) {
+        // no-selection state: the empty hint is the ONLY thing shown. Its
+        // VISIBILITY is asserted only while the Transactions page is the
+        // active page — hidden-page visibility is not a contract.
+        auto *empty =
+            findNamedItem(roots, QStringLiteral("transactionDetailEmpty"));
+        auto *page = findNamedItem(roots, QStringLiteral("transactionsPage"));
+        if (!empty)
+            fail(QStringLiteral("transactionDetailEmpty not found"));
+        else if (page && page->isVisible() && !empty->isVisible())
+            fail(QStringLiteral("the no-selection hint is not visible on the "
+                                "active transactions page"));
+        if (!snapshot.isEmpty())
+            fail(QStringLiteral("a detail snapshot exists without a selection"));
+        return;
+    }
+
+    if (selected >= rows)
+        fail(QStringLiteral("selectedRow %1 is outside the model (%2 rows)")
+                 .arg(selected)
+                 .arg(rows));
+    // field-by-field mapping: every snapshot field must equal the model role
+    struct Field { const char *snapshotKey; const char *role; };
+    const Field fields[] = {
+        { "deviceAddress", "deviceAddress" },
+        { "functionCode", "functionCode" },
+        { "statusText", "statusText" },
+        { "elapsedMs", "elapsedMs" },
+        { "hasExceptionCode", "hasExceptionCode" },
+        { "exceptionCode", "exceptionCode" },
+        { "issueText", "issueText" },
+    };
+    for (const Field &field : fields) {
+        const QVariant want =
+            modelRole(ctrl, QLatin1String(field.role), selected);
+        const QVariant got = snapshot.value(QLatin1String(field.snapshotKey));
+        if (want != got)
+            fail(QStringLiteral("detail %1 is %2 while the model row %3 has %4")
+                     .arg(QLatin1String(field.snapshotKey),
+                          got.toString())
+                     .arg(selected)
+                     .arg(want.toString()));
+    }
+    // the status and the issue are separate fields (orthogonality): the
+    // status label never carries the issue text
+    auto *status = findNamedItem(roots, QStringLiteral("transactionDetailStatus"));
+    auto *issue = findNamedItem(roots, QStringLiteral("transactionDetailIssue"));
+    if (!status || !issue) {
+        fail(QStringLiteral("transactionDetailStatus/Issue not found"));
+    } else {
+        const QString statusText = status->property("text").toString();
+        if (statusText.isEmpty())
+            fail(QStringLiteral("the detail status label is empty"));
+        const QString issueText = snapshot.value(QStringLiteral("issueText")).toString();
+        if (!issueText.isEmpty() && statusText.contains(issueText))
+            fail(QStringLiteral("the issue text leaked into the detail status "
+                                "label"));
+    }
+    qInfo().noquote()
+        << QStringLiteral("DETAIL MAPPING: row=%1 status=%2 issue=%3")
+               .arg(selected)
+               .arg(snapshot.value(QStringLiteral("statusText")).toString())
+               .arg(snapshot.value(QStringLiteral("issueText")).toString().isEmpty()
+                        ? QStringLiteral("<none>")
+                        : QStringLiteral("<present>"));
+}
+
 // M9-B3: which workspace page is currently visible (drives which page's
 // geometry gets asserted — hidden pages are never asserted).
 enum class ActivePage {
@@ -909,6 +1016,16 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
             }
             return true;
         };
+        auto insidePage = [&fail, txPage](QQuickItem *item,
+                                          const QString &name) {
+            if (!item || !txPage)
+                return;
+            const QPointF origin = item->mapToItem(txPage, QPointF(0, 0));
+            const QRectF box(origin, QSizeF(item->width(), item->height()));
+            const QRectF pageRect(0, 0, txPage->width(), txPage->height());
+            if (!pageRect.adjusted(-0.5, -0.5, 0.5, 0.5).contains(box))
+                fail(QStringLiteral("%1 escapes the transactions page").arg(name));
+        };
         nonzero(txPage, QStringLiteral("transactionsPage"));
         nonzero(txHeader, QStringLiteral("transactionsPageHeader"));
         nonzero(txPane, QStringLiteral("transactionsPane"));
@@ -967,6 +1084,24 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
                        .arg(latency)
                        .arg(exception);
         }
+        // M9-D D3: the read-only detail region — bounded, inside the page,
+        // below the list, and never overlapping it. When a selection exists
+        // its mapping is asserted field by field (see the helper).
+        auto *txDetail = findNamedItem(roots, QStringLiteral("transactionDetail"));
+        nonzero(txDetail, QStringLiteral("transactionDetail"));
+        insidePage(txDetail, QStringLiteral("transactionDetail"));
+        if (txDetail && txList
+            && txDetail->mapToItem(txPage, QPointF(0, 0)).y() + 0.5
+                   < txList->mapToItem(txPage, QPointF(0, 0)).y()
+                         + txList->height())
+            fail(QStringLiteral("transactionDetail overlaps the transactions "
+                                "list"));
+        // §19 viewport capacity: at least ~6 ordinary 36px rows
+        if (txList && txList->height() + 0.5 < 6 * 36)
+            fail(QStringLiteral("transactionsList viewport %1 cannot hold six "
+                                "36px rows").arg(txList->height()));
+        assertTransactionDetailMapping(roots, contextLabel, failures);
+
         // empty state visibility follows the model row count
         auto *ctrl = roots.value(0)
                          ? roots.value(0)->findChild<QObject *>(
@@ -1547,7 +1682,11 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
         names << QStringLiteral("transactionsPageHeader")
               << QStringLiteral("transactionsTableHeader")
               << QStringLiteral("transactionsList")
-              << QStringLiteral("transactionsEmptyHint");
+              << QStringLiteral("transactionsEmptyHint")
+              << QStringLiteral("transactionDetail")
+              << QStringLiteral("transactionDetailEmpty")
+              << QStringLiteral("transactionDetailStatus")
+              << QStringLiteral("transactionDetailIssue");
     QStringList lines;
     lines << QStringLiteral("GEOMETRY [%1]:").arg(contextLabel);
     for (const QString &name : names) {
@@ -1620,6 +1759,8 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         bool runDemo = false; // C4 targeted passes: publish the deterministic
                               // demo batch before measuring (default off, so
                               // the standard 10 passes keep their empty state)
+        int selectRow = -1;   // D3 targeted passes: select this row in the
+                              // transactions list before measuring
         bool resizeToDefault = false; // C4: the targeted demo passes follow the
                                       // minimum-size passes, so the first one
                                       // must restore the default window size
@@ -1645,6 +1786,12 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
           QStringLiteral("MIN 1000x700 diagnosis") },
         { 5, true, QStringLiteral("m9d-transactions-1000x700"),
           QStringLiteral("MIN 1000x700 transactions") },
+        // M9-D D3: two TARGETED selected-detail passes (the standard 12 keep
+        // their no-selection state). Additive only.
+        { 5, false, QStringLiteral("m9d-transactions-detail-1024x720"),
+          QStringLiteral("SELECTED DETAIL transactions"), true, 2, true },
+        { 5, true, QStringLiteral("m9d-transactions-detail-1000x700"),
+          QStringLiteral("MIN 1000x700 selected detail"), false, 2 },
         { 3, false, QStringLiteral("m9b4-replay-1000x700"),
           QStringLiteral("MIN 1000x700 replay") },
         { 2, false, QStringLiteral("m9b4-communication-1000x700"),
@@ -1680,7 +1827,8 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                        "(12 standard passes: legacy + dashboard + "
                        "communication + replay + diagnosis + transactions x 2 "
                        "sizes, the diagnosis pass sweeps its three tabs; + 2 "
-                       "targeted demo-dashboard passes from M9-C C4)";
+                       "targeted demo-dashboard passes from M9-C C4; + 2 "
+                       "targeted selected-detail passes from M9-D D3)";
         else
             for (const QString &f : fails)
                 qWarning().noquote() << "GEOFAIL:" << f;
@@ -1750,6 +1898,19 @@ int runGeometryCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                         pre << step.label
                             + QStringLiteral(": runDemoBatch() not invokable");
                     *demoPublished = true;
+                }
+                // The selection MUST be applied AFTER any batch
+                // publication: publishing resets the model and therefore
+                // invalidates the selection by contract (D3 lifecycle B).
+                if (step.selectRow >= 0) {
+                    auto *list = findNamedItem(
+                        roots, QStringLiteral("transactionsList"));
+                    if (!list)
+                        pre << step.label
+                            + QStringLiteral(": transactionsList not found "
+                                             "for the selection step");
+                    else
+                        list->setProperty("currentIndex", step.selectRow);
                 }
                 *transitionDone = true;
                 *pendingPre = pre;  // measured on the re-entry below
@@ -2016,7 +2177,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 111;
+    constexpr int kLastStage = 128;
 
     // Shared state across stages.
     auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
@@ -2099,7 +2260,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         QStringLiteral("F"),   QStringLiteral("G'"), QStringLiteral("H"),
         QStringLiteral("I"),   QStringLiteral("J"),  QStringLiteral("K"),
         QStringLiteral("K'"),  QStringLiteral("L"),  QStringLiteral("N"),
-        QStringLiteral("O"),
+        QStringLiteral("O"),   QStringLiteral("P"),
     };
     auto scenarioStart = std::make_shared<QMap<QString, int>>();
     auto scenarioEnd = std::make_shared<QMap<QString, int>>();
@@ -3427,6 +3588,212 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
 
+        // ---- M9-D D3 Scenario P: selection lifetime (P1..P5). Selection is
+        // page-local presentation state; the authoritative model has exactly
+        // one mutation path (setEntries -> beginResetModel/endResetModel, no
+        // dataChanged), and the page clears the selection on modelReset.
+        // The harness drives selection through the ListView's own
+        // currentIndex (the same property Qt's mouse tap and keyboard both
+        // set) — this is a state/selection oracle, NOT a physical input
+        // proof; mouse and keyboard interaction are verified manually in D6.
+        case 112: {
+            beginScenario(QStringLiteral("P"));
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("NAVFAIL scenario P: runDemoBatch() not "
+                                    "invokable"));
+            break;
+        }
+        case 113: {
+            if (rowCountOf(ctrl) != 4)
+                fail(QStringLiteral("NAVFAIL scenario P: expected the "
+                                    "deterministic 4-transaction batch"));
+            switchTo(5);
+            break;
+        }
+        case 114: {
+            // P1 initial: nothing selected — no implicit row 0
+            verifyStructureAndIdentity(QStringLiteral("scenario P initial"));
+            if (selectedRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario P: the initial selection "
+                                    "is %1, expected -1 (no implicit pick)")
+                         .arg(selectedRowOf(roots)));
+            assertTransactionDetailMapping(roots,
+                                           QStringLiteral("scenario P initial"),
+                                           *failures);
+            break;
+        }
+        case 115: {
+            // P1: explicit selection of row 2 through the product path
+            auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
+            if (!list)
+                fail(QStringLiteral("NAVFAIL scenario P: transactionsList not "
+                                    "found"));
+            else
+                list->setProperty("currentIndex", 2);
+            break;
+        }
+        case 116: {
+            if (selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario P: selectedRow is %1, "
+                                    "expected 2").arg(selectedRowOf(roots)));
+            assertTransactionDetailMapping(roots,
+                                           QStringLiteral("scenario P row 2"),
+                                           *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario P1]: row 2 selected, detail "
+                                  "mapping verified field by field");
+            break;
+        }
+        case 117: switchTo(1); break;
+        case 118: switchTo(3); break;
+        case 119: {
+            // P2: navigation alone must NOT invalidate the selection
+            if (selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario P (return): selectedRow "
+                                    "is %1, expected the preserved 2")
+                         .arg(selectedRowOf(roots)));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario P navigation return"),
+                *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario P2]: selection + detail "
+                                  "survived Transactions -> Dashboard -> "
+                                  "Replay -> Transactions");
+            break;
+        }
+        case 120: {
+            // P3: a FAILED replacement leaves the model untouched, so the
+            // selection and the detail must stay valid (B4 authority rule)
+            const QUrl missing = QUrl::fromLocalFile(
+                QStringLiteral("MODBUSLENS_NO_SUCH_DIR/scenario_p.mlog"));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, missing)))
+                fail(QStringLiteral("NAVFAIL scenario P: loadReplayFile() not "
+                                    "invokable"));
+            break;
+        }
+        case 121: {
+            if (rowCountOf(ctrl) != 4)
+                fail(QStringLiteral("NAVFAIL scenario P: the failed replacement "
+                                    "changed the model (%1 rows)")
+                         .arg(rowCountOf(ctrl)));
+            if (selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario P: the failed replacement "
+                                    "dropped the selection (%1)")
+                         .arg(selectedRowOf(roots)));
+            assertTransactionDetailMapping(
+                roots, QStringLiteral("scenario P failed replacement"),
+                *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario P3]: failed replacement kept "
+                                  "the model, the selection and the detail");
+            break;
+        }
+        case 122: {
+            // P4: a SUCCESSFUL replacement resets the model -> the selection
+            // is invalidated, never silently re-pointed at row 0. Switch back
+            // to the transactions page first so the post-reset UI state is
+            // asserted on the ACTIVE page.
+            switchTo(5);
+            const QUrl fixture = QUrl::fromLocalFile(
+                QStringLiteral(MODBUSLENS_BROADCAST_MLOG_PATH));
+            if (!QMetaObject::invokeMethod(ctrl, "loadReplayFile",
+                                           Q_ARG(QUrl, fixture)))
+                fail(QStringLiteral("NAVFAIL scenario P: loadReplayFile() not "
+                                    "invokable"));
+            break;
+        }
+        case 123: {
+            if (rowCountOf(ctrl) != 1)
+                fail(QStringLiteral("NAVFAIL scenario P: expected the broadcast "
+                                    "model (1 row), got %1")
+                         .arg(rowCountOf(ctrl)));
+            if (selectedRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario P: the model reset did "
+                                    "not clear the selection (row %1)")
+                         .arg(selectedRowOf(roots)));
+            if (!selectedEntryOf(roots).isEmpty())
+                fail(QStringLiteral("NAVFAIL scenario P: the detail snapshot "
+                                    "survived the model reset"));
+            assertTransactionDetailMapping(roots,
+                                           QStringLiteral("scenario P after "
+                                                          "reset"),
+                                           *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario P4]: successful replacement "
+                                  "reset the model and invalidated the "
+                                  "selection (no row-0 re-pick)");
+            break;
+        }
+        case 124: {
+            // P4 continued: an explicit selection of the ENR row keeps the
+            // neutral detail wording
+            auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
+            if (list)
+                list->setProperty("currentIndex", 0);
+            break;
+        }
+        case 125: {
+            if (selectedRowOf(roots) != 0)
+                fail(QStringLiteral("NAVFAIL scenario P: selectedRow is %1, "
+                                    "expected 0").arg(selectedRowOf(roots)));
+            assertTransactionDetailMapping(roots,
+                                           QStringLiteral("scenario P ENR"),
+                                           *failures);
+            const QVariant status =
+                selectedEntryOf(roots).value(QStringLiteral("statusText"));
+            if (status.toString() != QStringLiteral("预期无响应"))
+                fail(QStringLiteral("NAVFAIL scenario P: the ENR detail status "
+                                    "is %1").arg(status.toString()));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario P4 detail]: expectedNoResponse "
+                                  "kept its neutral wording");
+            break;
+        }
+        case 126: {
+            // P5: a new batch must not inherit the old selection
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("NAVFAIL scenario P: runDemoBatch() not "
+                                    "invokable"));
+            break;
+        }
+        case 127: {
+            if (rowCountOf(ctrl) != 4)
+                fail(QStringLiteral("NAVFAIL scenario P: the new demo batch did "
+                                    "not publish (rows=%1)")
+                         .arg(rowCountOf(ctrl)));
+            if (selectedRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario P: the old selection "
+                                    "leaked across batches (row %1)")
+                         .arg(selectedRowOf(roots)));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario P5]: a new batch reset the "
+                                  "model; the old selection did not leak");
+            if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+                fail(QStringLiteral("NAVFAIL scenario P: clearResults() not "
+                                    "invokable"));
+            break;
+        }
+        case 128: {
+            if (rowCountOf(ctrl) != 0)
+                fail(QStringLiteral("NAVFAIL scenario P: clearResults left %1 "
+                                    "rows").arg(rowCountOf(ctrl)));
+            if (selectedRowOf(roots) != -1)
+                fail(QStringLiteral("NAVFAIL scenario P: the cleared model kept "
+                                    "a selection"));
+            assertTransactionDetailMapping(roots,
+                                           QStringLiteral("scenario P cleared"),
+                                           *failures);
+            endScenario(QStringLiteral("P"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario P]: selection lifecycle "
+                                  "(initial -1 / navigation persists / "
+                                  "replacement invalidates / failed "
+                                  "replacement preserves / clear resets) "
+                                  "verified");
+            break;
+        }
+
         default:
             break;
         }
@@ -3487,7 +3854,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (failures->isEmpty())
             qInfo() << "NAV CHECK PASS (six workspaces; identity stable; "
                        "navigation changed no business values; scenarios "
-                       "A/B/D/E/F/G'/H/I/J/K/K'/L/N/O asserted; M deferred by "
+                       "A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P asserted; M deferred by "
                        "design)";
         else
             for (const QString &f : *failures)

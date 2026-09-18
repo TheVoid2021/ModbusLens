@@ -353,3 +353,14 @@
 - **Q：为什么迁移时要补 objectName？** A：原实现只给了 `id`（QML 内部引用够用），但 `id` 不是可寻址的观测契约——harness 只能按 objectName 找。补的名字是**中性、稳定**的（`transactionsTableHeader`/`transactionsList`/`transactionsEmptyHint`），并把旧名 `legacyTransactionsPane` 换成 `transactionsPane`，避免在新页里长期挂一个语义错误的旧名。
 - **Q：搬完页面却 segfault，最可能是什么？** A：新加的共享状态只声明、没赋值。本轮 `transactionsPtr` 只进了 lambda 的 capture 列表，stage 0 忘了捕获实例，第一次 `(*transactionsPtr)->isVisible()` 就崩了。教训：**指针型共享状态必须在同一处声明与赋值**（或统一写成一个 capture 回调），否则崩溃点离原因很远。
 - **Q：为什么用同一批次在三处（demo/broadcast/protocol）验证"行呈现"?** A：因为三种状态分别代表三种语义边界：demo 证明多行 + 行高规则；broadcast 证明 `ExpectedNoResponse` 是**中性结局**（不是成功、不是超时、不是失败）；protocol 证明**确定性 issue 详情与 status 是两条正交轴**（详情存在但状态不被改写）。三个 fixture 都是仓库既有的 tracked 样本，没有为测试新造数据。
+
+## 39. Post-T019 M9-D D3 条目（2026-09-18 追加）
+
+- **Q：选中一条事务后，为什么不能直接读 `ListView.currentItem`？** A：因为 `ListView` 会**虚拟化并回收**代理项——滚出视口的行会被销毁，`currentItem` 随之为 null 或指向另一个 index；把 detail 绑到它，滚动就可能让详情"消失/错行"。本轮改为在**选中的那一刻**从屏幕上的代理项拷贝出一份 page-local 快照（`captureEntry`），之后 detail 只依赖快照，与代理项生命周期解耦。
+- **Q：那快照会不会过期（stale detail）？** A：不会，而且这个结论是**从真实源码审计来的**，不是假设：`TransactionListModel` 只有 `setEntries()` 一个 mutation API，它走 `beginResetModel/endResetModel` **整批替换**，全模型**没有任何 `dataChanged`**，也没有 `rowsInserted/rowsRemoved`。也就是说"行内容在原地悄悄变化"这条路径**根本不存在**——唯一的变更就是整批替换，而整批替换必然 reset，reset 就清 selection。所以快照不可能滞后。
+- **Q：为什么选 page-local 快照，而不是给 Controller 加一个 `selectedTransaction()`？** A：因为那会把**呈现状态升级成权威状态**，让 Controller 多出一个"当前选中事务"的概念，而它并不参与协议分析；而且这会成为任务明确列出的 STOP 条件。page-local 方案零后端改动、可回滚、且是唯一的 owner。
+- **Q：selection 的"存续规则"为什么要分三种情况？** A："切页"和"换批次"是两种本质不同的事件。①切页（同一 model，只是隐藏/显示）→ 事实没变，选择应当**保留**；②成功的回放/批次替换 → model 整批 reset，旧行代表的那个事务已不一定存在 → **必须失效**，且**不能自动重选第 0 行**（那是伪装成 persistence 的撒谎行为）；③失败的回放替换 → `setEntries` 根本没被调用、model 没变 → 和①一样**保留**。这三条都由 Scenario P1–P5 在真实数据上断言过，不是文字承诺。
+- **Q：怎么保证 detail 里的"状态"和"详情"不会互相污染？** A：两条都直接来自 model 的独立 role（`statusText` / `issueText`），detail **只做拷贝不做解释**——没有拿 issueText 反推 severity 或改写状态文本；测试里逐字段比对 7 个键与 model role 相等，并额外断言状态文本不包含详情文本（这条只是**辅助** negative oracle，真正依据是 role 来源本身）。
+- **Q：键盘选择是怎么做的，自己写了状态机吗？** A：没有。`ListView.focus: true` 让 Qt 自己处理 Up/Down/Home/End，页面只监听 `onCurrentIndexChanged` 把它映射成 selection；鼠标是 delegate 根上的 `TapHandler` 设 `currentIndex`。两条输入因此**共轭到同一条** `selectRow` 路径，只有一份选中语义。诚实边界：本轮 harness 是直接设 `currentIndex` 驱动断言的（没有 Qt input synthesis），实机鼠标/键盘验证在 D6。
+- **Q：为什么测试里单选一行要"延后一拍"（`Qt.callLater`）？** A：因为虚拟化下目标行可能还没被实例化，`itemAtIndex(row)` 返回 null。这时记下 `pendingSelectionRow`，用 `Qt.callLater` 在下一轮事件循环重试；若仍拿不到就**明确清空 selection**（宁可不显示，也不显示错的）。这避免了"选中了一个不存在的行却渲染出上一个事务的详情"。
+- **Q：本轮踩到的坑里，哪一个最能说明 QML 的作用域陷阱？** A：delegate 里**嵌套子项**用 `ListView.view.currentIndex` 会报 `TypeError: Cannot read property 'currentIndex' of null`——`ListView.view` 这个 attached property 只挂在**委托根**上，子项上没有。修法是在委托根上定义 `rowSelected`，子项读 `parent.rowSelected`。另一个同源坑是 `onModelReset` 在启动期可能**早于** ListView 创建触发，此时 id 还是 null，必须加守卫。
