@@ -972,7 +972,156 @@ git diff --check       → PASS
 ## D4. Next（D3 Review HOLD 之后的追加）
 
 - **等待 M9-D D3 Re-review（用户）**；通过后进入 **D4 — Phase 1 已接受的 Diagnosis existence cue + 必要的 Transactions polish**（filters/search 继续 DEFER）。
-- **D5（Legacy retirement）**、**D6（geometry/evidence/manual）** 未开始。## 39. Next（Phase 1 之后的追加）
+
+
+## D3 Re-review = PASS（用户，2026-09-18，append-only）
+
+> 归档本轮 Review 结论与两条 P0 的**最终口径**。不重写 §R（correction）原文。
+
+- **M9-D D3 Re-review = PASS**；两个 HOLD P0 均已闭环。
+
+### P0-1 最终术语（冻结口径）
+
+**geometry coverage 未丢失**。最终术语：
+
+- **geometry steps = 16**（覆盖度口径）：**12 standard**（6 active × 2）+ **2 C4 targeted** + **2 D3 targeted**；
+- **printed geometry segments = 20**（测量次数口径）：diagnosis 的 2 个 step 各 sweep 3 个 tab 所致。
+- 两个口径**不是同一个计数**，报告时**必须分别写出**（该规约自此冻结）。
+
+### P0-2 最终口径
+
+deferred selection stale-callback 由**源码审计 + Scenario Q1/Q2 + mutation probe** 三重闭环（`RED_EXIT=1`："a STALE deferred selection resurrected into the replacement model (selectedRow=0)"）。
+
+**非阻塞 note（记录，非 correctness contract）**：`Qt.callLater` 对**同一函数引用**的 duplicate-call **合并（coalescing）**是 Qt 的调度行为，**不得冻结为正确性契约**。本轮正确性**实际依赖**的是：
+
+1. callback **执行时**读取最新 `pendingSelectionRow`；
+2. `modelReset` 清 pending；
+3. newer selection 使旧 request 无效（覆写 pending / 立即完成）。
+
+**不得把内部字段形式（如 `pendingSelectionRow` 的具体结构、generation 计数有无）冻结为 public contract**——Q 的断言读取的是**行为结果**（selection/detail/可见性），字段形式属于实现细节。
+
+- **D5（Legacy retirement）**、**D6（geometry/evidence/manual）** 未开始。
+
+## D4 — Diagnosis Existence Cue（Implementation Record，2026-09-18）
+
+### D4.0 D3 Re-review = PASS（用户）+ 归档
+
+- 见 §「D3 Re-review = PASS」：P0-1 最终术语冻结（**geometry steps = 16 / printed segments = 20**，12 standard + 2 C4 + 2 D3，两口径必须分别报告）；P0-2 由源码审计 + Scenario Q1/Q2 + mutation probe 闭环；**非阻塞 note**：`Qt.callLater` duplicate-call coalescing **不是 correctness contract**（正确性依赖：执行时读最新 pending / reset 清 pending / newer selection 使旧 request 无效），**不得把内部字段形式冻结为 public contract**。
+
+### D4.1 Mandatory Re-read（真实源码）
+
+- **T019 Phase 1 §14**：Diagnosis 关系裁定 = **方案 B**——Transactions 页只提供「当前 session 诊断可用」**存在性线索**，读 `hasBaselineDiagnosis`，复用 M9-C 冻结文案；**禁止** selected-transaction diagnosis（DEFER 新 milestone）、禁止把 Baseline 改成单条语义。
+- **Dashboard 先例（M9-C C4）**：`dashboardDiagnosisCue` Label = `visible: observedCount > 0`，两态文案冻结，`DS.textSecondary`，wrap，无 CTA。
+- **Controller 真实 diagnosis 状态**（`AnalysisController.h/.cpp`）：`Q_PROPERTY(bool hasBaselineDiagnosis NOTIFY diagnosisChanged)`（**唯一**允许的 authority）；`clearDiagnosis()`（Q_INVOKABLE，**diagnosis-only**：batch/rows/statistics/source 不动、batch revision 不变）；`invalidateAiForBatchChange()` → `clearDiagnosisState()`（每个 `setEntries` 发布点调用 ⇒ **新批次使 baseline 失效是 Controller 既有语义**）。
+- **Harness 现状**：Scenario L（baseline 持久化/失效）、Dashboard cue 断言（可见性 = observed>0、两态文案、读 authority）、D3 P/Q。**结论：复用既有 authority，不新建状态**。
+
+### D4.2 Cue Authority（§4）
+
+- **唯一 authority = `analysisController.hasBaselineDiagnosis`**（真实既有 property，名字与源码一致）。
+- 页面**未**从 baseline text 是否为空推断、**未**解析 finding 文本、**未**从 selected transaction 推断、**未**建立 page-local diagnosis copy、**未**新增任何 Controller/model property（`git diff --name-only` 证实 Controller 零 diff）。
+
+### D4.3 两态文案（§5）
+
+- **A 无 baseline**：`尚未运行基线诊断。`
+- **B 已有 baseline**：`已有基线诊断结果，可在诊断工作区查看。`
+- 与 Dashboard cue **逐字相同**（同一冻结语义的直接复用）；**未**抽新 DS component（只有一个消费者，无重复，§5 的抽象门槛未触发）。
+- **可见性规则同样复用 Dashboard 先例**：`visible: observedCount > 0`——无 session 时该页的空态提示（「暂无通信记录」/「选择一条事务查看详情」）是 owner，不叠加一条孤儿 cue。
+
+### D4.4 Non-command Boundary（§6）
+
+纯 `Label`：**无 Button、无 TapHandler、无 MouseArea、无 workspace index mutation、无任何 onClicked**；不可聚焦、不抢键盘焦点（§22）；点击不切 Diagnosis、不 runBaseline、不清诊断、不启动 AI/Agent。**Rail 仍是唯一 navigation authority**。
+
+### D4.5 Selection / Model Replacement Independence（§7/§8）
+
+- **Selection 独立**：cue 只绑定 Controller 属性；`selectedRow/-1、0、2` 时同 authority ⇒ 同 cue 状态（R3 机器实证：选中 row 2 后 `hasBaselineDiagnosis` 仍 false、cue 文本不变）。
+- **Model replacement 独立**：**页面未绑定任何 `modelReset → 清 cue` 逻辑**；cue 只反映 Controller 当前 state。新批次发布时 Controller 自己的 `invalidateAiForBatchChange` → `clearDiagnosisState` → `diagnosisChanged` ⇒ cue 跟随翻回 no-baseline（R13 实证；**不是页面自实现 invalidation**）。
+
+### D4.6 Diagnosis Lifecycle Freeze（§9/§15）
+
+- 进入/离开 Transactions 不 cancel AI、不 invalidate Agent、不清 baseline、不 run baseline、不切 Diagnosis tab——R4 在 Transactions→Diagnosis→Dashboard→Transactions 往返后 cue 与 authority 均不变（且 selection 也保留）。
+- **DiagnosisPage.qml zero diff**（`git diff --name-only` 证实）；cue 全部落点在 Transactions presentation。
+
+### D4.7 Dashboard Precedent Reuse（§10）
+
+只复用 **existence-cue semantic boundary**（两态文案 + `observedCount > 0` 可见性 + 只读 authority）；**未**复制 attention/distribution/statistics 任何 presentation，未复制 Dashboard 结构。
+
+### D4.8 Placement（§11）
+
+外层 ColumnLayout 的**最后一个子项**（detail 区之后、页底）：`Label { objectName: "transactionsDiagnosisCue"; Layout.fillWidth; visible: observedCount > 0; 两态文本; DS.textSecondary; wrap }`。**低层级辅助信息**：不进表头、不占视觉中心、不是 card。不可操作 ⇒ 不参与 focus 顺序（§22）；有明确文字 ⇒ 无颜色/图标单通道（§22）；**未**堆额外 Accessible metadata（§22）。
+
+### D4.9 1000×700 Budget（§12/§14）
+
+| 尺寸 | 状态 | transactionsList | transactionDetail | cue |
+| --- | --- | --- | --- | --- |
+| 1000×700 | 批次+选中 | **887×437**（≥216，余量 221） | 887×56 @y=500 | 887×**12** @y=564（detail 底 556 < 564，**无重叠**） |
+| 1024×720 | 批次+选中 | 911×457（D3 为 477） | 911×56 @y=520 | 911×12 @y=584 |
+| 1000×700 | 空（standard） | **887×501 —— 与 D3 逐值相同**（隐藏 cue **不占空间**，ColumnLayout 跳过 invisible 子项） | — | 不可见 |
+
+**budget 全部成立**：list ≥ 216、detail 完整、cue 完整、无 overlap、无 clipping；未缩小 row height、未压扁 detail、无硬编码 maximumHeight。
+
+### D4.10 Polish Decision（§13）
+
+按规程先取证（geometry dump 前后对比 + 断言 + 源码审计），四类允许修复的触发条件**全部不存在**：cue placement 未引发 spacing defect（空态逐值不变；批态仅 natural-height 占位）、D3 选中态无 visual collision（cue 在 detail 区块之下、由 layout spacing 分隔）、detail/cue 层级清晰（detail=行级字段、cue=session 级存在性、同 `DS.textSecondary`）、1000×700 无真实拥挤（list 余量 221px）。⇒ **No additional polish required**（§13 明示可接受）。未换颜色、未改 typography、未改列宽、未动 DS。
+
+### D4.11 RED → GREEN（§17）
+
+- **RED（D3 tree + D4 harness）**：`RED_EXIT=1`、`GEOFAIL: scenario R1 no baseline: transactionsDiagnosisCue not found`、`NAV SCENARIOS: … Q PASS, R NOT RUN`——**expected D4 missing feature**；P/Q 及全部既有场景未破坏。
+- **GREEN**：QML 落地后 `nav EXIT=0`，R 全 PASS。
+
+### D4.12 Scenario R（§21，stages 135–146，kLastStage=146，scenarioOrder + PASS 文案 + R）
+
+| 步骤 | 断言 | 结果 |
+| --- | --- | --- |
+| R1 | `runDemoBatch` → rows=4、authority=false、cue=「尚未运行基线诊断。」 | `NAV [scenario R1] … PASS` |
+| R3 | 选中 row 2（`currentIndex`）⇒ authority 仍 false、cue 文本不变 | `NAV [scenario R3] … unchanged` |
+| R2 | 真实 `runBaselineDiagnosis()` ⇒ authority=true、cue=「已有基线诊断结果，可在诊断工作区查看。」（**不解析 baseline text**，断言的是冻结整行） | `NAV [scenario R2] … available state` |
+| R4 | Transactions→Diagnosis(4)→Dashboard(1)→Transactions(5) ⇒ authority 不变、cue 不变、selection 仍 2 | `NAV [scenario R4] … same authoritative state` |
+| R5 | `clearDiagnosis()` ⇒ cue 回 no-baseline；**rows=4、observedCount=4、selection=2 不被误清**（17 个快照字段稳定） | `NAV [scenario R5] … untouched` |
+| R13 | baseline→`runDemoBatch`（批次/revision 变化）⇒ authority 翻 false、cue 跟随；rows=4 | `NAV [scenario R13] … by the Controller's own revision semantics` |
+
+清理：R 末尾 `clearResults()` 复位。**未把 P/Q 塞进 R 重写**；`clearDiagnosis` 复用 B5 冻结语义，**未**自造 Agent 对称清理。
+
+### D4.13 Geometry（§24）
+
+- **steps = 16（12 standard + 2 C4 targeted + 2 D3 targeted）不变**；**printed segments = 20**（diagnosis tab sweep，口径分列——Re-review 冻结的术语）。
+- **未新增 D4 targeted geometry pass**：cue 的几何断言（存在 / 会话时 nonzero+inside+不与 detail 重叠 / 空 session 时零占位）**并入既有 D3 targeted selected-detail 趟与 standard transactions 趟的断言集**（它们已携带批次/空态上下文），因此不产生新的分类。dump 名单新增 `transactionsDiagnosisCue`。
+- 判别依据：`cueExpected = observedCount > 0`（同 Dashboard 可见性规则），空态不判 nonzero（invisible 项在 ColumnLayout 下不参与分配）。
+
+### D4.14 Regression（§25/§26/§27）
+
+- **P1–P5 全 PASS**、**Q1/Q2 全 PASS**；cue 未触碰 `currentIndex/selectedEntry/pendingSelectionRow/modelReset` 生命周期（`TransactionsPage.qml` 的 diff 仅一个 Label 块）。
+- **ENR/ProtocolError/Unsupported/正交**：Scenario O/P 原文 PASS；cue 文本只依赖 `hasBaselineDiagnosis`，**不读** ENR/ProtocolError/attention/anomaly（§26：不同轴）。
+- **其它页 freeze**：Legacy/Dashboard/Communication/Replay/Diagnosis **zero diff**。
+
+### D4.15 Gates（§28）
+
+```text
+build（Ninja）→ 0 error（仅既有无害告警：2 处 unused variable，HEAD 已存在、非本轮引入）
+--qml-smoke-test      → EXIT=0；stderr 卫生 0
+--qml-nav-check       → EXIT=0；scenarios A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R 全 PASS；M DEFERRED BY DESIGN
+--qml-geometry-check  → EXIT=0；16 steps / 20 segments；0 GEOFAIL
+ctest --preset debug-local → 100% tests passed, 0 failed out of 26
+git diff --check      → PASS
+```
+
+### D4.16 Negative Scope（§29）
+
+无 filters/search、无 proxy model、无 selected-transaction diagnosis、无 finding count、无 baseline text 解析、无 AI explanation、无 Agent copy、无 Controller 新 property、无新 model role、无 Legacy retirement、无 StatisticsOverview 删除、无 Dashboard recent transactions、无 M10/M11/M12、无 style/token cleanup。
+
+### D4.17 Files Changed（§39 前置）
+
+`src/ui/qml/pages/TransactionsPage.qml`（+1 个 cue Label 块，含边界注释）、`src/main.cpp`（`assertTransactionsDiagnosisCue` helper + Scenario R stages 135–146 + geometry cue 断言 + dump 名单 + kLastStage/scenarioOrder/PASS 文案）；docs。**Controller / TransactionListModel / Core / DiagnosisPage / 其它页 / tests / CMake / deploy 零 diff。**
+
+### D4.18 Result
+
+- D4 完成：**存在性 cue 以最小形态落地**（一个纯文本 Label，两态冻结文案，authority = 既有 `hasBaselineDiagnosis`），selection/批次/导航三重独立由 Scenario R 机器实证；**无 polish 需求**；filters 继续 DEFER。
+- **Manual Review = PENDING**（视觉 + 鼠标/键盘实机在 **D6**）；verified LKGC **不变 = `bc754be`**；未 push。
+
+## D5. Next
+
+- **M9-D D4 Review（用户）**；通过后 **D5 — Legacy retirement**（替换 index 0、零 index churn、紧凑重排回 6 项/设备@5）。
+- **D6（deploy/evidence/manual candidate）** 未开始；M9-E/F 未开始。
+## 39. Next（Phase 1 之后的追加）
 
 - **M9-D D1 Review（用户）** → **D2** → D3 → D4（默认不做）→ D5 → D6；每阶段独立 Review/提交。
 - **M9-E / M9-F 未开始**；M9 整体 IN PROGRESS。

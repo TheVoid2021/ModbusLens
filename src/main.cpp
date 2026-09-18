@@ -207,6 +207,56 @@ bool requestTransactionSelection(const QList<QObject *> &roots, int row)
     return QMetaObject::invokeMethod(page, "selectRow", Q_ARG(QVariant, row));
 }
 
+// M9-D D4: the Transactions diagnosis EXISTENCE cue. Same semantic boundary
+// as the M9-C C4 Dashboard cue — one line that mirrors the Controller's
+// authoritative hasBaselineDiagnosis. Never findings, never the baseline
+// text, never selection- or outcome-derived. The visibility rule follows the
+// Dashboard precedent (a session with no observed results has no cue).
+void assertTransactionsDiagnosisCue(const QList<QObject *> &roots,
+                                    const QString &contextLabel,
+                                    QStringList &failures)
+{
+    auto fail = [&failures, &contextLabel](const QString &message) {
+        failures << contextLabel + QStringLiteral(": ") + message;
+    };
+    auto *ctrl = roots.value(0)
+                     ? roots.value(0)->findChild<QObject *>(
+                           QStringLiteral("analysisController"))
+                     : nullptr;
+    if (!ctrl) {
+        fail(QStringLiteral("analysisController not found"));
+        return;
+    }
+    auto *cue =
+        findNamedItem(roots, QStringLiteral("transactionsDiagnosisCue"));
+    if (!cue) {
+        fail(QStringLiteral("transactionsDiagnosisCue not found"));
+        return;
+    }
+    const bool hasBaseline = ctrl->property("hasBaselineDiagnosis").toBool();
+    const int observed = ctrl->property("observedCount").toInt();
+    const bool shouldBeVisible = observed > 0;
+    if (cue->property("visible").toBool() != shouldBeVisible)
+        fail(QStringLiteral("cue visibility property %1 does not match "
+                            "observed %2")
+                 .arg(cue->property("visible").toBool())
+                 .arg(observed));
+    auto *page = findNamedItem(roots, QStringLiteral("transactionsPage"));
+    if (page && page->isVisible() && shouldBeVisible && !cue->isVisible())
+        fail(QStringLiteral("the diagnosis cue is not visible on the active "
+                            "transactions page"));
+    const QString expected =
+        hasBaseline
+            ? QStringLiteral("已有基线诊断结果，可在诊断工作区查看。")
+            : QStringLiteral("尚未运行基线诊断。");
+    const QString text = cue->property("text").toString();
+    if (text != expected)
+        fail(QStringLiteral("cue wording — got %1, expected %2 "
+                            "(hasBaselineDiagnosis=%3)")
+                 .arg(text, expected)
+                 .arg(hasBaseline));
+}
+
 void assertTransactionDetailMapping(const QList<QObject *> &roots,
                                     const QString &contextLabel,
                                     QStringList &failures)
@@ -1122,6 +1172,34 @@ QStringList runGeometryAssertions(const QList<QObject *> &roots,
         if (txList && txList->height() + 0.5 < 6 * 36)
             fail(QStringLiteral("transactionsList viewport %1 cannot hold six "
                                 "36px rows").arg(txList->height()));
+        // M9-D D4: the diagnosis EXISTENCE cue sits as a natural-height line
+        // BELOW the detail region. With a session present it must lay out
+        // completely (nonzero, inside the page, never overlapping the detail
+        // block); without a session it owns no space — the empty hints own
+        // that state, matching the Dashboard cue's visibility rule.
+        auto *txCue =
+            findNamedItem(roots, QStringLiteral("transactionsDiagnosisCue"));
+        if (!txCue)
+            fail(QStringLiteral("transactionsDiagnosisCue not found"));
+        else {
+            auto *cueCtrl =
+                roots.value(0)
+                    ? roots.value(0)->findChild<QObject *>(
+                          QStringLiteral("analysisController"))
+                    : nullptr;
+            const bool cueExpected =
+                cueCtrl && cueCtrl->property("observedCount").toInt() > 0;
+            if (cueExpected) {
+                nonzero(txCue, QStringLiteral("transactionsDiagnosisCue"));
+                insidePage(txCue, QStringLiteral("transactionsDiagnosisCue"));
+                if (txDetail
+                    && txCue->mapToItem(txPage, QPointF(0, 0)).y() + 0.5
+                           < txDetail->mapToItem(txPage, QPointF(0, 0)).y()
+                                 + txDetail->height())
+                    fail(QStringLiteral("transactionsDiagnosisCue overlaps the "
+                                        "transaction detail region"));
+            }
+        }
         assertTransactionDetailMapping(roots, contextLabel, failures);
 
         // empty state visibility follows the model row count
@@ -1708,7 +1786,8 @@ QString dumpGeometryTable(const QList<QObject *> &roots, const QString &contextL
               << QStringLiteral("transactionDetail")
               << QStringLiteral("transactionDetailEmpty")
               << QStringLiteral("transactionDetailStatus")
-              << QStringLiteral("transactionDetailIssue");
+              << QStringLiteral("transactionDetailIssue")
+              << QStringLiteral("transactionsDiagnosisCue");
     QStringList lines;
     lines << QStringLiteral("GEOMETRY [%1]:").arg(contextLabel);
     for (const QString &name : names) {
@@ -2199,7 +2278,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto fail = [failures](const QString &m) { *failures << m; };
 
     const int settleMs = 100;
-    constexpr int kLastStage = 134;
+    constexpr int kLastStage = 146;
 
     // Shared state across stages.
     auto legacyPtr = std::make_shared<QQuickItem *>(nullptr);
@@ -2283,6 +2362,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         QStringLiteral("I"),   QStringLiteral("J"),  QStringLiteral("K"),
         QStringLiteral("K'"),  QStringLiteral("L"),  QStringLiteral("N"),
         QStringLiteral("O"),   QStringLiteral("P"),  QStringLiteral("Q"),
+        QStringLiteral("R"),
     };
     auto scenarioStart = std::make_shared<QMap<QString, int>>();
     auto scenarioEnd = std::make_shared<QMap<QString, int>>();
@@ -3996,6 +4076,179 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
 
+        // ---- M9-D D4 Scenario R: the Transactions diagnosis EXISTENCE cue.
+        // Authority = the Controller's real hasBaselineDiagnosis (NO new
+        // property, no page-local copy, no baseline-text parsing). The cue is
+        // a pure text line: it must not respond to row selection, must not
+        // survive a batch publication (the Controller's own revision
+        // semantics invalidate the baseline), and clearDiagnosis must return
+        // it to the no-baseline state WITHOUT touching rows, statistics or
+        // the replay source.
+        case 135: {
+            beginScenario(QStringLiteral("R"));
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("NAVFAIL scenario R: runDemoBatch() not "
+                                    "invokable"));
+            switchTo(5);
+            break;
+        }
+        case 136: {
+            // R1: a published session WITHOUT a baseline -> no-baseline cue.
+            if (rowCountOf(ctrl) != 4)
+                fail(QStringLiteral("NAVFAIL scenario R: expected the "
+                                    "deterministic 4-transaction batch, got %1")
+                         .arg(rowCountOf(ctrl)));
+            if (ctrl->property("hasBaselineDiagnosis").toBool())
+                fail(QStringLiteral("NAVFAIL scenario R: a baseline survived "
+                                    "the batch publication — the Controller "
+                                    "revision semantics regressed"));
+            assertTransactionsDiagnosisCue(
+                roots, QStringLiteral("scenario R1 no baseline"), *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario R1]: a published session "
+                                  "without a baseline shows the no-baseline "
+                                  "cue");
+            break;
+        }
+        case 137: {
+            // R3 setup: select a row through the ListView's own currentIndex.
+            auto *list = findNamedItem(roots, QStringLiteral("transactionsList"));
+            if (!list)
+                fail(QStringLiteral("NAVFAIL scenario R: transactionsList not "
+                                    "found"));
+            else
+                list->setProperty("currentIndex", 2);
+            break;
+        }
+        case 138: {
+            // R3: the selection MUST NOT move the cue (different axes).
+            if (selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario R: selectedRow is %1, "
+                                    "expected 2").arg(selectedRowOf(roots)));
+            if (ctrl->property("hasBaselineDiagnosis").toBool())
+                fail(QStringLiteral("NAVFAIL scenario R: selecting a row "
+                                    "changed the diagnosis authority"));
+            assertTransactionsDiagnosisCue(
+                roots, QStringLiteral("scenario R3 selection independence"),
+                *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario R3]: row 2 selected — the cue "
+                                  "state is unchanged (existence is not "
+                                  "selection-derived)");
+            break;
+        }
+        case 139: {
+            // R2: the real Controller command flips the authority.
+            if (!QMetaObject::invokeMethod(ctrl, "runBaselineDiagnosis"))
+                fail(QStringLiteral("NAVFAIL scenario R: runBaselineDiagnosis() "
+                                    "not invokable"));
+            break;
+        }
+        case 140: {
+            if (!ctrl->property("hasBaselineDiagnosis").toBool())
+                fail(QStringLiteral("NAVFAIL scenario R: runBaselineDiagnosis "
+                                    "did not set the authority"));
+            assertTransactionsDiagnosisCue(
+                roots, QStringLiteral("scenario R2 baseline available"),
+                *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario R2]: after the real baseline "
+                                  "run the cue shows the available state "
+                                  "(findings text is never parsed or shown)");
+            break;
+        }
+        case 141: switchTo(4); break;
+        case 142: switchTo(1); break;
+        case 143: {
+            // R4: navigation alone must not move the cue (hide/show is not a
+            // diagnosis lifecycle event — B5 freeze).
+            switchTo(5);
+            if (!ctrl->property("hasBaselineDiagnosis").toBool())
+                fail(QStringLiteral("NAVFAIL scenario R: navigation cleared the "
+                                    "baseline authority"));
+            if (selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario R: navigation cleared the "
+                                    "selection (unrelated regression)"));
+            assertTransactionsDiagnosisCue(
+                roots, QStringLiteral("scenario R4 navigation persistence"),
+                *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario R4]: Transactions -> Diagnosis "
+                                  "-> Dashboard -> Transactions kept the cue on "
+                                  "the same authoritative state");
+            break;
+        }
+        case 144: {
+            // R5: the frozen diagnosis-only clear. Rows, statistics, source
+            // and the selection stay; only the diagnosis axis resets.
+            const QMap<QString, QVariant> before = takeSnapshot(ctrl);
+            if (!QMetaObject::invokeMethod(ctrl, "clearDiagnosis"))
+                fail(QStringLiteral("NAVFAIL scenario R: clearDiagnosis() not "
+                                    "invokable"));
+            if (rowCountOf(ctrl) != 4)
+                fail(QStringLiteral("NAVFAIL scenario R: clearDiagnosis touched "
+                                    "the model (%1 rows)")
+                         .arg(rowCountOf(ctrl)));
+            if (ctrl->property("observedCount").toInt() != 4)
+                fail(QStringLiteral("NAVFAIL scenario R: clearDiagnosis touched "
+                                    "the statistics"));
+            if (selectedRowOf(roots) != 2)
+                fail(QStringLiteral("NAVFAIL scenario R: clearDiagnosis touched "
+                                    "the selection"));
+            assertTransactionsDiagnosisCue(
+                roots, QStringLiteral("scenario R5 after clearDiagnosis"),
+                *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario R5]: clearDiagnosis returned "
+                                  "the cue to no-baseline; rows/statistics/"
+                                  "source untouched (%1 snapshot fields "
+                                  "stable)")
+                     .arg(before.size());
+            break;
+        }
+        case 145: {
+            // R13 (revision invalidation, Controller semantics): a baseline on
+            // an authoritative batch change does NOT survive — and the page
+            // implements NO invalidation of its own.
+            if (!QMetaObject::invokeMethod(ctrl, "runBaselineDiagnosis"))
+                fail(QStringLiteral("NAVFAIL scenario R: runBaselineDiagnosis() "
+                                    "not invokable (revision probe)"));
+            break;
+        }
+        case 146: {
+            if (!ctrl->property("hasBaselineDiagnosis").toBool())
+                fail(QStringLiteral("NAVFAIL scenario R: the revision probe "
+                                    "baseline did not establish"));
+            if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+                fail(QStringLiteral("NAVFAIL scenario R: runDemoBatch() not "
+                                    "invokable (revision probe)"));
+            if (rowCountOf(ctrl) != 4)
+                fail(QStringLiteral("NAVFAIL scenario R: the replacement batch "
+                                    "left %1 rows").arg(rowCountOf(ctrl)));
+            if (ctrl->property("hasBaselineDiagnosis").toBool())
+                fail(QStringLiteral("NAVFAIL scenario R: a baseline survived an "
+                                    "authoritative batch change — the cue must "
+                                    "follow the Controller, not the page"));
+            assertTransactionsDiagnosisCue(
+                roots, QStringLiteral("scenario R13 revision invalidation"),
+                *failures);
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario R13]: a new batch invalidates "
+                                  "the baseline by the Controller's own "
+                                  "revision semantics; the cue follows");
+            if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+                fail(QStringLiteral("NAVFAIL scenario R: clearResults() not "
+                                    "invokable"));
+            endScenario(QStringLiteral("R"));
+            qInfo().noquote()
+                << QStringLiteral("NAV [scenario R]: diagnosis existence cue "
+                                  "verified (no-baseline / available / "
+                                  "selection independence / navigation "
+                                  "persistence / diagnosis-only clear / "
+                                  "revision invalidation)");
+            break;
+        }
+
         default:
             break;
         }
@@ -4056,8 +4309,8 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (failures->isEmpty())
             qInfo() << "NAV CHECK PASS (six workspaces; identity stable; "
                        "navigation changed no business values; scenarios "
-                       "A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q asserted; M deferred "
-                       "by design)";
+                       "A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R asserted; M "
+                       "deferred by design)";
         else
             for (const QString &f : *failures)
                 qWarning().noquote() << "GEOFAIL:" << f;

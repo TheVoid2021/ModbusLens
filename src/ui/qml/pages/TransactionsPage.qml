@@ -463,7 +463,29 @@ Item {
                     elide: Text.ElideRight
                 }
             }
+
+            // ------------------------------------------------------------------
+            // M9-D D4 diagnosis EXISTENCE cue (T019 §14 option B): one text
+            // line mirroring the Controller's authoritative
+            // hasBaselineDiagnosis — the same semantic boundary and frozen
+            // wording as the M9-C C4 Dashboard cue. Pure presentation: no
+            // button, no click target, never findings or baseline text, and
+            // never derived from the selected transaction (existence and
+            // transaction outcome are different axes). Visibility follows the
+            // Dashboard precedent: a session with no observed results owns
+            // its own empty hints, so no cue. Navigation stays on the rail.
+            // ------------------------------------------------------------------
+            Label {
+                objectName: "transactionsDiagnosisCue"
+                Layout.fillWidth: true
+                visible: analysisController.observedCount > 0
+                text: analysisController.hasBaselineDiagnosis
+                      ? qsTr("已有基线诊断结果，可在诊断工作区查看。")
+                      : qsTr("尚未运行基线诊断。")
+                color: DS.textSecondary
+                wrapMode: Text.Wrap
+            }
         }
     }
-    }
+}
 }
