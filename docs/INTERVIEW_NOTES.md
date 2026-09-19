@@ -505,3 +505,12 @@
 - **Q：Debug exe 的"348.7 MB"是怎么回事？** A：**转写错误**——我在报告里把 34,870,210 写成了 348,702,210（多敲一位数字）。实测：build/debug 与 deployed 均为 **35,066,016 bytes ≈ 35.07 MB**，与 D6 的 34,782,210 差值是 E1/E2/E3 正常演进（键盘修复 + 图标资源嵌入）。教训：**尺寸/计数类数字必须从工具输出原样转贴，不凭记忆转写**；且 348 MB 这种量级如果真出现，和 Debug 构建的合理范围差了一个数量级，本应在写入时就触发怀疑。
 - **Q：probe 为什么直接 import make_package 调函数，而不是每次跑完整脚本？** A：分层——完整脚本是**集成证据**（E3 主报告已有全绿记录）；直接调用 gate 函数是**单元级注入证据**（可以精确制造"只有这一个条件坏"的输入，其余全部正常）。两者互补：集成证明"真包能过"，注入证明"坏包会被拦"。§5 允许这种 maintainer-script refactor，且成功路径 contract 未变。
 - **Q：probes 会成为构建依赖吗？** A：不会。probes 全部在 ignored `build/e3-failure-probes/`，runner 在 `build/e3_probe_runner.py`——两者都不进 git、不被 CMake 引用（build.ninja 零 generator/python 调用引用）。maintainer 想重跑就 `python build/e3_probe_runner.py`。
+
+## 54. Post-T020 M9-E E4 条目（2026-09-19 追加）
+
+- **Q：为什么 E4 要从 committed HEAD 把 Release 完整重新构建一遍，而不复用 E3 的 ZIP？** A：因为 E3 correction 之后仓库又前进了一次，"最终 candidate"必须可追溯为**当前 HEAD 的确定性产物**。E4 删除了整个 build/release 从零 configure/build/打包——ZIP 的 sha256 与 E3 时不同正是这种可追溯性的体现（输入树变了）。复用旧 ZIP 等于让 candidate 脱离它的 source provenance。
+- **Q：为什么人工验收坚持要求解压到 repo/build 之外的新目录？** A：portable 的承诺是"不需要仓库邻接文件"。如果直接在 build 树里跑，Windows 的 DLL 搜索、Qt 资源解析都有可能"恰好"借用了仓库邻接的文件，掩盖真正的可移植性缺陷。解压到全新目录 + 严格最小 PATH 双重隔离后，能启动才能证明包自包含。
+- **Q：unsigned 的安全提示算不算 packaging bug？** A：不算。签名在 Phase 1 已裁定为 release/security workflow 的事（无证书、无管线），E3/E4 的 artifact 定性就是 unsigned local candidate。Windows 对未签名 exe 的提示是预期行为，如实记录即可；只有**无法启动**才升级为 BLOCKER。反过来，docs 也不承诺"signed"——承诺必须与证据一致。
+- **Q：用户在 UI 里看不到 2.0.0，怎么确认版本？** A：本应用当前没有 About/version UI surface（E4 范围里明确不加），版本确认走 **PE 层**：Explorer 属性→详细信息显示 File version/Product version = 2.0.0，配合打包脚本的 authority 交叉验证。UI 上显示版本是未来的 About surface 决策，不是 packaging 的必要条件。
+- **Q：为什么 manual 清单里的 Demo/sample 只要求"快速 sanity"，而 M9-D 当时验收了全部场景？** A：因为 E4 验收对象是**这个包**，不是产品功能本身。Release 与此前人工验收过的 Debug 候选共享同一 committed 源，且 Release 的三模式/ctest/identity 已全绿；人工部分只需确认"换了一个构建配置、换了一个目录之后，核心用户路径（启动/演示/样本/图标/身份）依然成立"。重复全部 A–T 是没有信息量的仪式。
+- **Q：包里那个 StatisticsOverview.qml 一个人都不用，为什么还要验证它在包里？** A：因为"零消费者"是**源码事实**，"保留"是**已登记的决策**——两者的载体就是这个文件还在 QML 模块里。如果某次打包清理顺手把它删了，未来的 ownership decision 就失去了前提，而且违反"extend, do not silently redefine"。E4 的机器检查明确包含"StatisticsOverview retained"这一条。
