@@ -2016,3 +2016,105 @@ ZIP 不入 Git。
 未完成项（如实记录）：**Replay「已加载 demo_v1.mlog」状态未被程序化驱动**（只拍到对话框打开、sample 列出）；
 该步骤保留在人工清单第 11 项，由人工在真实 UI 中完成。
 **Final Visual Review = WAITING FOR USER；Manual Final Acceptance = WAITING FOR USER。**
+
+## F2 Narrow Reopen — Transactions ListView Focus Ring Inset Micro-Correction（2026-09-19，append-only，behavior-bearing）
+
+> 用户在最终 closure 前提出一个**明确且非常窄**的视觉微调：Transactions ListView 的 focus ring
+> **粗细 / 颜色 / 透明度 / 视觉权重已满意**，唯一问题是**四条边整体略微缩得太里面**，希望四边向外扩一点点，
+> 但**绝不能**重新变成粗 / 重 / 抢眼 / 压过 selected row。本轮**不重新设计 focus visual**。
+
+### FN0. Narrow scope（只重开一件事）
+
+```text
+只重开：Transactions ListView focus ring 的 inset。
+不重开：keyboard focus semantics / selection semantics / accessibility architecture /
+        NavigationRail / Diagnosis TabButton / AppButton / ComboBox。
+用户视觉验收口径（5 条）：① ring 仍能看见 ② 四边确实比之前舒展 ③ selected row 仍是第一视觉
+                          ④ 左侧 selection bar 完全没有被覆盖 ⑤ 没有重新产生「大蓝框抢眼」问题。
+```
+
+### FN1. 本轮变更前的源码事实（实读，不引历史报告）
+
+```text
+src/ui/qml/pages/TransactionsPage.qml → transactionsListFocusRing
+  anchors.fill: parent ; anchors.margins: **3** ; color: transparent
+  border.color: Qt.rgba(DS.primary…, 0.5) ; border.width: **1**
+  visible: transactionList.activeFocus || (currentItem !== null && currentItem.activeFocus)
+  parent = 包裹 ListView 的 Item（ListView anchors.fill 同一 Item ⇒ ring 边界 == 列表视口）
+selected row 的 selection indicator（delegate 内）：
+  Rectangle { visible: parent.rowSelected; width: **2**; height: parent.height; radius: 1; color: DS.primary }
+  ⇒ 占据列表左内缘前 2 个逻辑像素
+harness：FJ **不**断言 margins（仅 visible / border.width==1 / alpha<=0.6）⇒ 本轮不需要改断言。
+```
+
+### FN2. 精确微调（只有这一处）
+
+```text
+anchors.margins: **3 → 2**（四边各向外 1 logical px）。注释同步说明新的像素关系。
+未改：border.width（1）/ border.color 与 alpha（DS.primary @ 0.5）/ radius / visible 条件 /
+      ListView geometry / row geometry / selection 样式 / detail 逻辑。
+```
+
+### FN3. 像素级验证（对比上一版 accepted 截图，同一行、同一列）
+
+| 边 / 元素 | 上一版（margin 3） | 本轮（margin 2） | 变化 |
+| --- | --- | --- | --- |
+| ring 上边线 y | 199 | **197** | 向外 ↑ |
+| ring 下边线 y | 719 | **720** | 向外 ↓ |
+| ring 左边线 x | 110 | **109** | 向外 ← |
+| ring 右边线 x | 1240 | **1241** | 向外 → |
+| selected row 左侧 indicator 像素（x=106/107/108） | (97,145,200)/(47,111,183)/(96,145,200) | **完全相同** | **零变化** |
+| ring 线相对 indicator 的位置 | 严格在其右侧 | **严格在其右侧**（109 > 108） | 仍不重叠 |
+| ring 线渲染形态 | 单像素、淡（≈(146,179,217)） | 同左（同样单像素、同色） | 权重不变 |
+
+```text
+结论：四边均向外扩（1–2 物理像素，125% DPI 下的取整），selection indicator **逐字节不变**且仍被完全
+保留（2 逻辑像素、饱和 DS.primary）；ring 仍是 1px 低透明度细线，未变粗/变深。
+注意（如实记录）：margin=2 时 ring 线与 indicator 的**外缘**在物理像素上相邻（109 与 108 相接），
+即"贴着但不覆盖"。这是向外扩的必然边界，是否可接受由用户视觉 Review 判定；本轮**不**自动继续改到 margin=1。
+```
+
+### FN4. 回归
+
+```text
+Debug   : --qml-focus-check PASS（FA/FA2/FJ/FB×5/FC/FD·FE×5/FF/FK/FL/FG/FH/FI；FJ = 1px / alpha 0.500008 不变）
+          --qml-geometry-check PASS（**18 segments · 0 GEOFAIL · rail 恒 56**）
+          --qml-nav-check PASS（A–T，M DEFERRED）/ --qml-smoke-test PASS（identity 2.0.0）
+          full ctest **27/27**
+Release : configure/build OK → ctest **27/27** → --qml-focus-check PASS → --qml-geometry-check PASS
+键盘功能回归：Tab 仍能进入 ListView、进入时 currentIndex 仍为 -1（无 auto-select）、
+              Up/Down/Home/End 仍走 currentIndex→selectRow、Tab/Shift+Tab 仍能合理离开（FA/FA2/FI/FG/FH 全 PASS）。
+```
+
+### FN5. Correction 截图（**不是** packaged F2 evidence）
+
+```text
+docs/assets/screenshots/m9f-f2-transactions-list-focus-inset-correction-1024x720.png
+  来源：**本轮修正后的 Release build**（build/release；本轮未重新打包 ⇒ **不得**冒充 final packaged F2 evidence）
+  采集：键盘-only 导航 + PrintWindow（与遮挡无关）→ 裁客户区（125% DPI 偏移 9/38/9）→ 1280×900
+  state oracle：workspace=Transactions；list 键盘-only 进入（第 6 次 Tab）；至少一行 selected（END）；
+                detail pane populated = True
+  画面含：selected row + 左侧 selection bar + 新的淡 focus ring（四边比上一版略向外）
+  完整性：1280×900、landscape、非空白（313 色 / 900 采样）、sha256[:16] = 2a0756a4c6963f97
+```
+
+### FN6. Candidate 边界（旧 ZIP SUPERSEDED）
+
+```text
+本轮为 **behavior-bearing QML commit**（visual behavior 实际变化，即使只有 margin 3→2，也不是 docs-only）。
+⇒ 基于 `56d71c8` 生成的 F2 ZIP（**40,632,401 B / sha256 2065e38a365a7988d853a32da992a13d9490852c825cc08a798653899f02ec09**）
+  **标记 SUPERSEDED**，不得继续作为 final closure candidate。
+⇒ 此前针对该 package 的 acceptance evidence **历史上仍然有效**（不抹掉历史 PASS），但
+  **final candidate = REOPENED / superseded by this requested visual change**。
+⇒ 新的最终 ZIP 与最终 Manual Acceptance **等本轮视觉 Review PASS 后再执行**（避免反复打包）。
+```
+
+### FN7. Git / 边界
+
+```text
+commit：`M9-F F2: refine Transactions focus ring inset`（behavior-bearing；未 amend fb394bb、未 rebase、未 push）
+未改：NavigationRail.qml / DiagnosisPage TabButton focus / AppButton / CommunicationPage ComboBox（git diff 证明零改动）
+冻结：package/version/icon/README/manifest/ZIP 模型、packaging 脚本（本轮未重新打包）
+**verified LKGC 保持 `4cb6e9d`**（不推进）；未开始 F3；未创建 v2.0.0 tag。
+M9-F 仍 **IN PROGRESS**（未写 M9 COMPLETE）。
+Transactions Focus Ring Visual Review = **WAITING FOR USER**。

@@ -394,16 +394,20 @@ Item {
                         // accent bar, so the two states competed — and it
                         // framed a large empty area, adding noise.
                         // The focus channel must be clearly present but
-                        // SUBORDINATE: 1px of DS.primary at half opacity,
-                        // inset 3px so it never paints over the row's left
-                        // selection indicator. Selection stays the primary
-                        // visual state; this only answers "does the list hold
-                        // keyboard focus". Geometry, row height, selection
+                        // SUBORDINATE: 1px of DS.primary at half opacity.
+                        // F2 inset micro-correction (user visual review): the
+                        // ring sat slightly too far inside, so the four edges
+                        // move out by 1 logical px — 3 -> 2. At 2px the 1px
+                        // line occupies [2,3) while the selected row's
+                        // selection indicator occupies [0,2), so the two still
+                        // never touch; weight, colour, alpha and the visible
+                        // condition are unchanged, and selection stays the
+                        // primary visual state. Geometry, row height, selection
                         // style and the detail logic are untouched.
                         Rectangle {
                             objectName: "transactionsListFocusRing"
                             anchors.fill: parent
-                            anchors.margins: 3
+                            anchors.margins: 2
                             color: "transparent"
                             border.color: Qt.rgba(DS.primary.r, DS.primary.g,
                                                   DS.primary.b, 0.5)
