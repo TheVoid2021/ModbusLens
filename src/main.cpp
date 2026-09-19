@@ -3,6 +3,9 @@
 #include <QDir>
 #include <QImage>
 #include <QKeyEvent>
+
+// M9-E E1: generated version interface (configure_file output, build tree only).
+#include "modbuslens_version.h"
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -5553,7 +5556,12 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("ModbusLens"));
     QCoreApplication::setApplicationName(QStringLiteral("ModbusLens"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    // M9-E E1: derived from the CMake project VERSION authority via the
+    // generated header (the hardcoded 0.1.0 literal is gone).
+    QCoreApplication::setApplicationVersion(
+        QStringLiteral(MODBUSLENS_VERSION_STRING));
+    // M9-E E1: the frozen product name as the user-visible display name.
+    QGuiApplication::setApplicationDisplayName(QStringLiteral("ModbusLens"));
 
     // T013 Phase E: the Windows native style ignores our QML control
     // customization (TabButton/ScrollBar background & contentItem) — switch
@@ -5594,6 +5602,74 @@ int main(int argc, char *argv[])
     // Diagnostic mode for CTest (see T008 Part A): load the real QML module,
     // verify it instantiates, then exit without entering the event loop.
     if (app.arguments().contains(QStringLiteral("--qml-smoke-test"))) {
+        // M9-E E1: identity/version oracle. applicationVersion must be
+        // DERIVED from the CMake project VERSION authority via the generated
+        // header (the hardcoded 0.1.0 literal is gone); applicationDisplayName
+        // is the frozen product name; organizationDomain stays unset (no
+        // authority - it must never be invented).
+        const auto smokeIdentityFail = [](const QString &what,
+                                          const QString &actual,
+                                          const QString &expected) {
+            qWarning().noquote()
+                << QStringLiteral("SMOKEFAIL identity: %1 = '%2', expected "
+                                  "'%3' (expected E1 missing implementation)")
+                       .arg(what,
+                            actual.isEmpty() ? QStringLiteral("<empty>")
+                                             : actual,
+                            expected);
+        };
+        if (QCoreApplication::applicationName() != QStringLiteral("ModbusLens")) {
+            smokeIdentityFail(QStringLiteral("applicationName"),
+                              QCoreApplication::applicationName(),
+                              QStringLiteral("ModbusLens"));
+            return 1;
+        }
+        if (QGuiApplication::applicationDisplayName()
+            != QStringLiteral("ModbusLens")) {
+            smokeIdentityFail(QStringLiteral("applicationDisplayName"),
+                              QGuiApplication::applicationDisplayName(),
+                              QStringLiteral("ModbusLens"));
+            return 1;
+        }
+        if (QCoreApplication::applicationVersion() != QStringLiteral("2.0.0")) {
+            smokeIdentityFail(QStringLiteral("applicationVersion"),
+                              QCoreApplication::applicationVersion(),
+                              QStringLiteral("2.0.0"));
+            return 1;
+        }
+        if (QCoreApplication::organizationName() != QStringLiteral("ModbusLens")) {
+            smokeIdentityFail(QStringLiteral("organizationName"),
+                              QCoreApplication::organizationName(),
+                              QStringLiteral("ModbusLens"));
+            return 1;
+        }
+        if (!QCoreApplication::organizationDomain().isEmpty()) {
+            smokeIdentityFail(QStringLiteral("organizationDomain"),
+                              QCoreApplication::organizationDomain(),
+                              QStringLiteral("<unset>"));
+            return 1;
+        }
+        QObject *identityRoot = engine.rootObjects().value(0);
+        const QString windowTitle =
+            identityRoot ? identityRoot->property("title").toString()
+                         : QString();
+        if (windowTitle != QStringLiteral("ModbusLens")) {
+            qWarning().noquote()
+                << QStringLiteral("SMOKEFAIL identity: window title = '%1', "
+                                  "expected 'ModbusLens' (E1 freezes the title; "
+                                  "no version/source suffix)")
+                       .arg(windowTitle);
+            return 1;
+        }
+        qInfo().noquote()
+            << QStringLiteral("SMOKE IDENTITY PASS: applicationName=%1 "
+                              "displayName=%2 version=%3 organizationName=%4 "
+                              "organizationDomain=<unset> title=%5")
+                   .arg(QCoreApplication::applicationName(),
+                        QGuiApplication::applicationDisplayName(),
+                        QCoreApplication::applicationVersion(),
+                        QCoreApplication::organizationName())
+                   .arg(windowTitle);
         return 0;
     }
 

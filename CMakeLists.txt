@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(ModbusLens
-    VERSION 0.1.0
+    VERSION 2.0.0
     DESCRIPTION "Industrial communication intelligent diagnostic platform (Modbus)"
     LANGUAGES CXX
 )
@@ -55,6 +55,26 @@ endif()
 qt_add_executable(modbuslens WIN32
     src/main.cpp
 )
+
+# M9-E E1: the CMake project VERSION is the ONLY public product-version
+# authority (user release decision, see T020 "M9-E Version Decision"); the
+# generated header feeds QCoreApplication::applicationVersion and the
+# generated Windows VERSIONINFO carries the PE identity. Generated outputs
+# live in the build tree and are never committed. The .rc is Windows-only and
+# carries NO icon (E2 adds the PE icon).
+set(MODBUSLENS_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/version.h.in"
+    "${MODBUSLENS_GENERATED_DIR}/modbuslens_version.h"
+)
+target_include_directories(modbuslens PRIVATE "${MODBUSLENS_GENERATED_DIR}")
+if(WIN32)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/windows/ModbusLens.rc.in"
+        "${MODBUSLENS_GENERATED_DIR}/ModbusLens.rc"
+    )
+    target_sources(modbuslens PRIVATE "${MODBUSLENS_GENERATED_DIR}/ModbusLens.rc")
+endif()
 # Note on DesignSystem.qml (M9-A): it is deliberately a PLAIN QML file (no
 # pragma Singleton). The module-singleton route (pragma Singleton +
 # QT_QML_SINGLETON_TYPE) compiled and generated the qmldir correctly but

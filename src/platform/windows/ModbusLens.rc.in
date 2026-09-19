@@ -1,0 +1,31 @@
+// M9-E E1: generated Windows VERSIONINFO resource (configure_file output;
+// do not edit; lives in the build tree and is never committed). The numeric
+// fields derive from the CMake project VERSION with a fixed zero fourth
+// segment; the string fields use the public semantic version. No icon in E1
+// (E2 adds the PE icon); no CompanyName/LegalCopyright (no authority - they
+// must never be invented).
+// VOS_*/VFT_* constants come from the Windows headers.
+#include <windows.h>
+
+1 VERSIONINFO
+FILEVERSION     @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION  @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription",  "ModbusLens"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "OriginalFilename", "ModbusLens.exe"
+            VALUE "ProductName",      "ModbusLens"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END

@@ -1,0 +1,14 @@
+// M9-E E1: generated version interface. The ONLY public product-version
+// authority is the CMake project VERSION (see the Version Decision record in
+// docs/tasks/T020-m9e-branding-icon-packaging.md); this header is generated
+// from it at configure time. Do not edit; the generated file lives in the
+// build tree and is never committed.
+#ifndef MODBUSLENS_VERSION_H
+#define MODBUSLENS_VERSION_H
+
+#define MODBUSLENS_VERSION_STRING "@PROJECT_VERSION@"
+#define MODBUSLENS_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define MODBUSLENS_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define MODBUSLENS_VERSION_PATCH @PROJECT_VERSION_PATCH@
+
+#endif // MODBUSLENS_VERSION_H

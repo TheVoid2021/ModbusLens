@@ -1,6 +1,6 @@
 # T020 — M9-E Branding / Icon / Packaging
 
-> **状态：IN PROGRESS — Phase 1 Learning / Design Gate（2026-09-19）= PASS（P0 version authority 由用户决策 2.0.0 解决，见「M9-E Version Decision」；HOLD 历史留痕见文末 Correction）；Next = E1（已授权）；Implementation = NOT STARTED。**
+> **状态：IN PROGRESS — Phase 1 = PASS（version decision = 2.0.0）；**E1 = 实施完成（candidate，awaiting E1 Review）**；E2（icon asset pipeline）未开始。HOLD 历史留痕见文末 Correction。**
 > 上游边界：M9-D（T019）= ✅ COMPLETE（verified LKGC `07561d9`）；M9-E **不得**重新打开 Transactions IA / selection·detail / Diagnosis / Legacy。
 
 ## 0. V2 Protocol 对应
@@ -469,6 +469,98 @@ T020（本节）/ PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES 同步。�
 ### V11. Git / LKGC（§12/§13）
 
 独立 docs-only commit（建议 `M9-E: record 2.0.0 product version decision`）；**不 amend `9d2a82e`**、不 rebase、不 push；**verified LKGC 继续 = `07561d9`**（docs-only 不推进）。
+## E1 GO（Version Decision Closure Review = PASS，2026-09-19，append-only）
+
+- **Version Decision Closure Review = PASS**；**E1 = GO**。
+- **2.0.0 是 explicit human product decision**（provenance 见「M9-E Version Decision」节：非仓库推断、非工具选择、非 "V2" 名称推导）。
+- **非阻塞审计 note（Git-object evidence 纪律）**：今后证明 "Git tag unchanged" **不得使用 `git status`**（status 不展示 tag 状态）；必须使用 **`git rev-parse <tag>`（tag object）、`git rev-parse <tag>^{commit}`（commit target）、`git tag -l` / `git show-ref --tags`** 等 Git object evidence。本轮起 all tag proofs 按此执行。
+
+## E1 — Identity / Version / PE Metadata Contract（Implementation Record，2026-09-19）
+
+> Version Decision Closure Review = **PASS**；**E1 = GO**（见「E1 GO」节）。2.0.0 为 explicit human product decision。
+
+### E1.1 Mandatory Source Re-read（§2，实读）
+
+- `CMakeLists.txt`：`project(ModbusLens VERSION <X> DESCRIPTION ... LANGUAGES CXX)`；target = `qt_add_executable(modbuslens WIN32 src/main.cpp)`。
+- `src/main.cpp:5553-5557`：organizationName/applicationName="ModbusLens"、applicationVersion=硬编码 `"<X>"`（E1 前为 0.1.0）；无 displayName/domain。
+- `Main.qml:51`：`title: qsTr("ModbusLens")`。
+- `scripts/deploy_windows.bat`：`copy /y %BUILD_DIR%\modbuslens.exe %DEPLOY_DIR%\ModbusLens.exe`。
+
+### E1.2 CMake Authority Change（§3）
+
+`project(ModbusLens VERSION 0.1.0 → **2.0.0**)`——**全仓库唯一** public product-version literal（user decision `2.0.0`，见 Version Decision 节）。
+
+### E1.3 Generated Version Interface（§4）
+
+- committed templates：**`src/version.h.in`** + **`src/platform/windows/ModbusLens.rc.in`**。
+- generated（build tree only，**不提交**）：`build/debug/generated/modbuslens_version.h`（`MODBUSLENS_VERSION_STRING = "@PROJECT_VERSION@"` + MAJOR/MINOR/PATCH）与 `build/debug/generated/ModbusLens.rc`。
+- `configure_file` 双输出 + `target_include_directories(modbuslens PRIVATE generated)`；**.rc 仅 `if(WIN32)` 加入** `target_sources`（非 Windows build 不依赖 rc compiler）。
+- **deployed exe 完全自包含**：无运行时 git / tag / repo 文件 / CMakeLists 解析。
+
+### E1.4 applicationVersion / applicationDisplayName（§5/§6）
+
+- **移除** main.cpp 硬编码 `"0.1.0"`；`setApplicationVersion(QStringLiteral(MODBUSLENS_VERSION_STRING))`——运行时实测 **2.0.0**。
+- **新增** `QGuiApplication::setApplicationDisplayName("ModbusLens")`（冻结产品名；Qt 语义 = 空 title 窗口的后备标题，Main.qml 已显式 title，不受影响）。
+- 保持：applicationName / organizationName = "ModbusLens"；`organizationDomain` **继续 unset**（无权威信息）。窗口 title 冻结 = "ModbusLens"（无版本/来源后缀）。
+
+### E1.5 PE Resource（§8–§10）
+
+generated `.rc`：`FILEVERSION/PRODUCTVERSION = 2,0,0,0`（MAJOR/MINOR/PATCH,0 固定 padding）；string table（040904B0）：FileVersion/ProductVersion = **2.0.0**、ProductName/FileDescription = **ModbusLens**、OriginalFilename = **ModbusLens.exe**；**无 CompanyName/LegalCopyright**；**无 ICON 语句**（E2 才引入）。`#include <windows.h>`（VOS_*/VFT_* 常量来源）。
+
+### E1.6 Filename Audit（§11）
+
+build-tree exe = **`modbuslens.exe`**（CMake target id 小写）；deployed = **`ModbusLens.exe`**（deploy 脚本 `copy /y` 改名，T008.1 起既有行为）。差异 = **大小写 + 部署改名**，无更实质的 rename ⇒ 不触发 STOP；`OriginalFilename = "ModbusLens.exe"` 取产品交付名。**未**修改 target OUTPUT_NAME / deploy naming。
+
+### E1.7 RED → GREEN（§14/§15/§17）
+
+- **RED（E0 tree + E1 oracle）**：`RED_EXIT=1`、`SMOKEFAIL identity: applicationVersion = '0.1.0', expected '2.0.0' (expected E1 missing implementation)`。
+- **GREEN**：`SMOKE IDENTITY PASS: applicationName=ModbusLens displayName=ModbusLens version=2.0.0 organizationName=ModbusLens organizationDomain=<unset> title=ModbusLens`（build-tree 与 **deployed** 同句 PASS）。
+- oracle 直接读取 **`QCoreApplication::applicationVersion()`** 等运行时值（非 grep 源码）；displayName 断言在修复前由 Qt 的 fallback（缺省 = applicationName）即满足——E1 后为**显式设置**（语义等值、来源显式化，如实记录）。
+- **numeric oracle**（§17）：PowerShell `VersionInfo.FileVersionRaw/ProductVersionRaw` = **`2.0.0.0`**（**runtime/PE inspected**，读取二进制 numeric 字段）；source-level 佐证 = generated `.rc` 内容 `FILEVERSION 2,0,0,0`。**两类 oracle 分列报告，无虚报**。
+
+### E1.8 Deploy Propagation（§18/§26）
+
+`deploy_windows.bat` **zero diff**（metadata 内嵌 exe）；重新部署后 **deployed `ModbusLens.exe` PE 检查 = build-tree 逐字段一致**（Raw/strings/Product/FileDescription/OriginalFilename/空 Company/Copyright）。deploy copy 未剥离/改变 metadata。
+
+### E1.9 Gates（§23–§26/§31）
+
+```text
+configure + build → 0 error
+--qml-smoke-test      → EXIT=0（SMOKE IDENTITY PASS version=2.0.0）
+--qml-nav-check       → EXIT=0（basic five-workspace + A–T 20 项；M DEFERRED）
+--qml-geometry-check  → EXIT=0；steps = 14 / printed segments = 18；0 GEOFAIL
+ctest                 → 100% tests passed, 0 failed out of 26（未新增 CTest）
+deploy                → OK；strict minimal PATH 部署版 smoke/nav/geometry 全 0（含 identity PASS）
+PE inspection         → build-tree 与 deployed 双 exe：Raw 2.0.0.0 / strings 2.0.0 / 字段齐全 / Company·Copyright 空
+stderr 卫生（三模式）  → 全 0
+```
+
+### E1.10 Clean Reconfigure Test（§22）
+
+删除 `build/debug/generated/` 全部生成物 → `cmake --preset debug-local` 重新 configure → 两个生成文件**从 committed templates 再生** → rebuild → smoke identity PASS（version=2.0.0）。证明生成物不依赖旧 build dir。
+
+### E1.11 Version Search Audit（§20）
+
+- `0.1.0` production 命中：**0 处有效源**（仅 main.cpp 两行注释记述"旧字面量已移除"——历史记述非版本源）。
+- `2.0.0` production 命中：**CMakeLists.txt:4（唯一 authority）** + main.cpp **smoke oracle 的期望值字面量**（两处，`applicationVersion != "2.0.0"` 判定期望——**非版本源**：oracle 必须独立钉住期望值才能检测 authority 漂移（与 C4 golden facts 同理）；未来 release decision 更新版本时同步更新该期望）。templates 仅 `@PROJECT_VERSION@` 系占位符。
+
+### E1.12 Publication / Tag Proof（§19，Git-object evidence）
+
+`git tag -l` = 仅 `v1.0.0`（**v2.0.0 不存在**，preflight `V2_TAG_EXISTS=0`）；`git rev-parse v1.0.0` = `2cee626`、`v1.0.0^{commit}` = `ae067ab` —— 未变。origin/main `a40d935` 不变；无 push/Release/upload。**2.0.0 metadata = development candidate identity，非 publication evidence**。
+
+### E1.13 Negative Scope（§29）
+
+无 SVG/ICO/window icon/taskbar icon/PE icon/AppBar logo/ZIP/Release packaging 工作/installer/signing/LICENSE 发明/CompanyName 发明/Copyright 发明/organizationDomain 发明/StatisticsOverview cleanup/M9-F accessibility/v2.0.0 tag/push。.rc 中无 IDI_ICON/ICON/.ico 引用（§12）。
+
+### E1.14 Files Changed / Result（§33）
+
+`CMakeLists.txt`（VERSION 2.0.0 + configure_file + WIN32 rc）、`src/version.h.in`（新模板）、`src/platform/windows/ModbusLens.rc.in`（新模板）、`src/main.cpp`（生成头 include + 派生 applicationVersion + displayName + smoke identity oracle）、T020（GO 节 + 本记录）、状态文档。**deploy script/QML/其它页 zero diff**。
+
+**E1 candidate complete, awaiting E1 Review**；M9-E 未 COMPLETE；verified LKGC **不变 = `07561d9`**；未 push。
+
+## E2. Next
+
+- **M9-E E1 Review（用户）**；通过后 **E2 — icon asset pipeline + window/PE integration**（SVG master → multi-resolution ICO；window icon/PE icon 接入；人工 icon 清单）。
 ## 44. Review 请求项（Phase 1 Review 须裁定）
 
 1. §12 目标优先级（A/B P0、C/D P1、E REJECT）是否接受。
