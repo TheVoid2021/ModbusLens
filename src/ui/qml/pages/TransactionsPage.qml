@@ -386,25 +386,28 @@ Item {
                             }
                         }
 
-                        // M9-F F1 correction (P1, focus visibility): measured
-                        // rendering of the keyboard-focused list was a
-                        // zero-pixel diff — the row selection highlight was
-                        // the only visual, and it is a BUSINESS state (which
-                        // row is selected), not a focus state. This overlay is
-                        // the list's own keyboard-focus channel: an inset
-                        // border that costs no layout space and does not touch
-                        // row geometry, selection colors, the detail logic or
-                        // the list dimensions. The view hands active focus to
-                        // the current row once keyboard navigation starts
-                        // (M9-D D6), so either holder counts as "the list has
-                        // focus".
+                        // M9-F F2 visual review HOLD (P1 visual/usability
+                        // defect): the first version drew a 2px fully
+                        // saturated DS.primary frame around the WHOLE
+                        // viewport. It out-shouted the row selection — same
+                        // hue and same weight as the selected row's own 2px
+                        // accent bar, so the two states competed — and it
+                        // framed a large empty area, adding noise.
+                        // The focus channel must be clearly present but
+                        // SUBORDINATE: 1px of DS.primary at half opacity,
+                        // inset 3px so it never paints over the row's left
+                        // selection indicator. Selection stays the primary
+                        // visual state; this only answers "does the list hold
+                        // keyboard focus". Geometry, row height, selection
+                        // style and the detail logic are untouched.
                         Rectangle {
                             objectName: "transactionsListFocusRing"
                             anchors.fill: parent
-                            anchors.margins: 1
+                            anchors.margins: 3
                             color: "transparent"
-                            border.color: DS.primary
-                            border.width: 2
+                            border.color: Qt.rgba(DS.primary.r, DS.primary.g,
+                                                  DS.primary.b, 0.5)
+                            border.width: 1
                             visible: transactionList.activeFocus
                                      || (transactionList.currentItem !== null
                                          && transactionList.currentItem.activeFocus)

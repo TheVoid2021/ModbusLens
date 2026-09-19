@@ -4971,9 +4971,26 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (!propBool(ring, "visible"))
             fail(QStringLiteral("FOCUSFAIL FJ: focus ring not visible while the "
                                 "list holds keyboard focus"));
-        else
-            note(QStringLiteral("FOCUS [FJ] PASS: list ring visible while the "
-                                "list is keyboard-focused"));
+        else {
+            // F2 visual review HOLD: the ring must stay SUBORDINATE to the row
+            // selection (the earlier 2px saturated frame out-shouted it), so
+            // the weight itself is part of the contract now.
+            QObject *border = ring->property("border").value<QObject *>();
+            const double width = border ? border->property("width").toDouble() : -1;
+            const QColor color = border
+                                     ? border->property("color").value<QColor>()
+                                     : QColor();
+            if (width != 1.0 || color.alphaF() > 0.6)
+                fail(QStringLiteral("FOCUSFAIL FJ: list focus ring is not "
+                                    "subordinate (width=%1 alpha=%2; expected "
+                                    "1px and alpha<=0.6)")
+                         .arg(width)
+                         .arg(color.alphaF()));
+            else
+                note(QStringLiteral("FOCUS [FJ] PASS: list ring visible, "
+                                    "subordinate weight (1px, alpha=%1)")
+                         .arg(color.alphaF()));
+        }
         tab(true);
     });
     push([&]() {

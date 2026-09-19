@@ -1777,3 +1777,89 @@ deploy PASS、package PASS、fresh extract PASS、manifest PASS、security scan 
 visual evidence candidate generated —— 全部达成。
 Final Visual Review = WAITING FOR USER；Manual Final Acceptance = WAITING FOR USER。
 ```
+
+## F2 Final Visual Review = HOLD（ListView focus 视觉权重过强）→ Minimal Visual Correction（2026-09-19，append-only，behavior-bearing）
+
+> 人工发现：**Transactions ListView 的 keyboard focus indicator 视觉权重过高**——整块 ListView 使用 2px 高饱和蓝色粗边框。
+> 明确分类：**不是 focus visibility 缺失，而是 focus visibility 过强 / visual hierarchy defect ⇒ P1 visual/usability defect**。
+> 本轮**只修 Transactions ListView 的 focus rendering**；不动 selection semantics / row selection style / detail logic /
+> keyboard entry / Up·Down·Home·End / geometry / NavigationRail / TabButton / AppButton / ComboBox。
+
+### FL0. HOLD 归档（三条具体症状，用户人工 review）
+
+```text
+1  focus container ring 比 row selection 更抢眼；
+2  与 selected row 左侧蓝色小条使用相近强调色与强度 ⇒ 两种状态互相竞争；
+3  大面积空白区域也被整框包围 ⇒ 视觉噪声过高。
+目标（人工验收口径）：一眼知道「列表现在有键盘焦点」，但第一视觉仍然落在「当前选中的是哪一行」。
+```
+
+### FL1. Root Cause
+
+```text
+F1 修正引入的 transactionsListFocusRing 使用 border.width=2 + 不透明 DS.primary 画在**容器**尺度上：
+  · 与选中行的 2px DS.primary 左侧条**同色同重量**，且行条就在容器左内缘附近 ⇒ 两个状态读起来是同一种强调；
+  · 容器边框包围的是**整个视口**（含大块空白），权重 × 面积 ⇒ 噪声远高于行级选中提示。
+即：焦点通道"存在且可见"这一条成立，但**没有服从视觉层级**（selection 才是主状态）。
+```
+
+### FL2. Minimal Correction（只改这一处渲染）
+
+```text
+src/ui/qml/pages/TransactionsPage.qml → transactionsListFocusRing
+  border.width : 2 → **1**
+  border.color : DS.primary（不透明）→ **Qt.rgba(DS.primary.r, DS.primary.g, DS.primary.b, 0.5)**（半透明，由 token 派生，未改 DS contract）
+  anchors.margins : 1 → **3**（内缩更远，**永不覆盖**行左侧 2px selection indicator）
+未改：selection semantics、row selection style、detail logic、keyboard entry、Up/Down/Home/End、
+      ListView 尺寸、row geometry/height、NavigationRail、TabButton、AppButton、ComboBox、DS token contract。
+```
+
+### FL3. 契约冻结（本轮新增，写进机器断言）
+
+```text
+selected row 仍是主要视觉状态；
+ListView keyboard focus 必须清楚但克制（subordinate）；
+focus indicator 不得覆盖左侧 selection indicator；
+不改变 ListView 尺寸与 row geometry。
+⇒ 该"权重"契约进入 FJ 机器断言（见 FL4），未来若有人把环改回 2px 高饱和，gate 直接失败。
+```
+
+### FL4. 机器断言（qml_focus_check / FJ 扩展）
+
+```text
+FJ 现在断言：ring.visible ⇔ list 持焦；**border.width == 1**；**border.color.alphaF() <= 0.6**。
+实测输出：
+  FOCUS [FJ] PASS: list ring visible, subordinate weight (1px, alpha=0.500008)
+  FOCUS [FJ] PASS: ring off after focus leaves the list (focus=appBarClearResults)
+```
+
+### FL5. 回归（全部重跑）
+
+```text
+Debug   : --qml-focus-check PASS / --qml-geometry-check PASS（**18 segments · 0 GEOFAIL · rail 恒 56**）/
+          --qml-nav-check PASS（A–T，M DEFERRED）/ ctest **27/27**
+Release : build OK → ctest **27/27** → --qml-focus-check PASS（FJ subordinate weight 断言通过）/ geometry PASS
+```
+
+### FL6. 证据刷新
+
+```text
+重新生成 Transactions keyboard-focus 截图（state oracle：keyboard-only Tab 第 8 次进入 list + END 选中行，
+detail pane 填充），覆盖 committed：
+  docs/assets/screenshots/m9f-f2-transactions-list-keyboard-focus-1024x720.png（1280×900 = 逻辑 1024×720，125% DPI）
+肉眼核对结果（ZCode 仅做完整性与状态核对，最终判断仍归用户）：
+  选中行（含 2px 高饱和左侧条 + 底纹）为**第一视觉**；ListView 焦点为**细、淡、内缩**的一圈线，可见但不抢眼；
+  环位于 x=3 内侧，**未覆盖**行左侧 indicator。
+provenance 说明（重要）：本截图来自**修正后的 Release build**（build/release）；
+  46f68ce 轮的 F2 ZIP（ModbusLens-2.0.0-windows-x64.zip，40,630,813 B / 7292920b…）**早于本次修正**，
+  因此**不能**再作为最终 acceptance candidate —— visual review 通过后必须重新生成 package（下一轮 F2 收尾步骤）。
+```
+
+### FL7. Git / 边界
+
+```text
+behavior-bearing visual correction（QML focus rendering + harness 断言）。
+未推进 verified LKGC（保持 4cb6e9d）；未 push；未创建 v2.0.0 tag；未开始 F3；
+未改 packaging semantics；未改 version/PE/icon/README/manifest/ZIP 模型；
+未触碰 NavigationRail / TabButton / AppButton / ComboBox / selection 语义 / geometry。
+Final Visual Review 仍需用户基于刷新后的截图确认；Manual Final Acceptance = WAITING FOR USER。
