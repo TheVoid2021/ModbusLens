@@ -1,6 +1,6 @@
 # T020 — M9-E Branding / Icon / Packaging
 
-> **状态：IN PROGRESS — Phase 1 Learning / Design Gate（2026-09-19）。Implementation = NOT STARTED。**
+> **状态：IN PROGRESS — Phase 1 Learning / Design Gate（2026-09-19）；Phase 1 Review = HOLD（P0 version authority + 4 项绑定纠正，见文末 Correction）；Implementation = NOT STARTED。**
 > 上游边界：M9-D（T019）= ✅ COMPLETE（verified LKGC `07561d9`）；M9-E **不得**重新打开 Transactions IA / selection·detail / Diagnosis / Legacy。
 
 ## 0. V2 Protocol 对应
@@ -296,6 +296,102 @@ docs-only：`docs/tasks/T020-*.md`（新建）、PROJECT_STATUS、BACKLOG、devl
 
 独立 docs-only commit（建议 `M9-E: design branding icon and packaging`）；**不 amend `6299444`**、不 rebase、不 push；**verified LKGC 继续 = `07561d9`**（docs-only 不推进）。
 
+## Phase 1 Review = HOLD + Correction（2026-09-19，append-only）
+
+> **M9-E Phase 1 Review = HOLD**。P0 blocker：**product/package version authority unresolved**——Phase 1 原设计把 CMake VERSION 直接作为 applicationVersion/PE/package version，但仓库已存在 immutable 历史发布 tag `v1.0.0`，版本语义必须先解释清楚。本轮**只定 policy，不做 version bump**（不改 project VERSION / applicationVersion / tag / PE resource 任何值）。E1 在本 correction re-review 通过前不开始。
+
+### C1. Version Evidence Audit（§2，全仓库实搜）
+
+| 证据 | 实测结果 |
+| --- | --- |
+| `v1.0.0` tag 注释 | **"ModbusLens v1.0.0 verified product baseline"** → commit `ae067ab`（T015 Part C / Gate 0 V1 冻结点） |
+| CMake `project(VERSION 0.1.0)` 首次出现 | T001（`aa337f6`，2026-09-05 项目引导） |
+| v1.0.0 时点的 CMake VERSION | **仍是 0.1.0**（`git show ae067ab:CMakeLists.txt` 实测） |
+| CMakeLists.txt 全历史 VERSION 变更 | **零次**（T001 引入后从未修改） |
+| PROJECT_STATUS "当前版本" 行 | "**0.1.0**（2026-09-05，T001 建立；T001.1 未改代码，版本不变）"——镜像 CMake，同样未随 v1.0.0 演进 |
+| 下一个 product/package version 的定义 | **UNRESOLVED**——全仓库（docs/11_V2_UPGRADE_PLAN / charter / BACKLOG / 任务文档）**无任何** 1.0.1 / 2.0.0 / 0.1.0-dev 或其它下一版本号定义 |
+
+**四问回答**：
+- **A. v1.0.0 是正式 product release version 吗？** **是**——annotated 注释自证 "verified product baseline"，且是 Gate 0 冻结的 V1 发布锚点。
+- **B. CMake VERSION 0.1.0 在 v1.0.0 前后是否一直如此？** **是**——T001 引入后零变更（含 v1.0.0 时点与 HEAD）。
+- **C. 它是 stale product version 还是另有技术语义？** **stale product version**——它是 T001 引导期的默认值，产品演进到 v1.0.0 时从未同步；无任何文档为其定义独立技术语义。
+- **D. 仓库是否已定义 next version？** **UNRESOLVED**（如上）。
+
+### C2. Version Authority Decision（§3，Model A + 值 UNRESOLVED）
+
+- **裁定 Model A**：`project(VERSION ...)` **就是** public product-version authority（机制层面唯一）。
+- **但当前值 0.1.0 = stale（UNRESOLVED）**：与 immutable `v1.0.0` 基线矛盾。**实际版本值（bump 到 1.0.x / 2.x / 其它）= 明确的 release decision，只能由用户做出——本 correction 不选择、不暗示**。
+- 派生关系（机制冻结）：`applicationVersion`、PE FileVersion/ProductVersion（字符串与数值）、package/zip 文件名版本段——**全部从 authority 派生，禁止第二个 hard-coded version literal**。
+- **禁止**：git describe 运行时依赖；tag moving；新 hard-coded literal。
+- **显式记录的 open fact**：tag（1.0.0）与 CMake VERSION（0.1.0）的 mismatch 将持续存在，直到用户做出 release decision——E1 携带机制落地时**保持现值 0.1.0 原样**（不做 bump），mismatch 作为已知状态入档。
+
+### C3. PE Numeric Mapping（§4，冻结）
+
+authoritative version `X.Y.Z` ⇒ PE numeric **`X,Y,Z,0`**；PE FileVersion string = **`X.Y.Z`**；PE ProductVersion string = **`X.Y.Z`**。第四段 = 固定 `0`（derive padding）。**无独立 tweak source**（若未来真实 policy 需要第四段，按事实另行裁定）。
+
+### C4. Do Not Bump（§5，证明）
+
+本轮 diff 仅 docs（T020/PROJECT_STATUS/BACKLOG/devlog/INTERVIEW_NOTES）；`git status` 证实 src/CMakeLists/scripts 零改动；tag 未动。**具体版本值修改属后续 approved implementation/release decision**。
+
+### C5. Legal Artifact Audit（§6）
+
+`LICENSE*` / `COPYING*` / `NOTICE*` / `COPYRIGHT*` / `AUTHORS*`：**全仓库不存在**（find 实证）；charter/README 无 license 表述。⇒ license = **missing**，且**不生成**（选择 license 是法律决策，需用户输入）。package contents 修正：authoritative license 存在则随包原样分发；不存在则**不放占位/自造文件**。README/package notes 可后续撰写，**不能替代法律 license**。CompanyName / LegalCopyright 继续 **omitted**（除非未来得到权威来源）。
+
+### C6. applicationDisplayName（§7）
+
+**NOW / E1**：`applicationDisplayName = "ModbusLens"`（来源：现有 product name，无编造）。同时冻结：`applicationName` / `organizationName` 本阶段不改语义；`organizationDomain` 继续 **missing**（不编造）。已补入 NOW/DEFER/REJECT 表。
+
+### C7. ZIP Contract（§8，术语修正 + 裁定）
+
+**术语修正**：脚本生成 zip ≠ deterministic。**裁定：A. scripted portable ZIP**——当前工具链（PowerShell `Compress-Archive`）**不能保证** byte-reproducibility（条目顺序/时间戳/机器元数据）。**B. byte-reproducible ZIP**（stable entry ordering + normalized timestamps + no machine-specific metadata + same-tree two-run SHA256 equality）作为**后续增强**登记；若未来实施，其 verification contract 按上述四条执行。原 §19 中"deterministic"措辞由本条替代。
+
+### C8. Asset Ownership Contract（§9，冻结）
+
+- `assets/brand/icon.svg` = **canonical source**（committed）。
+- `assets/brand/windows/ModbusLens.ico` = **committed derived Windows product asset**。
+- **normal build 不得依赖 ImageMagick/icotool**（构建可复现性不绑定可选工具）。
+- **E2 asset-generation step**：先探测实际工具（`magick` / `icotool` / 仓库已有工具）→ 选定一个 → 记录 **tool + version + 固定 generation command** → 验证 ICO 内含 sizes（16/24/32/48/64/256）。**不得 silent fallback**（工具缺失 = 停止并报告，不悄悄换法）。
+- temporary PNG/previews：**build/ only**（不入 assets/、不入 git）。
+
+### C9. Installer / Signing Terminology（§10，统一措辞）
+
+- **Installer：DEFERRED / NOT IN M9-E IMPLEMENTATION**（原"REJECT"措辞废弃——那是范围裁定，不是永久产品否决）。
+- **Code signing：DEFERRED TO RELEASE/SECURITY WORKFLOW / NOT IN M9-E IMPLEMENTATION**（同上；unsigned local artifact 定性不变）。
+- **Publication：NOT AUTHORIZED**（不变）。
+
+### C10. Release Decision（§11，保留）
+
+packaging candidate = **Release** 不变；Debug acceptance 不能替代 Release acceptance。E3 至少重跑：build / ctest / qml_smoke / qml_nav / qml_geometry / deploy / strict minimal-PATH / **package extraction + run** / 必要 branding evidence。
+
+### C11. E1–E4 Sequencing（§12，保留 + 门禁）
+
+E1 identity/version/PE metadata contract → E2 icon asset + window/PE integration → E3 Release deploy + portable ZIP/package checks → E4 evidence/manual candidate。**E1 开始前必须通过本 correction re-review**；**E1 不生成 icon**；E1 落地 version 机制时**携带现值 0.1.0 不变**（C2）。
+
+### C12. 受影响的 Phase 1 原文修正索引
+
+| Phase 1 原文 | 修正 |
+| --- | --- |
+| §10 version 单源 | 机制保留；**新增：当前值 stale/UNRESOLVED + mismatch 入档（C2）** |
+| §16 PE metadata 表 FILEVERSION "0.1.0.0（随版本演进）" | 映射冻结为 C3；**值仍 0.1.0.0（不 bump）** |
+| §18 package naming | 版本段来自 authority；**当前值 = 0.1.0（UNRESOLVED）** |
+| §19 "deterministic zip" | 改称 **scripted portable ZIP**（C7）；byte-reproducible 为后续增强 |
+| §21 "Code signing REJECT for M9-E" | **DEFERRED TO RELEASE/SECURITY WORKFLOW**（C9） |
+| §20 installer "DEFER（REJECT for M9-E）" | **DEFERRED / NOT IN M9-E IMPLEMENTATION**（C9） |
+| §22 contents "license/readme 说明文件" | **无 authoritative license ⇒ 不生成 license**（C5）；readme/notes 可后续撰写 |
+| §35 表 Code signing 行 | 措辞改 DEFERRED（C9） |
+| §40 Q3 答案 | 补充 C2 的 stale/UNRESOLVED 事实 |
+| NOW/DEFER/REJECT 表 | **补入 applicationDisplayName = NOW/E1**（C6） |
+
+### C13. Result
+
+- P0（version authority）**policy 闭环**：authority = Model A（CMake 机制单源），**值 = stale/UNRESOLVED 待用户 release decision**，mismatch 显式入档，禁止 bump 于本 correction。
+- 四项绑定纠正全部落档：LICENSE policy（缺失不生成）、applicationDisplayName（NOW/E1）、ZIP 术语（scripted portable ZIP；byte-reproducible 为增强）、icon source/derived 契约（normal build 零工具依赖）。
+- **Next Action = M9-E Phase 1 Re-review**；通过后 E1（不生成 icon、不 bump 版本值）。
+- verified LKGC **仍 = `07561d9`**；未 push。
+
+## D7. Next（correction 之后的追加）
+
+- **M9-E Phase 1 Re-review（用户）**；通过后 **E1 — identity/version/PE metadata contract**（携带现值 0.1.0，不生成 icon）。
 ## 44. Review 请求项（Phase 1 Review 须裁定）
 
 1. §12 目标优先级（A/B P0、C/D P1、E REJECT）是否接受。
