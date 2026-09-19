@@ -1968,3 +1968,51 @@ Final Visual Review 与 Manual Final Acceptance 因此**仍为 WAITING FOR USER*
 本轮 = docs/evidence only（production code 自 56d71c8 起未再改动；本提交不推进 LKGC）。
 未 amend 56d71c8；未 rebase；未 push；未创建 v2.0.0 tag；未开始 F3；packaging semantics 未变。
 ZIP 不入 Git。
+
+### FM7-resolution. 视觉证据重采完成（2026-09-19，append-only）
+
+```text
+上一节 §FM7 记录的阻塞（桌面被另一 topmost 全屏应用占用）已解决，方式**不是**去动那个窗口，而是换采集路径：
+  · 根因定位：覆盖窗口 = Chrome_RenderWidgetHostHWND（ZCode 自身，pid 独立），其 rootOwner 覆盖整个单屏桌面
+    （virtual screen 1536x864，唯一 DISPLAY1）；SetForegroundWindow(app) 虽返回 True，但 z-order 上仍在覆盖窗口之下
+    ⇒ 鼠标点击与 CopyFromScreen 都拿不到应用。
+  · 解决：**键盘-only 导航**（应用持有 keyboard focus，GetForegroundWindow == app）+ **PrintWindow(PW_RENDERFULLCONTENT)**
+    这一**与遮挡无关**的窗口自绘抓取；再按客户区偏移（125% DPI 下 左9/上38/右9）裁掉窗口边框。
+  · 全程未对其它应用做任何操作（未最小化、未移动、未关闭）。
+```
+
+```text
+本轮实测 DPI = **120（=125%）**；窗口含边框 1298×947 → 裁出客户区 **1280×900 = 逻辑 1024×720**；
+最小尺寸窗口 1524×1102 → 裁出 **1250×875 = 逻辑 1000×700**（与既有约定一致）。
+```
+
+### FM8. 最终视觉证据（15 张，全部来自**新 candidate 的 fresh extraction**）
+
+| # | 文件（docs/assets/screenshots/） | 尺寸 | 颜色数 | sha256[:16] | 状态 oracle（运行时判定） |
+| --- | --- | --- | --- | --- | --- |
+| 1 | m9f-f2-dashboard-demo-1024x720.png | 1280x900 | 13570 | 4cb288cdc9b37967 | ws=Dashboard；demo 会话已发布 |
+| 2 | m9f-f2-transactions-populated-1024x720.png | 1280x900 | 11905 | f6ce68b983d4d6dd | ws=Transactions；cue 暴露 |
+| 3 | m9f-f2-transactions-list-keyboard-focus-1024x720.png | 1280x900 | 13355 | d85f01d49ffe7c7e | 键盘-only Tab 第 6 次进入 list + END 选中行（detail 填充） |
+| 4 | m9f-f2-communication-default-1024x720.png | 1280x900 | 11107 | 9f18ec4944dedff5 | ws=Communication；未连接/默认 |
+| 5 | m9f-f2-communication-combobox-focus-1024x720.png | 1280x900 | 11122 | a3221027a0d0fde1 | 键盘焦点落在 commPortCombo（rect 同一性） |
+| 6 | m9f-f2-replay-default-1024x720.png | 1280x900 | 5295 | da8a80c49ae7a35a | ws=Replay；未加载 |
+| 7 | m9f-f2-replay-load-dialog-1024x720.png | 1280x900 | 5301 | 8e1b525698547d57 | 应用自身「加载回放」对话框打开（in-window）、随包 sample 列出、会话未改变 |
+| 8 | m9f-f2-diagnosis-baseline-1024x720.png | 1280x900 | 9393 | f74f1c927975ba8f | Baseline pane 暴露（键盘选中 tab 0） |
+| 9 | m9f-f2-diagnosis-ai-no-result-1024x720.png | 1280x900 | 10640 | ab5741f67d9c384b | AI pane；provider 已配置但未生成结果（无伪造） |
+| 10 | m9f-f2-diagnosis-agent-no-result-1024x720.png | 1280x900 | 8045 | dc218e9b56788d5b | Agent pane；空问题、未发起 live 调用 |
+| 11 | m9f-f2-diagnosis-tabbutton-selected-vs-focused-1024x720.png | 1280x900 | 9373 | c4576b89a862c1e6 | selected pane 仍 Baseline + 键盘焦点在第 2 个 tab（rect 同一性） |
+| 12 | m9f-f2-rail-selected-vs-focused-1024x720.png | 1280x900 | 13306 | af1733d44c011032 | selected=Transactions + 键盘焦点在第 2 个 rail 条目 |
+| 13 | m9f-f2-transactions-1000x700.png | 1250x875 | 9126 | a89e8cd1143be458 | 最小尺寸；cue 暴露 |
+| 14 | m9f-f2-dashboard-1000x700.png | 1250x875 | 12892 | 9506b192e4c800b5 | 最小尺寸；Run Demo 暴露 |
+| 15 | m9f-f2-diagnosis-1000x700.png | 1250x875 | 8218 | ba8919cd459d4431 | 最小尺寸；Baseline pane 暴露 |
+
+```text
+完整性（机器）：15/15 尺寸符合约定、landscape=True、非空白（颜色数 5295..13570）、逐文件 sha256 记录。
+状态（机器）：每张均由运行时 oracle 判定后才抓取（workspace 归属 + 页面专属元素 + selected/focused 状态 + rect 同一性）；
+文件名不作为状态依据。
+本轮探针缺陷（工具，非产品）：①按 rect 判定的遮挡守卫在“应用持有键盘但 z-order 被覆盖”的场景下误报 ⇒ 改用
+“GetForegroundWindow == app + PrintWindow 成功 + 非空白”作为采集守卫；②PrintWindow 首次按逻辑客户区尺寸建位图导致
+右侧裁切 ⇒ 改为按物理窗口矩形建位图后裁客户区；③原生对话框不是独立顶层窗口（in-window 渲染）⇒ 改抓主窗口。
+未完成项（如实记录）：**Replay「已加载 demo_v1.mlog」状态未被程序化驱动**（只拍到对话框打开、sample 列出）；
+该步骤保留在人工清单第 11 项，由人工在真实 UI 中完成。
+**Final Visual Review = WAITING FOR USER；Manual Final Acceptance = WAITING FOR USER。**
