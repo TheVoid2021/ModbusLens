@@ -1,6 +1,6 @@
 # T020 — M9-E Branding / Icon / Packaging
 
-> **状态：IN PROGRESS — Phase 1 = PASS；E1 = PASS；E2 = PASS；E3 = PASS（Re-review）；**E4 = 实施完成（final Release package evidence + human portable-package acceptance candidate）；Manual Package Acceptance = WAITING FOR USER**；之后 M9-E Final Closure。**
+> **状态：✅ COMPLETE（2026-09-19 Final Closure；verified LKGC = `4cb6e9d`；Manual Package Acceptance = PASS）。**
 > 上游边界：M9-D（T019）= ✅ COMPLETE（verified LKGC `07561d9`）；M9-E **不得**重新打开 Transactions IA / selection·detail / Diagnosis / Legacy。
 
 ## 0. V2 Protocol 对应
@@ -965,6 +965,106 @@ Git-object evidence：v1.0.0 = `2cee626`→`ae067ab` **不变**；`git tag -l` =
 ## E5. Next
 
 - **用户执行 Manual Package Acceptance（A–J 清单，ZIP：`build/package/ModbusLens-2.0.0-windows-x64.zip`）**；通过后 **M9-E Final Closure**（Git classification / LKGC 裁定 / docs-only closure）。
+## M9-E Final Closure — verified LKGC Classification + Knowledge Closure（2026-09-19，docs-only）
+
+> 验收链（全部 PASS）：Phase 1（含 correction）/ E1（含 correction）/ E2 / Manual Icon Visual Review / E3（含 correction）/ E4 automated·evidence / **Manual Package Acceptance**。本 closure 为 **docs-only**，不得成为 verified LKGC。
+
+### F1. Manual Package Acceptance Provenance（§1，精确归档）
+
+- **Manual Package Acceptance = PASS**——confirmed by user on the final Release ZIP candidate（**`ModbusLens-2.0.0-windows-x64.zip`**，source behavior tree = `4cb6e9d`）。
+- **用户确认项**：extraction PASS / Explorer icon PASS / Explorer version·product metadata PASS / normal double-click launch PASS / Titlebar icon PASS / Taskbar icon PASS / Alt-Tab icon PASS / Run Demo sanity PASS / Transactions mouse selection PASS / Up·Down·Home·End PASS / packaged samples/demo_v1.mlog Replay PASS / README sanity PASS / close·relaunch PASS。
+- SmartScreen/unsigned prompt：用户未单独报告 ⇒ 仅记录 **"no acceptance blocker reported"**，不编造有/无。
+- 125% DPI：titlebar/taskbar/Alt-Tab 无明显模糊/裁切/halo（E2 manual 已含；E4 package-level 复核一致）。
+
+### F2. Package Chain Closure（§2）
+
+committed source tree **`4cb6e9d`** → Release clean configure/build（build/release，187 目标）→ Release deploy（build/release/deploy）→ staging（build/package/<stem>，1497 文件）→ manifest（1496 payload）→ scripted ZIP（40,569,927 B）→ fresh extraction（逐文件 SHA256 == manifest）→ strict minimal-PATH machine validation（smoke/nav/geometry PASS）→ **human portable-package acceptance（PASS）**——完整闭环。
+
+### F3. Git Classification（§3，`git show --stat --name-only` 真实文件列表，9/9 提交逐一验证）
+
+| commit | 分类 | 真实文件事实 |
+| --- | --- | --- |
+| `c80ade2` | **docs-only**（Phase 1 Learning/Design） | 5 docs |
+| `9d2a82e` | **docs-only**（Phase 1 correction：version authority 机制/值分离 + 4 绑定纠正） | 5 docs |
+| `6e248b0` | **docs-only**（explicit 2.0.0 decision） | 5 docs |
+| `0463207` | **behavior-bearing**（E1：version/identity/PE metadata contract） | `CMakeLists.txt` / `src/main.cpp` / `src/version.h.in`（新）/ `src/platform/windows/ModbusLens.rc.in`（新）+ docs |
+| `641b1db` | **behavior-bearing**（E1 correction：single-source validation） | `src/main.cpp` + docs |
+| `0cd852a` | **behavior-bearing**（E2：icon assets + Qt/PE integration + generator） | `CMakeLists.txt` / `assets/brand/icon.svg`（新）/ `assets/brand/windows/ModbusLens.ico`（新）/ `scripts/make_icon.py`（新）/ `src/main.cpp` / `src/platform/windows/ModbusLens.rc.in` / `docs/assets/screenshots/m9e-icon-size-matrix.png`（evidence）+ docs |
+| `ab3a079` | **behavior-bearing**（E3：Release packaging workflow + deploy 参数化） | `scripts/deploy_windows.bat` / `scripts/make_package.py`（新）+ docs |
+| `4cb6e9d` | **behavior-bearing**（E3 correction：validator/fail-closed + .gitignore） | `.gitignore` / `scripts/make_package.py` + docs |
+| `9ca079c` | **docs/evidence-only**（E4 final manual candidate record） | 5 docs |
+
+与预期分类一致；无 message-only 推断。
+
+### F4. Final verified LKGC（§4/§5）
+
+- 规则：verified LKGC = 最后一个 behavior-bearing tree，且其完整树已通过 Release configure/build / ctest / smoke/nav/geometry / PE·version·icon validation / Release deploy / package checks / bad-package fail-closed coverage（9/9）/ ZIP·extraction validation / minimal-PATH extracted run / Manual Icon Visual Review / Manual Package Acceptance 全部 PASS。
+- **事实裁定**：`4cb6e9d` = 最后一个 behavior-bearing commit；**最终 accepted ZIP 由 `4cb6e9d` 重新生成**（E4 从 committed HEAD 全新 build/release 再生 + 人工验收）。
+- **verified LKGC：`07561d9` → `4cb6e9d`**。`9ca079c`（docs-only）不得推进 LKGC。
+- **V1 tag `v1.0.0` = `ae067ab`（object `2cee626`）永久不变**。
+
+### F5. Version Closure（§6）
+
+- **public product version = 2.0.0**（explicit human release decision）；**唯一 authority = CMake `project(VERSION)`**。
+- 派生：applicationVersion / PE FileVersion·ProductVersion（string 2.0.0；numeric 2,0,0,0）/ package naming（ModbusLens-2.0.0-windows-x64）。
+- **single-source proof**：temporary 2.0.1 mutation（仅改 CMake VERSION）⇒ runtime + PE metadata 自动传播（已 PASS，回滚零残留）。
+- **2.0.0 decision ≠ publication**：`v2.0.0` tag **absent**。
+
+### F6. Application Identity Closure（§7）
+
+applicationName = ModbusLens；applicationDisplayName = ModbusLens；organizationName = ModbusLens（既有）；**organizationDomain = unset**；window title = ModbusLens；**CompanyName = omitted；LegalCopyright = omitted**（无 authoritative source——**有意 omission**，不是"忘记实现"）。
+
+### F7. License Boundary（§8）
+
+仓库无 authoritative LICENSE/COPYING/NOTICE；M9-E **未生成/发明 LICENSE**；最终 portable package **不声称任何 license terms**。license selection = 独立法律/product decision。
+
+### F8. Icon Closure（§9/§10）
+
+- canonical source：`assets/brand/icon.svg`（lens + 2×2 register grid，#24527F tile 源自 DS primary 家族——非 DS token contract）。
+- derived committed Windows asset：`assets/brand/windows/ModbusLens.ico`（**frames：16/24/32/48/64/256**）。
+- Qt runtime icon 与 Windows PE icon **使用同一 committed ICO**。
+- **Manual Icon Visual PASS**：size matrix / Titlebar / Taskbar / Alt-Tab / Explorer / 125% DPI 全 accepted。
+- **Generator provenance closure**：Phase 1 预指定 ImageMagick/icotool；implementation 实际 = **PyQt5 Qt 5.15.2 QSvgRenderer + Pillow 10.2.0**（accepted implementation-time maintainer-tool substitution，E2 Review 追认）。`scripts/make_icon.py` = maintainer helper；**normal build/runtime/package 不依赖 Python/PyQt5/Pillow**。
+
+### F9. PE Identity Closure（§11）
+
+最终 Release executable：FileVersionRaw/ProductVersionRaw = **2.0.0.0**；strings = **2.0.0**；ProductName/FileDescription = **ModbusLens**；OriginalFilename = **ModbusLens.exe**；PE icon **RT_GROUP_ICON present + RT_ICON 6 frames present**。build-tree `modbuslens.exe` 与 deployed `ModbusLens.exe` 的大小写/rename 历史**不在 M9-E 重构**（既有 T008.1 行为）。
+
+### F10. Packaging Closure（§12/§13/§14）
+
+- **Packaging model = portable Windows Release package**（非 installer/MSI/MSIX/NSIS/Inno/Store）。stem = `ModbusLens-2.0.0-windows-x64`；arch 由 **PE Machine AMD64 → x64** 机器派生/验证。
+- **ZIP 术语冻结**：**scripted portable ZIP**（非 deterministic/byte-reproducible）。idempotence 证据 = **两轮 manifest identical**（payload 集合/覆盖文件集/检查结果相同）；ZIP SHA 不同仅证 byte-reproducibility NOT CLAIMED。
+- **Manifest 口径（最终 actual）**：**1496 payload files（包括 README.txt）+ 1 manifest = 1497 package/ZIP entries**——无重复计数表述。
+
+### F11. Sample / StatisticsOverview / Security Closure（§15/§16/§17）
+
+- **Sample policy**：user-facing = `samples/demo_v1.mlog`（用户已从最终解压包经 Replay UI 成功使用——**structure PASS + manual usability PASS**）；regression fixtures（t014/t015/t015-unsupported）**不在包内**。
+- **StatisticsOverview**：consumer = 0，component/registration/package presence **保留**；M9-E 未删除；cleanup/ownership **继续 DEFER**（不得写成 dead code removed）。
+- **Security wording**：known-risk credential/config negative scan PASS——**非**数学证明二进制绝无 secret；package 无 Python maintainer tools/icon source·generator/developer config/known credential files。
+
+### F12. Fail-closed Closure（§18）
+
+E3 correction 的九类 bad-package condition **全部 runtime-covered**（missing executable / version unavailable / unsupported architecture / deploy failure / required runtime missing / credential·config hit / manifest mismatch / ZIP write failure / extracted-run failure）——均**无法静默产生 accepted package**。F5 由 timeout 判定 ⇒ 措辞 = **fail-closed verified**（不夸大成 instant fail-fast）。
+
+### F13. Release Validation Record（§19）
+
+Release clean configure/build PASS（187 目标）／Release ctest **26/26**／smoke PASS（identity version=2.0.0 + windowIconSizes 6 尺寸）／nav PASS（basic five-workspace + **A–T 20 项**，M DEFERRED）／geometry PASS（**14 steps · 18 segments** · 0 GEOFAIL）／identity/PE/icon PASS／Release deploy PASS／package structural·sample·StatisticsOverview·credential·path·manifest·ZIP·extraction 全 PASS／strict minimal-PATH extracted smoke·nav·geometry PASS／external-CWD PASS／**Manual Package PASS**。
+
+### F14. Final Package Identity（§20）
+
+**`ModbusLens-2.0.0-windows-x64.zip` = 40,569,927 bytes，sha256 `95b375f784ea88aad0cf084c5543dae748fa4d0213340ef1d10c240c1516b58a`**（E4 由 committed HEAD `4cb6e9d` 再生）——**accepted local candidate identity**；非 published release hash、非 reproducible-build guarantee；artifact 不提交 Git。
+
+### F15. Deferred / Not Implemented（§21/§24）
+
+installer = DEFERRED；code signing = DEFERRED（release/security workflow）；**v2.0.0 publication/tag = NOT AUTHORIZED / NOT IMPLEMENTED**（tag absent）；byte-reproducible ZIP = NOT IMPLEMENTED；AppBar logo = NOT IMPLEMENTED；StatisticsOverview cleanup = DEFERRED；global Tab/focus audit = **M9-F**。
+
+### F16. Roadmap（§25）
+
+M9-A ✅ / M9-B ✅ / M9-C ✅ / **M9-D ✅** / **M9-E ✅ COMPLETE**；**M9-F = next**（Learning / Final Acceptance Gate——至少含 global accessibility / Tab focus-chain audit + 最终跨页面 manual visual acceptance）；M9 整体仍 IN PROGRESS 直到 M9-F 完成。本轮**不开始 M9-F implementation**。
+
+### F17. Files（docs-only）
+
+T020（closure 节）/ PROJECT_STATUS（双 LKGC 行 → `4cb6e9d`、M9-E COMPLETE、roadmap）/ BACKLOG / devlog / INTERVIEW_NOTES。**CMake/src/QML/assets/scripts/tests/samples/screenshots 零改动**。
 ## 44. Review 请求项（Phase 1 Review 须裁定）
 
 1. §12 目标优先级（A/B P0、C/D P1、E REJECT）是否接受。

@@ -514,3 +514,12 @@
 - **Q：用户在 UI 里看不到 2.0.0，怎么确认版本？** A：本应用当前没有 About/version UI surface（E4 范围里明确不加），版本确认走 **PE 层**：Explorer 属性→详细信息显示 File version/Product version = 2.0.0，配合打包脚本的 authority 交叉验证。UI 上显示版本是未来的 About surface 决策，不是 packaging 的必要条件。
 - **Q：为什么 manual 清单里的 Demo/sample 只要求"快速 sanity"，而 M9-D 当时验收了全部场景？** A：因为 E4 验收对象是**这个包**，不是产品功能本身。Release 与此前人工验收过的 Debug 候选共享同一 committed 源，且 Release 的三模式/ctest/identity 已全绿；人工部分只需确认"换了一个构建配置、换了一个目录之后，核心用户路径（启动/演示/样本/图标/身份）依然成立"。重复全部 A–T 是没有信息量的仪式。
 - **Q：包里那个 StatisticsOverview.qml 一个人都不用，为什么还要验证它在包里？** A：因为"零消费者"是**源码事实**，"保留"是**已登记的决策**——两者的载体就是这个文件还在 QML 模块里。如果某次打包清理顺手把它删了，未来的 ownership decision 就失去了前提，而且违反"extend, do not silently redefine"。E4 的机器检查明确包含"StatisticsOverview retained"这一条。
+
+## 55. Post-T020 M9-E Final Closure 条目（2026-09-19 追加）
+
+- **Q：verified LKGC 为什么落在 4cb6e9d 而不是 E4 的 9ca079c？** A：`9ca079c` 是 docs-only（仅 T020 与状态文档），按规则**任何 docs-only commit 都不能成为 LKGC**——LKGC 的定义是"最后一个 behavior-bearing 且其完整树通过全部验证与人工验收的提交"。4cb6e9d 是 M9-E 最后一个改动了产品/打包行为的提交（validator/fail-closed 加固），而**用户最终验收的 ZIP 正是 E4 从 4cb6e9d 的树全新再生的**——树、证据、人工验收三者对齐。
+- **Q：M9-E 有 9 个提交，其中 3 个 docs-only、6 个 behavior-bearing——这个比例说明什么？** A：说明 M9-E 是**决策密度最高**的里程碑之一：Phase 1/2.0.0 决策/E4 记录三个关键决策点都是 docs-only（决策先于代码），而 6 个 behavior-bearing 提交全部有机器证据链（mutation probe、pefile oracle、9/9 fail-closed probes、全门禁）。反过来也说明：**没有决策记录的行为提交是危险的，没有行为验证的决策记录是空洞的**——两者必须成对出现。
+- **Q：Company/LegalCopyright/organizationDomain 都留空，"有意 omission"怎么在文档里自证？** A：三处独立证据互相印证：①Phase 1 §16 明确"仓库没有权威信息，不编造法人名称/版权主体/域名"；②PE metadata 实测 CompanyName/LegalCopyright 为空（非缺失字段而是空值，说明模板就是按 omission 设计的）；③Version Decision 的"2.0.0 = explicit human product decision"证明**需要人工权威输入的事项都被显式标出等人决策**——omission 是同一原则在法律字段上的应用。
+- **Q：StatisticsOverview 从"zero-consumer but kept"到 M9-E closure 还是没删，这个决定会永远悬着吗？** A：不会——它已登记为独立的 ownership decision（BACKLOG 留档 DEFER），有明确的触发条件（专门 task）。M9-D/M9-E 两轮都拒绝顺手删，是因为删除组件会同时触碰 QML module contract 与 deploy checklist 两侧，需要自己的学习/评审/验证循环。"悬着"正是显式 DEFER 的正确状态。
+- **Q：M9-E 的验收链里出现两次"correction"（E1/E3），这对流程说明了什么？** A：说明**验收 HOLD 不是流程失败，而是流程在工作**。E1 HOLD 抓的是 oracle 里的第二版本字面量（维护事实问题），E3 HOLD 抓的是 fail-fast 未被确定性验证（证据充分性问题）——两个都是 Reviewer 从"完成度"视角才能看到、实现者视角容易自证清白的盲区。correction commit 让每个 HOLD 都以可验证的机器证据收口，HOLD→correction→re-review 的循环本身成了质量机制。
+- **Q：M9-E 之后，M9 还剩什么？** A：只剩 **M9-F — Learning / Final Acceptance Gate**：global accessibility / Tab focus-chain audit（M9-D/M9-E 两次显式登记到这里）+ 最终跨页面 manual visual acceptance（E4 package-level acceptance 之上，对整个应用做最后一轮全局视觉/交互验收）。M9-F 完成后 M9 整体 COMPLETE，V2 的 UI/UX 里程碑收官。
