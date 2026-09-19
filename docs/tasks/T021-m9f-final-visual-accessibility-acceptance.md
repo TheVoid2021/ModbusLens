@@ -1,6 +1,6 @@
 # T021 — M9-F Final Manual Visual / Accessibility Acceptance
 
-> **状态：IN PROGRESS — Phase 1 = PASS；F0 = 完成测量 + F0 Review HOLD → continuation 实测完成（per-workspace + rail activation + hidden-focus）；**P0=3 / P1=3 / GAP=3 / PASS=7** → F1 REQUIRED；Implementation = NOT STARTED。**
+> **状态：IN PROGRESS — Phase 1 = PASS；F0 = 测量完成（per-workspace + rail activation + hidden-focus + final closure）；权威结论 **P0=5 / P1=3 / P2=0 / GAP=1（明确接受的非阻塞项）/ N/A=2 / PASS=5** → F1 REQUIRED（scope A–G 已冻结）；Implementation = NOT STARTED。**
 > 上游边界：M9-E（T020）= ✅ COMPLETE（verified LKGC = `4cb6e9d`；最终 Release package `ModbusLens-2.0.0-windows-x64.zip` 已人工验收）。M9-F **不得**重开：version/icon/package architecture/ZIP workflow/installer/signing/publication/Transactions IA/Diagnosis redesign。
 
 ## 0. V2 Protocol 对应
@@ -601,6 +601,277 @@ P1 项（是否入 F1 由 Review 决定）：
 ### FC14. Temporary Probe Cleanup（§19）
 
 `build/e0_audit_probe*.ps1` + `build/e0_audit_perws.ps1` 全部在 ignored `build/` 中——**本轮结束前删除**（证据已入档 T021，脚本不再需要）。`git status --porcelain` = 仅 docs 变更（product/src/scripts 零 diff）。
+## F0 Final Closure Measurements（2026-09-19，append-only）
+
+> 本节回答 F0 Review（narrow HOLD）提出的三个 measurement closure：
+> **A. Dashboard real sequence / B. Diagnosis AI & Agent selected-tab content sequence / C. H1 & H2 hidden-activeFocus behavior**。
+> 本节结论**取代** FC5（H1/H2 = GAP）与 FC6（Agent TextArea = GAP）——按仓库规约**追加批注、不覆盖原文**。
+> 本轮仍然 **measurement only**：product / QML / harness / tests / scripts 零修改。
+
+### FD0. Measurement Oracle Hardening（§2）
+
+FC 轮的导航 oracle 只依赖"点击坐标 / rail order / 窗口截图"以及一个**不成立的** workspace 判别式，本轮按 §2 要求重建为**机器可证**的判定：
+
+```text
+expected workspace == actual exposed workspace
+oracle 判别式（修正后）：
+  Transactions  ⇔ exposed(transactionsEmptyHint | transactionsDiagnosisCue
+                          | transactionDetailEmpty | transactionDetailDevice)
+  Dashboard     ⇔ exposed(dashboardRunDemo)
+  Communication ⇔ exposed(commPortCombo)
+  Replay        ⇔ exposed(replayLoadButton)
+  Diagnosis     ⇔ exposed(diagnosisTabs)
+```
+
+判别式的**事实基础**（本轮实测得到，不再是假设）：UIA tree 只暴露**当前显示 workspace** 的元素——隐藏 workspace 的 page-exclusive 元素（`dashboardRunDemo` / `diagnosisAgentQuestion`）在其页面隐藏时**完全不在 tree 中**。因此"元素存在"即等价于"该页当前显示"。
+
+```text
+规则（§2 强制）：先机器证明 workspace，再解释 sequence。
+  若 verification FAIL → 该次 sequence 作废（不能继续解释）。
+本轮所有引用的 sequence 均带 NAV-OK 证明；oracle self-test 5/5 PASS。
+```
+
+### FD1. 本轮发现的探针缺陷（Probe Defects，全部为测量工具缺陷，非产品缺陷）
+
+按"不得只修掉后删除痕迹"记录：
+
+| # | 现象 | 根因 | 处理 |
+| --- | --- | --- | --- |
+| PD-1 | `Get-Workspace` 在**有数据行**时把 Transactions 误判为非 Transactions（NAV-FAIL），但页面确实是 Transactions | `transactionsEmptyHint` 的 `visible: observedCount == 0`——**有行时该元素不暴露**，判别式出现假阴性 | 判别式改为 4 个状态互斥元素的 OR（FD0） |
+| PD-2 | `Find-TabByName("基线诊断")` 永远返回 null | 探针脚本由工具写出时**无 UTF-8 BOM**，`powershell.exe` 按 ANSI 读取 → 中文字面量损坏（输出可复现："H1S reached 杩愯岄熀绾胯瘖鏂"） | 改为**完全不含非 ASCII 字面量**的匹配：`ControlType == TabItem && AutomationId -like "*diagnosisTabs.TabButton*"`，再按 X 坐标排序取索引 |
+| PD-3 | rail 点击在部分轮次完全无效（4/5 次 NAV 失败） | 点击前窗口不是 foreground 时，第一次点击被当作 activation click 消费 | 每次点击前 `SetForegroundWindow` + 点击后**验证 oracle**，失败重试（≤4 次）；本轮 5/5 最终 NAV-OK |
+| PD-4 | `SelectionPattern.GetSelection()` 在 12 次读取中有 6 次返回 `<none selected>`，其中 1 次与 pane 暴露事实**直接矛盾**（报告 selected=AI 解释，而实际暴露的 pane 是 Baseline） | 该 Qt TabBar 的 UIA selection 映射在"非由点击触发"的读取上不可靠 | **降级 SelectionPattern**：tab 内容一律用 **pane-exposure oracle**（哪个 pane 的独占元素被暴露 = 哪个 pane 正在显示）判定 |
+
+### FD2. A — Dashboard Real Sequence（§3/§4，已闭环）
+
+navigation 先经 oracle 证明（NAV-OK Dashboard attempts=1/2），随后实测：
+
+```text
+Dashboard 页内 interactive 元素（UIA 实测，仅一个 Button 之外全是 Label）：
+  Button en=True kbd=True  off=False 127x42   dashboardRunDemo
+  Text   en=True kbd=True  off=False 1168x20  dashboardEmptyHint
+  （其余为统计面板 Label；无第二个可交互控件）
+
+Forward Tab（14 次，验证后）：
+  [1] appBarClearResults
+  [2..6] Window | ModbusLens ×5          ← 5 个 rail delegate（navItem_0..4）
+  [7] dashboardRunDemo
+  [8] appBarClearResults                 ← 周期 7，回到起点
+  [9..13] Window ×5  [14] dashboardRunDemo
+
+Shift+Tab（8 次，反向）：
+  [1..5] Window ×5  [6] appBarClearResults  [7] dashboardRunDemo  [8] Window
+  → 反向覆盖与正向**同一成员集合**，无单向不可达控件
+oracle after sequence = Dashboard（序列结束后仍在同页，无隐式跳转）
+```
+
+**结论：Dashboard = PASS**。Dashboard 页唯一的页面级动作（运行演示批次）**Tab-reachable**，且正反双向对称；AppBar 与 rail 组成稳定的 7 停点周期。**FC 轮中"DASH cycle 与全局链相同"的记录作废**——那次 sequence 未通过 workspace 证明（本轮已通过）。
+
+### FD3. B — Diagnosis Baseline / AI / Agent Selected-Tab Content Sequence（§5–§7，已闭环）
+
+方法：点击 tab → **pane-exposure oracle** 证明"哪个 pane 正在显示" → 再走 Tab/Shift+Tab。
+
+```text
+Baseline pane（exposed = Baseline，已证明）
+  Forward: TabItem 基线诊断 → AI 解释 → Agent 问答 → 运行基线诊断 → 清除诊断
+           → 清空结果 → Window×5 → TabItem 基线诊断 → …（周期 11）
+  运行基线诊断 / 清除诊断 两个 pane 内 Button **Tab-reachable**，无 focus trap。
+  → PASS
+
+AI pane（exposed = AI，已证明）
+  Forward: TabItem Agent 问答 → 清空结果 → Window×5 → TabItem 基线诊断 → AI 解释
+           → Agent 问答 → 清空结果 → …（周期 9）
+  AI pane 的两个 Button（diagnosisAiAskButton / diagnosisAiCancelButton）实测
+  **enabled=False kbd=False** → 被 Tab chain 正确跳过（disabled 不应进入 chain）。
+  无 trap、无幽灵停点。
+  → PASS（附事实：未配置/离线状态下 pane 内不存在可键盘触发的动作）
+
+Agent pane（exposed = Agent，已证明）
+  Forward：连续 14 次 Tab **全部停留在 diagnosisAgentQuestion**
+  Reverse：连续 6 次 Shift+Tab **全部停留在 diagnosisAgentQuestion**
+  → Tab 焦点 trap，两个方向都出不去。
+  根因（实测，非推断）：该 TextArea 把 Tab **当作文本输入吞掉**
+  （baseline value = [] → 两次 Tab 后 value = [\t\t]）→ 焦点永远不释放。
+  → P0（见 FD8 F0-4/F0-5）
+```
+
+跨 pane 一致性：每一次读取**只暴露一个 pane** 的独占元素（从未出现 `Baseline+AI`）。
+
+### FD4. C — H1 / H1S Hidden Retained-Focus（§9，不得再 GAP）
+
+**H1（hidden dashboardRunDemo）** — 真实注入，已证明 workflow：
+
+```text
+Goto Dashboard（NAV-OK）→ 点击 运行演示批次（获得 activeFocus）
+  activeFocus before nav = Button | 运行演示批次 | dashboardRunDemo
+Goto Transactions（NAV-OK）
+  activeFocus after nav  = Button | 运行演示批次 | dashboardRunDemo   ← 焦点**未**随页面隐藏而释放
+注入 ENTER / SPACE / UP / DOWN
+  activeFocus after keys = Button | 运行演示批次 | dashboardRunDemo
+  Transactions empty hint absent（4 行 demo 数据仍在）
+```
+
+无完全可观察副作用，**但这不是"无害"**：`TransactionListEntry`（`src/ui/TransactionListModel.h:15`）只有 deviceAddress / functionCode / status / elapsedMs / exceptionCode / issueText，**没有时间戳**，demo 批次完全确定性 → 重复发布与新发布**状态等价**，所以"看不到变化"是**该控件的幂等性**造成的，不是"按键没送到"。**H1 = P0**（与 FD8 F0-4 同类；不再标 GAP）。
+
+**H1S（升级实测：让 hidden 控件执行一个可观察的业务动作）** — 这是本轮最强证据：
+
+```text
+Goto Diagnosis（NAV-OK）→ 选择 Baseline pane（pane oracle 证明）
+仅用**键盘** Tab 到 运行基线诊断（seek[4] 命中，按钮从未被点击 → 未激活）
+Goto Transactions（NAV-OK，workspace verified = Transactions）
+  activeFocus while hidden = Button | 运行基线诊断 | diagnosisRunBaselineButton
+  cue before any key     = [尚未运行基线诊断。]
+注入 ENTER → cue after  = [尚未运行基线诊断。]          （Qt Quick Button 不响应 Enter）
+注入 SPACE → cue after  = [已有基线诊断结果，可在诊断工作区查看。]
+```
+
+```text
+结论：一个**当前不可见**的控件在隐藏期间收到键盘输入并**真实执行**了业务动作，
+      改写了 Controller 的 hasBaselineDiagnosis，并在 Transactions 页面上
+      产生用户可见的文案变化。
+分类：P0 —— hidden retained-focus 不再是"机制风险"，而是**有可观察业务后果的缺陷**。
+```
+
+（附带事实：Qt Quick `Button` 的键盘激活键是 **Space**，`ENTER` 不激活；rail delegate 才是显式绑定 `onReturnPressed/onEnterPressed/onSpacePressed` 的实现——见 FD7。）
+
+### FD5. C — H2 Hidden Agent TextArea（§10，不得再 GAP）
+
+```text
+Goto Diagnosis（NAV-OK）→ Agent pane（pane oracle 证明 exposed = Agent）
+  该 TextArea en=True kbd=True off=False（**offline/not-configured 状态下可聚焦**）
+点击 TextArea → activeFocus = Edit | | diagnosisAgentQuestion
+  value baseline = []
+  Shift+Tab → 焦点仍在 diagnosisAgentQuestion
+  Tab       → 焦点仍在 diagnosisAgentQuestion
+（两次按键后 value = [\t\t]，即 Tab 被当作字符写入）
+Goto Transactions（NAV-OK）
+  activeFocus after nav away = Edit | | diagnosisAgentQuestion     ← 隐藏后仍持有 activeFocus
+注入 Y（另加 Home/End/Up/Down）
+  value after return = [\t\tQY]     ← 隐藏期间的按键**进入了该控件的文本内容**
+```
+
+**H2 = P0**：隐藏的文本输入控件继续接收并写入按键（数据污染，不限于导航）。FC6 的 "GAP" 结论作废。
+
+### FD6. H3 Retained PASS（§11，按要求不重测）
+
+H3（hidden ListView 不改变 selection）**保留既有 PASS 结论**，本轮不重复测量。F1 验收必须同时覆盖 A 类（隐藏控件可被 Tab 进入）与 B 类（隐藏控件保留 activeFocus 并执行），见 FD11-C。
+
+### FD7. Rail Findings Freeze + Root Cause（§12）
+
+三个 P1 全部**冻结在 F1 scope**（不得推迟到 P2）。本轮从源码取得根因（只读，未修改）：
+
+```text
+src/ui/qml/components/NavigationRail.qml:54-113
+  delegate 是裸 Item + MouseArea（不是 Control）
+  focusPolicy: navItem.navEnabled ? Qt.StrongFocus : Qt.NoFocus   ← 可聚焦
+  Keys.onReturnPressed / onEnterPressed / onSpacePressed → activate()  ← 已存在的激活路径
+
+但 UIA 实测：5 个 rail 停点的 FocusedElement 全部回落到窗口自身
+  Window | ModbusLens | QGuiApplication.Main_QMLTYPE_1   且 rect = 整窗 (320,60 1280x900)
+```
+
+即：**裸 Item 在 Qt accessibility bridge 中没有对应 accessible object**，于是
+
+```text
+P1-A 无区分 accessible name  → 报告窗口名 "ModbusLens"
+P1-B 无 actionable role/pattern → 只有 Window/Group，无 Invoke/Selection pattern
+     （rail label 在 tree 中只作为 Label_QMLTYPE_4 文本出现，不是 Button/MenuItem）
+P1-C 无可区分的焦点视觉     → UIA 无 focus rect；focus ≠ selected（选中态由
+     surface+3px accent bar+bold label 表达，键盘焦点没有任何独立通道）
+```
+
+rail 的 6 个 entry 中，`设备`（index 5）`enabled:false` → `focusPolicy: NoFocus` → **正确**地不进入 Tab chain（Tab 周期里只有 5 个匿名停点，实测一致）。
+
+### FD8. Authoritative Findings Table（§15，唯一权威表）
+
+```text
+分类域仅允许：PASS / P0 / P1 / P2 / GAP / N/A。测试未覆盖者一律不得写结论。
+```
+
+| ID | Finding | Class | 证据来源 |
+| --- | --- | --- | --- |
+| F0-1 | Transactions ListView 不在 Tab cycle（证据表无键盘入口） | **P0** | F0 轮 + 本轮 oracle 序列（冻结，不重测） |
+| F0-2 | 隐藏 workspace 的 Controls 进入 Tab chain（获取类 A） | **P0** | F0-C1（冻结） |
+| F0-3 | rail 停点 Enter/Space **不激活** workspace 切换 | **P0** | F0-C2（冻结） |
+| F0-4 | 隐藏控件**保留 activeFocus 并执行**（保留类 B）；H1S 实证：隐藏的 运行基线诊断 被 SPACE 触发，改写 hasBaselineDiagnosis，Transactions cue 由「尚未运行基线诊断。」变为「已有基线诊断结果，可在诊断工作区查看。」 | **P0（新）** | FD4 |
+| F0-5 | Agent 提问 TextArea 构成 Tab 焦点 trap（正 14/14、反 6/6 均停留），根因为 Tab 被当作字符写入 | **P0（新）** | FD3 |
+| F0-6 | rail 停点无区分 accessible name（回落到窗口名） | **P1** | FD7 |
+| F0-7 | rail 停点无可操作 role/pattern（非 Button/MenuItem，无 Invoke/Selection） | **P1** | FD7 |
+| F0-8 | rail 无与 selected/hover 可区分的键盘焦点视觉 | **P1** | FD7 |
+| F0-9 | Dashboard 焦点链完整（AppBar + rail×5 + 运行演示批次，周期 7，正反对称） | **PASS** | FD2 |
+| F0-10 | Diagnosis Baseline pane：两个 pane 内 Button Tab-reachable，无 trap | **PASS** | FD3 |
+| F0-11 | Diagnosis AI pane：无 trap、无幽灵停点，disabled 控件被正确跳过 | **PASS** | FD3 |
+| F0-12 | 无跨 pane 内容泄漏：任一时刻仅一个 pane 的独占元素被暴露 | **PASS** | FD3 |
+| F0-13 | Agent TextArea 在可见状态下可聚焦、可输入、内容留存 | **PASS** | FD5 |
+| F0-14 | Transactions ListView 行与容器未暴露给 UIA（无障碍暴露缺陷，独立于键盘可达性） | **GAP（非阻塞，接受）** | F0-10 / FD5 附带 |
+| F0-15 | Qt Quick `Button` 的键盘激活键是 Space；隐藏的 ENTER 不激活 | **N/A（事实）** | FD4 |
+| F0-16 | 隐藏 Run Demo 重复发布状态等价（条目结构无时间戳、批次确定性）→ 该控件自身无可观察副作用 | **N/A（事实）** | FD4 + `TransactionListModel.h:15` |
+
+### FD9. Final Counts + Delta（§15/§17）
+
+| 类别 | 本轮定稿 | 相对 FC11 | 变化原因 |
+| --- | --- | --- | --- |
+| **P0** | **5** | 3 → 5 | F0-4（保留类 B，实证业务后果）+ F0-5（Agent Tab trap）新增 |
+| **P1** | **3** | 3 → 3 | 不变（rail 三项，冻结入 F1） |
+| **P2** | **0** | 0 | — |
+| **GAP** | **1** | 3 → 1 | H1/H2 已实测闭环（不再是 GAP）；仅保留 ListView UIA 暴露这一项**明确接受的非阻塞 GAP** |
+| **N/A** | **2** | 0 → 2 | 两项实测事实（Space/Enter 语义、Run Demo 幂等性） |
+| **PASS** | **5** | 7 → 5 | 原 7 项中 `F0-4/7/8`（Device 正确排除、Shift+Tab 对称、无 disabled 装饰项）已并入 FD2/FD3 的序列事实；`F0-TX4/F0-CB/F0-COMM/F0-RPL` 为既有 PASS，本轮不重测，仍有效但不再单列计数 |
+
+**Dashboard / AI / Agent / H1 / H2 不再是"未实测却已下结论"的空白区。**
+
+### FD10. Accepted Non-blocking GAP（§14）
+
+**唯一接受的 GAP = F0-14**：Transactions ListView 的行与容器不对 UIA 暴露 → 行级无障碍断言**无法自动化**，F1 中必须**人工/视觉验收**（与 M9-D 的鼠标路径人工 PASS 继承一致）。除此之外不存在未闭环测量项。
+
+### FD11. F1 Frozen Scope（§16，A–G，不得改名/扩项）
+
+```text
+F1 REQUIRED(=5 P0)。冻结范围（仅此 7 项，不做全局重设计）：
+
+A. Transactions ListView 的键盘 Tab 入口（证据表必须能被键盘抵达）
+B. 隐藏 workspace 控件从 Tab chain 中排除（获取类，F0-2）
+C. 隐藏后**保留的 activeFocus** 处理（保留类，F0-4；见 §13：A/B 两类都必须被验收覆盖）
+D. rail 停点的 Enter/Space 激活（F0-3）
+E. rail 停点的 accessible name（F0-6）
+F. rail 停点的 accessible role / pattern（F0-7）
+G. rail 停点的键盘焦点视觉，必须与 selected / hover 可区分（F0-8）
+
+不做：业务状态/选择语义/导航语义/布局/信息架构/版本/图标/打包契约的任何变更。
+```
+
+### FD12. F1 Implementation Principle Preview（§17，仅预告，不在本轮实施）
+
+```text
+- 优先"页面/根级 focus gating"，而不是在各控件上散布 hack。
+- rail 修复集中于 NavigationRail.qml（delegate 的 accessible 语义 + 焦点视觉 + 激活路径）。
+- Transactions 修复集中于"键盘焦点入口"，不改变 ListView 内部的鼠标/键盘导航语义（M9-D 已 PASS）。
+- 任何修复都不得改变：业务状态、selection 语义、导航语义、布局、信息架构、version/icon/package 契约。
+- F1 必须先有 RED（可复现的失败证据），再实施；不得以删除既有测试解决 regression。
+```
+
+### FD13. Temporary Probe Cleanup（§18）
+
+本轮使用过、且**已删除**的临时探针（全部位于被 ignore 的 `build/`）：
+
+```text
+build/e0_audit_final.ps1 / e0_audit_final2.ps1 / e0_audit_final3.ps1
+build/e0_audit_h.ps1 / e0_audit_h1s.ps1
+build/e0_audit_dash.ps1 / e0_audit_rail.ps1
+build/e0_audit_tabs.ps1 / e0_audit_tabs2.ps1 / e0_audit_v.ps1
+build/e0_dbg.ps1（上一轮 F0 measurement 的 UIA dump 探针，同属本 measurement 家族，一并删除）
+```
+
+清理**不只依赖 `git status`**：显式断言 `build/e0_audit*` / `build/e0_*` / 全仓库 `e0_audit*`·`e0_dbg*` 的 glob 结果均为 NONE（见完成报告的 Cleanup 项）。`build/` 中仍存在**更早 M9 轮次**的 ignored 探针脚本（`ps_*.ps1`、`c*_*.py`、`b5*_*.py`、`d*_*.py`、`e1_*`、`e3_*` 等）——它们不是本轮的产物，也未出现在任何 committed tree 中，本轮**不动**（各自轮次的清理责任不在本轮）。产物证据（ModbusLens 2.0.0 portable package 解包目录）保留，因为它同时也是 M9-E 的验收对象。
+
+### FD14. 本轮明确未做（§20 boundary）
+
+```text
+未开始 F1 implementation；未开始 F2；未修改 product / QML / harness / tests / scripts；
+未修 rail；未加 focus ring；未加 Accessible.*；未重新设计 UI；
+未创建 v2.0.0 tag；未 push；verified LKGC 保持 4cb6e9d。
+```
+
 ## 36. Status
 
 **M9-F IN PROGRESS；Phase = Learning / Final Acceptance Design Gate；Implementation = NOT STARTED**。docs-only 本轮；verified LKGC **不变 = `4cb6e9d`**；未 push。
