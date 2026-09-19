@@ -1,6 +1,6 @@
 # T020 — M9-E Branding / Icon / Packaging
 
-> **状态：IN PROGRESS — Phase 1 Learning / Design Gate（2026-09-19）；Phase 1 Review = HOLD（P0 version authority + 4 项绑定纠正，见文末 Correction）；Implementation = NOT STARTED。**
+> **状态：IN PROGRESS — Phase 1 Learning / Design Gate（2026-09-19）= PASS（P0 version authority 由用户决策 2.0.0 解决，见「M9-E Version Decision」；HOLD 历史留痕见文末 Correction）；Next = E1（已授权）；Implementation = NOT STARTED。**
 > 上游边界：M9-D（T019）= ✅ COMPLETE（verified LKGC `07561d9`）；M9-E **不得**重新打开 Transactions IA / selection·detail / Diagnosis / Legacy。
 
 ## 0. V2 Protocol 对应
@@ -392,6 +392,83 @@ E1 identity/version/PE metadata contract → E2 icon asset + window/PE integrati
 ## D7. Next（correction 之后的追加）
 
 - **M9-E Phase 1 Re-review（用户）**；通过后 **E1 — identity/version/PE metadata contract**（携带现值 0.1.0，不生成 icon）。
+## M9-E Version Decision（用户 authoritative decision，2026-09-19，append-only）
+
+> **M9-E Version Decision Closure**。Phase 1 HOLD 的 P0（version authority 值 UNRESOLVED）由用户作出**显式人工产品/release 决策**后正式解决。本轮 docs-only；E1 未开始。
+
+### V1. Human Version Decision（§1）
+
+- **user decision：next public product version = `2.0.0`**。
+- **decision status：RESOLVED**。
+- **provenance**：这不是仓库推断、不是 ZCode 选择、**不是**由 "V2" 名称自动推导——它是 **explicit human product/release decision**（用户对 Phase 1 HOLD P0 的直接裁定）。此前 correction 中"UNRESOLVED 待用户 release decision"的开放事实自此关闭。
+
+### V2. Historical Version Boundary（§2，冻结不变）
+
+- **historical release = `v1.0.0`**：tag object `2cee626`、commit target `ae067ab`（"ModbusLens v1.0.0 verified product baseline"）——**永不移动**。
+- **当前 CMake `project VERSION = 0.1.0`**：已审计为 **stale bootstrap value**（T001 引导默认值、全历史零变更、与 v1.0.0 基线矛盾的开放事实）。
+- **E1 将把它更新为 `2.0.0`**，以恢复 CMake project VERSION 作为唯一 public product-version authority 的**语义一致性**（value reconciliation）。
+
+### V3. Single-source Contract（§3，冻结）
+
+E1 后唯一 authority：**CMake `project(VERSION) = 2.0.0`**。以下全部**派生**，**不得**存在第二份硬编码 version：
+
+| 派生项 | 规则 |
+| --- | --- |
+| `QCoreApplication::applicationVersion`（QGuiApplication/QApplication 同） | configure_file 派生，读取同一 authority |
+| PE FileVersion string | `2.0.0` |
+| PE ProductVersion string | `2.0.0` |
+| Windows numeric version | `2,0,0,0` |
+| package artifact version（zip/folder 名） | `ModbusLens-2.0.0-<arch>` |
+| 任何未来 About/version UI | 必须读取同一 authority（若存在） |
+
+（Q3 知识问答的原"双源"结论由本表替代：单源 + 派生，硬编码字面量移除属 E1。）
+
+### V4. PE Mapping（§4，最终冻结）
+
+- public semantic version：**`2.0.0`**
+- PE numeric：**`2,0,0,0`**
+- PE FileVersion string：**`2.0.0`**
+- PE ProductVersion string：**`2.0.0`**
+- 第四段 = **固定 0 padding**，**不是**独立 tweak/version source（无 2.0.0.1 之类的第四段来源）。
+
+### V5. Package Naming Contract（§5）
+
+版本部分冻结：**`ModbusLens-2.0.0-<verified-architecture>`**。`<verified-architecture>` 仍必须由 build/toolchain **实际验证后填写**（E3 取证），**不得现在硬编码 x64**。exe 名保持 **`ModbusLens.exe`**。
+
+### V6. Publication Boundary（§6）
+
+**version decision ≠ publication**。本决定**不授权**：`git tag v2.0.0`、GitHub Release、push、installer publication、package upload、code signing。未来如创建 `v2.0.0` tag，必须是**独立的 release/publication gate**；**E1/E2/E3/E4 不得自动创建 tag**。
+
+### V7. Phase 1 Resolution（§7）
+
+- 原「M9-E Phase 1 Review = HOLD」的 P0：**resolved by explicit user decision**（本节 V1）。
+- **M9-E Phase 1 Learning / Design Gate = PASS**（含 4 项绑定纠正 + 本 version decision）。
+- 记录：**version authority mechanism = RESOLVED（CMake 单源，见 Phase 1 Correction C2）**；**version authority value = 2.0.0**。
+- **E1 implementation = AUTHORIZED AFTER THIS DOCS CLOSURE REVIEW**（即本 commit 之后即可开始 E1，无需再等一轮 Review——但 E1 自身完成后仍按惯例提交/汇报）。
+- 历史 HOLD 记录（原 Phase 1 Review HOLD + Correction C1–C12）**append-only 保留，不删除**（RCA 留痕）。
+
+### V8. Retained Decisions（§8，重申不变）
+
+`applicationDisplayName` = ModbusLens（NOW/E1）；`CompanyName` = omitted；`LegalCopyright` = omitted；`organizationDomain` = omitted（不编造）；LICENSE = **missing / do not invent**；portable ZIP = **scripted portable ZIP**（不作 byte-reproducible 声明）；installer = **DEFERRED / NOT IN M9-E implementation**；signing = **DEFERRED TO release/security workflow**；AppBar logo = not in scope；StatisticsOverview cleanup = deferred；packaging candidate = **Release**；**M9-F owns global Tab/focus-chain audit**。
+
+### V9. E1 Contract Preview（§9，即将允许的范围）
+
+**E1 允许**：
+- CMake `project(VERSION)`：`0.1.0` → **`2.0.0`**
+- `applicationVersion` 从 configured version 派生（移除硬编码字面量）
+- `applicationDisplayName = ModbusLens`
+- 引入 Windows PE metadata contract/resource infrastructure（.rc / configure_file 派生）
+- version 字段全部从 CMake authority 派生
+
+**E1 不做**：icon artwork、ICO generation、window icon integration、ZIP packaging、installer、signing、publication。**icon 属 E2**。
+
+### V10. Docs Sync（§10）
+
+T020（本节）/ PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES 同步。状态：**M9-E IN PROGRESS；Phase 1 = PASS；Next = E1 — identity/version/PE metadata contract；Implementation = NOT STARTED（直到本 docs closure 完成后按 V7 授权开始）**。
+
+### V11. Git / LKGC（§12/§13）
+
+独立 docs-only commit（建议 `M9-E: record 2.0.0 product version decision`）；**不 amend `9d2a82e`**、不 rebase、不 push；**verified LKGC 继续 = `07561d9`**（docs-only 不推进）。
 ## 44. Review 请求项（Phase 1 Review 须裁定）
 
 1. §12 目标优先级（A/B P0、C/D P1、E REJECT）是否接受。

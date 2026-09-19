@@ -448,3 +448,12 @@
 - **Q：icon 的 source 和 derived 为什么要这样分层？normal build 为什么不能依赖 ImageMagick？** A：`icon.svg` 是唯一手写母版（source），`ModbusLens.ico` 是从它生成的派生资产（derived）——但 derived 必须**入库**，否则任何人 clone 后没装 ImageMagick/icotool 就构建不了，违反"仓库可独立构建"的底线。工具只在 **E2 生成步**用一次（先探测、记录 tool+version+固定命令、验证 ICO 内含尺寸、禁 silent fallback），日常构建只消费已入库的 .ico。临时 PNG/previews 只允许在 build/ 里，防止生成垃圾进 assets。
 - **Q：LICENSE 文件不存在，为什么 M9-E 不直接写一个 MIT 进去？** A：选择 license 是**法律决策**（ MIT/Apache/专有 各自意味着不同的权利授予与责任），一个简历/作品集仓库选哪个 license 完全是作者的战略选择，AI 不该替他签。审计结论是"missing"，处置是"不生成、留待用户"；同时 package 里的 readme/notes 可以谈使用说明，但**不能替代**法律 license。同理 CompanyName/LegalCopyright 继续留空——没有权威主体信息时，编造一个比留空糟糕得多。
 - **Q：为什么把 installer/signing 的 REJECT 措辞改掉？** A：因为 REJECT 会被读成"永久否决"，而真实裁定是**范围性推迟**：installer 等到有卸载/快捷方式/升级需求时重启；signing 等到有证书和 release workflow 时做。措辞统一成 **DEFERRED / NOT IN M9-E IMPLEMENTATION**，把"本轮不做"和"永远不做"区分开——文档措辞的歧义会变成未来的错误决策依据。
+
+## 48. Post-T020 M9-E Version Decision 条目（2026-09-19 追加）
+
+- **Q：为什么 2.0.0 而不是 1.0.1？** A：这是**产品语义选择，不是数学题**。v1.0.0 是 V1 完成锚；此后 V2 完成了整个 UI/UX 重构（应用壳、全部工作台重设计、Legacy 退役、新工作区、键盘契约）——这是对用户可见形态的**代际变更**，不是补丁。1.0.1 会传达"小修小补"，与事实不符。但关键是：**这个判断属于产品所有者**，AI 只能陈列证据（Phase 1 correction 就是这么做的）；本轮由用户显式拍板 2.0.0，决策链完整。
+- **Q：版本决策为什么不顺带把 tag 也打了？** A：因为 **version decision ≠ publication**。决定"下一个版本号是什么"是产品语义；创建 `v2.0.0` tag 是发布动作——它意味着"这棵树就是 2.0.0 交付物"，而 E1–E4 还没跑、2.0.0 的二进制还不存在。规程明确：tag 创建是独立的 release/publication gate，E1–E4 全程禁止自动打 tag。否则会出现"tag 先行、代码追认"的倒挂。
+- **Q：CMake VERSION 从 0.1.0 改成 2.0.0，中间跳过了 1.x，git 历史上会有问题吗？** A：没有。语义化版本比较的是**相邻发布之间的关系**，不是数字连续性；2.0.0 相对 v1.0.0 是"重大变更"，正符合 V2 的实际内容。git/tag 层面唯一要保证的是：v1.0.0 这个历史锚不动（它记录的是"V1 在那时是 1.0.0"这个事实），新版本以**新 tag** 记录——而且那要在 E4 之后、由 publication gate 决定。
+- **Q：为什么 applicationVersion、PE、包名都要"派生"而不允许各自写死？** A：D6 之前仓库就吃过**双源**的暗亏：CMake 写 0.1.0、main.cpp 硬编码 0.1.0，靠"碰巧有人记得同时改"保持一致——这种一致性没有机制保障，下次改版本大概率漏一处（Explorer 属性和关于信息各说各话）。单源 + 派生（configure_file）让"CMake VERSION 是唯一要改的地方"，其余全部机械同步，漏改在编译/审计期就会暴露。
+- **Q：`ModbusLens-2.0.0-<verified-architecture>` 里的 x64 为什么现在不能写死？** A：因为 Phase 1 取证只证明了**工具链目录**是 mingw1310_64（64 位编译器），没有从构建产物/缓存里做过正式的架构取证——规程禁止"根据文件名猜"。E3 会从 CMakeCache/编译器目标实测后填写；如果实测结果推翻了假设，命名约定还没固化，改起来零成本。
+- **Q：E1 被授权了，为什么这条边界里 icon 还是不能碰？** A：因为版本/元数据（E1）和视觉资产（E2）的**风险面完全不同**：E1 改的是构建配置与资源编译，验证靠机器（ctest/PE inspection/字符串审计）；E2 涉及资产生成工具链、多尺寸视觉质量、人工 icon 验收——两者混在一个阶段，任何一处失败都会让另一处无法独立回滚。分阶段是"可运行、可测试、可回滚"原则的直接应用。
