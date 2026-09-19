@@ -5117,14 +5117,24 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             tab(true);
             ok = propBool(tabItem, "visualFocus");
         }
-        const double w = backgroundBorderWidth(tabItem);
-        if (!ok || w != 2.0)
-            fail(QStringLiteral("FOCUSFAIL FK: TabButton focused border width=%1 "
-                                "visualFocus=%2 (expected 2/true)")
-                     .arg(w).arg(ok ? 1 : 0));
+        // F1 correction: the tab's keyboard-focus channel is now a SEPARATE
+        // inner ring (an additional element), not a variation of the selected
+        // border — so the machine assert is "the ring object is visible while
+        // the tab holds focus", and the selected border must stay untouched.
+        const double selectedBorder = backgroundBorderWidth(tabItem);
+        auto *ring = itemOf(QStringLiteral("diagnosisTabBaselineFocusRing"));
+        if (!ok || !ring || !propBool(ring, "visible"))
+            fail(QStringLiteral("FOCUSFAIL FK: TabButton focus ring visible=%1 "
+                                "visualFocus=%2 (expected true/true)")
+                     .arg(ring && propBool(ring, "visible") ? 1 : 0)
+                     .arg(ok ? 1 : 0));
+        else if (selectedBorder != 1.0)
+            fail(QStringLiteral("FOCUSFAIL FK: the selected-tab border changed "
+                                "with focus (width=%1, expected 1)")
+                     .arg(selectedBorder));
         else
-            note(QStringLiteral("FOCUS [FK] PASS: TabButton focused border "
-                                "width=2"));
+            note(QStringLiteral("FOCUS [FK] PASS: TabButton inner focus ring "
+                                "visible; selected border untouched (width=1)"));
     });
 
     // FA2: the entry must be USABLE, not just reachable: with focus in the
@@ -5385,6 +5395,18 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         else
             note(QStringLiteral("FOCUS [H2] PASS: hidden field consumed nothing "
                                 "(text stays [%1])").arg(before));
+    });
+
+    push([&]() {
+        // the ring follows keyboard focus across tabs: after the previous walk
+        // moved focus past tab 0, its ring must be off again
+        auto *ring = itemOf(QStringLiteral("diagnosisTabBaselineFocusRing"));
+        if (ring && propBool(ring, "visible"))
+            fail(QStringLiteral("FOCUSFAIL FK: TabButton focus ring still "
+                                "visible after focus moved to another stop"));
+        else
+            note(QStringLiteral("FOCUS [FK] PASS: TabButton ring off after focus "
+                                "moved on"));
     });
 
     // FL: the Agent TextArea's EDIT keys keep their text semantics with a

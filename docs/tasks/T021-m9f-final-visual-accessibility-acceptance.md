@@ -1414,3 +1414,121 @@ P5 探针/元素句柄在页面隐藏时预取 ⇒ rect 失效（inventory 首�
 未 amend 736d957；未 rebase；未 push；未创建 v2.0.0 tag；verified LKGC 保持 4cb6e9d；
 未开始 F2；未重新打包；未触碰 Controller/Core/业务模型/打包脚本/version·icon 资产/samples。
 ```
+
+## F1 Focus Visual Review = HOLD（TabButton 焦点不可感知）→ Minimal Correction（2026-09-19，append-only，behavior-bearing）
+
+> 人工实机 Review = HOLD：**Diagnosis TabButtons 虽在真实 Tab traversal 中，键盘焦点却肉眼不可感知**。
+> 用户实际现象：运行基线诊断 / 清除诊断 之间需要额外若干次 Tab 才能循环回来——这些"无视觉变化"的停点就是 3 个 TabButtons。
+> **重要澄清**：Tab **本来就不应**自动切换 selected page；本缺陷**不是** Tab activation failure，而是 TabButton 的 keyboard focus **缺少足够可感知的 visual indication**。
+> 因此本轮**不改 focus chain、不改 selected/currentIndex 语义、不改 Tab activation**，只做最小 TabButton focus-visual correction。
+> verified LKGC 保持 `4cb6e9d`。
+
+### FI0. Reproduce（§1，真实场景）
+
+```text
+Diagnosis / Baseline selected → 点击 运行基线诊断（建立非 tab 焦点）→ 逐次 Tab 并记录 focus：
+  press[8]  = 基线诊断（tab 0）  ; pane = Baseline
+  press[9]  = AI 解释（tab 1）   ; pane = Baseline
+  press[10] = Agent 问答（tab 2）; pane = Baseline
+  press[11] = 运行基线诊断 → press[12] = 清除诊断 …
+RED 事实：focus state 确实落在 TabButton（UIA Name 正确、pane 始终 Baseline ⇒ 只移动焦点不切换页面），
+         但当前视觉上用户无法可靠辨认。
+```
+
+### FI1. Root Cause（§2，以真实 rendering 为准）
+
+对每个 tab 分别取「未聚焦 / 该 tab 聚焦」两次控件矩形截图并逐像素比较（HEAD `5089840` 的实现）：
+
+```text
+tab0（已选中）: 未聚焦 topBorder=(177,185,198) → 聚焦 (99,147,201)
+tab1（未选中）: 未聚焦 topBorder=(226,230,235) → 聚焦 (99,147,201)
+tab2（未选中）: 同上
+三次测量的 bg / geometry / label 像素**完全不变**，只有既有边框的色相变化；
+像素差 ~3249/13532（24%），maxΔ≈208。
+```
+
+```text
+为什么"自动 pixel-diff 认为有变化"与"人工看不出"不矛盾：
+  ① 自动判据测的是「是否有渲染变化」（changed/strong 采样计数），不是「是否可辨认」；
+  ② 上一轮 FK 断言读的是实现属性（background.border.width == 2），同样不是可辨认性；
+  ③ 该 cue 与 selected 使用的是**同一条视觉通道**（tab 的边框）：selected 已经占用了边框，
+     聚焦只是把这条边框"换成另一种颜色、加粗 1px"，于是两态读起来是同一类信号，
+     用户在完整 UI 里无法据此判断"下一次 activation 会作用在哪个 tab"；
+  ④ 125% DPI 下 2px 逻辑边框 ≈ 2.5 物理像素，且未选中 tab 的常态边框极浅（#E2E6EB），
+     蓝色边框在连续三个 tab 上逐次出现时缺少可抓取的形状差异。
+⇒ 结论：cue 存在但**不可靠可感知**，属 §2 所列「focus color 对比不足 / focus 与普通边框过于相似」。
+```
+
+### FI2. Visual Contract（§3，冻结）
+
+```text
+selected tab 与 keyboard-focused tab 必须肉眼容易区分：
+  例：Baseline = selected，AI = keyboard focused ⇒ 一眼可知「页面仍是 Baseline，
+      但下一次 keyboard activation 会作用在 AI」。
+focus cue 不得依赖 bold selected text 或 selected background。
+Tab 只移动 focus；Space/正常 activation 才改变 selected（本轮不改）。
+```
+
+### FI3. Minimal Fix（§4）
+
+```text
+src/ui/qml/pages/DiagnosisPage.qml
+  ① 3 个 TabButton 的 background **恢复原样**（border.color = checked ? frozenActiveTabBorder : DS.border；
+     border.width = 1）——selected 外观零改动，focus 不再借用 selected 的边框通道；
+  ② 每个 TabButton 新增一个**独立的内缩焦点环**（附加视觉元素，而非既有元素的变体）：
+     Rectangle { objectName: "diagnosisTab<X>FocusRing"; anchors.fill: parent; anchors.margins: 2;
+                 radius: 2; color: "transparent"; border.color: DS.primary; border.width: 2;
+                 visible: <tab>.visualFocus }
+不占 layout space（内缩 2px）；不改 tab height / TabBar geometry / selected appearance / DesignSystem contract；
+不依赖 bold 文本或 selected background；transparent 填充 ⇒ 文本可读、点击不受阻。
+```
+
+### FI4. GREEN（§5）
+
+```text
+自动：FK 断言改为「焦点环 object visible == true（且 selected 边框仍为 1）」+「焦点移走后环关闭」——
+      FOCUS [FK] PASS: TabButton inner focus ring visible; selected border untouched (width=1)
+      FOCUS [FK] PASS: TabButton ring off after focus moved on
+实测渲染（同一 oracle）：聚焦时**既有边框逐字节不变**，行 5–7 出现 (47,111,183)=DS.primary 满饱和 2px 环；
+      tab0 像素差 2821/13532、tab1 2820/13532（变化的是**新增元素**，不再是边框换色）。
+人工候选（截图）：Baseline = selected（bold + 白底 + 灰边框，下方内容仍是 Baseline）
+                  AI = keyboard focused（蓝色内环）⇒ 两态同时清楚、互不淹没。
+Tab 仍只移动 focus：每次停点 pane 均为 Baseline（FI0/FI4 实测）。
+```
+
+### FI5. Regression（§6）
+
+```text
+qml_focus_check: FOCUS CHECK PASS（FA/FJ/FB×5/FC/FD·FE×5/FF/FK/FL/FG/FH/FI）
+qml_smoke: SMOKE IDENTITY PASS
+qml_nav:   NAV CHECK PASS（A–T，M DEFERRED）
+qml_geometry: 18 printed segments / 0 GEOFAIL / rail 宽度恒 56
+ctest: Debug 27/27 + Release 27/27；Release configure/build + qml_focus_check + geometry 全 PASS
+```
+
+### FI6. Evidence（§7）
+
+```text
+docs/assets/screenshots/m9f-f1-diagnosis-tab-focus-vs-selected-1024x720.png
+  （Diagnosis：Baseline = selected 且下方内容是 Baseline；AI = keyboard focused 带内环；
+    125% DPI，物理 1280×900 = 逻辑 1024×720）
+**Focus Visual Review = WAITING FOR USER**（继续；ZCode 不自标 PASS）。
+```
+
+### FI7. Problems / RCA（工具缺陷）
+
+```text
+P9  PowerShell 非 ASCII 字面量再次被 ANSI 破坏（`$fn -eq "基线诊断"` 永不成立，导致 focused 截图静默缺失）
+    ⇒ 改用 rect 同一性识别 tab（不比较中文名）；
+P10 多行 if 条件被 PowerShell 误解析 ⇒ 条件写入单行；
+P11 ShotWindow 使用相对路径把截图写到了仓库根目录 ⇒ 已移入 docs/assets/screenshots 并清理根目录残留。
+以上均为探针/取证工具缺陷，不记产品缺陷。
+```
+
+### FI8. Git / 边界
+
+```text
+本轮 = behavior-bearing correction（QML focus rendering + harness 断言）。
+未 amend 5089840；未 rebase；未 push；未创建 v2.0.0 tag；verified LKGC 保持 4cb6e9d；
+未开始 F2；未重新打包；未改 focus chain / selected semantics / Tab activation / geometry / DS contract。
+```

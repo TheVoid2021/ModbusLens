@@ -60,15 +60,30 @@ Item {
                 background: Rectangle {
                     radius: 3
                     color: tabBaseline.checked ? DS.surface : DS.surfaceAlt
-                    // M9-F F1 correction (P1, focus visibility): the tab
-                    // background reacted only to `checked` (the business
-                    // selection) and measured a zero-pixel diff on keyboard
-                    // focus. The keyboard-focus channel is the border and it
-                    // deliberately WINS over the selected border so the two
-                    // states stay distinguishable.
-                    border.color: tabBaseline.visualFocus ? DS.primary
-                                 : tabBaseline.checked ? page.frozenActiveTabBorder : DS.border
-                    border.width: tabBaseline.visualFocus ? 2 : 1
+                    border.color: tabBaseline.checked ? page.frozenActiveTabBorder : DS.border
+                    border.width: 1
+                }
+                // M9-F F1 correction (focus-visual HOLD): the previous attempt
+                // only recoloured/thickened THIS tab's existing border, which
+                // measured as a real pixel change but was not reliably
+                // perceivable: selection already owns a border, so focus and
+                // selection read as the same kind of cue (measured: the
+                // background、geometry 与 label 在聚焦时完全不变，变的只是边框色相
+                // —— 选中 tab #B1B9C6→#6393C9、未选中 #E2E6EB→#6393C9)。
+                // The keyboard-focus channel is now a SEPARATE inner ring: an
+                // additional visual element (not a variation of the selected
+                // one), inset so the normal border and the selected
+                // appearance are untouched, and visible regardless of which
+                // tab is selected.
+                Rectangle {
+                    objectName: "diagnosisTabBaselineFocusRing"
+                    anchors.fill: parent
+                    anchors.margins: 2
+                    radius: 2
+                    color: "transparent"
+                    border.color: DS.primary
+                    border.width: 2
+                    visible: tabBaseline.visualFocus
                 }
                 contentItem: Text {
                     text: tabBaseline.text
@@ -85,15 +100,30 @@ Item {
                 background: Rectangle {
                     radius: 3
                     color: tabAi.checked ? DS.surface : DS.surfaceAlt
-                    // M9-F F1 correction (P1, focus visibility): the tab
-                    // background reacted only to `checked` (the business
-                    // selection) and measured a zero-pixel diff on keyboard
-                    // focus. The keyboard-focus channel is the border and it
-                    // deliberately WINS over the selected border so the two
-                    // states stay distinguishable.
-                    border.color: tabAi.visualFocus ? DS.primary
-                                 : tabAi.checked ? page.frozenActiveTabBorder : DS.border
-                    border.width: tabAi.visualFocus ? 2 : 1
+                    border.color: tabAi.checked ? page.frozenActiveTabBorder : DS.border
+                    border.width: 1
+                }
+                // M9-F F1 correction (focus-visual HOLD): the previous attempt
+                // only recoloured/thickened THIS tab's existing border, which
+                // measured as a real pixel change but was not reliably
+                // perceivable: selection already owns a border, so focus and
+                // selection read as the same kind of cue (measured: the
+                // background、geometry 与 label 在聚焦时完全不变，变的只是边框色相
+                // —— 选中 tab #B1B9C6→#6393C9、未选中 #E2E6EB→#6393C9)。
+                // The keyboard-focus channel is now a SEPARATE inner ring: an
+                // additional visual element (not a variation of the selected
+                // one), inset so the normal border and the selected
+                // appearance are untouched, and visible regardless of which
+                // tab is selected.
+                Rectangle {
+                    objectName: "diagnosisTabAiFocusRing"
+                    anchors.fill: parent
+                    anchors.margins: 2
+                    radius: 2
+                    color: "transparent"
+                    border.color: DS.primary
+                    border.width: 2
+                    visible: tabAi.visualFocus
                 }
                 contentItem: Text {
                     text: tabAi.text
@@ -110,15 +140,30 @@ Item {
                 background: Rectangle {
                     radius: 3
                     color: tabAgent.checked ? DS.surface : DS.surfaceAlt
-                    // M9-F F1 correction (P1, focus visibility): the tab
-                    // background reacted only to `checked` (the business
-                    // selection) and measured a zero-pixel diff on keyboard
-                    // focus. The keyboard-focus channel is the border and it
-                    // deliberately WINS over the selected border so the two
-                    // states stay distinguishable.
-                    border.color: tabAgent.visualFocus ? DS.primary
-                                 : tabAgent.checked ? page.frozenActiveTabBorder : DS.border
-                    border.width: tabAgent.visualFocus ? 2 : 1
+                    border.color: tabAgent.checked ? page.frozenActiveTabBorder : DS.border
+                    border.width: 1
+                }
+                // M9-F F1 correction (focus-visual HOLD): the previous attempt
+                // only recoloured/thickened THIS tab's existing border, which
+                // measured as a real pixel change but was not reliably
+                // perceivable: selection already owns a border, so focus and
+                // selection read as the same kind of cue (measured: the
+                // background、geometry 与 label 在聚焦时完全不变，变的只是边框色相
+                // —— 选中 tab #B1B9C6→#6393C9、未选中 #E2E6EB→#6393C9)。
+                // The keyboard-focus channel is now a SEPARATE inner ring: an
+                // additional visual element (not a variation of the selected
+                // one), inset so the normal border and the selected
+                // appearance are untouched, and visible regardless of which
+                // tab is selected.
+                Rectangle {
+                    objectName: "diagnosisTabAgentFocusRing"
+                    anchors.fill: parent
+                    anchors.margins: 2
+                    radius: 2
+                    color: "transparent"
+                    border.color: DS.primary
+                    border.width: 2
+                    visible: tabAgent.visualFocus
                 }
                 contentItem: Text {
                     text: tabAgent.text
