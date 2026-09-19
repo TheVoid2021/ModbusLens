@@ -533,3 +533,12 @@
 - **Q：为什么 accessibility naming 以"可见文字"为主来源，而不是给所有控件加 Accessible.name？** A：因为可见文字**同时服务**视觉用户和屏幕阅读器——单一来源，永不漂移；Accessible.name 只服务辅助技术，与可见文字可能不一致。给已有可见文字的控件再加 Accessible.name 是冗余且引入漂移面。规则：**只有纯图标/无文字控件才必须显式 Accessible.name**——本项目当前没有这种控件，如实记录即可。
 - **Q：为什么 M9-F 的人工验收基于 Release package 而非 Debug build？** A：因为验收对象是**要交付的东西**。Release 与 Debug 的二进制、Qt runtime、资源嵌入路径都不同；E3/E4 已证明 Release candidate 能构建/部署/打包并通过机器门禁，但**人从未在最终 Release package 上做过全应用级验收**——M9-F 补的就是这最后一步。且若 F1 产生修复，必须重新 Release build/package 并对新树重新接受——Debug PASS 不能豁免。
 - **Q：automation gap matrix 里为什么承认 Tab/Shift+Tab 是 missing？** A：因为 nav harness（A–T）驱动方式是**直接设 currentIndex/调 activate**，从不模拟键盘事件；Tab/Shift+Tab 遍历属于 Qt focus chain 的运行时行为。承认 missing 是为了让 Phase 1 Review 明白：M9-F 的 audit 是在**填补真实的证据空白**，而不是重复已有覆盖。
+
+## 57. Post-T021 M9-F Phase 1 correction 条目（2026-09-19 追加）
+
+- **Q：为什么 "audit 还没做" 会成为 HOLD？设计文档先写判据、后做测量，不是很正常吗？** A：判据先行没问题，问题是**决策依赖的方向反了**。原设计写的是"audit 无 blocker ⇒ 跳过 F1"——但在 audit 执行之前，"有没有 blocker" 是未知数，等于让一个**尚未发生的测量**来决定**流程是否继续**。正确顺序是：F0 测量 → findings 分类 → 再决定 F1 是否存在。这不是措辞问题，而是把"计划中的验证"当成了"已完成的验证"来编排流程。
+- **Q：rail 同时被写成 "Tab reachability unknown" 和 "dead path"，矛盾出在哪？** A：**"unknown" 是认识状态**（我还不知道），**"dead path" 是结论**（我确定它不通）。我当时引用的证据只覆盖了**点击路径**（D6 审计：点击 rail 不夺焦），却把结论写到了**键盘路径**上——而 Tab 遍历走的是 Qt focus chain，与点击夺焦是两个机制。StrongFocus 也不能反证可达（focusPolicy 只声明资格）。正确表述：**UNRESOLVED pending runtime audit**，双向都不预判。
+- **Q：为什么 rail 的 accessibility exposure 要单独审计？它不是有可见文字吗？** A：可见文字解决**视觉用户**的识别问题；**accessible object（role/name/enabled）**解决辅助技术的问题——两者机制不同。rail 的特殊之处在于它是 **plain Item 而非 standard Button**：Qt 不会自动给它 Button 的 role/语义，暴露什么、怎么暴露都是未知的。Device 项的 disabled 语义尤其重要：辅助技术用户需要知道"这一项存在但不可操作"，而不是以为它坏了或者根本不知道它存在。
+- **Q："business state persistence ≠ keyboard activeFocus" 这条区分为什么反复出现？** A：因为它们**表现相似但机制和修复层完全不同**。M9-D 冻结的是"切页后选中行还在"（数据）；M9-F 审计的是"切页后焦点会不会藏在隐藏控件里吞键盘"（输入）。如果把 hidden-focus 当成 state 问题去修，就会错误地把业务状态和焦点绑定迁移，破坏 M9-D 已验收的 persistence 契约。区分清楚后，两个问题各自的修复互不干扰。
+- **Q：focus visibility 为什么不能用 "selected 背景色" 代替？** A：因为 selected 和 keyboard focus 是**两种可能同时存在、也可能单独存在**的状态。用户 Tab 到一个**非选中**行时，如果只有 selected 样式，这行看起来就是"普通未选中行"——焦点在哪完全不可见。所以可见性判定必须是：**keyboard focus 状态本身有独立可辨的视觉**（outline/高亮/其他），并且与 selected、hover 可区分。这条在 Phase 1 冻结为验收规则，F0 实测时逐项核对。
+- **Q：automation gap matrix 里把 qml_nav PASS 和 focus accessibility 明确划清界限，会不会显得之前的工作"不算数"？** A：不算数的是**声称的范围**，不是工作本身。qml_nav 验证的是业务状态持久性与 workspace 路由——它在自己的范围内是有效的。问题只在于**不能把它外推成焦点可访问性证据**。gap matrix 的价值就是诚实地标出每类契约的证据来源与缺口，让 M9-F 的测量有明确的靶子。

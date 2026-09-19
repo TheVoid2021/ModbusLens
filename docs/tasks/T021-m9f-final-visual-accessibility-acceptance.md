@@ -1,6 +1,6 @@
 # T021 — M9-F Final Manual Visual / Accessibility Acceptance
 
-> **状态：IN PROGRESS — Phase 1 Learning / Final Acceptance Design Gate（2026-09-19）。Implementation = NOT STARTED。**
+> **状态：IN PROGRESS — Phase 1 Review = HOLD（P0-A audit 序列颠倒 / P0-B rail 证据自相矛盾）→ correction 已落库（F0 前置 + rail = UNRESOLVED + accessibility semantics audit），awaiting Re-review；Implementation = NOT STARTED。**
 > 上游边界：M9-E（T020）= ✅ COMPLETE（verified LKGC = `4cb6e9d`；最终 Release package `ModbusLens-2.0.0-windows-x64.zip` 已人工验收）。M9-F **不得**重开：version/icon/package architecture/ZIP workflow/installer/signing/publication/Transactions IA/Diagnosis redesign。
 
 ## 0. V2 Protocol 对应
@@ -232,6 +232,119 @@ docs-only：T021（新）/ PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES�
 8. 因为 closure 的验收标准是**功能/可访问性 blocker 不存在**（P0）+ **明显可用性缺陷不存在**（P1）；P2 是主观 polish，若允许其阻断 closure，closure 永远无法完成（polish 无终点）。P2 记录 DEFER 后仍可作为后续 backlog。
 9. nav harness（A–T）断言的是**业务状态与 workspace 路由**，其驱动方式是直接设 currentIndex/调用 activate——**从不模拟真实键盘事件**。Tab/Shift+Tab 遍历属于 Qt focus chain 行为，需要一个真正的 key-event 驱动的遍历审计（M9-D Scenario T 的 QKeyEvent 合成是可选增强，Phase 1 归为 manual + 可选自动化）。已有 harness 覆盖 ≠ 覆盖了焦点遍历。
 
+## Phase 1 Review = HOLD + Correction（2026-09-19，append-only）
+
+> **M9-F Phase 1 Review = HOLD**。未确认新的 product defect。**P0-A**：audit（测量）尚未执行，原设计却要求"根据 audit 结果决定是否进入 F1"——决策顺序颠倒。**P0-B**：NavigationRail 被同时写成 "Tab reachability unknown" 与 "keyboard activation dead path"——**证据自相矛盾**。另补：**custom interactive accessibility semantics audit**（rail plain Item / Transactions delegates 的 role/name/enabled exposure）。原 Phase 1 记录保留不删改；本 correction 修正序列与结论。
+
+### C1. Correct Phase Sequencing（§2，决策顺序修正）
+
+```
+F0 — Accessibility / Focus Audit and Measurement
+        ↓（findings classification: P0 / P1 / P2 / PASS / GAP）
+F1 — ONLY IF P0/P1 FOUND：minimal accessibility/focus correction
+        ↓（若无 P0/P1：SKIP F1）
+F2 — Final Release visual/evidence candidate
+        ↓
+F3 — Manual final acceptance + M9 closure
+```
+
+**F0 必须发生在"是否进入 F1"的决定之前**；不为编号整齐制造 behavior commit。
+
+### C2. Rail Evidence Correction（§3，P0-B 闭环）
+
+**保留源码事实**：NavigationRail delegate = plain `Item` + `MouseArea`（click → activate）+ `Keys.onReturnPressed/onEnterPressed/onSpacePressed`；`focusPolicy` = StrongFocus/NoFocus（按 enabled）；`activeFocusOnTab` 未显式设置。
+
+**结论修正**：
+- ~~"keyboard activation dead path"~~ → **keyboard reachability = UNRESOLVED pending runtime audit**。
+- 依据：①D6 审计只证明**点击不夺焦**（Rail click 后 activeFocusItem 仍为 dashboardRunDemo）——点击行为不能外推 Tab 行为；②`focusPolicy: StrongFocus`（Qt 6.7+ QQuickItem）在 Tab 遍历中的真实表现**未实测**；③Enter/Space handler 是否可触发，取决于 focus 是否曾到达 delegate——**runtime evidence 决定**。
+- 同样**不得**仅凭 StrongFocus 宣称一定 Tab-reachable。两个方向都不预判。
+
+**F0 runtime audit 将实际回答**（§7 A–F）：Tab 能否到达 enabled rail item / 到达后 Enter·Space 是否 activate / activation 后 workspace 是否变化 / focus visual 是否可见 / 与 selected·hover 是否可区分 / Device 是否 Tab-skip 且 Enter·Space 均不可 activate。结果 = rail path **LIVE** 或 **CONFIRMED DEFECT**。
+
+### C3. F0 Audit Basis（§4）
+
+- 基于当前 accepted Release behavior tree **`4cb6e9d`** + 由该 tree 产生并已接受的 Release portable candidate（E4 ZIP）。
+- **默认 zero product diff**。临时 probe 允许：ignored `build/` 内的测量脚本、一次性 runtime logging（如 offscreen 探针记录 activeFocusItem 序列）。
+- **不为测量先 commit product/harness change**；若最终确需 committed harness enhancement → **STOP + Review**（harness behavior change 也是 behavior-bearing）。
+
+### C4. Tab Forward Audit（§5）
+
+对每个 active workspace（Transactions/Dashboard/Communication/Replay/Diagnosis）实际执行 Tab traversal，**记录 ordered sequence：activeFocusItem identity**。验证：primary interactive controls reachable / order approximately follows task·visual order / hidden workspace controls absent / disabled Device absent / decorative Labels absent / list 可键盘持焦 / **no focus trap**。**不能只写 "Tab works"——必须保存实际 sequence summary**。
+
+### C5. Shift+Tab Audit（§6）
+
+同法实测 Shift+Tab：reverse traversal works、无 one-way focus trap、无 hidden-page jump、无 disabled Device jump、无 unexpected capture。不要求序列数学意义完全反转，但必须能合理返回前一个 task control。
+
+### C6. NavigationRail Runtime Audit（§7，F0 核心）
+
+A. Tab 能否到达每个 **enabled** rail item？B. 获得 activeFocus 后 **Enter / Space 是否 activate**？C. activation 后 **workspace 是否正确变化**？D. **focus visual 是否可见**？E. focus visual 与 selected / hover **是否可区分**？F. **Device**：Tab skip？Enter/Space 均不可 activate？结果决定 rail path = **LIVE** 或 **CONFIRMED DEFECT**——Phase 1 不预判。
+
+### C7. Rail Accessibility Semantics（§8，新增 audit）
+
+rail delegate 是 **plain Item 而非 standard Button** ⇒ F0 必须检查其 **accessibility exposure**：每个 active item 的 accessible object 是否 exposed、role、name、enabled state；**Device** 的 disabled semantics 是否正确呈现（或合理地不暴露为可操作项）。**不以"屏幕上有文字"替代 accessible name/role evidence**。若当前测试环境无 screen reader：允许 Qt Accessible object/interface inspection 或真实可用等价机制；**无法机器检查 ⇒ 标记 MANUAL / GAP，不编造 PASS**。
+
+### C8. Other Custom Interactive Semantics（§9）
+
+盘点其余 plain Item/MouseArea/TapHandler 承担 button-like 或 selectable 行为的位置：**Transactions delegates**（selectable row）、**NavigationRail**。对 selectable row 不强制 button role，但必须说明其 keyboard focus / selection / accessible semantics 属于哪一类（ListView 内建 item 导航 + 选中语义）。不给所有 Label 堆 metadata。
+
+### C9. Focus Visibility Acceptance Rule（§10，冻结）
+
+任何 **Tab-reachable actionable control** 获得 keyboard focus 后，用户必须能**视觉辨认**焦点位置。标准 Qt Control 可依赖真实平台 focus indicator——**前提是 F0 实际看见**。**custom Item 不能因 selected state 恰好有背景色就自动判 focus visible**；必须能区分 **selected / hover / keyboard focus**。若 rail 获得 focus 但无视觉反馈：按 **P1 clear usability/accessibility defect 候选**处理。
+
+### C10. Hidden-focus Regression（§11，继承 M9-D RCA）
+
+实测：workspace A 某控件持 activeFocus → 切到 workspace B → 键盘输入。验证 hidden workspace control **不 consume Enter/Space/navigation keys、不触发 hidden command**。若 activeFocusItem 暂时仍引用 hidden item 但当前页真实操作会合理重获焦点：按实际行为分类。**business state persistence ≠ keyboard activeFocus**（不混同）。
+
+### C11. Transactions Boundary（§12）
+
+实测：Tab 进入 Transactions list、focus indicator 可辨、**Up/Down/Home/End 仍工作**、Tab/Shift+Tab 合理离开 list。**不改** selection semantics / detail semantics / M9-D keyboard mapping。
+
+### C12. Text-input Conflict（§13）
+
+实测 Agent TextArea：Left/Right/Up/Down/Home/End 保持文本编辑行为；ComboBox 键盘行为保持 standard control semantics；不得被 Transactions Keys / rail Keys / hidden control 抢走。
+
+### C13. Finding Classification（§14）
+
+每个 finding 标 **P0**（functional/accessibility blocker）/ **P1**（clear usability/accessibility/visual defect）/ **P2**（optional polish）/ **PASS** / **GAP**。P2 不强迫 F1。
+
+### C14. Accessibility Scope Boundary（§15）
+
+M9-F 做 **basic keyboard/focus/accessibility sanity**；**不声称** WCAG certification / screen-reader certification / full compliance。但对 **custom interactive Item** 至少不跳过 **role/name/enabled exposure 审计**（C7/C8）。
+
+### C15. Visual Matrix Clarification（§16）
+
+原 matrix 保持：5 active workspaces @ 1024×720 + Transactions/Dashboard/Diagnosis @ 1000×700（必要时扩 Communication/Replay）；**补记：最终人工视觉基于当前实际环境 125% DPI——非全 DPI certification**；Diagnosis 3 tabs 仍需 final visual review。
+
+### C16. Automation Gap Matrix Update（§17）
+
+矩阵按行区分 **AUTOMATED / MANUAL / PARTIAL / MISSING**，且 **qml_nav PASS ≠ keyboard focus accessibility PASS**：
+
+| 项 | 状态 |
+| --- | --- |
+| Tab order | **MISSING**（F0 实测后入档） |
+| Shift+Tab | **MISSING**（同上） |
+| focus visibility | **MANUAL** |
+| rail activation | **MISSING → F0 实测** |
+| accessible role/name | **PARTIAL**（OutcomeDistribution 有；rail/custom item 缺审计） |
+| hidden focus | **PARTIAL**（结构检查有、键盘行为 F0 实测） |
+| Transactions 键盘移动/selection | **AUTOMATED**（Scenario T/P）+ manual PASS |
+| 业务持久性/IA/ENR/ProtocolError/cue | **AUTOMATED**（A–T）+ manual PASS |
+
+### C17. Phase 1 Final Decision Requests（§18）
+
+Correction 后 Phase 1 请求批准：①**F0 audit precedes F1**；②rail reachability 在 F0 前 = UNRESOLVED；③**custom interactive accessibility role/name audit included**；④focus visibility rule（C9）；⑤visual matrix（C15）；⑥P0/P1/P2 rule（C13）；⑦**F0 → conditional F1 → F2 → F3**。
+
+### C18. Result（§19–§20）
+
+- **P0-A 闭环**：序列修正为 F0 前置。
+- **P0-B 闭环**：rail 状态 = **UNRESOLVED pending runtime audit**（撤回 "dead path" 定性，也不预判 reachable）。
+- **新增 C7/C8 accessibility semantics audit** 入 F0 范围。
+- **Next Action = M9-F Phase 1 Re-review**；通过后执行 **F0**（zero product diff；committed harness enhancement 需 STOP + Review）。
+- verified LKGC **仍 = `4cb6e9d`**；未 push。
+
+## F0. Next（correction 之后的追加）
+
+- **M9-F Phase 1 Re-review（用户）**；通过后执行 **F0 — Accessibility/Focus Audit and Measurement**（基于 accepted Release candidate `4cb6e9d` tree + E4 portable package；zero product diff；findings → P0/P1/P2/PASS/GAP 分类）→ conditional F1 → F2 → F3。
 ## 36. Status
 
 **M9-F IN PROGRESS；Phase = Learning / Final Acceptance Design Gate；Implementation = NOT STARTED**。docs-only 本轮；verified LKGC **不变 = `4cb6e9d`**；未 push。
