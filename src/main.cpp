@@ -5631,10 +5631,16 @@ int main(int argc, char *argv[])
                               QStringLiteral("ModbusLens"));
             return 1;
         }
-        if (QCoreApplication::applicationVersion() != QStringLiteral("2.0.0")) {
+        // M9-E E1 correction: the expected version comes from the SAME
+        // generated authority the application consumes (CMake project
+        // VERSION via modbuslens_version.h) - no second hardcoded version
+        // literal lives here. A future release decision changes the CMake
+        // VERSION once and every consumer (this oracle included) follows.
+        if (QCoreApplication::applicationVersion()
+            != QStringLiteral(MODBUSLENS_VERSION_STRING)) {
             smokeIdentityFail(QStringLiteral("applicationVersion"),
                               QCoreApplication::applicationVersion(),
-                              QStringLiteral("2.0.0"));
+                              QStringLiteral(MODBUSLENS_VERSION_STRING));
             return 1;
         }
         if (QCoreApplication::organizationName() != QStringLiteral("ModbusLens")) {

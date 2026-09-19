@@ -1,6 +1,6 @@
 # T020 — M9-E Branding / Icon / Packaging
 
-> **状态：IN PROGRESS — Phase 1 = PASS（version decision = 2.0.0）；**E1 = 实施完成（candidate，awaiting E1 Review）**；E2（icon asset pipeline）未开始。HOLD 历史留痕见文末 Correction。**
+> **状态：IN PROGRESS — Phase 1 = PASS（version decision = 2.0.0）；**E1 = 实施完成；E1 Review = HOLD（oracle 第二版本字面量）→ correction 已落库（oracle 改读 authority + mutation probe 证明单源），awaiting E1 Re-review**；E2 未开始。**
 > 上游边界：M9-D（T019）= ✅ COMPLETE（verified LKGC `07561d9`）；M9-E **不得**重新打开 Transactions IA / selection·detail / Diagnosis / Legacy。
 
 ## 0. V2 Protocol 对应
@@ -561,6 +561,61 @@ stderr 卫生（三模式）  → 全 0
 ## E2. Next
 
 - **M9-E E1 Review（用户）**；通过后 **E2 — icon asset pipeline + window/PE integration**（SVG master → multi-resolution ICO；window icon/PE icon 接入；人工 icon 清单）。
+## E1 Review = HOLD + Correction（2026-09-19，append-only）
+
+> **M9-E E1 Review = HOLD**。P0：final tree 在 `src/main.cpp` smoke oracle 中保留了硬编码 `"2.0.0"`（作为 expected version）——它**不是 runtime version source**，但仍是一个 **second version maintenance fact**，违反 E1 核心契约："change CMake VERSION once → all version consumers follow"。原 E1 RED 证据（actual=0.1.0 / expected=2.0.0 / EXIT=1）作为 historical implementation evidence 保留于 §E1.7，不删改——**RED oracle（钉住决策值检测漂移）与 final consistency oracle（验证 runtime == configured authority）职责不同**，HOLD 的裁定是最终树采用后者。
+
+### H1. Exact Literal Audit（§2，修复前）
+
+| literal | 命中 | 分类 |
+| --- | --- | --- |
+| `2.0.0` | CMakeLists.txt:4 | **A. authority literal**（唯一合法） |
+| `2.0.0` | main.cpp:5634 + main.cpp:5637（smoke oracle 期望值 ×2） | **D. test/harness literal（P0 违规——第二版本维护事实）** |
+| `0.1.0` | main.cpp:5560/5607（注释记述历史） | **E. comment/history** |
+
+### H2. Final Runtime Identity Oracle（§3/§5）
+
+applicationVersion 的期望值改从**同一 generated authority** 读取：
+
+```cpp
+if (QCoreApplication::applicationVersion()
+    != QStringLiteral(MODBUSLENS_VERSION_STRING)) { ... return 1; }
+```
+
+**无 `expectedVersion = "2.0.0"` 残留**；literal 未转移到任何 .cpp/.h/script。oracle 职责重定义：**验证 runtime 值 == configured authority 值**（捕捉"有人重新引入 divergent 硬编码"这类回归）；"版本跟随 CMake"的端到端证明由 **§H3 mutation probe** 承担。其余 identity 断言不变（applicationName/DisplayName/organizationName = ModbusLens、organizationDomain unset、title = ModbusLens）。
+
+### H3. Version-change Mutation Probe（§7，本 correction 的核心验证）
+
+**未 commit 的临时 mutation**：CMake `VERSION 2.0.0` → `2.0.1`（仅此一处改动）→ configure + build：
+
+| 证据 | 结果 |
+| --- | --- |
+| generated `modbuslens_version.h` | `MODBUSLENS_VERSION_STRING "2.0.1"`、MAJOR 2 / MINOR 0 / PATCH 1 |
+| smoke identity oracle | **PASS**，`version=2.0.1`（oracle 自动跟随 authority，零测试代码改动） |
+| **PE FileVersionRaw** | **`2.0.1.0`**（runtime/PE inspected，二进制 numeric 字段） |
+| **PE ProductVersionRaw** | **`2.0.1.0`** |
+| PE FileVersion string | `2.0.1` |
+
+⇒ **单一改动点（CMake VERSION）驱动全部 version consumers**（runtime / generated header / PE numeric / PE strings）。**Rollback**：`git checkout -- CMakeLists.txt` → reconfigure + build → `MODBUSLENS_VERSION_STRING "2.0.0"` → smoke PASS `version=2.0.0` → **工作树无 mutation 残留**（仅 oracle 修复本身）。此 probe 非版本决策、非 commit、非 publication。
+
+### H4. Search Acceptance（§8，恢复正式树后）
+
+production `2.0.0` 命中 = **CMakeLists.txt:4 一处（唯一 active authority literal）**；main.cpp **零** 2.0.0 命中（P0 闭环）；templates 仅 `@PROJECT_VERSION@` 占位符；`0.1.0` 仅注释（E 类）。
+
+### H5. Regression & Gates（§11/§16）
+
+configure + build 0 error；smoke 0（identity PASS version=2.0.0）；nav 0（**basic five-workspace + A–T 20 项**，M DEFERRED）；geometry 0（**14 steps / 18 segments**，0 GEOFAIL）；ctest **26/26**；stderr 卫生三模式 0。**Deploy**：deploy_windows.bat zero diff；重新部署后 **deployed PE = FileVersionRaw/ProductVersionRaw 2.0.0.0**、strict minimal PATH 部署版 smoke/nav/geometry 全 0（identity PASS line 同 deployed）、evidence capture 22 张 PASS。
+
+### H6. Tag / Publication Proof（§13，Git-object evidence）
+
+`git rev-parse v1.0.0` = `2cee626`；`git rev-parse v1.0.0^{commit}` = `ae067ab`（**unchanged**）；`git tag -l` = 仅 `v1.0.0`；**v2.0.0 不存在**；origin/main `a40d935` 不变；无 push/Release/upload。
+
+### H7. Result（§14–§17）
+
+- **E1 核心契约成立**：change CMake VERSION once → applicationVersion / generated header / PE numeric / PE strings 全部跟随（mutation probe 证明）。
+- Files：`src/main.cpp`（oracle 改为读 MODBUSLENS_VERSION_STRING + RCA 注释）+ docs（T020/PROJECT_STATUS/BACKLOG/devlog/INTERVIEW_NOTES）。**CMakeLists/ModbusLens.rc.in/QML/assets/deploy script 零 diff**（正式内容）。
+- **Next Action = M9-E E1 Re-review**；E2 仍未开始（icon 禁令不变）。
+- verified LKGC **仍 = `07561d9`**；未 push。
 ## 44. Review 请求项（Phase 1 Review 须裁定）
 
 1. §12 目标优先级（A/B P0、C/D P1、E REJECT）是否接受。
