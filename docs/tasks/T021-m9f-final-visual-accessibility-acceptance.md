@@ -1,6 +1,6 @@
 # T021 — M9-F Final Manual Visual / Accessibility Acceptance
 
-> **状态：IN PROGRESS — Phase 1 = PASS；F0 = 测量完成（per-workspace + rail activation + hidden-focus + final closure）；权威结论 **P0=5 / P1=3 / P2=0 / GAP=1（明确接受的非阻塞项）/ N/A=2 / PASS=5** → F1 REQUIRED（scope A–G 已冻结）；Implementation = NOT STARTED。**
+> **状态：IN PROGRESS — Phase 1 = PASS；F0 measurement = **COMPLETE（冻结，不再重开）**；F0 Final Re-review = **HOLD（single scope blocker：P0-5 Agent TextArea Tab trap 曾漏出 F1 scope，已修正为 A–H）**；权威结论 **P0=5 / P1=3 / P2=0 / GAP=1（known non-blocking）/ N/A=2 / PASS=5** → **F1 REQUIRED（scope A–H 已冻结；admission rule 已冻结）**；Implementation = NOT STARTED。**
 > 上游边界：M9-E（T020）= ✅ COMPLETE（verified LKGC = `4cb6e9d`；最终 Release package `ModbusLens-2.0.0-windows-x64.zip` 已人工验收）。M9-F **不得**重开：version/icon/package architecture/ZIP workflow/installer/signing/publication/Transactions IA/Diagnosis redesign。
 
 ## 0. V2 Protocol 对应
@@ -875,3 +875,154 @@ build/e0_dbg.ps1（上一轮 F0 measurement 的 UIA dump 探针，同属本 meas
 ## 36. Status
 
 **M9-F IN PROGRESS；Phase = Learning / Final Acceptance Design Gate；Implementation = NOT STARTED**。docs-only 本轮；verified LKGC **不变 = `4cb6e9d`**；未 push。
+
+## F0 Final Re-review = HOLD（single scope blocker）（2026-09-19，append-only，docs-only correction）
+
+> **F0 measurement 本身已被接受**（accepted as COMPLETE）。本轮**不重新执行任何 F0 audit**、不重新测量、不改写任何历史测量记录。
+> 唯一 blocker 是 **implementation scope completeness**：冻结的 F1 scope A–G **漏掉了一个已确认的 P0**。
+
+### FE0. HOLD 事实
+
+```text
+Review 结论：F0 Final Re-review = HOLD（single scope blocker）
+F0 evidence：ACCEPTED（无新的 measurement gap）
+confirmed authoritative findings：P0 = 5 / P1 = 3 / P2 = 0
+blocker：authoritative finding P0-5（Agent TextArea Tab trap）**没有进入 frozen F1 A–G scope**
+后果：F1 暂不授权；本轮严格 docs-only correction（不实现、不修 QML、不开始 F1/F2）
+```
+
+### FE1. Omitted-P0 RCA（为什么漏掉）
+
+```text
+Observed   F1 scope 在 §FD11 冻结为 A–G，其中没有任何一条对应 P0-5（Agent TextArea Tab trap）。
+Expected   每一个 authoritative P0 都必须映射到至少一个 scope 条目——"发现"与"修复范围"必须闭合。
+Evidence   §FD8 权威表第 5 行明确写着 F0-5 = P0（Tab trap，正 14/14 反 6/6）；
+           而 §FD11 的 A–G 是从 Phase 1 Review 的 §16 模板继承下来的条目集合
+           （该模板写于 Agent TextArea trap 被发现**之前**，当时只覆盖
+             ListView 入口 / hidden 获取 / hidden 保留 / rail 四条）。
+           本轮把新发现的 P0 补进了 findings 表，却没有回头把它补进 scope 列表。
+Root Cause 缺少"findings → scope 覆盖性检查"这一步：表格与 scope 被分别维护，
+           冻结 scope 时没有做 "每个 P0 是否都在 scope 中有对应条目" 的逐行核对。
+Fix        本轮把 scope 修正为 A–H（新增 H = Agent TextArea 不得 trap keyboard traversal），
+           并冻结 admission rule（§FE5）：**5 个 P0 全部必须进入 F1，3 个 P1 同样进入
+           minimal F1 correction**（不是 optional polish）。
+Verification 见 §FE2（P0→scope 映射表）；F1 授权后由 F1 的 RED→GREEN 矩阵兑现（§FE6）。
+Regression Protection 从本轮起，scope 冻结必须附一张 **finding → scope 映射表**；
+           任何 P0/P1 没有条目即视为 scope 未完成，不得进入 implementation。
+```
+
+### FE2. F0 Measurement = COMPLETE（冻结，不重新打开）
+
+以下测量**全部冻结为 COMPLETE**，本轮及后续不得重新打开（除非出现新的独立证据来源）：
+
+```text
+Dashboard real sequence（A）           = COMPLETE
+Diagnosis Baseline / AI / Agent（B）   = COMPLETE
+H1 / H1S                               = COMPLETE
+H2                                     = COMPLETE
+H3（retained PASS，继承）              = COMPLETE
+rail activation（Enter/Space）         = COMPLETE（冻结）
+rail UIA semantics                     = COMPLETE（冻结）
+focus visibility                       = COMPLETE（冻结）
+```
+
+Review HOLD **只针对 implementation scope completeness**，与测量质量无关。
+
+### FE3. Authoritative Findings（冻结，编号沿用 Review 口径）
+
+| # | Finding | Class |
+| --- | --- | --- |
+| **P0-1** | Transactions ListView not Tab-reachable | P0 |
+| **P0-2** | hidden workspace controls leak into Tab chain | P0 |
+| **P0-3** | rail Enter/Space does not activate | P0 |
+| **P0-4** | hidden control retains activeFocus and can act while hidden | P0 |
+| **P0-5** | **Agent TextArea traps Tab / Shift+Tab and inserts Tab characters** | P0 |
+| **P1-1** | rail accessible name defect | P1 |
+| **P1-2** | rail actionable role/pattern defect | P1 |
+| **P1-3** | rail keyboard-focus indication defect | P1 |
+
+（本表与 §FD8 逐条对应，仅采用 Review 的编号口径；P2 = 0 不变。历史表**不重写**。）
+
+### FE4. Corrected F1 Scope A–H（取代 §FD11 的 A–G）
+
+```text
+A. Transactions ListView keyboard Tab entry
+B. Hidden workspace controls excluded from Tab traversal
+C. Hidden retained-focus handling
+D. NavigationRail Enter / Space keyboard activation
+E. NavigationRail meaningful accessible name
+F. NavigationRail semantically appropriate actionable role / accessibility action
+G. NavigationRail visible keyboard-focus indication
+H. Agent TextArea must not trap keyboard traversal          ← 本轮新增（P0-5）
+```
+
+**C 的语义（明确化）**：切页后旧 hidden control **不得继续** consume keys / trigger commands / mutate hidden state。**H1S（hidden baseline diagnosis button 的 SPACE mutation）必须作为 acceptance oracle**（见 §FE6）。
+
+**H 的语义**：Tab **离开** TextArea 进入下一合理 focus stop；Shift+Tab **返回**前一合理 focus stop；**Tab 不得继续插入 literal tab character**。
+
+### FE5. TextArea Behavior Boundary（H 的修复边界，本轮只定契约不实现）
+
+```text
+H 的修复**不得**破坏 TextArea 的正常文本编辑。
+F1 acceptance 必须同时验证：Left / Right / Up / Down / Home / End 继续保持文本编辑语义。
+Tab / Shift+Tab 只用于 focus traversal。
+若 Qt TextArea 存在原生机制（tabChangesFocus 或真实等价机制），
+未来实现**优先使用最小原生机制**——本轮不实现，也不提前写死具体 patch。
+```
+
+### FE6. F1 Admission Rule（冻结）
+
+```text
+5 个 P0  → 全部必须进入 F1（没有例外、没有"另立项"）
+3 个 P1  → 按 Phase 1 已批准规则：P1 = clear usability/accessibility defect
+           ⇒ 同样进入 minimal F1 correction，**不是 optional polish**
+F1 不处理 Transactions UIA exposure GAP —— 该 GAP 已被 Review 接受为
+           known non-blocking evidence limitation。
+```
+
+### FE7. F1 Acceptance Matrix Preview（只补设计，不实现）
+
+未来 F1 至少要 RED→GREEN 覆盖：
+
+| Scope | RED → GREEN 验收内容 |
+| --- | --- |
+| **A** Transactions | keyboard-only Tab 能进入 ListView；进入后 **四键（Up/Down/Home/End）仍工作** |
+| **B** hidden acquisition | 当前页 Tab chain 中**不再出现**任何 hidden page control |
+| **C** retained focus | **H1S oracle**：hidden baseline button **不可被 Space 激活**（cue 不翻转）；**H2 oracle**：hidden Agent TextArea **不可继续接收文本/导航键**（value 不变） |
+| **D** rail activation | **Enter + Space 都正确切换 workspace** |
+| **E/F** rail accessibility | focused actionable item 有 **distinct name** 与 **appropriate role/action** |
+| **G** rail visual | keyboard focus **可见**，且与 selected / hover 可区分 |
+| **H** Agent TextArea | Tab / Shift+Tab 能 **escape**；Left/Right/Up/Down/Home/End **仍编辑** |
+
+### FE8. Scope Boundary（F1 仍是 minimal correction）
+
+```text
+F1 不得：重新设计 NavigationRail / 改变 IA / 改变 workspace indexes /
+        改变 business state semantics / 改变 Transactions selection semantics /
+        改变 Diagnosis business logic / 改变 version·icon·package /
+        做 full WCAG certification / 做 screen-reader certification。
+```
+
+### FE9. GAP / N/A 措辞（冻结）
+
+```text
+Transactions ListView / UIA exposure：保持 **known non-blocking GAP**，**不得写成 PASS**。
+Run Demo idempotency 与 Qt Quick Button 的 Space 语义：继续作为 supporting facts。
+**不为凑计数而重写历史 F0 表。**
+```
+
+### FE10. Sequence（最终流程，不再有 "conditional F1"）
+
+```text
+F0 COMPLETE
+   ↓
+F1 REQUIRED
+   ↓
+F1 Review
+   ↓
+F2 final Release / evidence candidate
+   ↓
+F3 manual acceptance + M9 closure
+
+不再使用 "conditional F1" 表述——当前 authoritative P0/P1 已确认。
+```
