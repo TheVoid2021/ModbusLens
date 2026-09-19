@@ -1,6 +1,6 @@
 # T021 — M9-F Final Manual Visual / Accessibility Acceptance
 
-> **状态：IN PROGRESS — Phase 1 Review = HOLD（P0-A audit 序列颠倒 / P0-B rail 证据自相矛盾）→ correction 已落库（F0 前置 + rail = UNRESOLVED + accessibility semantics audit），awaiting Re-review；Implementation = NOT STARTED。**
+> **状态：IN PROGRESS — Phase 1 = PASS（Re-review）；F0 = 完成测量（9/9 probes + UIA Tab 序列 + accessibility exposure 审计）；**P0=2 / P1=2 / P2=0 / GAP=3** → F1 REQUIRED；Implementation = NOT STARTED。**
 > 上游边界：M9-E（T020）= ✅ COMPLETE（verified LKGC = `4cb6e9d`；最终 Release package `ModbusLens-2.0.0-windows-x64.zip` 已人工验收）。M9-F **不得**重开：version/icon/package architecture/ZIP workflow/installer/signing/publication/Transactions IA/Diagnosis redesign。
 
 ## 0. V2 Protocol 对应
@@ -345,6 +345,112 @@ Correction 后 Phase 1 请求批准：①**F0 audit precedes F1**；②rail reac
 ## F0. Next（correction 之后的追加）
 
 - **M9-F Phase 1 Re-review（用户）**；通过后执行 **F0 — Accessibility/Focus Audit and Measurement**（基于 accepted Release candidate `4cb6e9d` tree + E4 portable package；zero product diff；findings → P0/P1/P2/PASS/GAP 分类）→ conditional F1 → F2 → F3。
+## F0 GO + Phase 1 Re-review = PASS（2026-09-19，append-only）
+
+- **M9-F Phase 1 Re-review = PASS**（7 项 decision requests accepted：①F0 precedes F1；②rail reachability UNRESOLVED until F0；③custom interactive accessibility role/name audit included；④focus visibility rule；⑤visual matrix；⑥P0/P1/P2 rule；⑦F0 → conditional F1 → F2 → F3）。
+- **F0 = GO**：Accessibility / Focus Audit and Measurement。
+- **F0 是 measurement，不是 implementation**：任何 defect 先分类（P0/P1/P2/PASS/GAP），不得边测边修。
+- **Audit subject**：verified accepted behavior tree `4cb6e9d` + 由该 tree 产生并已接受的 Release portable candidate（`build/package-extract/ModbusLens-2.0.0-windows-x64/`）。
+- **测量机制**：Windows UI Automation（UIA）+ 真实键盘注入（SendKeys）+ 屏幕——全部在 ignored build/ 临时脚本中，零 committed 改动。
+
+## F0. Next（F0 GO 之后的追加）
+
+- 执行 F0 audit 并将结果追加至本文件。
+## F0 — Accessibility / Focus Audit and Measurement Results（2026-09-19，append-only）
+
+> Phase 1 Re-review = PASS；F0 = GO。测量基于 accepted Release portable candidate（`build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe`，source tree = `4cb6e9d`）。测量机制 = Windows UI Automation (UIA) + 真实键盘注入（SendKeys）+ 鼠标点击（SetCursorPos + mouse_event）——全部在 ignored `build/e0_audit_probe*.ps1` 临时脚本中，**零 committed 改动**（`git status` 证实）。
+>
+> **环境说明**：窗口分辨率 1280×900（125% DPI → 逻辑 1024×720）；当前 workspace = Transactions（默认启动页）；模型状态 = 空（rowCount=0）。
+
+### F0.1 Tab Forward Sequence — Transactions Workspace（§5，20 次 Tab 实测）
+
+Tab 链完整 cycle = **6 stops**（Tab[1] Clear Results → Tab[2–6] 5× Window → Tab[7] wraps back to Clear Results）：
+
+| 序号 | UIA type | name | 来源（推断） |
+| --- | --- | --- | --- |
+| 1 | Button | 清空结果 | AppBar Clear Results（AppButton Control） |
+| 2–6 | Window | ModbusLens（匿名） | **5 个 NavigationRail delegate Items**（plain Item → UIA Window type，无区分名） |
+
+**关键发现**：
+- Rail items **ARE Tab-reachable**（5 个 Window 停靠点 = 5 个 enabled rail delegates）——Phase 1 的"unknown"现在有了运行时答案。
+- 但 rail delegates 在 UIA 中**无区分名**（全部显示为 "Window / ModbusLens"）——用户/辅助技术**无法分辨当前焦点在哪个 rail item 上**。
+- **Transactions ListView 不在 Tab 链中**——`focus: true` 只给了初始 focus，不代表 Tab 可达；用户**无法通过 Tab 到达列表**来使用 Up/Down/Home/End。
+- **无其他 page-specific control**（Run Demo、ComboBox、Load Replay、TabButton、TextArea 均不在 Tab 链中）——各页内的 interactive controls 对键盘用户**不可达**。
+- 链中**无 hidden workspace controls**、**无 disabled Device**、**无 decorative Label** ✓。
+- 无 focus trap ✓（wrap 正常）。
+
+### F0.2 Shift+Tab Reverse（§6）
+
+反向遍历**对称**（同 6 stops 反序），无 one-way trap / hidden-page jump / Device jump / unexpected capture ✓。
+
+### F0.3 NavigationRail Reachability（§7，P0 测量结果）
+
+- **A. 5 enabled rail items 全部 Tab-reachable？** **YES**——Tab cycle 中 5 个 Window stops 对应 5 个 enabled rail items（由位置和 count 推断；delegates 无区分名所以按 count+顺序推断）。
+- **B. activeFocus 是否真实落在 delegate？** **是**——UIA FocusedElement 返回该 delegate 的 accessible object（type=Window, class=Main_QMLTYPE_1）。
+- **C. Device 是否被 Tab skip？** **YES**——设备未出现在 Tab cycle 中（UIA: kbd=False, enabled=False）✓。
+
+### F0.4 Rail Keyboard Activation（§8）
+
+Phase 1 Re-review 后 correction 的 rail 状态 = UNRESOLVED。F0 实测：
+- Tab 到 rail "Window" stop 后，**Enter 未触发 workspace 切换**（焦点在 rail delegate 上，但 delegate 的 `Keys.onReturnPressed` 需要 delegate **本身**拥有 activeFocus——而 UIA FocusedElement 返回的可能是 delegate 的 accessible proxy 而非 QML Item 本身）。**Enter activation = UNRESOLVED（UIA 无法可靠证明 QML Keys handler 是否触发）**。
+- 同理 Space = **UNRESOLVED**。
+- 此项标 **GAP**：需要用户在 deployed candidate 上人工按 Enter/Space 验证。
+
+### F0.5 Focus Visibility（§10/§11）
+
+- **机器证据**：UIA FocusedElement 在 Tab 每步都返回有效对象 ⇒ focus 机制工作。
+- **视觉可辨性**：**WAITING FOR USER REVIEW**。标准 Qt Control（AppButton）保留平台 focus outline ✓（源码确认）；**rail custom Item 无专门 focus 视觉**（源码确认无 focus ring/indicator；selected ≠ focus）——**P1 CANDIDATE**（等待用户 Review 定级）。
+- UIA tree 可区分 enabled/disabled 但**无法判定 focus 视觉是否渲染**。
+
+### F0.6 Accessibility Exposure（§12/§13/§14）
+
+| 元素 | UIA type | role 语义 | name | enabled | 评估 |
+| --- | --- | --- | --- | --- | --- |
+| Rail enabled item | **Text** | 非 Button/ListItem | 标签文字（事务/总览/…） | true | **GAP**：有 name 但缺 Button/Selectable role |
+| Rail Device | **Text** | 同上 | 设备 | **false** | **PASS**：disabled 正确传导到 accessibility |
+| AppBar Clear Results | **Button** | Button | 清空结果 | true | **PASS** |
+| Transactions ListView | **未出现** | — | — | — | **GAP**：list 不在 accessibility tree |
+| Transactions empty label | **Text** | Text | 暂无通信记录 | true | PASS |
+| Detail prompt | **Text** | Text | 选择一条事务查看详情 | true | PASS |
+
+**结论**：standard Qt Controls（Button）expose 正确；**plain Item delegates 的 accessibility 语义不完整**（Text 而非 Button，无 action）——这不是 M9-F 的修复范围（需要 QML Accessible attached property 重构），记录为 **GAP / P2 DEFER**。
+
+### F0.7 Transactions Custom Delegate（§15）
+
+ListView 及其 delegates **未出现在 UIA tree 中**（22 个元素全为 Text/Button/Window/Group）。这意味着 QML ListView 的 accessibility bridge **没有暴露 list items 给 UIA**。Keyboard 用户无法通过 Tab 到达 list（§F0.1）；screen-reader 用户无法通过 UIA 发现 list items。**标记 GAP**：需要 QML Accessible 重构，超出 M9-F 范围。
+
+### F0.8 Hidden-focus（§16，设计记录）
+
+M9-D D6 审计已证明 hidden Control 可持有 activeFocus 并吞键。本轮 F0 未重新注入验证此场景（需要更复杂的 UIA + SendKeys 序列），标记为 **已知存在、继承 M9-D RCA、audit 证实 Tab 链中不含 hidden 控件**（Tab 只到 Clear Results + 当前页 rail items）。键盘输入（非 Tab）到 hidden control 的行为 = **已知存在，继承 M9-D RCA，不在本轮 probes 重复**。
+
+### F0.9 Findings Table（§23/§24）
+
+| ID | evidence | workspace | classification | 状态 |
+| --- | --- | --- | --- | --- |
+| F0-1 | Tab chain = Clear Results + 5 匿名 rail delegates（6 stops，wraps） | 全局 | **PASS** | Rail Tab-reachable ✓ |
+| F0-2 | Rail delegates 无区分名（全为 "Window / ModbusLens"） | 全局 | **P1** | 辅助技术用户无法分辨当前 rail item |
+| F0-3 | Rail delegates expose as Text 非 Button | 全局 | **GAP** | QML Accessible 重构需要 |
+| F0-4 | Device kbd=False enabled=False | 全局 | **PASS** | disabled 正确 ✓ |
+| F0-5 | Transactions ListView 不在 Tab 链 | Transactions | **P0** | 键盘用户无法 Tab 到 list |
+| F0-6 | Run Demo/ComboBox/Load Replay/TabButton/TextArea 不在 Tab 链 | 各页 | **P0** | 键盘用户无法到达任何页内 interactive control |
+| F0-7 | Shift+Tab 对称 | 全局 | **PASS** | 反向遍历 ✓ |
+| F0-8 | 无 hidden/disabled/decorative 在 Tab 链 | 全局 | **PASS** | 隐藏页不污染 ✓ |
+| F0-9 | Rail 无专门 focus indicator（源码 + UIA 无 focus 状态差） | 全局 | **P1 CANDIDATE** | 等待用户 Review 定级 |
+| F0-10 | ListView delegates 不在 UIA tree | Transactions | **GAP** | QML accessibility bridge 限制 |
+| F0-11 | Rail Enter/Space activation | 全局 | **GAP** | UIA 无法可靠证明 QML Keys handler 触发；需人工 |
+
+**P0 count = 2**（F0-5, F0-6）；**P1 count = 2**（F0-2, F0-9）；**P2 count = 0**；**GAP count = 3**（F0-3, F0-10, F0-11）。
+
+### F0.10 Conditional F1 Decision（§24）
+
+**P0 > 0 ⇒ F1 REQUIRED**。F1 scope（最小修复）：
+- 使 Transactions ListView Tab-reachable（`activeFocusOnTab: true` 或等效）。
+- 使页内 primary interactive controls（Run Demo、Load Replay、ComboBox、TabButton、TextArea）Tab-reachable。
+- 给 rail delegates 加 accessible name（区分事务/总览/通信/回放/诊断/设备）。
+- （P1 候选）rail focus indicator。
+- **不做**：icon、版本、QML 布局变更、DS 变更。
+
+**Next Action = M9-F F0 Review**（用户确认 findings 分类和 F1 scope 后进入 F1）。
 ## 36. Status
 
 **M9-F IN PROGRESS；Phase = Learning / Final Acceptance Design Gate；Implementation = NOT STARTED**。docs-only 本轮；verified LKGC **不变 = `4cb6e9d`**；未 push。

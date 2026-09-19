@@ -542,3 +542,10 @@
 - **Q："business state persistence ≠ keyboard activeFocus" 这条区分为什么反复出现？** A：因为它们**表现相似但机制和修复层完全不同**。M9-D 冻结的是"切页后选中行还在"（数据）；M9-F 审计的是"切页后焦点会不会藏在隐藏控件里吞键盘"（输入）。如果把 hidden-focus 当成 state 问题去修，就会错误地把业务状态和焦点绑定迁移，破坏 M9-D 已验收的 persistence 契约。区分清楚后，两个问题各自的修复互不干扰。
 - **Q：focus visibility 为什么不能用 "selected 背景色" 代替？** A：因为 selected 和 keyboard focus 是**两种可能同时存在、也可能单独存在**的状态。用户 Tab 到一个**非选中**行时，如果只有 selected 样式，这行看起来就是"普通未选中行"——焦点在哪完全不可见。所以可见性判定必须是：**keyboard focus 状态本身有独立可辨的视觉**（outline/高亮/其他），并且与 selected、hover 可区分。这条在 Phase 1 冻结为验收规则，F0 实测时逐项核对。
 - **Q：automation gap matrix 里把 qml_nav PASS 和 focus accessibility 明确划清界限，会不会显得之前的工作"不算数"？** A：不算数的是**声称的范围**，不是工作本身。qml_nav 验证的是业务状态持久性与 workspace 路由——它在自己的范围内是有效的。问题只在于**不能把它外推成焦点可访问性证据**。gap matrix 的价值就是诚实地标出每类契约的证据来源与缺口，让 M9-F 的测量有明确的靶子。
+
+## 58. Post-T021 M9-F F0 条目（2026-09-19 追加）
+
+- **Q：Tab 链为什么只到 Clear Results 和 rail items，不到 ListView/ComboBox？** A：Qt Quick 的 Tab 遍历**只覆盖显式声明了 Tab 焦点资格的控件**。`focus: true` 给 ListView 的只是"初始 activeFocus"，不是"Tab 可到达"；AppButton/Button 之所以可达是因为 Control 基类默认 `activeFocusOnTab: true`。plain Item/ListView 没有这个默认值，必须显式声明。这就是"focus: true ≠ Tab-reachable"的本质——两个属性控制两个不同机制。
+- **Q：rail delegates 在 UIA 里显示为 "Window / ModbusLens"——这意味着辅助技术用户看到什么？** A：五个 rail 项在辅助技术用户看来是**五个完全相同的匿名窗口**，无法区分哪个是"事务"哪个是"总览"。虽然每个 delegate 里有一个 Label 子项暴露了文字（"事务"/"总览"/…），但焦点落在 delegate Item 上而非 Label 上——所以辅助技术读到的是 delegate 的 accessible object（无区分名），不是 Label 的文字。修复方向：给 delegate 加 accessible name（如 `Accessible.name: modelData.label`）。
+- **Q：F0 的 "P0=2" 具体指什么？为什么标 P0 而不是 P1？** A：①键盘用户**无法 Tab 到 Transactions list**——这意味着 M9-D 人工验收的 Up/Down/Home/End 键盘导航对键盘 Tab 用户来说根本**无法到达**（除非用鼠标点击列表区域先获取焦点）；②键盘用户**无法到达任何页内 interactive control**——Run Demo、Connect、Load Replay 等核心操作全部超出键盘可达范围。这两条是**功能阻断**（不是体验劣化），所以标 P0。
+- **Q：GAP 和 P0/P1 的区别是什么？为什么不把 GAP 也标成 P0 或 P1？** A：P0/P1 是**产品缺陷**（有明确的修复方案和用户影响）；GAP 是**证据/工具限制**（我们知道有问题，但当前工具无法量化严重程度或验证修复效果）。例如"rail delegates expose as Text 非 Button"是 GAP——修复需要 QML Accessible attached property 重构，但重构后我们无法在当前环境可靠验证 accessible tree 是否改善（无 screen reader）。把 GAP 混入 P0/P1 会给出无法兑现的修复承诺。
