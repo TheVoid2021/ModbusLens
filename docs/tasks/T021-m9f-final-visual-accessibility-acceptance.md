@@ -2118,3 +2118,109 @@ commit：`M9-F F2: refine Transactions focus ring inset`（behavior-bearing；�
 **verified LKGC 保持 `4cb6e9d`**（不推进）；未开始 F3；未创建 v2.0.0 tag。
 M9-F 仍 **IN PROGRESS**（未写 M9 COMPLETE）。
 Transactions Focus Ring Visual Review = **WAITING FOR USER**。
+
+## F2 Focus Ring Outer-Extent Correction（2026-09-19，append-only，behavior-bearing）
+
+> 用户人工 Re-review：**margin 3 → 2 肉眼几乎没有区别**。这不是 focus visibility failure，也不是 ring 太重，
+> 而是 **focus extent / bounding box 仍过于内缩**；1px / alpha≈0.5 的视觉权重**继续接受**。
+> 本轮只重开 **ring extent**，并且**改为包在 viewport 外侧**，而不是继续在 viewport 内部调 inset。
+
+### FO0. HOLD 归档 + 感知 RCA
+
+```text
+margin 3 → 2 只把 ring 在 viewport 内部向外挪 1 logical px：在 125% DPI 下 ≈1.25 物理像素，
+而 ring 本身只有 1px + alpha≈0.5 ⇒ 机器像素差能证明变化，人眼几乎无法感知"包围尺寸"的改善。
+结论：继续 2 → 1 仍属"在 viewport 内部微调"，不会解决用户真正提出的"大框尺寸偏小"。
+⇒ 本轮改为 **outside-viewport extent**：让 ring 真正包住 ListView viewport。
+```
+
+### FO1. 源码事实 + Clip RCA（含一次自我纠错）
+
+```text
+变更前：transactionsListFocusRing = margins 2 / border.width 1 / Qt.rgba(DS.primary…, 0.5) /
+        visible = list.activeFocus || currentItem.activeFocus。
+**Clip RCA（重要）**：先按"ring 是 wrapper Item 的 sibling"做审计并直接改成 margins: -2，
+结果 ring **整块不可见**。真正原因（brace-depth 分析确认，非按缩进推断）：
+  ring 当时声明在 **ListView 内部**，而 ListView 有 `clip: true` ⇒ 负 margin 一旦把它推出 viewport，
+  就被 view 完全裁掉（几何仍正确：FJ 断言 width == parent+4 仍通过，只有绘制被裁）。
+  ⇒ 上一轮的 clip 审计结论（"wrapper 不裁、最近裁剪祖先是 pane card"）对**当时的嵌套**是错的，如实记录。
+处理方式 = 用户 §7 **预先授权的最小替代**：把 ring 移出 ListView，成为
+  **wrapper Item 内的 non-layout overlay sibling**（wrapper 不 clip；ListView 与 ring 同尺寸边界），
+  仍围绕同一 viewport rect、仍向外 2 logical px、仍不参与 layout、声明在 ListView 之后 ⇒ 绘制在其上。
+  未关闭任何 clip、未改 ListView geometry、未扩大 card layout。
+```
+
+### FO2. 精确变更
+
+```text
+① src/ui/qml/pages/TransactionsPage.qml：ring 由 ListView 子项 → wrapper Item 的 overlay sibling；
+② anchors.margins: **2 → -2**（四边各位于 viewport 外侧 2 logical px）。
+未改：border.width（1）/ border.color 与 alpha（DS.primary @0.5）/ radius / visible 条件 /
+      ListView geometry / row geometry / selection 样式 / detail 逻辑 / layout 参与。
+```
+
+### FO3. 像素验证（对比 margin 2 版本，同一行同一列）
+
+| 边 | prev（margin 2） | new（margins -2） | 外移 |
+| --- | --- | --- | --- |
+| top | 197 | **192** | +5 |
+| bottom | 720 | **725** | +5 |
+| left | 109 | **104** | +5 |
+| right | 1241 | **1246** | +5 |
+
+```text
+= 每边 5 物理像素 ≈ **4 logical px**，与 2 → -2 的预期完全一致（四边对称）。
+selection indicator：饱和像素仍为 x=107，且 106/107/108 像素值逐字节不变（(97,145,200)/(47,111,183)/(96,145,200)）；
+**并且** ring 线已从 x=109 移到 x=104 ⇒ 不再与 indicator 相邻，而是完全位于其外侧（上一轮 margin=2 的"贴边"问题消失）。
+外围间距（white space）：左 13 px、右 13 px 到 card 边框；上 ≥32 px 到表头内容；下 9 px 到分隔线（约 24 px 到 detail 文本）
+⇒ 四边均有清楚空白，未与 card/表头/detail 冲突。ring 权重不变（仍单像素淡线）。
+```
+
+### FO4. 自动化契约
+
+```text
+FJ 原有断言（visible ⇔ list 持焦 / ring off after focus leaves / border.width==1 / alpha<=0.6）**全部保留**；
+按 §12 新增**一条极窄的 geometry 断言**（仅两次属性读，无 harness 改造）：
+  ring extent == viewport rect expanded by 2 logical px ⇒ `ring.width - parent.width == 4`（高同）
+实测：`FOCUS [FJ] PASS: list ring visible, subordinate weight (1px, alpha=0.500008), extent = viewport + 4px`
+```
+
+### FO5. 回归
+
+```text
+Debug   : focus CHECK PASS（FA/FA2/FJ/FB×5/FC/FD·FE×5/FF/FK/FL/FG/FH/FI）/ geometry **18 segments·0 GEOFAIL·rail 56** /
+          nav PASS（A–T，M DEFERRED）/ smoke PASS（identity 2.0.0）/ ctest **27/27**
+Release : configure/build OK → ctest **27/27** → focus PASS（FJ 同上）→ geometry PASS
+键盘功能：Tab 仍进入 list（第 6 次）、无 auto-select、Up/Down/Home/End 不变、Tab/Shift+Tab 仍离开（FA/FA2/FI/FG/FH 全 PASS）
+```
+
+### FO6. 视觉证据（Release-build correction evidence）
+
+```text
+docs/assets/screenshots/m9f-f2-transactions-list-focus-outer-extent-1024x720.png
+  来源：本轮 correction 后的 **Release build**（非 packaged candidate；未重新打包）
+  采集：键盘-only 导航 + PrintWindow（遮挡无关）→ 裁客户区（125% DPI 偏移 9/38/9）→ 1280×900
+  state oracle：Transactions visible / ListView keyboard focused（键盘-only 第 6 次 Tab 进入）/
+                至少一行 selected（END）/ detail pane populated = True
+  完整性：1280×900、landscape、非空白（313 色/900 采样）、sha256[:16] = **271dcb0328d3e01d**
+  画面：ring 现在**包住** viewport（四边均在列表外侧、可见白边），仍是细淡单线；selected row + 左侧蓝条仍是第一视觉
+```
+
+### FO7. Candidate 边界 / Git
+
+```text
+本轮为 **behavior-bearing**（QML focus decoration 行为变化）⇒ `ac817a9` 的 behavior candidate 随之成为
+  **superseded behavior candidate**；`56d71c8` 的 ZIP 亦早已 SUPERSEDED（历史不抹掉，最新 behavior tree = 本轮 commit）。
+package/version/icon/README/manifest/sample 政策与 packaging 脚本**未改**；**本轮不重新打包**（等视觉 PASS）。
+commit：`M9-F F2: expand Transactions focus ring extent`（未 amend ac817a9、未 rebase、未 push、未 tag）
+**verified LKGC 保持 `4cb6e9d`**；未开始 F3；M9-F 与 M9 均仍 IN PROGRESS。
+Transactions Focus Ring Visual Review = **WAITING FOR USER**（6 条验收见 §FO8）。
+```
+
+### FO8. 人工验收口径（6 条）
+
+```text
+① 框现在是否明显更舒展 ② 四边确实向外 ③ selected row 仍然第一视觉
+④ 左侧 selection bar 完全清晰 ⑤ focus ring 仍然细、淡、不抢眼 ⑥ 框没有与外层 card/detail 产生视觉冲突。
+ZCode 不自标 Visual PASS。
+```

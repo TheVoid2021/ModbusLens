@@ -386,36 +386,52 @@ Item {
                             }
                         }
 
-                        // M9-F F2 visual review HOLD (P1 visual/usability
-                        // defect): the first version drew a 2px fully
-                        // saturated DS.primary frame around the WHOLE
-                        // viewport. It out-shouted the row selection — same
-                        // hue and same weight as the selected row's own 2px
-                        // accent bar, so the two states competed — and it
-                        // framed a large empty area, adding noise.
-                        // The focus channel must be clearly present but
-                        // SUBORDINATE: 1px of DS.primary at half opacity.
-                        // F2 inset micro-correction (user visual review): the
-                        // ring sat slightly too far inside, so the four edges
-                        // move out by 1 logical px — 3 -> 2. At 2px the 1px
-                        // line occupies [2,3) while the selected row's
-                        // selection indicator occupies [0,2), so the two still
-                        // never touch; weight, colour, alpha and the visible
-                        // condition are unchanged, and selection stays the
-                        // primary visual state. Geometry, row height, selection
-                        // style and the detail logic are untouched.
-                        Rectangle {
-                            objectName: "transactionsListFocusRing"
-                            anchors.fill: parent
-                            anchors.margins: 2
-                            color: "transparent"
-                            border.color: Qt.rgba(DS.primary.r, DS.primary.g,
-                                                  DS.primary.b, 0.5)
-                            border.width: 1
-                            visible: transactionList.activeFocus
-                                     || (transactionList.currentItem !== null
-                                         && transactionList.currentItem.activeFocus)
-                        }
+                    }
+                    // F2 outer-extent correction (clip RCA): declared INSIDE the ListView
+                    // the ring was clipped by the view (clip: true) the moment a negative
+                    // margin put it outside the viewport — it rendered nowhere at all.
+                    // The wrapper Item does not clip, so the ring is an overlay SIBLING of
+                    // the view from here on: same viewport rect (the view fills this Item),
+                    // 2 logical px larger on every edge, still no layout participation and
+                    // still painted above the rows (declared last).
+                    // M9-F F2 visual review HOLD (P1 visual/usability
+                    // defect): the first version drew a 2px fully
+                    // saturated DS.primary frame around the WHOLE
+                    // viewport. It out-shouted the row selection — same
+                    // hue and same weight as the selected row's own 2px
+                    // accent bar, so the two states competed — and it
+                    // framed a large empty area, adding noise.
+                    // The focus channel must be clearly present but
+                    // SUBORDINATE: 1px of DS.primary at half opacity.
+                    // F2 outer-extent correction (user visual re-review):
+                    // the positive insets (3, then 2) moved the ring only
+                    // *within* the viewport, which is a sub-pixel-scale
+                    // change in perceived size at 125% DPI. The ring now
+                    // WRAPS the viewport: margins -2 put all four edges 2
+                    // logical px OUTSIDE the list (4 logical px further out
+                    // per edge than the previous margin 2). Weight, colour,
+                    // alpha, radius and the visible condition are unchanged.
+                    // The wrapper Item does not clip and the nearest
+                    // clipping ancestor is the pane card, whose column
+                    // layout insets this wrapper by 12px — so the expanded
+                    // ring stays inside the clip region with clear white
+                    // space to the card border, the header row and the
+                    // detail pane, and it never reaches the selected row's
+                    // selection indicator at the viewport's left edge.
+                    // Geometry, row height, selection style and the detail
+                    // logic are untouched; the ring remains a decoration
+                    // (no implicit size, no layout participation).
+                    Rectangle {
+                        objectName: "transactionsListFocusRing"
+                        anchors.fill: parent
+                        anchors.margins: -2
+                        color: "transparent"
+                        border.color: Qt.rgba(DS.primary.r, DS.primary.g,
+                                              DS.primary.b, 0.5)
+                        border.width: 1
+                        visible: transactionList.activeFocus
+                                 || (transactionList.currentItem !== null
+                                     && transactionList.currentItem.activeFocus)
                     }
 
                 Label {

@@ -4980,15 +4980,29 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             const QColor color = border
                                      ? border->property("color").value<QColor>()
                                      : QColor();
+            // F2 outer-extent correction: the ring must WRAP the viewport —
+            // margins -2 => its extent is the viewport plus 4 logical px in
+            // each dimension (2 px per edge). Two property reads, no harness
+            // restructure.
+            auto *ringParent = ring->parentItem();
+            const double dw = ringParent ? ring->width() - ringParent->width() : -1;
+            const double dh = ringParent ? ring->height() - ringParent->height() : -1;
             if (width != 1.0 || color.alphaF() > 0.6)
                 fail(QStringLiteral("FOCUSFAIL FJ: list focus ring is not "
                                     "subordinate (width=%1 alpha=%2; expected "
                                     "1px and alpha<=0.6)")
                          .arg(width)
                          .arg(color.alphaF()));
+            else if (dw != 4.0 || dh != 4.0)
+                fail(QStringLiteral("FOCUSFAIL FJ: list focus ring does not "
+                                    "wrap the viewport (delta w=%1 h=%2; "
+                                    "expected 4/4 for margins -2)")
+                         .arg(dw)
+                         .arg(dh));
             else
                 note(QStringLiteral("FOCUS [FJ] PASS: list ring visible, "
-                                    "subordinate weight (1px, alpha=%1)")
+                                    "subordinate weight (1px, alpha=%1), "
+                                    "extent = viewport + 4px")
                          .arg(color.alphaF()));
         }
         tab(true);
