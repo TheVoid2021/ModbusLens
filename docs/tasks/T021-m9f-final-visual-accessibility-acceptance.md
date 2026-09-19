@@ -1863,3 +1863,108 @@ behavior-bearing visual correction（QML focus rendering + harness 断言）。
 未改 packaging semantics；未改 version/PE/icon/README/manifest/ZIP 模型；
 未触碰 NavigationRail / TabButton / AppButton / ComboBox / selection 语义 / geometry。
 Final Visual Review 仍需用户基于刷新后的截图确认；Manual Final Acceptance = WAITING FOR USER。
+
+## F2 Re-run from the corrected tree（56d71c8）— Final Release Candidate（2026-09-19，append-only，docs/evidence）
+
+> 前置：**F2 Final Visual Review（Transactions ListView）= PASS**，behavior correction `56d71c8` **accepted**；
+> **旧 F2 ZIP = SUPERSEDED**。本轮从 clean tree `56d71c8` 重新执行全部 Release / package gates 并生成**新** candidate。
+> verified LKGC 仍为 `4cb6e9d`（不推进）；未 push；未创建 v2.0.0 tag；未开始 F3。
+
+### FM0. Preflight
+
+```text
+HEAD = 56d71c8（main，clean）；CMake VERSION 2.0.0；v1 tag object 2cee626 / target ae067ab；
+v2.0.0 absent；origin/main a40d935（ahead 89 / behind 0）；git diff --check PASS。
+F2 evidence namespace 清空后从零开始（boot/package/deploy 全部重建）。
+```
+
+### FM1. Clean Release build（correction 树）
+
+```text
+rm -rf build/release → configure → build（release-local preset）
+Release / MinGW g++ 13.1.0 / Qt 6.11.1 mingw_64 / Ninja / CMake 3.30.5；**207 目标、0 error**
+exe = build/release/ModbusLens.exe = **2,801,768 B**（与修正前 2,795,138 B 不同 ⇒ 产品行为确实改变）
+```
+
+### FM2. Release automated gates
+
+```text
+ctest --preset release-local : **27/27 PASS**
+--qml-smoke-test   : PASS（identity 2.0.0 + windowIcon 6 尺寸）
+--qml-nav-check    : PASS（five workspaces；A–T asserted；M DEFERRED；navigation changed no business values）
+--qml-geometry-check : PASS（**18 printed segments / 0 GEOFAIL / rail 宽度恒 56**）
+--qml-focus-check  : PASS（FA/FJ/FB×5/FC/FD·FE×5/FF/FK/FL/FG/FH/FI）
+                     FJ: list ring visible, subordinate weight (1px, alpha=0.500008) + ring off after focus leaves
+```
+
+### FM3. Identity / Version / PE / Icon / Architecture（本轮实测）
+
+```text
+PE Machine 0x8664 → AMD64 → x64（pefile 与 PowerShell 双读一致）
+RT_ICON ×6 + RT_GROUP_ICON ×1
+FileVersion / ProductVersion = 2.0.0；Raw = 2.0.0.0；ProductName / FileDescription = ModbusLens；
+OriginalFilename = ModbusLens.exe；CompanyName / LegalCopyright 空（有意 omission）
+```
+
+### FM4. Deploy / Package / 校验（committed make_package.py，packaging semantics 零改动）
+
+```text
+fresh deploy → build/f2_deploy（本轮独立目录）
+stem = ModbusLens-2.0.0-windows-x64
+staging 1496 entries + README.txt
+structural checks PASS（required present / forbidden absent / StatisticsOverview retained / samples policy）
+credential·config negative scan PASS（措辞：known-risk scan PASS ≠ 数学证明）
+absolute-path negative audit PASS
+manifest written（1496 payload files）
+ZIP entries == staging file set（1497）
+fresh extraction verified against manifest（build/package-extract/ModbusLens-2.0.0-windows-x64）
+minimal-PATH extracted：--qml-smoke-test PASS / --qml-nav-check PASS / --qml-geometry-check PASS
+external-CWD launch PASS
+```
+
+### FM5. New candidate identity（本轮重新计算，未复制旧值）
+
+```text
+filename = build/package/ModbusLens-2.0.0-windows-x64.zip
+bytes    = **40,632,401**（独立复算：Python 读取文件长度）
+SHA256   = **2065e38a365a7988d853a32da992a13d9490852c825cc08a798653899f02fc09**
+           （独立复算：hashlib 重新计算，非转抄脚本输出）
+payload count  = **1496**
+manifest count = **1**（package-manifest.sha256，其内 1496 行）
+total entries  = **1497**
+对照：旧 ZIP = 40,630,813 B / 7292920b…abdd826 ⇒ **已被本轮结果取代（SUPERSEDED）**；
+本轮数值与其**不同**（修正改变了 exe ⇒ 包内容变化），因此不存在"巧合相同"的情形。
+```
+
+### FM6. Extracted-package focus regression（F1 + F2 契约在 packaged runtime）
+
+```text
+minimal PATH（C:\Windows\System32;C:\Windows；不设 QT_QPA_PLATFORM，包内仅带 windows 平台插件）：
+--qml-focus-check : **PASS**（FA/FJ/FC/FD×5/FE×5/FF/FK×8/FL×6/FG/FH/FI；无 FOCUSFAIL）
+                     FJ 再次确认 **subordinate weight（1px, alpha=0.500008）**
+--qml-nav-check   : PASS（A–T）
+```
+
+### FM7. Visual evidence 状态（**未完成 —— 环境阻塞，如实记录**）
+
+```text
+本轮计划从**新 extracted candidate** 重新采集 15 张最终视觉证据。执行时发现桌面被**另一个全屏应用占用**：
+  · SetForegroundWindow(app) 返回 **False**；
+  · 目标点击点 (354,200) 处的窗口 **不是** app（WindowFromPoint 返回另一进程窗口）；
+  · 采集到的帧内容为**该另一应用**，不是 ModbusLens。
+⇒ 该次采集**全部作废**：已隔离到 build/f2_evidence/invalid_desktop_occupied/（ignored），
+  **未**复制进 docs，**不得**作为任何证据使用。
+⇒ committed 的 15 张 `docs/assets/screenshots/m9f-f2-*` 均产于**本轮新候选之前**（其中
+  m9f-f2-transactions-list-keyboard-focus 产于修正后的 build tree、其余 14 张产于被取代的旧 ZIP）
+  ⇒ 统一标记 **SUPERSEDED**，不得用于最终人工验收。
+待桌面空闲后重跑（命令已记录在工作区 build/ 的采集脚本；固定流程 = 启动 extracted exe → 发布 demo →
+按页面状态 oracle 逐张采集 → 15 张覆盖 docs/assets/screenshots/m9f-f2-*）。
+Final Visual Review 与 Manual Final Acceptance 因此**仍为 WAITING FOR USER**，且必须先完成上述重采。
+```
+
+### FM8. Git / 边界
+
+```text
+本轮 = docs/evidence only（production code 自 56d71c8 起未再改动；本提交不推进 LKGC）。
+未 amend 56d71c8；未 rebase；未 push；未创建 v2.0.0 tag；未开始 F3；packaging semantics 未变。
+ZIP 不入 Git。
