@@ -46,6 +46,7 @@
 | T017 | **M9-B Application Shell & Navigation** | M9 | P0 | **✅ COMPLETE**（B1 `189c62c`、B2 `53685d5`、B3 `382ecfb`、B4 `207ae96`、**B5 `6cc84c3` = verified LKGC**；closure 见 T017 §50） |
 | T018 | **M9-C Dashboard Redesign** | M9 | P0 | **✅ COMPLETE**（C1–C5 全部完成；C2/C3/C4 Review PASS；Screenshot Visual + Manual Interaction PASS；**verified LKGC `bc754be`**；closure 见 T018 §C6） |
 | T019 | **M9-D Transaction & Diagnosis Workspace** | M9 | P0 | **canonical task doc = [T019](tasks/T019-m9d-transaction-diagnosis-workspace.md)** = ✅ **COMPLETE（2026-09-19 Final Closure）**：Phase 1 + D1–D6 全 PASS；Screenshot Visual Review = PASS；Manual Interaction Review = PASS（mouse/Up/Down/Home/End/boundary/nav-away-back 全确认）；**verified LKGC = `07561d9`**；冻结契约与知识闭全入档；StatisticsOverview ownership decision 与 filters/search 留档 DEFER |
+| T020 | **M9-E Branding / Icon / Packaging** | M9 | P1 | **canonical task doc = [T020](tasks/T020-m9e-branding-icon-packaging.md)**；**Phase 1（Learning / Design Gate）= 已落库（AWAITING REVIEW）**——branding 盘点（无需改名）、identity 审计（icon/PE metadata 全缺、版本双源）、packaging baseline = portable folder、zip NOW / installer DEFER / signing REJECT、Release 裁定、E1–E4 序列、9 知识问答；**Implementation = NOT STARTED** |
 
 ## 建议路线（默认执行顺序）
 

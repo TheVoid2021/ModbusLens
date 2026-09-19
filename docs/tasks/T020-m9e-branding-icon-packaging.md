@@ -1,0 +1,307 @@
+# T020 — M9-E Branding / Icon / Packaging
+
+> **状态：IN PROGRESS — Phase 1 Learning / Design Gate（2026-09-19）。Implementation = NOT STARTED。**
+> 上游边界：M9-D（T019）= ✅ COMPLETE（verified LKGC `07561d9`）；M9-E **不得**重新打开 Transactions IA / selection·detail / Diagnosis / Legacy。
+
+## 0. V2 Protocol 对应
+
+Learning / Design Gate（本轮）→ Review → 实施阶段（E1–E4，见 §S）→ 逐阶段 Review。本轮 docs-only：**零 src/QML/CMake/scripts/assets/tests/samples/screenshots 改动**。
+
+## 1. Preflight（2026-09-19）
+
+HEAD `6299444`、main、clean、verified LKGC `07561d9`、`v1.0.0^{commit}`=`ae067ab`、**annotated tag object `2cee626`**（type=tag）、origin/main `a40d935`、ahead 68 / behind 0、`git diff --check` PASS —— 全部相符。
+
+## 2. M9-D Closure Re-read（确认边界）
+
+PROJECT_STATUS / BACKLOG / T019 Final Closure 实读确认：**M9-D = COMPLETE**；final IA = 0 Transactions / 1 Dashboard / 2 Communication / 3 Replay / 4 Diagnosis / 5 Device disabled；Legacy retired runtime absent。Tab-only focus traversal 属 **M9-F**（非 M9-E）。M9-E 不重开上述任何域。
+
+## 3. Task Ownership（§3）
+
+BACKLOG 已登记 M9-E 里程碑行，但**无 task document**；`docs/tasks/` 现有 T001–T019，**T020 = 真实下一个空闲 id** ⇒ 本文件即 canonical task doc。**未**把 M9-E 追加进 T019（已完成，只作历史边界引用）。
+
+## 4. Branding Inventory（§4，真实搜索，逐类）
+
+全仓库 `ModbusLens` 出现实测：`src/` 27 处、`CMakeLists.txt` 2、`scripts/deploy_windows.bat` 7、`docs/` 40 文件、`tests/` 2（均为注释）。分类：
+
+| 类别 | 实例 | 动作 |
+| --- | --- | --- |
+| **A. user-visible product name** | `Main.qml title: qsTr("ModbusLens")`；deploy 后 `ModbusLens.exe` 文件名 | 保持 ModbusLens；呈现完整化（icon/metadata），**不改名** |
+| **B. binary/package identity** | target `modbuslens`（build `modbuslens.exe`）→ deploy 拷贝为 `ModbusLens.exe`；`project(ModbusLens VERSION 0.1.0)`；windeployqt `--qmldir src/ui/qml`；qmldir URI `ModbusLens` | PE metadata 补齐（§16）；exe 名统一问题登记（见 §N4） |
+| **C. internal target/project name** | `qt_add_qml_module(URI ModbusLens)`、import 语句（全部 QML 组件）、`:/ModbusLens/` qrc 路由、`setOrganizationName/ApplicationName("ModbusLens")` | **不动**（技术 identifier，改名 = 大规模破坏） |
+| **D. docs-only mention** | docs/ 40 文件、README、本文件 | 随文案更新，非本轮 |
+| **E. test fixture/string oracle** | `tests/test_passive_analysis.cpp` 2 处（注释）；harness 断言**无**品牌字符串依赖（deploy checklist 是文件名而非 UI 文本 oracle） | 不动 |
+
+**结论（§4 核心问题）**：品牌**不需要改名**——需要的是把现有 ModbusLens 品牌的**呈现完整化**（identity / icon / metadata / packaging）。**禁止机械全局替换**。
+
+## 5. App / Window Identity Audit（§5，实读 main.cpp:5553–5557 + Main.qml:51）
+
+| property | 当前值 | source owner | visible where | packaging impact | M9-E candidate |
+| --- | --- | --- | --- | --- | --- |
+| `QCoreApplication::organizationName` | `"ModbusLens"` | main.cpp 硬编码 | 注册表/QSettings 路径（当前无 QSettings 使用） | 低 | 保持（真实名称，非编造） |
+| `QCoreApplication::applicationName` | `"ModbusLens"` | main.cpp 硬编码 | QStandardPaths、崩溃日志 | 低 | 保持 |
+| `QCoreApplication::applicationVersion` | `"0.1.0"` | **main.cpp 硬编码字符串** | About 类查询（当前 UI 无展示） | 中——**与 CMake project VERSION 双源漂移风险** | **是**：单一 source（§10） |
+| `organizationDomain` | **missing**（未设置） | — | — | 低 | 不编造（无权威域名）；保持 missing |
+| `applicationDisplayName` | **missing**（未设置；窗口标题由 QML title 决定） | — | 窗口标题后备 | 低 | 否（title 已显式） |
+| `QGuiApplication::setWindowIcon` / `ApplicationWindow.icon` | **missing** | — | 任务栏/Alt-Tab 退回 Qt 默认图标 | **高** | **是**（§6/§14） |
+| `Main.qml title` | `qsTr("ModbusLens")`（固定，无 session 后缀） | Main.qml | 标题栏/任务栏 | 低 | 保持固定（§17） |
+| window flags | 默认（无特殊 flags） | Main.qml | — | 低 | 否 |
+| **PE metadata（FILEVERSION/ProductName/…）** | **missing by construction**（无 `.rc`、CMake 无 RC 处理） | — | Explorer 文件属性/右键 | **高** | **是**（§16） |
+
+## 6. Icon Audit（§6，逐层，全部实搜）
+
+| 层 | 现状 | 来源/机制 | build-tree | deployed tree |
+| --- | --- | --- | --- | --- |
+| A. QML/window icon | **不存在**（Main.qml 无 icon 属性；main.cpp 无 setWindowIcon） | — | 无 | 无 |
+| B. Windows taskbar/window icon | 退回 Qt 默认图标（因 A 缺失） | — | 同 A | 同 A |
+| C. **PE executable icon** | **不存在**（无 `.rc` 文件、CMakeLists 无 RC/target_sources 处理；`find` 实证仓库无 .ico/.rc/.svg） | — | 无 | 无 |
+| D. deploy folder asset | 无 icon 资产（deployed tree 实测只有 exe/DLL/QML 目录/samples） | — | — | 无 |
+| E. future installer icon | N/A（无 installer，§20） | — | — | — |
+| F. docs/screenshots logo | 无产品 logo（`docs/assets/` 只有截图与架构图） | — | — | — |
+
+**明确区分**：QML `Image` 元素与 PE executable icon 是**两个不同机制**（前者是运行时图片资源，后者是 Windows 资源段嵌入）；当前两者都不存在，M9-E 需分别实现且不可混同（§28 的验证 oracle 也因此分立）。
+
+## 7. Existing Resource Mechanism（§7）
+
+| resource type | 机制（实读 CMakeLists/main.cpp） | build embedding | deploy dependency | platform-specific |
+| --- | --- | --- | --- | --- |
+| QML 模块 | `qt_add_qml_module(modbuslens URI ModbusLens VERSION 1.0)`（exe 附着 qrc，`:/ModbusLens/` 路由；qmldir 自动生成） | 是（qrc 内嵌） | windeployqt 拷出 `ModbusLens/` 目录 | 否 |
+| DesignSystem tokens | **engine context property**（main.cpp 从 qrc URL 实例化；ISSUE-010：不走 module singleton） | 是 | 同上 | 否 |
+| 测试 fixtures | `configure_file(... COPYONLY)` → build tree `test_data/`（**不进 deploy**） | 否（文件拷贝） | 无 | 否 |
+| deploy 资产 | `scripts/deploy_windows.bat`：windeployqt + 手写 checklist（xcopy qmldir/QML 树 + `samples\demo_v1.mlog`） | 否 | 是（checklist 驱动） | 是（Windows 批处理） |
+| `.rc` / qrc / qt_add_resources | **均不存在** | — | — | — |
+
+**结论**：icon/PE metadata 应**复用现有机制**——PE icon/metadata 走 CMake 的 RC 编译（qt_add_executable 对 .rc 的标准集成）；窗口 icon 走 qrc（可加入 qt_add_qml_module 的 RESOURCES 或最小 qt_add_resources）。**不为一个 icon 建第二套资源管线**。
+
+## 8. Packaging Baseline（§8，实读 deploy_windows.bat + deployed tree 实测）
+
+当前真实 packaging = **A. portable deployed folder**（`build/deploy/`：ModbusLens.exe + Qt runtime DLL + QML 模块目录 + platforms 插件 + samples/demo_v1.mlog）。**无 zip、无 installer、无 MSIX/MSI/NSIS/Inno**（scripts/ 只有 deploy_windows.bat 与 bench_replay）。deploy 由 windeployqt + 手写 checklist 驱动，checklist **只含 `samples\demo_v1.mlog`**（t014/t015 fixtures 实测不在 deployed tree）。**如实声明：current packaging baseline = portable Windows deployment**；milestone 叫 Packaging **不等于**要做 installer（§20）。
+
+## 9. Publication vs Development Boundary（§9，冻结）
+
+local main ahead 68 ≠ published release。M9-E **不得**：push、移动 v1.0.0、自动创建 release tag、发布 GitHub Release、上传 installer/package。Packaging implementation 只产出**本地可验证 artifact**；publication 需显式授权（另行决策）。
+
+## 10. Version Source Audit（§10）
+
+| 来源 | 现状 |
+| --- | --- |
+| CMake `project(ModbusLens VERSION 0.1.0)` | 存在（也是 QML module VERSION 1.0 的邻居，但两者语义不同） |
+| main.cpp `setApplicationVersion("0.1.0")` | 存在（**硬编码字符串**） |
+| Windows resource VERSIONINFO | 不存在 |
+| Git tag 驱动 | 不存在 |
+
+**双源漂移风险**：CMake VERSION 与硬编码字符串目前巧合一致（0.1.0），无机制保证。**裁定：单一 source of truth = CMake project VERSION**——implementation 时用 `configure_file` 生成版本头（或 .rc 直读 CMake 变量），`setApplicationVersion` 与 PE FILEVERSION/PRODUCTVERSION 均从其派生。**禁止运行时 `git describe` 作为 deployed app 唯一版本来源**（deployed tree 无 .git；除非设计论证否则不引入）。
+
+## 11. V1 Tag Boundary（§11，冻结）
+
+`v1.0.0` = annotated tag，tag object `2cee626`，commit target `ae067ab`，**永不移动**。M9-E 的版本信息**不得**通过移动/重打 v1.0.0 实现；未来如需新版本号，创建**新** tag 属 publication 决策（§9），非 M9-E。
+
+## 12. Branding Goal Definition（§12，优先级排序）
+
+| 目标 | 优先级 | 理由 |
+| --- | --- | --- |
+| **A. 应用识别**（窗口/任务栏/exe 看得出是 ModbusLens） | **P0** | 当前三层 icon 全缺，任务栏是 Qt 默认图——识别缺口最刺眼 |
+| **B. 一致性**（窗口标题、文件属性、包名一致，版本单源） | **P0** | 双源漂移风险；Explorer 属性当前全空 |
+| **C. 专业交付**（部署包无需开发环境即可辨认和运行） | **P1** | portable 包已可运行；缺的是可辨认性（icon/metadata）与可选 zip |
+| **D. 视觉 branding**（logo/icon 风格统一） | **P1**（随 A 交付单枚 icon，不做完整 VI） | 避免范围膨胀 |
+| **E. release publication** | **REJECT for M9-E**（§9 冻结） | 需显式授权 |
+
+## 13. Icon Design Requirements（§13，仅规范，本轮不生成资产）
+
+**应传达**：Modbus（串口/寄存器网格语义）、diagnostic（状态/信号感）、lens/inspection（放大/聚焦母题）、industrial/tooling（克制、几何、工程感）。
+**应避免**：复杂细节、文字元素、小尺寸不可读、仿真特定厂商品牌（Modbus logo/厂商商标）。
+**规范**：单一几何母题（lens + 寄存器网格/信号线，≤3 个形状）；高对比（深底/浅底均可辨）；小尺寸可辨（16px 下母题仍可识别——以形状轮廓为先，细节在后）；透明背景；**monochrome tolerance**（单色剪影下仍可辨）；无浅色/深色主题依赖（单 icon 适配双色底，§30）。
+
+## 14. Icon Size / Format Plan（§14）
+
+| 尺寸 | 用途 | 是否需要 |
+| --- | --- | --- |
+| 16 | 窗口标题栏/小任务栏 | **是** |
+| 24 | Alt-Tab/部分 DPI | **是** |
+| 32 | 任务栏/桌面小图标 | **是** |
+| 48 | Explorer 中图标/Alt-Tab 大图 | **是** |
+| 64 | 高 DPI 任务栏 | **是** |
+| 128 | Explorer 特大视图/关于页（可选） | 可选（低价值，默认不含） |
+| 256 | Explorer 超大视图/现代 Windows 缩放 | **是**（ICO 内含） |
+
+**source master format = SVG**（矢量母版）；**derived = multi-resolution .ico（16/24/32/48/64/256 一枚多帧）+ 窗口图标用 PNG 帧（qrc 内嵌 16/32/48 或直接 QIcon 从 ICO 读取）**。**禁止**把单张 256 PNG 改名 .ico（不是 multi-resolution 结构，Explorer/任务栏缩放质量差）。**implementation tool requirement**：仓库当前无 ICO 生成工具链——需 ImageMagick `magick` 或 `icotool`（icoutils）之一，Phase 1 标记为 **tool requirement**（implementation 前确认本机可用性；若不可用则先解决工具，不手写 ICO 结构）。
+
+## 15. Source Asset Ownership（§15）
+
+裁定：**新建顶层 `assets/`**（仓库现状：无 assets/resources/src/ui/assets；`docs/assets/` 是文档图像，**不**作 canonical product asset）。结构：`assets/brand/icon.svg`（source artwork，唯一手写母版）+ `assets/brand/generated/`（.ico/派生 PNG，构建或工具生成，**不入 git 或入 git 由 implementation 阶段按可复现性裁定**——默认生成物入库以保证无工具环境可构建，风险与权衡届时记录）。
+
+## 16. Windows PE Metadata（§16）
+
+现状：全缺（无 .rc）。M9-E **应加入**（B 类一致性目标），字段与真实来源：
+
+| 字段 | 值 | 来源 |
+| --- | --- | --- |
+| FILEVERSION / PRODUCTVERSION | `0.1.0.0`（随版本演进） | **CMake project VERSION**（configure_file 派生，§10） |
+| FileDescription | `ModbusLens` | 产品名（A 类事实） |
+| ProductName | `ModbusLens` | 产品名 |
+| OriginalFilename | `ModbusLens.exe` | deploy 名（B 类事实） |
+| CompanyName / LegalCopyright / organizationDomain | **不设置** | **仓库无权威信息——不编造法人名称/版权主体/域名**（§16 红线） |
+
+机制：新增 `src/app.rc`（或 assets 下）经 CMake 加入 target（qt_add_executable 自动编译 .rc）——**复用现有构建机制，不引入第二资源管线**。
+
+## 17. Window Title Policy（§17）
+
+**裁定：保持固定 `ModbusLens`**（现状已如此）。否决 `ModbusLens — <session/source>` 后缀：信息价值低（标题栏已有页面内容、Replay 页内有 sourceLabel）、隐私（文件名进标题栏/截图/任务栏 tooltip）、长度风险、source ownership（标题属 Main.qml 静态品牌，session 属 Controller——两轴耦合后每次 load 都要更新 title，无对应需求）。**B4 冻结重申：sourceLabel 仅 basename，绝不把绝对 Replay path 放进 window title。**
+
+## 18. Package Naming（§18）
+
+候选裁定：`ModbusLens-<version>-windows-x64`。前置确认（implementation 首步）：architecture 从 **CMakeCache/编译器三元组实测**（当前工具链 mingw1310_64 为 64-bit，但不能硬编码——build config 未在本 Phase 验证），toolchain 标记 `mingw`（`ModbusLens-0.1.0-windows-x64-mingw` 备选，若实现阶段判定 runtime 可辨认性需要）。三口径：**zip 名 = folder 名 = 上述**；**exe 名 = `ModbusLens.exe`**（deploy 现状，保持）。version 来自单一 source（§10）。
+
+## 19. Portable ZIP Decision（§19）
+
+比较：**A. 继续 deployed folder only**（零新增，但"交付"仍是手工目录）；**B. 增加 deterministic zip**（folder → 单文件 artifact + manifest/checklist 校验；交付/归档/演示可移植）；**C. installer**（§20 否）。**推荐 B**：D5/D6 人工交付已证明"需要把 candidate 交给别人跑"的场景真实存在，zip 是最小增量（PowerShell `Compress-Archive` 或 CMake archive，无新框架依赖），且 verification 可机器审计（解压→运行→checklist）。zip 步骤**确定性**要求：固定输入树（deploy checklist 输出）+ 固定命名，不做时间戳嵌入。
+
+## 20. Installer Decision（§20）
+
+**DEFER（REJECT for M9-E）**。理由：无 uninstall/Start Menu/desktop shortcut/registry/权限/code signing/升级路径需求，且会引入 installer framework 依赖（NSIS/Inno/MSIX）与显著 scope expansion——"更专业"不是评分项。触发条件（未来重启的门槛）：真实分发对象需要安装体验/卸载/快捷方式时，另行立项。
+
+## 21. Code Signing Boundary（§21）
+
+审计结果：**无证书、无 signing pipeline、无 signtool 集成、无 CI secret**（仓库实测）。⇒ M9-E **不得**伪造 "signed package"；artifact 定性为 **unsigned local artifact**，可接受（本地验证/演示用途）。未来若需签名 = 单独 release/security workflow（含证书管理），不在 docs 承诺。
+
+## 22. Packaging Contents（§22，基于真实 deploy tree）
+
+**应包含**：`ModbusLens.exe`；Qt runtime（windeployqt 输出：Core/Gui/Qml/Quick/QuickControls2/Network/SerialPort DLL + D3Dcompiler 等）；QML 模块目录（`ModbusLens/qmldir` + 镜像 QML 树）；platforms 插件；`samples/demo_v1.mlog`（§23）；（新增）license/readme 说明文件——**内容属 implementation 阶段撰写**。
+**不得包含**：build intermediates、PDB（无明确 debug package 需求）、temporary harness output（`build/d3_*` 等脚本/日志）、credentials/token、user config、absolute paths、AI provider secret。**negative scan 进验证计划**（§36）。
+
+## 23. Sample-data Policy（§23）
+
+实测：deployed tree **只含 `demo_v1.mlog`**（用户演示 sample，A 类）——t014/t015 系 build-tree 测试 fixture（`configure_file` 注入，B/C 类），**当前就不在 deploy checklist 里**。**裁定维持现状**：package 只含 `demo_v1.mlog`；`t014_protocol_error.mlog` / `t015_broadcast.mlog` = **internal regression fixture，非 user-facing**（它们是"错误/广播"语义的测试输入，作为用户演示内容反而误导）。不因 deploy checklist 结构而默认"所有 sample 都是产品内容"。
+
+## 24. Credential / Config Boundary（§24，冻结）
+
+package **不得包含** user credential / token / local settings / developer config / absolute path / AI provider secret。`aiConfigured=true` 是**运行时环境状态**（用户机器的环境变量/配置），**不等于** package 含 token——当前 token 来自运行环境而非仓库文件（T011 边界）。M9-E 验证计划必须含 **negative scan**：deploy/package 树 grep token/secret 模式 + 无配置文件审计 + 无绝对路径审计。
+
+## 25. Build-config Decision（§25）
+
+当前长期验证用 **debug-local**（MinGW Debug）。**裁定：M9-E packaging candidate 采用 Release**（`release-local` preset 或等价）。理由：交付物体积/无调试运行时依赖/启动与运行性能/Explorer 元数据的专业一致性；Debug 包含调试符号与断言行为，不适合作为交付 artifact。RelWithDebInfo 否决（符号对 portable 演示无价值、体积大）。**Debug accepted ≠ Release accepted**——Release candidate 必须重跑全部关键门禁（§26/§36）。Qt runtime 随 Release 构建由 windeployqt 自动切换 Release DLL。
+
+## 26. Release-behavior Equivalence（§26）
+
+Release candidate **重新跑**：build、full ctest（Release 构建目录）、qml_smoke、qml_nav、qml_geometry、deploy、strict minimal-PATH、screenshot/evidence（如视觉口径需要）、package 检查。**禁止**只编译 Release 然后复用 Debug 截图声称包装通过。已有先例风险：offscreen/平台插件差异（D6 RCA①）在 Release deploy 同样适用。
+
+## 27. Existing Perf Boundary（§27）
+
+既有公开性能 = offline Replay/core analysis 吞吐（100k/1M 记录基准，`docs/10_REPLAY_PERFORMANCE_BENCHMARK.md`）。M9-E **不得**把 package size、installer 时长、startup time 与该吞吐指标混同；如需 startup/package 数据，另行口径记录，不入 perf 基准文档。
+
+## 28. Startup Branding Verification（§28，oracle 分层）
+
+| 验证项 | oracle |
+| --- | --- |
+| window title | QML/harness 读取（已有能力） |
+| window icon | 需窗口级取证（QQuickWindow::icon / 截图 titlebar 人工确认） |
+| taskbar/Alt-Tab icon | **人工**（Windows shell 行为，offscreen 不可证） |
+| **PE exe icon** | **PE 资源 inspection**（解析 .rsrc 段/RT_GROUP_ICON）或 Windows Explorer 人工——**QML screenshot 不能证明 PE icon embedding** |
+| Windows file metadata | PE VS_VERSION_INFO inspection（同上） |
+
+## 29. Icon Visual Verification（§29，未来人工清单）
+
+16/24/32 小尺寸、taskbar、Alt-Tab、窗口 titlebar、Explorer 大图标、high-DPI 缩放、light/dark 背景。标准：不糊、不裁切、无透明边异常、小尺寸可辨。
+
+## 30. Theme Compatibility（§30）
+
+单 icon 方案（§13：无主题依赖设计）；**不**做 adaptive variants（无需求信号）；**不**为图标改 DesignSystem/全局色板——M9-E branding ≠ UI theme redesign。
+
+## 31. AppBar / SessionChip Boundary（§31）
+
+M9-C deferred：SessionChip/AppBar refinement。**裁定：A——不改 AppBar**，仅 system-level icon/title/package。理由：窗口/任务栏/Explorer 层已完整解决识别；AppBar 加 logo 会与标题栏品牌重复（双 logo），且触碰已冻结的 Dashboard/AppBar 布局（回归面大收益小）。C（header redesign）默认否决。若未来 Review 判定需要品牌 mark，另行立项。
+
+## 32. StatisticsOverview Zero-consumer Decision（§32）
+
+consumer=0 但保留（M9-D closure 裁定）。M9-E 只在审计 CMake/deploy 时**保持其 registration 与 deploy guard 原样**；**不顺手删**。component cleanup 不是 Branding/Icon/Packaging 的一部分——继续 DEFER，除非 BACKLOG 另行 task。
+
+## 33. Accessibility Boundary（§33）
+
+M9-F 已登记全局 accessibility / Tab focus-chain audit——**M9-E 不做**全局 focus order / 键盘导航 redesign。icon 无文字 ⇒ system-level branding 不替代可访问 app name（window title/applicationName 保持文字形态，已满足）。
+
+## 34. Alternatives Scorecard（§34，三案）
+
+| 维度 | A. Minimal Branding | B. Portable Release Package | C. Installer Package |
+| --- | --- | --- | --- |
+| user value | 识别/一致性达成 | + 单文件交付物（可发人/可归档） | + 安装/卸载体验 |
+| repo/tooling fit | 高（.rc + qrc + 现有 deploy） | 高（+zip 一步，无框架） | 低（新 framework 依赖） |
+| new dependency | ICO 工具（§14） | 同 A + zip 工具（系统自带） | installer 工具链 |
+| release risk | 低 | 低（zip 确定性可控） | 中（安装语义/卸载/注册表） |
+| verification burden | 低 | 中（package 审计 + negative scan + 解压运行） | 高（安装/卸载/升级全矩阵） |
+| rollbackability | 高 | 高 | 低 |
+| signing implications | 无 | 无（unsigned local） | 强（签名缺失更刺眼） |
+| M9-E scope fit | **完全** | **完全** | 超界（§20 DEFER） |
+
+**推荐：B**（A 的超集：Release config + deterministic zip + manifest/check）；C = DEFER。
+
+## 35. NOW / DEFER / REJECT Table（§35，每项带理由）
+
+| 项 | 裁定 | 理由 |
+| --- | --- | --- |
+| app/window title（固定 ModbusLens） | **NOW（保持现状，无代码改动）** | 已正确；§17 否决后缀 |
+| window icon | **NOW** | A 类 P0 缺口；qrc/QGuiApplication setWindowIcon |
+| PE icon（.rc + multi-size .ico） | **NOW** | A/B 类 P0 缺口；复用 CMake RC 机制 |
+| PE metadata（FILEVERSION/ProductName/…） | **NOW** | B 类一致性；真实来源字段（§16），不编造 CompanyName/Copyright |
+| version 单一 source（CMake VERSION → configure_file 派生） | **NOW** | 消除双源漂移（§10） |
+| portable deploy（现状） | **NOW（保持）** | 已存在，§8 |
+| zip（deterministic，B 案） | **NOW** | 交付价值真实（D5/D6 人工交付先例）；增量最小（§19） |
+| installer | **DEFER** | 无卸载/快捷方式/注册表/签名需求；显著 scope expansion（§20） |
+| code signing | **REJECT for M9-E** | 无证书/管线/secret；unsigned local artifact 定性（§21） |
+| AppBar logo | **REJECT for M9-E** | A 案足够；双 logo + 布局回归面（§31） |
+| sample packaging | **NOW（维持现状：仅 demo_v1.mlog）** | §23 实测与裁定 |
+| release config（Release candidate） | **NOW** | §25 裁定；Debug accepted ≠ Release accepted |
+| StatisticsOverview cleanup | **DEFER** | 非 branding 范围（§32） |
+| publication（push/release/上传） | **REJECT for M9-E** | §9 冻结 |
+
+## 36. Verification Plan（§36，implementation 阶段执行）
+
+build（选定 config）→ full ctest（Release 构建目录）→ qml_smoke / qml_nav / qml_geometry → `git diff --check` → deploy → strict minimal-PATH → **package tree audit**（checklist 逐项）→ **negative secret/config scan**（token/secret/绝对路径模式 grep + 无配置文件）→ QML/module presence（qmldir/QML 树）→ **StatisticsOverview retained** → **PE icon/resource inspection**（.rsrc/RT_GROUP_ICON/RT_VERSION）→ **version metadata verification**（VS_VERSION_INFO 值 == 单一 source）→ **artifact naming verification** → **package extraction/run verification**（解压到新目录 + 严格最小 PATH 运行）。若 Release：以上关键门禁在 Release candidate 重跑。
+
+## 37. Screenshot / Evidence Plan（§37）
+
+重点**不是**再拍所有页面：A. window/titlebar + taskbar icon（人工）；B. Explorer exe icon/metadata（人工 + PE inspection 输出）；C. deployed package tree（机器审计输出）；D. optional About/branding surface（**仅若** Phase 1 Review 批准该 surface 存在——当前设计无 About 页）。产品页回归截图取最小集。**不用 screenshot 证明** PE metadata / secret absence / package completeness（各自有机器/人工 oracle，§28）。
+
+## 38. Manual Acceptance Plan（§38）
+
+app name 一致 / window icon / taskbar icon / Alt-Tab icon / Explorer exe icon / high-DPI / clean extraction + run（新目录）/ package 无开发环境依赖 / package 内文件合理 / samples 可理解 / 无 credential / existing UI 无 branding regression。若有 zip：解压新目录运行测试。
+
+## 39. Implementation Sequencing（§39）
+
+- **E1. identity/version/resource contract**：version 单源（configure_file）+ `.rc`（PE metadata + icon 引用）+ window icon 嵌入（qrc PNG/ICO）+ harness 增 PE/version 断言。runnable/testable/rollbackable。
+- **E2. icon asset pipeline**：SVG master → multi-size .ico/PNG 生成（工具链确认）+ 各层接入验证 + 人工 icon 清单（§29）。
+- **E3. Release packaging**：Release-local 构建 + deploy + deterministic zip + package audit + negative scan（若 Review 砍 zip，则 E3 退化为 Release deploy 校验）。
+- **E4. evidence/manual candidate**：证据集（§37）+ 人工清单（§38）。
+- installer DEFER ⇒ **不创建 installer stage**。zip 若被 Review 否决则并入 E3，不单列。
+
+## 40. Knowledge Questions（§40 必答）
+
+1. **window icon 与 PE executable icon 为什么不是同一件事？** 前者是运行时窗口/任务栏图标（QGuiApplication/QML window icon，可来自 qrc），由窗口管理器在运行时使用；后者是 Windows 资源段（.rc 编译进 exe 的 RT_GROUP_ICON），Explorer/安装器在不运行程序时读取。一个管"跑起来后"，一个管"文件本身"；嵌入手段（qrc vs .rc）、验证 oracle（窗口取证 vs PE inspection）、缺失后果都不同。
+2. **为什么 milestone 名含 Packaging 不等于必须做 installer？** Packaging 的本质是"产出可交付的本地 artifact"——当前真实 baseline 是 portable folder（§8 实证），它已经是可交付形态；installer 解决的是安装/卸载/快捷方式/升级等**分发体验**问题，而这些问题在本项目无需求信号。按名义造 installer = scope 自膨胀（§20 判据逐条否决）。
+3. **当前 authoritative version 来自哪里？** 双源：CMake `project(VERSION 0.1.0)` 与 main.cpp 硬编码 `setApplicationVersion("0.1.0")`——目前巧合一致、无机制绑定。裁定收敛为 CMake VERSION 单源（configure_file 派生）。
+4. **为什么 v1.0.0 不能"跟着开发移动"？** 它是 V1 主线完成时点的**历史锚**（tag object `2cee626` → commit `ae067ab`），PROJECT_STATUS 的追溯与对比都依赖它不动；移动它等于篡改历史（Git 政策同理）。新版本号 = 新 tag（publication 决策），不是改旧 tag。
+5. **为什么 packaging candidate 不能继续默认 Debug 而不做决策？** Debug accepted ≠ Release accepted：不同的 Qt runtime DLL、断言/优化行为、体积与符号；把长期 debug-local deploy 当正式交付，等于从未验证过真正要交付的那个二进制。决策必须显式（本轮裁定 Release + 全门禁重跑）。
+6. **为什么 screenshot 不能证明 PE metadata？** 截图拍的是**运行中的窗口内容**；PE icon/VERSIONINFO 是**文件资源段**，在不运行程序时由 Explorer/PE 解析器读取。两者机制、读取者、时机都不同——PE 层必须用资源 inspection 或 Explorer 人工取证。
+7. **为什么零 consumer 的 StatisticsOverview 不能在 M9-E 顺手删除？** M9-D closure 已把它定性为"zero-consumer but kept、去留另行 ownership decision"；M9-E 的授权是 branding/packaging，删除组件是另一类变更（涉及 QML module contract 与 deploy checklist 双侧），顺手删 = 未授权 scope + 破坏"extend, do not silently redefine"。
+8. **为什么 package 必须做 credential/config negative scan？** AI/Agent 能力让运行时环境里存在 provider token（T011 边界：token 在环境不在仓库）；打包是"目录快照"动作，最容易把开发机局部状态（配置/日志/绝对路径）带进去。`aiConfigured=true` 只说明运行时配了 token，恰恰提示打包时要防环境泄漏——negative scan 是唯一机器可证的防线。
+9. **哪些工作留给 M9-F / 正式 release pipeline？** M9-F：全局 accessibility / Tab focus-chain audit、最终人工视觉验收。release pipeline：push、新版本 tag、GitHub Release、签名、上传 artifact——全部需显式授权，M9-E 只产本地 artifact。
+
+## 41. Documentation（§41）
+
+本文件即 canonical task doc；PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES 同步（本轮）。状态：**M9-E IN PROGRESS，Phase = Learning / Design Gate，Implementation = NOT STARTED**。
+
+## 42. Allowed Changes（§42，本轮）
+
+docs-only：`docs/tasks/T020-*.md`（新建）、PROJECT_STATUS、BACKLOG、devlog、INTERVIEW_NOTES。**零** src/QML/CMakeLists/scripts/assets/resources/tests/samples/screenshots 改动。
+
+## 43. Git / LKGC（§43）
+
+独立 docs-only commit（建议 `M9-E: design branding icon and packaging`）；**不 amend `6299444`**、不 rebase、不 push；**verified LKGC 继续 = `07561d9`**（docs-only 不推进）。
+
+## 44. Review 请求项（Phase 1 Review 须裁定）
+
+1. §12 目标优先级（A/B P0、C/D P1、E REJECT）是否接受。
+2. §19/§35：zip（B 案）NOW vs 维持 A（仅 portable folder）。
+3. §14 ICO 工具链 requirement（ImageMagick/icotool）可用性确认方式。
+4. §15 assets/ 目录结构与生成物入库策略。
+5. §16 CompanyName/LegalCopyright 保持缺失（不编造）是否接受。
+6. §25 Release 裁定与 §26 重跑范围。
+7. §S 阶段序列（E1–E4）与每阶段边界。
