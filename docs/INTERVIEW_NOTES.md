@@ -485,3 +485,13 @@
 - **Q：PE 资源里怎么机器证明"我们的 icon 进去了"？** A：`pefile` 解析 PE 资源目录：E2 后出现 **RT_ICON ×6 + RT_GROUP_ICON ×1**（E1 tree 上是 NONE——这就是 RED）。RT_ICON 的 6 个条目正对应 ICO 的 6 帧。注意边界：资源编译器可能重组字节，所以**不做**"PE 提取字节与 .ico 文件 byte-identical"的契约，只断言资源类型/数量/层级存在；壳层 fallback 图标（ExtractAssociatedIcon）也不会被误当证据，因为 pefile 读的是真实资源表。
 - **Q：setWindowIcon 是怎么被"遗漏"又被发现的？** A：集成时我先加了资源、oracle 和 PE 语句， rebuild 后 PE oracle 已绿（RT_ICON 在 exe 里了），但 runtime oracle 报 `application window icon = '<null>'`——因为**从没调用过 setWindowIcon**。这正是分层 oracle 的价值：PE 层和 runtime 层各自独立取证，哪一层缺了立刻指认，而不是靠一张截图糊在一起。
 - **Q：图标设计上最大的克制是什么？** A：只做一个几何母题（放大镜 ring 套 2×2 寄存器格 + 手柄），全部用块面与粗描边（16px 仍可辨），蓝色 tile 取自 DS primary 家族但**明确声明不是 DS token contract**，无渐变/无发光/无主题变体（Phase 1 冻结单 icon）。品牌工作的产出是"可识别"，不是"一套视觉体系"——后者才需要重新立项。
+
+## 52. Post-T020 M9-E E3 条目（2026-09-19 追加）
+
+- **Q：cmd 的参数列表为什么会"丢参数"？** A：Windows 的 cmd 批处理对**空引号参数**（`""`）的处理是丢弃——我用 python subprocess 传 `["bat", build_dir, "", "", deploy_dir]` 想让 bat 自己从 CMakeCache 推导 QT_BIN/MINGW_BIN，结果 `%2`/`%3` 消失，后面的 `%4`（DEPLOY_DIR）前移成了 `%2`——deploy 就落到了默认目录。教训：**跨进程传参不要依赖 cmd 的空参数语义**，要么传实值（脚本自己读 CMakeCache 推导后显式传），要么换机制。这个坑的代价是第一版"成功"输出其实部署到了错误目录。
+- **Q：为什么 Resource Mirror（ModbusLens/assets/）要从包里删掉？** A：`qt_add_qml_module RESOURCES` 会把资源镜像到 deployed QML 模块目录，但**图标的真身已经编译进 exe 的 qrc**——运行时从 `:/ModbusLens/...` 读的是内嵌资源。磁盘镜像对部署是冗余文件，而且它会被"禁止 loose ModbusLens.ico"检查命中。删掉镜像后 runtime icon 照常工作（部署版 identity 行 windowIconSizes 全 6 尺寸），证明内嵌才是真相。
+- **Q：scripted portable ZIP 和 byte-reproducible ZIP 的区别为什么重要？** A：scripted = "固定脚本、固定输入树、产出可交付 zip"；byte-reproducible = "同树两次构建 SHA256 完全一致"。后者要求控制 zip 内部的时间戳、条目顺序、压缩元数据——Compress-Archive/python zipfile 都不天然保证。E3 明确只 claim 前者，并用**连续三次运行的 ZIP sha256 互不相同**作为反证记录（这正是 scripted ZIP 的诚实语义）。不做假 reproducibility（时间戳归一化等 hack 没实现就没实现）。
+- **Q：manifest 为什么排除它自己？** A：manifest 记录包内每个 payload 文件的 SHA256——如果 manifest 也给自己算 hash，就会产生"hash 的 hash 的 hash"自指死循环。排除自身是这类完整性清单的标准做法（校验时：先验 manifest 之外的所有文件，manifest 本身作为随附索引）。
+- **Q：架构标签为什么必须用 PE Machine 而不是"我 Windows 是 64 位的"？** A：宿主是 64 位不代表编译产物是——交叉编译/32 位工具链都能在 64 位宿主上产出 32 位 exe。规程要求"至少两类证据合理组合"，E3 用了 **PE Machine（0x8664=AMD64，直接读最终交付物）** + 编译器工具链族（x86_64-w64-mingw32）交叉确认，packaging 脚本还内建了"配置 label 与 Machine 不符即 fail"的拒绝逻辑。
+- **Q：README 里的 2.0.0 为什么不算"第二版本字面量"？** A：因为 README.txt **不是 committed 源**——它由 packaging step 在运行时从 authority（generated version header）模板化生成。commit 进仓库的只有 make_package.py 的模板逻辑（含 `{version}` 占位），没有任何手写的 release 数字。规则是：**仓库里维护的版本字面量只能有一处（CMake）；一切下游出现都是派生**。
+- **Q：fail-fast 在这个脚本里具体指什么？** A：每个 gate（Release exe 存在/版本可取/架构识别/windeployqt/required 文件/forbidden 内容/credential 扫描/manifest/zip/解压/minimal-PATH 运行）失败即 `sys.exit(1)`，绝不打印 warning 继续打包——否则产出一个"看起来完整"的坏包比失败更危险。本轮 4 次真实失败（空参数部署、PE 解析、镜像目录、subprocess decode）全被 fail-fast 定位修复，机制经实战验证。

@@ -1,6 +1,6 @@
 # T020 — M9-E Branding / Icon / Packaging
 
-> **状态：IN PROGRESS — Phase 1 = PASS（version decision = 2.0.0）；E1 = PASS；**E2 = 实施完成（candidate，awaiting E2 Review + Manual Icon Visual Review）**；E3（Release packaging + ZIP）未开始。**
+> **状态：IN PROGRESS — Phase 1 = PASS；E1 = PASS；E2 = PASS（Review + Manual Icon Visual）；**E3 = 实施完成（candidate，awaiting E3 Review）**；E4 未开始。**
 > 上游边界：M9-D（T019）= ✅ COMPLETE（verified LKGC `07561d9`）；M9-E **不得**重新打开 Transactions IA / selection·detail / Diagnosis / Legacy。
 
 ## 0. V2 Protocol 对应
@@ -700,6 +700,93 @@ configure + build 0 error；smoke 0（identity PASS version=2.0.0）；nav 0（*
 ## E3. Next
 
 - **M9-E E2 Review + Manual Icon Visual Review（用户：titlebar/taskbar/Alt-Tab/Explorer + size matrix A–D）**；通过后 **E3 — Release packaging + portable ZIP + package checks**。
+## E2 Review = PASS + Manual Icon Visual Review = PASS + E3 GO（2026-09-19，append-only）
+
+- **M9-E E2 Review = PASS**；**Manual Icon Visual Review = PASS**。
+- **Manual provenance**：size matrix reviewed from committed ICO frames（`m9e-icon-size-matrix.png`）；Windows deployed candidate 人工确认：**Titlebar PASS / Taskbar PASS / Alt-Tab PASS / Explorer exe PASS / 125% DPI PASS**。
+- **视觉结论**：16px lens + grid remains recognizable；24/32 strong small-size presentation；48/64 stable proportions；256 balanced；light/dark acceptable；no visible clipping / halo / transparent-edge defect。
+- **generator substitution 记录**：**PyQt5（Qt 5.15.2 QSvgRenderer）+ Pillow 10.2.0 = accepted implementation-time generator substitution**——**不是**原 Phase-1 预先指定的 ImageMagick/icotool（探测均不存在后按 fail-fast 规则选定，E2 Review 追认）。
+- **E3 = GO**（Release packaging + scripted portable ZIP + package integrity/negative checks）。
+- E3 边界重申：不做 installer/MSI/MSIX/NSIS/Inno/code signing/v2.0.0 tag/GitHub Release/upload/publication/byte-reproducible ZIP claim/AppBar/logo 改动/icon redesign/M9-F accessibility/StatisticsOverview cleanup。
+## E3 — Release Packaging + Scripted Portable ZIP + Package Integrity / Negative Checks（Implementation Record，2026-09-19）
+
+> E2 Review = PASS；Manual Icon Visual Review = PASS（见「E2 Review = PASS + Manual Icon Visual Review = PASS + E3 GO」节）；**E3 = GO**。
+
+### E3.1 Packaging Re-read（§2，实读）
+
+- **CMakePresets.json**：committed configurePresets `debug`（build/debug, Debug）/ `release`（build/release, **CMAKE_BUILD_TYPE=Release**）/ default；机器私有 `CMakeUserPresets.json`（git-ignored）提供 **`release-local`**（Ninja + 本机 Qt/编译器路径）——**Release preset 已存在，直接复用**。
+- **deploy_windows.bat**：**BUILD_DIR/QT_BIN/MINGW_BIN 参数化已存在**；**DEPLOY_DIR 原为硬编码 `build\deploy`**。
+- generated version interface / PE integration 现状 = E1/E2 记录所述。
+
+### E3.2 E3 RED（§4）
+
+E2 tree：`build/package` 不存在、无任何 zip、无 packaging script ⇒ **"expected E3 missing packaging"**（未预放空 zip，未破坏产品测试）。
+
+### E3.3 Release Clean Configure / Build（§5/§6/§22）
+
+全新 **`build/release`** tree（`cmake --preset release-local`；**不复用** build/debug 的 generated/objects/exe）：generator Ninja、CMAKE_BUILD_TYPE=Release（single-config 显式）、编译器 MinGW g++ 13.1.0、Qt 6.11.1；**全部 187 目标**（app + 26 个测试可执行）构建 0 error。**clean reconfigure 语义由"全新目录"满足**（生成 version header/.rc 均从 committed 模板再生）。
+
+### E3.4 Architecture Evidence（§6/§33）
+
+**PE Machine = 0x8664（AMD64）**（pefile 实测最终 Release exe）+ 编译器工具链 mingw1310_64（x86_64-w64-mingw32 目标族）⇒ **package arch label = `x64`**（非因宿主 64-bit 而假设）。packaging 脚本内建拒绝：Machine ≠ 0x8664 即 fail。
+
+### E3.5 Version Derivation（§8/§34）
+
+packaging 脚本从 **Release build tree 的 configured authority** 取版本：`generated/modbuslens_version.h` 的 `MODBUSLENS_VERSION_STRING`（= CMake project VERSION = **2.0.0**）⇒ **stem = `ModbusLens-2.0.0-windows-x64`**；并**交叉验证** Release exe 的 PE ProductVersion == authority（不一致即 fail）。**脚本内无第二份版本字面量**（README 的 2.0.0 由 packaging step 从 authority 生成）；不解析 docs/git tag/README/旧目录名。
+
+### E3.6 Deploy Strategy（§9/§10/§38）
+
+**复用** deploy_windows.bat（不复制第二套 deploy 逻辑）：新增**可选第 4 参数 `DEPLOY_DIR`**（缺省 = `build\deploy`，无参调用行为不变）。Release deploy 显式传入 `build\release\deploy`（§11 分离树）。**Debug deploy regression**：参数化后无参调用重跑 EXIT=0、`build/deploy/ModbusLens.exe` 再现 ⇒ debug-local workflow 未被破坏。RCA：首次实现经 cmd 传空参数失败（**cmd 会丢弃空引号位置参数**）→ 改为 packaging 脚本自读 CMakeCache 显式传 QT_BIN/MINGW_BIN；另一缺陷为批处理注释行被 Python `\b`/`\r` 转义损坏（已修复，无控制字符残留）。
+
+### E3.7 Release Binary Identity（§12/§15/§21）
+
+Release exe（build/release/modbuslens.exe，**2,571,655 bytes**）机器证明：**applicationVersion=2.0.0（authority 派生）**、applicationDisplayName=ModbusLens、windowIcon non-null（availableSizes 6 尺寸）、**PE FileVersionRaw/ProductVersionRaw = 2.0.0.0**、ProductName/FileDescription = ModbusLens、OriginalFilename = ModbusLens.exe、**PE icon RT_ICON ×6 + RT_GROUP_ICON ×1** ⇒ **Release 未丢失 E1/E2 identity**。
+
+### E3.8 Staging + README（§13/§14）
+
+staging = **`build/package/ModbusLens-2.0.0-windows-x64/`**，内容来自 **Release deployed tree**（非源码树/Debug deploy）；**idempotent**（每次先删重建）。README.txt 由 packaging step **从 authority 版本模板生成**（内容仅真实事实：ModbusLens 2.0.0 / portable Windows package / 启动方式 / sample 位置 / unsigned development candidate / no installer required）；**不含** LICENSE 条款/Company ownership/signed/officially published/v2.0.0 tag exists 表述（仓库无 authoritative LICENSE ⇒ 包内**不生成 LICENSE**）。
+
+### E3.9 Package Contents Checks（§15/§16/§17/§18/§19/§35）
+
+- **required present**（机器验证）：ModbusLens.exe、platforms/qwindows.dll、**imageformats/qico.dll**（deployed runtime 实际包含/需要）、ModbusLens/qmldir + Main.qml、**StatisticsOverview.qml（consumer=0 但 packaged component 保留——M9-D/M9-E 契约）**、samples/demo_v1.mlog、README.txt。
+- **forbidden absent**：CMakeFiles/`*.o`/`*.obj`/`*.a`/`*.ninja`/build.ninja/CMakeCache.txt、`*.cpp`/`*.h.in`/`*.rc.in`、tests/、`make_icon.py`、`icon.svg`、loose ModbusLens.ico、t014/t015 fixtures、temporary evidence。**PDB**：Release tree 实测无（正常）。
+- **Qt runtime 不做脆弱全量 allowlist**：只验证 required present + forbidden absent。
+- **maintainer-tool boundary**：package 无 python/PyQt5/Pillow/make_icon.py（§35）。
+
+### E3.10 Negative Scans（§20/§21）
+
+- **credential/config scan**：危险文件名（.env/credentials*/secrets*/token*/**.pem/.key/.pfx/.p12**）+ 可识别文本文件（.txt/.qml/.json/.js）内容模式（OPENAI_API_KEY/ANTHROPIC_API_KEY/API_KEY=/BEGIN PRIVATE KEY/Bearer ）——**PASS**。措辞 = **known-risk credential/config negative scan PASS**（非"数学证明二进制无 secret"）；对二进制 DLL 不做 naive grep。
+- **absolute-path audit**：package 文本文件扫源码 root/用户 home/build root 绝对路径 —— **PASS**；二进制内路径（若有）单独分类，不当 product blocker。
+
+### E3.11 Manifest / ZIP / Extraction（§22–§26/§39/§40）
+
+- **manifest**：`package-manifest.sha256`（**1496 payload 文件**，sorted relative path + SHA256，排除自身）——content/integrity record，**非 byte-reproducible ZIP claim**。
+- **ZIP**：python zipfile ZIP_DEFLATED（`ModbusLens-2.0.0-windows-x64.zip`，**40,569,927 bytes**，sha256 `59d2d1261900383aa7915d774fed20ecfa9c1c772584e16a15184c7925a8f222`）——**当前 candidate artifact identity**，**不声明**未来同树必然同 hash。
+- **entries**：ZIP entries == staging file set（1497，无 missing/extra，根正确）。
+- **fresh extraction**：`build/package-extract/ModbusLens-2.0.0-windows-x64/`（删除旧目录重解压）→ **extracted 文件逐个 SHA256 == manifest**。
+- **fail-fast**：脚本任一 gate 失败即非 0 退出（本轮真实 fail 了 4 次：deploy 空参数、PE 解析、镜像目录、subprocess decode——全部修复后全绿）。
+- **idempotence**：脚本连续运行 3 次，每次先删重建 staging/ZIP/extract（连续两次 ZIP sha256 不同 = scripted ZIP 语义的实证，非缺陷）。
+
+### E3.12 Minimal-PATH Extracted Run + CWD Independence（§27/§28/§30）
+
+fresh extraction 目录、**PATH = C:\Windows\System32;C:\Windows（替换式）**：`--qml-smoke-test` / `--qml-nav-check` / `--qml-geometry-check` **全 PASS**（含 identity PASS 行 version=2.0.0 + windowIconSizes 6 尺寸 = deployed runtime icon 证明）；无 ReferenceError/TypeError/binding loop/NaN/Infinity/plugin/QImageReader/missing-DLL 警告。**external-CWD launch**：从非 package 目录以绝对路径启动 smoke —— PASS（working-directory independence；sample 由用户显式加载，无相对路径依赖）。
+
+### E3.13 Sizes（§32，packaging evidence only）
+
+Release exe **2,571,655 B**（Debug exe 348,702,210 B —— informational，无阈值）；staging 树 ≈ **40.3 MB**；ZIP **40,569,927 B**。不与 Replay perf KPI 混同。
+
+### E3.14 Files / Git Classification（§45/§47）
+
+`scripts/deploy_windows.bat`（DEPLOY_DIR 参数化）、`scripts/make_package.py`（新 maintainer helper，fail-fast/idempotent）+ T020/状态 docs ⇒ **behavior-bearing packaging candidate**（非 docs-only）。**ZIP/exe/DLL/manifest 中间物全部留 ignored build/**，未提交。
+
+### E3.15 Result
+
+**E3 candidate complete, awaiting E3 Review**；随后 **E4 — final evidence/manual candidate**（clean ZIP extraction human launch / window-taskbar-Explorer identity / sample usability / final manual acceptance）之后才可能 M9-E COMPLETE。verified LKGC **不变 = `07561d9`**；未 push。
+
+## E4. Next
+
+- **M9-E E3 Review（用户）**；通过后 **E4 — final evidence/manual candidate**（clean ZIP extraction human launch、window/taskbar/Explorer identity、sample usability、package contents sanity、final manual acceptance）。
+
 ## 44. Review 请求项（Phase 1 Review 须裁定）
 
 1. §12 目标优先级（A/B P0、C/D P1、E REJECT）是否接受。

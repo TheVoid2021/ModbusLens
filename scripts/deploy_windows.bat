@@ -4,11 +4,15 @@ setlocal enabledelayedexpansion
 rem ============================================================
 rem T008.1 - standalone Windows deployment helper
 rem Usage:
-rem   deploy_windows.bat [BUILD_DIR] [QT_BIN] [MINGW_BIN]
+rem   deploy_windows.bat [BUILD_DIR] [QT_BIN] [MINGW_BIN] [DEPLOY_DIR]
 rem   - BUILD_DIR defaults to <project>\build\debug
 rem   - QT_BIN / MINGW_BIN are derived from BUILD_DIR\CMakeCache.txt
 rem     when omitted (no machine-specific paths are stored in this file)
-rem Produces: build\deploy\ModbusLens.exe + all runtime dependencies
+rem   - DEPLOY_DIR defaults to <project>\build\deploy (M9-E E3: an
+rem     explicit 4th argument lets Release packaging stage into a
+rem     separate tree, e.g. build\release\deploy, without touching the
+rem     debug deploy consumed by the established workflow)
+rem Produces: <DEPLOY_DIR>\ModbusLens.exe + all runtime dependencies
 rem Exits non-zero on any failure.
 rem ============================================================
 
@@ -20,6 +24,7 @@ set "DEPLOY_DIR=%SOURCE_DIR%\build\deploy"
 if not "%~1"=="" set "BUILD_DIR=%~1"
 if not "%~2"=="" set "QT_BIN=%~2"
 if not "%~3"=="" set "MINGW_BIN=%~3"
+if not "%~4"=="" set "DEPLOY_DIR=%~4"
 
 if not exist "%BUILD_DIR%\CMakeCache.txt" (
     echo [ERROR] CMakeCache.txt not found in "%BUILD_DIR%". Configure and build first.
