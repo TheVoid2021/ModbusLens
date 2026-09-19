@@ -1,6 +1,6 @@
 # T020 — M9-E Branding / Icon / Packaging
 
-> **状态：IN PROGRESS — Phase 1 = PASS；E1 = PASS；E2 = PASS（Review + Manual Icon Visual）；**E3 = 实施完成（candidate，awaiting E3 Review）**；E4 未开始。**
+> **状态：IN PROGRESS — Phase 1 = PASS；E1 = PASS；E2 = PASS；**E3 = 实施完成；E3 Review = HOLD（fail-fast coverage gap）→ correction 已落库（9/9 runtime probes fail-closed + 口径修正），awaiting E3 Re-review**；E4 未开始。**
 > 上游边界：M9-D（T019）= ✅ COMPLETE（verified LKGC `07561d9`）；M9-E **不得**重新打开 Transactions IA / selection·detail / Diagnosis / Legacy。
 
 ## 0. V2 Protocol 对应
@@ -787,6 +787,104 @@ Release exe **2,571,655 B**（Debug exe 348,702,210 B —— informational，无
 
 - **M9-E E3 Review（用户）**；通过后 **E4 — final evidence/manual candidate**（clean ZIP extraction human launch、window/taskbar/Explorer identity、sample usability、package contents sanity、final manual acceptance）。
 
+## E3 Review = HOLD（2026-09-19，append-only）
+
+- **M9-E E3 Review = HOLD**。主成功链已接受（Release → Release deploy → staging → manifest → scripted ZIP → fresh extraction → strict minimal-PATH execution 全 PASS）。
+- **P0：packaging fail-fast contract 尚未被确定性验证**——成功路径已证，但 bad-package fail-closed 行为未充分 exercised。区分 **implementation-time failures**（开发期真实失败的修复留痕）与 **acceptance fail-fast probes**（本轮补齐的确定性注入验证）。
+- 另两项 report corrections：①ZIP hash 不同不得作为 idempotence proof；②Debug exe "348.7 MB" 与 D6 的 34,782,210 bytes 精确证据冲突，需重测。
+- E3 原报告历史不删改；本节之后追加 correction 结果。
+
+## E3 Review = HOLD + Correction（2026-09-19，append-only）
+
+> **M9-E E3 Review = HOLD**。主成功链已接受（Release → Release deploy → staging → manifest → scripted ZIP → fresh extraction → strict minimal-PATH execution 全 PASS）。P0：**packaging fail-fast contract 尚未被确定性验证**。另两项 report corrections：①ZIP hash 不同 ≠ idempotence proof；②Debug exe "348.7 MB" 系转写错误需重测。原 E3 报告历史保留不删改；本轮区分 **implementation-time failures**（开发期真实失败留痕）与 **acceptance fail-fast probes**（本轮确定性注入验证）。
+
+### H1. Fail-fast Source Audit（§2，condition → detection → propagation → exit → probe status）
+
+| 条件 | detection point | propagation | final exit | probe status |
+| --- | --- | --- | --- | --- |
+| A Release exe missing | `main()` isfile gate；缺失且 deploy 后仍缺 ⇒ `pe_machine_and_version` → pefile `FileNotFoundError` | uncaught exception | exit 1 | **RUNTIME-COVERED**（probe A） |
+| B version unavailable | `read_authority_version`：generated header 缺失/无 STRING | `fail()` → `sys.exit(1)` | exit 1 | **RUNTIME-COVERED**（probe B） |
+| C unsupported PE architecture | `pe_machine_and_version`：`Machine != 0x8664` | `fail()` → `sys.exit(1)` | exit 1 | **RUNTIME-COVERED**（probe F4） |
+| D deploy/windeployqt failure | `run_deploy`：CMakeCache 字段缺失 / windeployqt 不存在 / bat 非零退出 / 无 "ready" 输出 | `fail()` → `sys.exit(1)` | exit 1 | **RUNTIME-COVERED**（probe D） |
+| E required file missing | `structural_checks`：required 清单逐项 isfile | `fail()` → `sys.exit(1)` | exit 1 | **RUNTIME-COVERED**（probe F1） |
+| F credential/config hit | `negative_scans`：危险文件名 + 文本模式 | `fail()` → `sys.exit(1)` | exit 1 | **RUNTIME-COVERED**（probe F2） |
+| G manifest mismatch | `verify_tree_against_manifest`：payload SHA256+path 逐文件核对 | `fail()` → `sys.exit(1)` | exit 1 | **RUNTIME-COVERED**（probe F3） |
+| H ZIP creation failure | `make_zip`：输出目标不可写（目录占用）→ `PermissionError` | uncaught exception | exit 1 | **RUNTIME-COVERED**（probe H） |
+| I extraction/run gate failure | `extract_and_verify` / `minimal_path_run`：解压校验 + 子进程非零/超时 | `fail()` / 超时异常 | exit 1 | **RUNTIME-COVERED**（probe F5） |
+
+**全部九类 RUNTIME-COVERED（无一仅 SOURCE-COVERED）**。fail-fast 语义：任一 gate 失败 ⇒ 非零退出，不产出/不保留成功候选。
+
+### H2. Deterministic Failure Probes（§3/§4，全部在 ignored `build/e3-failure-probes/`，真实 deployed tree 的 throwaway 副本；未污染真实 staging/package；runner 移至 `build/e3_probe_runner.py` 防 rmtree 自删）
+
+| probe | 注入方式 | 实测结果 |
+| --- | --- | --- |
+| **F1** missing required runtime | 副本删除 `platforms/qwindows.dll` → `structural_checks` | `SystemExit(1)`："required package file missing: platforms/qwindows.dll" |
+| **F2** credential/config hit | 副本加入 `.env`（内容 `OPENAI_API_KEY=E3_TEST_SENTINEL`，纯测试占位）→ `negative_scans` | `SystemExit(1)`："credential-like filename in package: .env" |
+| **F3** manifest mismatch | 真 staging + `write_manifest` → tamper README.txt → `verify_tree_against_manifest` | `SystemExit(1)`："payload mismatch vs manifest: README.txt" |
+| **F4** unsupported architecture | **不改真实 exe**：pefile 读 Release exe → `Machine = 0x014C (i386)` → `pe.write()` 写入**副本** → `pe_machine_and_version` | `SystemExit(1)`："PE Machine is 0x014C, expected AMD64 (0x8664)" |
+| **F5** extracted-run failure | 副本删除 `platforms/qwindows.dll` → `minimal_path_run` | 子进程失败（broken exe 无法启动 platform）→ `fail()` 非零（TimeoutExpired/非零退出均为 fail-closed 形态） |
+| **A** missing exe | 副本删除 exe → `pe_machine_and_version` | uncaught `FileNotFoundError` → 非零 |
+| **B** version unavailable | 空 build dir → `read_authority_version` | `SystemExit(1)` |
+| **D** deploy failure | 伪造 CMakeCache（指向不存在工具）→ `run_deploy` | `SystemExit(1)`："windeployqt.exe not found" |
+| **H** ZIP failure | `blocker.zip` 为目录（不可写目标）→ `make_zip` | uncaught `PermissionError` → 非零 |
+
+**9/9 probes fail-closed**（修复过程中 runner 自身 2 个缺陷被发现并修复：REPO 计算少一层 dirname、probe_h finally 引用错误变量名——probe 不掩盖产品 gate 的真实行为）。
+
+### H3. No Test Backdoor（§5）
+
+无 `--pretend-secret`/`--fake-architecture`/`--force-failure` 类产品级注入开关；probes 直接调用既有 gate 函数 + 真实文件系统注入。**唯一 refactor**：manifest 校验逻辑从 `extract_and_verify` 提取为 `verify_tree_against_manifest(root_dir)`（extract 与 probe 共用；**成功路径 contract 不变**）。`deploy_windows.bat` 正式内容 diff = DEPLOY_DIR 参数化（E3 已接受）。
+
+### H4. Successful Pipeline Re-run（§6，probes 之后全 GREEN）
+
+`make_package.py` 完整重跑：Release deploy → staging → structural PASS → negative scans PASS → manifest（1496 payload）→ ZIP → entries==staging → fresh extraction + manifest 校验 → **minimal-PATH extracted smoke/nav/geometry PASS** → external-CWD PASS。
+
+### H5. Idempotence Terminology Correction（§7）
+
+- **修正**：ZIP hash 不同**不再**用作 idempotence proof。
+- **正确证据**：重复运行前主动清理 staging/ZIP/extraction；两轮运行的 **manifest 逐字节相同**（sha256 `57d06c21…` == `57d06c21…`，diff = 0 行）⇒ relative payload set、manifest-covered set、required/forbidden 结果、final gates 全部相同。
+- ZIP sha256 跨轮不同（`59d2d126…` / `d6b03014…`）仅证明 **byte-reproducibility NOT CLAIMED**（scripted portable ZIP 语义）。
+
+### H6. Size Re-measure（§8，精确口径）
+
+| 文件 | 精确 bytes | MB（10^6） | MiB（2^20） |
+| --- | --- | --- | --- |
+| `build/debug/modbuslens.exe` | **35,066,016** | 35.07 MB | 33.44 MiB |
+| `build/deploy/ModbusLens.exe`（本次重部署后） | **35,066,016** | 35.07 MB | 33.44 MiB |
+| `build/release/modbuslens.exe` | **2,571,655** | 2.57 MB | 2.45 MiB |
+
+- **修正 E3 原报告**："Debug exe 348,702,210 B / 348.7 MB" 为**转写错误**（多写一位数字）；D6 记录 34,782,210 B 与当前 35,066,016 B 的差值 = E3 期正常演进（键盘修复 + E1/E2 增量），**非 348 MB 异常 ⇒ 无 STOP 事项**。
+- Release exe 2,571,655 B 复测一致。
+
+### H7. Python / Tool Provenance（§9）
+
+- **Python 3.11.7**（`D:\Anaconda3\python.exe`）；`make_package.py` 依赖 = Python stdlib（zipfile/hashlib/subprocess/struct）+ **pefile**（版本/架构读取）。
+- **Python + pefile = maintainer packaging dependency，NOT end-user/runtime dependency**；package 内仍无 Python（negative scan 覆盖）。
+- ICO 生成链（E2）provenance 不变：PyQt5 Qt 5.15.2 + Pillow 10.2.0。
+
+### H8. Release Preset Boundary（§10）
+
+- committed `release` preset = **Release semantic/build contract**（CMAKE_BUILD_TYPE=Release、build/release）。
+- user `release-local`（git-ignored）= **machine-local Qt/编译器绑定**——不是仓库自包含 artifact；正常 onboarding 仍需本机 toolchain 配置（ENVIRONMENT.md 记录）。无需重构 preset。
+
+### H9. Contract Freeze（§11）
+
+version = 2.0.0、arch label = x64、Release mode、package stem、sample policy（仅 demo_v1.mlog）、StatisticsOverview retention、icon embedding、PE metadata、README legal wording、scripted ZIP semantics——**零改动**（本轮只闭环验证与口径）。
+
+### H10. Full Regression（§12，probes 之后）
+
+Release ctest **26/26**；Release smoke/nav/geometry **0**（identity PASS version=2.0.0 + windowIconSizes 6 尺寸；basic five-workspace + A–T 20 项；**14 steps / 18 segments** · 0 GEOFAIL）；deploy PASS；package structure/scans/manifest/ZIP/extract 全 PASS；minimal-PATH 三模式 PASS；external-CWD PASS；`git diff --check` PASS；stderr 卫生 0。
+
+### H11. Publication / Tag（§13，Git-object evidence）
+
+`git rev-parse v1.0.0` = `2cee626`、`v1.0.0^{commit}` = `ae067ab`（**unchanged**）；`git tag -l` = 仅 v1.0.0；**v2.0.0 absent**；origin/main = `a40d935` 不变；无 push/Release/upload/signing。
+
+### H12. Result（§14–§17）
+
+- **P0 闭环**：fail-fast contract 由 9/9 deterministic runtime probes 确证（bad package 一律 fail-closed，成功候选不可能带缺陷通过）。
+- **两项 report corrections 落档**：idempotence 证据口径改为 manifest/payload 集合比较；Debug 尺寸修正为 35,066,016 B ≈ 35.07 MB。
+- **Files**：`scripts/make_package.py`（verify_tree_against_manifest refactor）+ docs（T020/PROJECT_STATUS/BACKLOG/devlog/INTERVIEW_NOTES）+ ignored probes。**CMakeLists/QML/icon assets/version/Controller/Core/deploy script 正式内容零 diff**（deploy script 保持 E3 已接受状态）。
+- **Next Action = M9-E E3 Re-review**；通过后 **E4 — final evidence/manual candidate**。
+- verified LKGC **仍 = `07561d9`**；未 push。
 ## 44. Review 请求项（Phase 1 Review 须裁定）
 
 1. §12 目标优先级（A/B P0、C/D P1、E REJECT）是否接受。

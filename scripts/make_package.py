@@ -280,25 +280,28 @@ def verify_zip_entries(zip_path, staging, stem):
           % len(expected))
 
 
+def verify_tree_against_manifest(root_dir):
+    """Fail-fast re-check: every payload file must match the manifest."""
+    manifest_path = os.path.join(root_dir, "package-manifest.sha256")
+    manifest = open(manifest_path, encoding="utf-8").read()
+    for root, _, files in os.walk(root_dir):
+        for name in files:
+            if name == "package-manifest.sha256":
+                continue
+            full = os.path.join(root, name)
+            rel = os.path.relpath(full, root_dir).replace(os.sep, "/")
+            digest = hashlib.sha256(open(full, "rb").read()).hexdigest()
+            if ("%s  %s" % (digest, rel)) not in manifest:
+                fail("payload mismatch vs manifest: %s" % rel)
+
+
 def extract_and_verify(zip_path, stem):
     extract_dir = os.path.join(EXTRACT_ROOT, stem)
     if os.path.isdir(extract_dir):
         shutil.rmtree(extract_dir)
     with zipfile.ZipFile(zip_path) as archive:
         archive.extractall(EXTRACT_ROOT)
-    for root, _, files in os.walk(extract_dir):
-        for name in files:
-            if name == "package-manifest.sha256":
-                continue
-            full = os.path.join(root, name)
-            rel = os.path.relpath(full, extract_dir).replace(os.sep, "/")
-            digest = hashlib.sha256(open(full, "rb").read()).hexdigest()
-            manifest_line = "%s  %s" % (digest, rel)
-            manifest = open(os.path.join(extract_dir,
-                                         "package-manifest.sha256"),
-                            encoding="utf-8").read()
-            if manifest_line not in manifest:
-                fail("extracted file mismatch vs manifest: %s" % rel)
+    verify_tree_against_manifest(extract_dir)
     print("make_package: fresh extraction verified against manifest "
           "(%s)" % extract_dir)
     return extract_dir

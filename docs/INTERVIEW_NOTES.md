@@ -495,3 +495,13 @@
 - **Q：架构标签为什么必须用 PE Machine 而不是"我 Windows 是 64 位的"？** A：宿主是 64 位不代表编译产物是——交叉编译/32 位工具链都能在 64 位宿主上产出 32 位 exe。规程要求"至少两类证据合理组合"，E3 用了 **PE Machine（0x8664=AMD64，直接读最终交付物）** + 编译器工具链族（x86_64-w64-mingw32）交叉确认，packaging 脚本还内建了"配置 label 与 Machine 不符即 fail"的拒绝逻辑。
 - **Q：README 里的 2.0.0 为什么不算"第二版本字面量"？** A：因为 README.txt **不是 committed 源**——它由 packaging step 在运行时从 authority（generated version header）模板化生成。commit 进仓库的只有 make_package.py 的模板逻辑（含 `{version}` 占位），没有任何手写的 release 数字。规则是：**仓库里维护的版本字面量只能有一处（CMake）；一切下游出现都是派生**。
 - **Q：fail-fast 在这个脚本里具体指什么？** A：每个 gate（Release exe 存在/版本可取/架构识别/windeployqt/required 文件/forbidden 内容/credential 扫描/manifest/zip/解压/minimal-PATH 运行）失败即 `sys.exit(1)`，绝不打印 warning 继续打包——否则产出一个"看起来完整"的坏包比失败更危险。本轮 4 次真实失败（空参数部署、PE 解析、镜像目录、subprocess decode）全被 fail-fast 定位修复，机制经实战验证。
+
+## 53. Post-T020 M9-E E3 correction 条目（2026-09-19 追加）
+
+- **Q："成功路径全绿"为什么还不算 E3 完成？** A：因为 packaging 的价值主张是**双向的**：好包必须能产出（已证），**坏包必须被拒绝**（此前只有开发期偶然失败的留痕，没有确定性证据）。如果 fail-fast 只有源码里的 `fail()` 字样而没有注入验证，那"坏输入会被拦截"只是愿望。本轮用 9 个 deterministic probes 把九类失败条件全部变成可复现的运行时证据——每个 probe 断言非零退出和准确的失败原因。
+- **Q：F4 的"架构拒绝"怎么测，又不把假 exe 发出去？** A：三层隔离：①**不改真实 exe**——用 pefile 读取 Release exe 后把 Machine 改成 0x014C (i386)，**写入 build/e3-failure-probes/ 下的副本**；②gate 拿到的是"架构不支持"的副本，`fail("PE Machine is 0x014C...")` → SystemExit(1)；③probe 断言这个非零退出后，副本留在 ignored build/ 里，永不进入 package。这也顺手验证了"packaging 脚本拒绝架构不一致"的承诺。
+- **Q：ZIP hash 越跑越不一样，到底说明什么？** A：两件事，方向相反。**不能说明**：包内容变了或打包坏了——两轮的 manifest 逐字节相同（1496 个文件的 SHA256 全同），zip 尺寸也完全相同（40,569,927）；差异只来自 zip 容器内部的时间戳/元数据。**能说明**：本产物是 scripted portable ZIP，byte-reproducibility 未声明——如果哪天两次运行 hash 相同了反而要检查是不是时间戳被意外归一化了。
+- **Q：那 idempotence 的正确证据是什么？** A：**运行前主动清理、运行后集合相同**：两轮各自删重建 staging/ZIP/extraction，然后对比 manifest——**逐字节相同**（1496 文件的相对路径 + SHA256 完全一致，manifest 文件自身 sha256 也相同）。这证明"结果由输入决定，不依赖上一次残留"，比 hash 相同弱一点但正是打包需要的性质。
+- **Q：Debug exe 的"348.7 MB"是怎么回事？** A：**转写错误**——我在报告里把 34,870,210 写成了 348,702,210（多敲一位数字）。实测：build/debug 与 deployed 均为 **35,066,016 bytes ≈ 35.07 MB**，与 D6 的 34,782,210 差值是 E1/E2/E3 正常演进（键盘修复 + 图标资源嵌入）。教训：**尺寸/计数类数字必须从工具输出原样转贴，不凭记忆转写**；且 348 MB 这种量级如果真出现，和 Debug 构建的合理范围差了一个数量级，本应在写入时就触发怀疑。
+- **Q：probe 为什么直接 import make_package 调函数，而不是每次跑完整脚本？** A：分层——完整脚本是**集成证据**（E3 主报告已有全绿记录）；直接调用 gate 函数是**单元级注入证据**（可以精确制造"只有这一个条件坏"的输入，其余全部正常）。两者互补：集成证明"真包能过"，注入证明"坏包会被拦"。§5 允许这种 maintainer-script refactor，且成功路径 contract 未变。
+- **Q：probes 会成为构建依赖吗？** A：不会。probes 全部在 ignored `build/e3-failure-probes/`，runner 在 `build/e3_probe_runner.py`——两者都不进 git、不被 CMake 引用（build.ninja 零 generator/python 调用引用）。maintainer 想重跑就 `python build/e3_probe_runner.py`。
