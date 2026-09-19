@@ -1,6 +1,6 @@
 # T021 — M9-F Final Manual Visual / Accessibility Acceptance
 
-> **状态：IN PROGRESS — Phase 1 = PASS；F0 measurement = **COMPLETE（冻结，不再重开）**；F0 Final Re-review = **HOLD（single scope blocker：P0-5 Agent TextArea Tab trap 曾漏出 F1 scope，已修正为 A–H）**；权威结论 **P0=5 / P1=3 / P2=0 / GAP=1（known non-blocking）/ N/A=2 / PASS=5** → **F1 REQUIRED（scope A–H 已冻结；admission rule 已冻结）**；Implementation = NOT STARTED。**
+> **状态：✅ COMPLETE（2026-09-20，F3 closure）— Phase 1 = PASS；F0 = COMPLETE；F1 = COMPLETE（含 TabButton inner-ring 与 standard-control 焦点可见性修正）；F2 = COMPLETE（focus ring 视觉冻结：1px / alpha≈0.5 / outside viewport 2 logical px / non-layout wrapper sibling；最终 ZIP `ModbusLens-2.0.0-windows-x64.zip` = 40,633,612 B / sha256 2adfe71f…9336d）；F3 = COMPLETE。**Final Visual Review = PASS；Manual Final Acceptance = PASS（用户最终确认「全部正常」）。**最终 accepted behavior tree = `aa2f3db`；verified LKGC 推进 `4cb6e9d` → **`aa2f3db`**；M9 = ✅ COMPLETE；publication 未授权（v2.0.0 tag ABSENT）。**
 > 上游边界：M9-E（T020）= ✅ COMPLETE（verified LKGC = `4cb6e9d`；最终 Release package `ModbusLens-2.0.0-windows-x64.zip` 已人工验收）。M9-F **不得**重开：version/icon/package architecture/ZIP workflow/installer/signing/publication/Transactions IA/Diagnosis redesign。
 
 ## 0. V2 Protocol 对应
@@ -2354,4 +2354,159 @@ Manual Final Acceptance = **WAITING FOR USER**（14 项清单，从最终 aa2f3d
 zero production diff（本轮只产生 docs + 截图；QML/src/CMake/scripts/tests/assets/samples 未改）
 **verified LKGC 保持 `4cb6e9d`**（仅当 automated PASS + Final Visual PASS + Manual Acceptance PASS 全部达成后，
 F3 closure 才允许推进到 `aa2f3db`）；未开始 F3；未创建 v2.0.0 tag；未 push；ZIP 未入 Git。
+```
+
+## F3 — Final Acceptance / M9 Closure（2026-09-20，append-only，docs-only）
+
+> 用户最终确认：**「全部正常」** ⇒ **Final Visual Review = PASS**、**Manual Final Acceptance = PASS**、
+> **M9-F F2 = COMPLETE**、**F3 = GO**。
+> 最终 accepted behavior tree = **`aa2f3db`**；docs/evidence HEAD = `2640556`；verified LKGC（本轮开始时）= `4cb6e9d`。
+> 本轮**只做**：归档最终人工验收 → 关闭 M9-F → 关闭 M9 → 审计真实 commit classification → 推进 verified LKGC → docs-only closure commit。
+> **未修改任何产品代码 / QML / harness / 截图；未重新 build/package；未创建 tag；未 push；未 publish。**
+
+### FQ0. 最终人工验收归档（14 项，全部 PASS）
+
+```text
+验收基于：behavior tree = `aa2f3db`；最终 F2 ZIP = ModbusLens-2.0.0-windows-x64.zip
+① fresh extraction PASS
+② normal double-click launch PASS
+③ Explorer icon / version PASS
+④ five workspace visual PASS
+⑤ rail selected/focus + Device disabled PASS
+⑥ Tab / Shift+Tab traversal PASS
+⑦ focus visibility PASS（NavigationRail / Transactions ListView final outer ring / ComboBox / AppButton / Diagnosis TabButton）
+⑧ Transactions keyboard PASS（Tab entry / Up / Down / Home / End）
+⑨ Diagnosis three tabs PASS
+⑩ Agent TextArea PASS（Tab·Shift+Tab escape + editing keys）
+⑪ **Replay packaged demo_v1.mlog 实际 successful load PASS**
+⑫ README PASS
+⑬ 1024×720 + 1000×700 PASS
+⑭ close / relaunch PASS
+
+**不在 acceptance scope（本轮也不声称）**：real serial hardware PASS / real AI Provider PASS / Agent live service PASS。
+```
+
+### FQ1. 最终接受候选身份（唯一 ACCEPTED）
+
+```text
+filename = ModbusLens-2.0.0-windows-x64.zip
+bytes    = **40,633,612**
+SHA256   = **2adfe71fbd870eed994d697b8a6d7309ce0381556a82cb93386918b383a9336d**
+计数     = **1496 payload files（INCLUDING README.txt）+ 1 manifest（package-manifest.sha256，含 1496 payload 条目）= 1497 total ZIP entries**
+措辞     = accepted final F2 local candidate identity（非 published release hash、非 byte-reproducibility guarantee）
+```
+
+### FQ2. Superseded 候选历史（保留，不删除；三个 ZIP 不都算 accepted）
+
+```text
+Candidate A（first F2 candidate）：40,630,813 B / 7292920bf50af2288e912b34227395e990483d62cb51c394252ee2046abdd826 —— **SUPERSEDED**
+Candidate B（after Transactions focus visual correction）：40,632,401 B / 2065e38a365a7988d853a32da992a13d9490852c825cc08a798653899f02fc09 —— **SUPERSEDED**
+Final accepted（after final outer-extent correction）：40,633,612 B / 2adfe71fbd870eed994d697b8a6d7309ce0381556a82cb93386918b383a9336d —— **ACCEPTED**
+原因链：first candidate → Transactions focus visual correction → second candidate → final outer-extent correction → third candidate（accepted）。
+```
+
+### FQ3. 最终截图 inventory（以 `git ls-files` 真实列表为准）
+
+```text
+docs/assets/screenshots/m9f-f2-* 合计 **16 个文件** = **最终 packaged matrix 14 张** + **2 张修正轮 Release-build evidence**。
+
+最终 packaged matrix = 14（candidate tree = aa2f3db；provenance = fresh extraction；capture = 键盘-only + PrintWindow；DPI 实测 120=125%）：
+ | 1280x900（11）：
+   m9f-f2-dashboard-demo-1024x720 / m9f-f2-transactions-populated-1024x720 /
+   m9f-f2-transactions-list-keyboard-focus-1024x720（**最终 outer-extent ring**）/ m9f-f2-communication-default-1024x720 /
+   m9f-f2-communication-combobox-focus-1024x720 / m9f-f2-replay-default-1024x720 /
+   m9f-f2-diagnosis-baseline-1024x720 / m9f-f2-diagnosis-ai-no-result-1024x720 /
+   m9f-f2-diagnosis-agent-no-result-1024x720 / m9f-f2-diagnosis-tabbutton-selected-vs-focused-1024x720 /
+   m9f-f2-rail-selected-vs-focused-1024x720
+ | 1250x875（3）：m9f-f2-transactions-1000x700 / m9f-f2-dashboard-1000x700 / m9f-f2-diagnosis-1000x700
+ 11 + 3 = **14** ✔（逐行状态/尺寸/sha256 见 §FP6 表）
+
+修正轮 evidence（**不属于** packaged matrix，保留为历史）：
+   m9f-f2-transactions-list-focus-inset-correction-1024x720（margin 3→2 轮，Release build）
+   m9f-f2-transactions-list-focus-outer-extent-1024x720（outward extent 轮，Release build）
+
+**bookkeeping 更正归档**：早期 F2 曾出现「11 + 3 = 15」的记账歧义（其中 1 张为无法自证的 replay-load-dialog，
+已在最终 F2 主动删除）⇒ **最终计数为 14，此后不得再写 15**。
+```
+
+### FQ4. M9-F commit classification audit（`git show --stat --name-only` 真实文件列表）
+
+```text
+docs/evidence-only（10）: f8a38db / ad78987 / a468e8f / 60b18e6 / f7752e1 / f4b2e98 / 46f68ce / a81d787 / fb394bb / 2640556
+behavior-bearing（6）    : 736d957（F1 主体：CMakeLists + src/main.cpp + Main.qml + NavigationRail.qml + TransactionsPage + DiagnosisPage）
+                          5089840（F1 correction：main.cpp + AppButton + CommunicationPage + DiagnosisPage + TransactionsPage）
+                          b237ddc（F1 correction：main.cpp + DiagnosisPage TabButton）
+                          56d71c8（F2：main.cpp + TransactionsPage ring 软化）
+                          ac817a9（F2：TransactionsPage ring inset 3→2）
+                          **aa2f3db（F2 final：main.cpp + TransactionsPage ring outer-extent）**
+分类依据 = 真实 changed files（非 commit message / 非历史报告）。
+```
+
+### FQ5. Final behavior-bearing tree + LKGC decision
+
+```text
+`aa2f3db` = 最终 accepted candidate 之前**最后一个 behavior-bearing commit**，包含最终 Transactions focus ring outer-extent；
+`2640556`（其后的 HEAD）仅 docs + screenshots + evidence（20 个文件全为 docs/），**无 production behavior**。
+
+verified LKGC 决策：`aa2f3db` 已完成 automated regression / Debug+Release gates / package gates / fresh extraction /
+minimal-PATH / external-CWD / packaged focus / Final Visual Review / Manual Final Acceptance 全部 PASS
+⇒ **verified LKGC：`4cb6e9d` → `aa2f3db`**（同步到全部 authoritative LKGC 位置）。
+明确**不**推进到 `46f68ce` / `a81d787` / `fb394bb` / `2640556` / 本次 closure commit —— 它们均为 docs/evidence-only。
+```
+
+### FQ6. 历史保留（F0 / F1 / F2 不被重写）
+
+```text
+F0：sequencing HOLD、rail reachability initially UNRESOLVED、probe/oracle defects（PD-1…PD-4）、
+    wrong-workspace measurement、PowerShell ANSI literal issue、**P0-2/P0-3 撤回**、workspace oracle hardening、
+    hidden-focus H1S evidence、Agent TextArea Tab trap —— 全部保留原文。
+F1：A–H correction history（rail name/role·action/focus visual、Transactions Tab entry + focus visibility、
+    hidden acquisition + retention（H1S/H2/H3）、Agent Tab·Shift·edit-key regression）、
+    TabButton visual HOLD + inner-ring correction、standard controls focus-visibility correction —— 全部保留。
+F2：initial candidate、visual matrix evidence、Replay dialog automation limitation、desktop occlusion / PrintWindow provenance、
+    第一次 ring visual HOLD（2px→1px 低 alpha）、margin 3→2 修正、人工「几乎无区别」反馈、outside-viewport 策略、
+    **clip audit 自我纠错**、ring 移至 wrapper sibling、`aa2f3db` final outer extent、旧 ZIP 全部 superseded、
+    最终 package regeneration、最终人工 PASS —— 全部保留（本轮不重写为「一次测试全部通过」，M9-F 明确包含多次 HOLD 与改正）。
+```
+
+### FQ7. Accessibility scope boundary（不夸大）
+
+```text
+M9-F 最终完成的是 **basic keyboard focus / accessibility sanity**：
+Tab·Shift+Tab traversal、visible focus、selection vs focus distinction、hidden-page focus isolation、
+retained-focus protection、NavigationRail actionable semantics（name / role·action）、Agent TextArea traversal、
+keyboard list entry、keyboard navigation regression。
+**不声称**：WCAG certification / screen-reader certification / full accessibility compliance。
+Transactions ListView 的 UIA container·delegate exposure 继续记录为 **known non-blocking accessibility evidence limitation**，
+**不得改写成 PASS**。
+```
+
+### FQ8. M9-F + M9 Closure
+
+```text
+T021: Phase 1 = COMPLETE / F0 = COMPLETE / F1 = COMPLETE / F2 = COMPLETE / F3 = COMPLETE ⇒ **M9-F = COMPLETE**
+Final Visual = PASS；Manual Final Acceptance = PASS。
+Milestones：M9-A ✅ / M9-B ✅ / M9-C ✅ / M9-D ✅ / M9-E ✅ / M9-F ✅ ⇒ **M9 = COMPLETE**（不再写 M9 IN PROGRESS）。
+Final IA（冻结，不在 F3 重开）：active workspaces = Transactions / Dashboard / Communication / Replay / Diagnosis；
+Device = disabled；Legacy = retired；默认 = Transactions；navigation = presentation-only。
+产品/包状态（冻结）：product name = ModbusLens；public configured version = **2.0.0**；
+Windows portable Release package = accepted；architecture = x64；installer = absent/deferred；signing = absent/deferred。
+M9-E contracts 继续冻结：CMake `project(VERSION)` = 唯一 public version authority（2.0.0 → runtime → PE → package naming）；
+PE numeric 2,0,0,0；icon = canonical SVG + committed ICO（6 frames）；portable ZIP = scripted、非 byte reproducible；
+manifest = relative-path SHA256；sample = demo_v1.mlog only；StatisticsOverview = retained / cleanup deferred。
+```
+
+### FQ9. Publication Boundary
+
+```text
+**M9 COMPLETE ≠ 2.0.0 published**。
+v2.0.0 tag = **ABSENT**；origin/main = `a40d935`；**未 push**；无 GitHub/GitLab Release；无 upload；
+未签名（unsigned）；无 installer。
+```
+
+### FQ10. Next Milestone
+
+```text
+Next Action = **M10 Learning / Design**（Active Master v1；冻结未来主题：FC03 / FC06 / FC10 / write safety）。
+本轮**只记录** Next Action：不创建 M10 implementation、不改代码、不实现任何 write command。
 ```
