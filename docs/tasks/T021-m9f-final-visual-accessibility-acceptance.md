@@ -2224,3 +2224,134 @@ Transactions Focus Ring Visual Review = **WAITING FOR USER**（6 条验收见 §
 ④ 左侧 selection bar 完全清晰 ⑤ focus ring 仍然细、淡、不抢眼 ⑥ 框没有与外层 card/detail 产生视觉冲突。
 ZCode 不自标 Visual PASS。
 ```
+
+## F2 Final Candidate Regeneration after Focus Ring Acceptance（2026-09-19，append-only，docs/evidence）
+
+> 人工 Visual Re-review：**Transactions ListView Focus Ring Outer-Extent = PASS**（6 条全 PASS）。
+> accepted latest behavior tree = **`aa2f3db`**；该视觉方案**正式冻结**：
+> ring = 1px / alpha ≈ 0.5 / outside viewport 2 logical px / non-layout wrapper sibling / selected row remains dominant。
+> **不再继续调整 focus ring。** 本轮从 `aa2f3db` clean tree 重新生成最终 candidate。
+
+### FP0. 视觉 PASS 归档 + superseded 历史
+
+```text
+人工确认：① ring 明显更舒展 ② 四边向外范围合适 ③ selected row 仍为第一视觉
+          ④ selection indicator 完整可辨 ⑤ focus ring 仍细、淡、从属 ⑥ 与 card/detail 无视觉冲突
+`aa2f3db` = **当前最终 behavior candidate**（本轮唯一 provenance）。
+`56d71c8` = superseded（其 ZIP 40,632,401 B / sha256 2065e38a…fc09 = **SUPERSEDED**）
+`ac817a9` = superseded（ring inset 微调，人工判为肉眼无感）
+历史不删除，但都不得继续作为 final acceptance candidate。
+```
+
+### FP1. Candidate namespace（全部重建）
+
+```text
+删除并重建 build/release、build/f2_deploy、build/package、build/package-extract、build/f2_evidence；
+不复用旧 exe / deploy / ZIP / extraction / packaged screenshots；临时探针脚本轮末全部删除（§FP9）。
+provenance = `git rev-parse HEAD` = **aa2f3db28c2b3e48bbba0fe1789dcac3f01a97ca**
+```
+
+### FP2. Clean Release build + gates
+
+```text
+clean configure + build（release-local preset）：Release / MinGW g++ 13.1.0 / Qt 6.11.1 mingw_64 /
+Ninja / CMake 3.30.5；**207 目标、0 error**；exe = **2,803,304 B**
+ctest --preset release-local : **27/27 PASS**
+--qml-smoke-test    : PASS（identity ModbusLens / version 2.0.0 / windowIcon 6 尺寸）
+--qml-nav-check     : PASS（five workspaces；**A–T asserted，M DEFERRED**；navigation changed no business values）
+--qml-geometry-check: PASS（**18 printed segments / 0 GEOFAIL / rail width 56**）
+--qml-focus-check   : PASS（FA/FA2/FJ/FB×5/FC/FD·FE×5/FF/FK/FL/FG/FH/FI）
+   FJ = `list ring visible, subordinate weight (1px, alpha=0.500008), extent = viewport + 4px` + `ring off after focus leaves`
+```
+
+### FP3. Identity / PE / Icon / Architecture（本轮实测）
+
+```text
+applicationName / displayName = ModbusLens；version = 2.0.0
+PE Machine = **0x8664 → x64**（pefile 与 PowerShell 双读一致）
+FileVersion / ProductVersion = 2.0.0；Raw = **2.0.0.0**
+ProductName = ModbusLens / FileDescription = ModbusLens / OriginalFilename = ModbusLens.exe
+**RT_ICON ×6；RT_GROUP_ICON ×1**
+```
+
+### FP4. Final package（committed workflow，semantics 零改动）
+
+```text
+fresh deploy → build/f2_deploy（未使用旧 deploy tree）
+python scripts/make_package.py build/release build/f2_deploy
+structural checks PASS（required present / forbidden absent / StatisticsOverview retained / sample policy）
+known-risk credential·config scan PASS（措辞：scan PASS ≠ 数学证明）+ absolute-path scan PASS
+manifest 生成 PASS（1496 payload files）；ZIP entries == staging 集合 PASS（1497）
+fresh extraction 逐文件 SHA256 == manifest PASS
+minimal-PATH：smoke / nav / geometry PASS；external-CWD launch PASS
+9 类 destructive probes：packaging script 自 4cb6e9d 起 zero diff ⇒ 记录
+  **negative-path mechanism unchanged and previously accepted**（未假装本轮重跑）
+
+计数（从最终 ZIP 实算）：
+  **1496 payload files（其中含 README.txt）+ 1 manifest = 1497 total entries**
+ZIP identity（独立重算：文件长度 + hashlib + zipfile 计数）：
+  filename = build/package/ModbusLens-2.0.0-windows-x64.zip
+  bytes    = **40,633,612**
+  SHA256   = **2adfe71fbd870eed994d697b8a6d7309ce0381556a82cb93386918b383a9336d**
+  措辞 = **accepted final F2 local candidate identity**（非 published release hash、非 byte-reproducibility guarantee）；ZIP 不入 Git。
+包内容核对：demo_v1.mlog **存在**（samples/demo_v1.mlog）；t014/t015 fixtures **不在包内**；StatisticsOverview **retained**。
+```
+
+### FP5. Fresh extraction = 唯一 runtime acceptance basis
+
+```text
+extraction = build/package-extract/ModbusLens-2.0.0-windows-x64
+minimal PATH 下：--qml-smoke-test PASS / --qml-nav-check PASS / **--qml-focus-check PASS**
+packaged FJ = `1px / alpha=0.500008 / **extent = viewport + 4px**` ⇒ **最终 outer extent 确实进入 package**。
+launch / nav / 最终截图全部从该 extraction 执行（未用 build/release 或 f2_deploy 冒充）。
+Replay：包内 sample 存在（上）；**actual successful load 由用户 Manual Acceptance 完成** —— 本轮**不**声称 Replay loaded PASS。
+```
+
+### FP6. Final packaged visual inventory（**每行一个文件，共 14 个**）
+
+```text
+全部从 fresh extracted package 重新捕获；capture method = 键盘-only 导航 + **PrintWindow**（与遮挡无关；未操作其它应用）；
+DPI 实测 **120（=125%）**；1024×720 客户区 = 1280×900，1000×700 = 1250×875；每张先通过运行时 state oracle 再抓取。
+
+| # | filename (docs/assets/screenshots/) | state | dimensions | sha256[:16] |
+| --- | --- | --- | --- | --- |
+| 1 | m9f-f2-dashboard-demo-1024x720.png | Dashboard; demo session published (statistics/attention) | 1280x900 | 9b3c254d42fb5ab3 |
+| 2 | m9f-f2-transactions-populated-1024x720.png | Transactions; rows populated (diagnosis cue exposed) | 1280x900 | 3f65bcb1f6bde3a7 |
+| 3 | m9f-f2-transactions-list-keyboard-focus-1024x720.png | Transactions; keyboard Tab entry, one row selected, detail populated; FINAL outer-extent ring | 1280x900 | f823d3ec931d5ed3 |
+| 4 | m9f-f2-communication-default-1024x720.png | Communication; disconnected/default | 1280x900 | 063d45467aa92ccf |
+| 5 | m9f-f2-communication-combobox-focus-1024x720.png | Communication; keyboard focus on the port ComboBox | 1280x900 | 91b7525c59f61c32 |
+| 6 | m9f-f2-replay-default-1024x720.png | Replay; default (no sample loaded) | 1280x900 | 49335f521e6fdbcb |
+| 7 | m9f-f2-diagnosis-baseline-1024x720.png | Diagnosis; Baseline pane | 1280x900 | 1abf226c249c3ca0 |
+| 8 | m9f-f2-diagnosis-ai-no-result-1024x720.png | Diagnosis; AI pane, provider configured, no result generated | 1280x900 | 3e2d171f4af0ecdc |
+| 9 | m9f-f2-diagnosis-agent-no-result-1024x720.png | Diagnosis; Agent pane, empty question, no live call | 1280x900 | 8ee60ec11414f8f1 |
+| 10 | m9f-f2-diagnosis-tabbutton-selected-vs-focused-1024x720.png | Diagnosis; selected=Baseline coexisting with keyboard focus on the 2nd tab | 1280x900 | 460d8c53d7f0422e |
+| 11 | m9f-f2-rail-selected-vs-focused-1024x720.png | Rail; selected=Transactions coexisting with keyboard focus on the 2nd entry | 1280x900 | 390d98deb591a605 |
+| 12 | m9f-f2-transactions-1000x700.png | Transactions at the minimum size (cue exposed) | 1250x875 | 7a4c725707787153 |
+| 13 | m9f-f2-dashboard-1000x700.png | Dashboard at the minimum size (Run Demo exposed) | 1250x875 | c6fd9f27bcbb13e8 |
+| 14 | m9f-f2-diagnosis-1000x700.png | Diagnosis at the minimum size (Baseline pane) | 1250x875 | fb6c3fcc991fdc1c |
+
+**final packaged inventory = 14 个文件**（11 × 1280×900 + 3 × 1250×875），与上表逐行一致。
+```
+
+### FP7. 一项**主动删除**的证据（诚实记录，§18）
+
+```text
+本轮曾捕获 `f2-06b-replay-load-dialog-1024x720.png`，但复核画面发现它显示的是 **Replay 默认页**（仅 加载回放… 按钮），
+**没有显示对话框** —— 我的 DialogOpen 检测器出现假阳性，且 PrintWindow 未渲染该 in-window 对话框。
+⇒ 该文件的"对话框打开/sample 列出"声明**无法被自身画面支持**，因此**删除并从 inventory 移除**（不保留一个会撒谎的证据）。
+按用户 §18 指示，不再与 file dialog 缠斗：随包 sample 的存在性由 **ZIP 内容核对**证明，
+actual successful load 由**用户 Manual Acceptance 第 11 项**完成。
+另：`m9f-f2-transactions-list-focus-inset-correction-1024x720.png` 与
+`m9f-f2-transactions-list-focus-outer-extent-1024x720.png` 是**修正轮的 Release-build evidence**，
+**不属于**上表 packaged inventory（保留为历史证据，不参与最终验收）。
+```
+
+### FP8. 状态与边界
+
+```text
+Final Visual Review = **WAITING FOR USER**（必须基于本轮 packaged matrix；不因 Release-build 截图已 PASS 而自动转 PASS）
+Manual Final Acceptance = **WAITING FOR USER**（14 项清单，从最终 aa2f3db ZIP fresh extraction 执行）
+zero production diff（本轮只产生 docs + 截图；QML/src/CMake/scripts/tests/assets/samples 未改）
+**verified LKGC 保持 `4cb6e9d`**（仅当 automated PASS + Final Visual PASS + Manual Acceptance PASS 全部达成后，
+F3 closure 才允许推进到 `aa2f3db`）；未开始 F3；未创建 v2.0.0 tag；未 push；ZIP 未入 Git。
+```

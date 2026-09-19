@@ -656,3 +656,11 @@
 - **Q：为什么直接改 -2 会让环消失？** A：因为它当时声明在 **ListView 内部**，而该 view 开了 `clip: true`（为了防 ISSUE-004 的行越界绘制）。子项被推出 viewport 就被裁掉。**几何断言仍然通过**（width = parent+4）——这说明只验证 "尺寸对不对" 是不够的，还得验证 "画不画得出来"（本轮靠截图发现）。
 - **Q：为什么不能直接把 ListView 的 clip 关掉？** A：因为那个 clip 是为了保证 delegate **不会画到列表外面**（ISSUE-004），属于既定契约。关掉它去换一个装饰效果，是典型的“为了修 A 而破坏 B”。正确做法是把装饰从受约束的子树里**移出去**，放到不受约束的父级。
 - **Q：为什么新增一条 extent 断言？** A：因为这次的缺陷正是“尺寸/位置关系被改掉了而没人发现”。把契约写成 `ring.width - viewport.width == 4`，以后任何人把它改回正数 margin，或改成别的值，CI 直接失败。它只有两次属性读，不引入 harness 改造。
+
+## 71. Post-T021 M9-F F2 Final Candidate Regeneration 条目（2026-09-19 追加）
+
+- **Q：为什么每次 behavior 变化都要重新跑一整套 package 链，而不能“只换 exe”？** A：因为 candidate 的定义是“**人工将验收的那一份产物”**：包内容（exe + Qt runtime + QML 资源 + sample）、manifest、ZIP 均必须与审阅的树一致。只换 exe 会让 manifest/ZIP/新 extraction 均失真，也就无法证明“验收的就是审阅的”。
+- **Q：为什么要从 ZIP 里再次 extraction，而不直接跑 build/release？** A：因为只有 extraction 能证明“**打包后的东西仍然能跑、行为一致**”。本轮就是在 extraction 里跑出了 FJ 的 `extent = viewport + 4px`，这才能说“最终焦点方案确实进了包”。
+- **Q：为什么主动删掉一张已经拍好的截图？** A：因为它**在为一个不成立的状态作证**：文件名与文档都写着“加载对话框已打开”，而画面里是 Replay 默认页。**证据的价值在于它能自证**；一张与声明不符的图比没有图更糟。而且本轮的 load 本来就不在自动化范围（用户明确说不要和 file dialog 缠斗）。
+- **Q：为什么把 inventory 写成逐行表格？** A：因为上一轮出现过“11 + 3 = 15”的记账歧义：文字里说了数量，但没逐个点名。这次每一行都是一个真实文件（含状态、尺寸、sha256），且总数与表格行数一致——**不把数量留给下一轮去猜**。
+- **Q：Final Visual Review 为什么不能因为 Release-build 截图已 PASS 就标 PASS？** A：因为两者是不同产物：一个是构建树，一个是打包树。只有从 **extraction** 重新拍的矩阵才能证明“**同一渲染确实进了最终 ZIP**”。
