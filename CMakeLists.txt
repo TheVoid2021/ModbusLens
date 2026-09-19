@@ -508,6 +508,15 @@ if(BUILD_TESTING)
     add_test(NAME qml_nav_check
         COMMAND modbuslens --qml-nav-check)
 
+    # M9-F F1 focus / keyboard-traversal guard: workspace focus gating (a
+    # hidden page must neither acquire nor keep consumable focus), rail
+    # keyboard activation and accessible identity, keyboard-only entry into
+    # the Transactions list, and the Agent TextArea traversal contract.
+    # Same architecture as qml_nav_check: the real app asserts its own
+    # shipped QML through the existing synthetic event seams.
+    add_test(NAME qml_focus_check
+        COMMAND modbuslens --qml-focus-check)
+
     # M9-B4.3 scenario fixtures (repo-relative: copied into the build tree,
     # same mechanism as the demo_v1 test_data above -- no absolute paths).
     target_compile_definitions(modbuslens PRIVATE
@@ -517,7 +526,7 @@ if(BUILD_TESTING)
         MODBUSLENS_PROTOCOL_ERROR_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t014_protocol_error.mlog")
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

@@ -175,6 +175,7 @@ ApplicationWindow {
             // never change it (NavigationRail.activate guards).
             StackLayout {
                 objectName: "workspaceHost"
+                id: workspaceHost
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 currentIndex: navigationRail.currentWorkspaceIndex
@@ -185,6 +186,19 @@ ApplicationWindow {
                 // is not honored by StackLayout, measured). The page inset
                 // lives INSIDE each page, anchored to a plain non-layout
                 // parent.
+                //
+                // M9-F F1 (B/C) focus gating lives HERE, at the workspace
+                // boundary, and not in every control: a page that is not the
+                // current StackLayout child is disabled. Qt Quick then (a)
+                // never puts its controls into the Tab traversal, and (b)
+                // clears activeFocus inside it, so a control that held focus
+                // when the workspace was left stops receiving keys instead of
+                // executing while hidden (measured defect: a hidden 运行基线诊断
+                // button consumed Space and ran the baseline). This is
+                // presentation/interaction gating only — "not current" is NOT
+                // "cleared": source, statistics, diagnosis, drafts, selection
+                // and every page-local contract persist exactly as before
+                // (T021 §13).
                 //
                 // M9-D D5: the Legacy workspace (M9-B1's not-yet-split V1
                 // content, statistics-only since D2) is RETIRED — the Item
@@ -203,6 +217,7 @@ ApplicationWindow {
                 TransactionsPage {
                     objectName: "transactionsPage"
                     analysisController: analysisController
+                    enabled: workspaceHost.currentIndex === workspaceTransactionsIndex
                 }
 
                 // Dashboard workspace page (M9-B2) — StackLayout child 1,
@@ -210,6 +225,7 @@ ApplicationWindow {
                 DashboardPage {
                     objectName: "dashboardWorkspace"
                     analysisController: analysisController
+                    enabled: workspaceHost.currentIndex === workspaceDashboardIndex
                 }
 
                 // Communication workspace page (M9-B3) — StackLayout child 2,
@@ -217,6 +233,7 @@ ApplicationWindow {
                 CommunicationPage {
                     objectName: "communicationWorkspace"
                     analysisController: analysisController
+                    enabled: workspaceHost.currentIndex === workspaceCommunicationIndex
                 }
 
                 // Replay workspace page (M9-B4.1) — StackLayout child 3.
@@ -229,6 +246,7 @@ ApplicationWindow {
                 ReplayPage {
                     objectName: "replayWorkspace"
                     analysisController: analysisController
+                    enabled: workspaceHost.currentIndex === workspaceReplayIndex
                 }
 
                 // Diagnosis workspace page (M9-B5.2) — StackLayout child 4,
@@ -240,6 +258,7 @@ ApplicationWindow {
                 DiagnosisPage {
                     objectName: "diagnosisPage"
                     analysisController: analysisController
+                    enabled: workspaceHost.currentIndex === workspaceDiagnosisIndex
                 }
 
             }

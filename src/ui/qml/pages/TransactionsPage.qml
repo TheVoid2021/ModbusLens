@@ -220,6 +220,17 @@ Item {
                         // currentIndex; the page mirrors it into the
                         // selection (no hand-written key state machine).
                         focus: true
+                        // M9-F F1 (A): `focus: true` only names the initial
+                        // focus item of the scope — it does NOT put the view
+                        // into the Tab traversal, which is why a keyboard-only
+                        // user could never reach the evidence table (measured:
+                        // a 14-press Tab cycle on this workspace never landed
+                        // here). activeFocusOnTab adds the view to the chain;
+                        // Qt does not move currentIndex when a view gains
+                        // focus, so entering the list never selects a row by
+                        // itself (no select-on-focus) and the four-key
+                        // navigation below stays the only keyboard move path.
+                        activeFocusOnTab: true
                         onCurrentIndexChanged: page.selectRow(currentIndex)
                         // M9-D D6 correction: Qt navigates Up/Down natively
                         // but does NOT implement Home/End; the two missing

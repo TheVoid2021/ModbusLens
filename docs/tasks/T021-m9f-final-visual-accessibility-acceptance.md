@@ -1026,3 +1026,254 @@ F3 manual acceptance + M9 closure
 
 不再使用 "conditional F1" 表述——当前 authoritative P0/P1 已确认。
 ```
+
+## F0 Final Re-review = PASS / F1 = GO（2026-09-19，append-only）
+
+```text
+F0 Final Re-review = PASS
+F0 measurement     = COMPLETE
+F1                 = GO（authoritative P0×5 / P1×3 / P2=0；本轮只修 A–H frozen scope）
+```
+
+### FF0. finding → scope mapping（Review 归档，冻结）
+
+| Finding | Scope |
+| --- | --- |
+| **P0-1** Transactions ListView not Tab-reachable | **A** |
+| **P0-2** hidden workspace controls leak into Tab chain | **B** |
+| **P0-3** rail Enter/Space does not activate | **D** |
+| **P0-4** hidden control retains activeFocus and can act while hidden | **C** |
+| **P0-5** Agent TextArea traps Tab/Shift+Tab and inserts Tab characters | **H** |
+| **P1-1** rail accessible name defect | **E** |
+| **P1-2** rail actionable role/pattern defect | **F** |
+| **P1-3** rail keyboard-focus indication defect | **G** |
+
+```text
+Transactions UIA exposure = known non-blocking GAP，**不进入 F1**。
+```
+
+### FF1. F1 边界（Review 重申）
+
+```text
+不做：重新设计 UI / 改 IA / 改 version·icon·package / WCAG certification /
+      完整 screen-reader work / 清 StatisticsOverview / installer·signing·publication / 开始 F2。
+不 push。verified LKGC 继续 4cb6e9d。
+F1 分类（§39）：**behavior-bearing**（QML focus/accessibility 行为变化 + 可能 harness 变化），
+                 不得按 "只是 accessibility" 误分类为 docs-only。
+```## F1 — Minimal Accessibility / Focus Correction（2026-09-19，behavior-bearing）
+
+> F1 = GO（authoritative P0×5 / P1×3 / P2=0；只修 A–H frozen scope）。本轮**改产品代码**（QML + harness），
+> 按 §39 分类为 **behavior-bearing**；verified LKGC **不推进**（保持 `4cb6e9d`，等人工 Review）。
+
+### FG0. Preflight
+
+```text
+HEAD = f4b2e98（main，clean）；verified LKGC = 4cb6e9d；CMake project VERSION = 2.0.0；
+v1 tag object 2cee626 / v1.0.0^{commit} ae067ab；v2.0.0 absent；
+origin/main a40d935（ahead 84 / behind 0）；git diff --check PASS —— 全部相符。
+基线（改动前，Release）：smoke PASS / nav PASS（A–T，M DEFERRED）/ geometry PASS（18 printed segments, 0 GEOFAIL）/ ctest 26/26。
+```
+
+### FG1. Source re-read（§2，实施前实读当前源码，不用 F0 文档代替）
+
+```text
+Main.qml           : StackLayout#workspaceHost，currentIndex <- rail.currentWorkspaceIndex；
+                     5 个 page child（Transactions 0 / Dashboard 1 / Communication 2 / Replay 3 / Diagnosis 4）；
+                     workspace index 常量与 children 顺序 1:1；**无 FocusScope**；page 无 enabled/visible 绑定。
+NavigationRail.qml : delegate = bare Item + MouseArea + Keys(Return/Enter/Space) + focusPolicy StrongFocus/NoFocus；
+                     objectName navItem_<i>；6 entries，设备 enabled:false。
+TransactionsPage   : ListView focus:true（= scope 初始焦点，**不是** Tab 可达）；Keys.onPressed 仅补 Home/End；
+                     delegate Keys.forwardTo:[transactionsList]；TapHandler → currentIndex+forceActiveFocus。
+DiagnosisPage      : TabBar(diagnosisTabs) + 3 pane；agentQuestionInput = TextArea（无 focus 相关属性）。
+Dashboard/Communication/Replay : page 内 controls 无特殊 focus 绑定（Replay 仅 replayLoadButton）。
+```
+
+### FG2. RED（§4–§10，真实键鼠注入，改动前 Release build）
+
+| Scope | RED 结果 | 判定 |
+| --- | --- | --- |
+| **A** Transactions entry | 14 次 Tab 的链 = `appBarClearResults` + 5× rail stop，**从不进入 transactionsList** | **CONFIRMED** |
+| **B** hidden acquisition | **NOT REPRODUCED**：5 workspace × 20 Tab 扫描，链中只有当前页 controls + AppBar + rail；且「隐藏控件持焦状态下继续 Tab」两种 hybrid 场景（Dashboard 隐藏 Run Demo / Diagnosis 隐藏 baseline 按钮）遍历都进入**可见页**的链 | **F0 的 P0-2 由本轮推翻**（见 FG3） |
+| **C** retained focus | H1S：键盘聚焦（从不点击）运行基线诊断 → 切到 Transactions → 注入 SPACE ⇒ **隐藏按钮真实执行**，cue 由「尚未运行基线诊断。」翻转为「已有基线诊断结果…」；H2：隐藏 Agent TextArea 仍持焦并吃键（value `[]` → `[Z]`） | **CONFIRMED** |
+| **D** rail Enter/Space | **NOT REPRODUCED**：index-resolved 实测（锚点 + Tab×k + before-key 读数）Enter 与 Space 对 k=1..5 **全部正确切换**到对应 workspace；Tab 本身不切换 | **F0 的 P0-3 由本轮推翻**（见 FG3） |
+| **E** rail name | 每个 rail 停点 UIA Name = **ModbusLens**（窗口名），AutomationId 回落窗口 | **CONFIRMED** |
+| **F** rail role/action | ControlType = **Window**；patterns = Value/Window/Transform，**无 Invoke/Selection** | **CONFIRMED** |
+| **G** rail focus visual | 选中态 = surface+3px accent bar+bold；键盘焦点在任何 item 上**无独立可视通道** | **CONFIRMED** |
+| **H** Agent TextArea trap | Tab 停留并写入 `\t`（`[]` → `[\t]` → `[\t\t]`），Shift+Tab 同样停留 | **CONFIRMED** |
+
+### FG3. F0 两项 P0 的推翻 + RCA（append-only 修正，不删改历史）
+
+```text
+P0-2（hidden workspace controls leak into Tab chain）→ **NOT REPRODUCED / 撤回**
+P0-3（rail Enter/Space does not activate）           → **NOT REPRODUCED / 撤回**
+
+Evidence（本轮，oracle-verified）
+  B：Transactions/Dashboard/Communication/Replay/Diagnosis 各 20 次 Tab 的链，
+     结构判定 focused item 所属 page（parent 链，不用名字猜）——从不落到非当前页；
+     另有 hybrid 场景：让隐藏页控件「已经持焦」再 Tab，遍历仍进入可见页链。
+  D：锚点（AppBar 按钮，真实 Control）→ Tab×k → **先读 before-key workspace** → 注入 Enter/Space
+     → k=1..5 全部得到 Transactions/Dashboard/Communication/Replay/Diagnosis；
+     k=5 目标即 Diagnosis ⇒ 「未变化」是正确的通过结果；Tab 单独从不改变 workspace。
+     自动化版本（FD/FE）进一步用 railIndexOf(focusItem()) 证明焦点确实在 navItem_(k-1) 上。
+
+Root Cause（探针缺陷类，非产品缺陷）
+  F0 continuation 的两项测量发生在 workspace oracle 规则引入**之前**：
+  ① 导航只靠坐标点击，未验证实际 workspace（PD-3 已证明窗口非 foreground 时首次点击会被当
+     activation click 消费）——"Communication 链里出现 dashboardRunDemo"与"Diagnosis 链里出现
+     replayLoadButton"正是这种上下文错位的典型形态；
+  ② rail 停点的 UIA 身份＝窗口本身，因此"焦点在 rail 项上"与"焦点根本不在任何 rail 项上"在
+     UIA 读数上**无法区分**，F0 的 Enter/Space 注入无法证明按键真的送达了 rail delegate。
+Verification
+  本轮 `--qml-focus-check` 的 FB（5 workspace × 16 Tab，结构判定）与 FD/FE（5 × 2，railIndexOf 证明）
+  把两项都变成**可回归断言**；B/D 的 scope 条目因此从"修复"转为"回归保护"（见 FG6）。
+Regression Protection
+  FB / FD / FE / FF 已入 committed 回归（qml_focus_check），任何未来的 hidden 泄漏或 rail 激活回归
+  都会直接失败。
+```
+
+### FG4. Implementation（A–H）
+
+```text
+A  src/ui/qml/pages/TransactionsPage.qml
+   ListView 增加 `activeFocusOnTab: true`。`focus: true` 只是 scope 初始焦点（不构成 Tab 可达），
+   这就是 F0-1 的根因；Qt 在 view 获得焦点时**不会**移动 currentIndex ⇒ 无 select-on-focus（FA/FA2 断言）。
+
+B/C  src/ui/qml/Main.qml（**页面级**门控，唯一机制，非逐控件 patch）
+   5 个 page 各加一行：`enabled: workspaceHost.currentIndex === workspace<X>Index`。
+   效果：非当前页整棵子树 enabled=false ⇒ ①其 controls 不进入 Tab 遍历；②Qt 在 disable 时清除
+   子树内 activeFocus ⇒ 隐藏控件不再消费按键。**只改交互/焦点门控**，不触碰 source/statistics/
+   diagnosis/drafts/selection 与任何 page-local 契约（隐藏 ≠ 清空）。
+
+D/E/F/G  src/ui/qml/components/NavigationRail.qml（Option A：标准 actionable Control）
+   delegate 由 bare Item+MouseArea 改为 `Button`（AbstractButton family）：
+   · E: `text: modelData.label` ⇒ accessible name 属于**可激活对象本身**（每站不同）
+   · F: AbstractButton 提供 button role + activation action（UIA 实测 Invoke）
+   · D: Space 走 AbstractButton 原生激活（onClicked → activate()，无双击活）；Return/Enter 保留显式
+        Keys 处理器（AbstractButton 不处理 Enter——H1S 已实测）
+   · G: 新增 `Rectangle` outline，`visible: navItem.visualFocus`（Control 属性，仅键盘焦点为真），
+        1px 内缩 ⇒ 不占布局、不与 selected（surface+accent+bold）/hover（无视觉）混淆
+   · 冻结：`background: null` + `contentItem: null` + `padding: 0`，width/height/spacing/选中视觉
+        与 Device disabled 样式一律照旧；`focusPolicy: TabFocus`（Tab 可达但**点击不夺焦**——保持
+        bare Item 时代被 MouseArea 屏蔽的点击焦点行为）
+
+H  src/ui/qml/pages/DiagnosisPage.qml
+   Agent TextArea 增加 Tab/Backtab 处理器：`agentQuestionInput.nextItemInFocusChain(true|false)`
+   + `forceActiveFocus(Qt.TabFocusReason|BacktabFocusReason)`，并 accept 事件。
+   **机制审计**：Qt Quick **没有** `tabChangesFocus`（该属性只存在于 QtWidgets——已在本机
+   Qt 6.11.1 头文件层面核对）；QQuickTextEdit 默认消费 Tab 写入 \t，因此改用 Qt 自己的
+   focus-chain API（`Item.nextItemInFocusChain`，真实 Q_INVOKABLE）完成遍历；
+   只改这两个键，编辑键（方向/Home/End/输入）语义不变；未写全局 Keys 吞键处理器。
+```
+
+### FG5. Automated Regression（§25/§26：`--qml-focus-check` + ctest `qml_focus_check`）
+
+```text
+实现方式：与既有 test-mode 架构一致——真实 app 加载自己的 shipped QML，复用同一批合成事件 seam
+（鼠标经 window 投递、按键经 window/activeFocusItem 投递），断言可观察契约；不是用户可见命令。
+场景与结果（Release build，FOCUS CHECK PASS）：
+  FA  keyboard-only Tab 进入 transactionsList 且 currentIndex 仍为 -1（无 select-on-focus）
+  FA2 entry 后四键可用：End → currentIndex=3/selectedRow=3；Home → 0/0
+  FB  5 个 workspace × 16 Tab：链中出现的 page 只可能是当前页（结构判定），无 hidden 泄漏
+  FC  hidden retention：隐藏的 baseline 按钮**不执行**（hasBaselineDiagnosis 保持 false），
+      且同一按钮在可见页 Space 仍正常执行（对照）
+  FD  rail Enter 激活 5/5（先证明焦点在 navItem_(k-1)）
+  FE  rail Space 激活 5/5
+  FF  Device：enabled=false、非 Tab stop、16 Tab 不出现、点击不改变 index
+  FG  Agent TextArea：Tab 离开且 draft 不变
+  FH  Agent TextArea：Shift+Tab 反向离开且 draft 不变
+  FI  鼠标路径四键回归（row click → End/Home/Down/Up 全部经 currentIndex → selectRow）
+harness 自身的两处缺陷（如实记录，均为工具缺陷）
+  · 合成按键不带 text ⇒ 文本编辑器不插入字符（曾使 H2 的"可见输入"检查失败）→ 新增 sendTextKey()
+  · 锚点选了 AppBar「清空结果」（它会清空会话结果）⇒ 行数断言失败；修正为**先锚点后发布 demo 批次**
+```
+
+### FG6. GREEN（外部 UIA，Release build；与 RED 同一批 oracle）
+
+```text
+A  press 7 落到 list 停点：焦点进入前 transactionDetailEmpty 仍在（无 select-on-focus），
+   END 之后 detail pane 填充（transactionDetailDevice 暴露）⇒ 键盘用户可进入**并使用**证据表。
+   UIA 仍无法命名 ListView 容器（known non-blocking GAP，见 FG8）。
+B  26-Tab 长扫描（Communication）：链 = commPortCombo/刷新串口/commBaudCombo/4×Spin/AppBar/rail×5，
+   无任何隐藏页控件。
+C  H1S：隐藏按钮持焦后切页 → activeFocus 回落窗口；SPACE ⇒ cue 保持「尚未运行基线诊断。」
+   （RED 时为翻转）⇒ 隐藏控件不再执行。
+   H2：隐藏字段注入 b/Home/End/Up/Down 后 value 仍只含可见期输入的字符（无新增字符）。
+   H3：选中行「设备 1」在往返后保持不变，隐藏期间四键不改变 selection。
+D  index-resolved：Enter k=1..5 与 Space k=2..5 全部正确切换（自动化 FD/FE 为 5/5 ×2）。
+E/F 5 个 rail 停点 UIA：ControlType=**Button**，Name=**事务/总览/通信/回放/诊断**（各不相同），
+   kbd=True，patterns=**[Invoke, Value]**（RED 时为 Window / "ModbusLens" / 无 Invoke）。
+G  截图：选中=事务（accent bar+bold+surface），键盘焦点=总览（独立描边）⇒ 两态可区分。
+H  Tab 从 TextArea 离开到 appBarClearResults，text 不变；离开后输入不进入该字段。
+```
+
+### FG7. Focus sequences（§28，5 workspace + Diagnosis 3 tabs）
+
+```text
+Transactions  : AppBar + rail×5 + transactionsList（周期 7；RED 时周期 6，list 缺失）
+Dashboard     : AppBar + rail×5 + dashboardRunDemo
+Communication : AppBar + rail×5 + commPortCombo/刷新串口/commBaudCombo/4×Spin
+Replay        : AppBar + rail×5 + replayLoadButton
+Diagnosis     : AppBar + rail×5 + 3×TabItem + 运行基线诊断 + 清除诊断（Baseline pane）
+                AI pane：仅有 disabled 的 ask/cancel ⇒ 正确不入链
+                Agent pane：TabItem + diagnosisAgentQuestion（**可进入**，且 Tab 可离开）
+无 trap；无 hidden 页控件；Device 不可达（全部由 qml_focus_check 断言）。
+```
+
+### FG8. GAP / 观测（不改写历史）
+
+```text
+known non-blocking GAP（不变，未在 F1 处理）：Transactions ListView 的行与容器**不暴露给 UIA**，
+  行级无障碍断言仍需人工/视觉验收（FG6-A 已用用户可见的 detail-pane oracle 代替）。
+新观测（**P2 / DEFER**，明确不在 F1 A–H 范围内，未修）：
+  O1 AppButton（自绘 background）与 Fusion ComboBox 在本环境**没有可见键盘焦点指示**
+     （对照截图 m9f-f1-standard-control-focus-comparison-1024x720.png 中 commPortCombo 已持焦但外观不变）
+     —— 这使 rail 的焦点描边成为当前唯一明确可见的键盘焦点通道。
+  O2 Transactions ListView 自身没有独立焦点描边，其视觉通道是行选中（M9-D 契约）；F1 未改变该契约。
+  O3 外部 UIA 对 Agent TextArea 的 ValuePattern 读取存在滞后（工具伪影，非产品行为）；in-process
+     property 断言（无滞后）为准。
+```
+
+### FG9. 回归与证据
+
+```text
+Debug   ：build OK（无新警告）；ctest **27/27**（新增 qml_focus_check）
+Release ：configure/build OK；ctest **27/27**（证明修复不是 Debug-only，§34）
+Release 模式：smoke PASS（identity 2.0.0 + icon 6 尺寸）/ nav PASS（A–T，M DEFERRED）/
+              geometry PASS（**18 printed segments, 0 GEOFAIL**）/ focus CHECK PASS
+几何冻结：rail 宽度在 18 段中恒为 **56**（无 material geometry change）；无 item size/宽度漂移
+业务冻结：nav 断言 "navigation changed no business values"；focus check 的 rail 激活只改
+          presentation index（FF 另外断言 Device 点击不改变 index）；诊断/回放/统计/AI 状态零改动
+package/version/icon：CMakeLists 仅新增一条 test 注册；make_package.py/版本/PE/icon/README 零改动
+```
+
+### FG10. Visual Evidence（§30/§36，状态 = WAITING FOR USER）
+
+```text
+docs/assets/screenshots/m9f-f1-rail-keyboard-focus-vs-selected-1024x720.png   （选中 事务 / 焦点 总览）
+docs/assets/screenshots/m9f-f1-transactions-list-keyboard-entry-1024x720.png  （键盘进入 list + END 选中 + detail 填充）
+docs/assets/screenshots/m9f-f1-standard-control-focus-comparison-1024x720.png （标准 Control 持焦对照）
+环境：125% DPI（物理 1280×900 = 逻辑 1024×720，与 M9-D 截图口径一致）。
+**Focus Visual Review = WAITING FOR USER** —— ZCode **不**自标 manual PASS；G 的最终 PASS 取决于用户确认
+「键盘焦点看得见且与 selected/hover 明确不同」。
+```
+
+### FG11. Problems / RCA（§37）
+
+```text
+P1 harness/合成按键不带 text（Observed: 可见输入未进入字段 → Expected: 进入；Root Cause: QKeyEvent 无 text
+   时文本编辑器不插入；Fix: sendTextKey()；Verification: H2 可见输入检查转 PASS；
+    Regression Protection: 该 seam 现被 H2/FC 使用）
+P2 harness/锚点副作用（Observed: FA2 行数断言 4→0；Root Cause: 锚点 AppBar 按钮本身是"清空结果"动作；
+    Fix: 先锚点后发布批次；Verification: FA2/FI PASS；Regression Protection: 注释固化为 harness 规则）
+P3 probe/UIA 文本读取滞后（见 FG8-O3；归类工具伪影，不记为产品缺陷）
+P4 probe/Context 错位推翻了两项 F0 P0（见 FG3；归类探针缺陷，不记为产品缺陷，历史记录不删改）
+```
+
+### FG12. Git / 边界
+
+```text
+F1 = behavior-bearing（QML focus/accessibility 行为 + harness 新增），**不是** docs-only。
+未 amend f4b2e98；未 rebase；未 push；未创建 v2.0.0 tag；verified LKGC 保持 **4cb6e9d**（等人工 Review）。
+未做：UI 重新设计 / IA / version·icon·package / WCAG certification / screen-reader 完整工作 /
+      StatisticsOverview 清理 / installer·signing·publication / F2。
+```

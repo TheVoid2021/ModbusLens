@@ -286,6 +286,30 @@ Item {
                     Layout.preferredHeight: 68
                     placeholderText: qsTr("例如：本批次主要有什么异常？")
                     wrapMode: TextArea.Wrap
+                    // M9-F F1 (H): a multi-line editor consumes Tab to insert
+                    // a literal tab stop, which trapped keyboard traversal
+                    // (measured before F1: 14 forward and 6 reverse Tab
+                    // presses all stayed here and wrote \t into the draft).
+                    // Qt Quick has no `tabChangesFocus` — that property exists
+                    // in QtWidgets only (audited against this Qt 6.11.1) — so
+                    // the two traversal keys are re-routed through Qt's own
+                    // focus-chain API instead of being swallowed. Only Tab and
+                    // Backtab change meaning: every editing key (arrows, Home,
+                    // End, selection, typing) keeps its text semantics.
+                    Keys.onTabPressed: (event) => {
+                        var next = agentQuestionInput.nextItemInFocusChain(true)
+                        if (next) {
+                            next.forceActiveFocus(Qt.TabFocusReason)
+                            event.accepted = true
+                        }
+                    }
+                    Keys.onBacktabPressed: (event) => {
+                        var prev = agentQuestionInput.nextItemInFocusChain(false)
+                        if (prev) {
+                            prev.forceActiveFocus(Qt.BacktabFocusReason)
+                            event.accepted = true
+                        }
+                    }
                 }
                 RowLayout {
                     spacing: 6

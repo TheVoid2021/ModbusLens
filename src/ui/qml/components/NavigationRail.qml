@@ -51,7 +51,18 @@ Rectangle {
         Repeater {
             model: rail.entries
 
-            delegate: Item {
+            // M9-F F1 (D/E/F/G): the delegate is a standard actionable
+            // Control (`Button`) instead of a bare Item with a MouseArea.
+            // A bare Item has no accessible object at all in the Qt
+            // accessibility bridge, which is why the measured rail stops
+            // exposed as five anonymous windows (Name "ModbusLens",
+            // ControlType Window, no Invoke action) and had no place to hang
+            // a keyboard-focus visual. Going through AbstractButton keeps the
+            // activation semantics in one path and makes the accessibility
+            // identity, the activation action and the visual focus state
+            // properties of the SAME object — no hand-written accessible
+            // glue, and the frozen geometry/appearance is preserved below.
+            delegate: Button {
                 id: navItem
 
                 objectName: "navItem_" + index
@@ -66,7 +77,24 @@ Rectangle {
                 // Disabled entries inherit disabled to children: no mouse
                 // events, no key events, no focus.
                 enabled: navItem.navEnabled
-                focusPolicy: navItem.navEnabled ? Qt.StrongFocus : Qt.NoFocus
+                // F1 (D): Tab-reachable when enabled, and deliberately NOT
+                // focus-on-click: a mouse click on a rail entry moves the
+                // workspace but never steals keyboard focus (the behaviour
+                // the bare-Item delegate had, because its MouseArea consumed
+                // the press before the item's click-focus path could run).
+                focusPolicy: navItem.navEnabled ? Qt.TabFocus : Qt.NoFocus
+
+                // F1 (E): the accessible NAME must belong to the actionable
+                // object itself, not to a child Label. AbstractButton takes
+                // its accessible name from `text`, so each stop now reports
+                // its own workspace label instead of the window name.
+                text: modelData.label
+                // F1 (E): the whole visual is owned by the three children
+                // below (frozen surface/accent/label), so the Control's
+                // default background and content item must not paint.
+                background: null
+                contentItem: null
+                padding: 0
 
                 // Single activation path: guards the disabled case and is the
                 // same code path for click and Enter/Space (guard-tested).
@@ -75,6 +103,17 @@ Rectangle {
                         return;
                     rail.currentWorkspaceIndex = navItem.workspaceIndex;
                 }
+
+                // Space: AbstractButton's own activation (press/release)
+                // reaches this handler — one activation, no double-trigger,
+                // so no Keys.onSpacePressed is added here.
+                onClicked: navItem.activate()
+
+                // F1 (D): Enter/Return are NOT part of AbstractButton's
+                // keyboard activation, so the two enter keys keep their
+                // explicit handlers (measured before F1: both activate).
+                Keys.onReturnPressed: navItem.activate()
+                Keys.onEnterPressed: navItem.activate()
 
                 // Selection is never color-only: surface + 3px accent bar +
                 // bold label (M9-A "颜色只是辅助通道" principle).
@@ -102,14 +141,23 @@ Rectangle {
                                             : DS.textSecondary
                 }
 
-                MouseArea {
+                // F1 (G): keyboard-focus indication. `visualFocus` is the
+                // Control property that is true for KEYBOARD focus only, so
+                // this ring is a third, independent channel: the selected
+                // entry keeps its fill + accent bar + bold label, hover has
+                // no visual at all, and a focused-but-not-selected entry now
+                // shows this ring (the measured defect was that focus was
+                // invisible whenever focus and selection differed). Insets by
+                // 1px so it costs no layout space and cannot be clipped at
+                // 125% DPI.
+                Rectangle {
                     anchors.fill: parent
-                    onClicked: navItem.activate()
+                    anchors.margins: 1
+                    color: "transparent"
+                    border.width: 2
+                    border.color: DS.primary
+                    visible: navItem.visualFocus
                 }
-
-                Keys.onReturnPressed: navItem.activate()
-                Keys.onEnterPressed: navItem.activate()
-                Keys.onSpacePressed: navItem.activate()
             }
         }
     }

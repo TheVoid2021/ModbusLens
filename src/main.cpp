@@ -4701,6 +4701,647 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 }
 
 // ---------------------------------------------------------------------------
+// M9-F F1 `--qml-focus-check`: keyboard focus / traversal guard for the
+// shell. Same architecture as the other QML harness modes: the REAL app
+// loads its own shipped QML and drives it through the same synthetic event
+// seams the manual flow uses (mouse delivered through the window, key events
+// delivered to the window / active focus item), then asserts the observable
+// contract. Harness only: no product behaviour changes, no new user-facing
+// command, and no assertion that the manual scenarios already own.
+//
+// Scenarios (frozen F1 acceptance matrix, T021 §FE7):
+//   FA  Transactions: keyboard-only Tab reaches the list (and focus alone
+//       never selects a row)                                    [scope A]
+//   FB  the current workspace's Tab chain contains no control that belongs
+//       to a hidden page, in all five workspaces                [scope B]
+//   FC  a control that held focus when its workspace was left cannot execute
+//       while hidden, and still activates normally when visible [scope C]
+//   FD  rail Enter activates the focused rail entry (all five) [scope D]
+//   FE  rail Space activates the focused rail entry (all five) [scope D]
+//   FF  the disabled Device entry cannot be focused or activated
+//   FG  Agent TextArea: Tab escapes without mutating the draft  [scope H]
+//   FH  Agent TextArea: Shift+Tab escapes backward, no mutation [scope H]
+//   FI  Transactions list: Up/Down/Home/End regression through the existing
+//       currentIndex -> selectRow path (M9-D contract intact)   [scope A]
+// ---------------------------------------------------------------------------
+int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *ctrl = rootObj ? rootObj->findChild<QObject *>(
+                               QStringLiteral("analysisController"))
+                         : nullptr;
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    if (!ctrl || !window) {
+        qWarning() << "FOCUSFAIL: no controller/window";
+        return 1;
+    }
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+
+    const QStringList pageNames = {
+        QStringLiteral("transactionsPage"),
+        QStringLiteral("dashboardWorkspace"),
+        QStringLiteral("communicationWorkspace"),
+        QStringLiteral("replayWorkspace"),
+        QStringLiteral("diagnosisPage"),
+    };
+
+    auto itemOf = [&roots](const QString &name) {
+        return qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+    };
+    auto focusItem = [window]() {
+        return qobject_cast<QQuickItem *>(window->activeFocusItem());
+    };
+    auto focusName = [&focusItem]() {
+        auto *f = focusItem();
+        return f ? f->objectName() : QStringLiteral("<null>");
+    };
+    auto railIndex = [&itemOf]() {
+        auto *r = itemOf(QStringLiteral("navigationRail"));
+        return r ? r->property("currentWorkspaceIndex").toInt() : -1;
+    };
+    // Structural page ownership of the focused item (never a name guess).
+    auto pageIndexOf = [&itemOf, &pageNames](QQuickItem *x) {
+        if (!x)
+            return -1;
+        for (int i = 0; i < pageNames.size(); ++i) {
+            auto *page = itemOf(pageNames.at(i));
+            if (page && (x == page || underItem(x, page)))
+                return i;
+        }
+        return -1;
+    };
+    // Which rail entry owns this item? (-1 when the item is not a rail entry)
+    auto railIndexOf = [](QQuickItem *x) {
+        for (auto *p = x; p; p = p->parentItem()) {
+            if (p->objectName().startsWith(QStringLiteral("navItem_")))
+                return p->property("workspaceIndex").toInt();
+        }
+        return -1;
+    };
+    auto clickItemPoint = [window](QQuickItem *item) -> bool {
+        if (!window || !item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    auto clickNamed = [&itemOf, &clickItemPoint](const QString &name) {
+        return clickItemPoint(itemOf(name));
+    };
+    // Key delivery: Tab/Backtab go through the WINDOW (the delivery path the
+    // platform uses, which is where Qt performs focus traversal); every other
+    // key goes to the active focus item, matching the existing nav seam.
+    auto sendKey = [window](Qt::Key key, Qt::KeyboardModifiers mods,
+                            bool toWindow) -> bool {
+        QObject *target = toWindow ? static_cast<QObject *>(window)
+                                   : window->activeFocusItem();
+        if (!target)
+            return false;
+        QKeyEvent press(QEvent::KeyPress, key, mods);
+        QCoreApplication::sendEvent(target, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, mods);
+        QCoreApplication::sendEvent(target, &release);
+        return true;
+    };
+    // Typing needs a key event that carries TEXT: a bare key code never
+    // reaches a text editor's content (measured: an empty-text event left the
+    // Agent draft unchanged, which would have made the retention assertion
+    // vacuous).
+    auto sendTextKey = [window](Qt::Key key, const QString &text) -> bool {
+        QObject *target = window->activeFocusItem();
+        if (!target)
+            return false;
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+        QCoreApplication::sendEvent(target, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier, text);
+        QCoreApplication::sendEvent(target, &release);
+        return true;
+    };
+    auto tab = [&sendKey](bool forward) {
+        return sendKey(forward ? Qt::Key_Tab : Qt::Key_Backtab,
+                       Qt::NoModifier, true);
+    };
+    // Focus a named item by KEYBOARD TRAVERSAL only (the user path). Returns
+    // the number of presses it took, or -1.
+    auto tabTo = [&](const QString &name, int maxPresses) {
+        for (int i = 1; i <= maxPresses; ++i) {
+            tab(true);
+            if (focusName() == name)
+                return i;
+        }
+        return -1;
+    };
+    auto clickTab = [&itemOf, &clickItemPoint](int tabIndex) {
+        auto *tabs = itemOf(QStringLiteral("diagnosisTabs"));
+        if (!tabs)
+            return false;
+        QQuickItem *tabItem = nullptr;
+        if (!QMetaObject::invokeMethod(tabs, "itemAt",
+                                       Q_RETURN_ARG(QQuickItem *, tabItem),
+                                       Q_ARG(int, tabIndex)))
+            return false;
+        return clickItemPoint(tabItem);
+    };
+    auto selectWorkspace = [&](int index) {
+        return clickNamed(QStringLiteral("navItem_%1").arg(index));
+    };
+    auto anchorFocus = [&]() {
+        // The AppBar button is a real Control: clicking it establishes a
+        // deterministic keyboard-focus anchor for every traversal below.
+        return clickNamed(QStringLiteral("appBarClearResults"));
+    };
+    auto walkTabs = [&](int presses, bool forward, QStringList &chain,
+                        QList<int> &pages) {
+        for (int i = 0; i < presses; ++i) {
+            tab(forward);
+            chain << focusName();
+            pages << pageIndexOf(focusItem());
+        }
+    };
+    auto listIndex = [&itemOf]() {
+        auto *l = itemOf(QStringLiteral("transactionsList"));
+        return l ? l->property("currentIndex").toInt() : -1;
+    };
+    auto listCount = [&itemOf]() {
+        auto *l = itemOf(QStringLiteral("transactionsList"));
+        return l ? l->property("count").toInt() : -1;
+    };
+    auto selectedRow = [&itemOf]() {
+        auto *p = itemOf(QStringLiteral("transactionsPage"));
+        return p ? p->property("selectedRow").toInt() : -1;
+    };
+    auto hasBaseline = [ctrl]() {
+        return ctrl->property("hasBaselineDiagnosis").toBool();
+    };
+    auto agentText = [&itemOf]() {
+        auto *t = itemOf(QStringLiteral("diagnosisAgentQuestion"));
+        return t ? t->property("text").toString() : QStringLiteral("<none>");
+    };
+    auto note = [](const QString &line) { qInfo().noquote() << line; };
+
+    // ---- staged walk (one stage per event-loop turn) ----
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // Stage 0: startup identity + publish the deterministic demo batch so the
+    // list has rows and the Transactions diagnosis cue is exposed.
+    push([&]() {
+        if (railIndex() != 0)
+            fail(QStringLiteral("FOCUSFAIL setup: startup workspace is %1, "
+                                "expected 0").arg(railIndex()));
+        if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+            fail(QStringLiteral("FOCUSFAIL setup: runDemoBatch() not invokable"));
+    });
+    push([&]() {
+        if (ctrl->property("observedCount").toInt() != 4)
+            fail(QStringLiteral("FOCUSFAIL setup: observedCount=%1, expected 4")
+                     .arg(ctrl->property("observedCount").toInt()));
+        note(QStringLiteral("FOCUS [setup]: workspace=Transactions rows=4 "
+                            "hasBaseline=%1")
+                 .arg(hasBaseline() ? 1 : 0));
+    });
+
+    // FA: keyboard-only entry into the evidence table (scope A).
+    push([&]() {
+        selectWorkspace(0);
+        anchorFocus();
+        QStringList chain;
+        QList<int> pages;
+        walkTabs(12, true, chain, pages);
+        const bool reached = chain.contains(QStringLiteral("transactionsList"));
+        note(QStringLiteral("FOCUS [FA]: keyboard-only Tab chain = [%1]")
+                 .arg(chain.join(QStringLiteral(", "))));
+        if (!reached)
+            fail(QStringLiteral("FOCUSFAIL FA: transactionsList is not in the "
+                                "keyboard-only Tab chain"));
+        else if (listIndex() != -1)
+            fail(QStringLiteral("FOCUSFAIL FA: entering the list selected row "
+                                "%1 by itself (select-on-focus)").arg(listIndex()));
+        else
+            note(QStringLiteral("FOCUS [FA] PASS: list reachable by Tab and no "
+                                "select-on-focus (currentIndex=-1)"));
+    });
+
+    // FA2: the entry must be USABLE, not just reachable: with focus in the
+    // list (never clicked), the four keys must drive the same
+    // currentIndex -> selectRow path (this is the acceptance pairing the
+    // manual scenario owns for the mouse path).
+    push([&]() {
+        selectWorkspace(0);
+        // NOTE the anchor is the AppBar session action: clicking it CLEARS the
+        // session results, so the deterministic batch is published AFTER the
+        // anchor is established (a harness ordering rule, not a product one).
+        anchorFocus();
+        if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+            fail(QStringLiteral("FOCUSFAIL FA2: runDemoBatch() not invokable"));
+    });
+    push([&]() {
+        if (listCount() != 4)
+            fail(QStringLiteral("FOCUSFAIL FA2: list count=%1, expected 4")
+                     .arg(listCount()));
+        const int presses = tabTo(QStringLiteral("transactionsList"), 16);
+        if (presses < 0) {
+            fail(QStringLiteral("FOCUSFAIL FA2: list not reachable by Tab"));
+            return;
+        }
+        if (listIndex() != -1)
+            fail(QStringLiteral("FOCUSFAIL FA2: keyboard entry selected row %1 "
+                                "by itself").arg(listIndex()));
+        note(QStringLiteral("FOCUS [FA2]: list focused after %1 Tab presses "
+                            "(never clicked), currentIndex=%2")
+                 .arg(presses).arg(listIndex()));
+        sendKey(Qt::Key_End, Qt::NoModifier, false);
+    });
+    push([&]() {
+        const int count = listCount();
+        if (count != 4)
+            fail(QStringLiteral("FOCUSFAIL FA2: list count=%1, expected 4").arg(count));
+        if (listIndex() != count - 1)
+            fail(QStringLiteral("FOCUSFAIL FA2: End after keyboard entry gave "
+                                "currentIndex=%1, expected %2")
+                     .arg(listIndex()).arg(count - 1));
+        else if (selectedRow() != count - 1)
+            fail(QStringLiteral("FOCUSFAIL FA2: End after keyboard entry did not "
+                                "reach selectRow (selectedRow=%1)").arg(selectedRow()));
+        else
+            note(QStringLiteral("FOCUS [FA2] PASS: End after keyboard entry -> "
+                                "currentIndex=%1 selectedRow=%2")
+                     .arg(listIndex()).arg(selectedRow()));
+        sendKey(Qt::Key_Home, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (listIndex() != 0 || selectedRow() != 0)
+            fail(QStringLiteral("FOCUSFAIL FA2: Home after keyboard entry gave "
+                                "currentIndex=%1 selectedRow=%2")
+                     .arg(listIndex()).arg(selectedRow()));
+        else
+            note(QStringLiteral("FOCUS [FA2] PASS: Home after keyboard entry -> 0/0"));
+    });
+
+    // FB: no hidden-page control inside the current workspace's chain (scope B).
+    for (int ws = 0; ws < 5; ++ws) {
+        push([&, ws]() {
+            selectWorkspace(ws);
+        });
+        push([&, ws]() {
+            if (railIndex() != ws)
+                fail(QStringLiteral("FOCUSFAIL FB: workspace %1 not selected "
+                                    "(index=%2)").arg(ws).arg(railIndex()));
+            anchorFocus();
+            QStringList chain;
+            QList<int> pages;
+            walkTabs(16, true, chain, pages);
+            const QString pageName = pageNames.at(ws);
+            for (int p : pages) {
+                if (p != ws && p != -1)
+                    fail(QStringLiteral("FOCUSFAIL FB: %1 chain reached a "
+                                        "control owned by hidden page %2")
+                             .arg(pageName, pageNames.value(p)));
+            }
+            note(QStringLiteral("FOCUS [FB] %1: 16-press chain visited pages %2")
+                     .arg(pageName, QStringLiteral("[%1]")
+                              .arg([&pages]() {
+                                  QStringList s;
+                                  for (int p : pages)
+                                      s << (p < 0 ? QStringLiteral("-")
+                                                  : QString::number(p));
+                                  return s.join(QStringLiteral(","));
+                              }())));
+        });
+    }
+
+    // FD/FE: rail Enter and Space activation, index-resolved (scope D).
+    for (int keyPass = 0; keyPass < 2; ++keyPass) {
+        const bool enter = (keyPass == 0);
+        for (int k = 1; k <= 5; ++k) {
+            push([&, k, enter]() {
+                selectWorkspace(4);   // start away from every target
+                anchorFocus();
+                for (int j = 1; j <= k; ++j)
+                    tab(true);
+                const int focusedRail = railIndexOf(focusItem());
+                if (focusedRail != k - 1)
+                    fail(QStringLiteral("FOCUSFAIL %1: press %2 focused rail "
+                                        "entry %3, expected %4")
+                             .arg(enter ? QStringLiteral("FD") : QStringLiteral("FE"))
+                             .arg(k).arg(focusedRail).arg(k - 1));
+                const int before = railIndex();
+                sendKey(enter ? Qt::Key_Return : Qt::Key_Space,
+                        Qt::NoModifier, false);
+                const int after = railIndex();
+                if (after != k - 1)
+                    fail(QStringLiteral("FOCUSFAIL %1: %2 on rail entry %3 did "
+                                        "not activate (index %4 -> %5)")
+                             .arg(enter ? QStringLiteral("FD") : QStringLiteral("FE"),
+                                  enter ? QStringLiteral("Enter") : QStringLiteral("Space"))
+                             .arg(k - 1).arg(before).arg(after));
+                else
+                    note(QStringLiteral("FOCUS [%1] PASS: %2 activates rail "
+                                        "entry %3 (index %4 -> %5)")
+                             .arg(enter ? QStringLiteral("FD") : QStringLiteral("FE"),
+                                  enter ? QStringLiteral("Enter") : QStringLiteral("Space"))
+                             .arg(k - 1).arg(before).arg(after));
+            });
+        }
+    }
+
+    // FF: the disabled Device entry stays unreachable and inert.
+    push([&]() {
+        auto *device = itemOf(QStringLiteral("navItem_5"));
+        if (!device) {
+            fail(QStringLiteral("FOCUSFAIL FF: navItem_5 not found"));
+            return;
+        }
+        if (device->property("enabled").toBool())
+            fail(QStringLiteral("FOCUSFAIL FF: Device entry is enabled"));
+        if (device->property("activeFocusOnTab").toBool())
+            fail(QStringLiteral("FOCUSFAIL FF: Device entry is a Tab stop"));
+        selectWorkspace(2);
+        anchorFocus();
+        QStringList chain;
+        QList<int> pages;
+        walkTabs(16, true, chain, pages);
+        for (int i = 0; i < chain.size(); ++i) {
+            if (chain.at(i) == QStringLiteral("navItem_5"))
+                fail(QStringLiteral("FOCUSFAIL FF: Device entry appeared in the "
+                                    "Tab chain at press %1").arg(i + 1));
+        }
+        const int before = railIndex();
+        clickItemPoint(device);
+        if (railIndex() != before)
+            fail(QStringLiteral("FOCUSFAIL FF: clicking Device changed the "
+                                "workspace index %1 -> %2")
+                     .arg(before).arg(railIndex()));
+        else
+            note(QStringLiteral("FOCUS [FF] PASS: Device disabled, not a Tab "
+                                "stop, inert on click (index stays %1)").arg(before));
+    });
+
+    // FC: hidden retained focus (scope C, H1S oracle).
+    push([&]() {
+        if (hasBaseline())
+            fail(QStringLiteral("FOCUSFAIL FC: baseline already ran before the "
+                                "retention scenario"));
+        selectWorkspace(4);
+    });
+    push([&]() {
+        clickTab(0);
+    });
+    push([&]() {
+        const int presses = tabTo(QStringLiteral("diagnosisRunBaselineButton"), 16);
+        if (presses < 0)
+            fail(QStringLiteral("FOCUSFAIL FC: baseline button not reachable by "
+                                "keyboard traversal"));
+        else
+            note(QStringLiteral("FOCUS [FC]: baseline button focused by %1 Tab "
+                                "presses (never clicked)").arg(presses));
+        selectWorkspace(0);   // leave the workspace while it holds focus
+    });
+    push([&]() {
+        const int page = pageIndexOf(focusItem());
+        if (page == 4)
+            fail(QStringLiteral("FOCUSFAIL FC: a control of the hidden Diagnosis "
+                                "workspace still holds activeFocus after leaving"));
+        else
+            note(QStringLiteral("FOCUS [FC]: activeFocus left the hidden page "
+                                "(focus=%1 page=%2)").arg(focusName()).arg(page));
+        sendKey(Qt::Key_Space, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (hasBaseline())
+            fail(QStringLiteral("FOCUSFAIL FC: Space delivered after leaving the "
+                                "workspace executed the hidden baseline run"));
+        else
+            note(QStringLiteral("FOCUS [FC] PASS: hidden control did not execute "
+                                "(hasBaselineDiagnosis stays false)"));
+        // Control: the SAME button must still activate when its page is visible.
+        selectWorkspace(4);
+    });
+    push([&]() {
+        clickTab(0);
+    });
+    push([&]() {
+        if (tabTo(QStringLiteral("diagnosisRunBaselineButton"), 16) < 0)
+            fail(QStringLiteral("FOCUSFAIL FC control: baseline button not "
+                                "reachable when visible"));
+        sendKey(Qt::Key_Space, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (!hasBaseline())
+            fail(QStringLiteral("FOCUSFAIL FC control: Space did NOT activate the "
+                                "baseline button while its workspace was visible "
+                                "(the fix must not break normal activation)"));
+        else
+            note(QStringLiteral("FOCUS [FC] control PASS: visible Space still runs "
+                                "the baseline"));
+        if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+            fail(QStringLiteral("FOCUSFAIL FC: clearResults() not invokable"));
+    });
+
+    // H2: hidden retained focus in a TEXT editor (scope C, H2 oracle).
+    push([&]() {
+        QMetaObject::invokeMethod(ctrl, "runDemoBatch");
+        selectWorkspace(4);
+    });
+    push([&]() {
+        clickTab(2);
+    });
+    push([&]() {
+        const int presses = tabTo(QStringLiteral("diagnosisAgentQuestion"), 16);
+        if (presses < 0)
+            fail(QStringLiteral("FOCUSFAIL H2: Agent question field not reachable "
+                                "by keyboard traversal"));
+        if (!agentText().isEmpty())
+            fail(QStringLiteral("FOCUSFAIL H2: draft is not empty at scenario "
+                                "start: [%1]").arg(agentText()));
+        sendTextKey(Qt::Key_Z, QStringLiteral("z"));   // visible typing still works
+    });
+    push([&]() {
+        if (agentText() != QStringLiteral("z"))
+            fail(QStringLiteral("FOCUSFAIL H2 control: visible typing did not "
+                                "reach the field (text=[%1])").arg(agentText()));
+        else
+            note(QStringLiteral("FOCUS [H2]: visible typing works (text=[z])"));
+        selectWorkspace(0);
+    });
+    push([&]() {
+        if (pageIndexOf(focusItem()) == 4)
+            fail(QStringLiteral("FOCUSFAIL H2: a control of the hidden Diagnosis "
+                                "workspace still holds activeFocus"));
+        const QString before = agentText();
+        sendTextKey(Qt::Key_W, QStringLiteral("w"));
+        sendKey(Qt::Key_Home, Qt::NoModifier, false);
+        sendKey(Qt::Key_End, Qt::NoModifier, false);
+        sendKey(Qt::Key_Up, Qt::NoModifier, false);
+        sendKey(Qt::Key_Down, Qt::NoModifier, false);
+        if (agentText() != before)
+            fail(QStringLiteral("FOCUSFAIL H2: hidden text field consumed keys "
+                                "([%1] -> [%2])").arg(before, agentText()));
+        else
+            note(QStringLiteral("FOCUS [H2] PASS: hidden field consumed nothing "
+                                "(text stays [%1])").arg(before));
+    });
+
+    // FG/FH: Agent TextArea traversal contract (scope H).
+    push([&]() {
+        selectWorkspace(4);
+    });
+    push([&]() {
+        clickTab(2);
+    });
+    push([&]() {
+        if (tabTo(QStringLiteral("diagnosisAgentQuestion"), 16) < 0)
+            fail(QStringLiteral("FOCUSFAIL FG: Agent question field not reachable "
+                                "by keyboard traversal"));
+        auto *field = itemOf(QStringLiteral("diagnosisAgentQuestion"));
+        if (field)
+            field->setProperty("text", QStringLiteral("draft-sentinel"));
+        sendKey(Qt::Key_Tab, Qt::NoModifier, true);
+    });
+    push([&]() {
+        const QString name = focusName();
+        if (name == QStringLiteral("diagnosisAgentQuestion"))
+            fail(QStringLiteral("FOCUSFAIL FG: Tab did not leave the Agent "
+                                "question field"));
+        else if (agentText() != QStringLiteral("draft-sentinel"))
+            fail(QStringLiteral("FOCUSFAIL FG: Tab mutated the draft ([%1])")
+                     .arg(agentText()));
+        else
+            note(QStringLiteral("FOCUS [FG] PASS: Tab left the field (now %1) "
+                                "and the draft is unchanged").arg(name));
+        if (tabTo(QStringLiteral("diagnosisAgentQuestion"), 16) < 0)
+            fail(QStringLiteral("FOCUSFAIL FH: field not re-reachable for the "
+                                "backward check"));
+        sendKey(Qt::Key_Backtab, Qt::ShiftModifier, true);
+    });
+    push([&]() {
+        const QString name = focusName();
+        if (name == QStringLiteral("diagnosisAgentQuestion"))
+            fail(QStringLiteral("FOCUSFAIL FH: Shift+Tab did not leave the Agent "
+                                "question field"));
+        else if (agentText() != QStringLiteral("draft-sentinel"))
+            fail(QStringLiteral("FOCUSFAIL FH: Shift+Tab mutated the draft ([%1])")
+                     .arg(agentText()));
+        else
+            note(QStringLiteral("FOCUS [FH] PASS: Shift+Tab left the field (now "
+                                "%1) and the draft is unchanged").arg(name));
+        if (auto *field = itemOf(QStringLiteral("diagnosisAgentQuestion")))
+            field->setProperty("text", QString());
+    });
+
+    // FI: the four-key navigation contract inside the list (scope A regression).
+    push([&]() {
+        selectWorkspace(0);
+        if (!QMetaObject::invokeMethod(ctrl, "runDemoBatch"))
+            fail(QStringLiteral("FOCUSFAIL FI: runDemoBatch() not invokable"));
+    });
+    push([&]() {
+        auto *list = itemOf(QStringLiteral("transactionsList"));
+        bool rowClicked = false;
+        for (int attempt = 0; attempt < 4 && !rowClicked; ++attempt) {
+            QQuickItem *row = nullptr;
+            if (list) {
+                QMetaObject::invokeMethod(list, "itemAtIndex",
+                                          Q_RETURN_ARG(QQuickItem *, row),
+                                          Q_ARG(int, 0));
+            }
+            if (row && row->isVisible() && clickItemPoint(row)
+                && selectedRow() == 0)
+                rowClicked = true;
+            else
+                QCoreApplication::processEvents();
+        }
+        if (!rowClicked)
+            fail(QStringLiteral("FOCUSFAIL FI: the row-0 click could not be "
+                                "delivered (delegate never materialized)"));
+    });
+    push([&]() {
+        const int count = listCount();
+        if (count != 4)
+            fail(QStringLiteral("FOCUSFAIL FI: list count=%1, expected 4").arg(count));
+        if (pageIndexOf(focusItem()) != 0)
+            fail(QStringLiteral("FOCUSFAIL FI: the row click did not leave focus "
+                                "in the Transactions workspace (focus=%1)")
+                     .arg(focusName()));
+        else
+            note(QStringLiteral("FOCUS [FI]: row click focused the list path "
+                                "(focus=%1 currentIndex=%2 selectedRow=%3)")
+                     .arg(focusName()).arg(listIndex()).arg(selectedRow()));
+        sendKey(Qt::Key_End, Qt::NoModifier, false);
+    });
+    push([&]() {
+        const int count = listCount();
+        if (listIndex() != count - 1)
+            fail(QStringLiteral("FOCUSFAIL FI: End gave currentIndex=%1, "
+                                "expected %2").arg(listIndex()).arg(count - 1));
+        else if (selectedRow() != count - 1)
+            fail(QStringLiteral("FOCUSFAIL FI: End did not reach selectRow "
+                                "(selectedRow=%1)").arg(selectedRow()));
+        else
+            note(QStringLiteral("FOCUS [FI]: End -> currentIndex=%1 selectedRow=%2")
+                     .arg(listIndex()).arg(selectedRow()));
+        sendKey(Qt::Key_Home, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (listIndex() != 0 || selectedRow() != 0)
+            fail(QStringLiteral("FOCUSFAIL FI: Home gave currentIndex=%1 "
+                                "selectedRow=%2, expected 0/0")
+                     .arg(listIndex()).arg(selectedRow()));
+        else
+            note(QStringLiteral("FOCUS [FI]: Home -> currentIndex=0 selectedRow=0"));
+        sendKey(Qt::Key_Down, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (listIndex() != 1)
+            fail(QStringLiteral("FOCUSFAIL FI: Down gave currentIndex=%1, "
+                                "expected 1").arg(listIndex()));
+        sendKey(Qt::Key_Up, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (listIndex() != 0)
+            fail(QStringLiteral("FOCUSFAIL FI: Up gave currentIndex=%1, "
+                                "expected 0").arg(listIndex()));
+        else
+            note(QStringLiteral("FOCUS [FI] PASS: Up/Down/Home/End all drive the "
+                                "existing currentIndex -> selectRow path"));
+    });
+
+    auto step = std::make_shared<int>(0);
+    const int settleMs = 120;
+    auto schedule = std::make_shared<std::function<void()>>();
+    *schedule = [&, step, schedule]() {
+        if (*step >= steps->size()) {
+            if (failures->isEmpty())
+                qInfo() << "FOCUS CHECK PASS (FA transactions entry; FB hidden "
+                           "page exclusion x5; FC hidden retention + visible "
+                           "control; FD/FE rail Enter/Space x5; FF Device "
+                           "disabled; FG/FH Agent TextArea traversal; FI list "
+                           "four-key regression)";
+            else
+                for (const QString &f : *failures)
+                    qWarning().noquote() << "FOCUSFAIL:" << f;
+            app.exit(failures->isEmpty() ? 0 : 1);
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
+// ---------------------------------------------------------------------------
 // M9-B4.4 `--qml-evidence-capture <dir>`: produces the manual-review
 // screenshot set from the CURRENT binary (deployed or build-tree) so every
 // PNG provably comes from the candidate that passed the automated gates.
@@ -5718,6 +6359,13 @@ int main(int argc, char *argv[])
     // "navigation changes no business state" invariant.
     if (app.arguments().contains(QStringLiteral("--qml-nav-check"))) {
         return runNavCheck(engine, app);
+    }
+
+    // Focus / keyboard-traversal guard (M9-F F1): the shell's focus
+    // contract (workspace gating, rail activation + accessible identity,
+    // Transactions list entry, Agent TextArea traversal).
+    if (app.arguments().contains(QStringLiteral("--qml-focus-check"))) {
+        return runFocusCheck(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.
