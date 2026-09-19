@@ -595,3 +595,11 @@
 - **Q：为什么要新建 `--qml-focus-check` 而不是扩展 `--qml-nav-check`？** A：nav check 已经是 165 个 stage 的业务场景演练，把 focus 断言塞进去会让 A–T 的历史含义模糊；而且 focus 契约有自己的独立受控面（workspace 门控 / rail 激活 / 列表入口 / TextArea 遍历）。新模式仍然遵守同一套 test-mode 架构（真实 app 加载自己的 QML、合成事件 seam、非零退出即失败），并且被 ctest 登记为 `qml_focus_check`，这样它和其它 26 项一样是每次构建都会跑的回归。
 - **Q：F1 为什么不能推进 LKGC？** A：因为 LKGC 的定义是“最后一个**行为相关且完整树通过所有门禁 + 人工验收**”的提交。F1 改了焦点/隐藏页可交互行为，自动化门禁全绿，但**“焦点看得见吗”这一项只能由人看截图确认**（Focus Visual Review = WAITING FOR USER）。在人工 PASS 之前把 LKGC 推到 F1，会让 LKGC 不再代表“已验收”。
 - **Q：这轮最有价值的一个技术结论是什么？** A：**“不可见”与“不可用”在 Qt Quick 里是两件事**：不可见的项会被 focus traversal 跳过（所以不会被 Tab “进入”），但**已经持有 activeFocus 的项在变不可见后仍然收键**。原因是两条不同的代码路径：前者是 `canAcceptTabFocus`（检查 enabled/visible），后者是 focus 释放机制（仅在 disable 时清除，不在 invisible 时）。这一条直接决定了修复方案：在页面根上用 `enabled` 而不是靠 visible 去“自然”解决问题。
+
+## 63. Post-T021 M9-F F1 Correction 条目（2026-09-19 追加）
+
+- **Q：为什么“标准 Control”不能自动等于“有可见焦点”？** A：因为样式的焦点指示只在它的 background 没被替换时才存在。AppButton 和 commPortCombo 都用自定义 background 替换了样式层——一旦替换，样式里绑定 activeFocus/visualFocus 的矩形就不再被实例化，焦点视觉随之消失。所以我用**像素差分**实测而不是读样式源码下结论：AppButton/commPortCombo/TabButton 在聚焦前后 **0 像素变化**，而 SpinBox（保留 Fusion background）有 456 个采样点变化。同一个样式，不同的 background 选择，结果完全不同。
+- **Q：为什么“没有 focus cue”必须是 P1，不能是 P2？** A：因为 P2 在我们的分类里是“optional polish”，而键盘焦点可见性不是打磨——一个看不见焦点的可交互控件，对键盘用户来说相当于不存在。把它标 P2 等于用分类学把缺陷藏起来。这次修正不只是改标签：四个 P1 都实际修了，并且都有修复前后的像素证据（0→324/274/806/2457）。
+- **Q：为什么 TextArea 的编辑键验收不能只断言“handler 没处理”？** A：因为“handler 不处理”是实现细节，用户关心的是结果：光标到底动了没动、文本被不被改写、有没有意外触发别的控件。FL 用多行草稿（abc、换行、def）把每个键的期望光标位置写成精确断言（Left 4→3、End 4→7、Up 4→0、Down 1→5…），并同时断言 text 不变和 workspace 不变。这才是行为级的回归保护。
+- **Q：ListView 的焦点环为什么要绑定两个条件？** A：因为 QQuickItemView 在键盘导航开始后会把 active focus 交给当前行的 delegate（M9-D D6 的发现）。只绑定 list.activeFocus 的话，用户按下第一个方向键的那一刻环就会消失——恰恰是用户最需要看见焦点的时候。所以“list.activeFocus ∥ currentItem.activeFocus”才是“焦点在 list 里”的完整定义。
+- **Q：这轮探针又折腾了一回，学到了什么？** A：四个都是“探针状态与被测状态的耦合”问题：①在页面隐藏时预取的 UIA 元素句柄 rect 会失效——先导航后解析；②用 rect 匹配焦点落点对嵌套 input（SpinBox）失效——改用“焦点中心点落在目标 rect 内”；③锚点点击带来的是 MouseFocusReason，visualFocus 为 false——必须用键盘遍历到达；④固定按键次数不验证落点会醉成别的停点——walk-and-verify。每一条都是“测量工具必须先证明自己看到的就是被测对象”的具体化。

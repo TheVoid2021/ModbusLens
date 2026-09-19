@@ -385,6 +385,30 @@ Item {
                                 }
                             }
                         }
+
+                        // M9-F F1 correction (P1, focus visibility): measured
+                        // rendering of the keyboard-focused list was a
+                        // zero-pixel diff — the row selection highlight was
+                        // the only visual, and it is a BUSINESS state (which
+                        // row is selected), not a focus state. This overlay is
+                        // the list's own keyboard-focus channel: an inset
+                        // border that costs no layout space and does not touch
+                        // row geometry, selection colors, the detail logic or
+                        // the list dimensions. The view hands active focus to
+                        // the current row once keyboard navigation starts
+                        // (M9-D D6), so either holder counts as "the list has
+                        // focus".
+                        Rectangle {
+                            objectName: "transactionsListFocusRing"
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            color: "transparent"
+                            border.color: DS.primary
+                            border.width: 2
+                            visible: transactionList.activeFocus
+                                     || (transactionList.currentItem !== null
+                                         && transactionList.currentItem.activeFocus)
+                        }
                     }
 
                 Label {

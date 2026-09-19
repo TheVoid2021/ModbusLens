@@ -1277,3 +1277,140 @@ F1 = behavior-bearing（QML focus/accessibility 行为 + harness 新增），**�
 未做：UI 重新设计 / IA / version·icon·package / WCAG certification / screen-reader 完整工作 /
       StatisticsOverview 清理 / installer·signing·publication / F2。
 ```
+
+## F1 Review = HOLD（focus visibility 契约冲突 + TextArea edit-key 证据缺口）→ Correction（2026-09-19，append-only，behavior-bearing）
+
+> **F1 主体 A–H 的功能/无障碍修复不被推翻、不重新设计**：A（ListView 键盘入口）/ B·C（页面级 focus gating）/ D（rail Enter/Space）/ E/F（rail name·role·Invoke）/ G 机制（rail 焦点描边）/ H（TextArea Tab·Backtab 遍历）/ geometry / version·icon·package 全部**保持已接受**。
+> HOLD 的两个 blocker：
+> ①**focus-visibility**：对部分 Tab-reachable controls，键盘焦点**没有可感知指示**，而 F1 报告把它们错分类为 P2/DEFER —— 冻结规则是「任何 Tab-reachable actionable control 获得键盘焦点后必须有可感知的 focus indication，不能靠 selected/hover/pressed/value 反推」，这是 basic keyboard accessibility，**不是 optional polish**；
+> ②**TextArea edit-key regression 只有 source-level 推断，缺 runtime proof**。
+> **保留结论**：B/D 的 F0 RED 属 probe/oracle defect（非 confirmed product defect）；B 机制主要服务于 C 与 focus isolation，D 在 rail refactor 后是 regression-protected contract。
+> verified LKGC 保持 `4cb6e9d`。
+
+### FH0. Focus-visibility contract（re-freeze，最终规则）
+
+```text
+任何 Tab-reachable actionable control 获得键盘焦点后，
+用户必须有可感知的 focus indication。
+不能只依赖 selected / hover / pressed / current value 去猜当前键盘焦点。
+分类域收紧：focus cue 缺失 = P1（不再允许 P2/DEFER 表示「完全没有 focus cue」）。
+UIA read latency 等继续是 tooling note，不是 product P1。
+```
+
+### FH1. Focused-control inventory（§4–§9，在 F1 candidate 上逐类型实测）
+
+方法：真实 Tab 走链（UIA rect/point 验证落点）→ 未聚焦/聚焦两次截取控件矩形 → **像素差分**
+（changedSamples = 采样差>0；strongSamples = 差≥24；0 = 渲染完全不变）。判据只允许 PASS / P1。
+
+| 类型 | 控件（实测对象） | Tab reachable | activeFocus | 改动前像素差 | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| A. AppButton（共享包装器） | dashboardRunDemo（primary tone） | ✔ | ✔ | **changed=0 / strong=0** | **P1**（自定义 background 完全不读 focus ⇒ 证明性无 cue；旧注释宣称的 "platform outline" 从未渲染） |
+| B. ComboBox | commPortCombo（自定义 background） | ✔ | ✔ | **changed=0 / strong=0** | **P1**（自定义 background 覆盖了 Fusion 的 activeFocus ring ⇒ 零渲染变化） |
+| C. SpinBox | commSlaveSpin（Fusion 默认） | ✔ | ✔ | changed=456 / strong=275 / maxΔ=109 | **PASS**（Fusion highlighted outline，zero source diff） |
+| D. TabButton | 基线诊断 tab（自定义 background） | ✔ | ✔ | **changed=0 / strong=0** | **P1**（background 只读 `checked`，从不读 focus） |
+| E. TextArea | diagnosisAgentQuestion（Agent pane） | ✔ | ✔ | changed=1913 / strong=1252 / maxΔ=144 | **PASS**（caret + placeholder 消失 = 文本编辑器的标准焦点通道；不因是文本编辑器自动豁免——是有实测渲染差才 PASS） |
+| F. Transactions ListView | transactionsList | ✔（F1-A 修复后） | ✔ | **单步差分中 list 区域贡献 0 像素**（165 全部来自 rail ring 离开） | **P1**（行选中是业务状态，不能当 list 的焦点指示） |
+| G. NavigationRail AbstractButton | navItem_1 | ✔ | ✔ | changed=165 / strong=165 / maxΔ=208 | **PASS**（F1 的 visualFocus 描边；保留，截图为 candidate evidence，最终由用户 Manual Review） |
+| （对照组）Fusion plain Button | diagnosisRunBaselineButton | ✔ | ✔ | 边框 (200,200,200) → **(91,129,173)** | **PASS**（平台样式自有高亮描边） |
+
+```text
+新确认 P1（F1 期间发现，按本轮规则从 P2/DEFER 纠正为 P1）：
+  P1-4  AppButton 无键盘焦点指示（影响全部 AppButton 实例）
+  P1-5  ComboBox 无键盘焦点指示（commPortCombo 自定义 background；commBaudCombo 同规则处理）
+  P1-6  TabButton 无键盘焦点指示（3 个诊断 tab）
+  P1-7  Transactions ListView 无独立焦点指示
+（UIA ValuePattern 读取滞后维持 tooling note；其余真正 optional 的观察才继续 P2。）
+```
+
+### FH2. Minimal correction（§5–§10：只修实际受影响类型，不铺全局重设计）
+
+```text
+AppButton.qml        border 即焦点通道：visualFocus ⇒ border.width 2 + 主色 secondary=DS.primary /
+                     primary=DS.background（蓝底上蓝边会消失）；未聚焦渲染零改动。
+TransactionsPage.qml 新增 transactionsListFocusRing（内缩 2px outline，DS.primary）：
+                     visible = list.activeFocus || currentItem.activeFocus
+                     （M9-D D6：view 会把 active focus 交给当前行，所以两种持有者都算「list 持焦」）；
+                     不占布局、不触碰行几何/选中配色/detail 逻辑/list 尺寸。
+CommunicationPage.qml commPortCombo + commBaudCombo 各加内缩 outline（objectName 供 FK 断言）：
+                     未聚焦渲染零改动；不重做 DesignSystem、不改 Fusion。
+DiagnosisPage.qml    3 个 TabButton 的 background border 加入 visualFocus 分支
+                     （focus 边框优先于 selected 边框 ⇒ 两态可区分）；未聚焦零改动。
+rail                 现有 visualFocus 描边**保留不动**（本轮未触碰 NavigationRail.qml）。
+```
+
+### FH3. TextArea runtime edit-key proof（§11/§12）
+
+```text
+新增 FL（qml_focus_check 内，deterministic offline Agent state）：
+  草稿 = "abc\ndef"（多行），cursorPosition 显式定位后逐键注入并断言实际结果：
+  Left  : 4 → 3；Right : 3 → 4；Home : 5 → 4；End : 4 → 7；Up : 4 → 0；Down : 1 → 5
+  每键同时断言：text 内容不变（草稿不被导航键改写）、workspace index 不变（不切页）、
+  hasBaselineDiagnosis 不变（不触发其它控件）。
+  ⇒ 不再是「handler 没处理这些键」的推断，而是 cursor/text/workspace 的实测结果。
+FG/FH 重跑：Tab/Shift+Tab 逃脱 + draft 不变 —— 依旧 PASS（新 edit-key 测试未破坏遍历契约）。
+```
+
+### FH4. Automated focus protection（§13：qml_focus_check 扩展）
+
+```text
+FJ  ListView 焦点环机器证明：keyboard 聚焦 list ⇒ transactionsListFocusRing.visible==true；
+    Tab 离开 ⇒ visible==false（indicator property/state 级断言；"好不好看"留给人工）。
+FK  逐类型 focus indication 状态断言：
+    AppButton（secondary）visualFocus=true 且 background.border.width 2/1 随焦切换（前向遍历 +
+    指针同一性定位——修掉了"锚点点击是 MouseFocusReason、Shift+Tab 又走错方向"的探针缺陷）；
+    AppButton（primary）同上；ComboBox activeFocus=true ⇔ commPortComboFocusRing.visible；
+    SpinBox activeFocus=true（style-owned indication，zero source diff）；
+    TabButton visualFocus=true 且 background.border.width=2。
+FL  见 FH3。
+```
+
+### FH5. Post-fix pixel re-measurement（同一 oracle）
+
+| 类型 | 改动前 | 改动后 |
+| --- | --- | --- |
+| AppButton（primary） | strong=0 | **strong=324 / maxΔ=208** |
+| ComboBox（commPortCombo） | strong=0 | **strong=274 / maxΔ=208** |
+| TabButton（基线诊断） | strong=0 | **strong=806 / maxΔ=208** |
+| ListView（单步差分） | strong=165（全部来自 rail ring 离开） | **strong=2457**（含新 list ring） |
+| SpinBox / TextArea / rail（未触碰） | 456 / 1913 / 165 | 456 / 1913 / 165（不变，zero diff 确认） |
+
+### FH6. 回归与门禁
+
+```text
+qml_focus_check：FOCUS CHECK PASS（FA/FJ/FB×5/FC/FD·FE×5/FF/FK/FL/FG/FH/FI）
+qml_smoke：SMOKE IDENTITY PASS（2.0.0 + icon 6 尺寸）
+qml_nav：NAV CHECK PASS（A–T，M DEFERRED，语义不变）
+qml_geometry：18 printed segments / 0 GEOFAIL / rail 宽度恒 56（焦点指示全部内缩，无尺寸变化）
+ctest：Debug **27/27** + Release **27/27**（qml_focus_check 注册不变，仅场景扩展）
+Release：configure/build + ctest + qml_focus_check 全 PASS（完整 ZIP 仍留 F2，未重新打包）
+业务冻结：rail 激活只改 presentation index；FL 明确断言编辑键不切 workspace、不触发其它控件
+```
+
+### FH7. Final visual evidence（§14/§15）
+
+```text
+docs/assets/screenshots/m9f-f1-rail-keyboard-focus-vs-selected-1024x720.png   （选中=事务 / 键盘焦点=总览）
+docs/assets/screenshots/m9f-f1-transactions-list-keyboard-entry-1024x720.png  （list 焦点环 + 行选中 + detail，两态可区分）
+docs/assets/screenshots/m9f-f1-standard-control-focus-comparison-1024x720.png （keyboard-focused ComboBox 带环）
+docs/assets/screenshots/m9f-f1-appbutton-keyboard-focus-1024x720.png          （primary-tone AppButton 亮色焦点描边）
+125% DPI（物理 1280×900＝逻辑 1024×720）。截图只证明 candidate rendering/integrity；
+**Focus Visual Review = WAITING FOR USER** —— 不得 ZCode 自标 PASS。
+```
+
+### FH8. Problems / RCA（本轮新增）
+
+```text
+P5 探针/元素句柄在页面隐藏时预取 ⇒ rect 失效（inventory 首轮大面积 NOT REACHED/NOT FOUND）；
+   Fix = 导航验证后再解析元素；P6 探针/焦点落点用 rect 匹配对 SpinBox 内层 input 失配 ⇒ 改 point-in-rect；
+   P7 探针/锚点点击是 MouseFocusReason 且 Shift+Tab 方向错误 ⇒ FK 改前向遍历 + 指针同一性；
+   P8 探针/截图脚本的固定两连 Tab 未验证落点 ⇒ 改为 walk-and-verify。
+   全部为工具缺陷，不记产品缺陷。
+```
+
+### FH9. Git / 边界
+
+```text
+本轮 = behavior-bearing F1 correction（QML focus rendering + harness 场景扩展）。
+未 amend 736d957；未 rebase；未 push；未创建 v2.0.0 tag；verified LKGC 保持 4cb6e9d；
+未开始 F2；未重新打包；未触碰 Controller/Core/业务模型/打包脚本/version·icon 资产/samples。
+```

@@ -4888,6 +4888,25 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         return t ? t->property("text").toString() : QStringLiteral("<none>");
     };
     auto note = [](const QString &line) { qInfo().noquote() << line; };
+    // M9-F F1 correction: the border group of a control's custom background
+    // (Rectangle.border -> QQuickPen) is the machine-visible focus state for
+    // controls whose focus indication IS the border (AppButton / TabButton).
+    auto backgroundBorderWidth = [](QQuickItem *control) -> double {
+        if (!control)
+            return -1;
+        QObject *background =
+            control->property("background").value<QObject *>();
+        if (!background)
+            return -1;
+        QObject *border =
+            background->property("border").value<QObject *>();
+        if (!border)
+            return -1;
+        return border->property("width").toDouble();
+    };
+    auto propBool = [](QQuickItem *item, const char *name) -> bool {
+        return item ? item->property(name).toBool() : false;
+    };
 
     // ---- staged walk (one stage per event-loop turn) ----
     auto steps = std::make_shared<QList<std::function<void()>>>();
@@ -4930,6 +4949,182 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         else
             note(QStringLiteral("FOCUS [FA] PASS: list reachable by Tab and no "
                                 "select-on-focus (currentIndex=-1)"));
+    });
+
+    // FJ: the list's keyboard-focus indication is machine-visible (the ring
+    // object exists, binds to the focus state, and turns off when focus
+    // leaves). Whether it LOOKS right stays with the manual review.
+    push([&]() {
+        selectWorkspace(0);
+        anchorFocus();
+        const int presses = tabTo(QStringLiteral("transactionsList"), 16);
+        if (presses < 0) {
+            fail(QStringLiteral("FOCUSFAIL FJ: list not reachable by Tab"));
+            return;
+        }
+        auto *ring = itemOf(QStringLiteral("transactionsListFocusRing"));
+        if (!ring) {
+            fail(QStringLiteral("FOCUSFAIL FJ: transactionsListFocusRing not "
+                                "found"));
+            return;
+        }
+        if (!propBool(ring, "visible"))
+            fail(QStringLiteral("FOCUSFAIL FJ: focus ring not visible while the "
+                                "list holds keyboard focus"));
+        else
+            note(QStringLiteral("FOCUS [FJ] PASS: list ring visible while the "
+                                "list is keyboard-focused"));
+        tab(true);
+    });
+    push([&]() {
+        auto *ring = itemOf(QStringLiteral("transactionsListFocusRing"));
+        if (ring && propBool(ring, "visible"))
+            fail(QStringLiteral("FOCUSFAIL FJ: focus ring still visible after "
+                                "focus left the list"));
+        else
+            note(QStringLiteral("FOCUS [FJ] PASS: ring off after focus leaves "
+                                "the list (focus=%1)").arg(focusName()));
+    });
+
+    // FK: per-type keyboard-focus indication, machine level (activeFocus/
+    // visualFocus -> indicator property/state).
+    push([&]() {
+        // AppButton, secondary tone (AppBar Clear Results)
+        selectWorkspace(0);
+        anchorFocus();
+        auto *clear = itemOf(QStringLiteral("appBarClearResults"));
+        if (!clear) {
+            fail(QStringLiteral("FOCUSFAIL FK: appBarClearResults not found"));
+            return;
+        }
+        // the anchor click carries a MOUSE focus reason (visualFocus=false by
+        // design), so reach the button by FORWARD traversal and prove it is
+        // the focused item by pointer identity before reading the border
+        bool onButton = false;
+        for (int i = 1; i <= 8 && !onButton; ++i) {
+            tab(true);
+            onButton = (focusItem() == clear);
+        }
+        const double wFocused = backgroundBorderWidth(clear);
+        if (!onButton)
+            fail(QStringLiteral("FOCUSFAIL FK: forward traversal never reached "
+                                "appBarClearResults"));
+        else if (!propBool(clear, "visualFocus") || wFocused != 2.0)
+            fail(QStringLiteral("FOCUSFAIL FK: AppButton focused border width=%1 "
+                                "visualFocus=%2 (expected 2/true)")
+                     .arg(wFocused)
+                     .arg(propBool(clear, "visualFocus") ? 1 : 0));
+        else
+            note(QStringLiteral("FOCUS [FK] PASS: AppButton (secondary) focused "
+                                "border width=2 (visualFocus=true)"));
+        tab(true);
+    });
+    push([&]() {
+        auto *clear = itemOf(QStringLiteral("appBarClearResults"));
+        const double w = backgroundBorderWidth(clear);
+        if (w != 1.0 || propBool(clear, "visualFocus"))
+            fail(QStringLiteral("FOCUSFAIL FK: AppButton after focus moved on: "
+                                "width=%1 visualFocus=%2 (expected 1/false)")
+                     .arg(w)
+                     .arg(propBool(clear, "visualFocus") ? 1 : 0));
+        else
+            note(QStringLiteral("FOCUS [FK] PASS: AppButton unfocused border "
+                                "width=1"));
+        // AppButton, primary tone (Dashboard Run Demo)
+        selectWorkspace(1);
+    });
+    push([&]() {
+        const int presses = tabTo(QStringLiteral("dashboardRunDemo"), 16);
+        if (presses < 0) {
+            fail(QStringLiteral("FOCUSFAIL FK: dashboardRunDemo not reachable"));
+            return;
+        }
+        auto *primary = itemOf(QStringLiteral("dashboardRunDemo"));
+        const double w = backgroundBorderWidth(primary);
+        if (!propBool(primary, "visualFocus") || w != 2.0)
+            fail(QStringLiteral("FOCUSFAIL FK: primary-tone AppButton focused "
+                                "border width=%1 (expected 2)").arg(w));
+        else
+            note(QStringLiteral("FOCUS [FK] PASS: AppButton (primary) focused "
+                                "border width=2 (light contrast border)"));
+        // ComboBox: the ring binds to the control's activeFocus
+        selectWorkspace(2);
+    });
+    push([&]() {
+        const int presses = tabTo(QStringLiteral("commPortCombo"), 16);
+        if (presses < 0) {
+            fail(QStringLiteral("FOCUSFAIL FK: commPortCombo not reachable"));
+            return;
+        }
+        auto *ring = itemOf(QStringLiteral("commPortComboFocusRing"));
+        auto *combo = itemOf(QStringLiteral("commPortCombo"));
+        if (!ring || !propBool(ring, "visible")
+            || !propBool(combo, "activeFocus"))
+            fail(QStringLiteral("FOCUSFAIL FK: ComboBox focus ring visible=%1 "
+                                "activeFocus=%2")
+                     .arg(ring && propBool(ring, "visible") ? 1 : 0)
+                     .arg(propBool(combo, "activeFocus") ? 1 : 0));
+        else
+            note(QStringLiteral("FOCUS [FK] PASS: ComboBox ring visible while "
+                                "focused (activeFocus=true)"));
+        tab(true);
+    });
+    push([&]() {
+        auto *ring = itemOf(QStringLiteral("commPortComboFocusRing"));
+        if (ring && propBool(ring, "visible"))
+            fail(QStringLiteral("FOCUSFAIL FK: ComboBox ring still visible after "
+                                "focus moved on"));
+        else
+            note(QStringLiteral("FOCUS [FK] PASS: ComboBox ring off after focus "
+                                "moved on"));
+        // SpinBox: the STYLE draws the indication; the machine asserts the
+        // focus state that drives it (zero source diff on this type).
+        selectWorkspace(2);
+        anchorFocus();
+    });
+    push([&]() {
+        bool reached = false;
+        for (int i = 1; i <= 16 && !reached; ++i) {
+            tab(true);
+            auto *spin = itemOf(QStringLiteral("commSlaveSpin"));
+            if (spin && propBool(spin, "activeFocus"))
+                reached = true;
+        }
+        if (!reached)
+            fail(QStringLiteral("FOCUSFAIL FK: SpinBox never reported "
+                                "activeFocus during the walk"));
+        else
+            note(QStringLiteral("FOCUS [FK] PASS: SpinBox activeFocus=true "
+                                "(style-owned indication, zero source diff)"));
+        // TabButton: border is the channel (custom background)
+        selectWorkspace(4);
+    });
+    push([&]() {
+        auto *tabs = itemOf(QStringLiteral("diagnosisTabs"));
+        QQuickItem *tabItem = nullptr;
+        if (!tabs || !QMetaObject::invokeMethod(tabs, "itemAt",
+                                                Q_RETURN_ARG(QQuickItem *, tabItem),
+                                                Q_ARG(int, 0))
+            || !tabItem) {
+            fail(QStringLiteral("FOCUSFAIL FK: diagnosis tab item not found"));
+            return;
+        }
+        // Walk the traversal until itemAt(0) itself reports keyboard focus
+        // (its objectName is empty, so the walk checks the visualFocus state
+        // on the item, not a name).
+        bool ok = propBool(tabItem, "visualFocus");
+        for (int i = 1; i <= 16 && !ok; ++i) {
+            tab(true);
+            ok = propBool(tabItem, "visualFocus");
+        }
+        const double w = backgroundBorderWidth(tabItem);
+        if (!ok || w != 2.0)
+            fail(QStringLiteral("FOCUSFAIL FK: TabButton focused border width=%1 "
+                                "visualFocus=%2 (expected 2/true)")
+                     .arg(w).arg(ok ? 1 : 0));
+        else
+            note(QStringLiteral("FOCUS [FK] PASS: TabButton focused border "
+                                "width=2"));
     });
 
     // FA2: the entry must be USABLE, not just reachable: with focus in the
@@ -5192,6 +5387,63 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                 "(text stays [%1])").arg(before));
     });
 
+    // FL: the Agent TextArea's EDIT keys keep their text semantics with a
+    // real multi-line draft — measured cursor motion and unchanged content,
+    // not "no handler claimed the key".
+    push([&]() {
+        selectWorkspace(4);
+    });
+    push([&]() {
+        clickTab(2);
+    });
+    push([&]() {
+        if (tabTo(QStringLiteral("diagnosisAgentQuestion"), 16) < 0) {
+            fail(QStringLiteral("FOCUSFAIL FL: Agent question field not "
+                                "reachable"));
+            return;
+        }
+        auto *field = itemOf(QStringLiteral("diagnosisAgentQuestion"));
+        if (!field)
+            return;
+        field->setProperty("text", QStringLiteral("abc\ndef"));
+        field->setProperty("cursorPosition", 4);   // start of line 2
+        if (field->property("text").toString() != QStringLiteral("abc\ndef"))
+            fail(QStringLiteral("FOCUSFAIL FL: draft setup failed"));
+    });
+    push([&]() {
+        auto *field = itemOf(QStringLiteral("diagnosisAgentQuestion"));
+        const QString draft = QStringLiteral("abc\ndef");
+        struct Step { Qt::Key key; int from; int to; const char *name; };
+        const Step steps[] = {
+            { Qt::Key_Left,  4, 3, "Left"  },
+            { Qt::Key_Right, 3, 4, "Right" },
+            { Qt::Key_Home,  5, 4, "Home"  },
+            { Qt::Key_End,   4, 7, "End"   },
+            { Qt::Key_Up,    4, 0, "Up"    },
+            { Qt::Key_Down,  1, 5, "Down"  },
+        };
+        for (const Step &st : steps) {
+            field->setProperty("cursorPosition", st.from);
+            sendKey(st.key, Qt::NoModifier, false);
+            const int cursor = field->property("cursorPosition").toInt();
+            const QString text = field->property("text").toString();
+            if (cursor != st.to)
+                fail(QStringLiteral("FOCUSFAIL FL: %1 moved the cursor %2 -> %3 "
+                                    "(expected %4)")
+                         .arg(st.name).arg(st.from).arg(cursor).arg(st.to));
+            else if (text != draft)
+                fail(QStringLiteral("FOCUSFAIL FL: %1 mutated the draft ([%2])")
+                         .arg(st.name, text));
+            else if (railIndex() != 4)
+                fail(QStringLiteral("FOCUSFAIL FL: %1 changed the workspace "
+                                    "(index=%2)").arg(st.name).arg(railIndex()));
+            else
+                note(QStringLiteral("FOCUS [FL] PASS: %1 cursor %2 -> %3, draft "
+                                    "unchanged, workspace unchanged")
+                         .arg(st.name).arg(st.from).arg(cursor));
+        }
+    });
+
     // FG/FH: Agent TextArea traversal contract (scope H).
     push([&]() {
         selectWorkspace(4);
@@ -5322,10 +5574,12 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     *schedule = [&, step, schedule]() {
         if (*step >= steps->size()) {
             if (failures->isEmpty())
-                qInfo() << "FOCUS CHECK PASS (FA transactions entry; FB hidden "
-                           "page exclusion x5; FC hidden retention + visible "
-                           "control; FD/FE rail Enter/Space x5; FF Device "
-                           "disabled; FG/FH Agent TextArea traversal; FI list "
+                qInfo() << "FOCUS CHECK PASS (FA transactions entry; FJ list "
+                           "focus ring on/off; FB hidden page exclusion x5; FC "
+                           "hidden retention + visible control; FD/FE rail "
+                           "Enter/Space x5; FF Device disabled; FK per-type "
+                           "focus indication; FL TextArea Left/Right/Home/End/"
+                           "Up/Down; FG/FH Agent TextArea traversal; FI list "
                            "four-key regression)";
             else
                 for (const QString &f : *failures)

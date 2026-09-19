@@ -85,6 +85,21 @@ Item {
                             color: DS.textPrimary
                             elide: Text.ElideRight
                         }
+                        // M9-F F1 correction (P1, focus visibility): the custom
+                        // background replaced the style's own (and this
+                        // palette's) focus indication, measured as a
+                        // zero-pixel diff between unfocused and keyboard-
+                        // focused states. This overlay is the keyboard-focus
+                        // channel only — unfocused rendering is untouched.
+                        Rectangle {
+                            objectName: "commPortComboFocusRing"
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            color: "transparent"
+                            border.color: DS.primary
+                            border.width: 2
+                            visible: parent.activeFocus
+                        }
                     }
                     Label {
                         anchors.centerIn: parent
@@ -106,6 +121,18 @@ Item {
                     currentIndex: 0
                     enabled: !page.analysisController.serialConnected
                     Layout.preferredWidth: 110
+                    // M9-F F1 correction (P1, focus visibility): same overlay
+                    // as commPortCombo — the style's own focus ring measured
+                    // imperceptible under this palette.
+                    Rectangle {
+                        objectName: "commBaudComboFocusRing"
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        color: "transparent"
+                        border.color: DS.primary
+                        border.width: 2
+                        visible: parent.activeFocus
+                    }
                 }
                 Label {
                     text: qsTr("8N1")

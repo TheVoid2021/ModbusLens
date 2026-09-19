@@ -60,8 +60,15 @@ Item {
                 background: Rectangle {
                     radius: 3
                     color: tabBaseline.checked ? DS.surface : DS.surfaceAlt
-                    border.color: tabBaseline.checked ? page.frozenActiveTabBorder : DS.border
-                    border.width: 1
+                    // M9-F F1 correction (P1, focus visibility): the tab
+                    // background reacted only to `checked` (the business
+                    // selection) and measured a zero-pixel diff on keyboard
+                    // focus. The keyboard-focus channel is the border and it
+                    // deliberately WINS over the selected border so the two
+                    // states stay distinguishable.
+                    border.color: tabBaseline.visualFocus ? DS.primary
+                                 : tabBaseline.checked ? page.frozenActiveTabBorder : DS.border
+                    border.width: tabBaseline.visualFocus ? 2 : 1
                 }
                 contentItem: Text {
                     text: tabBaseline.text
@@ -78,8 +85,15 @@ Item {
                 background: Rectangle {
                     radius: 3
                     color: tabAi.checked ? DS.surface : DS.surfaceAlt
-                    border.color: tabAi.checked ? page.frozenActiveTabBorder : DS.border
-                    border.width: 1
+                    // M9-F F1 correction (P1, focus visibility): the tab
+                    // background reacted only to `checked` (the business
+                    // selection) and measured a zero-pixel diff on keyboard
+                    // focus. The keyboard-focus channel is the border and it
+                    // deliberately WINS over the selected border so the two
+                    // states stay distinguishable.
+                    border.color: tabAi.visualFocus ? DS.primary
+                                 : tabAi.checked ? page.frozenActiveTabBorder : DS.border
+                    border.width: tabAi.visualFocus ? 2 : 1
                 }
                 contentItem: Text {
                     text: tabAi.text
@@ -96,8 +110,15 @@ Item {
                 background: Rectangle {
                     radius: 3
                     color: tabAgent.checked ? DS.surface : DS.surfaceAlt
-                    border.color: tabAgent.checked ? page.frozenActiveTabBorder : DS.border
-                    border.width: 1
+                    // M9-F F1 correction (P1, focus visibility): the tab
+                    // background reacted only to `checked` (the business
+                    // selection) and measured a zero-pixel diff on keyboard
+                    // focus. The keyboard-focus channel is the border and it
+                    // deliberately WINS over the selected border so the two
+                    // states stay distinguishable.
+                    border.color: tabAgent.visualFocus ? DS.primary
+                                 : tabAgent.checked ? page.frozenActiveTabBorder : DS.border
+                    border.width: tabAgent.visualFocus ? 2 : 1
                 }
                 contentItem: Text {
                     text: tabAgent.text

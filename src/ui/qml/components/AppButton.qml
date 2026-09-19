@@ -31,8 +31,22 @@ Button {
             }
             return control.tone === "primary" ? DS.primary : DS.surfaceAlt;
         }
-        border.color: control.tone === "primary" ? "transparent" : DS.border
-        border.width: 1
+        // M9-F F1 correction (P1, focus visibility): the fully custom
+        // background meant NO focus rendering existed at all — measured as a
+        // zero-pixel diff between unfocused and keyboard-focused states (the
+        // comment below used to claim a "platform outline" that a custom
+        // background never draws). The border IS the focus channel now:
+        // visualFocus is true for keyboard focus only, so selected/hover/
+        // pressed states stay exactly what they were.
+        border.color: {
+            if (control.visualFocus) {
+                // on the primary (blue) fill a blue border would vanish, so
+                // the primary tone gets the light contrast border
+                return control.tone === "primary" ? DS.background : DS.primary;
+            }
+            return control.tone === "primary" ? "transparent" : DS.border;
+        }
+        border.width: control.visualFocus ? 2 : 1
     }
 
     contentItem: Text {
@@ -49,7 +63,8 @@ Button {
         elide: Text.ElideRight
     }
 
-    // focus visual: keep the platform outline so keyboard navigation and
-    // accessibility never regress relative to the plain Button.
+    // focus policy note (F1 correction): `focusPolicy: StrongFocus` below is
+    // the Tab/click policy only; the focus VISUAL lives in the background's
+    // border above (bound to visualFocus, i.e. keyboard focus).
     focusPolicy: Qt.StrongFocus
 }
