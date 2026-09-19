@@ -1,6 +1,8 @@
 # T019 — M9-D Transaction & Diagnosis Workspace
 
 > **本文件是 M9-D 的 canonical task document（2026-09-18 起）。**
+>
+> **状态：✅ COMPLETE（2026-09-19 Final Closure；verified LKGC = `07561d9`；Manual Interaction Review = PASS）。**
 > 任务归属：`docs/BACKLOG.md` **未登记 T019** ⇒ 按仓库真实下一个空闲 task id 取 **T019**（T018 已用于 M9-C，且 M9-D 不并入 T018）。T018 只作为 **M9-C 历史证据**引用（§C6 边界与登记项）。
 > Phase 1 = Learning / Design Gate（docs-only，**Implementation = NOT STARTED**）。
 
@@ -1495,6 +1497,91 @@ stderr 卫生（三模式）  → 全 0
 ## D7. Next（correction 之后的追加）
 
 - **用户 Manual Keyboard Re-test（§15）**；通过后回到 **M9-D Final Closure**（Git classification / LKGC 裁定）。
+## M9-D Final Closure — verified LKGC Classification + Knowledge Closure（2026-09-19，docs-only）
+
+> 验收门（全部 PASS）：Phase 1 / D1 / D2 / D3 / D3 correction / D4 / D5 / D6 automated·deploy·evidence / Screenshot Visual Review / D6 keyboard correction / **Manual Interaction Review**。本 closure 为 **docs-only**，不得成为 verified LKGC。
+
+### F1. Manual Acceptance Provenance（§1，精确归档）
+
+- **Screenshot Visual Review = PASS**——reviewer = external reviewer，based on uploaded D6 screenshots（`docs/assets/screenshots/m9d-*.png` 7 张）。
+- **Manual Interaction Review = PASS**——confirmed by user on deployed candidate（`build/deploy/ModbusLens.exe`，keyboard-fixed binary）。人工实测确认：**mouse selection PASS / Up PASS / Down PASS / Home PASS / End PASS / first-last boundary PASS / navigation away-back + re-click + keyboard PASS**。
+- **Tab-only focus traversal：NOT REQUIRED for M9-D acceptance**——登记为 **deferred to M9-F（global accessibility / focus-chain audit）**。不写成 FAIL，也不是 M9-D blocker。
+- Failed Replay replacement：**automated P3 covered, NOT manually exercised**（不补写人工项）。
+- 其余自动化等价项（Run Demo / selection persistence / Replay reset / Diagnosis cue / Clear Diagnosis / resize）由 A–T 场景机器覆盖，按实际人工执行情况记录，不虚报。
+
+### F2. D6 Keyboard Defect Closure（§2）
+
+- **原人工 blocker**：mouse-selected transaction 后 Up/Down/Home/End 无响应。
+- **根因（机器复现）**：Run Demo button（Control, StrongFocus）持有 activeFocus；隐藏后焦点未自动回到 list（list.focus 标志被消费）；TapHandler/MouseArea 不自动转移 keyboard focus；native ListView 支持 Up/Down；native ListView **不实现** Home/End。
+- **最终修复**：row interaction 后 list 接收 active focus（TapHandler：先 currentIndex 后 forceActiveFocus，顺序实测）；delegate `Keys.forwardTo`；视图层最小 Home/End handling；单一 `currentIndex → onCurrentIndexChanged → selectRow → detail` path。
+- **明确不是**：Controller selection bug、model lifecycle bug。
+- **闭环证据**：Scenario T（真实 QKeyEvent automated coverage，四键逐键 + detail mapping 同步）**＋用户物理键盘 re-test PASS**。
+
+### F3. Git Classification（§3，按 `git show --stat --name-only` 真实文件列表）
+
+| commit | 分类 | 真实文件事实 |
+| --- | --- | --- |
+| `79c6517` | **docs-only**（Phase 1 design） | 5 docs，无 src |
+| `ce57d9a` | **behavior-bearing**（D1 shell/nav/index + harness + **deploy checklist**） | `Main.qml` / `NavigationRail.qml` / `TransactionsPage.qml` / `src/main.cpp` / **`CMakeLists.txt`** / **`scripts/deploy_windows.bat`** + docs |
+| `60a9f53` | **behavior-bearing**（D2 原子迁移 + harness） | `Main.qml` / `NavigationRail.qml` / `TransactionsPage.qml` / `src/main.cpp` + docs |
+| `9712a6c` | **behavior-bearing**（D3 selection/detail + harness） | `TransactionsPage.qml` / `src/main.cpp` + docs |
+| `ad191c0` | **behavior-bearing harness correction**（D3 correction） | `src/main.cpp` + docs |
+| `70dd88c` | **behavior-bearing**（D4 diagnosis cue + harness） | `TransactionsPage.qml` / `src/main.cpp` + docs |
+| `3c1bc3f` | **behavior-bearing**（D5 Legacy retirement/index compaction + harness） | `Main.qml` / `NavigationRail.qml` / `src/main.cpp` + docs |
+| `d28e1cb` | **behavior-bearing evidence harness + evidence**（D6 candidate） | `src/main.cpp` + **7 张 m9d PNG（新增）** + docs |
+| `07561d9` | **behavior-bearing**（D6 keyboard fix + real key-event harness + refreshed evidence） | `TransactionsPage.qml` / `src/main.cpp` / **7 张 m9d PNG（刷新）** + docs |
+
+与预期分类一致；无 message-only 推断。
+
+### F4. Final verified LKGC（§4/§5）
+
+- 规则：verified LKGC = 最后一个 behavior-bearing tree，且其**完整树**已通过 build / qml_smoke / qml_nav / qml_geometry / ctest / deploy / strict minimal-PATH deployed validation / screenshot evidence / Screenshot Visual Review / Manual Interaction Review 全部 PASS。
+- **事实裁定**：`07561d9` 的完整树 = 最终 redeployed candidate（keyboard-fixed product）+ refreshed evidence + 用户 manual accepted tree；其部署版三模式（smoke/nav/geometry 含 **T PASS**）在修复后 binary 上重跑全 0。
+- **verified LKGC：`bc754be` → `07561d9`**（M9-D 最后一个 behavior-bearing accepted tree）。本 closure docs-only commit **不得**成为 LKGC。
+- **V1 tag `v1.0.0` = `ae067ab` 永久不变**（V1 与 V2 LKGC 是两个概念）。
+
+### F5. M9-D Final Status = COMPLETE（§6）
+
+最终交付（全部有归档证据）：dedicated Transactions workspace（D1/D2）、atomic Legacy transaction migration（D2）、Legacy workspace retirement（D5，实际删除）、compact workspace indices（D5：T=0/D=1/C=2/R=3/Dx=4/Device=5 disabled）、transaction master/detail（D3）、page-local selection authority（D3）、modelReset selection invalidation（P4/P5）、failed replacement selection preservation（P3）、stale deferred callback protection（Q1/Q2 + mutation probe）、mouse selection（T 真实点击合成 + 人工）、Up/Down/Home/End keyboard navigation（T + 人工 re-test）、ExpectedNoResponse neutral presentation（O/P4）、ProtocolError detail（O/E）、status/issue orthogonality（O/P）、Diagnosis existence cue（D4/R）、no filters/search（DEFER）、Diagnosis workspace semantics preserved（L/N/R）、Dashboard recent-transactions preview superseded（Phase 1 裁定）、responsive 1000×700 acceptance（geometry C/D3 趟）、deploy/minimal-PATH validation（D6）、screenshot/manual acceptance（F1）。
+
+### F6. 冻结契约（§7–§17）
+
+- **Final Workspace IA**：active = 0 Transactions / 1 Dashboard / 2 Communication / 3 Replay / 4 Diagnosis；Device = 5 disabled；Legacy = retired / runtime absent。Navigation **只改变 presentation index**，不得触发 source transition / selection mutation / Diagnosis command / Replay load / Demo。
+- **Transaction selection ownership**：selected transaction = **page-local presentation state**（非 Controller authority / domain / Diagnosis state）。同 model+navigation：may persist；authoritative reset/replacement：invalidate；failed source replacement 且 model 未变：preserve。未来不得为方便新增 `Controller.selectedTransaction*` 而无新的 cross-subsystem requirement。
+- **Deferred-selection safety**：model 唯一 mutation path 走 reset；model reset 使 pending selection 失效，旧 deferred completion 不得在新 model 复活同 index row；Q1/Q2 + mutation probe 为 verification evidence。**冻结的是外部行为**，`pendingSelectionRow` 字段形状不是 public API。
+- **Keyboard interaction contract**：显式选择后 Up=previous / Down=next / Home=first / End=last，boundary 不越界，highlight + detail mapping 同步；所有路径走 currentIndex → existing selection path → detail mapping。Tab-only navigation 不是 M9-D frozen requirement（登记 M9-F accessibility/focus-chain audit）。
+- **Transaction detail boundary**：仅展示现有 model presentation roles。**未实现**（closure 不得声称支持）：raw frame/hex、request parameters、start address/quantity、request/response structured split、register decode、AI explanation。
+- **Status/Issue orthogonality**：TransactionStatus 是 outcome authority；issueText 是独立 deterministic detail；issue 非空不自动重写 status。ExpectedNoResponse = completed outcome（非 anomaly、非 Success proof、非 Timeout/error）。Unsupported Replay 不伪造 transaction row。
+- **Diagnosis boundary**：batch/session interpretation workspace；selection 不驱动 single-transaction Diagnosis；Transactions 页只有非命令式 existence cue；不解析 baseline text / 不显示 finding count / 不复制 AI/Agent / 不自动跳转或运行 Diagnosis。
+- **Legacy retirement closure**：legacyWorkspace / Legacy rail entry / workspaceLegacyIndex / statisticsOverview_legacy / legacyTailSpacer 全部 runtime absent。能力归宿：Statistics → Dashboard；Transactions → Transactions workspace。未来不得把隐藏 Legacy 重新作为兼容入口而不重新设计。
+- **StatisticsOverview status**：consumer = 0，但 component file / QML registration / deploy guard **保留**；M9-D **未裁定删除**——登记为后续 component ownership / cleanup decision（**不得写成 dead-code removed**）。
+- **Filters/Search closure**：status filter / anomaly-only / function filter / text search / proxy model 全部 **DEFERRED / NOT IMPLEMENTED**；Dashboard recent-transactions preview **superseded** by dedicated Transactions workspace。
+- **Cross-milestone boundaries**：M10 Active Master/write、M11 register decode、M12 Device Profile/manual intelligence——M9-D 均未提前实现。
+
+### F7. Geometry / Screenshot Closure（§18/§19/§20）
+
+- **geometry closure**：**steps = 14**（10 standard = 5 active × 2 + 2 C4 targeted + 2 D3 targeted）；diagnosis tab sweep ⇒ **printed segments = 18**。两口径继续分列使用，避免计数歧义。
+- **screenshot evidence correction**：D6 **新提交 screenshots = 7**（`d28e1cb` 首提交、`07561d9` 键盘修复后刷新）；capture/self-check 集 = **8**（含 pre-existing regression frame `m9d-transactions-regression`，未提交）——**分开写，不混称**。历史口径修正：不是"16:9"，正确表述为 **landscape screenshots**，logical/pixel 映射：1024×720 → 1280×900、1000×700 → 1250×875（当前环境 125% DPI）。
+- **Screenshot Visual closure**（PASS 项）：Transactions Empty / Demo Selected 1024 / Demo Selected 1000 / Broadcast ENR / ProtocolError / Diagnosis cue / Dashboard regression 全 PASS。视觉结论：master/detail hierarchy acceptable、selected highlight restrained、detail remains secondary、status/issue visually distinct、ENR neutral、cue non-command、post-Legacy rail natural。**非阻塞 note：detail area somewhat sparse, not blocker。**
+
+### F8. Manual Interaction closure（§21）
+
+已人工确认：mouse selection / Up / Down / Home / End / first-last boundary / navigation away-back + re-click + keyboard 全 PASS（deployed keyboard-fixed candidate）。failed Replay manual **未人工执行** → automated P3 covered, NOT manually exercised。其余项以自动化场景覆盖记录，不补写。
+
+### F9. Validation Record（§22，最终实际）
+
+build PASS；qml_smoke PASS；qml_nav PASS（post-Legacy basic five-workspace path PASS；named scenarios **A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R/S/T** 全 PASS；M DEFERRED BY DESIGN）；qml_geometry PASS（14 steps / 18 segments）；ctest **26/26** PASS；deploy PASS；strict minimal-PATH PASS；deployed smoke/nav/geometry PASS；screenshot capture/integrity/orientation PASS；**Screenshot Visual Review PASS**；**Manual Interaction Review PASS**。
+
+### F10. D5 Reference Audit Closure（§23）
+
+T019 §D5.2 长期保存六类 Legacy-reference 审计（category / count（144 行真实重计）/ migration rule / representative examples）；`build/d5_classification.md`（ignored）仅为 temporary detailed evidence，**不是**唯一长期记录。
+
+### F11. Roadmap（§24）
+
+- PROJECT_STATUS：verified LKGC 按 Git evidence 更新为 **`07561d9`**，所有重复 LKGC 行保持同步；M9-D = **COMPLETE**。
+- 当前 milestone：M9 UI/UX Refresh（M9-A/B/C/D ✅）。**Next：M9-E — Branding / Icon / Packaging，从 Learning / Design Gate 开始**（不直接 implementation）。
+- BACKLOG 同步。
+
 ## 39. Next（Phase 1 之后的追加）
 
 - **M9-D D1 Review（用户）** → **D2** → D3 → D4（默认不做）→ D5 → D6；每阶段独立 Review/提交。
