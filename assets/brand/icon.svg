@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ModbusLens canonical icon source (T020 E2).
+  Semantics: inspection lens over a register/data grid - industrial
+  diagnostic tool. No text, no letterforms, no vendor logos, no
+  gradients/filters/scripts; transparent outside the tile; readable at
+  16 px; theme independent (self-contained light glyph on dark blue tile).
+  Accent color #24527F is derived from the DesignSystem primary family
+  (primaryPressed); it is NOT a DesignSystem token contract (T020 §6).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"
+     viewBox="0 0 256 256">
+  <!-- tile -->
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="#24527F"/>
+  <!-- register grid inside the lens: 2x2 data cells -->
+  <rect x="76" y="76" width="26" height="26" rx="5" fill="#FFFFFF"/>
+  <rect x="110" y="76" width="26" height="26" rx="5" fill="#FFFFFF"/>
+  <rect x="76" y="110" width="26" height="26" rx="5" fill="#FFFFFF"/>
+  <rect x="110" y="110" width="26" height="26" rx="5" fill="#FFFFFF"/>
+  <!-- lens ring (thick outline, no fill so the grid reads through) -->
+  <circle cx="106" cy="106" r="66" fill="none" stroke="#FFFFFF"
+          stroke-width="18"/>
+  <!-- handle -->
+  <line x1="156" y1="156" x2="204" y2="204" stroke="#FFFFFF"
+        stroke-width="30" stroke-linecap="round"/>
+</svg>

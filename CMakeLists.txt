@@ -69,6 +69,8 @@ configure_file(
 )
 target_include_directories(modbuslens PRIVATE "${MODBUSLENS_GENERATED_DIR}")
 if(WIN32)
+    set(MODBUSLENS_ICO_PATH
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/brand/windows/ModbusLens.ico")
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/windows/ModbusLens.rc.in"
         "${MODBUSLENS_GENERATED_DIR}/ModbusLens.rc"
@@ -83,6 +85,11 @@ endif()
 qt_add_qml_module(modbuslens
     URI ModbusLens
     VERSION 1.0
+    # M9-E E2: the committed Windows ICO doubles as the Qt runtime window
+    # icon resource (embedded in the exe; no loose deploy asset). The PE
+    # icon comes from the same file via ModbusLens.rc.in.
+    RESOURCES
+        assets/brand/windows/ModbusLens.ico
     QML_FILES
         src/ui/qml/Main.qml
         src/ui/qml/DS/DesignSystem.qml

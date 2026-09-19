@@ -2,6 +2,8 @@
 #include <QGuiApplication>
 #include <QDir>
 #include <QImage>
+#include <QFile>
+#include <QIcon>
 #include <QKeyEvent>
 
 // M9-E E1: generated version interface (configure_file output, build tree only).
@@ -5560,6 +5562,11 @@ int main(int argc, char *argv[])
     // generated header (the hardcoded 0.1.0 literal is gone).
     QCoreApplication::setApplicationVersion(
         QStringLiteral(MODBUSLENS_VERSION_STRING));
+    // M9-E E2: the Qt runtime window/taskbar icon, loaded from the embedded
+    // committed ICO (Qt resource). The SAME derived asset feeds the PE icon
+    // via the Windows resource (single source artwork, single derived ICO).
+    app.setWindowIcon(QIcon(QStringLiteral(
+        ":/ModbusLens/assets/brand/windows/ModbusLens.ico")));
     // M9-E E1: the frozen product name as the user-visible display name.
     QGuiApplication::setApplicationDisplayName(QStringLiteral("ModbusLens"));
 
@@ -5655,6 +5662,23 @@ int main(int argc, char *argv[])
                               QStringLiteral("<unset>"));
             return 1;
         }
+        // M9-E E2: window icon oracle. The icon must come from the embedded
+        // brand ICO resource; before E2 the resource does not exist and the
+        // window icon is null. A window title or a screenshot never proves
+        // icon presence - this reads the actual QIcon state.
+        const QString brandResource = QStringLiteral(
+            ":/ModbusLens/assets/brand/windows/ModbusLens.ico");
+        if (!QFile::exists(brandResource)) {
+            smokeIdentityFail(QStringLiteral("brand icon resource"),
+                              QStringLiteral("<missing>"), brandResource);
+            return 1;
+        }
+        if (QGuiApplication::windowIcon().isNull()) {
+            smokeIdentityFail(QStringLiteral("application window icon"),
+                              QStringLiteral("<null>"),
+                              QStringLiteral("non-null brand icon"));
+            return 1;
+        }
         QObject *identityRoot = engine.rootObjects().value(0);
         const QString windowTitle =
             identityRoot ? identityRoot->property("title").toString()
@@ -5667,15 +5691,21 @@ int main(int argc, char *argv[])
                        .arg(windowTitle);
             return 1;
         }
+        const QIcon windowIcon = QGuiApplication::windowIcon();
+        QStringList iconSizes;
+        for (const QSize &size : windowIcon.availableSizes())
+            iconSizes << QStringLiteral("%1x%2").arg(size.width())
+                             .arg(size.height());
         qInfo().noquote()
             << QStringLiteral("SMOKE IDENTITY PASS: applicationName=%1 "
                               "displayName=%2 version=%3 organizationName=%4 "
-                              "organizationDomain=<unset> title=%5")
+                              "organizationDomain=<unset> title=%5 "
+                              "windowIconSizes=[%6]")
                    .arg(QCoreApplication::applicationName(),
                         QGuiApplication::applicationDisplayName(),
                         QCoreApplication::applicationVersion(),
                         QCoreApplication::organizationName())
-                   .arg(windowTitle);
+                   .arg(windowTitle, iconSizes.join(QStringLiteral(" ")));
         return 0;
     }
 

@@ -7,6 +7,12 @@
 // VOS_*/VFT_* constants come from the Windows headers.
 #include <windows.h>
 
+// M9-E E2: the PE executable icon - the SAME committed asset the Qt runtime
+// window icon uses (single source artwork, single derived ICO). The path
+// resolves through the windres include dirs (CMake-derived source root);
+// no absolute or user-specific path appears in this template.
+1 ICON "@MODBUSLENS_ICO_PATH@"
+
 1 VERSIONINFO
 FILEVERSION     @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
 PRODUCTVERSION  @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0

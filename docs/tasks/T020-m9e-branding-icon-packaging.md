@@ -1,6 +1,6 @@
 # T020 — M9-E Branding / Icon / Packaging
 
-> **状态：IN PROGRESS — Phase 1 = PASS（version decision = 2.0.0）；**E1 = 实施完成；E1 Review = HOLD（oracle 第二版本字面量）→ correction 已落库（oracle 改读 authority + mutation probe 证明单源），awaiting E1 Re-review**；E2 未开始。**
+> **状态：IN PROGRESS — Phase 1 = PASS（version decision = 2.0.0）；E1 = PASS；**E2 = 实施完成（candidate，awaiting E2 Review + Manual Icon Visual Review）**；E3（Release packaging + ZIP）未开始。**
 > 上游边界：M9-D（T019）= ✅ COMPLETE（verified LKGC `07561d9`）；M9-E **不得**重新打开 Transactions IA / selection·detail / Diagnosis / Legacy。
 
 ## 0. V2 Protocol 对应
@@ -616,6 +616,90 @@ configure + build 0 error；smoke 0（identity PASS version=2.0.0）；nav 0（*
 - Files：`src/main.cpp`（oracle 改为读 MODBUSLENS_VERSION_STRING + RCA 注释）+ docs（T020/PROJECT_STATUS/BACKLOG/devlog/INTERVIEW_NOTES）。**CMakeLists/ModbusLens.rc.in/QML/assets/deploy script 零 diff**（正式内容）。
 - **Next Action = M9-E E1 Re-review**；E2 仍未开始（icon 禁令不变）。
 - verified LKGC **仍 = `07561d9`**；未 push。
+## E1 Re-review = PASS + E2 GO（2026-09-19，append-only）
+
+- **M9-E E1 Re-review = PASS**。
+- **P0（second version literal）已由 `641b1db` 闭环**：final consistency oracle 改读 `MODBUSLENS_VERSION_STRING`（同一 generated authority）；**最终证据：production maintained `2.0.0` literal 仅 CMake project VERSION 一处**（main.cpp/templates/scripts 零命中）。
+- **mutation probe 证据确认**：CMake `2.0.0 → 2.0.1`（仅改 authority）自动得到 applicationVersion `2.0.1` / PE string `2.0.1` / PE numeric `2.0.1.0`，随后完整回滚。
+- **E1 = PASS**；**E2 = GO**（icon asset pipeline + Qt window icon + Windows PE icon integration）。
+- E2 边界重申：不做 ZIP/Release packaging/installer/signing/AppBar logo/theme redesign/About dialog/version bump/v2.0.0 tag/publication/StatisticsOverview cleanup/M9-F work。
+## E2 — Icon Asset Pipeline + Qt Window Icon + Windows PE Icon Integration（Implementation Record，2026-09-19）
+
+> E1 Re-review = PASS；E2 = GO（见「E1 Re-review = PASS + E2 GO」节）。
+
+### E2.1 Mandatory Re-read + 资产现状（§2）
+
+实读 T020 icon/resource 裁定、CMakeLists、main.cpp、ModbusLens.rc.in、version.h.in、deploy_windows.bat、DesignSystem（仅视觉语言参考，**未改 DS**）。仓库现状复验：**仍无 .svg/.ico/window icon/PE ICON resource**（E1 只有 VERSIONINFO）。
+
+### E2.2 Toolchain Probe + Selected Generator（§3/§4）
+
+| 工具 | 探测结果 |
+| --- | --- |
+| `magick`（ImageMagick） | **不存在** |
+| `icotool`（icoutils） | **不存在** |
+| `inkscape` / `rsvg-convert` | **不存在** |
+| **PyQt5**（Anaconda，Qt 5.15.2，含 QtSvg） | **可用**（QSvgRenderer offscreen 渲染实测成功） |
+| **Pillow 10.2.0** | **可用**（multi-frame ICO 写入） |
+
+**Selected generator = Python helper `scripts/make_icon.py`**（**PyQt5 QSvgRenderer** SVG 光栅化 + **Pillow** multi-frame ICO 组装），按 §4 允许作为 scripts/ developer helper：**normal configure/build 从不调用它**（derived ICO 已提交；`grep -i "python|magick|icotool|make_icon" CMakeLists.txt` = 0；build.ninja 仅 2 处 "python" 命中为 Qt 自带 SBOM cmake 文件名引用，非调用）。Generator **fail-fast**（缺工具/渲染失败/尺寸错误/帧数错误任一即非 0 退出；无 silent fallback——本轮实际捕获并修复 2 个 generator 自身缺陷，见 §E2.9）。
+
+### E2.3 Icon Visual Contract（§5/§6）
+
+**设计**：圆角方形 tile（深蓝 `#24527F`，源自 DesignSystem primary 家族 primaryPressed——**记录：非 DS token contract**）+ 白色 glyph：**放大镜 ring 内嵌 2×2 register grid** + 右下 handle。无文字/无字母依赖/无厂商 logo/无渐变/无 filter/无细线；透明外部背景；monochrome 剪影可辨；不依赖 light/dark theme（单 icon，Phase 1 冻结）。
+
+### E2.4 Canonical SVG（§7）
+
+`assets/brand/icon.svg`（committed）：viewBox 0 0 256、纯矢量 shape、**无 embedded raster/external font/external URL/script/filter/linked image**；**未用**文字转路径。SVG sanity：XML 可解析、PyQt5 renderer `isValid() = true`、可脱离仓库单独渲染。
+
+### E2.5 Generation Pipeline + ICO Inventory（§8/§9/§10）
+
+- **command**：`python scripts/make_icon.py`（tool：PyQt5 Qt 5.15.2 QSvgRenderer + Pillow 10.2.0 ICO writer）。
+- **output**：`assets/brand/windows/ModbusLens.ico`（**16,768 bytes**，committed）。
+- **独立 ICO directory audit（struct 解析，非工具输出信任）**：header（reserved=0/type=1）合法、**frame count = 6**、frames = **(16,16),(24,24),(32,32),(48,48),(64,64),(256,256)**、无 missing/duplicate；fail-fast 曾实际拦截 2 个 generator 缺陷（QSize 与 tuple 比较错误；QImage→PIL 缺转换），pipeline 的 fail-fast 属性被真实验证。
+
+### E2.6 Qt Runtime Integration（§12/§13）
+
+`qt_add_qml_module(modbuslens ... RESOURCES assets/brand/windows/ModbusLens.ico)` ⇒ runtime path **`:/ModbusLens/assets/brand/windows/ModbusLens.ico`**（qrc 内嵌，**deployed tree 无需 loose icon file**）。`main()` 中 `app.setWindowIcon(QIcon(brandResource))`（QGuiApplication 创建后、主窗口 load 前）。**runtime oracle（smoke identity 扩展）**：brand resource 存在（`QFile::exists`）+ `QGuiApplication::windowIcon()` **non-null** + `availableSizes() = [16x16 24x24 32x32 48x48 64x64 256x256]`（informational——ICO frames 真相仍由 §E2.5 独立审计）。
+
+### E2.7 PE Integration（§15/§16）
+
+`ModbusLens.rc.in` 增加 **`1 ICON "@MODBUSLENS_ICO_PATH@"`**——`MODBUSLENS_ICO_PATH` = CMake 源 root 派生路径（configure 时替换；**committed template 无机器路径**）；windres 经其 include dirs（含 CMake 源 root）解析，**clean configure 可解析**（§24 clean 测试证明）。**同一 committed ICO 同时供 Qt runtime 与 PE**（single source/derived asset；CMake RESOURCES 与 rc.in 路径 identity 由 source/CMake audit 证明）。**VERSIONINFO 字段保持 E1 原样**（numeric 2,0,0,0 / strings 2.0.0 / OriginalFilename ModbusLens.exe / 无 Company·Copyright）。
+
+### E2.8 E2 RED（§18，E1 tree）
+
+- **runtime**：`SMOKEFAIL identity: brand icon resource = '<missing>'` → `RED_EXIT=1`（resource 缺失在 icon-null 检查前拦截）。
+- **PE**：pefile oracle = **NONE**（无 RT_ICON/RT_GROUP_ICON）。
+- 双 RED 均来自 E2 missing feature，未破坏版本/业务测试。
+
+### E2.9 GREEN（§19）+ Problems/RCA
+
+实现后：brand resource 存在 → `windowIcon` non-null → **`windowIconSizes=[16x16 24x24 32x32 48x48 64x64 256x256]`**（Qt 实际解码记录，informational）；**PE RT_ICON ×6 + RT_GROUP_ICON ×1**。**RCA（本轮真实缺陷，fail-fast 捕获）**：①generator 帧尺寸断言用 `QImage.size() != tuple` 比较恒 False（QSize 类型）→ 改 width()/height() 显式比较；②QImage→PIL 缺转换（直接把 QImage 传给 PIL save）→ 加 in-memory PNG 转换；③`assets/brand/windows/` 目录不存在致 save 失败 → 预建目录；④**`setWindowIcon` 遗漏**（集成时只加了 oracle 与资源，忘了调用本身——GREEN 检查时 PE 已绿而 runtime 仍 null，oracle 直接定位）→ 补 `app.setWindowIcon`；⑤rc.in 注释用 `--` 会重演 windres 语法错误（E1 教训，直接用 `//`）。
+
+### E2.10 Deploy / Runtime Icon on Deployed（§27/§28/§14）
+
+`deploy_windows.bat` **zero diff**；**deployed `imageformats/qico.dll` 实测存在**（windeployqt 既已拷贝——ICO 解码插件依赖在 deployed tree **天然满足**，未手工复制任何 plugin、未改 Phase-1 asset policy、未引入 QtSvg/loose PNG）。strict minimal PATH（替换式）部署版：smoke 0（**identity PASS + windowIconSizes 全 6 尺寸 = deployed runtime icon 加载证明**）/ nav 0（A–T 20 项）/ geometry 0（14 steps·18 segments·0 GEOFAIL）；stderr 无 icon decode/plugin/missing-file/QImageReader/QML resource 警告。**deployed PE**：RT_ICON ×6 + RT_GROUP_ICON ×1 + Raw 2.0.0.0（pefile inspected）。**build-tree PASS 且 deployed PASS，无 blocker**。
+
+### E2.11 Evidence（§11/§29/§30/§31）
+
+**committed review evidence**：`docs/assets/screenshots/m9e-icon-size-matrix.png`（从 committed ICO 实际 frames 生成：16/24/32/48/64/256 × light/dark 双底 contact sheet；**仅 Review evidence，非 runtime asset**）。High-DPI（125%）检查状态：contact sheet 多尺寸清晰无裁切/模糊/异常透明边；titlebar/taskbar/Alt-Tab 的 OS 层人工检查待用户（Manual Icon Visual Review = **WAITING FOR USER**，未自标 PASS）。
+
+### E2.12 Regression / Freeze / Negative Scope（§21–§23/§26/§32/§33）
+
+- **E1 identity/PE metadata 回归**：smoke identity PASS（含 version=2.0.0）+ PE metadata Raw 2.0.0.0 逐字段不变。
+- **业务零变化**：nav A–T 全 PASS、geometry 0 GEOFAIL、ctest **26/26**、workspace IA/键盘/selection/cue 零 diff。
+- **Main.qml/AppBar/DS 零 diff**（无 logo/无 About button/无 header 变化）；NavigationRail/pages/DS/Controller/Core/tests business code 零 diff；deploy script 零 diff。
+- **E3 negative scope**：无 Release build migration/ZIP/package naming/manifest/secret scan pipeline/extraction test（全部属 E3）；本轮部署验证沿用现有 debug-local binary 证明 icon integration。
+- **no publication**：CMake VERSION 仍 2.0.0；v1.0.0 object/target 不变（Git-object evidence：`2cee626`→`ae067ab`）；v2.0.0 不存在；origin/main 不变；无 push/Release/upload。
+
+### E2.13 Files Changed（§34/§35）
+
+**新增**：`assets/brand/icon.svg`（canonical source artwork）、`assets/brand/windows/ModbusLens.ico`（committed derived Windows asset，16,768 B）、`scripts/make_icon.py`（maintainer helper）、`docs/assets/screenshots/m9e-icon-size-matrix.png`（review evidence）。**修改**：`CMakeLists.txt`（VERSION 侧不变；RESOURCES + ICO path substitution）、`src/platform/windows/ModbusLens.rc.in`（ICON 语句）、`src/main.cpp`（setWindowIcon + icon oracle）、T020 + 状态 docs。**未改**：QML pages/NavigationRail/DS/deploy script/Controller/Core/tests business code。
+
+**E2 candidate complete, awaiting E2 Review + Manual Icon Visual Review（WAITING FOR USER）**；M9-E 未 COMPLETE；verified LKGC **不变 = `07561d9`**；未 push。
+
+## E3. Next
+
+- **M9-E E2 Review + Manual Icon Visual Review（用户：titlebar/taskbar/Alt-Tab/Explorer + size matrix A–D）**；通过后 **E3 — Release packaging + portable ZIP + package checks**。
 ## 44. Review 请求项（Phase 1 Review 须裁定）
 
 1. §12 目标优先级（A/B P0、C/D P1、E REJECT）是否接受。
