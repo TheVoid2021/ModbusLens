@@ -1532,3 +1532,248 @@ P11 ShotWindow 使用相对路径把截图写到了仓库根目录 ⇒ 已移入
 未 amend 5089840；未 rebase；未 push；未创建 v2.0.0 tag；verified LKGC 保持 4cb6e9d；
 未开始 F2；未重新打包；未改 focus chain / selected semantics / Tab activation / geometry / DS contract。
 ```
+
+## F1 Re-review = PASS / Focus Visual Review = PASS / F1 = COMPLETE → F2 = GO（2026-09-19，append-only）
+
+```text
+M9-F F1 Re-review = PASS
+Focus Visual Review = PASS
+M9-F F1 = COMPLETE
+accepted F1 behavior tree = b237ddc
+verified LKGC 暂时仍 = 4cb6e9d（F2 candidate 尚未人工 acceptance，推进留给 F3 closure）
+F2 = GO
+```
+
+### FJ0. 人工视觉验收归档（用户确认）
+
+| # | 人工验收项 | 结果 |
+| --- | --- | --- |
+| 1 | rail selected vs keyboard focus | **PASS** |
+| 2 | Transactions ListView keyboard focus | **PASS** |
+| 3 | ComboBox keyboard focus | **PASS** |
+| 4 | AppButton keyboard focus | **PASS** |
+| 5 | Diagnosis TabButton selected vs keyboard focus | **PASS** |
+
+```text
+最终 TabButton 证据（人工确认的状态组合）：
+  Baseline = selected（下方内容仍是 Baseline）
+  AI       = keyboard focused（独立内缩蓝环）
+  ⇒ selected ≠ focused 一眼可辨，且 Tab 未切换页面（非 activation）。
+```
+
+### FJ1. F1 完成后的冻结内容（accepted，不再重开）
+
+```text
+A  Transactions ListView 键盘入口（activeFocusOnTab，无 select-on-focus）
+B/C 页面级 focus gating（隐藏页既不可获得也不保留可消费焦点；H1S/H2/H3）
+D  rail Enter/Space 激活（5/5 ×2）
+E/F rail distinct accessible name + button role/Invoke
+G  rail keyboard-focus ring（visualFocus）
+H  Agent TextArea Tab/Backtab 遍历（非吞键）
+correction-1 AppButton / ComboBox×2 / ListView / TabButton×3 的焦点可见性
+correction-2 TabButton 独立内缩焦点环（selected 外观零改动）
+automated: qml_focus_check（FA/FA2/FJ/FB×5/FC/FD·FE×5/FF/FK/FL/FG/FH/FI）
+```
+
+### FJ2. F2 边界（本轮不得做）
+
+```text
+不得：开始 F3 closure / 推进 verified LKGC / 创建 v2.0.0 tag / push / publish / 签名 / installer。
+F2 目标：从 b237ddc 全新生成最终 Release portable candidate + 完整 automated/package gates
+        + 最终跨页面视觉 evidence，然后停在 F2 Review / Manual Final Acceptance 之前。
+```
+
+## F2 — Final Release / Visual Evidence Candidate（2026-09-19，behavior-bearing evidence，不推进 LKGC）
+
+> F1 Re-review = PASS / Focus Visual Review = PASS / F1 = COMPLETE（accepted F1 behavior tree = `b237ddc`）→ **F2 = GO**。
+> 本轮从 `b237ddc` **全新生成**最终 Release portable candidate，执行完整 automated/package gates，生成最终跨页面视觉 evidence；
+> **停在 F2 Review / Manual Final Acceptance 之前**：不开始 F3 closure、不推进 verified LKGC、不创建 v2.0.0 tag、不 push/publish/签名、不做 installer。
+
+### FK0. Candidate source tree（冻结）
+
+```text
+source behavior tree = b237ddc（clean tree）
+本轮所有 Release build / deploy / package / fresh extraction / final screenshots 均来自同一 b237ddc clean tree；
+不是 4cb6e9d / 736d957 / 5089840。verified LKGC 仍为 4cb6e9d（推进留给 F3 closure）。
+```
+
+### FK1. Evidence namespace（防混淆）
+
+```text
+上一轮遗留的 build/f2_evidence、build/f3_evidence 与临时脚本全部删除（含误名/预置输出），
+从空的 build/f2_evidence/ 重新开始；F1 证据不再与 F2 证据混放。
+committed 的 docs/assets/screenshots 未被删除（43 张既有 PNG 保留）。
+方案：F2 全部证据落在 build/f2_evidence/（ignored），最终 committing 15 张 m9f-f2-* 截图。
+```
+
+### FK2. Clean Release build
+
+```text
+rm -rf build/release → cmake --preset release-local → cmake --build --preset release-local
+CMAKE_BUILD_TYPE       = Release
+compiler               = MinGW g++ 13.1.0 (x86_64-posix-seh-rev1, MinGW-Builds)
+Qt                     = 6.11.1 mingw_64（CMAKE_PREFIX_PATH）
+generator              = Ninja 1.12.1 / CMake 3.30.5
+targets                = 207 built, 0 error
+exe                    = build/release/ModbusLens.exe（2,795,138 B；不复用旧可执行文件）
+```
+
+### FK3. Full automated regression（Release，本轮新构建）
+
+```text
+ctest --preset release-local      : 27/27 PASS（按真实数量报告）
+--qml-smoke-test                  : PASS（SMOKE IDENTITY PASS：applicationName/displayName=ModbusLens、
+                                    version=2.0.0、organizationDomain unset、title、windowIconSizes 6 尺寸）
+--qml-nav-check                   : PASS（post-Legacy five workspaces；navigation changed no business values；
+                                    A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R/S/T asserted；**M DEFERRED**）
+--qml-geometry-check              : PASS（**18 printed segments / 0 GEOFAIL / rail 宽度恒 56**）
+--qml-focus-check                 : PASS（FA/FJ/FB×5/FC/FD·FE×5/FF/FK/FL/FG/FH/FI）
+F1 contract regression（§6）：上述 focus check 即 F1 契约的机器证明（Transactions 入口+四键、hidden 获取/保留、
+rail Enter·Space×5、Device 排除、TextArea Tab/Shift+Tab + FL 编辑键、各类型焦点指示 state 断言）。
+```
+
+### FK4. Identity / Version / PE / Icon / Architecture（新 Release exe）
+
+```text
+PE Machine = 0x8664 → AMD64 → package architecture label = x64（重新测量，不复用 E3 文档值）
+RT_ICON = 6 个；RT_GROUP_ICON = 1 个
+VersionInfo（pefile 与 PowerShell 双读一致）：
+  FileVersion 2.0.0 / ProductVersion 2.0.0 / FileVersionRaw 2.0.0.0 / ProductVersionRaw 2.0.0.0
+  ProductName = ModbusLens / FileDescription = ModbusLens / OriginalFilename = ModbusLens.exe
+  CompanyName / LegalCopyright 空（有意 omission，M9-E 冻结）
+runtime identity（smoke）：applicationName/displayName = ModbusLens、version = 2.0.0、windowIcon 6 尺寸
+```
+
+### FK5. Deploy（本轮独立目录）
+
+```text
+批次脚本 run（deploy_windows.bat）在本机空参数传递下丢失 QT_BIN（cmd 空参数丢弃）→ 改用 committed
+workflow：python scripts/make_package.py build/release build/f2_deploy，由脚本自身从 CMakeCache
+派生 QT_BIN/MINGW_BIN 并执行 deploy（M9-E 已验证的路径）。
+deploy 结果：build/f2_deploy（本轮独立目录，未覆盖 debug/deploy 或既有 release deploy）
+```
+
+### FK6. Package（packaging semantics 零改动）
+
+```text
+committed scripts/make_package.py（自 4cb6e9d 后 zero diff）：
+  authority version（CMake）→ stem = ModbusLens-2.0.0-windows-x64（x64 来自本轮 PE 实测）
+  staging → structural checks（required present / forbidden absent / StatisticsOverview retained / samples policy）
+  → negative scans（known-risk credential·config 文件名+文本；absolute-path 文本审计）
+  → manifest → ZIP → ZIP entries == staging 集合 → fresh extraction 校验 → minimal-PATH 三模式 → external-CWD
+全部 PASS；packaging version 继续从 authority 派生。
+```
+
+### FK7. Package 结构与计数（本轮真实计数，不复制 E4 数字）
+
+```text
+payload files   = **1496**（脚本输出 "staged 1496 entries + README.txt"，manifest 记录 1496 payload）
+manifest        = 1 个 package-manifest.sha256（排除自身）
+ZIP entries     = **1497**（脚本断言 == staging 文件集合）
+README.txt         存在（authority 版本生成）
+demo_v1.mlog       存在（随包 sample）
+regression fixtures 不入包（t014/t015 由 structural check 断言缺席）
+StatisticsOverview 继续 retained（structural check 断言）
+icon source / make_icon.py / Python maintainer tooling 不进 runtime package（forbidden-absent 断言）
+```
+
+### FK8. Final ZIP identity（accepted F2 local candidate identity）
+
+```text
+filename = build/package/ModbusLens-2.0.0-windows-x64.zip
+bytes    = **40,630,813**
+SHA256   = **7292920bf50af2288e912b34227395e990483d62cb51c394252ee2046abdd826**
+措辞：这是 **accepted F2 local candidate identity**，不是 published release hash，
+      也不构成 byte-reproducibility guarantee（scripted portable ZIP 语义不变）。ZIP 不提交 Git。
+（与 E4 的 40,569,927 B / 59d2d126… 不同是预期的：F1 改了产品行为，ZIP 内容随之变化。）
+```
+
+### FK9. Fresh extraction basis
+
+```text
+fresh extraction = build/package-extract/ModbusLens-2.0.0-windows-x64（由本轮 ZIP 解出，逐文件 SHA256 == manifest）
+**所有 package runtime 验证与最终截图都从该 fresh extraction 运行**，不用 build/release 或 build/f2_deploy 顶替。
+```
+
+### FK10. Extracted-package gates（F1 behavior 真实进入 package）
+
+```text
+（minimal PATH = C:\Windows\System32;C:\Windows；环境其余继承，与 committed 脚本一致）
+--qml-smoke-test   : PASS（identity 2.0.0 + icon 6 尺寸）
+--qml-nav-check    : PASS（A–T；five workspaces；Device 不可达在其中）
+--qml-focus-check  : **PASS**（FA/FJ/FC/FD×5/FE×5/FF/FK×8/FL×6/FG/FH/FI 全部 PASS，无 FOCUSFAIL）
+⇒ F1 的键盘焦点契约（Transactions Tab 入口 + 四键、hidden 获取/保留、rail Enter·Space、Device 排除、
+  Agent TextArea Tab·Shift+Tab、编辑键、焦点可见性 state）在 **packaged runtime** 中真实成立。
+说明：package 只带 windows 平台插件；早期用 QT_QPA_PLATFORM=offscreen 驱动 packaged exe 会
+STATUS_DLL_INIT_FAILED（0xC0000142）—— committed 脚本从不设置该变量，本轮探针已改为不设置（工具缺陷，非产品缺陷）。
+```
+
+### FK11. Final Visual Matrix（125% DPI，物理 1280×900 = 逻辑 1024×720；最小尺寸物理 1250×875 = 逻辑 1000×700）
+
+| # | 文件 | 状态 oracle（机器可证） |
+| --- | --- | --- |
+| 1 | m9f-f2-dashboard-demo-1024x720 | ws=Dashboard；demo 会话已发布（Run Demo 存在 + 统计/关注项渲染） |
+| 2 | m9f-f2-transactions-populated-1024x720 | ws=Transactions；rows populated、transactionsDiagnosisCue 暴露 |
+| 3 | m9f-f2-transactions-list-keyboard-focus-1024x720 | 键盘-only Tab 第 8 次进入 list + END 选中行（detail pane 填充） |
+| 4 | m9f-f2-communication-default-1024x720 | ws=Communication；disconnected/default（未声称真实串口硬件） |
+| 5 | m9f-f2-communication-combobox-focus-1024x720 | 键盘焦点落在 commPortCombo（UIA focused id 验证） |
+| 6 | m9f-f2-replay-default-1024x720 | ws=Replay；未加载任何回放源 |
+| 7 | m9f-f2-replay-load-dialog-1024x720 | app 自身"加载回放"对话框打开、sample 列出、会话未改变（source 未变） |
+| 8 | m9f-f2-diagnosis-baseline-1024x720 | ws=Diagnosis；Baseline pane 暴露 |
+| 9 | m9f-f2-diagnosis-ai-no-result-1024x720 | AI pane；**provider 已配置（ModelScope/Qwen3.5-27B）但未生成结果**（"尚未生成 AI 解释"），无伪造结果 |
+| 10 | m9f-f2-diagnosis-agent-no-result-1024x720 | Agent pane；问题为空、无结果、未发起 live 调用（无伪造） |
+| 11 | m9f-f2-diagnosis-tabbutton-selected-vs-focused-1024x720 | selected tab = Baseline（pane 仍 Baseline）+ 键盘焦点在第 2 个 tab（rect 同一性验证） |
+| 12 | m9f-f2-rail-selected-vs-focused-1024x720 | selected = Transactions + 键盘焦点在“总览”条目（rect 同一性验证） |
+| 13 | m9f-f2-transactions-1000x700 | 最小尺寸；ws=Transactions；cue 暴露 |
+| 14 | m9f-f2-dashboard-1000x700 | 最小尺寸；ws=Dashboard；Run Demo 存在 |
+| 15 | m9f-f2-diagnosis-1000x700 | 最小尺寸；ws=Diagnosis；Baseline pane 暴露 |
+
+```text
+截图 oracle（§20）：每张截图都由运行时状态判定后才拍摄（workspace 归属 + 页面专属可见元素 +
+selected/focused 运行时状态 + rect 同一性），文件名不作为状态依据。
+机器完整性检查（§21）：15/15 尺寸正确、landscape=True、非空白（颜色数 ≥ 3299），并记录 sha256[:16]（见下）。
+ZCode **不**自判 final visual PASS；Focus Visual Review 已在 F1 阶段由用户 PASS，
+本轮的 Final Visual Review 仍需用户确认（截图来自 packaged candidate）。
+Communication 边界：只接受 disconnected/default 与确定性校验，**不声称真实串口硬件 PASS**。
+AI/Agent 边界：不要求真实 provider/Agent 服务；未配置 secret、未发起 live 调用，截图状态如实标注。
+```
+
+### FK12. Evidence integrity（机器检查）
+
+```text
+committed 15 张（docs/assets/screenshots/m9f-f2-*）：
+1280x900 ×12（1024×720 逻辑）+ 1250x875 ×3（1000×700 逻辑）；全部 landscape、非空白；
+sha256[:16] 记录于本轮证据（build/f2_evidence/visual_integrity.txt）。
+```
+
+### FK13. Manual Acceptance Candidate（用户下一步人工清单）
+
+```text
+1  fresh extraction（使用本轮 ZIP；不要用 build/release 或 deploy tree）
+2  正常双击启动（Explorer 双击 ModbusLens.exe）
+3  Explorer 图标 / 文件版本·产品版本
+4  五个 workspace 视觉（事务/总览/通信/回放/诊断）
+5  rail selected 与 keyboard focus 可区分；Device 禁用
+6  Tab / Shift+Tab 遍历（含 rail 与页面内控件）
+7  焦点可见性（rail / Transactions list / ComboBox / AppButton / Diagnosis TabButton）
+8  Transactions 键盘操作（Tab 进入 list、Up/Down/Home/End）
+9  Diagnosis 三个 tab（Baseline/AI/Agent；Tab 只移动焦点不切页）
+10 Agent TextArea：Tab 逃逸；方向键/Home/End 编辑语义
+11 Replay 加载随包 demo_v1.mlog（本步骤需人工在真实 UI 中点击）
+12 README.txt 内容与包一致
+13 窗口尺寸 1024×720 与 1000×700（无裁切/溢出）
+14 关闭并重新启动
+不要求：真实串口硬件、真实 AI Provider、Agent live 服务。
+```
+
+### FK14. Git / 边界
+
+```text
+本轮 F2 只产生 docs + screenshots/evidence（+ ignored build artifacts）；**production diff = 0**。
+未 amend b237ddc；未 rebase；未 push；未创建 v2.0.0 tag；**verified LKGC 保持 4cb6e9d**（推进留给 F3 closure）；
+未开始 F3；未重新设计 packaging；未改 version/PE/icon/package stem/README/manifest 格式/ZIP 模型。
+F2 Review Gate：clean Release build PASS、27/27 PASS、smoke/nav/geometry/focus PASS、identity/PE/icon PASS、
+deploy PASS、package PASS、fresh extract PASS、manifest PASS、security scan PASS、package focus regression PASS、
+visual evidence candidate generated —— 全部达成。
+Final Visual Review = WAITING FOR USER；Manual Final Acceptance = WAITING FOR USER。
+```
