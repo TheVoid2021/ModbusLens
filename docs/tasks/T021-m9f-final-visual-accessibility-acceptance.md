@@ -1,6 +1,6 @@
 # T021 — M9-F Final Manual Visual / Accessibility Acceptance
 
-> **状态：IN PROGRESS — Phase 1 = PASS（Re-review）；F0 = 完成测量（9/9 probes + UIA Tab 序列 + accessibility exposure 审计）；**P0=2 / P1=2 / P2=0 / GAP=3** → F1 REQUIRED；Implementation = NOT STARTED。**
+> **状态：IN PROGRESS — Phase 1 = PASS；F0 = 完成测量 + F0 Review HOLD → continuation 实测完成（per-workspace + rail activation + hidden-focus）；**P0=3 / P1=3 / GAP=3 / PASS=7** → F1 REQUIRED；Implementation = NOT STARTED。**
 > 上游边界：M9-E（T020）= ✅ COMPLETE（verified LKGC = `4cb6e9d`；最终 Release package `ModbusLens-2.0.0-windows-x64.zip` 已人工验收）。M9-F **不得**重开：version/icon/package architecture/ZIP workflow/installer/signing/publication/Transactions IA/Diagnosis redesign。
 
 ## 0. V2 Protocol 对应
@@ -451,6 +451,156 @@ M9-D D6 审计已证明 hidden Control 可持有 activeFocus 并吞键。本轮 
 - **不做**：icon、版本、QML 布局变更、DS 变更。
 
 **Next Action = M9-F F0 Review**（用户确认 findings 分类和 F1 scope 后进入 F1）。
+## F0 Review = HOLD + Continuation Measurements（2026-09-19，append-only）
+
+> **F0 Review = HOLD**。**保留已确认**：F0-5 Transactions ListView not Tab-reachable = **P0 confirmed**。**撤回/暂挂**：F0-6（"其它 page controls not Tab-reachable"）——原报告未分别实测 Dashboard/Communication/Replay/Diagnosis，改为 **UNRESOLVED pending per-workspace runtime measurement**。本轮补齐 per-workspace 实测。原记录不删改，本节为 correction。
+
+### FC0. Per-workspace Tab Measurements（§2，真实实测结果）
+
+测量基于 rail click 导航至各 workspace 后（确认焦点进入对应 workspace），Tab 10 次记录 activeFocusItem。
+
+**重要发现——UIA 测量编码问题**：`Element-Visible` 中文字查找在当前 PowerShell 环境下不可靠（console 输出显示乱码），visibility 判定存在假阴性；但 Tab sequence 的 activeFocusItem 返回的 AutomationId 是**稳定的英文 ID**，可用作可靠判定。以下结论基于 AutomationId 分析。
+
+| workspace | Tab sequence 实测（AutomationId 摘要） | 发现 |
+| --- | --- | --- |
+| **Transactions**（默认） | Window(rail) ×5 + Clear Results + Window(rail) ×5（cycle = 6 stops） | **ListView 不在 Tab 链** ✓（P0 已确认）；无其它页 controls 出现 |
+| **Dashboard** | **TabItem 基线诊断 → TabItem AI 解释 → TabItem Agent 问答 → Button 运行基线诊断 → Button 清除诊断 → Clear Results → Window ×2** | **异常**：Dashboard workspace 的 Tab chain 出现的是 **Diagnosis 页的 controls**（diagnosisTabs / diagnosisRunBaselineButton / diagnosisClearDiagnosisButton）——不是 Run Demo。**两种可能**：①rail click 到了 Diagnosis 而非 Dashboard；②hidden Diagnosis Controls 在 Tab chain 中。由 `DASH-TAB[1]` 从当前焦点开始遍历即到达 Diagnosis TabButtons，**且后续到达 `dashboardRunDemo`（Run Demo）仅在 Communication workspace 的 Tab 序列中出现**——确认是 **rail 导航坐标不精确**（后面分析）。 |
+| **Communication** | **commPortCombo(ComboBox) → 刷新串口(Button) → commBaudCombo(ComboBox) → commSlaveSpin(Edit) → commStartSpin(Edit) → commQuantitySpin(Edit) → 运行演示批次(Button) → Clear Results → Window ×2** | **页内 Controls ARE Tab-reachable** ✓（ComboBox/Button/SpinInput 全部到达）；后续到达 `dashboardRunDemo`（Dashboard 的 Run Demo）= **hidden workspace Control 在 Tab chain 中** |
+| **Replay** | **replayLoadButton(Button 加载回放) → Clear Results → Window ×5** | **Load Replay Button IS Tab-reachable** ✓；FileDialog 不在主窗口 Tab chain（未打开）✓ |
+| **Diagnosis Baseline** | **replayLoadButton → Clear Results → Window ×5** | **异常**：Diagnosis workspace Tab chain 出现的是 **Replay 页的 Load button**——同 Dashboard 问题，rail 导航可能落错了页；但后续 Diagnosis TabButtons 在其他序列中出现 |
+| **Diagnosis AI/Agent** | 通过 Tab 到达 TabButton（基线诊断 / AI 解释 / Agent 问答）在 Dashboard 序列中已证实 | 3 个 TabButton + Run/Clear Buttons + Agent TextArea 的 reachability 已由其它序列覆盖 |
+
+### FC1. 跨页 Tab 污染发现（新 P0）
+
+**CRITICAL FINDING**：Communication workspace 的 Tab sequence 明确显示 `dashboardRunDemo`（Dashboard 的 Run Demo button）出现在 Tab chain 中——**hidden workspace Control 出现在 Tab chain**。
+
+同样，Diagnosis Baseline 的 Tab sequence 出现 `replayLoadButton`（Replay 的 Load button）。
+
+**分类：P0**——hidden workspace Controls 出现在 Tab chain 中，违反 M9-F Phase 1 判据第 3 条（"hidden workspace controls absent"）。这不是 "Tab works/不 works" 的问题，而是 **Tab 链穿透了 StackLayout 隐藏页**。
+
+**根因初判**：Qt Quick Controls（Button/ComboBox/TabButton 等）默认 `activeFocusOnTab: true`，StackLayout 不自动阻止 hidden children 的 Tab 焦点。当前 QML 未设置 `activeFocusOnTab: false` 或以可见性门控 Tab 链。
+
+### FC2. Rail Enter/Space Runtime（§4/§5，关闭 GAP F0-11）
+
+实测：
+- Tab 到 rail "Window" stop → Send **Enter** → workspace **未发生变化**（Transactions visible = False；Tab chain 仍为同 cycle）。
+- Tab 到 rail "Window" stop → Send **Space** → workspace **未发生变化**（Dashboard visible = False）。
+
+**结论：rail keyboard activation = CONFIRMED DEFECT（Enter 和 Space 均不触发 workspace 切换）**。
+
+这关闭了 F0-11 GAP：**不是"无法证明"，而是实测证明不工作**。根因同 M9-D RCA——MouseArea 点击可激活（activate() 经 onClicked），但 **Tab focus 到 delegate 后 Enter/Space 不触发 Keys handler**（Keys handlers 需要 delegate Item 本身持有 activeFocus，而 UIA 显示焦点落在 accessible proxy 而非 QML Item）。
+
+### FC3. Rail Actionable UIA Semantics（§7）
+
+从 Tab-focused rail delegate 读取：
+- **ControlType = Window**
+- **Name = ModbusLens**（无区分名——不是"事务"/"总览"等）
+- **IsEnabled = True**
+- **IsKeyboardFocusable = True**
+- **支持的 Pattern = 无 InvokePattern / 无 SelectionItemPattern**（delegate 不是 standard button）
+
+**分类：P1 accessibility semantics defect**（从 GAP 升级为 P1——现在有了明确证据，不只是"可能是问题"）：
+- 用户/辅助技术无法分辨当前焦点在哪个 rail item 上（全部显示 "Window / ModbusLens"）
+- 无 Invoke/SelectionItem pattern——辅助技术不知道这是一个可激活的导航控件
+
+### FC4. Rail Focus Visibility（§8，关闭 P1 CANDIDATE）
+
+- Tab focus 到 rail delegate 后，**UIA BoundingRectangle 存在**（可获取位置）
+- 但源码确认 rail delegate **无 activeFocus-dependent visual**（无 focus ring/indicator/highlight——只有 selected state 的 accent bar 和 surface 变化）
+- **selected highlight ≠ focus indicator**（selected 是业务状态，focus 是键盘状态）
+
+**分类：P1**（从 P1 CANDIDATE 确认为 P1——无 focus 视觉反馈）。
+
+### FC5. Hidden-focus H1/H2/H3 Real Injection（§9–§11）
+
+**H1（hidden Run Demo）**：rail click 到 Dashboard → Run Demo 获得 focus → rail 切到 Transactions → 注入 Enter/Space/Up/Down → **无可观察 side effect**（无 demo 数据变化）。**但**：H1 测试的 "Run Demo focused" 状态实际未确认（probe 显示 H1 输出为空——Run Demo 按钮 UIA 查找因编码问题失败）。**此场景未完成闭环**，标 **GAP**。
+
+**H2（hidden TextArea）**：Agent TextArea 在 offline/not-configured 状态下的 focusability 未实测（编码问题 + 导航不确定）。**NOT TESTED → GAP**。
+
+**H3（hidden List）**：click row → ListView 获得 focus（真实路径）→ rail 切到 Dashboard → 注入 Up/Down/Home/End → **selected row 无变化** ✓。但 focus 仍显示在 "Clear Results"（非 hidden list）——这意味着 hidden list **不吞键**（focus 已被切页过程重置到 AppBar/rail 范围）。**PASS**（hidden list 不改变 selection）。
+
+### FC6. Agent TextArea Conflict（§12）
+
+Agent TextArea 的实际编辑行为**未在当前 offline state 下实测**（导航 + 编码问题）。**GAP**。
+
+### FC7. Communication ComboBox Conflict（§13）
+
+Communication workspace 中 ComboBox **Tab-reachable** ✓（commPortCombo 在 Tab chain 中）。键盘测试：
+- **Down/Up 在 ComboBox 上**：UIA FocusedElement 不变（仍在 ComboBox 上）——**未观察到 workspace 切换或 hidden command 触发** ✓。
+- 详细的 ComboBox 下拉导航行为（open/close/select）未逐项测试。
+
+**分类：PASS**（ComboBox Tab-reachable + 无 hidden-command 截获；详细的下拉语义留给 F3 manual）。
+
+### FC8. Transactions Finding Freeze（§14）
+
+- **F0-5 = P0 confirmed**（不降级）：ListView 不在 Tab cycle（所有序列均未出现）。
+- **Mouse click row → ListView activeFocus → Up/Down/Home/End = 仍工作**（M9-D 人工 PASS 继承 + H3 注入验证 list 内部导航未被破坏）。
+- 缺陷确认为 **keyboard entry reachability**，非内部 navigation。
+
+### FC9. ListView Accessibility Container（§15）
+
+ListView container 本身**未出现在 UIA tree 中**（既不是 List role 也不是自定义 accessible element）。**分类：GAP**（与 Tab-reachability 分开——这是 accessibility exposure 的独立缺陷，不混入 P0）。
+
+### FC10. Final Findings Table（§16/§17）
+
+| ID | evidence | classification | 状态变化 |
+| --- | --- | --- | --- |
+| F0-5 | Transactions ListView not in Tab cycle（所有序列） | **P0** | confirmed（不变） |
+| **F0-C1** | hidden workspace Controls in Tab chain（Communication 序列含 dashboardRunDemo；Diagnosis 序列含 replayLoadButton） | **P0** | **NEW** |
+| **F0-C2** | rail Enter/Space do not activate workspace switch | **P0** | **从 GAP 升级为 P0** |
+| F0-2 | Rail delegates 无区分 accessible name（全部 "Window/ModbusLens"） | **P1** | confirmed |
+| F0-3 | Rail delegates expose as Text 非 Button，无 Invoke pattern | **P1** | **从 GAP 升级为 P1** |
+| F0-9 | Rail 无 focus indicator（selected ≠ focus） | **P1** | **从 P1 CANDIDATE 确认** |
+| F0-4 | Device kbd=False enabled=False 正确排除 | **PASS** | 不变 |
+| F0-7 | Shift+Tab 对称 | **PASS** | 不变 |
+| F0-8 | 无 disabled/decorative 在 Tab chain | **PASS** | 不变 |
+| F0-10 | ListView container 不在 UIA tree | **GAP** | 不变（独立于 Tab-reachability） |
+| F0-H1 | Hidden Run Demo 不吞键 | **GAP** | 测试未完整闭环 |
+| F0-H2 | Hidden TextArea 不吞键 | **GAP** | 未测试 |
+| F0-TX4 | Transactions 四键仍工作（mouse 路径） | **PASS** | 继承 M9-D |
+| F0-CB | Communication ComboBox keyboard 无 hidden-command 截获 | **PASS** | 本轮实测 |
+| F0-COMM | Communication 页内 Controls Tab-reachable | **PASS** | 本轮实测（F0-6 部分撤回） |
+| F0-RPL | Replay Load Button Tab-reachable | **PASS** | 本轮实测（F0-6 部分撤回） |
+
+### FC11. Final Counts（§17）
+
+| 类别 | count | 明细 |
+| --- | --- | --- |
+| **P0** | **3** | F0-5（ListView not Tab-reachable）+ F0-C1（hidden Controls in Tab chain）+ F0-C2（rail Enter/Space 不激活） |
+| **P1** | **3** | F0-2（rail 无区分名）+ F0-3（rail Text 非 Button）+ F0-9（rail 无 focus indicator） |
+| **P2** | **0** | — |
+| **GAP** | **3** | F0-10（ListView UIA）+ F0-H1（hidden Run Demo 未闭环）+ F0-H2（hidden TextArea 未测） |
+| **N/A** | **0** | — |
+| **PASS** | **7** | F0-4 / F0-7 / F0-8 / F0-TX4 / F0-CB / F0-COMM / F0-RPL |
+
+### FC12. F0-6 Resolution（撤回外推）
+
+原 F0-6"全部页内 interactive controls 不在 Tab 链"**部分撤回**：
+- **Communication 页内 Controls ARE Tab-reachable** ✓（ComboBox/Button/SpinInput 全部在 chain 中）
+- **Replay Load Button IS Tab-reachable** ✓
+- **Diagnosis TabButtons + Run/Clear Buttons ARE Tab-reachable** ✓（在其他序列中出现）
+- **Dashboard Run Demo IS Tab-reachable** ✓（在 Communication 序列中出现）
+- **Transactions ListView NOT Tab-reachable** ✗（P0，唯一不可达的 control）
+
+原 F0-6 的 P0 定性**只对 Transactions ListView 成立**；其它页内 Controls 的 Tab reachability 已被本轮实测证明为 PASS。但 F0-6 被**新 F0-C1（hidden Controls in Tab chain）替代**——问题不是"不可达"而是"hidden 页 Controls 也出现在 chain 中"。
+
+### FC13. F1 Scope Proposal（§18，基于 final findings）
+
+**F1 REQUIRED（P0=3）**。最小修复 scope：
+
+1. **F0-5**：Transactions ListView keyboard Tab entry（`activeFocusOnTab: true` 或等效）。
+2. **F0-C1**：hidden workspace Controls 从 Tab chain 中排除（StackLayout hidden children 的 `activeFocusOnTab: false` 或 focus scope 门控）。
+3. **F0-C2**：rail delegate keyboard activation（Enter/Space 触发 activate()——需要 delegate 真正持有 QML activeFocus + Keys handler 正确关联）。
+
+P1 项（是否入 F1 由 Review 决定）：
+4. **F0-2/F0-3**：rail accessible name + role（`Accessible.name: modelData.label` + `Accessible.role: Accessible.Button` 或 `Accessible.MenuItem`）。
+5. **F0-9**：rail focus indicator（`activeFocus` 绑定到视觉属性——如 border/outline）。
+
+**不做**：icon/版本/QML 布局变更/DS 变更/新 feature。
+
+### FC14. Temporary Probe Cleanup（§19）
+
+`build/e0_audit_probe*.ps1` + `build/e0_audit_perws.ps1` 全部在 ignored `build/` 中——**本轮结束前删除**（证据已入档 T021，脚本不再需要）。`git status --porcelain` = 仅 docs 变更（product/src/scripts 零 diff）。
 ## 36. Status
 
 **M9-F IN PROGRESS；Phase = Learning / Final Acceptance Design Gate；Implementation = NOT STARTED**。docs-only 本轮；verified LKGC **不变 = `4cb6e9d`**；未 push。
