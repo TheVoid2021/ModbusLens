@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/active/ActiveRequestIntent.h"
+#include "core/protocol/ModbusRtuCodec.h"
 #include "core/active/ActiveTransactionEvidence.h"
 #include "core/analysis/TransactionAnalysis.h"
 #include "fake_serial_transport.h"
@@ -124,6 +125,30 @@ private slots:
     void ts04_clearResultsClearsShortSubmissionEvidence();
     // TS5: source replacement clears it; evidence never crosses sources.
     void ts05_sourceReplacementClearsShortSubmissionEvidence();
+
+
+
+    // ---- M10-B: FC03 unified contract migration (Active Serial history) ----
+    // B01: two completed FC03 transactions in ONE session -> 2 records/rows.
+    void b01_sessionHistoryAppends();
+    // B02: Success + Timeout + Exception -> 3 rows in completion order.
+    void b02_historyOrderStable();
+    // B03: statistics cover the WHOLE session (transport terminals excluded).
+    void b03_statisticsOverWholeSession();
+    // B04: the deterministic diagnosis batch covers the whole session.
+    void b04_diagnosisBatchCoversSession();
+    // B05: append is an INSERT (never a reset/dataChanged) -> a page-local
+    // selection pointing at an existing row stays valid.
+    void b05_appendPreservesExistingRows();
+    // B06: nothing auto-selects the newest row (no implicit selection state).
+    void b06_noAutoSelectOnAppend();
+    // B07: Clear Results clears the visible history and the statistics.
+    void b07_clearResultsClearsVisibleHistory();
+    // B08: Clear while pending keeps the pending request; its completion
+    // becomes the first row of the cleared session.
+    void b08_clearWhilePending();
+    // B09: reconnect = new Active Serial session; old history is gone.
+    void b09_reconnectStartsFreshHistory();
 };
 
 void ActiveMasterTest::ta01_closedTransportNotSent()
@@ -343,10 +368,12 @@ void ActiveMasterTest::ta11_sessionRecordsAppendNeverReplace()
     QVERIFY(!records[0].evidence.responseAdu.empty());
     QVERIFY(records[1].evidence.responseAdu.empty());
 
-    // Presentation stays the FROZEN FC03 contract in M10-A: latest-only row
-    // and single-transaction statistics (append presentation = M10-B).
-    QCOMPARE(s.controller.transactionModel()->rowCount(), 1);
-    QCOMPARE(s.controller.observedCount(), 1);
+    // M10-B CONTRACT MIGRATION: the Active Serial presentation is no longer
+    // latest-only (that was the M10-A state this test used to lock). Both
+    // transactions of the session are visible and counted; the RECORD
+    // invariants asserted above are unchanged.
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 2);
+    QCOMPARE(s.controller.observedCount(), 2);
     QCOMPARE(s.controller.timeoutCount(), 1);
 }
 
@@ -362,7 +389,7 @@ void ActiveMasterTest::ta12_appendProjectionApi()
                 .timeout = ms{1000},
                 .payload = ReadHoldingRegistersIntent{
                     .startAddress = 0, .quantity = 2}}));
-        controller.appendSerialTransaction(
+        controller.appendActiveSerialTransaction(
             modbuslens::core::ActiveTransactionRecord{
                 .sessionId = 5,
                 .request = descriptor,
@@ -937,6 +964,271 @@ void ActiveMasterTest::ts05_sourceReplacementClearsShortSubmissionEvidence()
     QCOMPARE(s.controller.sourceKind(),
              modbuslens::core::TransactionSourceKind::Replay);
     QCOMPARE(s.controller.modeLabel(), QStringLiteral("回放模式"));
+}
+
+// ---- M10-B: FC03 unified contract migration ----
+
+void ActiveMasterTest::b01_sessionHistoryAppends()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+
+    // Same session: BOTH transactions are retained and BOTH are visible.
+    QCOMPARE(s.controller.activeSerialRecordCount(), 2);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 2);
+    QCOMPARE(s.controller.observedCount(), 2);
+    QCOMPARE(s.controller.successCount(), 2);
+    QCOMPARE(s.controller.activeSerialSessionId(), std::uint64_t{1});
+}
+
+void ActiveMasterTest::b02_historyOrderStable()
+{
+    ConnectedSession s;
+    // R1 Success, R2 Timeout, R3 Exception 0x02 — in this order.
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    s.controller.readHoldingRegistersOnce(2, 0, 2, 1000);
+    s.transport.setResponseBytes({});
+    s.transport.setCompletionElapsed(ms{1000});
+    s.transport.completeWithTimeout();
+    s.controller.readHoldingRegistersOnce(3, 0, 2, 1000);
+    s.transport.setResponseBytes(modbuslens::core::encodeRtuFrame(
+        modbuslens::core::ModbusRtuFrame{.address = 0x03, .functionCode = 0x83, .data = {0x02}}));
+    s.transport.setCompletionElapsed(ms{18});
+    s.transport.completeWithResponse();
+
+    const auto* model = s.controller.transactionModel();
+    QCOMPARE(model->rowCount(), 3);
+    // Oldest -> newest, appended at the end; identity (unit) follows the
+    // request order and is never re-sorted.
+    for (int row = 0; row < 3; ++row) {
+        QCOMPARE(model->data(model->index(row, 0),
+                             TransactionListModel::DeviceAddressRole),
+                 QVariant{row + 1});
+        QCOMPARE(model->data(model->index(row, 0),
+                             TransactionListModel::FunctionCodeRole),
+                 QVariant{3});
+    }
+    QCOMPARE(model->data(model->index(0, 0), TransactionListModel::StatusTextRole).toString(),
+             QStringLiteral("成功"));
+    QCOMPARE(model->data(model->index(1, 0), TransactionListModel::StatusTextRole).toString(),
+             QStringLiteral("超时"));
+    QCOMPARE(model->data(model->index(2, 0), TransactionListModel::StatusTextRole).toString(),
+             QStringLiteral("异常"));
+    QCOMPARE(model->data(model->index(2, 0), TransactionListModel::ExceptionCodeRole),
+             QVariant{0x02});
+}
+
+void ActiveMasterTest::b03_statisticsOverWholeSession()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    s.controller.readHoldingRegistersOnce(2, 0, 2, 1000);
+    s.transport.setResponseBytes({});
+    s.transport.setCompletionElapsed(ms{1000});
+    s.transport.completeWithTimeout();
+    s.controller.readHoldingRegistersOnce(3, 0, 2, 1000);
+    s.transport.setResponseBytes(modbuslens::core::encodeRtuFrame(
+        modbuslens::core::ModbusRtuFrame{.address = 0x03, .functionCode = 0x83, .data = {0x02}}));
+    s.transport.setCompletionElapsed(ms{18});
+    s.transport.completeWithResponse();
+
+    // Whole-session aggregation (not latest-only).
+    QCOMPARE(s.controller.observedCount(), 3);
+    QCOMPARE(s.controller.completedCount(), 3);
+    QCOMPARE(s.controller.successCount(), 1);
+    QCOMPARE(s.controller.timeoutCount(), 1);
+    QCOMPARE(s.controller.exceptionCount(), 1);
+    QVERIFY(s.controller.hasSuccessRate());
+    QVERIFY(qFuzzyCompare(s.controller.successRate(), 1.0 / 3.0));
+
+    // Transport terminals never enter the Modbus outcome counts (M10-A
+    // invariant continued by M10-B): a short submission and a port error
+    // add evidence, not statistics.
+    s.transport.setSubmissionAcceptedBytes(4);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setSubmissionAcceptedBytes(std::nullopt);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.failTransport(QStringLiteral("测试传输失败"));
+
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 2);
+    QCOMPARE(s.controller.observedCount(), 3);   // unchanged
+    QCOMPARE(s.controller.completedCount(), 3);  // unchanged
+    QCOMPARE(s.controller.activeSerialRecordCount(), 3);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 3); // no fake rows
+}
+
+void ActiveMasterTest::b04_diagnosisBatchCoversSession()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    s.controller.readHoldingRegistersOnce(2, 0, 2, 1000);
+    s.transport.setResponseBytes({});
+    s.transport.setCompletionElapsed(ms{1000});
+    s.transport.completeWithTimeout();
+    s.controller.readHoldingRegistersOnce(3, 0, 2, 1000);
+    s.transport.setResponseBytes(modbuslens::core::encodeRtuFrame(
+        modbuslens::core::ModbusRtuFrame{.address = 0x03, .functionCode = 0x83, .data = {0x02}}));
+    s.transport.setCompletionElapsed(ms{18});
+    s.transport.completeWithResponse();
+
+    s.controller.runBaselineDiagnosis();
+
+    QVERIFY(s.controller.hasBaselineDiagnosis());
+    const QString text = s.controller.baselineDiagnosisText();
+    // The report covers the WHOLE session: the timeout AND the device
+    // exception both appear as facts. A latest-only batch could only ever
+    // report the last one, so this pair is the whole-batch proof.
+    QVERIFY(text.contains(QStringLiteral("无响应超时")));
+    QVERIFY(text.contains(QStringLiteral("设备异常 0x02")));
+}
+
+void ActiveMasterTest::b05_appendPreservesExistingRows()
+{
+    ConnectedSession s;
+    // Snapshot the first row (all roles) plus the model's signal behaviour.
+    int resetCount = 0;
+    int insertCount = 0;
+    int dataChangedCount = 0;
+    const auto* model = s.controller.transactionModel();
+    connect(model, &QAbstractItemModel::modelReset, this,
+            [&resetCount]() { ++resetCount; });
+    connect(model, &QAbstractItemModel::rowsInserted, this,
+            [&insertCount]() { ++insertCount; });
+    connect(model, &QAbstractItemModel::dataChanged, this,
+            [&dataChangedCount]() { ++dataChangedCount; });
+
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    const int resetsAfterFirst = resetCount;
+    const int insertsAfterFirst = insertCount;
+    const auto rowZeroBefore = model->data(model->index(0, 0),
+                                          TransactionListModel::StatusTextRole);
+
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+
+    // The second completion INSERTS (append): no reset, no dataChanged, so a
+    // page-local selection pointing at row 0 is still valid and still shows
+    // the same transaction (M9-D selection contract, M10-B §12/§13).
+    QCOMPARE(resetCount, resetsAfterFirst);
+    QCOMPARE(insertCount, insertsAfterFirst + 1);
+    QCOMPARE(dataChangedCount, 0);
+    QCOMPARE(model->data(model->index(0, 0), TransactionListModel::StatusTextRole),
+             rowZeroBefore);
+    QCOMPARE(model->rowCount(), 2);
+}
+
+void ActiveMasterTest::b06_noAutoSelectOnAppend()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.completeWithTimeout();
+
+    // The runtime owns NO selection state: appending a transaction changes
+    // the history, the statistics and the diagnosis batch — and nothing else.
+    // (The Transactions page keeps selection in page-local state and only
+    // clears it on modelReset, which append never emits; the qml harness
+    // continues to guard no-select-on-focus for the keyboard path.)
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 2);
+    QCOMPARE(s.controller.modeLabel(), QStringLiteral("串口模式"));
+    QCOMPARE(s.controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
+    QVERIFY(!s.controller.serialBusy());
+    QVERIFY(!s.controller.hasSerialError());
+}
+
+void ActiveMasterTest::b07_clearResultsClearsVisibleHistory()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.completeWithTimeout();
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 2);
+    QCOMPARE(s.controller.observedCount(), 2);
+
+    s.controller.clearResults();
+
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+    QCOMPARE(s.controller.observedCount(), 0);
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+    QVERIFY(!s.controller.hasSuccessRate());
+    QVERIFY(!s.controller.hasAverageSuccessLatency());
+    // Clear != Disconnect: source identity and connection survive.
+    QCOMPARE(s.controller.modeLabel(), QStringLiteral("串口模式"));
+    QCOMPARE(s.controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
+    QVERIFY(s.controller.serialConnected());
+}
+
+void ActiveMasterTest::b08_clearWhilePending()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 1);
+
+    // R2 goes in flight, THEN Clear Results: the completed R1 disappears and
+    // the pending request is NOT cancelled.
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QVERIFY(s.transport.hasPendingTransaction());
+    s.controller.clearResults();
+    QVERIFY(s.transport.hasPendingTransaction());
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+
+    // R2's completion is the FIRST row of the cleared session; R1 is gone for
+    // good and never resurrects.
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 1);
+    QCOMPARE(s.controller.observedCount(), 1);
+    QCOMPARE(s.controller.successCount(), 1);
+    QCOMPARE(s.controller.activeSerialRecordCount(), 1);
+}
+
+void ActiveMasterTest::b09_reconnectStartsFreshHistory()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 2);
+    QCOMPARE(s.controller.activeSerialSessionId(), std::uint64_t{1});
+
+    // Disconnect + reconnect = a NEW Active Serial session: the visible
+    // history starts empty and the old records never leak into it.
+    s.controller.disconnectSerial();
+    s.controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+    QCOMPARE(s.controller.activeSerialSessionId(), std::uint64_t{2});
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+    QCOMPARE(s.controller.observedCount(), 0);
+
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 1);
+    QCOMPARE(s.controller.activeSerialSessionId(), std::uint64_t{2});
 }
 
 QTEST_GUILESS_MAIN(ActiveMasterTest)

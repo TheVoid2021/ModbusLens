@@ -28,14 +28,17 @@ Item {
     // ------------------------------------------------------------------
     // M9-D D3 selection (page-local presentation state, T019 §D3.5/§D3.6).
     //
-    // The authoritative model has exactly ONE mutation path —
-    // setEntries() -> beginResetModel()/endResetModel() — and never emits
-    // dataChanged, so a snapshot taken here cannot go stale: any change to
-    // the transaction set resets the model, and the Connections handler
-    // below clears the selection on modelReset. What is copied out is a
-    // PRESENTATION COPY read from the delegate on screen at selection time;
-    // it is never written back and never becomes an authority. No Controller
-    // state is involved.
+    // The authoritative model has exactly TWO mutation paths (M10-B):
+    //   * setEntries() -> beginResetModel()/endResetModel() — SOURCE
+    //     replacement (Simulator/Replay batch, Clear Results); the reset
+    //     invalidates the selection, handled below.
+    //   * appendEntries() -> beginInsertRows()/endInsertRows() — one more
+    //     Active Serial transaction; existing rows keep their values, order
+    //     and identity and no dataChanged is emitted for them, so a snapshot
+    //     taken here cannot go stale and the selection stays valid.
+    // What is copied out is a PRESENTATION COPY read from the delegate on
+    // screen at selection time; it is never written back and never becomes an
+    // authority. No Controller state is involved.
     // ------------------------------------------------------------------
     property int selectedRow: -1
     property var selectedEntry: null

@@ -2,6 +2,9 @@
 
 #include <QStringList>
 
+#include <iterator>
+#include <utility>
+
 namespace {
 
 // Adapter-only label mapping: enum -> UI text. Never placed in core, which
@@ -222,4 +225,22 @@ void TransactionListModel::setEntries(std::vector<TransactionListEntry> entries)
     beginResetModel();
     entries_ = std::move(entries);
     endResetModel();
+}
+
+void TransactionListModel::appendEntries(std::vector<TransactionListEntry> entries)
+{
+    if (entries.empty()) {
+        return;
+    }
+    // Rows are appended at the END (the list is oldest -> newest, matching
+    // every existing batch publication order). beginInsertRows keeps the
+    // existing rows untouched: no reset, no dataChanged, no reordering — so
+    // the view's currentIndex and the page-local selection survive.
+    const auto first = static_cast<int>(entries_.size());
+    const auto last = first + static_cast<int>(entries.size()) - 1;
+    beginInsertRows(QModelIndex{}, first, last);
+    entries_.insert(entries_.end(),
+                    std::make_move_iterator(entries.begin()),
+                    std::make_move_iterator(entries.end()));
+    endInsertRows();
 }

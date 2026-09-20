@@ -1115,37 +1115,48 @@ void AnalysisController::handleSerialTransactionTerminated(
     emit serialStatusChanged();
 }
 
-void AnalysisController::appendSerialTransaction(
+void AnalysisController::appendActiveSerialTransaction(
     const modbuslens::core::ActiveTransactionRecord& record)
 {
-    // Append foundation: the record joins the session history and the whole
-    // session is re-projected — nothing is ever replaced by a later record.
+    // Authority first, presentation second: the record joins the session
+    // history, then exactly ONE row is appended for it. The refresh below
+    // re-derives the statistics snapshot and the diagnosis batch from the
+    // WHOLE session (M10-B contract: the Active Serial source reports its
+    // whole session, not the latest transaction).
     activeSerialRecords_.push_back(record);
-    rebuildActiveSerialProjection();
+    transactionModel_.appendEntries({makeSessionRow(record)});
+    refreshActiveSessionDerivedViews();
 }
 
-void AnalysisController::rebuildActiveSerialProjection()
+TransactionListEntry AnalysisController::makeSessionRow(
+    const modbuslens::core::ActiveTransactionRecord& record) const
 {
-    std::vector<TransactionListEntry> entries;
-    entries.reserve(activeSerialRecords_.size());
+    // Projection only: every presented field is read from the record (the
+    // issue text is adapter-formatted from the record's analysis). Nothing is
+    // re-derived from a QML draft and no evidence is reconstructed here.
+    return TransactionListEntry{
+        .deviceAddress = record.unitId(),
+        .functionCode = record.functionCode(),
+        .status = record.analysis.status,
+        .elapsedMs = record.analysis.elapsed.count(),
+        .exceptionCode = record.analysis.exceptionCode,
+        .issueText = issueDetailText(record.analysis),
+        .activeSerialProvenance = modbuslens::core::ActiveSerialProvenance{
+            .sessionId = record.sessionId,
+            .request = record.request,
+            .evidence = record.evidence,
+        },
+    };
+}
+
+void AnalysisController::refreshActiveSessionDerivedViews()
+{
     std::vector<modbuslens::core::TransactionAnalysis> analyses;
     analyses.reserve(activeSerialRecords_.size());
     activeDiagnosisTransactions_.clear();
+    activeDiagnosisTransactions_.reserve(activeSerialRecords_.size());
 
     for (const auto& record : activeSerialRecords_) {
-        entries.push_back(TransactionListEntry{
-            .deviceAddress = record.unitId(),
-            .functionCode = record.functionCode(),
-            .status = record.analysis.status,
-            .elapsedMs = record.analysis.elapsed.count(),
-            .exceptionCode = record.analysis.exceptionCode,
-            .issueText = issueDetailText(record.analysis),
-            .activeSerialProvenance = modbuslens::core::ActiveSerialProvenance{
-                .sessionId = record.sessionId,
-                .request = record.request,
-                .evidence = record.evidence,
-            },
-        });
         analyses.push_back(record.analysis);
         activeDiagnosisTransactions_.push_back(
             modbuslens::core::DiagnosisTransaction{
@@ -1156,65 +1167,16 @@ void AnalysisController::rebuildActiveSerialProjection()
             });
     }
 
-    transactionModel_.setEntries(std::move(entries));
     applySnapshot(modbuslens::core::summarizeTransactions(
         std::span<const modbuslens::core::TransactionAnalysis>{analyses}));
+    // The batch changed => every derived diagnosis dies together (M9
+    // invariant: a new transaction in the session invalidates the previous
+    // baseline/AI result instead of silently outdating it).
     invalidateAiForBatchChange();
     modeLabel_ = QStringLiteral("串口模式");
     sourceLabel_ = serialSourceLabel_;
     emit statisticsChanged();
     emit sourceChanged();
-}
-
-void AnalysisController::publishSerialResult(
-    const QString& sourceLabel, int deviceAddress,
-    const modbuslens::core::TransactionAnalysis& analysis)
-{
-    // Hardware-free mapping seam: same projection the production completion
-    // uses, minus Active Serial provenance (this fixture path has none).
-    publishCompletedTransaction(sourceLabel, static_cast<std::uint8_t>(deviceAddress),
-                                0x03, analysis, std::nullopt);
-}
-
-void AnalysisController::publishCompletedTransaction(
-    const QString& sourceLabel, std::uint8_t deviceAddress,
-    std::uint8_t functionCode,
-    const modbuslens::core::TransactionAnalysis& analysis,
-    std::optional<modbuslens::core::ActiveSerialProvenance> provenance)
-{
-    // One row + one-element statistics batch, replace semantics (the row
-    // count is always 1 after a serial result on the presentation layer).
-    std::vector<modbuslens::core::TransactionAnalysis> batch{analysis};
-    auto snapshot = modbuslens::core::summarizeTransactions(batch);
-
-    TransactionListEntry entry{
-        .deviceAddress = deviceAddress,
-        .functionCode = functionCode,
-        .status = analysis.status,
-        .elapsedMs = analysis.elapsed.count(),
-        .exceptionCode = analysis.exceptionCode,
-        .issueText = issueDetailText(analysis),
-        .activeSerialProvenance = std::move(provenance),
-    };
-
-    transactionModel_.setEntries({std::move(entry)});
-    statistics_ = std::move(snapshot);
-    activeDiagnosisTransactions_ = {
-        modbuslens::core::DiagnosisTransaction{
-            .deviceAddress = deviceAddress,
-            .functionCode = functionCode,
-            .analysis = analysis,
-            .requestIssues = {},
-        },
-    };
-    invalidateAiForBatchChange();
-    modeLabel_ = QStringLiteral("串口模式");
-    sourceLabel_ = sourceLabel;
-    serialBusy_ = false;
-    clearSerialError();
-    emit statisticsChanged();
-    emit sourceChanged();
-    emit serialStatusChanged();
 }
 
 void AnalysisController::handleSerialTransactionCompleted(
@@ -1233,27 +1195,23 @@ void AnalysisController::handleSerialTransactionCompleted(
         return;
     }
 
-    // Authority first: the transaction (intent snapshot + wire evidence +
-    // verdict) joins the append-only session history. The evidence is NOT
-    // handed to the presentation and dropped — it is retained.
-    const modbuslens::core::ActiveTransactionRecord record{
+    // One writer only: the append path below is the single place where a
+    // completed transaction joins the session history AND the visible
+    // history (the record carries the send-time snapshot + wire evidence).
+    appendActiveSerialTransaction(modbuslens::core::ActiveTransactionRecord{
         .sessionId = activeSerialSessionId_,
         .request = *pendingRequest_,
         .evidence = result.evidence(),
         .analysis = result.analysis,
-    };
-    activeSerialRecords_.push_back(record);
-
-    // Presentation (unchanged FC03 contract): latest-only row + single
-    // transaction statistics, now carrying the record's provenance.
-    publishCompletedTransaction(serialSourceLabel_, record.unitId(),
-                                record.functionCode(), record.analysis,
-                                modbuslens::core::ActiveSerialProvenance{
-                                    .sessionId = record.sessionId,
-                                    .request = record.request,
-                                    .evidence = record.evidence,
-                                });
+    });
+    // The request is over: end the in-flight state and clear the stale serial
+    // error (a completed transaction proves the transport answered). Only the
+    // in-flight/presentation flags change here — rows, statistics, source
+    // identity and the session history were handled above.
     pendingRequest_.reset();
+    serialBusy_ = false;
+    clearSerialError();
+    emit serialStatusChanged();
 }
 
 void AnalysisController::applySnapshot(

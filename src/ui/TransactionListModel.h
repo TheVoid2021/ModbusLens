@@ -62,8 +62,17 @@ public:
     [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
 
     // Whole-batch replacement from the C++ side (not Q_INVOKABLE); QML only
-    // reads. No append/remove/paging — no requirement exists in Part A.
+    // reads. Used for SOURCE TRANSITION only: Simulator/Replay batches and
+    // Clear Results replace the visible set wholesale, and the reset
+    // invalidates page-local presentation state (M9-D selection contract).
     void setEntries(std::vector<TransactionListEntry> entries);
+
+    // M10-B: TRUE APPEND — the Active Serial session history grows one
+    // transaction at a time. Insertion (never a reset) is the whole point:
+    // rows already on screen keep their content, their order and their
+    // identity, and a page-local selection pointing at an existing row stays
+    // valid. append != source replacement; never make setEntries() append.
+    void appendEntries(std::vector<TransactionListEntry> entries);
 
 private:
     std::vector<TransactionListEntry> entries_;

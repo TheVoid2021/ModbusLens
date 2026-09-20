@@ -196,15 +196,6 @@ public:
     void applySnapshot(const modbuslens::core::TransactionStatisticsSnapshot& snapshot);
     void setTransactionEntries(std::vector<TransactionListEntry> entries);
 
-    // T010 Part B hardware-free seam: maps an already-produced Core analysis
-    // into the shared dashboard (one row + one-element statistics batch,
-    // replace semantics). Production path: the transport's completion
-    // reaches handleSerialTransactionCompleted, which validates the pending
-    // snapshot and delegates here; tests call this helper directly with
-    // TransactionAnalysis fixtures — mapping correctness is what it proves.
-    void publishSerialResult(const QString& sourceLabel, int deviceAddress,
-                             const modbuslens::core::TransactionAnalysis& analysis);
-
     // ---- M10-A: Active Master contract foundation (C++ seams only) ----
     // Production completion entry: guards against stale completions (a
     // result arriving with no pending serial metadata must NEVER override the
@@ -228,13 +219,15 @@ public:
     // injected transport is NOT owned by the controller.
     void setSerialTransport(SerialTransport* transport);
 
-    // Append foundation for Active Serial session history: records one
-    // completed transaction and publishes the whole session by APPEND (rows
-    // and statistics project every record; nothing is replaced). The
-    // production FC03 path deliberately publishes latest-only presentation in
-    // M10-A — switching presentation to this projection changes visible
-    // aggregation and therefore belongs to the M10-B FC03 contract migration.
-    void appendSerialTransaction(const modbuslens::core::ActiveTransactionRecord& record);
+    // M10-B: the ONE presentation path for Active Serial session history.
+    // Appends the authoritative record and projects it into the visible
+    // history: the row is APPENDED (never a latest-only replacement), and the
+    // statistics/diagnosis inputs are re-derived from the WHOLE session batch.
+    // Presentation only — the record itself stays the authority (wire
+    // evidence, provenance, disposition), and transport terminals are never
+    // published here as Modbus rows.
+    void appendActiveSerialTransaction(
+        const modbuslens::core::ActiveTransactionRecord& record);
 
     // Source identity (typed, never inferred from modeLabel text, a workspace
     // index or a filename) and the Active Serial session it belongs to.
@@ -295,17 +288,13 @@ private:
     // identity invalidated, and activeBatchRevision_ is bumped.
     void invalidateAiForBatchChange();
 
-    // M10-A: single latest-only publish path shared by the production
-    // completion and the hardware-free mapping seam, so the two can never
-    // diverge. `provenance` is present only for Active Serial transactions.
-    void publishCompletedTransaction(
-        const QString& sourceLabel, std::uint8_t deviceAddress,
-        std::uint8_t functionCode,
-        const modbuslens::core::TransactionAnalysis& analysis,
-        std::optional<modbuslens::core::ActiveSerialProvenance> provenance);
-    // Append projection: rows/statistics/diagnosis batch are rebuilt from the
-    // whole Active Serial session history (used by appendSerialTransaction).
-    void rebuildActiveSerialProjection();
+    // Presentation projection of ONE session record (row fields + issue text).
+    [[nodiscard]] TransactionListEntry makeSessionRow(
+        const modbuslens::core::ActiveTransactionRecord& record) const;
+    // Derived views over the WHOLE Active Serial session: statistics snapshot
+    // and the deterministic-diagnosis batch. Rows are NOT rebuilt here — they
+    // grow by append, so existing rows/selection stay untouched.
+    void refreshActiveSessionDerivedViews();
     // (Re)connects the completion/error doors of the active transport.
     void connectSerialTransportSignals(SerialTransport& transport);
 

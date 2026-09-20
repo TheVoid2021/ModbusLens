@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE（2026-09-20 Final Re-review PASS；最终 accepted behavior tree `b7a6151`，verified LKGC 已推进）。Next Action = **M10-B — FC03 Unified Contract Migration**（未开始）。**
+> **状态：M10-A = ✅ COMPLETE（accepted behavior tree `b7a6151`，verified LKGC）。**M10-B = FC03 Unified Contract Migration：实现完成，等待 M10-B Review**（IN PROGRESS）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -1739,4 +1739,191 @@ commit：`M10-A: close Active Master contract foundation`（独立 docs-only 提
 不 amend `b7a6151`；不 rebase；不 push；未创建 v2.0.0 tag）。
 M10 = IN PROGRESS；Phase 1 = COMPLETE；**M10-A = COMPLETE**；M10-B = NEXT；M9 = ✅ COMPLETE。
 verified LKGC = **`b7a6151`**。
+```
+## M10-B — FC03 Unified Contract Migration（2026-09-20，behavior-bearing）
+
+> **M10-B = FC03 Unified Contract Migration：IN PROGRESS（实现完成，等待 M10-B Review）。**
+> 目标：把现有 0x03 完整迁移到 M10-A 统一 Active Master contract，并把 Active Serial session 内部已有的
+> append history 正式接入 Transactions / Statistics / Diagnosis 的用户可见 presentation。
+> **本轮不是新协议功能开发**：0x06 / 0x10 encoder 仍不存在、无 Write UI、无 confirmation、无 broadcast active send、
+> 无 queue/concurrency、未改 Navigation IA、未改版本/package/icon、未改 AI/Agent authority。
+> M10-A contracts（TransportDisposition / NotSent / PossiblySent / raw ADU evidence / transport terminal /
+> short-submission / typed provenance / session identity / Clear Results contract）**全部继承、未重新解释**。
+
+### F0. Preflight
+
+```text
+HEAD = `d870922`（main，clean）；verified LKGC = `b7a6151`；M9 = ✅ COMPLETE；M10 Phase 1 = COMPLETE；M10-A = COMPLETE；
+CMake VERSION = 2.0.0；v1 tag object `2cee626` / target `ae067ab`；v2.0.0 **absent**；
+origin/main = `a40d935`（behind 0 / ahead 101）；`git diff --check` PASS —— 全部相符。
+```
+
+### F1. Source Re-read（A–F 真实事实）
+
+```text
+A. legacy / special-case FC03 路径：`readHoldingRegistersOnce`（UI 唯一入口，保留名称）→ 本地四段校验 →
+   `ActiveRequestIntent` → `encodeActiveRequest` → descriptor → `startActiveRequest`；
+   完成经 `handleSerialTransactionCompleted`（身份 guard）→ 唯一 publish 路径。**没有** FC03 专属 lifecycle。
+B. `activeSerialRecords_` 追加方式（迁移前）：生产完成 → `publishCompletedTransaction`（**只投影 latest 一行 + 单事务统计**）；
+   `appendSerialTransaction`（仅测试调用）→ `rebuildActiveSerialProjection`（用 `setEntries()` 整表重置）。
+C. `publishSerialResult` 的 latest-only 投影：`setEntries({一条})` + `summarizeTransactions({单条})` +
+   单条 `DiagnosisTransaction` ⇒ 可见状态永远是「最近一次」。
+D. model 更新 API：`setEntries()` = `beginResetModel/endResetModel`（source replacement / Clear）；
+   **此前没有 append API**（注释即写明 "No append/remove/paging"）。
+E. statistics / diagnosis 接受形状：`summarizeTransactions(span<TransactionAnalysis>)` 接受**批**；
+   `activeDiagnosisTransactions_` 是**向量**（批）——两者本来就能承载整段会话，缺的只是 publish 端用批。
+F. Transactions selection：页面本地状态（`selectedRow/selectedEntry` + `ListView.currentIndex`），
+   **唯一失效路径是 `onModelReset`**；因此 append（insert）天然不会清选择，也不需要 QML 逻辑改动。
+```
+
+### F2. RED / Existing Behavior Baseline（B1–B5，迁移前实测）
+
+```text
+在 `active_master` 内加一个**临时探针用例**（提交前已删除，仅用于锁定事实），真实输出：
+  [B1] activeSerialRecords = 2 | visible rows = 1
+  [B2] observed = 1 | success = 0 | timeout = 1 | rows = 1
+  [B3] baseline text = "诊断结果：\n- 无响应超时：1 ..."   （只含最后一条事务）
+  [B5] pendingBeforeClear = true | pendingAfterClear = true | records = 0 | rows = 0 | connected = true
+结论（M10-B gap）：**权威记录已经在 append，但可见 presentation 仍是 latest-only**（rows/statistics/diagnosis 三处同源）。
+B4（Simulator / Replay 继续按 source replacement 构建完整自己的 model）由既有 b01/b02（4 行 demo）与 r01/r02（4 行 replay）锁定。
+```
+
+### F3. 统一 FC03 入口与行为等价（wire 冻结）
+
+```text
+入口链（唯一）：UI Draft → validation → `ActiveRequestIntent` → `ActiveRequestDescriptor` → `SerialTransport`
+  → `SerialTransactionSession` → `ActiveTransactionResult` → Active Serial history（record）→ 可见投影。
+`readHoldingRegistersOnce` 名称保留，内部**只是**构造统一 intent 并调用统一 active path；没有第二套 FC03 lifecycle。
+行为等价冻结并回归：unit 1..247 / start 0..65535 / quantity 1..125 / timeout>0（四条中文文案逐字未变）；
+  CRC 与 request bytes（金样 `01 03 00 00 00 02 C4 0B`，AC-02 与 ta03 双重锁定）；response decoding 与 exception handling
+  （仍由共享 analyzer 产出）；timeout 语义（elapsed/threshold 决定 Timeout vs Pending）；busy guard。**wire 未改**。
+无新公开功能：`encodeActiveRequest(0x06)` / `(0x10)` 仍 `UnsupportedFunction`（AC-03 保持通过）。
+```
+
+### F4. Active Serial History 契约（本轮正式冻结）
+
+```text
+同一个 Active Serial session 内，**每一个完成且具有 Modbus transaction outcome 的 Active request 都 APPEND**：
+  R1 Success → R2 Timeout → R3 Exception ⇒ 可见 transaction history 按时间顺序包含 R1 → R2 → R3；
+  **R2 不覆盖 R1，R3 不覆盖 R2**；顺序 = 完成顺序，新行追加在**末端**（oldest → newest），旧行内容/顺序/identity 不变。
+transport terminals（TransportError / DisconnectedAfterSubmission / ShortSubmission）**不伪装成 Modbus row**：
+  它们继续只在 serial error lane + runtime evidence（`activeSerialTerminations_`）承载；未来的 write-safe presentation 属 M10-C/D。
+容量：审计确认**代码中从无 session row 上限**（无 cap 常量、无裁剪）⇒ 保持 session-lifetime append，
+  本轮不发明 100/1000 之类 cap（未来 performance policy 独立设计）。
+pending 可见性：审计确认当前**没有 Pending row**（发送中仅由 `serialBusy` + 按钮文案表达）⇒ 保持，不新增 Pending UX，
+  也不会出现「pending + completion 后重复一行」。
+```
+
+### F5. Presentation Projection 与 Model Append
+
+```text
+`TransactionListModel::appendEntries(...)`（新）：`beginInsertRows/endInsertRows`，**不 reset、不 dataChanged、不重排**；
+  旧行保持内容/顺序/identity ⇒ `append != source replacement`；`setEntries()` 语义**未改**（仍是 source replacement）。
+Controller 唯一发布路径：`appendActiveSerialTransaction(record)` = ① record 入 `activeSerialRecords_`
+  ② `makeSessionRow(record)` 追加一行（纯投影：deviceAddress/functionCode/status/elapsed/exceptionCode/issueText + provenance）
+  ③ `refreshActiveSessionDerivedViews()` 用**整段会话**重算统计与诊断批。
+生产完成路径（`handleSerialTransactionCompleted`）只调用这一处（M10-A 的 `publishSerialResult` / `publishCompletedTransaction`
+  已删除：latest-only 语义正是本轮被评审要改掉的契约）；完成同时结束 in-flight 状态（`serialBusy_ = false` + 清 serial error + 信号）。
+QML：仅更新 TransactionPage 的选择契约注释（两条变更路径：reset 失效选择 / insert 保持选择），**无逻辑与视觉改动**。
+```
+
+### F6. Selection / Detail 稳定性（M9-D 契约延续）
+
+```text
+页面本地选择（`selectedRow` + `selectedEntry` 快照 + `ListView.currentIndex`）**只在 `onModelReset` 失效**；
+append 走 insert ⇒ 已有选择继续指向原 transaction、detail 继续显示原行，**不 auto-select 最新行**（运行时本身不持有选择状态）。
+B05 用信号级 oracle 锁定该前提：append 后 `modelReset` 计数不变、`rowsInserted` +1、**`dataChanged` = 0**，且旧行所有角色值逐项相等。
+（无选择时保持无选择：运行时无选择 API，QML 侧由既有 qml_focus_check 的 no-select-on-focus 场景继续把守。）
+```
+
+### F7. Statistics / Diagnosis 契约
+
+```text
+Statistics（Active Serial source）：基于**当前 session 全部 completed Modbus records**（observed/completed 与既有 taxonomy 聚合）；
+  `successRate` 继续 = success / (completed − ENR)（**M9-C 定义未改**）；
+  **transport terminals 不进入任何 Modbus 计数**（B03 实测：2 个 terminal 后 observed/completed/rows 完全不变）。
+Diagnosis：确定性诊断输入改为**当前 session 完整 completed batch**（`activeDiagnosisTransactions_` 由整段记录重建），
+  不再只诊断 latest row（B04 实测：timeout 与 设备异常 0x02 同时出现在基线报告中）。
+  冻结延续：诊断只分析事实，**不发送 request / 不 retry / 不 write**；`clearDiagnosis` 语义未变。
+批次变更即失效派生视图（M9 不变量）：新增事务会清 baseline/AI 结果而不是让其静默过期。
+```
+
+### F8. Clear Results / Pending / Source 边界
+
+```text
+Clear Results（与 M10-A 权威对齐）：清 `activeSerialRecords_` + `activeSerialTerminations_` + 可见行（reset）+ 统计 + 诊断批；
+  **不** disconnect、**不** cancel pending、不清 draft、不发送；连接与 source 身份保留（B07）。
+Clear while pending（B08）：R1 已完成 → R2 在飞 → Clear ⇒ R1 消失、R2 **不取消**；R2 完成后成为**清空后会话的第一行**，
+  observed = 1、records = 1，R1 永不复活。
+Reconnect = 新 Active Serial session（B09）：session id 递增、可见历史与 records 从空开始，旧 session 不泄漏。
+Simulator 替换（B10）：4 行 demo、typed source = Simulator、Active records/terminals 清空。
+Replay 成功替换（B11）：4 行 replay、typed source = Replay、Active records 清空、串口连接断开（既有契约）。
+Replay **失败**替换（B12）：rule A 冻结 —— 旧 source 全量保留（行/统计/`modeLabel`/`sourceLabel`/typed sourceKind/连接状态不变），
+  只置 replay 错误。
+Navigation：仍为 presentation-only（未改）；nav/geometry/focus 三闸门全绿。Communication UI 未改。
+```
+
+### F9. 测试（B01–B12 + 迁移说明）
+
+```text
+B01 同一 session 两次成功 ⇒ records 2 / rows 2 / observed 2 / success 2 / sessionId 1。
+B02 Success + Timeout + Exception ⇒ rows 3、顺序稳定（unit 1/2/3、状态 成功/超时/异常、异常码 0x02）。
+B03 统计覆盖整段会话（observed 3 / success 1 / timeout 1 / exception 1 / rate 1/3）；**2 个 transport terminal 后计数与行数不变**。
+B04 诊断批覆盖整段会话（timeout 与 设备异常 0x02 同时出现）。
+B05 append 保住既有行与选择前提（reset 计数不变 / rowsInserted +1 / dataChanged 0 / 旧行值逐项相等）。
+B06 不 auto-select（运行时无选择状态；行数增长不动 mode/source/busy/error）。
+B07 Clear 清可见历史与统计，保留连接与 source 身份。
+B08 Clear while pending（R2 不取消；完成后成为清空后第一行）。
+B09 reconnect = 新 session（历史从空开始）。
+B10 Simulator 替换不含 Active 行；B11 Replay 成功替换不含 Active 行；B12 Replay 失败替换保留旧 source。
+契约迁移的既有用例（**因评审通过的新契约而改写，非删除**）：
+  · ui_bridge s07（原「Replace, never append」）→ 现断言同 session 两行；ta11（原 M10-A latest-only 断言）→ 现断言两行。
+  · ui_bridge s05/s06/s08/d07/t01 从合成 publish seam 迁移到**真实生产路径**（deterministic recording transport），
+    并新增 B10–B12；t01 的地址不匹配由真实回包产生（不再手工传递 analysis）。
+  · 旧 `publishSerialResult` seam 删除，由其替代物（真实路径 + recording transport）覆盖，覆盖面**扩大而非缩小**。
+```
+
+### F10. 门禁（真实输出）
+
+```text
+Debug ctest：**29/29 PASS**；Release ctest：**29/29 PASS**（含 qml_smoke / qml_geometry_check / qml_nav_check / qml_focus_check）。
+`active_master`：**39 passed / 0 failed**（M10-A 30 + B01–B09）；`ui_bridge`：**59 passed / 0 failed**（原 56 + B10–B12）；
+`active_request`：17 passed / 0 failed；serial / serial_adapter / statistics / diagnosis / replay 套件全绿。
+Debug 与 Release 构建**零 warning / 零 error**；`git diff --check` PASS。
+```
+
+### F11. Problems / RCA
+
+```text
+P1（本轮真实缺陷，测试立即捕获）：迁移后 `handleSerialTransactionCompleted` 仍自行 `activeSerialRecords_.push_back`，
+  同时又调用新的 append 路径 ⇒ **一次完成写两条记录**（记录 2 / 可见行 1，统计按 2 条聚合）。
+  Observed：s05 observed=2、s07 第二事务无行；Expected：一次完成 = 一条记录 + 一行；
+  Root Cause：历史写入点从「一处」变成「两处」（迁移时未删除旧写入）；
+  Fix：删除旧 push_back，**唯一写入点** = `appendActiveSerialTransaction`；
+  Verification：ui_bridge 56/56、active_master 39/39、Debug/Release 29/29。
+P2（同轮第二处）：迁移中删掉了完成路径对 in-flight 状态的收尾（原 `publishCompletedTransaction` 里顺带设置
+  `serialBusy_ = false` / 清 serial error）⇒ 第二次 FC03 被 busy guard 拒绝（s07 只出现一行）。
+  Fix：完成路径显式结束 in-flight 状态并清 serial error + 发 `serialStatusChanged`（不触碰行/统计/source）。
+P3（测试夹具修正，非产品缺陷）：异常/异地址回包最初手写字节导致 CRC 错 ⇒ 用 `encodeRtuFrame` 生成合法帧；
+  t01 迁移后新行位于 index 1（append 语义）而非 index 0。
+零警告：新增可选字段的 designated initializer 全部显式补齐（-Wmissing-field-initializers）。
+```
+
+### F12. 边界审计
+
+```text
+改动文件 8 个：`CMakeLists.txt`（ui_bridge 目标加入 recording transport + tests include）、
+  `src/ui/AnalysisController.{h,cpp}`、`src/ui/TransactionListModel.{h,cpp}`、
+  `src/ui/qml/pages/TransactionsPage.qml`（仅注释）、`tests/test_active_master.cpp`、`tests/test_ui_bridge.cpp`。
+未改：src/core/**（core contract 冻结）、simulator、agent/AI、版本/PE/icon/package/scripts/assets/samples/screenshots。
+`encodeWrite*` 0；agent 写工具 0；0x06/0x10 encoder 仍不存在；无 Write UI / confirmation。
+REAL HARDWARE NOT VERIFIED 继续（M10-B 不要求真机；不得把 simulator/fake PASS 写成 hardware PASS）。
+```
+
+### F13. Git
+
+```text
+behavior-bearing ⇒ 不作 LKGC。commit：`M10-B: migrate FC03 to unified Active Master history`
+（独立提交；不 amend `d870922`；不 rebase；不 push；未创建 v2.0.0 tag）。
+verified LKGC 保持 `b7a6151`；M10-B = 等待 Review。
 ```

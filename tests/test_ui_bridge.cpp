@@ -15,7 +15,9 @@
 #include "core/active/ActiveRequestIntent.h"
 #include "core/active/ActiveTransactionEvidence.h"
 #include "core/analysis/TransactionAnalysis.h"
+#include "core/active/ActiveRequestIntent.h"
 #include "fake_chat_completions_server.h"
+#include "fake_serial_transport.h"
 #include "ui/AnalysisController.h"
 #include "ui/TransactionListModel.h"
 
@@ -119,6 +121,14 @@ private slots:
     void s09_serialErrorRecovery();
     // UI-S10 (P1): stale completion without pending metadata is ignored.
     void s10_staleCompletionGuard();
+
+    // ---- M10-B: source boundaries around the Active Serial history ----
+    // B10: switching to Simulator replaces the visible set (no Active rows).
+    void b10_simulatorReplacementHasNoActiveRows();
+    // B11: a successful Replay load replaces it as well.
+    void b11_replayReplacementHasNoActiveRows();
+    // B12: a FAILED Replay load preserves the Active Serial source (M9 rule A).
+    void b12_failedReplayPreservesActiveSerialSource();
 
     // ---- T011 Part A: deterministic baseline diagnosis ----
     // UI-D01 (P0): demo batch -> baseline contains the three failure facts.
@@ -653,6 +663,51 @@ modbuslens::core::TransactionAnalysis makeAnalysis(
     };
 }
 
+// M10-B: the serial bridge tests drive the REAL Active Serial path through
+// the deterministic recording transport (no COM port, no sleeps, no wall
+// clock). The M10-A synthetic "publish one analysis" seam is gone: mapping
+// correctness is now proven on the same path production uses.
+class ActiveSerialFixture
+{
+public:
+    ActiveSerialFixture()
+    {
+        transport.setPortOpen(true);
+        controller.setSerialTransport(&transport);
+        controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+    }
+
+    // One accepted FC03 request (fails the test if the transport refused).
+    void request(std::uint8_t unit = 1, std::uint16_t quantity = 2)
+    {
+        controller.readHoldingRegistersOnce(unit, 0, quantity, 1000);
+    }
+
+    void completeWith(std::vector<std::uint8_t> responseBytes,
+                      long long elapsedMs = 25)
+    {
+        transport.setResponseBytes(std::move(responseBytes));
+        transport.setCompletionElapsed(std::chrono::milliseconds{elapsedMs});
+        transport.completeWithResponse();
+    }
+
+    void completeWithTimeout(long long elapsedMs = 1000)
+    {
+        transport.setResponseBytes({});
+        transport.setCompletionElapsed(std::chrono::milliseconds{elapsedMs});
+        transport.completeWithTimeout();
+    }
+
+    AnalysisController controller;
+    RecordingSerialTransport transport;
+};
+
+// FC03 golden response: unit 1, two registers 100 / 200.
+std::vector<std::uint8_t> goodFc03Response()
+{
+    return {0x01, 0x03, 0x04, 0x00, 0x64, 0x00, 0xC8, 0xBA, 0x7A};
+}
+
 } // namespace
 
 void UiBridgeTest::s01_initialSerialState()
@@ -731,10 +786,12 @@ void UiBridgeTest::s04_inputValidation()
 
 void UiBridgeTest::s05_publishSerialSuccess()
 {
-    AnalysisController controller;
-    controller.publishSerialResult(
-        QStringLiteral("COM_TEST @ 9600"), 1,
-        makeAnalysis(modbuslens::core::TransactionStatus::Success, 25));
+    // M10-B: driven through the production Active Serial path (the old
+    // synthetic publish seam was removed with the latest-only contract).
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWith(goodFc03Response(), 25);
 
     QCOMPARE(controller.modeLabel(), QStringLiteral("串口模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
@@ -768,10 +825,10 @@ void UiBridgeTest::s05_publishSerialSuccess()
 
 void UiBridgeTest::s06_publishSerialTimeout()
 {
-    AnalysisController controller;
-    controller.publishSerialResult(
-        QStringLiteral("COM_TEST @ 9600"), 1,
-        makeAnalysis(modbuslens::core::TransactionStatus::Timeout, 1000));
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWithTimeout(1000);
 
     QCOMPARE(controller.transactionModel()->rowCount(), 1);
     const auto idx = controller.transactionModel()->index(0, 0);
@@ -792,29 +849,36 @@ void UiBridgeTest::s06_publishSerialTimeout()
 
 void UiBridgeTest::s07_serialReplace()
 {
-    AnalysisController controller;
-    controller.publishSerialResult(
-        QStringLiteral("COM_TEST @ 9600"), 1,
-        makeAnalysis(modbuslens::core::TransactionStatus::Success, 25));
+    // M10-B CONTRACT MIGRATION. This test used to lock "Replace, never
+    // append: still exactly one row, latest-only statistics" — that WAS the
+    // frozen FC03 presentation contract and it is exactly what M10-B was
+    // reviewed to change. The Active Serial session now reports its WHOLE
+    // session: two completed transactions are two rows and two counted
+    // outcomes, in completion order. Source replacement (Simulator/Replay,
+    // Clear Results) still replaces wholesale — see s08 and r07.
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWith(goodFc03Response(), 25);
     QCOMPARE(controller.transactionModel()->rowCount(), 1);
 
-    controller.publishSerialResult(
-        QStringLiteral("COM_TEST @ 9600"), 1,
-        makeAnalysis(modbuslens::core::TransactionStatus::Timeout, 1000));
+    f.request(1);
+    f.completeWithTimeout(1000);
 
-    // Replace, never append: still exactly one row, latest-only statistics.
-    QCOMPARE(controller.transactionModel()->rowCount(), 1);
-    QCOMPARE(controller.observedCount(), 1);
-    QCOMPARE(controller.successCount(), 0);
+    // Append, never replace: both transactions stay visible and counted.
+    QCOMPARE(controller.transactionModel()->rowCount(), 2);
+    QCOMPARE(controller.observedCount(), 2);
+    QCOMPARE(controller.successCount(), 1);
     QCOMPARE(controller.timeoutCount(), 1);
+    QCOMPARE(controller.activeSerialRecordCount(), 2);
 }
 
 void UiBridgeTest::s08_clearSerialResults()
 {
-    AnalysisController controller;
-    controller.publishSerialResult(
-        QStringLiteral("COM_TEST @ 9600"), 1,
-        makeAnalysis(modbuslens::core::TransactionStatus::Success, 25));
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWith(goodFc03Response(), 25);
     QCOMPARE(controller.transactionModel()->rowCount(), 1);
 
     controller.clearResults();
@@ -827,6 +891,8 @@ void UiBridgeTest::s08_clearSerialResults()
     // Source identity survives a Clear (Clear != Disconnect).
     QCOMPARE(controller.modeLabel(), QStringLiteral("串口模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
+    QVERIFY(controller.serialConnected());
+    QCOMPARE(controller.activeSerialRecordCount(), 0);
 }
 
 void UiBridgeTest::s09_serialErrorRecovery()
@@ -879,6 +945,82 @@ void UiBridgeTest::s10_staleCompletionGuard()
 }
 
 // ---- T011 Part A test implementations ----
+
+// ---- M10-B: source boundaries ----
+
+void UiBridgeTest::b10_simulatorReplacementHasNoActiveRows()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWith(goodFc03Response(), 25);
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    QCOMPARE(controller.activeSerialRecordCount(), 1);
+
+    controller.runDemoBatch();
+
+    // Simulator is a source REPLACEMENT: its own batch only, and the Active
+    // Serial session (records + wires) is gone with the transition.
+    QCOMPARE(controller.transactionModel()->rowCount(), 4);
+    QCOMPARE(controller.observedCount(), 4);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("模拟器模式"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("确定性演示"));
+    QCOMPARE(controller.sourceKind(),
+             modbuslens::core::TransactionSourceKind::Simulator);
+    QCOMPARE(controller.activeSerialRecordCount(), 0);
+    QCOMPARE(controller.activeSerialTerminalCount(), 0);
+}
+
+void UiBridgeTest::b11_replayReplacementHasNoActiveRows()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWith(goodFc03Response(), 25);
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+
+    controller.loadReplayFile(
+        QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+
+    QVERIFY(!controller.hasReplayError());
+    QCOMPARE(controller.transactionModel()->rowCount(), 4); // replay batch only
+    QCOMPARE(controller.observedCount(), 4);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("回放模式"));
+    QCOMPARE(controller.sourceKind(),
+             modbuslens::core::TransactionSourceKind::Replay);
+    QCOMPARE(controller.activeSerialRecordCount(), 0);
+    // A successful source switch also leaves the serial transport.
+    QVERIFY(!controller.serialConnected());
+}
+
+void UiBridgeTest::b12_failedReplayPreservesActiveSerialSource()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWith(goodFc03Response(), 25);
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    QCOMPARE(controller.observedCount(), 1);
+
+    const QString missing =
+        QDir::tempPath() + QStringLiteral("/modbuslens_m10b_missing_") +
+        QString::number(reinterpret_cast<quintptr>(&controller)) + QStringLiteral(".mlog");
+    QVERIFY(!QFile::exists(missing));
+    controller.loadReplayFile(QUrl::fromLocalFile(missing));
+
+    // Rule A (M9-B/D frozen): a FAILED replacement changes nothing about the
+    // previous authoritative source — the Active Serial session survives,
+    // including its connection and its visible history.
+    QVERIFY(controller.hasReplayError());
+    QCOMPARE(controller.transactionModel()->rowCount(), 1);
+    QCOMPARE(controller.observedCount(), 1);
+    QCOMPARE(controller.activeSerialRecordCount(), 1);
+    QCOMPARE(controller.modeLabel(), QStringLiteral("串口模式"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
+    QCOMPARE(controller.sourceKind(),
+             modbuslens::core::TransactionSourceKind::ActiveSerial);
+    QVERIFY(controller.serialConnected());
+}
 
 void UiBridgeTest::d01_demoBaseline()
 {
@@ -972,10 +1114,10 @@ void UiBridgeTest::d06_sameFactsSameBaseline()
 
 void UiBridgeTest::d07_serialSingleResult()
 {
-    AnalysisController controller;
-    controller.publishSerialResult(
-        QStringLiteral("COM_TEST @ 9600"), 1,
-        makeAnalysis(modbuslens::core::TransactionStatus::Timeout, 1000));
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWithTimeout(1000);
     controller.runBaselineDiagnosis();
 
     QVERIFY(controller.hasBaselineDiagnosis());
@@ -1258,15 +1400,14 @@ void UiBridgeTest::t01_protocolErrorIssueText()
     // Core (the text is produced by issueDetailText in the Qt adapter).
     using namespace modbuslens::core;
 
-    const ModbusRtuFrame request{
-        .address = 0x01, .functionCode = 0x03, .data = {0x00, 0x00, 0x00, 0x02}};
-    const ModbusRtuFrame foreign{
-        .address = 0x02, .functionCode = 0x03, .data = {0x04, 0x00, 0x64, 0x00, 0xC8}};
-    const auto mismatch = analyzeFunction03Transaction(
-        request, ResponseObservation{foreign}, ms{25}, ms{1000});
-
-    AnalysisController controller;
-    controller.publishSerialResult(QStringLiteral("COM1 @ 9600"), 1, mismatch);
+    // M10-B: the mismatch is produced by the REAL path — the transport
+    // delivers a well-formed reply from another device, and the shared
+    // analyzer classifies it (no synthetic analysis hand-off anymore).
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWith(modbuslens::core::encodeRtuFrame(ModbusRtuFrame{
+        .address = 0x02, .functionCode = 0x03, .data = {0x04, 0x00, 0x64, 0x00, 0xC8}}));
 
     QCOMPARE(controller.transactionModel()->rowCount(), 1);
     const QModelIndex index = controller.transactionModel()->index(0, 0);
@@ -1279,15 +1420,13 @@ void UiBridgeTest::t01_protocolErrorIssueText()
                  .toString(),
              QStringLiteral("协议错误"));
 
-    // Success: issueText role is empty — the additive row contract.
-    const auto success = analyzeFunction03Transaction(
-        request,
-        ResponseObservation{ModbusRtuFrame{
-            .address = 0x01, .functionCode = 0x03, .data = {0x04, 0x00, 0x64, 0x00, 0xC8}}},
-        ms{25}, ms{1000});
-    controller.publishSerialResult(QStringLiteral("COM1 @ 9600"), 1, success);
-    QCOMPARE(controller.transactionModel()->rowCount(), 1);
-    const QModelIndex successIndex = controller.transactionModel()->index(0, 0);
+    // Success: issueText role is empty — the additive row contract. The
+    // matching transaction is APPENDED as its own row (M10-B) with the same
+    // empty detail, so row 0 keeps its ProtocolError text and row 1 is clean.
+    f.request(1);
+    f.completeWith(goodFc03Response());
+    QCOMPARE(controller.transactionModel()->rowCount(), 2);
+    const QModelIndex successIndex = controller.transactionModel()->index(1, 0);
     QCOMPARE(controller.transactionModel()
                  ->data(successIndex, TransactionListModel::IssueTextRole)
                  .toString(),

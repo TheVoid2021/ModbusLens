@@ -738,3 +738,14 @@
 - **Q：M10-A COMPLETE 是否意味着可以写寄存器了？** A：不意味。0x06 / 0x10 的 active encoder 仍然**不存在**（`encodeActiveRequest` 对它们返回 UnsupportedFunction），没有 Write button、没有确认对话框、Agent 也没有任何写工具。M10-A 交付的是**写操作的安全地基**（意图、快照、证据、终止语义、可注入的传输层），真正能写要等 M10-C/D/E。
 - **Q：为什么 simulator 能写不等于硬件能写？** A：simulator 是确定性的寄存器文件，写它没有任何物理后果；真机上写错寄存器可能改变设备行为。所以 M10-A 的结论只能是「软件范围 COMPLETE + REAL HARDWARE NOT VERIFIED」，绝不允许把 simulator PASS 写成 hardware PASS。
 - **Q：下一步 M10-B 的边界是什么？** A：把 0x03 完整迁移到统一 contract（行为等价），并处理 Active Serial 内部 append history 与用户可见 transaction/history 契约的差异——后者是**用户可见变化**，必须先 STOP+RCA 评审。M10-B 不允许顺手做写功能（encoder / Write UI / confirmation 都不行）。
+
+## 79. Post-T022 M10-B（FC03 Unified Contract Migration）条目（2026-09-20 追加）
+
+- **Q：M10-B 到底迁移了什么？** A：把 0x03 的**可见结果**从「最近一次」改成「整段会话」。协议层一行没改（wire、范围、文案、超时、busy 全部等价），改的是发布路径：M10-A 时权威记录已经 append，但呈现仍每次只投影最新一条，于是「记录 2 条、界面 1 条」。M10-B 把 presentation 接到同一份 append 历史上。
+- **Q：为什么不直接把 `setEntries()` 改成 append？** A：`setEntries` 是 **source replacement**（Simulator/Replay 批次、Clear Results 必须整表替换并让页面选择失效），append 是**会话增长**。两者语义不同，混成一个 API 会让「换源」和「多一条」变得无法区分。所以新增 `appendEntries`（insert 行），保留 `setEntries`（reset），并在注释里写明 `append != source replacement`。
+- **Q：selection 为什么没有被 append 破坏？** A：因为页面的选择失效路径**只有 `onModelReset`**。append 走 `beginInsertRows/endInsertRows`：旧行内容、顺序、identity 都不变，也不发 dataChanged，所以页面本地快照仍然有效、detail 仍显示原来那条。B05 用信号级断言把这一点钉死（reset 0 次、insert 1 次、dataChanged 0 次、旧行所有角色逐项相等）。这也是「不要 auto-select 最新行」的实现基础：运行时根本不持有选择状态。
+- **Q：transport terminal 为什么不显示成一行？** A：因为它不是 Modbus 结果。端口错误、用户断开、写了一半都没有 response 可分析，把它们塞进 Transactions 会让用户以为「设备回了什么」。它们继续走 serial error lane + runtime 证据；B03 明确断言两个 terminal 之后 Modbus 计数与行数**一点都不变**。
+- **Q：统计与诊断的输入为什么必须换成整段批？** A：因为它们本来就能吃批（`summarizeTransactions(span)` 与诊断批向量），之前只是被 publish 端喂了单条。换成整段后，一次会话里的成功/超时/异常同时体现在统计与基线诊断里（B03/B04），而 `successRate = success/(completed−ENR)` 的定义没动。
+- **Q：本轮抓到的最有价值的问题是什么？** A：一次「迁移时留下两个写入点」的缺陷：新的 append 路径生效后，旧的 `push_back` 忘了删，导致一次完成写两条记录（记录 2 / 可见行 1 / 统计按 2 聚合）。是 ui_bridge 的断言（observed=2）先把它抓出来。教训是：**迁移所有权时，旧写入点必须显式删除**，否则「唯一权威」变成「两份历史」。
+- **Q：为什么删掉了 M10-A 的 `publishSerialResult` seam？** A：它是「手工把一条 analysis 塞进界面」的合成入口，latest-only 语义正是本轮要改的契约。删掉后，serial bridge 测试改用 **deterministic recording transport 驱动真实生产路径**（无 COM、无 sleep），断言覆盖面反而更大——测试不再验证一条影子路径，而是验证用户实际走的那条。
+- **Q：REAL HARDWARE NOT VERIFIED 还在吗？** A：在。M10-B 的全部结论都来自自动化与确定性 fake；没有真机验证，也不允许把 simulator/fake PASS 写成 hardware PASS。

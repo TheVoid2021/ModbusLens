@@ -264,6 +264,10 @@ if(BUILD_TESTING)
 
     add_executable(modbuslens_ui_bridge_tests tests/test_ui_bridge.cpp
         tests/fake_chat_completions_server.cpp
+        # M10-B: the serial bridge tests drive the REAL Active Serial path
+        # through the deterministic recording transport (no COM port).
+        tests/fake_serial_transport.h
+        tests/fake_serial_transport.cpp
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
         src/ui/TransactionListModel.h
@@ -287,7 +291,8 @@ if(BUILD_TESTING)
         src/ui/agent/AgentRuntime.h
         src/ui/agent/AgentRuntime.cpp)
     target_include_directories(modbuslens_ui_bridge_tests PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     target_compile_definitions(modbuslens_ui_bridge_tests PRIVATE
         MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog")
     target_link_libraries(modbuslens_ui_bridge_tests PRIVATE
