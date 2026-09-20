@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE；**M10-B = ✅ COMPLETE（2026-09-20 Final Re-review PASS；最终 accepted behavior tree `ef71244`，verified LKGC 已推进）**；Next Action = **M10-C — Write Safety UI Foundation**（未开始）。**
+> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1 Learning / Design 已落库（§I0–I50），Implementation = NOT STARTED（等待 Phase 1 Review）**。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -2171,4 +2171,657 @@ AI / Agent write authority = **NONE**（无 write tool / send serial tool / raw 
 REAL HARDWARE NOT VERIFIED（simulator/fake PASS 不得写成 hardware PASS）。
 commit：`M10-B: close FC03 unified history migration`（独立 docs-only 提交；不 amend `ef71244`；不 rebase；不 push；未创建 tag）。
 verified LKGC = **`ef71244`**；M10 = IN PROGRESS；Phase 1 = COMPLETE；M10-A = COMPLETE；**M10-B = COMPLETE**；M10-C = NEXT。
+```
+## M10-C Phase 1 — Write Safety UI Foundation：Learning / Design Gate（2026-09-20，docs-only）
+
+> **M10-C = Write Safety UI Foundation，Phase 1 = Learning / Design；Implementation = NOT STARTED。**
+> 本轮严格 docs-only；**不**实现 0x06 / 0x10 encoder、**不**创建 Write UI、**不**调用 transport、**不**新增 Agent tool。
+> 继承冻结（不得重新解释）：**M10-A** submission/evidence contracts（NotSent / PossiblySent / raw ADU evidence /
+> transport terminal / typed provenance / session identity / Clear Results）；**M10-B** Active Serial history /
+> source / selection / statistics / diagnosis contracts。
+
+### I0. Preflight（2026-09-20）
+
+```text
+HEAD = `806d424`（main，clean）；verified LKGC = `ef71244`；M9 = ✅ COMPLETE；M10 Phase 1 = COMPLETE；
+M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE；CMake VERSION = 2.0.0；v1 tag object `2cee626` / target `ae067ab`；
+v2.0.0 **absent**；origin/main = `a40d935`（behind 0 / ahead 104）；`git diff --check` PASS —— 全部相符。
+```
+
+### I1. M10-B → M10-C 过渡
+
+```text
+M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`）；M10-C = Write Safety UI Foundation，状态 = Learning / Design。
+冻结继承：M10-A 的 submission disposition（NotSent / PossiblySent）/ wire evidence（requestAdu·responseAdu）/
+transport terminal（TransportError·DisconnectedAfterSubmission·ShortSubmission）/ typed provenance + session id /
+Clear Results（不清 draft、不 cancel pending）；M10-B 的 Active Serial history（append、oldest→newest）/
+source replacement 语义 / selection page-local 三条 runtime 契约 / statistics·diagnosis 整段会话 batch。
+```
+
+### I2. Mandatory Source Re-read（A–G 真实事实，全部来自当前源码）
+
+```text
+A. CommunicationPage 现有 layout/geometry（248 行，逐行实读）：
+   `Item` → `ColumnLayout(objectName communicationContentLayout, margins DS.spacingL=16, spacing DS.spacingM=12)`：
+     · SectionHeader「通信」/ subtitle「串口连接与请求」
+     · SectionHeader「连接」 + PanelCard(`communicationConnectionSection`)：
+       RowLayout[ Label 串口 · ComboBox(`commPortCombo`, 宽 140, model=serialPortNames, enabled=!serialConnected,
+         自定义 background + `commPortComboFocusRing` overlay) · Button「刷新串口」 · Label 波特率 ·
+         ComboBox(`commBaudCombo`, [9600,19200,38400,57600,115200], 宽 110, focusRing overlay) · Label 8N1 ·
+         Button「连接」(enabled = !connected && portIndex>=0) · Button「断开」(enabled = connected) · 弹性 Item ]
+     · SectionHeader「请求」 + PanelCard(`communicationRequestSection`)：
+       RowLayout[ Label 从站地址 · SpinBox(`commSlaveSpin` 1..247) · Label 起始地址 · SpinBox(`commStartSpin` 0..65535) ·
+         Label 寄存器数量 · SpinBox(`commQuantitySpin` 1..125) · Label 超时(ms) · SpinBox(`commTimeoutSpin` 100..10000) ·
+         Button「读取保持寄存器」(文本 busy 时「读取中...」, enabled = connected && !busy) · 弹性 Item ]
+     · Label(`communicationSerialError`, visible=hasSerialError, color #B03030, wrap)
+     · 末尾弹性 Item（消耗竖直余量，避免 ColumnLayout 把余量摊到各 section 之间——T017 §35.6 实测结论）
+   ⇒ 控件形态：**ComboBox（枚举）+ SpinBox（数值）+ 原生 Button**；无 Dialog / 无 Popup / 无 Modal。
+B. 现有通用 modal/dialog pattern：**不存在**。全仓 QML 只有 `QtQuick.Dialogs` 的 **FileDialog**（`ReplayPage` 的
+   `replayFileDialog`，由 Main.qml 的 shell 按钮触发）；没有任何 `Dialog` / `Popup` / `Drawer` / `Menu` / `Overlay` 使用。
+   ⇒ M10-C 的 confirmation 将是**本项目第一个真正的模态对话框**（无既有 pattern 可复用，是新组件）。
+C. 现有焦点管理方式（M9-F F1 冻结）：页面根 `Item` 由 StackLayout 拥有；控件用 `activeFocusOnTab`（Tab 链）
+   + 自定义 focus ring overlay（ComboBox 用 `anchors.margins:1` 的 2px `DS.primary` 边框；AppButton 用 border 通道；
+   TabButton 用内环）绑定 `activeFocus` / `visualFocus`；`AppButton.focusPolicy = Qt.StrongFocus`；
+   SpinBox 依赖自身 `activeFocus`（FK 场景已锁定其可见性）。
+D. page hidden 时的 enabled gating：Main.qml 的 StackLayout（`id: workspaceHost`）中**每个页面**都有
+   `enabled: workspaceHost.currentIndex === workspace<X>Index`（Communication 是 child 2）。M9-F FB 场景证明
+   隐藏页控件不会出现在当前工作区的 Tab 链中；FC 场景证明「离开时仍有焦点的控件在隐藏态不能执行」。
+E. Controller 当前暴露给 QML 的东西（Q_PROPERTY 全表实读）：statistics 计数与速率/latency、transactionModel、
+   replay 错误/通知、`modeLabel`、`sourceLabel`、`serialConnected`、`serialBusy`、`hasSerialError`、
+   `serialErrorMessage`、`serialPortNames`、诊断 baseline / AI / Agent 状态。
+   ⇒ **与写安全相关的可读事实 = connected / busy / serialErrorMessage / sourceLabel**。
+F. QML 当前**无法**取得 Active Serial session id：`sourceKind()` 与 `activeSerialSessionId()` 是 **C++-only 访问器**，
+   没有任何 Q_PROPERTY 暴露。⇒ §21/§22 的 session identity check 需要**新增一个只读属性**（设计见 I21），
+   或把 sessionId 放进 snapshot 由 Controller 在 send 前权威校验（推荐两者都做）。
+G. 输入控件 pattern：数值 = **SpinBox**（`from`/`to`/`value`，本页四个字段全部如此）；枚举 = **ComboBox**；
+   动作 = **原生 Button**（本页与 DiagnosisPage）或 **AppButton**（Dashboard / AppBar / Replay 使用）；
+   长文本 = **TextArea**（DiagnosisPage 的 Agent 输入框）。注意：**SpinBox 自带 clamp**（见 I16 审计）。
+```
+
+### I3. M10-C exact scope
+
+```text
+M10-C **不是**把数据真正写到设备。它负责：
+  draft ownership · input validation UX · write summary · confirmation contract · safe keyboard behavior ·
+  session/busy safety · double-activation protection · timeout/unknown wording contract · accessibility baseline ·
+  test oracle（C01–C22）。
+真正 0x06 encoder + send 属 **M10-D**；真正 0x10 encoder + send 属 **M10-E**。
+本 Phase 1 只产出设计 + 阶段提案 + 12 项 decision requests；**不写任何代码**。
+```
+
+### I4. No Dead / Fake Write UI（必须冻结的设计原则）
+
+```text
+禁止（用户可见的假动作）：任何「写入 / 确认写入 / 发送」可点击控件，点击后什么都不发、或只是假动作；
+也禁止「UI 看起来支持写，但 encoder 仍 UnsupportedFunction」。
+⇒ Phase 1 决定 staging（§4 的两个候选）：
+   **方案 A — foundation 先隐藏于 production，仅 harness 可实例化，M10-D 才首次暴露。**
+   **方案 B — production 可见 draft/preview，但 destructive action 明确 disabled。**
+比较：
+   · A 优点：production 用户**完全看不到**任何写控件 ⇒ 零误解风险；oracle 可先用 harness 全量验证；
+     缺点：需要一个「harness 可见」的机制（建议：与 DS 同形的 engine context property，
+     例如 `writeFoundationVisible`，**production = false，只有 harness 模式置 true**），
+     并在 M10-D 接线时把这个开关**删除**（而不是长期保留双模式）。
+   · B 优点：不必新增开关；用户能提前看到写区形态与只读校验反馈；缺点：**任何** disabled 控件都在传达
+     「这个功能存在但你没满足条件」——在 capability 尚不存在时这种暗示是错误的；且 disabled 的 destructive
+     按钮与「busy 时禁用的正常写按钮」在视觉上不可区分，未来一旦忘记改，就会变成**真的假发送**入口。
+**Recommendation：方案 A**（production 隐藏 + harness 可实例化），并把它写成 M10-C→M10-D 的交接条件：
+   M10-D 实现 0x06 encoder 的第一件事，就是把开关改为真实 capability 绑定（`encodeActiveRequest(0x06)`
+   成功才可见/可用），而不是简单地 `visible = true`。
+**明确拒绝**：可点击的 no-op、以及「enabled destructive action → UnsupportedFunction」。
+```
+
+### I5. UI Ownership / IA（冻结）
+
+```text
+Communication workspace 继续拥有 Active Master UI；**不新增第 6 个 workspace**。
+总体 IA：
+  Communication
+  ├─ Connection（现状不动）
+  ├─ Read  → 0x03（现状「请求」区，仅重命名分区标题，控件与行为不变）
+  └─ Write → 0x06 / 0x10（新增，M10-C 承载）
+read 与 write **不得**混成一个巨大动态表单：写区是独立分区，带独立的危险等级语义与自己的确认路径。
+```
+
+### I6. Write Function Selection（0x06 / 0x10）— 候选比较
+
+```text
+A. Write 内两个子 Tab（复用 Diagnosis 页既有的 TabBar/TabButton pattern）
+B. 小型 segmented selector（两个互斥按钮/分段控件）
+C. 两个独立 sections（0x06 一块、0x10 一块，同时可见）
+比较（安全可分性 / 键盘 / 复用成本 / 视觉噪声 / 扩展性）：
+  · A：危险等级与「当前写哪种功能」一目了然；**复用既有 TabButton 焦点可见性方案**（M9-F 已锁定内环表现）；
+    键盘 = Tab 进 TabBar → Left/Right 切换；扩展 0x0F 等只需加 Tab。缺点：TabBar 在页内是第二次出现
+    （Diagnosis 已有一个），需要 SectionHeader 明确归属避免误认。
+  · B：最紧凑；但需要一个**新组件**（项目无 SegmentedControl），且键盘语义要自己实现（Left/Right vs Tab），
+    与既有 TabButton 方案重复造轮子。
+  · C：零切换成本，但两块 destructive 表单同时可见，页面纵向膨胀（values 多行时尤甚），且用户容易在错误的一侧输入。
+**Recommendation：A（Write 内两个子 Tab，复用 TabButton pattern）**；标题明确「写寄存器」，
+子 Tab 文案 `0x06 单寄存器` / `0x10（十进制 16）多寄存器`。
+**明确拒绝**：整个 Communication 所有 function 一个巨型 ComboBox（read 与 write 会共用一个选择器 ⇒ 安全等级被抹平）。
+```
+
+### I7. Draft Ownership（冻结）
+
+```text
+Write draft 属于 **page-local presentation state**（CommunicationPage 本地属性对象）。
+Controller **不得**实时拥有用户尚未确认的 raw draft（与 M9-B3 已冻结的「FC03 参数是页本地草稿」一致）。
+建议逻辑：**`write06Draft` 与 `write10Draft` 分别保存**；切换 0x06 ↔ 0x10 两份 draft **彼此独立保留**
+（不得因为切换 function 就把另一份覆盖/清空）。
+draft 字段（草稿层，尚未校验）：unitId / timeout + 各自功能字段（见 I10、I11）。
+Controller 只在**确认之后**通过 handoff seam 接收 **Validated Intent snapshot**（I41）。
+```
+
+### I8. Draft Persistence（设计 + 建议）
+
+```text
+行为设计（全部为 presentation 规则，且**任何情况下都不得自动发送**）：
+  · workspace navigation（Communications ↔ 其他）→ draft **保留**（页面常驻 StackLayout，实例不销毁）。
+  · Clear Results → draft **保留**（Clear 是结果域操作；M10-B 已冻结 Clear 不清 draft）。
+  · disconnect → draft **默认保留**（断开是传输状态变化，不是「清表单」）。
+  · reconnect → draft **默认保留**（同上；**绝不**自动补发）。
+  · source replacement（Replay 成功加载 / Simulator 批）→ draft **建议保留**（见 I39 论证），
+    但写控件在该 source 下**不可用**（因为没有 Active Serial 连接）——这属于可用性而非清空。
+```
+
+### I9. Unit ID Contract（冻结）
+
+```text
+M10 v1 Active Master：unit/slave **只允许 unicast 1..247**；**0 = validation reject，不得触达 transport**。
+UI 必须明确表达「broadcast 当前不支持」；**绝不**把用户输入的 0 悄悄转换成 1（那是静默改用户意图）。
+输入控件用 SpinBox(1..247)（与 FC03 现行一致），并在校验失败文案中写明合法区间。
+```
+
+### I10. 0x06 Draft（字段 + authority 边界）
+
+```text
+字段（草稿）：`unitId` / `registerAddress` / `value` / `timeout`。
+authoritative 合法范围**实读自源码**（不得自行发明）：
+  · unitId：`kMinUnicastUnitId=1` / `kMaxUnicastUnitId=247`（`ActiveRequestIntent.h`），Controller 与
+    `SerialTransactionSession` 双层校验。
+  · registerAddress：`WriteSingleRegisterIntent.registerAddress` 为 **uint16 ⇒ 0..65535**（core 无额外地址域策略，
+    注释明确「range policy beyond that belongs to the device」）。
+  · value：**uint16 ⇒ 0..65535**（任意值在结构上合法）。
+  · timeout：Controller 要求 **> 0**；现行 FC03 的 **UI** 控件范围是 **100..10000**（`commTimeoutSpin`）。
+UI 只负责输入与 presentation validation；Controller/core **必须再次** authoritative validation（双层）。
+```
+
+### I11. 0x10 Draft（字段 + 单一真源）
+
+```text
+字段（草稿）：`unitId` / `startAddress` / `values[]` / `timeout`。
+冻结：**`values[]` 是唯一写入值 authority**；`quantity` 由 `values.size()` 派生；`byteCount` 由 `quantity` 派生
+（`Function16` 的请求解码亦以 byteCount == 2*quantity 为唯一一致性判据）。
+UI **不允许**同时存在「可编辑 quantity + 可编辑 byteCount + values[]」三份真源；
+UI 只**显示**派生值（数量 / 预计字节数），且这些显示值**只读**。
+authoritative 限制：values 个数 **1..123**（`kWriteMultipleRegistersMinQuantity` / `...MaxQuantity`）；
+startAddress uint16 0..65535。**已知缺口（见 I14-⑧）**：core 未校验 start+quantity 越过 0xFFFF。
+```
+
+### I12. 0x10 Values Input UX（A–D 比较 + M10 v1 推荐）
+
+```text
+A. 多行文本（一行一个 value）
+B. 逗号/空格分隔文本
+C. table/editor（address + value rows）
+D. 动态 SpinBox 列表
+维度比较：
+  · 输入效率：A ≈ B ≫ D（20 个值手点 SpinBox 极慢）；C 需要用户同时填地址（冗余）。
+  · 错误率：A/B 都可能拼错，但**逐行报错**可精确定位（行号）；D 几乎无解析错误；C 引入「地址与顺序不一致」的新错类。
+  · keyboard：A/B 是纯键盘路径（TextArea 输入 + Tab 离开）；D 需要 Tab/Up/Down 在 N 个 SpinBox 间穿行（大 N 时极差）；
+    C 需要两列表格导航。
+  · 大数量可用性：A 直接可贴一大段；D 在 123 个值时不可用。
+  · confirmation summary：A/B 保留用户输入顺序 ⇒ summary 与输入一致；D 需要从控件逐项收集。
+  · 实现复杂度：A/B 最低（解析 + 逐行校验）；D 最高（动态实例化 + 焦点管理）；C 中（表格模型，且与 M11 的
+    register-map 概念重叠，届时会有两套地址真源）。
+**Recommendation：A（多行文本，一行一个 value）** —— 附三条契约：
+  ① 空行忽略；每行必须是一个 0..65535 的十进制整数；其它任何内容 = **parse error（带行号）**；
+  ② 不做「逗号/空格自动拆分」（那会引出「分隔符 vs 空行」的歧义与第二种解析真源；B 列为未来 enhancement）；
+  ③ 行号到 index 的映射固定为「忽略空行后的第 N 个值」并在校验文案中说明。
+**明确拒绝 C**（会与 M11 register-map 形成第二份地址真源）；**拒绝 D**（焦点与规模不可用）。
+```
+
+### I13. Number Format（M10 v1 决定）
+
+```text
+**decimal only**。理由：现有 Communication 输入全部是十进制 SpinBox（从站/起始地址/数量/超时），
+写区沿用同一习惯可避免「同一页面两种进制」；且进制切换会制造**两个表示 authority**（同一值两种文本，
+校验/回显/确认摘要都可能分叉）。
+function 展示沿用既有惯例 `0x06` / `0x10`（这是**功能码标识**，不是数值输入）。
+未来若需要 hex 输入/显示（M11 Register Readout & Decode 的领域），作为**独立 enhancement**，不在 M10-C 引入。
+```
+
+### I14. Local Validation（写动作进入 confirmation 之前必须完成）
+
+```text
+层级：**UI presentation validation（page-local，即时反馈）→ Controller/core authoritative validation（提交前）**。
+UI 无效时：**不打开 confirmation、不调用 Controller 的写入口、绝不触达 transport**。
+必须覆盖的规则（上限全部实读源码）：
+  ① unit range：1..247（0 与 ≥248 reject，broadcast 不支持）。
+  ② address range：0..65535。
+  ③ 0x06 value range：0..65535。
+  ④ 0x10 empty values（values.size() == 0 ⇒ reject）。
+  ⑤ 0x10 value range：每个值 0..65535。
+  ⑥ 0x10 quantity limit：1..123（`kWriteMultipleRegistersMaxQuantity`）。
+  ⑦ timeout contract：> 0（authoritative）；UI 控件沿用 100..10000（与 FC03 一致，见 I10）。
+  ⑧ **start + quantity 越过寄存器地址空间**：**core 与 FC03 均无此校验**（FC03 也允许 start+quantity 溢出，
+     留给设备/协议层）。⇒ M10-C 需要决定写路径是否新增该 reject。
+     建议：**新增「写路径专属」的前置校验**（`startAddress + values.size() - 1 > 0xFFFF` ⇒ reject，
+     文案说明「起始地址 + 数量超出 16 位寄存器地址空间」），理由是写操作会把一个越界范围真正下发到设备，
+     与只读读回的语义不同；**实现位置**：Controller 的写入口（M10-D/E），**不进 core**、**不影响 FC03 的冻结行为**。
+     —— 这是一个 **decision request（第 12 项相关）**，Review 需明确裁定。
+  ⑨ parse failure（0x10 多行文本；见 I12 契约）。
+presentation 层可以先给即时反馈，但**最终以 Controller/core 的再次校验为准**（UI 校验永不作为发送许可）。
+```
+
+### I15. Validation Presentation
+
+```text
+两段式：
+  · **field-level error**：出错字段就地显示简短原因（例如「从站地址须在 1..247 之间」），并与该字段视觉相邻；
+  · **section-level summary**：写区顶部一行汇总（例如「3 项输入有误，请修正后再写入」+ 顺序列出字段名），
+    让用户不必来回扫视。
+禁止：所有错误只显示一句「参数错误」（用户无法定位）。
+禁止：把 protocol 内部 enum / token（如 `UnitIdNotUnicast` / `QuantityOutOfRange`）原样抛到 UI ——
+文案由 Qt adapter 层映射（与既有 `issueDetailText` 的做法一致：core 只说事实，UI 说人话）。
+```
+
+### I16. Validation Failure State（+ SpinBox clamp 真实行为审计）
+
+```text
+validation failure：**draft 保留**，用户修正后可再次尝试。
+禁止：清空 values / 自动改 unit / 自动 clamp 造成用户以为提交了原值。
+**SpinBox clamp 审计（实读 Qt 行为）**：本页 SpinBox 使用 `from`/`to` 且**非 editable**（默认 `editable: false`），
+所以用户只能通过步进/滑动改值，**超出范围的值根本无法输入**——即「clamp」在此页表现为「不可达」而不是
+「输入被改写」。⇒ 对本页安全的结论：**不存在静默改写用户输入**（因为不能输入越界值），
+但**不能因此假定一切 clamp 都安全**：若 M10-C 引入 `editable: true` 的数值框（允许直接键入），
+则必须显式处理「键入越界」并**报错而不是回退到边界值**。
+冻结规则：**任何会被静默改写成另一个合法值的输入控件，都不得用于写路径**；
+确认摘要必须展示**实际将发送的值**（snapshot），而不是用户「以为输入的」值。
+```
+
+### I17. Write Action Semantics（最终 write flow，冻结）
+
+```text
+draft
+  → 用户点击 Write
+  → local presentation validation（I14 ①–⑨，UI 层）
+  → Controller/core authoritative validation（同一套规则，再次执行）
+  → 生成 **Validated Intent snapshot**（不可变）
+  → 打开 confirmation（展示该 snapshot）
+  → 用户**明确确认**
+  → 再次检查 authoritative runtime state（connected / same session / not busy / function supported）
+  → **M10-D/E 才允许 send**
+重点：**点击 Write 本身绝不发送**；「打开 confirmation」与「send」**不得**绑定到同一个 handler。
+```
+
+### I18. Confirmation Snapshot（不可变）
+
+```text
+confirmation **不得**实时绑定仍可变化的 draft。打开时必须形成 **immutable Validated Intent snapshot**：
+  · 内容 = 统一 intent 的字段（function / unitId / timeout + 功能字段）+ 派生值（0x10 的 quantity、
+    预计 byteCount）+ 采集时的 **Active Serial session 身份**（见 I21）。
+  · dialog 的展示与未来真正发送**必须基于同一个 snapshot**。
+禁止：dialog 显示 A、用户背后把 draft 改成 B、最终发送 B（这是本设计要消灭的核心风险）。
+实现建议（M10-C 实现阶段）：snapshot 以 QML `property var` 冻结副本保存（写入后不再重绑），
+并在 Controller 侧以同一快照生成请求（M10-D/E）；snapshot 一旦被消费/失效即作废（一次性）。
+```
+
+### I19. Confirmation Summary — 0x06
+
+```text
+至少显示：目标 device/unit（「设备 11」）、function（`0x06` Write Single Register）、register address、
+value（十进制，并沿用表格的 `0x` 展示惯例仅在功能码上）、以及连接身份（`sourceLabel`，例如 `COM3 @ 9600`）。
+用户必须能在确认前看清：**写到哪里、写什么**。
+```
+
+### I20. Confirmation Summary — 0x10
+
+```text
+至少显示：target unit、function（`0x10`（十进制 16）Write Multiple Registers）、start address、
+**derived quantity**、**全部 values**。
+允许滚动（列表内部 scroll）；**禁止**只显示「将写入 N 个寄存器」——必须能查看实际 values。
+建议同时显示派生 byteCount（只读，帮助用户核对 2N 关系）。
+```
+
+### I21. Session-bound Confirmation（安全重点）
+
+```text
+confirmation snapshot **必须绑定当前 Active Serial session 身份**。
+事实基础（I2-F）：QML 目前**看不到** session id ⇒ 需要新增**只读**暴露；方案比较：
+  A. 新增只读 Q_PROPERTY `serialSessionId`（`activeSerialSessionId()` → QML），并在 snapshot 中记录；
+  B. 不给 QML 暴露，仅把 sessionId 放进 snapshot 交给 Controller，由 Controller 在 send 前权威比对；
+  C. 用 `serialConnected` 布尔代替 session 身份。
+比较：C **不可接受**（disconnect→reconnect 后布尔仍是 true，无法区分换代）；A 让 dialog 可**主动**禁用 Confirm
+  （体验最好）但增加一个 QML 可见属性；B 无新可见面但用户只能等到点 Confirm 才被拒（体验较差）。
+**Recommendation：A + B 同时做**（A 供 UI 反应式失效，B 作为发送前的权威判定，B 是真正的安全边界；
+A 只是尽早反馈）。**明确拒绝 C**。
+场景（必须设计）：打开 confirmation → disconnect → reconnect ⇒ **旧 confirmation 绝不能向新 session 发送旧命令**；
+session 变化时：Confirm **失效 / disabled / reject**，并要求用户**重新发起 Write flow**（旧 snapshot 作废）。
+```
+
+### I22. Connection Change While Dialog Open（处理矩阵）
+
+```text
+dialog 打开期间发生：disconnect / port error / session replacement / source switch / busy 变化 ⇒
+  最低安全要求：**真正 Confirm 时重新做 authoritative check**：`connected && same session && not busy && intent 仍合法`。
+  不能只相信「dialog 打开那一刻连接是正常的」。
+  各项处理：
+   · disconnect：Confirm 立即 disabled + 提示「连接已断开，请重新发起写入」；Cancel 仍可用；**零发送**。
+   · port error：同上（并且错误文案走既有 serial error lane）。
+   · session replacement（重连）：Confirm disabled（session id 不等）；旧 snapshot 作废。
+   · source switch（切到 Replay/Simulator）：通信页本身不可用（无 Active Serial 连接）⇒ Confirm disabled；
+     dialog 若仍打开，按 disconnect 规则处理（零发送）。
+   · busy 变化：见 I23。
+```
+
+### I23. Busy Change While Dialog Open
+
+```text
+场景：dialog 打开时 busy=false，随后其它请求进入 pending（`serialBusy = true`）。
+旧 Confirm：**不得排队、不得覆盖 pending、不得发送** ⇒ 必须 **disabled / rejected**。
+single in-flight 继续冻结（M10-A/§FC4）：serial transport 的 `serialBusy` 是 **read 与 write 共享**的
+（同一 adapter / 同一 session / 同一 in-flight 槽位——源码事实），因此「读在飞时写 Confirm」同样必须被拒。
+```
+
+### I24. Confirmation Default Focus（安全默认）
+
+```text
+M10 v1 必须安全默认：**dialog 打开后 destructive Confirm 不得成为默认焦点**。
+优先：**Cancel / non-destructive 控件作为初始 focus**；至少：确认动作必须需要一次**明确**的 focus/activation
+（从 Cancel 移到 Confirm 再激活）。
+理由：防止「打开 dialog → 顺手按 Enter → 直接写设备」。
+```
+
+### I25. Confirmation Keyboard Contract（冻结）
+
+```text
+Tab / Shift+Tab：在 dialog 内循环（模态，不逃出到背景页面）。
+Escape = **Cancel = zero send**（Qt Quick Controls Dialog 的 `closePolicy` 默认含 CloseOnEscape ⇒
+  必须把关闭原因映射为 Cancel 语义，而不是「未定义」）。
+Enter：**不得因为 dialog 打开就自动触发 destructive action**；只有在 destructive Confirm **已持焦点**时
+  激活才允许（即 Enter 走「当前焦点控件」的默认动作）。
+Space：同样只有在 destructive Confirm 明确持焦点时才可能激活。
+**hidden old Write button 不得在 dialog 打开或离开页面后通过 Space/Enter 被激活**（见 I30）。
+```
+
+### I26. Dialog Open Is Zero-send（独立 oracle）
+
+```text
+valid draft → 点击 Write → dialog 打开 ⇒ **sendCount = 0**。
+实现纪律：**打开 confirmation 与发送 request 不得绑定到同一个 handler**（两段式：Write=校验+快照+dialog；
+Confirm=再校验+send）。
+```
+
+### I27. Cancel Is Zero-send（独立 oracle）
+
+```text
+valid draft → open dialog → Cancel / Escape ⇒ **sendCount = 0**，且**不得**产生：
+Active transaction / transport terminal / Pending / statistics change / diagnosis change。
+draft **继续保留**（用户可修正后重试）。
+```
+
+### I28. Repeated Write Activation（防重）
+
+```text
+场景：双击 Write / 快速连按 Space·Enter ⇒ **不得**开多个 confirmation、不得生成多个 snapshots、
+不得产生多次 confirm signal。
+设计：**一个 active confirmation 对应一个 snapshot**；Write 按钮在 dialog 打开期间不可再次触发
+（QML 侧：`dialog.opened` 时忽略/禁用再次打开；Controller 侧：M10-D 的 send 入口再按 in-flight 拒一次）。
+禁止依赖按钮动画 / debounce / 自动关闭等偶然防重。
+```
+
+### I29. Repeated Confirm Activation（未来 exactly-one-send 的设计前提）
+
+```text
+M10-D/E 真正连接 transport 后：双击 Confirm、快速 Space/Enter ⇒ 必须 **exactly one send**。
+M10-C 需要先设计：**confirmation one-shot guard** 与**测试 seam**：
+  · snapshot 携带一次性 token / 状态（`issued → consumed`）；重复 Confirm 在 QML 层即被拒；
+  · Controller 层的 `startActiveRequest` 已有 in-flight 拒绝（M10-A 冻结）作为第二道防线；
+  · 测试 seam：Recording/Fake transport 的 `sendCount` **就是** exactly-one-send 的 oracle（无需动画观察）。
+禁止只靠 UI 层防重（对话框自动关闭等）作为唯一机制。
+```
+
+### I30. Hidden-page Safety
+
+```text
+复用 M9-F 的 page enabled gating（Main.qml `enabled: workspaceHost.currentIndex === ...`）：
+Communication 不可见后，旧 Write control **不得**保留 actionable focus、不得通过 Space 打开 dialog、
+不得通过 Enter 启动 write flow。
+**不要依赖 `visible = false` 作为唯一安全机制**（M9-F FC 场景已证明「隐藏但仍有 enabled 的控件会被残留焦点激活」是真实风险）。
+若 confirmation 打开时尝试导航：见 I31。
+```
+
+### I31. Confirmation × Navigation（Qt/QML 可行方案）
+
+```text
+首选：**真 modal**（Qt Quick Controls `Dialog` + `modal: true`），由 overlay 吞掉背景交互 ⇒
+  背景控件（含导航 rail）在该 dialog 存活期间不可交互。
+若因外壳结构（NavigationRail 在 dialog overlay 之外的层级）仍可导航，则必须保证：
+  navigation **不会**确认、**不会**发送、**不会**改变 snapshot；把 dialog 保持打开并在 session/source 变化时
+  按 I22 失效（Confirm disabled）。
+可行方案（实现阶段验证）：`Dialog { modal: true; closePolicy: Popup.NoAutoClose | CloseOnEscape }` +
+  footer 内两个 AppButton；若 rail 仍可达，则额外在 dialog 打开期间对 rail 施加 `enabled: false`
+  （presentation-only gating，与 M9-F 既有做法一致）。
+```
+
+### I32. Accessibility（继承 M9-F baseline，不声称 WCAG）
+
+```text
+未来新控件必须继承 M9-F baseline：meaningful accessible name（`Accessible.name` 或可读文本）、
+role/action（按钮 = Invoke，输入 = Editable/Value）、**visible keyboard focus**（沿用各类型既有方案：
+AppButton 走 border、TabButton 走内环、ComboBox 走 overlay）、enabled/disabled 状态、确定的 Tab order。
+confirmation 的 title / summary / Cancel / Confirm 均需清晰语义（标题说明「即将写入设备」，
+摘要字段成对 label+value，按钮文案动词化：`取消` / `确认写入`）。
+**不声称 WCAG certification**（与 M9-F 边界一致）。
+```
+
+### I33. Write Pending Presentation
+
+```text
+未来写请求发送后的 UI 状态设计：
+  · pending 期间 **Write controls disabled**（与 FC03 的 busy 处理一致：读取按钮变「读取中...」）；
+  · 显示「进行中」类文案，**但不得**写成「写入中 = 已成功」；
+  · **single in-flight 全局共享**：read 与 write 共用同一个 `serialBusy`（源码事实：同一 transport / 同一 session），
+    因此 pending 期间读与写都不可发起；该事实在设计上作为冻结前提（不引入并行队列）。
+```
+
+### I34. Write Success Semantics（提前冻结 wording）
+
+```text
+只有收到**合法匹配的 response**并由 analyzer 判定 **Success** 时，才允许表达「写入已确认 / 成功」等语义。
+**不得**因为 `QSerialPort::write` 被接受（即便完整计数）就显示成功——那只是 PossiblySent（transport 事实）。
+```
+
+### I35. Write Timeout Semantics（冻结）
+
+```text
+0x06 / 0x10 的 transaction outcome **仍为 `Timeout`**（taxonomy 不新增）。
+用户-facing 语义：**「响应超时，设备写入状态未知」**。
+禁止措辞：「写入失败」/「设备未写入」/「操作未发生」（均超出证据——字节可能已上线且设备可能已执行）。
+```
+
+### I36. Transport Error Semantics（PossiblySent 之后）
+
+```text
+若写请求已 PossiblySent，随后发生 TransportError / DisconnectedAfterSubmission / ShortSubmission，
+UI 必须表达：**请求可能已部分或全部进入发送生命周期，设备状态无法由当前证据确认**
+（并说明可用的证据：request ADU + 已观察到的响应字节 + 中止原因）。
+**不得**制造「未写入」「已失败且无副作用」这类确定性。
+具体文案 M10-C 可设计，但语义边界由本条款冻结（M10-A 的 disposition/terminal 事实是其唯一依据）。
+```
+
+### I37. Pre-send Failure Semantics（NotSent）
+
+```text
+NotSent 场景：validation reject / not connected / busy / **confirmation cancel** / pre-send transport reject。
+可明确表达：**本次请求未进入发送生命周期**。
+但：**confirmation cancel 通常无需错误提示**（用户主动取消不是失败）；
+且**不得**产生 Modbus failure row（不写入 Transactions、不改变统计、不产生 terminal 记录）。
+```
+
+### I38. Clear Results Boundary（继续冻结）
+
+```text
+Clear Results：**不清 write draft**、**不 cancel pending**、**不关闭 confirmation**
+（除非 M10-C 的 modal 架构确实要求关闭，且经 Review 批准）。
+尤其：**不得**让 Clear Results 变成「恢复安全状态」的隐式机制去改 draft（Clear 是结果域操作，不是表单重置）。
+```
+
+### I39. Draft vs Source（建议 + 论证）
+
+```text
+workspace/source 继续正交；draft 是 **Communication 的 presentation state**。
+Replay load 或 Simulator source replacement **不得自动发送** draft。
+是否清 draft：**建议保留**。理由：source 切换不是用户「清表单」的意图；清空会丢失用户精心输入的
+一组寄存器值（例如从手册抄来的 10 个值），而保留的代价只是「切回 Active Serial 时表单里已有内容」。
+前提（安全无关性）：draft 保留**不构成任何发送权限**——写控件只在 Active Serial 且 connected && !busy 时可用，
+且必须经过 I17 的完整流程。⇒ 保留 draft 与写安全**互不冲突**。
+```
+
+### I40. 0x06 / 0x10 Availability Strategy（在 M10-D 之前）
+
+```text
+现状：`encodeActiveRequest(0x06)` 与 `(0x10)` 均 **UnsupportedFunction**（M10-A/B 冻结）。
+M10-C design 必须防止 UI 过早表现为 write capability READY。
+决定（与 I4 同源）：**M10-C 的实现只在 harness 下可见/可交互，production 中 Write 区完全不可见**；
+当 M10-D 实现 0x06 encoder 后，Write 区按 **真实 capability** 出现（能编码才显示/可用），
+而不是靠一个手写的 `visible = true`。
+**明确禁止**：`enabled` 的 destructive action 通向 `UnsupportedFunction`（那是「可点击的假发送」）。
+```
+
+### I41. Controller Handoff Seam（设计，不实现 send）
+
+```text
+future confirmation 之后交给 Controller 的 seam **必须接收 `Validated Intent snapshot`**，
+而不是 QML fields、也不是 QVariant map（后者会把 QML 结构变成隐式契约）。
+Controller 在接收时**再次** authoritative check：`connected` / `same session`（sessionId 比对）/
+`not busy` / `function currently supported`（M10-C 阶段必为 false ⇒ 拒；M10-D 起 0x06 变 true）。
+M10-C **只设计**，不实现 send；seam 的签名建议放在 Controller 的 C++ 接口（非 Q_INVOKABLE），
+由 QML 通过一个**单一、语义完整的入口**触发（例如 `submitValidatedWrite(snapshot)`），
+避免 QML 逐个字段传参。
+```
+
+### I42. QML / Transport 边界（冻结）
+
+```text
+QML **不得**调用 `SerialTransport`、不得传 raw ADU、不得调用 `QSerialPort`。
+所有 future send 必须经过 `Controller → Active contract → transport seam`。
+（与 M10-A/B 已冻结的架构一致：core 零 Qt、transport 只在 app 层、QML 只读 controller 属性与调用 controller 命令。）
+```
+
+### I43. AI / Agent Boundary（冻结）
+
+```text
+AI / Agent write authority = **NONE**；不得新增 write tool / send tool / confirmation-bypass tool / raw serial tool。
+即使未来 AI 生成候选 register values，也只能**填/建议 draft**（例如把建议值写进草稿供用户编辑），
+**不能**直接形成 send authority；任何发送都必须经过人类 UI：explicit Write → confirmation → transport。
+```
+
+### I44. Write Safety Oracle Matrix（C01–C22，设计）
+
+```text
+C01 invalid unit 0 → validation error → no confirmation → 0 send
+C02 invalid address/value → no confirmation → 0 send
+C03 valid 0x06 draft → confirmation summary exact（逐字段等于 snapshot）→ 0 send while dialog merely open
+C04 Cancel → 0 send
+C05 Escape → 0 send
+C06 dialog initial focus **不是** destructive Confirm
+C07 Enter immediately after dialog open → 0 send
+C08 explicit focus Confirm + Space → future exactly-one confirm event
+C09 double Write activation → one dialog / one snapshot
+C10 double Confirm activation → future one send
+C11 disconnect while dialog open → old confirmation invalidated → 0 send
+C12 reconnect / new session → old snapshot cannot send
+C13 busy becomes true → Confirm rejected/disabled
+C14 navigate away → hidden Write control cannot activate
+C15 Clear Results → draft preserved → no send
+C16 switch 0x06/0x10 → independent drafts preserved
+C17 0x10 values → quantity derived exactly
+C18 0x10 range overflow（start+quantity 越界）→ local validation reject
+C19 confirmation summary matches immutable snapshot
+C20 editing draft after snapshot cannot alter confirmed payload
+C21 write timeout wording contains state-unknown semantics
+C22 PossiblySent transport error does not claim device unchanged
+本轮**只设计** oracle（不实现）；其中 C01/C02/C15/C16/C17/C18 可在 M10-C 的纯逻辑层与 harness 层落地，
+C03–C14/C19–C22 需要 confirmation UI（M10-C 实现阶段或 M10-D 起）。
+```
+
+### I45. Runtime Test Strategy（四层）
+
+```text
+A. pure C++：validation（I14 规则集）/ snapshot 构造与不可变性 / 0x10 derived quantity·byteCount /
+   session identity check（sessionId 比对）—— 不依赖 Qt UI。
+B. Controller / ui_bridge：connected/busy/session handoff guard（提交前后状态不一致必须拒）；
+   与既有 recording transport 组合验证 0-send（一次都不发）。
+C. QML runtime harness（复用 `--qml-focus-check` 架构；新场景建议命名 FO/FP/FQ 或独立 harness）：
+   focus / dialog 打开与关闭 / 键盘（Tab·Shift+Tab·Escape·Enter·Space）/ draft persistence /
+   summary 字段比对 / hidden-page safety。
+D. Recording transport：future exactly-one-send 与 zero-send 的**最终**判据（sendCount 与 exact ADU）。
+禁用做法：**只靠截图 / 只看 UI 文案 / 只看点击后结果**去证明 write safety。
+```
+
+### I46. Confirmation Evidence（机器可证）
+
+```text
+M10-C 后续实现必须能够**机器证明** dialog summary 来自 snapshot：
+  harness 同时读取 **snapshot authority**（冻结副本）与 **displayed summary**（各 label 文本/对象名），
+  **逐字段比对**（与 M9-D 的 `assertTransactionDetailMapping` 同形：字段级、双向相等），
+  而不是「文本看起来对」。
+另需断言：snapshot 生成后修改 draft，summary 与未来的请求 payload **都不变**（C20）。
+```
+
+### I47. Visual / Geometry Boundary
+
+```text
+M10-C 不重新设计整个 Communication 页面。新 Write 区域要求：
+  · 与现有 DesignSystem 一致（面板用 PanelCard、间距用 DS.spacing*、控件高度 DS.controlHeight）；
+  · **1024×720 可用、1000×700 不溢出**（几何闸门门槛）；必要时**区域内滚动**（Flickable/ScrollView）；
+  · **不得**为了 values 列表把整个窗口高度无限撑大（values 用受限高度的可滚动区域）。
+现有闸门（geometry 18 printed segments / rail 56 / nav A–T / focus FA–FL）在实现轮必须全绿；
+新增控件会进入 Communication 的 Tab 链，需确认 FB（隐藏页排除）仍成立（它按页面归属断言，不依赖链长）。
+```
+
+### I48. Implementation Staging Proposal（供 Review）
+
+```text
+C1 — write draft + validation model：page-local 两份 draft（06/10）+ 校验规则集（I14）+
+     presentation（field-level + section summary）+ 可用性门（connected && !busy && capability）+
+     production 不可见（I4 方案 A 的 harness-only 实例化）。
+C2 — confirmation snapshot + dialog safety：不可变 snapshot、summary（0x06/0x10）、初始焦点、
+     Escape/Enter/Space 契约、一次性 guard、dialog-open/Cancel 的 zero-send oracle。
+C3 — keyboard / accessibility / invalidating guards：dialog 内 Tab 循环、session/busy/source 变化的
+     反应式失效 + Controller 侧权威校验、hidden-page safety、accessible name/role、焦点可见性（沿用既有方案）。
+C4 — runtime oracle + final review：C01–C22 中可在 M10-C 落地者（纯逻辑 + harness）+
+     几何/nav/focus 全门禁 + 人工视觉审阅。
+（如 Review 认为 C1/C2 合并更自然，本提案允许合并——不为形式硬拆。）
+```
+
+### I49. Decision Requests（12 项，Phase 1 不自行定案）
+
+```text
+ 1. Write section 何时首次 production-visible：M10-D 首次出现（推荐）／更早（M10-C 就暴露 disabled preview）。
+ 2. 0x06 / 0x10 selector UI：Write 内两个子 Tab（推荐）／segmented selector／两个独立 sections。
+ 3. 0x10 values editor UX：多行文本一行一个值（推荐）／逗号·空格分隔／表格 address+value／动态 SpinBox 列表。
+ 4. 数值表示：decimal only（推荐）／decimal + hex 切换。
+ 5. draft 是否跨 source 继续保留：保留（推荐）／source replacement 时清空。
+ 6. confirmation 的组件/pattern：Qt Quick Controls `Dialog`(modal) + 自定义 footer 两个 AppButton（推荐）／
+    其他（Popup / 自绘 overlay / standardButtons）。
+ 7. initial focus 安全策略：Cancel 初始焦点（推荐）／Confirm 初始焦点但需显式二次激活／其他。
+ 8. session change 时 dialog 失效策略：Confirm 反应式 disabled + Controller 权威拒（推荐）／
+    打开 dialog 时即锁定 session 变化（冻结 session）／其他。
+ 9. busy change 时 dialog 失效策略：Confirm 反应式 disabled + Controller 权威拒（推荐）／允许排队／其他。
+10. summary 是否显示 connection identity：显示 `sourceLabel`（推荐）／仅显示 unit／显示完整 sessionId。
+11. M10-C 只做 hidden foundation（推荐，方案 A）／暴露 disabled preview（方案 B）。
+12. implementation staging：C1→C4（推荐）／其他拆分。
+另附一个**规则缺口**需一并裁定：**写路径是否新增 `start + quantity > 0xFFFF` 的 reject**（I14-⑧）。
+```
+
+### I50. Boundary / Git
+
+```text
+本轮 docs-only：未改 src / tests / QML / CMakeLists.txt / scripts / assets / samples / screenshots；
+未实现任何 encoder、未创建 Write UI、未调用 transport、未新增 Agent tool；未 push；未 tag；
+**verified LKGC 保持 `ef71244`**；M10 = IN PROGRESS；M10-C = Learning / Design（Implementation = NOT STARTED）。
+commit：`M10-C: design write safety UI foundation`（独立 docs-only 提交；不 amend `806d424`；不 rebase）。
 ```
