@@ -672,3 +672,13 @@
 - **Q：为什么 closure 里要强调「不把 M9-F 写成一次通过」？** A：真实历程是：F0 首轮外推被 HOLD → per-workspace 重测 → P0-2/P0-3 因探针缺陷被撤回 → F1 主体 → P1 焦点可见性漏分类被 HOLD → 修正 → TabButton 可感知性 HOLD → 内环修正 → F2 首包 → ListView ring 权重 HOLD → 软化 → 人工「几乎无区别」→ 外扩策略 + clip 自我纠错 → 最终 PASS。压成「全部通过」会抹掉最有价值的部分：**人工审阅捕获了自动化看不到的缺陷**，每次 HOLD 都固化成契约（FJ 权重/extent、FK 逐类型、FL 编辑键矩阵）。
 - **Q：为什么单独核对截图清单，并说明有一张被主动删除？** A：证据集合的可信度取决于能否逐一点名。上一轮出现「11+3=15」的记账歧义，其中一张后来发现**画面与声明不符**（写着对话框打开、实际是默认页）；与其留一张会撒谎的图，不如删掉并记下原因。最终 14 张逐行可查（文件名/状态/尺寸/sha256），与 `git ls-files` 实算一致。
 - **Q：M9 COMPLETE 意味着 2.0.0 已发布吗？** A：不意味。完成的是「产品与包被接受」；发布是需要明确授权的另一个动作。当前 v2.0.0 tag ABSENT、未 push（origin/main 仍在 `a40d935`）、无 Release/upload、unsigned、无 installer。
+
+## 73. Post-T022 M10 Phase 1（Learning / Design）条目（2026-09-20 追加）
+
+- **Q：为什么 M10 第一轮不写代码？** A：因为 M10 是**会改变设备状态**的能力（FC06/FC10 写寄存器）。V2 协议要求含新知识的任务先完成 Learning / Design Gate 并输出 A…G 七问，再停下等 Review。写操作的失败模式（timeout 不代表没写、广播写不证明成功、重复执行非幂等）比读操作严重得多，先把契约设计清楚比先跑通一条 happy path 更有价值。
+- **Q：audit 最大的发现是什么？** A：**FC03 主动读已经存在**——`AnalysisController::readHoldingRegistersOnce` + `core::SerialTransactionSession`（FC03-only）+ 真实 QSerialPort adapter，范围校验在窄化转换之前、`serialBusy_` 已经是 in-flight guard。所以 M10 不是"从零造 active master"，而是"把已有 FC03 路径纳入统一契约，再为写操作补齐缺失的 encoder 与安全契约"。audit 还发现 FC06/FC16 **只有被动解码没有 encoder**，simulator 的 `handleRequest` 是 **const（只读）** 且明确"v1 has no broadcast semantics"。
+- **Q：为什么强调 write safety 必须独立于 FC03？** A：因为两者共享的是**管线**（transport/codec/taxonomy/statistics/diagnosis），不共享的是**权力与语义**：FC03 是只读请求，FC06/FC10 是设备状态变更。把写当作"换个 function code"会导致漏掉三件事——谁能发起（authority）、执行前用户确认什么（summary/confirmation）、以及 timeout 到底意味着什么（outcome unknown，而不是"没写"）。
+- **Q：为什么 timeout 语义这么关键？** A：写请求的 timeout 是一个**歧义状态**：请求已发出、设备可能已执行、响应丢失。如果 UI 写成"写入失败"，用户会以为设备没变；如果写成"成功"，用户会以为设备变了。两种都是错误事实。所以冻结为 write outcome unknown / response timeout，并且**不得**用「成功」表述广播写（ENR 只证明没有响应，不证明写成功）。
+- **Q：为什么 confirmation 方案不在 Phase 1 定案？** A：因为四种方案（每次 modal / armed mode / 分级确认 / 无 modal 但强显式）在安全性与操作性上有实质取舍，而且键盘可用性影响不同（modal 需要自管 Tab 边界）。这属于产品决策，Review 需要看到 trade-offs 后裁定；Learning 阶段替用户选一个反而是越权。
+- **Q：为什么不新建第 6 个 workspace？** A：因为 Communication workspace 已经是天然 owner（它已有串口连接、请求区、FC03 读按钮，且下游的 transactions/statistics/diagnosis 管线都在同一会话里）。M9 刚冻结的 IA 不应被顺手推翻；写能力应该在同一页内用 read/write 分区表达安全等级差异。
+- **Q：M10 会不会给 Agent 加写工具？** A：**不会**。冻结：AI / Agent 没有 implicit write authority，现有 3 个只读 tools（get_session_summary / get_recent_anomalies / get_transaction_detail）不得因 M10 升级；任何 AI-assisted write 必须另立产品与 safety design（新任务 + 新 ADR）。
