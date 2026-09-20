@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1 Learning / Design 已落库（§I0–I50），Implementation = NOT STARTED（等待 Phase 1 Review）**。**
+> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1 Learning / Design（§I0–I50）→ Phase 1 Review = HOLD → Correction 已落库（§J0–J27：地址跨度契约 / PreparedWriteSnapshot bridge / production visibility 时序 / 12 项 decisions RESOLVED），Implementation = NOT STARTED（等待 Phase 1 Re-review）**。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -2824,4 +2824,347 @@ C4 — runtime oracle + final review：C01–C22 中可在 M10-C 落地者（纯
 未实现任何 encoder、未创建 Write UI、未调用 transport、未新增 Agent tool；未 push；未 tag；
 **verified LKGC 保持 `ef71244`**；M10 = IN PROGRESS；M10-C = Learning / Design（Implementation = NOT STARTED）。
 commit：`M10-C: design write safety UI foundation`（独立 docs-only 提交；不 amend `806d424`；不 rebase）。
+```
+## M10-C Phase 1 Correction — Write Safety UI Design Decisions（2026-09-20，docs-only）
+
+> **M10-C Phase 1 Review = HOLD（窄范围 design correction）。** 总体 Write Safety UI 设计方向**接受**；
+> Implementation **仍为 NOT STARTED**。HOLD 只因三点未精确冻结：
+> **① 0x10 地址跨度规则 ② Validated Intent snapshot 如何跨 QML/Controller 安全持有 ③ M10-D/E capability 的
+> production 可见时序**。本轮补齐上述三点 + 把 **12 项 decision requests 全部落为 RESOLVED**。
+> 原 Phase 1 记录（§I0–I50）**未改写**。
+
+### J0. Phase 1 Review HOLD 归档
+
+```text
+M10-C Phase 1 Review = HOLD；总体设计方向接受；Implementation = NOT STARTED。
+HOLD 三项：
+  1) 0x10 address-span 规则未精确冻结（原 §I14-⑧ 只写了「待裁定」，且候选公式本身有 off-by-one 风险）；
+  2) Validated Intent snapshot 的 QML ↔ Controller 持有/传递方式未落地（原 §I18/I41 只有「不可变快照」与
+     「接收 snapshot」的描述，没有 token/生命周期/失效语义）；
+  3) M10-D/E capability 的 production visibility 时序未精确冻结（原 §I4 只有方案比较）。
+本轮边界：不改 src / tests / QML / CMakeLists.txt / scripts / assets / samples / screenshots；
+不开 C1；不实现 Write UI / encoder；不 push；不 tag；verified LKGC 保持 `ef71244`。
+```
+
+### J1. 0x10 Address-span Contract（含 off-by-one RCA）
+
+```text
+RCA（设计缺陷，在 Review 阶段被捕获）：
+  Observed：原 §I14-⑧ 把越界判定写成 `startAddress + quantity > 0xFFFF` 并标为「待裁定」。
+  Expected：判定必须精确表达「访问到的最后一个寄存器是否在 16 位地址空间内」。
+  Root Cause：`startAddress + quantity` 是**排他上界**（exclusive end），直接与 0xFFFF 比较会**多算一个寄存器**
+    ⇒ off-by-one：`start=65535, quantity=1` 访问的唯一寄存器就是 65535，本身合法，却会被判为越界。
+  Fix：改用**包含式末地址**：
+      lastAddress = startAddress + quantity - 1
+      要求 lastAddress <= 0xFFFF
+    等价判定：`uint32_t(startAddress) + uint32_t(quantity) <= 65536`。
+**冻结规则**：
+  · 非法写法（禁止使用）：`startAddress + quantity > 0xFFFF` 作为 overflow 判定。
+  · 必须使用 **至少 uint32_t（或等价扩宽整数）** 计算；**禁止在 uint16_t 中先相加再判断**
+    （uint16 先加会 wrap，判定永远为 false ⇒ 越界请求被放过）。
+  · 边界样例（对应 oracle C18A–C18D）：start=65535/qty=1 **VALID**；start=65535/qty=2 **INVALID**；
+    start=65534/qty=2 **VALID**；并对 widened arithmetic 做「无 uint16 wrap」的显式证明。
+```
+
+### J2. 0x10 Quantity Contract（复核冻结）
+
+```text
+`values[]` 继续是**唯一写入值 authority**：`quantity = values.size()`；`1 <= quantity <= 123`；
+`byteCount = quantity * 2`（派生，UI 只读显示）。
+用户**不得**手填 quantity 或 byteCount（UI 不允许存在三份真源）。
+地址跨度：`start + quantity - 1 <= 65535`（见 J1）。
+```
+
+### J3. 0x10 Values Text Parser（冻结）
+
+```text
+M10 v1 = **多行 TextArea，一行一个 decimal unsigned value**。parser 契约：
+  A. 每个 value **仅十进制**；**不接受** `0x1234` / `+12` / `-1` / `1.5` / 逗号列表（这些一律 parse error）。
+  B. 每个有效值范围 **0..65535**。
+  C. **保留输入顺序**（顺序即寄存器顺序）。
+  D. 允许**首尾纯空白行**被 trim。
+  E. **中间空白行 = validation error**（避免无声跳过一个位置，造成 quantity 与用户视觉行数不一致）。
+  F. 最终有效值数量 **1..123**。
+  G. parse failure **保留原 draft，不自动修正**（不清空、不改写、不跳过）。
+```
+
+### J4. Write Timeout UI Contract（冻结）
+
+```text
+Write UI **沿用现有 Communication read UX 的 100..10000 ms**（不新增第二套 write timeout range）。
+这是 **presentation range**；core authority 仍是 **timeout > 0**（`ActiveRequestIntent` 契约）。
+UI **可以比 core 更严格**（更窄的 presentation 范围是允许的），但 **不得静默 clamp** 用户输入成另一个值。
+confirmation 的 summary **是否展示 timeout 可作为非安全视觉细节**，但 **snapshot 必须保存 timeout**（J6）。
+```
+
+### J5. Snapshot Ownership 缺口与结论
+
+```text
+缺口（Phase 1 HOLD 的第 2 点）：原设计只说了「不可变 snapshot」与「handoff 接收 snapshot」，
+没有回答：**谁持有它、QML 怎么安全引用它、它何时失效、重复确认如何被拒**。
+结论（冻结）：
+  · **draft authority = QML page-local**（不变）；
+  · **Prepared snapshot authority = Controller / runtime**（新增，且**只**在用户明确发起 Write flow 之后生成）；
+  · transport authority = Controller → Active contract → SerialTransport（不变）。
+⇒ Controller 仍然**不实时拥有用户 draft**（Phase 1 的 draft ownership 原则未被破坏）：
+   它只拥有「用户已经明确点了 Write、且已通过 authoritative validation」的那一份快照。
+```
+
+### J6. PreparedWriteSnapshot — 设计
+
+```text
+**`PreparedWriteSnapshot`**（C++/runtime 侧对象，项目命名风格）＝ 一份已通过 **C++ authoritative validation**
+的 **immutable write intent snapshot**。它**不是** raw draft。
+至少包含：
+  · **opaque generation / token**（J7）
+  · **typed validated intent**（`ActiveRequestIntent` 或等价 typed 结构）
+  · function（0x06 / 0x10）
+  · unitId
+  · address（0x06 registerAddress / 0x10 startAddress）
+  · 0x06 value 或 0x10 values[]
+  · **derived quantity**（0x10）
+  · timeout
+  · **source kind**（`TransactionSourceKind`）
+  · **Active Serial session id**
+  · **immutable connection display label**（快照时捕获，如 `COM3 @ 9600`）
+  · 未来 confirmation 所需展示事实（summary 用的只读投影素材）
+**禁止**存入：QML Item pointer / TextArea 引用 / 任何 live binding（快照必须与 UI 完全解耦）。
+```
+
+### J7. Opaque Token / Generation（冻结）
+
+```text
+每次成功 prepare 生成**新的 generation / token**。
+QML 的 confirmation **只持有该 token + 只读快照投影**；**Confirm 必须携带该 token**。
+Controller **只接受**同时满足「当前仍 active / 未 invalidated / 未 consumed」的 token；**旧 token 必须 reject**。
+**不得**依赖 `Dialog.visible` 或任何 UI 状态作为 authority。
+（生命周期：`Prepared → Consumed | Invalidated`，一次性，见 J17/J18。）
+```
+
+### J8. QML Projection（冻结）
+
+```text
+QML **不直接持有** `ActiveRequestIntent`、raw ADU、或 QVariantMap 形式的 intent；
+QML 只读取 prepared snapshot 的**只读投影**，例如：
+  `preparedFunction` / `preparedUnitId` / `preparedAddress` / `preparedValue`（0x06）/ `preparedValues`（0x10）/
+  `preparedQuantity`（派生）/ `preparedConnectionLabel`（显示用）。
+具体 property 形状留 implementation；**authority 始终是 Controller 的 snapshot**。
+```
+
+### J9. No Re-read Draft on Confirm（硬契约）
+
+```text
+打开 confirmation 之后，即使用户通过**代码 / 焦点移动 / 切换子 Tab / 离开并返回页面**改变了 draft，
+**Confirm 也绝不能重新读取 draft**。
+真正发送（M10-D/E）的 intent **必须来自 prepared snapshot**。
+这条是「dialog 显示 A、背后改成 B、实际发送 B」风险的最终封堵点。
+```
+
+### J10. Session Authority（冻结）
+
+```text
+M10-C implementation **允许新增只读 Q_PROPERTY（或等价 read-only exposure）** 暴露 Active Serial session 身份，
+**仅用于 reactive UI 失效**（尽早禁用 Confirm）。
+**最终 authority 仍在 Controller**：Confirm guard 必须检查
+  `sourceKind == ActiveSerial` / `sessionId == snapshot.sessionId` / `serialConnected == true` /
+  `serialBusy == false` / `capability supported` / `token valid`。
+**QML 属性不是 security authority**（它只是 UI 反馈通道）。
+```
+
+### J11. Connection Identity（显示 vs authority）
+
+```text
+confirmation summary 显示**快照时捕获的 immutable connection display label**（如 `COM3 @ 9600`）。
+该 label **只用于用户理解**；**不得**用于 source/session equality 判定。
+真正的 identity authority = **typed source kind + session id**（J10）。
+```
+
+### J12. Session Change Invalidation
+
+```text
+以下任何情况**必须 invalidate 当前 PreparedWriteSnapshot**：disconnect / successful reconnect /
+new Active Serial session / source replacement / 离开 ActiveSerial。
+旧 dialog：**Confirm disabled 或 rejected**；用户必须**重新发起 Write flow**（重新 prepare 得到新 token）。
+**不得**让旧 token 在新 session 使用。
+```
+
+### J13. Busy-change 决策（保守策略）
+
+```text
+M10 v1：confirmation 打开后若 `serialBusy` 从 false → true，则**当前 snapshot 直接 invalidate**，
+**不是**等 busy 回到 false 后再恢复可用。
+理由：confirmation 已经跨越了**另一笔 Active transaction**，要求用户重新确认**更安全、更可审计**。
+用户必须重新点击 Write 生成新 snapshot。（对应 oracle C13：busy 再变 false 也**不能复活**旧 token。）
+```
+
+### J14. Validation-change 边界
+
+```text
+snapshot 创建后：draft 后续改变**不修改** snapshot（J9）。
+用户 **Cancel** ⇒ snapshot 被 **discard**。
+再次 Write ⇒ **创建新 generation**；**不得**复用旧 snapshot 并偷偷更新字段。
+```
+
+### J15. Confirmation Component 决策
+
+```text
+M10 v1 使用 **Qt Quick Controls `Dialog` + `modal: true`**（本项目第一个真模态对话框；无既有 pattern）。
+```
+
+### J16. closePolicy 决策
+
+```text
+只允许两种关闭路径：**Escape（映射为 Cancel）** 与 **显式 Cancel**。
+⇒ `closePolicy` **不包含 CloseOnPressOutside**（点击 dialog 外部直接关闭会产生不清晰状态：用户无法区分
+「我取消了」与「我误触了」）。
+具体 Qt enum 名称在 implementation 时按当时的 Qt 版本 API 实读确认（不在设计中硬编码）。
+```
+
+### J17. Initial Focus / Enter / Space / Escape（冻结）
+
+```text
+Initial focus：**Cancel 获得初始 active focus**；Confirm **不得**成为默认 focus、不得是默认按钮、不得自动接 Enter。
+Enter：dialog 刚打开 ⇒ **zero confirm**；只有 **Confirm 明确持有 active focus** 之后，才允许按其标准控件语义
+  产生 confirm intent。
+Space：同理（只有 Confirm 明确持焦点才可能激活）。
+旧 **hidden Write button 不得保留 actionable focus**（不得借 Enter/Space 打开 dialog 或启动 write flow）。
+Escape：**Cancel** ⇒ snapshot discard + dialog close + draft preserved + **zero send** + zero transaction +
+  zero transport terminal。
+```
+
+### J18. Production Visibility 时序（冻结）
+
+```text
+· **M10-C**：Write foundation 在 **normal production UI 完全隐藏**；允许 **runtime harness 实例化/启用**它
+  以跑 QML safety oracle。**禁止** production 显示 disabled 的 roadmap preview。
+· **M10-D**：0x06 capability **真正 end-to-end 可用后**，Write section **首次 production-visible**，且**只暴露 0x06**；
+  此时 **0x10 仍不展示**（不得放一个 Disabled 0x10 tab 当 roadmap preview）。
+· **M10-E**：0x10 capability 真正可用后，Write section **增加第二个子 Tab**（0x06 + 0x10 两个子 Tab）。
+```
+
+### J19. Function Selector / Draft Persistence / Summary / No-dead-UI（复核冻结）
+
+```text
+Selector：Write 区内部**两个子 Tab**，复用现有 TabButton pattern（M10-D 只有 0x06 可见；M10-E 才出现第二个）。
+  **明确拒绝** segmented custom control / 巨型 ComboBox / 两个永久长 section。
+Draft persistence：`write06Draft` 与 `write10Draft` 均 page-local，保留于 workspace navigation / Clear Results /
+  disconnect / reconnect / Simulator replacement / Replay replacement。
+  **但 draft persistence ≠ confirmation persistence**：source/session 变化时 **draft 保留、prepared snapshot 失效**。
+Summary：0x06 = function / unit / address / value / connection display label；
+  0x10 = function / unit / start address / derived quantity / **全部 values** / connection display label；
+  values 用**受限高度 scroll**；**不得**摘要成「仅 N registers」。
+No-dead-UI：**capability 不存在 ⇒ production control 不出现**（M10-C hidden / M10-D 真实 0x06 / M10-E 真实 0x10）。
+  **禁止** enabled button → UnsupportedFunction；**禁止** clickable no-op。
+```
+
+### J20. Repeated Write / Repeated Confirm（冻结）
+
+```text
+Repeated Write：存在一个 active prepared snapshot 时，再次 Write activation **不得**创建第二个 snapshot、
+  **不得**打开第二个 dialog（可忽略或聚焦既有 dialog，UX 留 implementation）；**snapshot count 必须保持 1**。
+Repeated Confirm：prepared snapshot 是 **one-shot**（`Prepared → Consumed | Invalidated`）；
+  第一次有效 Confirm 完成 consumption 后，**同 token 的第二次 Confirm 必须 reject**。
+  未来 M10-D/E 再叠加 **single in-flight guard**，共同证明 **exactly-one send**。
+```
+
+### J21. Confirm Handoff Contract（冻结）
+
+```text
+未来 Confirm 调用 **Controller-side operation**，输入 = **opaque snapshot token**（**不是** QML draft fields）。
+Controller 从自己的 snapshot store 取出 validated intent，然后**重新检查**：
+`token` / `source` / `session` / `connected` / `busy` / `capability`。
+全部通过才允许 M10-D/E 执行 send。
+```
+
+### J22. M10-C 阶段 Confirm 的含义（不得假装成功）
+
+```text
+M10-C 还没有 write encoder / send，因此 hidden foundation **不得假装 Confirm = write success**。
+C 阶段只验证：**confirmation event 正确消费 snapshot** + **zero transport sends** + 全部安全 guard。
+真正 `confirm → send` 只在 **M10-D / M10-E** 接上 capability 后启用。
+由于 normal production 完全隐藏，**不会产生「用户可点击但不发送」的 dead UI**。
+```
+
+### J23. Oracle Matrix 更新（C01–C29，冻结）
+
+```text
+C01 invalid unit 0 → validation error → no confirmation → 0 send
+C02 invalid address/value → no confirmation → 0 send
+C03 prepare valid 0x06 → **snapshot generation N** → dialog summary **逐字段 == snapshot** → **transport sendCount 0**
+C04 Cancel → 0 send（snapshot discard）
+C05 Escape → 0 send（= Cancel 语义）
+C06 dialog initial focus **不是** destructive Confirm
+C07 dialog open（Cancel 初始 focus）→ **immediate Enter → zero confirmation event**
+C08 显式 focus Confirm + Space → confirm event 恰好一次（M10-C：消费 snapshot；D/E：exactly-one send）
+C09 double Write → **same single snapshot token** → one dialog（snapshot count = 1）
+C10 double Confirm（hidden harness）→ **snapshot consumption 最多一次** → transport 仍 **0**（D/E 升级为 exactly-one send）
+C11 disconnect → **token invalid**
+C12 reconnect → new session → **old token reject**
+C13 busy false→true → **token permanently invalidate** → busy 再 false 也**不能复活**
+C14 navigate away → hidden Write control cannot activate
+C15 Clear Results → draft preserved → no send
+C16 switch 0x06/0x10 → independent drafts preserved
+C17 0x10 values → quantity derived exactly
+C18A start=65535 quantity=1 → **VALID**
+C18B start=65535 quantity=2 → **INVALID**
+C18C start=65534 quantity=2 → **VALID**
+C18D **widened arithmetic 证明无 uint16 wrap**（uint16 先加会 wrap ⇒ 判定失效）
+C19 confirmation summary 与 confirm 均来自**同一 Controller-owned snapshot**
+C20 snapshot 生成后编辑 draft **不能**改变 confirmed payload
+C21 write timeout 文案包含 **state-unknown** 语义
+C22 PossiblySent transport error **不得**声称 device unchanged
+C23 `"1\n2\n3"` → [1,2,3]
+C24 `" 1 \n 2 "` → [1,2]（首尾空白行 trim）
+C25 `"1\n\n2"` → **validation error**（中间空白行）
+C26 `"65536"` → error
+C27 `"0x10"` → error
+C28 124 values → quantity limit error
+C29 123 valid values → PASS
+（本轮只设计；实现阶段按 C1–C4 逐步落地。）
+```
+
+### J24. Implementation Stages（冻结）
+
+```text
+**M10-C1**：draft model + parser（J3）+ local/core validation（含 J1 地址跨度）+ **PreparedWriteSnapshot foundation**。
+**M10-C2**：hidden Write component + confirmation Dialog + summary projection + **one-shot token**。
+**M10-C3**：session/source/busy invalidation（J10/J12/J13）+ keyboard（J17）+ focus + accessibility + page gating。
+**M10-C4**：C01–C29 runtime oracle + geometry + final review。
+纪律：**不要在 C1 实现 Dialog**；**不要在 C2 实现 transport send**。
+```
+
+### J25. QML session-id exposure 边界（source audit note 保留）
+
+```text
+保留 Phase 1 的重要事实：**当前 QML 没有 session-id property**。
+因此 **C1 / C3 允许新增只读 session identity exposure**（用于 reactive UI invalidation）。
+但 **QML 值只用于 reactive UI**；Controller 内部 **typed source/session check 才是最终 authority**（J10）。
+```
+
+### J26. 12 项 Decision Requests = RESOLVED（不再标 pending）
+
+```text
+ 1. production visibility = **C hidden / D 0x06 / E 0x10**                              —— RESOLVED（J18）
+ 2. selector = **two sub-tabs**（复用 TabButton pattern）                               —— RESOLVED（J19）
+ 3. 0x10 editor = **multiline, one decimal value per line**                            —— RESOLVED（J3）
+ 4. number format = **decimal only**                                                   —— RESOLVED（§I13）
+ 5. draft across source = **preserve**                                                 —— RESOLVED（J19）
+ 6. Dialog = **Qt Quick Controls modal Dialog**                                        —— RESOLVED（J15）
+ 7. closePolicy = **no outside-close**（仅 Escape=Cancel 与显式 Cancel）                 —— RESOLVED（J16）
+ 8. initial focus = **Cancel**                                                         —— RESOLVED（J17）
+ 9. session change = **invalidate snapshot**                                            —— RESOLVED（J12）
+10. busy true = **invalidate snapshot permanently**                                     —— RESOLVED（J13）
+11. summary connection identity = **immutable display label；authority = typed source + session** —— RESOLVED（J11）
+12. M10-C = **hidden foundation**（harness 可实例化，production 隐藏）                    —— RESOLVED（J18）
+13. staging = **C1 / C2 / C3 / C4**（含顺序纪律）                                        —— RESOLVED（J24）
+（原 Phase 1 的第 12 项决策与「start+quantity 越界规则缺口」两项本轮一并落定：见 J1、J24。）
+```
+
+### J27. Boundary / Git
+
+```text
+docs-only：未改 src / tests / QML / CMakeLists.txt / scripts / assets / samples / screenshots；
+未开始 C1；未实现 Write UI / encoder；未调用 transport；未新增 Agent tool；未 push；未 tag；
+**verified LKGC 保持 `ef71244`**；M10-C = Phase 1 Correction / Re-review（Implementation = NOT STARTED）。
+commit：`M10-C: close write UI safety design decisions`（独立 docs-only 提交；不 amend `c859db2`；不 rebase）。
 ```
