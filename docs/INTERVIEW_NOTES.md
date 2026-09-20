@@ -813,3 +813,13 @@
 - **Q：状态机为什么必须是一次性的，而且失效后不能复活？** A：因为「确认」是用户对一个**特定时刻的特定意图**的授权。如果 busy 变真又变假就能复活旧确认，或者被取消的快照还能再次确认，那么审计上就无法回答「你确认的到底是哪一刻」。所以 Consumed 与 Invalidated 都是终态，重新 Write 只会得到新 generation。
 - **Q：为什么 failed Replay 不能 invalidate 快照？** A：因为失败的重放加载没有改变任何权威事实——source 仍是 ActiveSerial、session 没变、连接还在。安全失效必须基于**真实状态变化**，而不是「用户点了一个按钮」或「屏幕上出现了一条错误文案」。C1 用 I07 把这一点变成可断言的事实。
 - **Q：这轮踩到的坑有什么共性？** A：四个问题里三个是「表达层 vs 语义层」的错位：别名声明顺序（语言规则）、临时对象取地址（语言规则）、字面量被写成真实换行（工具转义），以及 `preparedQuantity` 对 0x06 返回 0（领域语义）。前三个由编译器抓，最后一个由自己审出的语义不一致——这也说明**测试要断言语义，而不只是断言能编译**。
+
+## 86. Post-T022 M10-C2（Hidden Write UI + Confirmation Foundation）条目（2026-09-20 追加）
+
+- **Q：为什么「隐藏」本身也要有 oracle？** A：因为「用户可以点到一个写按钮」这种风险只要存在一次就足够。C2 的做法是让正常 production **根本不实例化** Write 区（Loader + inline Component），然后用 `--qml-focus-check` 的 prod-hidden oracle 断言 loader 不活跃、item 为 null——于是「没有 Tab 入口、没有可激活控件、没有点击区域」不是靠 `visible: false` 的自觉，而是结构上不存在。
+- **Q：harness 里的那个开关会不会变成变相的 capability 开关？** A：命名和语义上都刻意避开：它叫 `writeFoundationVisible`，只回答「本次运行是否为测试加载隐藏 UI」。它不改变编码能力（0x06/0x10 encoder 依然不存在）、不改变 dispatch 路径（write 路径对 transport 的调用次数是 0），harness 的最终断言就是 `startAttempts == 0`。
+- **Q：为什么 harness 还需要一个 transport？** A：因为 prepare 的前提是「处于已连接的 Active Serial 会话」。harness 用一个只回答「已连接」、**并拒绝一切 start** 的双替身来满足前提，同时保证任何 dispatch 尝试都会失败并被断言抓住——不打开真实端口、不需要硬件。
+- **Q：这轮最值钱的发现是什么？** A：四个 Qt 语义细节，全是「想当然就会写错」的那类：① QML 函数经 meta-object 返回的是 QVariant，用 `Q_RETURN_ARG(bool)` 会**静默失败**；② Popup 在 parent 不可见时不会 opened（隐藏页上连校验文案也不可见）；③ `Popup.opened` 只在 enter transition 完成后为 true，所以「刚 open() 就断言 opened」必然失败；④ Dialog 是 QObject 而不是 Item，按 Item 树按名字根本找不到它。这些都不是产品缺陷，但会把测试写成假绿或假红。
+- **Q：summary 为什么必须逐字段比对一个 snapshot，而不是「看起来对」？** A：因为确认对话框是写操作的最后一句话。C19 让 harness 从 Controller projection 读到 unit/address/value/label，再逐字段与被显示的文本比较；C20 进一步证明「prepare 之后改 draft」既不改 snapshot 也不改 summary。这样「你确认的就是将要发送的」才是被证明的事实。
+- **Q：重复 Write 与重复 Confirm 分别在哪里兜住？** A：重复 Write 由 Controller 的 store 兜（已有 Prepared 就返回 AlreadyPrepared、不换 token、不生成第二份），QML 只是把既有 Dialog 重新聚焦；重复 Confirm 由 Controller 的 one-shot 状态机兜（同 token 第二次确认一律 reject），QML **不维护** `confirmConsumed` 之类的第二套状态——authority 只有一个。
+- **Q：为什么这轮没有出现「写入成功」？** A：因为 C2 根本没有 dispatch。Confirm 的语义只是「用户确认意图已被一次性接受」（Consumed），把它写成「写入成功」等于伪造设备行为。真正的成功语义要等 M10-D 接上 0x06 encoder、收到匹配响应并由 analyzer 判 Success 之后才允许出现。

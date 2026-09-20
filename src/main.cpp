@@ -4707,6 +4707,504 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// M10-C2 `--qml-write-foundation-check`: QML runtime oracles for the HIDDEN
+// write confirmation foundation.
+//
+// Same architecture as the other QML harness modes (real app, real shipped
+// QML), with one harness-only transport so the runtime has a connected Active
+// Serial session WITHOUT touching hardware and without any write capability:
+// the transport counts start attempts and refuses every one of them, so any
+// attempt to dispatch is both impossible and observable.
+//
+// What this harness proves (C2 oracle set):
+//   C01 unit 0 -> validation presentation, no dialog, no snapshot, zero send
+//   C02 invalid 0x10 value -> validation presentation, no dialog
+//   C03 valid 0x06 -> Prepared + dialog open + summary == snapshot + zero send
+//   C04 Cancel -> Invalidated(UserCancelled), draft preserved, zero send
+//   C09 double Write -> same single token, one dialog
+//   C10-C first Confirm -> Consumed once; second same token -> rejected
+//   C16 0x06 / 0x10 drafts independent across tab switches
+//   C17 0x10 displayed quantity == snapshot values.size()
+//   C18 0x10 address-span reject -> no dialog
+//   C19 summary fields equal the controller snapshot projection
+//   C20 editing the draft after prepare cannot alter the summary/snapshot
+// ---------------------------------------------------------------------------
+// No Q_OBJECT on purpose: this double only overrides base-class virtuals and
+// is always used through the SerialTransport interface, so it needs no
+// meta-object of its own (and main.cpp therefore stays AUTOMOC-free).
+class HarnessWriteTransport : public SerialTransport
+{
+public:
+    explicit HarnessWriteTransport(QObject* parent = nullptr)
+        : SerialTransport(parent)
+    {
+    }
+
+    bool openPort(const QString& portName, qint32 baudRate) override
+    {
+        Q_UNUSED(portName);
+        Q_UNUSED(baudRate);
+        portOpen_ = true;
+        return true;
+    }
+
+    // There is no write capability in C2: every attempt is counted and
+    // refused as NotSent (nothing is ever handed over).
+    modbuslens::core::ActiveStartResult startActiveRequest(
+        const modbuslens::core::ActiveRequestDescriptor& request) override
+    {
+        Q_UNUSED(request);
+        ++startAttempts_;
+        return modbuslens::core::ActiveStartResult{
+            false, modbuslens::core::TransportDisposition::NotSent, std::nullopt};
+    }
+
+    [[nodiscard]] bool hasActiveTransaction() const override { return false; }
+    [[nodiscard]] bool isPortOpen() const override { return portOpen_; }
+    [[nodiscard]] int startAttempts() const { return startAttempts_; }
+
+    void closePort() override { portOpen_ = false; }
+
+private:
+    bool portOpen_ = false;
+    int startAttempts_ = 0;
+};
+
+int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *controller = qobject_cast<AnalysisController *>(
+        rootObj ? rootObj->findChild<QObject *>(QStringLiteral("analysisController"))
+                : nullptr);
+    if (!controller) {
+        qWarning() << "WRITEFAIL: no controller";
+        return 1;
+    }
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &line) { qInfo().noquote() << line; };
+
+    auto itemOf = [&roots](const QString &name) {
+        return qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+    };
+    auto textOf = [&itemOf](const QString &name) {
+        auto *item = itemOf(name);
+        return item ? item->property("text").toString() : QStringLiteral("<none>");
+    };
+    auto boolOf = [&itemOf](const QString &name, const char *prop) {
+        auto *item = itemOf(name);
+        return item ? item->property(prop).toBool() : false;
+    };
+    auto intOf = [&itemOf](const QString &name, const char *prop) {
+        auto *item = itemOf(name);
+        return item ? item->property(prop).toInt() : -1;
+    };
+    auto section = [&itemOf]() { return itemOf(QStringLiteral("writeFoundationSection")); };
+    auto setDraft = [&section](const char *prop, const QVariant &value) {
+        auto *item = section();
+        if (item)
+            item->setProperty(prop, value);
+    };
+    // QML-declared functions return QVariant through the meta-object: asking
+    // for a plain bool makes invokeMethod fail silently, so the result is read
+    // as a QVariant and converted explicitly.
+    auto callSectionBool = [&section](const char *function) {
+        auto *item = section();
+        QVariant result;
+        if (item
+            && QMetaObject::invokeMethod(item, function, Q_RETURN_ARG(QVariant, result))) {
+            return result.toBool();
+        }
+        return false;
+    };
+    auto activateWrite = [&callSectionBool]() {
+        return callSectionBool("activateWrite");
+    };
+    // Qt semantics (verified in this round): Popup.opened becomes true only
+    // AFTER the enter transition finishes, while `visible` is true as soon as
+    // the dialog is on screen. The immediate oracle therefore checks
+    // visibility, and a later stage asserts the fully-opened state.
+    auto dialogVisible = [&section]() {
+        auto *item = section();
+        return item ? item->property("confirmationVisible").toBool() : false;
+    };
+    auto dialogFullyOpened = [&section]() {
+        auto *item = section();
+        return item ? item->property("confirmationOpened").toBool() : false;
+    };
+    auto stateToken = [&controller]() { return controller->preparedWriteStateToken(); };
+    auto tokenOf = [&controller]() { return controller->preparedWriteTokenValue(); };
+    auto errorVisible = [&boolOf]() {
+        return boolOf(QStringLiteral("writeValidationError"), "visible");
+    };
+    auto valuesListCount = [&intOf]() {
+        return intOf(QStringLiteral("writeSummaryValues"), "count");
+    };
+
+    // Harness transport: connected Active Serial session, zero write capability.
+    auto *transport = new HarnessWriteTransport(&app);
+    controller->setSerialTransport(transport);
+    controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+
+    // ---- staged walk (one stage per event-loop turn) ----
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // The write foundation lives on the Communication page. A Qt Quick Popup
+    // only becomes `opened` when its parent is visible, and StackLayout hides
+    // every non-current workspace, so the harness must make Communication the
+    // current workspace first (presentation-only navigation, exactly like a
+    // user clicking the rail entry).
+    auto clickNamed = [&roots, &window = *qobject_cast<QQuickWindow *>(rootObj)](
+                          const QString &name) {
+        auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+        if (!item || !item->isVisible()) {
+            return false;
+        }
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window.mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global, Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global, Qt::LeftButton,
+                            Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &release);
+        return true;
+    };
+
+    push([&]() {
+        if (!section()) {
+            fail(QStringLiteral("WRITEFAIL setup: writeFoundationSection not "
+                                "instantiated under the harness seam"));
+            return;
+        }
+        // Rail entry 2 = Communication (presentation-only switch).
+        if (!clickNamed(QStringLiteral("navItem_2")))
+            fail(QStringLiteral("WRITEFAIL setup: the Communication rail entry "
+                                "is not clickable"));
+    });
+    push([&]() {
+        if (!controller->serialConnected()) {
+            fail(QStringLiteral("WRITEFAIL setup: the harness transport is not "
+                                "connected"));
+        }
+        note(QStringLiteral("WRITE [setup]: Communication current, harness "
+                            "transport connected, session=%1 state=%2")
+                 .arg(controller->activeSerialSessionId())
+                 .arg(stateToken()));
+    });
+
+    // ---- C01: unit 0 is rejected with presentation, no dialog ----
+    push([&]() {
+        setDraft("unit06", 0);
+        setDraft("address06", 100);
+        setDraft("value06", 5);
+        const bool accepted = activateWrite();
+        if (accepted)
+            fail(QStringLiteral("WRITEFAIL C01: unit 0 was accepted"));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C01: a dialog opened for an invalid draft"));
+        if (tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL C01: a snapshot token was created"));
+        if (!errorVisible() || textOf(QStringLiteral("writeValidationError")).isEmpty())
+            fail(QStringLiteral("WRITEFAIL C01: no validation presentation "
+                                "(hasError=%1 visible=%2 text=[%3] pageVisible=%4)")
+                     .arg(controller->hasWriteDraftError() ? 1 : 0)
+                     .arg(boolOf(QStringLiteral("writeValidationError"), "visible") ? 1 : 0)
+                     .arg(textOf(QStringLiteral("writeValidationError")))
+                     .arg(itemOf(QStringLiteral("writeFoundationSection"))
+                              && itemOf(QStringLiteral("writeFoundationSection"))->isVisible()
+                              ? 1 : 0));
+        else if (textOf(QStringLiteral("writeValidationError")).contains(
+                     QStringLiteral("UnitIdOutOfRange")))
+            fail(QStringLiteral("WRITEFAIL C01: a raw enum token reached the UI"));
+        note(QStringLiteral("WRITE [C01]: unit 0 -> [%1], no dialog, no token")
+                 .arg(textOf(QStringLiteral("writeValidationError"))));
+    });
+
+    // ---- C02: invalid 0x10 value (parser) is rejected with presentation ----
+    push([&]() {
+        setDraft("activeFunctionIndex", 1);
+        setDraft("unit10", 1);
+        setDraft("start10", 0);
+        setDraft("valuesText10", QStringLiteral("65536"));
+        const bool accepted = activateWrite();
+        if (accepted || dialogVisible() || tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL C02: out-of-range value was accepted"));
+        const QString message = textOf(QStringLiteral("writeValidationError"));
+        if (!message.contains(QStringLiteral("第 1 行")))
+            fail(QStringLiteral("WRITEFAIL C02: the one-based line number is "
+                                "missing from [%1]").arg(message));
+        note(QStringLiteral("WRITE [C02]: 65536 -> [%1]").arg(message));
+    });
+
+    // ---- C03 / C19: valid 0x06 -> Prepared + summary == projection ----
+    push([&]() {
+        setDraft("activeFunctionIndex", 0);
+        setDraft("unit06", 11);
+        setDraft("address06", 0x0064);
+        setDraft("value06", 1234);
+        setDraft("timeout06", 1000);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C03: a valid 0x06 draft was rejected"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C03: the confirmation dialog did not open"));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL C03: state=%1, expected prepared")
+                     .arg(stateToken()));
+        if (tokenOf() == 0)
+            fail(QStringLiteral("WRITEFAIL C03: no snapshot token"));
+        if (transport->startAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C03: the transport was touched (%1)")
+                     .arg(transport->startAttempts()));
+        note(QStringLiteral("WRITE [C03]: prepared token=%1, dialog open, "
+                            "startAttempts=0").arg(tokenOf()));
+    });
+    push([&]() {
+        const int unit = controller->preparedWriteUnitId();
+        const int address = controller->preparedWriteAddress();
+        const int value = controller->preparedWriteValue();
+        const QString label = controller->preparedWriteConnectionLabel();
+        if (!textOf(QStringLiteral("writeSummaryFunction")).contains(
+                QStringLiteral("0x06")))
+            fail(QStringLiteral("WRITEFAIL C19: function text is [%1]")
+                     .arg(textOf(QStringLiteral("writeSummaryFunction"))));
+        if (textOf(QStringLiteral("writeSummaryUnit")) !=
+            QStringLiteral("设备 %1").arg(unit))
+            fail(QStringLiteral("WRITEFAIL C19: unit summary is [%1], snapshot=%2")
+                     .arg(textOf(QStringLiteral("writeSummaryUnit"))).arg(unit));
+        if (textOf(QStringLiteral("writeSummaryAddress")).toInt() != address)
+            fail(QStringLiteral("WRITEFAIL C19: address summary is [%1], snapshot=%2")
+                     .arg(textOf(QStringLiteral("writeSummaryAddress"))).arg(address));
+        if (textOf(QStringLiteral("writeSummaryValue")).toInt() != value)
+            fail(QStringLiteral("WRITEFAIL C19: value summary is [%1], snapshot=%2")
+                     .arg(textOf(QStringLiteral("writeSummaryValue"))).arg(value));
+        if (textOf(QStringLiteral("writeSummaryConnection")) != label)
+            fail(QStringLiteral("WRITEFAIL C19: connection summary is [%1], "
+                                "snapshot=%2")
+                     .arg(textOf(QStringLiteral("writeSummaryConnection")), label));
+        note(QStringLiteral("WRITE [C19]: summary fields equal the snapshot "
+                            "projection (unit %1 / addr %2 / value %3 / %4)")
+                 .arg(unit).arg(address).arg(value).arg(label));
+        // One turn later the enter transition has finished: the dialog is
+        // fully open (and it was already visible/authoritative before that).
+        if (!dialogFullyOpened())
+            fail(QStringLiteral("WRITEFAIL C03: the dialog never reached the "
+                                "fully-opened state"));
+    });
+
+    // ---- C20: editing the draft after prepare changes nothing ----
+    push([&]() {
+        const auto tokenBefore = tokenOf();
+        setDraft("value06", 4321);
+        setDraft("address06", 7);
+        if (tokenOf() != tokenBefore)
+            fail(QStringLiteral("WRITEFAIL C20: editing the draft changed the token"));
+        if (controller->preparedWriteValue() != 1234
+            || controller->preparedWriteAddress() != 0x0064)
+            fail(QStringLiteral("WRITEFAIL C20: the snapshot changed to %1/%2")
+                     .arg(controller->preparedWriteAddress())
+                     .arg(controller->preparedWriteValue()));
+        if (textOf(QStringLiteral("writeSummaryValue")).toInt() != 1234)
+            fail(QStringLiteral("WRITEFAIL C20: the summary followed the draft "
+                                "([%1])").arg(textOf(QStringLiteral("writeSummaryValue"))));
+        note(QStringLiteral("WRITE [C20]: draft edited to 7/4321, snapshot and "
+                            "summary still 100/1234"));
+    });
+
+    // ---- C09: repeated Write keeps ONE snapshot and ONE dialog ----
+    push([&]() {
+        const auto tokenBefore = tokenOf();
+        const bool accepted = activateWrite();
+        if (!accepted)
+            fail(QStringLiteral("WRITEFAIL C09: repeated Write reported failure "
+                                "although a snapshot is prepared"));
+        if (tokenOf() != tokenBefore)
+            fail(QStringLiteral("WRITEFAIL C09: a second snapshot was created "
+                                "(%1 -> %2)").arg(tokenBefore).arg(tokenOf()));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C09: the dialog is not open"));
+        note(QStringLiteral("WRITE [C09]: repeated Write kept token=%1 and one "
+                            "dialog").arg(tokenBefore));
+    });
+
+    // ---- C04: Cancel -> Invalidated(UserCancelled), draft preserved ----
+    push([&]() {
+        auto *item = section();
+        bool cancelled = false;
+        if (item)
+            QMetaObject::invokeMethod(item, "cancelPreparedWrite");
+        Q_UNUSED(cancelled);
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("WRITEFAIL C04: state=%1, expected invalidated")
+                     .arg(stateToken()));
+        if (controller->preparedWriteInvalidReasonToken()
+            != QStringLiteral("user_cancelled"))
+            fail(QStringLiteral("WRITEFAIL C04: reason=%1")
+                     .arg(controller->preparedWriteInvalidReasonToken()));
+        if (transport->startAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C04: the transport was touched"));
+        if (itemOf(QStringLiteral("write06ValueSpin"))
+            && itemOf(QStringLiteral("write06ValueSpin"))->property("value").toInt() == 0)
+            fail(QStringLiteral("WRITEFAIL C04: the draft was cleared"));
+        note(QStringLiteral("WRITE [C04]: Cancel -> invalidated(user_cancelled), "
+                            "draft preserved, zero send"));
+    });
+
+    // ---- C16: independent drafts across tab switches ----
+    push([&]() {
+        setDraft("unit06", 21);
+        setDraft("value06", 222);
+        setDraft("activeFunctionIndex", 1);
+        setDraft("unit10", 31);
+        setDraft("start10", 400);
+        setDraft("valuesText10", QStringLiteral("7"));
+        setDraft("activeFunctionIndex", 0);
+    });
+    push([&]() {
+        auto *item = section();
+        const int unit06 = item ? item->property("unit06").toInt() : -1;
+        const int value06 = item ? item->property("value06").toInt() : -1;
+        const int unit10 = item ? item->property("unit10").toInt() : -1;
+        const int start10 = item ? item->property("start10").toInt() : -1;
+        const QString text10 = item ? item->property("valuesText10").toString()
+                                    : QString();
+        if (unit06 != 21 || value06 != 222)
+            fail(QStringLiteral("WRITEFAIL C16: 0x06 draft was altered (%1/%2)")
+                     .arg(unit06).arg(value06));
+        if (unit10 != 31 || start10 != 400 || text10 != QStringLiteral("7"))
+            fail(QStringLiteral("WRITEFAIL C16: 0x10 draft was altered (%1/%2/%3)")
+                     .arg(unit10).arg(start10).arg(text10));
+        note(QStringLiteral("WRITE [C16]: both drafts survived the tab switches"));
+    });
+
+    // ---- C17 + C10-C: 0x10 prepare, confirm once, second confirm rejected ----
+    push([&]() {
+        setDraft("activeFunctionIndex", 1);
+        setDraft("unit10", 12);
+        setDraft("start10", 100);
+        setDraft("valuesText10", QStringLiteral("1\n2\n3"));
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C17: a valid 0x10 draft was rejected"));
+        if (controller->preparedWriteQuantity() != 3)
+            fail(QStringLiteral("WRITEFAIL C17: quantity=%1, expected 3")
+                     .arg(controller->preparedWriteQuantity()));
+        if (controller->preparedWriteAddress() != 100)
+            fail(QStringLiteral("WRITEFAIL C17: start=%1, expected 100")
+                     .arg(controller->preparedWriteAddress()));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C17: the dialog did not open"));
+    });
+    push([&]() {
+        if (valuesListCount() != 3)
+            fail(QStringLiteral("WRITEFAIL C17: the summary lists %1 values")
+                     .arg(valuesListCount()));
+        if (textOf(QStringLiteral("writeSummaryQuantity")) != QStringLiteral("3"))
+            fail(QStringLiteral("WRITEFAIL C17: displayed quantity is [%1]")
+                     .arg(textOf(QStringLiteral("writeSummaryQuantity"))));
+        if (!textOf(QStringLiteral("writeSummaryFunction")).contains(
+                QStringLiteral("十进制 16")))
+            fail(QStringLiteral("WRITEFAIL C17: the 0x10 function text is [%1]")
+                     .arg(textOf(QStringLiteral("writeSummaryFunction"))));
+        note(QStringLiteral("WRITE [C17]: 0x10 prepared, quantity 3, all three "
+                            "values listed"));
+    });
+    push([&]() {
+        const auto token = tokenOf();
+        const bool first = callSectionBool("confirmPreparedWrite");
+        if (!first)
+            fail(QStringLiteral("WRITEFAIL C10-C: the first confirmation failed"));
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL C10-C: state=%1, expected consumed")
+                     .arg(stateToken()));
+        if (controller->hasPreparedWrite())
+            fail(QStringLiteral("WRITEFAIL C10-C: still prepared after consuming"));
+        // Second confirmation of the SAME token must be rejected.
+        if (controller->confirmPreparedWriteToken(token))
+            fail(QStringLiteral("WRITEFAIL C10-C: the same token confirmed twice"));
+        if (transport->startAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C10-C: the transport was touched (%1)")
+                     .arg(transport->startAttempts()));
+        note(QStringLiteral("WRITE [C10-C]: one consumption for token=%1; second "
+                            "confirm rejected; zero send").arg(token));
+    });
+
+    // ---- C18: 0x10 address-span reject ----
+    push([&]() {
+        setDraft("start10", 65535);
+        setDraft("valuesText10", QStringLiteral("1\n2"));
+        const bool accepted = activateWrite();
+        if (accepted || dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C18: an overflowing span was accepted"));
+        const QString message = textOf(QStringLiteral("writeValidationError"));
+        if (!message.contains(QStringLiteral("16 位寄存器地址空间")))
+            fail(QStringLiteral("WRITEFAIL C18: span message is [%1]").arg(message));
+        note(QStringLiteral("WRITE [C18]: 65535+2 -> [%1]").arg(message));
+    });
+
+    // ---- parser presentation: blank line / 123 values / 124 values ----
+    push([&]() {
+        setDraft("start10", 0);
+        setDraft("valuesText10", QStringLiteral("1\n\n2"));
+        if (activateWrite() || dialogVisible())
+            fail(QStringLiteral("WRITEFAIL parser: a middle blank line prepared"));
+        if (!textOf(QStringLiteral("writeValidationError")).contains(
+                QStringLiteral("空行")))
+            fail(QStringLiteral("WRITEFAIL parser: blank-line message is [%1]")
+                     .arg(textOf(QStringLiteral("writeValidationError"))));
+        QString many;
+        for (int i = 0; i < 123; ++i) {
+            if (i > 0)
+                many += QLatin1Char('\n');
+            many += QString::number(i + 1);
+        }
+        setDraft("valuesText10", many);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL parser: 123 values were rejected"));
+        QString tooMany = many + QLatin1Char('\n') + QStringLiteral("124");
+        auto *item = section();
+        if (item)
+            QMetaObject::invokeMethod(item, "cancelPreparedWrite");
+        setDraft("valuesText10", tooMany);
+        if (activateWrite() || dialogVisible())
+            fail(QStringLiteral("WRITEFAIL parser: 124 values prepared"));
+        note(QStringLiteral("WRITE [parser]: blank line rejected; 123 prepared; "
+                            "124 rejected"));
+    });
+
+    auto step = std::make_shared<int>(0);
+    const int settleMs = 60;
+    auto schedule = std::make_shared<std::function<void()>>();
+    *schedule = [&, step, schedule]() {
+        if (*step >= steps->size()) {
+            if (transport->startAttempts() != 0)
+                fail(QStringLiteral("WRITEFAIL final: transport startAttempts=%1")
+                         .arg(transport->startAttempts()));
+            if (failures->isEmpty())
+                qInfo() << "WRITE FOUNDATION CHECK PASS (C01 unit 0; C02 parser "
+                           "value; C03/C19 prepared + summary == snapshot; C04 "
+                           "cancel; C09 repeated write; C10-C one consumption; "
+                           "C16 independent drafts; C17 0x10 quantity/values; C18 "
+                           "address span; C20 draft edit cannot alter snapshot; "
+                           "parser presentation) — zero dispatch";
+            else
+                for (const QString &f : *failures)
+                    qWarning().noquote() << "WRITEFAIL:" << f;
+            app.exit(failures->isEmpty() ? 0 : 1);
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
 // M9-F F1 `--qml-focus-check`: keyboard focus / traversal guard for the
 // shell. Same architecture as the other QML harness modes: the REAL app
 // loads its own shipped QML and drives it through the same synthetic event
@@ -4982,6 +5480,27 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         note(QStringLiteral("FOCUS [setup]: workspace=Transactions rows=4 "
                             "hasBaseline=%1")
                  .arg(hasBaseline() ? 1 : 0));
+    });
+
+    // M10-C2 production-hidden oracle: in a NORMAL run the write foundation is
+    // never instantiated, so there is no write control in the scene at all —
+    // nothing to Tab into, nothing to activate, nothing that could be mistaken
+    // for a write capability. (The dedicated harness mode is the only place
+    // the foundation is loaded, and it asserts the safety oracles there.)
+    push([&]() {
+        auto *loader = itemOf(QStringLiteral("writeFoundationLoader"));
+        if (!loader)
+            fail(QStringLiteral("FOCUSFAIL prod-hidden: writeFoundationLoader "
+                                "missing from the Communication page"));
+        else if (loader->property("active").toBool())
+            fail(QStringLiteral("FOCUSFAIL prod-hidden: the loader is ACTIVE in "
+                                "a normal run"));
+        else if (loader->property("item").value<QQuickItem *>() != nullptr)
+            fail(QStringLiteral("FOCUSFAIL prod-hidden: the write foundation was "
+                                "instantiated in a normal run"));
+        else
+            note(QStringLiteral("FOCUS [prod-hidden] PASS: write foundation not "
+                                "instantiated (no write control in the scene)"));
     });
 
     // FA: keyboard-only entry into the evidence table (scope A).
@@ -5858,7 +6377,8 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "focus indication; FL TextArea Left/Right/Home/End/"
                            "Up/Down; FG/FH Agent TextArea traversal; FI list "
                            "four-key regression; FM selection survives append; "
-                           "FN no selection stays none after append)";
+                           "FN no selection stays none after append; "
+                           "prod-hidden write foundation)";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "FOCUSFAIL:" << f;
@@ -6768,6 +7288,16 @@ int main(int argc, char *argv[])
     ds->setParent(&engine);
     engine.rootContext()->setContextProperty(QStringLiteral("DS"), ds);
 
+    // M10-C2: the ONLY switch that decides whether the hidden write foundation
+    // is instantiated. It answers exactly one question — "does this run load
+    // the hidden UI foundation for testing?" — and it is NEVER a capability
+    // signal: 0x06 / 0x10 still have no encoder and no dispatch path, in every
+    // mode. Normal production leaves it false, so no write control exists at
+    // all; only the dedicated harness mode turns it on.
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("writeFoundationVisible"),
+        app.arguments().contains(QStringLiteral("--qml-write-foundation-check")));
+
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreationFailed,
@@ -6898,6 +7428,9 @@ int main(int argc, char *argv[])
     // Transactions list entry, Agent TextArea traversal).
     if (app.arguments().contains(QStringLiteral("--qml-focus-check"))) {
         return runFocusCheck(engine, app);
+    }
+    if (app.arguments().contains(QStringLiteral("--qml-write-foundation-check"))) {
+        return runWriteFoundationCheck(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.

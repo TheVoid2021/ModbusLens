@@ -225,6 +225,29 @@ Item {
             }
         }
 
+        // ---- M10-C2 hidden write foundation ----
+        // Instantiated ONLY under the harness visibility seam. Normal
+        // production never loads this file, so no write control exists in the
+        // production scene: nothing to Tab into, nothing to activate, and
+        // nothing that could be mistaken for a write capability. The context
+        // property is owned by main.cpp and is NOT a capability flag.
+        Loader {
+            id: writeFoundationLoader
+            objectName: "writeFoundationLoader"
+            Layout.fillWidth: true
+            active: writeFoundationVisible
+            // An inline Component (not a URL source) so the required
+            // controller property is satisfied at creation time; while
+            // `active` is false the component is never instantiated.
+            sourceComponent: writeFoundationComponent
+        }
+        Component {
+            id: writeFoundationComponent
+            WriteFoundationSection {
+                analysisController: page.analysisController
+            }
+        }
+
         // Serial transport error (separate lane from Replay error and from
         // Transaction rows — a transport failure is never a Modbus status).
         Label {

@@ -108,6 +108,7 @@ qt_add_qml_module(modbuslens
         src/ui/qml/components/StatisticsOutcomes.qml
         src/ui/qml/components/OutcomeDistribution.qml
         src/ui/qml/components/StatisticsOverview.qml
+        src/ui/qml/components/WriteFoundationSection.qml
         src/ui/qml/pages/DashboardPage.qml
         src/ui/qml/pages/CommunicationPage.qml
         src/ui/qml/pages/ReplayPage.qml
@@ -606,6 +607,13 @@ if(BUILD_TESTING)
     add_test(NAME qml_focus_check
         COMMAND modbuslens --qml-focus-check)
 
+    # M10-C2 hidden write-foundation guard: the harness-only visibility seam
+    # instantiates the hidden write UI (drafts / validation presentation /
+    # confirmation dialog) and asserts the C2 oracle set — including that the
+    # transport is never touched (no 0x06 / 0x10 capability exists).
+    add_test(NAME qml_write_foundation_check
+        COMMAND modbuslens --qml-write-foundation-check)
+
     # M9-B4.3 scenario fixtures (repo-relative: copied into the build tree,
     # same mechanism as the demo_v1 test_data above -- no absolute paths).
     target_compile_definitions(modbuslens PRIVATE
@@ -615,7 +623,7 @@ if(BUILD_TESTING)
         MODBUSLENS_PROTOCOL_ERROR_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t014_protocol_error.mlog")
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

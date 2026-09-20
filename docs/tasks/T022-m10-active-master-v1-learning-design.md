@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1（§I0–I50）→ §J0–J27 → §K0–K21 → **C1 已实现（§L0–L48：parser / validation / PreparedWriteSnapshot / 状态机 / invalidation / projection / tests），等待 M10-C1 Review；C2–C4 = NOT STARTED**（无 Dialog、无 production Write UI、无 encoder、无 transport send）。**
+> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1（§I）→ §J → §K → C1（§L，Review PASS、COMPLETE `7562678`）→ **C2 已实现（§M0–M20：hidden Write UI + confirmation foundation；production 不可见；零 dispatch），等待 M10-C2 Review；C3–C4 = NOT STARTED**（无 encoder、无 confirm→dispatch）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -3828,4 +3828,267 @@ P4（设计一致性）：`preparedQuantity` 初版对 0x06 返回 0，与「0x0
 behavior-bearing（core 新类型 + controller seam + 状态接线 + 测试）⇒ 不作 LKGC。
 commit：`M10-C1: add prepared write snapshot foundation`（独立提交；不 amend `db2aea9`；不 rebase；不 push；未 tag）。
 verified LKGC 保持 `ef71244`；M10-C1 = 等待 Review。
+```
+## M10-C2 — Hidden Write UI + Confirmation Foundation（2026-09-20，behavior-bearing）
+
+> **M10-C1 Review = PASS；M10-C1 = COMPLETE（accepted behavior-bearing commit `7562678`，不单独做 C1 closure commit）；M10-C2 = GO。**
+> 本轮实现 **hidden-only**：Write draft UI / 0x06·0x10 draft presentation / validation presentation /
+> PreparedWriteSnapshot projection / modal confirmation Dialog / Cancel·Confirm wiring / repeated-Write guard /
+> immutable summary oracle / confirmation one-shot UI wiring。
+> **transport sendCount 始终 0**；未实现 0x06/0x10 encoder、未实现 confirm→dispatch、未让 Write UI 在正常 production 出现。
+
+### M0. Preflight
+
+```text
+HEAD = `7562678`（main，clean）；verified LKGC = `ef71244`；M9 / M10 Phase 1 / M10-A / M10-B / M10-C Phase 1 / M10-C1 全 COMPLETE；
+CMake VERSION = 2.0.0；v1 tag object `2cee626` / target `ae067ab`；v2.0.0 **absent**；
+origin/main = `a40d935`（behind 0 / ahead 108）；`git diff --check` PASS —— 全部相符。
+```
+
+### M1. Source Re-read（含真实 Qt API 校验）
+
+```text
+· CommunicationPage.qml（248 行）：Connection / Request 两 PanelCard + serial error lane + 末尾竖直弹性 Item；
+  控件形态 = ComboBox + SpinBox + 原生 Button；**无 Dialog / Popup**。
+· AppButton / DesignSystem：DS tokens 齐备（spacing*/radiusS/controlHeight/fontBody/primary/border/error…）；
+  AppButton 的 border 即 keyboard-focus 通道（M9-F F1 冻结）。
+· TabButton 现有 pattern：Diagnosis 页 TabBar + TabButton（focusPolicy/内环焦点可见性见 M9-F）。
+· Main.qml page gating：StackLayout 每页 `enabled: workspaceHost.currentIndex === …`（Communication = child 2）。
+· PreparedWriteSnapshot.* / WriteDraftParsing.* / WritePrepareValidation.*：C1 的 typed intent、typed errors
+  （含 parse lineIndex）、token/store 状态机；AnalysisController 的 prepared getters/seams。
+· harness pattern：staged walk（`QList<std::function<void()>>` + 每步一个 event-loop turn）、
+  `findNamedItem`（**只遍历 Item 树**）、offscreen 运行。
+· **Qt 6.11 真实 API 校验（读安装源 `QtQuick/Templates/plugins.qmltypes` + `Controls/Basic/Dialog.qml`）**：
+  `Dialog` 继承 `Popup`；properties = title/header/footer/standardButtons/result；
+  signals = **accepted / rejected / opened / closed** / aboutToShow / aboutToHide；methods = accept()/reject()/done(result)；
+  `modal`（bool）、`visible`、**`closePolicy` 是 flag enum**（NoAutoClose / CloseOnPressOutside /
+  CloseOnPressOutsideParent / CloseOnReleaseOutside / CloseOnReleaseOutsideParent / **CloseOnEscape**）、
+  `opened`（readonly，**enter transition 完成后才为 true**）。⇒ 本轮据此显式配置，不依赖默认值。
+```
+
+### M2. C1 write-only invariant 审计
+
+```text
+Controller 能创建 PreparedWriteSnapshot 的入口只有两个：`prepareWrite06` / `prepareWrite10`
+（内部都走 `prepareWriteIntent`，其 intent 只可能来自 `prepareWriteSingleRegisterIntent` /
+`prepareWriteMultipleRegistersIntent`）。
+**不存在** 0x03 → snapshot 路径，也不存在「任意 ActiveRequestIntent → snapshot」的通用入口：
+`WritePrepareOutcome` 的 variant 只有 PreparedWrite / PrepareAlreadyPrepared / PrepareRejected 三种，
+没有 visitors 需要为 0x03 做 exhaustiveness 分支（`preparedQuantity` 对 0x03 的读数量分支
+只服务于「投影是 intent 的函数」这一完整性，不参与 write 路径）。⇒ **无 STOP 条件，无需 NON-BLOCKING 标注。**
+```
+
+### M3. Production-hidden 架构
+
+```text
+CommunicationPage 内新增：
+    Loader { id: writeFoundationLoader; objectName: "writeFoundationLoader";
+             active: writeFoundationVisible; sourceComponent: writeFoundationComponent }
+    Component { id: writeFoundationComponent
+                WriteFoundationSection { analysisController: page.analysisController } }
+⇒ `active: false`（normal production）时**组件根本不实例化**：场景里没有任何 write 控件，
+  没有 Tab 入口、没有可激活控件、没有可点击区域。
+（RCA 记录：最初用 `source: "../components/…qml"` + `onLoaded` 赋值的写法会让 `required` 属性在创建时未初始化，
+  报警「Required property analysisController was not initialized」；改为 inline Component 后属性在创建时即满足。）
+normal production 的机器证明：`--qml-focus-check` 新增 **prod-hidden oracle**
+（loader 存在、`active == false`、`item == null`）⇒ 正常启动既不能 Tab 进入、也不能 Space 激活、更不能打开 Dialog。
+```
+
+### M4. Harness visibility seam（不是 capability）
+
+```text
+main.cpp：`engine.rootContext()->setContextProperty("writeFoundationVisible",
+             app.arguments().contains("--qml-write-foundation-check"))`
+—— 该开关只回答「本次运行是否为测试加载 hidden UI foundation」，**绝不表示 0x06/0x10 可 dispatch**。
+命名刻意回避 writeSupported / writeCapability / enableWriteTransport。
+无 pretendWriteSupported / fakeWriteCapability / testOnlyEncoder / testOnlySend（grep 0）。
+harness 模式下 0x06/0x10 **可以 prepare/confirm snapshot**，但**不能 encode、不能 send**。
+```
+
+### M5. Write IA 与独立 draft
+
+```text
+Write 区（hidden）内：SectionHeader「写入」+ PanelCard（`writeFoundationPanel`）：
+  · `writeFunctionTabs`（TabBar）+ 两个 TabButton（`writeTab06` / `writeTab10`）——复用既有 TabButton pattern；
+  · 0x06 draft（`write06DraftRow`）：unit 1..247 / address 0..65535 / value 0..65535 / timeout 100..10000（SpinBox，非 editable）；
+  · 0x10 draft（`write10DraftColumn`）：unit / start 0..65535 / timeout + **TextArea（`write10ValuesArea`，
+    包在受限高度 `ScrollView`（96px）内）**，一行一个十进制值；
+  · `writeActivateButton`（AppButton「写入」）+ `writeValidationError`（Label）。
+draft 由 section 的 page-local 属性保存：unit06/address06/value06/timeout06 与 unit10/start10/valuesText10/timeout10
+**互相独立**：切 Tab 不覆盖、不清空、不复制（C16 机器证明）。
+**C2 不主动清 draft**（navigation / Clear Results / tab switch 都不清）；disconnect·reconnect·source 的 draft 持久性属 C3 验证范围。
+```
+
+### M6. Numeric input 边界（SpinBox 审计复用 C1 结论）
+
+```text
+0x06 沿用非 editable SpinBox（`from`/`to`），与既有 FC03 输入一致：越界值**不可输入**（不是被静默改写）；
+唯一能构造越界输入的是 0x10 的自由文本，且它由 **C1 的权威 parser** 判定。
+C2 oracle 另外证明：summary 显示的就是 **prepared snapshot 的值**（C19/C20），而不是「用户以为输入的值」。
+```
+
+### M7. 0x10 values editor
+
+```text
+多行 TextArea；raw text 属于 draft（`valuesText10`）。
+QML **没有**重新实现 parser：`grep -cE "split\(|parseInt|Number\(" WriteFoundationSection.qml == 0`；
+业务校验一律调用 Controller → C1 纯 C++ parser/validation。
+QML 只做展示：把 typed error 映射出的文本（含 **one-based 行号**）显示在 `writeValidationError`。
+```
+
+### M8. Validation handoff / presentation / failure
+
+```text
+Write activation：读取当前 draft → `prepareWrite06 / prepareWrite10` → Controller 做 C1 权威 parse+validation
+  → 成功：Prepared snapshot（**并且只有此时**才 `confirmationDialog.open()`）
+  → 失败：无 snapshot、**不打开 Dialog**。
+presentation 映射在 Qt adapter 层（`setWriteDraftErrorFrom`）：typed code → 中文文案，覆盖 unit / address / value /
+  timeout / values parser（带行号）/ quantity / address span；**UI 从不显示 enum token**（C01 断言不含 `UnitIdOutOfRange`）。
+失败行为：Dialog 不打开、无 snapshot、**原 draft 保持**（C04 断言 draft 未被清）、transport send = 0、transaction/terminal = 0。
+```
+
+### M9. Dialog 组件与关闭策略（真实 API 依据）
+
+```text
+Qt Quick Controls `Dialog`；`modal: true`；**未使用任何自绘 modal**；未使用 FileDialog / native dialog。
+`closePolicy: Popup.CloseOnEscape` —— 显式排除全部 outside-press/release 关闭项（不依赖默认值）。
+footer 为**自定义两个 AppButton**（`writeConfirmCancelButton` / `writeConfirmAcceptButton`），
+  **不使用 standardButtons**（避免平台默认按钮 / 自动 Enter / 默认 destructive focus）。
+```
+
+### M10. Snapshot 是 Dialog 的唯一 authority
+
+```text
+summary 全部字段读取 Controller projection（`preparedWriteFunction/UnitId/Address/Value/Values/Quantity/
+ConnectionLabel`），**没有任何 summary 绑定 draft**。
+0x06 summary：function（含 0x06 名称）/ 目标从站 / 寄存器地址 / 写入值 / 连接 label（immutable，快照时捕获）。
+0x10 summary：function（**0x10 多寄存器写入（十进制 16，Write Multiple Registers）**）/ 目标从站 / 起始地址 /
+  derived quantity / 连接 label / **全部 values**（ListView 只读、受限高度 120px、可滚动、顺序与 snapshot 一致、**不截断**）。
+Dialog 状态本身不作为 authority：仅暴露 `confirmationVisible` / `confirmationOpened` 两个**只读 presentation 事实**
+  （RCA：Dialog 是 `QObject` 而 `findNamedItem` 只遍历 Item 树，harness 因而无法直接读取 popup 状态；用 section 上的只读属性
+   既解决了 harness 读取，也不把 Dialog.visible 变成安全 authority）。
+```
+
+### M11. Cancel / Confirm wiring
+
+```text
+Cancel（按钮与 Escape → `onRejected`）→ `cancelPreparedWrite()` → `cancelPreparedWriteToken(token)`
+  ⇒ `Prepared → Invalidated(UserCancelled)`；Dialog 关闭；draft 保留；transport 0；transaction/terminal 0。
+  **不存在**「只 `dialog.close()` 却让 snapshot 仍 Prepared」的路径。
+Confirm → `confirmPreparedWrite()` → **只传 opaque token**（`confirmPreparedWriteToken(token)`），
+  **不传** unit/address/value/values/timeout；成功 ⇒ `Prepared → Consumed`（Dialog 关闭）。
+  **不 encode、不 dispatch、不 send**；C2 **不出现**「写入成功 / 发送成功 / 设备已写入」等文案（grep 0）：
+  Consumed 只表示「用户确认意图已被 one-shot 接受」。
+其他关闭路径审计：唯一其它关闭来源是 `Connections.onPreparedWriteChanged` —— 当 Controller 因
+  disconnect / session / busy / source 变化而 invalidate 时同步关闭 Dialog（authority 已先行失效，不是 Dialog 自己决定）；
+  没有「Dialog 关闭但 snapshot 悬挂且用户找不到」的状态。
+```
+
+### M12. 重复 Write / 重复 Confirm
+
+```text
+重复 Write：`activateWrite()` 发现 `hasPreparedWrite` ⇒ **不创建第二个 snapshot、不换 token、不开第二个 Dialog**，
+  把既有 Dialog 重新聚焦并**返回 true**（RCA：初版返回 false，被 harness 判定为「重复 Write 失败」；语义上
+  「prepared write 已在屏幕上」就是成功）。C09 机器证明：token 不变、`preparedWriteState` 仍 prepared。
+重复 Confirm：QML **不维护** `confirmConsumed` 之类的第二套 authority；第一次 Confirm ⇒ Consumed；
+  对同一 token 再次确认 ⇒ Controller 拒绝（`NotPrepared`）。C10-C 机器证明。
+```
+
+### M13. Initial focus / Enter 结构安全 / Escape
+
+```text
+`onOpened: forceCancelFocus()` ⇒ **Cancel 获得初始 active focus**；
+Confirm **不是** default button、不是 highlighted default、不是初始 focus（无 standardButtons ⇒ 无平台默认语义）。
+Escape 走 `closePolicy: CloseOnEscape` → `onRejected` → Cancel authority（不是「只关视觉」）。
+（完整键盘验收属 C3；C2 只保证结构与 wiring 正确。）
+```
+
+### M14. Page gating 与隐藏页
+
+```text
+Write foundation 位于 Communication 页内 ⇒ 自动继承 M9-F 的 `page.enabled` gating（离开 Communication 时整页 disabled，
+隐藏页控件不可激活）。C2 **没有任何**绕过 page.enabled 的路径（未新增独立 Window / Overlay 层）。
+完整 focus oracle 属 C3。
+```
+
+### M15. Read-only QML projection 与 notify 语义
+
+```text
+新增 Q_PROPERTY（全部 **read-only，无 setter**）：hasPreparedWrite / preparedWriteState /
+preparedWriteToken / preparedWriteFunction / preparedWriteUnitId / preparedWriteAddress / preparedWriteValue /
+preparedWriteValues / preparedWriteQuantity / preparedWriteTimeoutMs / preparedWriteConnectionLabel /
+preparedWriteInvalidReason / hasWriteDraftError / writeDraftError。
+notify：**统一 `preparedWriteChanged`**（prepare / confirm / cancel / invalidate / 新 generation 都会发出，
+且由 `announcePreparedWriteChanged()` 在每次状态转换后一次性发出 ⇒ QML 不 polling、也不会观察到半更新帧）；
+draft 校验错误单独用 `writeDraftErrorChanged`。
+**未暴露 activeSerialSessionId**（C2 无真实需求；QML 不负责 session equality）。
+```
+
+### M16. C2 Oracle Set（harness 真实输出）
+
+```text
+`--qml-write-foundation-check`（真实 app + 真实 QML + harness-only transport）真实输出：
+  WRITE [setup]: Communication current, harness transport connected, session=1 state=none
+  WRITE [C01]: unit 0 -> [从站地址须在 1..247 之间（当前不支持广播）], no dialog, no token
+  WRITE [C02]: 65536 -> [第 1 行的数值超出 0..65535]
+  WRITE [C03]: prepared token=1, dialog open, startAttempts=0
+  WRITE [C19]: summary fields equal the snapshot projection (unit 11 / addr 100 / value 1234 / COM_HARNESS @ 9600)
+  WRITE [C20]: draft edited to 7/4321, snapshot and summary still 100/1234
+  WRITE [C09]: repeated Write kept token=1 and one dialog
+  WRITE [C04]: Cancel -> invalidated(user_cancelled), draft preserved, zero send
+  WRITE [C16]: both drafts survived the tab switches
+  WRITE [C17]: 0x10 prepared, quantity 3, all three values listed
+  WRITE [C10-C]: one consumption for token=2; second confirm rejected; zero send
+  WRITE [C18]: 65535+2 -> [起始地址与数量超出 16 位寄存器地址空间]
+  WRITE [parser]: blank line rejected; 123 prepared; 124 rejected
+  WRITE FOUNDATION CHECK PASS (…) — zero dispatch
+⇒ C01 / C02 / C03 / C04 / C09 / C10-C / C16 / C17 / C18 / C19 / C20 全部关闭；parser presentation 四条场景全过；
+  `transport->startAttempts() == 0` 为全局最终断言（**零 dispatch**）。
+```
+
+### M17. Harness-only transport（不是 capability）
+
+```text
+`HarnessWriteTransport`（main.cpp harness 区，**无 Q_OBJECT**）：openPort 返回 true 以建立「已连接的 Active Serial 会话」
+（不打开真实端口、不需要 COM、不写硬件）；`startActiveRequest` **计数并一律拒绝**（`{false, NotSent}`）——
+因此任何试图 dispatch 的路径既不可能成功、又会在最终断言里暴露。
+（RCA：初版给了它 Q_OBJECT ⇒ AUTOMOC 报错「main.cpp contains a Q_OBJECT macro but does not include main.moc」；
+  去掉 Q_OBJECT 即符合 AUTOMOC 约定，且该类只经 SerialTransport 接口使用，不需要自身 meta-object。）
+```
+
+### M18. 边界审计（本轮实读）
+
+```text
+· 0x06 / 0x10 encoder 仍 **ABSENT**：`encodeActiveRequest` 对两者仍 `UnsupportedFunction`（源码未改）；`encodeWrite*` 0。
+· write 路径**零 transport 调用**：`prepareWriteIntent` / `confirmPreparedWrite` 函数体内
+  `serialTransport_` / `startActiveRequest` / `encodeActiveRequest` 出现 0 次。
+· Agent/AI：本轮 agent 层零改动、无 prepare/confirm/send/raw-serial tool（grep 0）。
+· QML 无 parser 复制（grep 0）；QML 无「成功」类写文案（grep 0）。
+· 未改 Navigation IA / 版本 / package / icon / scripts / samples / simulator。
+· 几何：harness-visible 下 0x10 values editor 与 confirmation values 均为**受限高度 + 内部滚动**
+  （96px / 120px），不把窗口无限撑高；完整 geometry gate 属 C4。
+```
+
+### M19. Problems / RCA（本轮 6 项，全部为 harness / QML 结构问题，非产品安全缺陷）
+
+```text
+P1 `source:` + `onLoaded` 赋值写法的 required 属性未初始化 ⇒ 改用 inline Component（创建时即满足）。
+P2 QML function 的返回类型是 QVariant：`Q_RETURN_ARG(bool, …)` 使 `invokeMethod` **静默失败** ⇒ 改读 QVariant 再转 bool。
+P3 harness 未切换 workspace：**Popup 的 parent 不可见时不会 opened**，且隐藏页上的校验文案同样不可见 ⇒
+   先点击 rail `navItem_2` 把 Communication 设为当前页（presentation-only）。
+P4 `Popup.opened` 只在 **enter transition 完成后**为 true ⇒ 立即 oracle 改判 `visible`，
+   并在下一轮 stage 断言「已完全打开」（两者都由真实 Qt 语义决定，未在 harness 里绕过 Dialog 行为）。
+P5 Dialog 是 QObject 而 `findNamedItem` 只遍历 Item 树 ⇒ 无法按名字找到 popup；改为在 section 上暴露
+   **只读 presentation 事实** `confirmationVisible` / `confirmationOpened`。
+P6 重复 Write 初版返回 false 被 harness 判为失败 ⇒ 语义修正为返回 true（「已准备的那一份就在屏幕上」）；
+   完整 RCA 已区分：**Qt 行为理解偏差 4 项（P2/P3/P4/P6）/ harness 结构 1 项（P1）/ QML 结构 1 项（P5）**，**
+   **无产品/QML 安全缺陷**，且未为让测试通过而在 harness 中绕过真实 Dialog 行为。
+```
+
+### M20. Git
+
+```text
+behavior-bearing（QML + Controller projection + harness + CMake）⇒ 不作 LKGC。
+commit：`M10-C2: add hidden write confirmation foundation`（独立提交；不 amend `7562678`；不 rebase；不 push；未 tag）。
+verified LKGC 保持 `ef71244`；M10-C2 = 等待 Review。
 ```

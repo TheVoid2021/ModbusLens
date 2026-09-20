@@ -73,6 +73,24 @@ class AnalysisController : public QObject
     Q_PROPERTY(QString agentErrorText READ agentErrorText NOTIFY agentStateChanged)
     Q_PROPERTY(bool agentAvailable READ agentAvailable NOTIFY aiStateChanged)
     Q_PROPERTY(bool cloudAiBusy READ cloudAiBusy NOTIFY cloudAiChanged)
+    // ---- M10-C2: read-only prepared-write projection (QML surface) ----
+    // Machine-readable state + the facts the confirmation summary must show.
+    // There is deliberately NO setter and NO QML-side authority: the snapshot
+    // lives in the controller, and QML only reads this projection.
+    Q_PROPERTY(bool hasPreparedWrite READ hasPreparedWrite NOTIFY preparedWriteChanged)
+    Q_PROPERTY(QString preparedWriteState READ preparedWriteStateToken NOTIFY preparedWriteChanged)
+    Q_PROPERTY(qulonglong preparedWriteToken READ preparedWriteTokenValue NOTIFY preparedWriteChanged)
+    Q_PROPERTY(int preparedWriteFunction READ preparedWriteFunction NOTIFY preparedWriteChanged)
+    Q_PROPERTY(int preparedWriteUnitId READ preparedWriteUnitId NOTIFY preparedWriteChanged)
+    Q_PROPERTY(int preparedWriteAddress READ preparedWriteAddress NOTIFY preparedWriteChanged)
+    Q_PROPERTY(int preparedWriteValue READ preparedWriteValue NOTIFY preparedWriteChanged)
+    Q_PROPERTY(QVariantList preparedWriteValues READ preparedWriteValues NOTIFY preparedWriteChanged)
+    Q_PROPERTY(int preparedWriteQuantity READ preparedWriteQuantity NOTIFY preparedWriteChanged)
+    Q_PROPERTY(int preparedWriteTimeoutMs READ preparedWriteTimeoutMs NOTIFY preparedWriteChanged)
+    Q_PROPERTY(QString preparedWriteConnectionLabel READ preparedWriteConnectionLabel NOTIFY preparedWriteChanged)
+    Q_PROPERTY(QString preparedWriteInvalidReason READ preparedWriteInvalidReasonToken NOTIFY preparedWriteChanged)
+    Q_PROPERTY(bool hasWriteDraftError READ hasWriteDraftError NOTIFY writeDraftErrorChanged)
+    Q_PROPERTY(QString writeDraftError READ writeDraftError NOTIFY writeDraftErrorChanged)
 
 public:
     explicit AnalysisController(QObject* parent = nullptr);
@@ -252,8 +270,39 @@ public:
     // error, never a transaction, never a send.
     bool cancelPreparedWrite(std::uint64_t token);
 
-    // Read-only projection of the prepared snapshot (C2 will expose it to QML;
-    // C1 keeps it C++-only, with no setter and no QML surface).
+    // ---- M10-C2: QML-facing seams (still NO dispatch) ----
+    // Write activation: read the draft, run the SAME authoritative C1
+    // validation, and on success create the prepared snapshot (which is what
+    // opens the confirmation dialog). A failure creates NO snapshot and the
+    // dialog must not open; the typed error is mapped to presentation text in
+    // writeDraftError (never a raw enum token in the UI).
+    Q_INVOKABLE bool prepareWrite06(int unitId, int registerAddress, int value,
+                                    int timeoutMs);
+    Q_INVOKABLE bool prepareWrite10(int unitId, int startAddress,
+                                    const QString& valuesText, int timeoutMs);
+    // Confirmation / cancellation by OPAQUE TOKEN only: QML hands back exactly
+    // the value it read from the projection, never the draft fields. Neither
+    // call encodes, dispatches or sends anything (dispatch is M10-D/E).
+    Q_INVOKABLE bool confirmPreparedWriteToken(qulonglong token);
+    Q_INVOKABLE bool cancelPreparedWriteToken(qulonglong token);
+
+    // QML projection getters (read-only; typed accessors above stay for C++).
+    [[nodiscard]] bool hasPreparedWrite() const;
+    [[nodiscard]] QString preparedWriteStateToken() const;
+    [[nodiscard]] qulonglong preparedWriteTokenValue() const;
+    [[nodiscard]] int preparedWriteFunction() const;
+    [[nodiscard]] int preparedWriteUnitId() const;
+    [[nodiscard]] int preparedWriteAddress() const;
+    [[nodiscard]] int preparedWriteValue() const;
+    [[nodiscard]] QVariantList preparedWriteValues() const;
+    [[nodiscard]] int preparedWriteQuantity() const;
+    [[nodiscard]] int preparedWriteTimeoutMs() const;
+    [[nodiscard]] QString preparedWriteConnectionLabel() const;
+    [[nodiscard]] QString preparedWriteInvalidReasonToken() const;
+    [[nodiscard]] bool hasWriteDraftError() const;
+    [[nodiscard]] QString writeDraftError() const;
+
+    // Read-only projection of the prepared snapshot (C1 C++ accessors).
     [[nodiscard]] modbuslens::core::PreparedWriteState preparedWriteState() const;
     [[nodiscard]] std::optional<std::uint64_t> preparedWriteToken() const;
     [[nodiscard]] std::optional<modbuslens::core::PreparedWriteSnapshot>
@@ -287,6 +336,10 @@ signals:
     void aiStateChanged();
     void agentStateChanged();
     void cloudAiChanged();
+    // One notification for the whole prepared-write projection: QML never
+    // polls and never observes a half-updated frame.
+    void preparedWriteChanged();
+    void writeDraftErrorChanged();
 
 private slots:
     // Serial transport errors are NOT Modbus diagnoses: sync state from the
@@ -332,6 +385,15 @@ private:
     // Shared prepare plumbing: context guards, generation, store.
     [[nodiscard]] modbuslens::core::WritePrepareOutcome prepareWriteIntent(
         modbuslens::core::WriteIntentResult intentResult);
+    // Validation presentation mapping (typed code -> human text, one-based
+    // line numbers). Presentation belongs to this Qt adapter layer; the typed
+    // authority stays in core.
+    void setWriteDraftErrorFrom(const modbuslens::core::PrepareRejected& rejected);
+    void setWriteDraftError(const QString& message);
+    void clearWriteDraftError();
+    // Emitted after every prepared-state transition (prepare/confirm/cancel/
+    // invalidate) so the projection stays consistent in one step.
+    void announcePreparedWriteChanged();
 
     modbuslens::core::TransactionStatisticsSnapshot statistics_;
     TransactionListModel transactionModel_;
@@ -379,6 +441,8 @@ private:
     // this class — only an already-validated intent does.
     modbuslens::core::PreparedWriteStore preparedWriteStore_;
     std::uint64_t preparedWriteGeneration_ = 0;
+    bool hasWriteDraftError_ = false;
+    QString writeDraftError_;
 
     // T011 Part A: the STRUCTURED active batch for diagnosis — same source
     // as rows + statistics on every successful publish (never reconstructed

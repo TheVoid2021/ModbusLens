@@ -862,8 +862,10 @@ void AnalysisController::teardownSerialTransport()
     // cancels pending transaction, closes port, resets every serial flag.
     // M10-C1: losing the connection invalidates a prepared write snapshot (a
     // confirmation must never outlive the session it was captured for).
-    preparedWriteStore_.invalidate(
-        modbuslens::core::PreparedWriteInvalidReason::Disconnected);
+    if (preparedWriteStore_.invalidate(
+            modbuslens::core::PreparedWriteInvalidReason::Disconnected)) {
+        announcePreparedWriteChanged();
+    }
     serialTransport_->closePort();
     serialConnected_ = false;
     serialBusy_ = false;
@@ -882,8 +884,10 @@ void AnalysisController::handleSerialTransportError(const QString& message)
     serialConnected_ = serialTransport_->isPortOpen();
     if (!serialConnected_) {
         // The connection is gone: a prepared snapshot cannot outlive it.
-        preparedWriteStore_.invalidate(
-            modbuslens::core::PreparedWriteInvalidReason::Disconnected);
+        if (preparedWriteStore_.invalidate(
+                modbuslens::core::PreparedWriteInvalidReason::Disconnected)) {
+            announcePreparedWriteChanged();
+        }
     }
     setSerialError(QStringLiteral("串口传输错误：%1").arg(message));
     emit serialConnChanged();
@@ -938,8 +942,10 @@ void AnalysisController::connectSerial(const QString& portName, int baudRate)
     activeSerialTerminations_.clear();
     // M10-C1: a new Active Serial session invalidates any prepared snapshot
     // from the previous one (even with the same port and baud).
-    preparedWriteStore_.invalidate(
-        modbuslens::core::PreparedWriteInvalidReason::SessionChanged);
+    if (preparedWriteStore_.invalidate(
+            modbuslens::core::PreparedWriteInvalidReason::SessionChanged)) {
+        announcePreparedWriteChanged();
+    }
     ++activeSerialSessionId_;
     sourceKind_ = modbuslens::core::TransactionSourceKind::ActiveSerial;
     invalidateAiForBatchChange();
@@ -1039,8 +1045,10 @@ void AnalysisController::readHoldingRegistersOnce(
     serialBusy_ = true;
     // M10-C1: another request entered flight => the prepared write snapshot is
     // permanently invalidated (busy returning to false does not revive it).
-    preparedWriteStore_.invalidate(
-        modbuslens::core::PreparedWriteInvalidReason::BusyBecameTrue);
+    if (preparedWriteStore_.invalidate(
+            modbuslens::core::PreparedWriteInvalidReason::BusyBecameTrue)) {
+        announcePreparedWriteChanged();
+    }
     clearSerialError();
     emit serialStatusChanged();
     // The previous completed result stays visible until the new analysis
@@ -1130,6 +1138,301 @@ void AnalysisController::handleSerialTransactionTerminated(
     pendingRequest_.reset();
     serialBusy_ = false;
     emit serialStatusChanged();
+}
+
+void AnalysisController::announcePreparedWriteChanged()
+{
+    emit preparedWriteChanged();
+}
+
+void AnalysisController::setWriteDraftError(const QString& message)
+{
+    hasWriteDraftError_ = true;
+    writeDraftError_ = message;
+    emit writeDraftErrorChanged();
+}
+
+void AnalysisController::clearWriteDraftError()
+{
+    if (!hasWriteDraftError_ && writeDraftError_.isEmpty()) {
+        return;
+    }
+    hasWriteDraftError_ = false;
+    writeDraftError_.clear();
+    emit writeDraftErrorChanged();
+}
+
+void AnalysisController::setWriteDraftErrorFrom(
+    const modbuslens::core::PrepareRejected& rejected)
+{
+    using namespace modbuslens::core;
+
+    // Presentation mapping lives here (Qt adapter layer); the typed codes stay
+    // in core. Line numbers are converted to the one-based convention users
+    // see in the editor.
+    if (rejected.reason != PrepareRejectReason::ValidationFailed
+        || !rejected.validationError.has_value()) {
+        setWriteDraftError(rejected.reason == PrepareRejectReason::Busy
+                               ? QStringLiteral("已有请求进行中，请稍后再写入")
+                           : rejected.reason == PrepareRejectReason::NotConnected
+                               ? QStringLiteral("串口未连接")
+                               : QStringLiteral("当前数据源不是串口模式"));
+        return;
+    }
+
+    const auto& error = *rejected.validationError;
+    switch (error.code) {
+    case WriteValidationErrorCode::UnitIdOutOfRange:
+        setWriteDraftError(QStringLiteral("从站地址须在 1..247 之间（当前不支持广播）"));
+        return;
+    case WriteValidationErrorCode::AddressOutOfRange:
+        setWriteDraftError(QStringLiteral("寄存器地址须在 0..65535 之间"));
+        return;
+    case WriteValidationErrorCode::ValueOutOfRange:
+        setWriteDraftError(QStringLiteral("寄存器值须在 0..65535 之间"));
+        return;
+    case WriteValidationErrorCode::TimeoutOutOfRange:
+        setWriteDraftError(QStringLiteral("超时须在 %1..%2 ms 之间")
+                               .arg(kWriteUiMinTimeoutMs)
+                               .arg(kWriteUiMaxTimeoutMs));
+        return;
+    case WriteValidationErrorCode::QuantityOutOfRange:
+        setWriteDraftError(QStringLiteral("寄存器数量须在 1..123 之间"));
+        return;
+    case WriteValidationErrorCode::AddressSpanOutOfRange:
+        setWriteDraftError(
+            QStringLiteral("起始地址与数量超出 16 位寄存器地址空间"));
+        return;
+    case WriteValidationErrorCode::ValuesParseError:
+        break;
+    }
+
+    if (!error.parseError.has_value()) {
+        setWriteDraftError(QStringLiteral("寄存器值列表无法解析"));
+        return;
+    }
+    const auto& parse = *error.parseError;
+    const auto line = static_cast<int>(parse.lineIndex) + 1; // one-based for users
+    switch (parse.code) {
+    case ValuesParseErrorCode::NoValues:
+        setWriteDraftError(QStringLiteral("请输入至少一个寄存器值（每行一个）"));
+        return;
+    case ValuesParseErrorCode::BlankLineInside:
+        setWriteDraftError(QStringLiteral("第 %1 行为空行：中间不能有空行")
+                               .arg(line));
+        return;
+    case ValuesParseErrorCode::InvalidCharacter:
+        setWriteDraftError(QStringLiteral("第 %1 行不是合法的十进制数值")
+                               .arg(line));
+        return;
+    case ValuesParseErrorCode::ValueOutOfRange:
+        setWriteDraftError(QStringLiteral("第 %1 行的数值超出 0..65535")
+                               .arg(line));
+        return;
+    case ValuesParseErrorCode::TooManyValues:
+        setWriteDraftError(QStringLiteral("寄存器数量须在 1..123 之间"));
+        return;
+    }
+    setWriteDraftError(QStringLiteral("寄存器值列表无法解析"));
+}
+
+bool AnalysisController::prepareWrite06(int unitId, int registerAddress, int value,
+                                        int timeoutMs)
+{
+    const auto outcome = prepareWriteSingleRegister(unitId, registerAddress, value,
+                                                    timeoutMs);
+    if (const auto* rejected = std::get_if<modbuslens::core::PrepareRejected>(&outcome)) {
+        setWriteDraftErrorFrom(*rejected);
+        announcePreparedWriteChanged();
+        return false;
+    }
+    // AlreadyPrepared counts as "the dialog may open" (the snapshot is there).
+    clearWriteDraftError();
+    announcePreparedWriteChanged();
+    return true;
+}
+
+bool AnalysisController::prepareWrite10(int unitId, int startAddress,
+                                        const QString& valuesText, int timeoutMs)
+{
+    const auto utf8 = valuesText.toUtf8();
+    const auto outcome = prepareWriteMultipleRegisters(
+        unitId, startAddress,
+        std::string_view{utf8.constData(), static_cast<std::size_t>(utf8.size())},
+        timeoutMs);
+    if (const auto* rejected = std::get_if<modbuslens::core::PrepareRejected>(&outcome)) {
+        setWriteDraftErrorFrom(*rejected);
+        announcePreparedWriteChanged();
+        return false;
+    }
+    clearWriteDraftError();
+    announcePreparedWriteChanged();
+    return true;
+}
+
+bool AnalysisController::confirmPreparedWriteToken(qulonglong token)
+{
+    const auto outcome = confirmPreparedWrite(static_cast<std::uint64_t>(token));
+    const bool accepted =
+        std::get_if<modbuslens::core::ConfirmAccepted>(&outcome) != nullptr;
+    announcePreparedWriteChanged();
+    return accepted;
+}
+
+bool AnalysisController::cancelPreparedWriteToken(qulonglong token)
+{
+    const bool cancelled = cancelPreparedWrite(static_cast<std::uint64_t>(token));
+    announcePreparedWriteChanged();
+    return cancelled;
+}
+
+bool AnalysisController::hasPreparedWrite() const
+{
+    return preparedWriteStore_.state() == modbuslens::core::PreparedWriteState::Prepared;
+}
+
+QString AnalysisController::preparedWriteStateToken() const
+{
+    switch (preparedWriteStore_.state()) {
+    case modbuslens::core::PreparedWriteState::None:
+        return QStringLiteral("none");
+    case modbuslens::core::PreparedWriteState::Prepared:
+        return QStringLiteral("prepared");
+    case modbuslens::core::PreparedWriteState::Consumed:
+        return QStringLiteral("consumed");
+    case modbuslens::core::PreparedWriteState::Invalidated:
+        return QStringLiteral("invalidated");
+    }
+    return QStringLiteral("none");
+}
+
+qulonglong AnalysisController::preparedWriteTokenValue() const
+{
+    const auto token = preparedWriteStore_.token();
+    return token.has_value() ? static_cast<qulonglong>(*token) : 0;
+}
+
+int AnalysisController::preparedWriteFunction() const
+{
+    const auto snapshot = preparedWriteStore_.snapshot();
+    if (!snapshot.has_value()) {
+        return 0;
+    }
+    return static_cast<int>(modbuslens::core::activeFunctionCode(snapshot->intent.function));
+}
+
+int AnalysisController::preparedWriteUnitId() const
+{
+    const auto snapshot = preparedWriteStore_.snapshot();
+    return snapshot.has_value() ? static_cast<int>(snapshot->intent.unitId) : 0;
+}
+
+int AnalysisController::preparedWriteAddress() const
+{
+    using namespace modbuslens::core;
+    const auto snapshot = preparedWriteStore_.snapshot();
+    if (!snapshot.has_value()) {
+        return 0;
+    }
+    if (const auto* single =
+            std::get_if<WriteSingleRegisterIntent>(&snapshot->intent.payload)) {
+        return static_cast<int>(single->registerAddress);
+    }
+    if (const auto* multiple =
+            std::get_if<WriteMultipleRegistersIntent>(&snapshot->intent.payload)) {
+        return static_cast<int>(multiple->startAddress);
+    }
+    return 0;
+}
+
+int AnalysisController::preparedWriteValue() const
+{
+    using namespace modbuslens::core;
+    const auto snapshot = preparedWriteStore_.snapshot();
+    if (!snapshot.has_value()) {
+        return 0;
+    }
+    if (const auto* single =
+            std::get_if<WriteSingleRegisterIntent>(&snapshot->intent.payload)) {
+        return static_cast<int>(single->value);
+    }
+    return 0;
+}
+
+QVariantList AnalysisController::preparedWriteValues() const
+{
+    using namespace modbuslens::core;
+    QVariantList values;
+    const auto snapshot = preparedWriteStore_.snapshot();
+    if (!snapshot.has_value()) {
+        return values;
+    }
+    if (const auto* multiple =
+            std::get_if<WriteMultipleRegistersIntent>(&snapshot->intent.payload)) {
+        values.reserve(static_cast<int>(multiple->values.size()));
+        for (const auto value : multiple->values) {
+            values.append(static_cast<int>(value));
+        }
+    }
+    return values;
+}
+
+int AnalysisController::preparedWriteQuantity() const
+{
+    const auto snapshot = preparedWriteStore_.snapshot();
+    return snapshot.has_value()
+        ? static_cast<int>(modbuslens::core::preparedQuantity(snapshot->intent))
+        : 0;
+}
+
+int AnalysisController::preparedWriteTimeoutMs() const
+{
+    const auto snapshot = preparedWriteStore_.snapshot();
+    return snapshot.has_value()
+        ? static_cast<int>(snapshot->intent.timeout.count())
+        : 0;
+}
+
+QString AnalysisController::preparedWriteConnectionLabel() const
+{
+    const auto snapshot = preparedWriteStore_.snapshot();
+    return snapshot.has_value()
+        ? QString::fromStdString(snapshot->connectionLabel)
+        : QString();
+}
+
+QString AnalysisController::preparedWriteInvalidReasonToken() const
+{
+    using modbuslens::core::PreparedWriteInvalidReason;
+    const auto reason = preparedWriteStore_.invalidReason();
+    if (!reason.has_value()) {
+        return QString();
+    }
+    switch (*reason) {
+    case PreparedWriteInvalidReason::UserCancelled:
+        return QStringLiteral("user_cancelled");
+    case PreparedWriteInvalidReason::Disconnected:
+        return QStringLiteral("disconnected");
+    case PreparedWriteInvalidReason::SessionChanged:
+        return QStringLiteral("session_changed");
+    case PreparedWriteInvalidReason::SourceChanged:
+        return QStringLiteral("source_changed");
+    case PreparedWriteInvalidReason::BusyBecameTrue:
+        return QStringLiteral("busy_became_true");
+    case PreparedWriteInvalidReason::CapabilityUnavailable:
+        return QStringLiteral("capability_unavailable");
+    }
+    return QString();
+}
+
+bool AnalysisController::hasWriteDraftError() const
+{
+    return hasWriteDraftError_;
+}
+
+QString AnalysisController::writeDraftError() const
+{
+    return writeDraftError_;
 }
 
 modbuslens::core::WritePrepareOutcome AnalysisController::prepareWriteIntent(
@@ -1371,8 +1674,10 @@ void AnalysisController::runDemoBatch()
     // M10-C1: replacing the source invalidates a prepared write snapshot.
     // Recorded BEFORE the teardown reason so the reason stays the truthful
     // "source changed" (a terminal reason is never overwritten).
-    preparedWriteStore_.invalidate(
-        modbuslens::core::PreparedWriteInvalidReason::SourceChanged);
+    if (preparedWriteStore_.invalidate(
+            modbuslens::core::PreparedWriteInvalidReason::SourceChanged)) {
+        announcePreparedWriteChanged();
+    }
     // Source transition: leave the serial transport entirely BEFORE
     // producing Simulator data — no background COM while in Simulator Mode.
     teardownSerialTransport();
@@ -1629,8 +1934,10 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     // port is closed after the replay data is fully validated, never before.
     // M10-C1: a SUCCESSFUL replay load replaces the source. A FAILED load
     // returned long before this point and must invalidate nothing.
-    preparedWriteStore_.invalidate(
-        modbuslens::core::PreparedWriteInvalidReason::SourceChanged);
+    if (preparedWriteStore_.invalidate(
+            modbuslens::core::PreparedWriteInvalidReason::SourceChanged)) {
+        announcePreparedWriteChanged();
+    }
     teardownSerialTransport();
     transactionModel_.setEntries(std::move(entries));
     statistics_ = batch.statistics;
