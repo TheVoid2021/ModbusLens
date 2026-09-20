@@ -10,9 +10,9 @@
 #include "core/protocol/ModbusRtuCodec.h"
 #include "core/serial/SerialTransactionSession.h"
 
+using modbuslens::core::ActiveRequestDescriptor;
 using modbuslens::core::AwaitingMoreData;
 using modbuslens::core::ModbusRtuFrame;
-using modbuslens::core::SerialRequestStart;
 using modbuslens::core::SerialTransactionError;
 using modbuslens::core::SerialTransactionErrorCode;
 using modbuslens::core::SerialTransactionSession;
@@ -128,10 +128,10 @@ void SerialSessionTest::a01_startFc03()
 {
     SerialTransactionSession session;
     const auto result = session.beginReadHoldingRegisters(0x01, 0x0000, 0x0002, ms{1000});
-    const auto start = as<SerialRequestStart>(result);
+    const auto start = as<ActiveRequestDescriptor>(result);
     QVERIFY(start.has_value());
-    QCOMPARE(start->requestWire, kRequestWire);
-    QCOMPARE(start->requestFrame.functionCode, std::uint8_t{0x03});
+    QCOMPARE(start->wire, kRequestWire);
+    QCOMPARE(start->frame.functionCode, std::uint8_t{0x03});
     QCOMPARE(session.state(), SerialTransactionState::AwaitingResponse);
 }
 
@@ -267,9 +267,9 @@ void SerialSessionTest::a09_resetAfterCompletion()
 
     // Second transaction starts cleanly — no leftover buffer pollution.
     const auto second = session.beginReadHoldingRegisters(0x01, 0x0000, 0x0002, ms{1000});
-    const auto start = as<SerialRequestStart>(second);
+    const auto start = as<ActiveRequestDescriptor>(second);
     QVERIFY(start.has_value());
-    QCOMPARE(start->requestWire, kRequestWire);
+    QCOMPARE(start->wire, kRequestWire);
 }
 
 void SerialSessionTest::a10_cancel()

@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：IN PROGRESS — Phase = Learning / Design（docs-only）→ Phase 1 Review = HOLD → **Correction 已完成**（四个安全契约 A–D 闭环 + 12 项 decision requests 全部落为 Review 决议）；Implementation = NOT STARTED（等待 Re-review）。**
+> **状态：IN PROGRESS — Phase 1 = ✅ COMPLETE（Re-review PASS）→ **M10-A Active Master Contract Foundation 已实施（behavior-bearing）**，等待 M10-A Review；M10-B/C/D/E/F 未开始。**
 > verified LKGC = `aa2f3db`（M9-F closure 后的 accepted behavior tree）；M9 = ✅ COMPLETE（不重开）。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -876,3 +876,320 @@ ModbusException / ProtocolMismatch / Success。
 docs-only：未修改 src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；
 未开始 M10-A implementation；未创建 v2.0.0 tag；未 push；**verified LKGC 保持 `aa2f3db`**；M9 保持 ✅ COMPLETE。
 状态：**M10 Phase 1 Correction / Re-review；Implementation = NOT STARTED**。
+## M10-A — Active Master Contract Foundation（2026-09-20，behavior-bearing implementation）
+
+> **Phase 1 Re-review = PASS；Phase 1 = COMPLETE；M10-A = GO。** 本轮为**允许 behavior-bearing 的 foundation 实现**：
+> 建立后续 0x03 / 0x06 / 0x10 共用的 Active Master 基础设施，**不含任何用户可见写 UI / confirmation dialog /
+> 写请求 encoder / write button**。完成后 FC03 现有用户行为保持原样；verified LKGC 仍为 `aa2f3db`（不自行推进）。
+
+### M0. Preflight（2026-09-20）
+
+```text
+HEAD = `86e88ed`（main，clean）；verified LKGC = `aa2f3db`；M9 = ✅ COMPLETE；M10 Phase 1 = COMPLETE；
+CMake project VERSION = 2.0.0；v1 tag object `2cee626` / target `ae067ab`；v2.0.0 **absent**；
+origin/main = `a40d935`（behind 0 / ahead 97）；`git diff --check` PASS —— 全部相符。
+```
+
+### M1. Phase 1 PASS / M10-A GO 归档
+
+```text
+Phase 1 Re-review = PASS；Phase 1 = COMPLETE；M10-A = GO。
+四个 blocker 已闭环：A deterministic transport seam / B transmission disposition / C wire evidence retention /
+D echo mismatch Outcome·Issue orthogonality。12 项 Review decisions 全部保持 RESOLVED。
+```
+
+### M2. Mandatory Source Re-read（真实源码，非照抄设计）
+
+```text
+AnalysisController.{h,cpp}（1320 行）：唯一串口命令 seam = readHoldingRegistersOnce(int,int,int,int)，
+  窄化转换前完成 1..247 / 0..65535 / 1..125 / timeout>0 校验（中文文案属冻结 FC03 契约），
+  serialConnected_ && !serialBusy_ 前置，adapter 接受后才置 pendingSerialAddress_ + serialBusy_；
+  publishSerialResult = 单行 replacement（rowCount 恒 1）+ 单元素统计 + 单条 DiagnosisTransaction。
+ui::SerialTransactionAdapter（QSerialPort 唯一 owner）：pre-send 三点（未连接/忙/begin 失败）不写 wire；
+  短计数 write → cancelPending() + transportError；完整计数 → elapsed_.start() + timeoutTimer_.start()；
+  handleReadyRead/handleTimeout → transactionCompleted；handlePortError 对 active 事务 cancel 且不伪造状态。
+core::SerialTransactionSession：FC03-only begin、exact-candidate framing（0x80 → 5B；0x03 → 5+byteCount）、
+  buffer 只在 timeout 时整体解码、analyzeFunction03Transaction 复用、cancel 无 Modbus 结论。
+TransactionAnalysis / TransactionListEntry：无任何 raw ADU 字段（BLOCKER C 事实）。
+Function16.h：只有 response decoder + 结构字段读取，**没有 0x10 请求 value 解码**；Function06.h 有 request/response decoder。
+SimulatedSlave：handleRequest const、无写语义、无 mutation API；SimulationFault 在 wire 层。
+tests：test_serial_session（SERIAL-A01–A16）、test_serial_adapter（I01–I05）、test_ui_bridge（s05–s10 锁定 mapping/replace/
+  stale guard）、test_passive_analysis（FC06/0x10 echo 语义与正交性）、test_agent_tools（3 只读 tools）。
+CMake：modbuslens_core 零 Qt；测试目标按需直编 adapter/controller 源文件；qml_* 四个门禁走真实 exe。
+```
+
+### M3. RED / gap evidence（R1–R6）
+
+```text
+RED 采用两种可复现证据：(a) 在 **detached worktree @ `86e88ed`**（`git worktree add --detach ../ModbusLens-M10A-RED 86e88ed`）
+内放入本轮新测试并加两个测试目标，真实构建 → **编译级 RED**；(b) 对 pre-change 树做精确 grep 事实 + 引用既有测试锁。
+命令：cmake -S . -B build/red -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=D:/QT/Tools/mingw1310_64/bin/g++.exe
+      -DCMAKE_PREFIX_PATH=D:/QT/6.11.1/mingw_64 -DBUILD_TESTING=ON
+
+R1（无可注入 transport）—— RED-2 构建失败：
+    tests/fake_serial_transport.h:11:10: fatal error: core/active/ActiveRequestIntent.h: No such file or directory
+    tests/test_active_master.cpp:12:10: fatal error: core/active/ActiveRequestIntent.h: No such file or directory
+  grep 事实：`class SerialTransport` / `SerialTransport*` 在 src/ 中出现 **0** 次；`SerialTransactionAdapter serialAdapter_;`
+  为 **by-value concrete member**（1 处）⇒ 当时无法注入 recording transport。
+R2（session 只能 FC03）—— grep 事实：`beginActiveRequest` 出现 **0** 次；`beginReadHoldingRegisters` 出现 **3** 次。
+R3（不保存 raw request ADU）—— grep 事实：`requestAdu|responseAdu|requestWire|responseWire` 在
+  `TransactionAnalysis.h` + `TransactionListModel.h` 中出现 **0** 次；TransactionAnalysis 成员仅
+  status / elapsed / exceptionCode / issue。
+R4（response bytes 不可恢复）—— 同 R3：分析完成后 buffer 在 session 内被清空，最终 facts 无字节字段；
+  RED-1 构建失败（core 测试）证明“不存在承载 raw ADU 的类型”：
+    tests/test_active_request.cpp:9:10: fatal error: core/active/ActiveRequestIntent.h: No such file or directory
+R5（replacement 而非 append）—— 既有测试即锁定证据：`tests/test_ui_bridge.cpp` s07_serialReplace
+  「Replace, never append: still exactly one row, latest-only statistics」（该测试本轮**保持通过**，见 M19）。
+R6（simulator 写不 mutation）—— grep 事实：`applyWriteRequest|WriteMode|Writable` 在 `src/core/simulator/` 出现 **0** 次；
+  `SimulatorResult handleRequest(const ModbusRtuFrame& request) const;` 为 const 只读端点。
+边界：RED 期间未修改生产行为；实现与测试在同一轮内完成（顺序见 M17-P0 的诚实说明）。
+```
+
+### M4. 实现架构（分层）
+
+```text
+core（零 Qt）                              app（Qt）                                 test-only
+────────────────────────────────────      ─────────────────────────────────────     ─────────────────────
+core/active/ActiveRequestIntent             SerialTransport（seam 接口）               tests/fake_serial_transport
+  ActiveFunction / payload variant            ├─ SerialTransactionAdapter（生产）        RecordingSerialTransport
+  validateActiveRequestIntent()               └─ RecordingSerialTransport（测试）        · sendCount / sentAduLog
+  encodeActiveRequest() → Descriptor        AnalysisController                          · 可控 completion timing
+core/active/ActiveTransactionEvidence         ├─ serialTransport_（可替换指针）          · pre-send accept/reject
+  TransportDisposition / Evidence             ├─ pendingRequest_（发送时快照）           · timeout / transport error
+  ActiveStartResult / Result / Record         ├─ activeSerialRecords_（append 权威）
+core/analysis/TransactionProvenance           └─ publishCompletedTransaction()（投影）
+core/serial/SerialTransactionSession（泛化）
+core/simulator/SimulatedSlave（opt-in 可写）
+core/protocol/Function16（新增请求 value 解码，仍 decode-only）
+```
+
+### M5. Unified Validated Request Intent（T022 §FC11 落地）
+
+```text
+`ActiveRequestIntent{ function, unitId, timeout, payload }`：
+  ActiveFunction = ReadHoldingRegisters(0x03) / WriteSingleRegister(0x06) / WriteMultipleRegisters(0x10=十进制 16)；
+  payload = std::variant<ReadHoldingRegistersIntent{start,quantity}, WriteSingleRegisterIntent{addr,value},
+                         WriteMultipleRegistersIntent{start, std::vector<uint16> values}>。
+单一 authority：0x10 的 quantity/byteCount **由 values 派生**，不存在第二份计数真相。
+validation（单一实现，Controller 与 session 共用）：UnitIdNotUnicast(0 / >247) / QuantityOutOfRange /
+  TimeoutNotPositive / PayloadFunctionMismatch；domain 常量导出（kReadHoldingRegistersMin/MaxQuantity 等）。
+encodeActiveRequest()：0x03 → 既有 encoder + RTU codec → `ActiveRequestDescriptor{intent, frame, wire}`；
+  **0x06 / 0x10 → UnsupportedFunction（本轮明确不实现写请求 encoder）**。
+类型安全：无 QVariant map、无 stringly-typed function、无裸 JSON；机器 token（activeFunctionName）仅供 adapter 序列化。
+```
+
+### M6. Generic SerialTransactionSession（T022 §FC13 落地）
+
+```text
+lifecycle 泛化：Idle → beginActiveRequest(descriptor) → AwaitingResponse → feedResponseBytes / onResponseTimeout → Idle；
+  `cancel()` 仍为本地中止（无 Modbus 结论）。**没有 SerialWrite06Session / SerialWrite10Session**。
+descriptor 自洽性在 begin 处强制：frame.address == intent.unitId、frame.functionCode == activeFunctionCode(function)、
+  `decodeRtuFrame(wire) == frame` ⇒ 「交给 transport 的字节就是被编码的 intent」成为类型层属性（W17）。
+function-specific 语义收敛到单点 `analyzeActiveResponse()`：0x03 → 既有 analyzeFunction03Transaction；
+  0x06/0x10 → **begin 阶段即拒绝**（UnsupportedFunction，发送数 0），保留一个确定性 defensive 分支（UnknownProtocolError），
+  不发明 verdict、也不假装已支持。
+beginReadHoldingRegisters(...) 作为 FC03 convenience 保留 → 先本地 validation（保持 InvalidAddress/InvalidQuantity 语义）
+  再 encode → 委派 beginActiveRequest，因此旧 16 条 SERIAL-A 用例全部保持通过。
+新错误码：InvalidTimeout / UnsupportedFunction / InvalidRequestDescriptor（追加式）。
+```
+
+### M7. Pending Intent Snapshot（T022 §FC12 落地）
+
+```text
+session：`pendingRequest()` 保存**发送时 descriptor**（intent + frame + wire）；timeout 也取自 intent（单一 authority）。
+completion 时先取快照再 feed —— 完成会把 session 复位，快照保证结果永远带着它所回答的请求。
+Controller：`pendingRequest_`（optional<descriptor>）既是**发送时快照**也是 **stale-completion guard**；
+  完成时必须 `result.request == *pendingRequest_`，否则整条忽略（foreign / stale completion 永不入账）。
+测试：AC-07（Busy 拒绝后快照不变）、TA-10（pending 期间改参数被拒 → 完成行仍描述首个请求）、TA-15（无 pending / 异请求结果被忽略）。
+```
+
+### M8. Transport Seam（T022 BLOCKER A 落地）
+
+```text
+`SerialTransport : QObject`（src/ui/serial/SerialTransport.h）：openPort / startActiveRequest(descriptor) /
+  hasActiveTransaction / isPortOpen / closePort + 两个信号（transactionCompleted(ActiveTransactionResult)、transportError）。
+  timeout 不是独立参数 —— 取自 descriptor.intent.timeout，避免第二份真相。
+production = 既有 SerialTransactionAdapter（行为不变：未连接 / 忙 / 无效请求 → NotSent 且零发送；短计数 → PossiblySent；
+  完整计数 → PossiblySent + 启动响应等待；端口错误 → cancel 且不伪造状态）。
+Controller：`serialTransport_` 指向生产 adapter；`setSerialTransport(nullptr)` 恢复生产；注入对象不被 controller 所有；
+  重指向在 pending 期间被拒绝（事务属于接受它的 transport）。**openPort 与 closePort 也走 seam**（见 M17-P1）。
+未把 QSerialPort 下沉进 core；core 仍零 Qt / 零 COM。
+```
+
+### M9. Recording Transport（T022 §12 能力落地）
+
+```text
+tests/fake_serial_transport.{h,cpp}（测试专用 double，非产品代码）：
+  配置：portOpen / acceptRequests（pre-send 拒绝）/ responseBytes / completionElapsed；
+  记录：startAttemptCount / sendCount / sentAduLog（exact ADU）/ lastStartResult（accepted + disposition）/ hasPendingTransaction；
+  驱动：completeWithResponse()（整块喂入）/ completeWithTimeout() / feedPartialBytes() / failTransport(message)。
+  内部复用**同一个 core session**（与生产同一套 framing/analysis），completion 由测试显式驱动 ⇒ **无 Sleep、无真实 COM、
+  无 wall-clock 竞争**。
+两层纪律：transport fake 回答“是否/几次/什么字节/何时完成”；SimulatedSlave 回答“设备语义”。
+```
+
+### M10. Transmission Disposition（T022 §FC9 / §14 / §15 / §16 落地）
+
+```text
+`TransportDisposition{ NotSent, PossiblySent }` —— **正交的 transport fact，不是第二套 public outcome**（outcome taxonomy 未变）。
+`ActiveStartResult{ accepted, disposition }`：accepted = 完整请求进入 transmission lifecycle（完成事件随后到达）；
+  短计数 write = `{false, PossiblySent}`（线路无法澄清）；pre-send 拒绝 = `{false, NotSent}`。
+生产 adapter 与 recording transport 采用同一分类；controller 只在 accepted 后建立 pending 状态。
+pre-send 失败**不产生任何 Modbus 行**（不伪造 ProtocolError），也不进 session history —— TA-08 明确断言。
+```
+
+### M11. Wire Evidence（T022 BLOCKER C / §17 / §18 / §19 落地）
+
+```text
+`ActiveTransactionEvidence{ requestAdu, responseAdu, disposition }`；
+`ActiveTransactionResult{ request(descriptor 快照), responseAdu, disposition, analysis }` + `evidence()` 投影；
+`ActiveTransactionRecord{ sessionId, request, evidence, analysis }` —— 运行时权威（core 类型，零 Qt）。
+生产 adapter 侧：`observedResponseBytes_` 逐字节累积**实际观察到的**响应（正常 / 异常 / CRC 坏 / 协议坏 / 部分 / 超时前
+  部分字节），完成时随 envelope 一起 emit；纯无响应 = 空 responseAdu（明确契约）。
+request ADU = 发送时 descriptor 的 wire 副本（**不是**事后从 intent 重编码的猜测）。
+归属：权威在 **core/runtime record**；`TransactionListEntry` 只带 `std::optional<ActiveSerialProvenance>`（presentation 投影），
+  且 Simulator / Replay / 既有 fixture 一律 std::nullopt（不存在伪造的 transport 事实）。QML 未暴露 hex（DEFER，无新 role）。
+```
+
+### M12. Append Foundation + Session Identity（T022 §FC16 / §FC17 / §22 落地）
+
+```text
+`ActiveTransactionRecord` 追加进 `activeSerialRecords_`：**证据 append、永不覆盖**（生产完成路径与 append API 同源）。
+`appendSerialTransaction(record)` + `rebuildActiveSerialProjection()`：按记录顺序投影 rows / 聚合统计 / 诊断批次
+  （= append 语义的完整实现，已被 TA-12 直接验证）。
+session identity：`TransactionSourceKind{Simulator, Replay, ActiveSerial}`（core 枚举）+ `activeSerialSessionId_`
+  （每次成功 connect ++，connect 时清空旧 history），**不从 modeLabel 文本 / workspace index / 文件名推断**（TA-14）。
+【Review item-1】presentation 仍为 **latest-only**（rowCount 1 / 单事务统计）：Phase 1 §7 冻结“FC03 现有
+  statistics / source·session behavior”，且明确“若迁移 FC03 需要改变用户可见行为：STOP + RCA；M10-B 才负责完整
+  FC03 contract migration”。因此本轮把 append 权威与投影实现并测试，**presentation 切换留 M10-B**。
+【Review item-2】按 §23 允许范围，Clear 的 UI acceptance 亦留 M10-B/C。
+```
+
+### M13. Clear Results Contract（T022 §FC18 / §23 落地）
+
+```text
+clearResults()：清结果 + 统计 + 诊断批次 + **completed session history**（records），**不清 pending**、
+  不 cancel、不 disconnect、不清 draft、不发送；source 身份保留（Clear != Disconnect）。
+TA-13 两段断言：① 两条完成记录 + Clear → records 0 / rows 0 / modeLabel 仍「串口模式」/ sourceLabel 不变 / 仍连接；
+  ② pending 期间 Clear → pending 仍在飞 → 完成后**作为新事务进入已清空的视图**（1 record + 1 row）。
+```
+
+### M14. Writable Simulator Foundation（T022 §25 / §26 落地）
+
+```text
+SimulatedSlave：`WriteMode{ReadOnly(默认), Writable}`（**显式 opt-in**）+ `holdingRegister()` / `registerCount()`
+  查询接缝 + `applyWriteRequest(frame) -> SimulatorWriteOutcome{Applied, ReadOnlyMode, NotMyAddress,
+  UnsupportedFunction, MalformedRequest}`。
+语义：先解码再写入（合法才 mutation，**非法/异常形状/异地址一律零 mutation**）；0x06 写单寄存器、0x10 写连续块
+  （values 为唯一 authority）；bank 沿用 setHoldingRegister 的“按需增长、空洞为 0”规则（M12 Device Profile 之前
+  不发明地址域策略）；无随机 / 无线程 / 无真实时钟 ⇒ before → request → after 可精确断言。
+Function16：新增 **decode-only** `decodeWriteMultipleRegistersRequest`（quantity 1..123、byteCount==2*quantity==实际字节），
+  仍**没有 encoder / 没有发送 API**。handleRequest（读路径）保持不变：0x06/0x10 仍以 Illegal Function 应答，
+  写请求→应答帧的接线留 M10-D/E（需要写编码器）。
+```
+
+### M15. Tests
+
+```text
+新增目标 1：`active_request`（Pure Core，17 用例）—— tests/test_active_request.cpp
+  AC01 validation 表（含 unit 0/248、FC03 域、超时、payload/function 不一致、0x10 values 1..123）
+  AC02 FC03 descriptor 金样 wire（01 03 00 00 00 02 C4 0B）
+  AC03 0x06 / 0x10 encode → UnsupportedFunction（无写编码器）
+  AC04 begin 接受 + 快照等价 / AC05 篡改 wire 或 frame-address → InvalidRequestDescriptor（Idle 不变）
+  AC06 手造 0x06 descriptor → UnsupportedFunction（绝对不发送）/ AC07 Busy 后快照不变
+  AC08 泛化路径 FC03 等价（Success）/ AC09 泛化路径 Timeout
+  AC10 evidence/result/disposition token / AC11 function 与 source token（0x10 = decimal 16）
+  AC12 FC06 echo 失配回归 / AC13 0x10 echo 失配回归 / AC14 outcome·issue 正交回归 / AC15 broadcast 主动拒绝
+新增目标 2：`active_master`（真实 controller + recording transport，16 用例 + init）—— tests/test_active_master.cpp
+  TA01 closed → NotSent & 0 发送 / TA02 busy → NotSent & sendCount 仍 1 / TA03 accepted → sendCount 1 + exact ADU
+  TA04 pending 期间重复按键 → 仍 1 次发送 / TA05 记录 ADU == evidence.requestAdu / TA06 CRC 坏响应原文保留
+  TA07 accepted 后 timeout → PossiblySent + 空 responseAdu / TA08 pre-send 拒绝 → NotSent + 零伪造事务
+  TA09 completion timing 由测试控制（无 sleep）/ TA10 快照唯一权威 / TA11 记录 append 且不覆盖
+  TA12 append 投影 API（3 记录 → 3 行 + 聚合统计）/ TA13 Clear 契约两段 / TA14 typed source identity + session id
+  TA15 stale / foreign completion 全忽略
+既有测试扩展：test_simulated_slave 增加 **SA1–SA5**（默认只读零 mutation / 0x06 单写 / 0x10 连续块 / 非法与异地址零 mutation /
+  before→request→after 确定性）；test_serial_session（SERIAL-A01–A16）与 test_serial_adapter（I01–I05）迁移到
+  descriptor / seam API，**断言语义不变**（I05 增加 `{NotSent}` 断言）。
+```
+
+### M16. Automated Gates（真实输出）
+
+```text
+Debug：`ctest` → **29/29 PASS**（原 27 + active_request + active_master；包含 qml_smoke / qml_geometry_check /
+  qml_nav_check / qml_focus_check 全绿）。
+Release：`ctest` → **29/29 PASS**。
+构建：Debug 与 Release 均**零 warning / 零 error**（-Wall -Wextra；修复本轮引入的 -Wmissing-field-initializers）。
+`git diff --check` → PASS。ctest 数量由 27 增至 **29**（真实新增 2 个目标）。
+```
+
+### M17. Problems / RCA（诚实记录，含顺序说明）
+
+```text
+P0（流程诚实说明）：本轮测试与实现**交替**编写，因此 RED 证据不是在时间上先于实现采集的，而是
+  (a) 在 detached worktree @ `86e88ed` 上**真实重放**（编译级 RED，见 M3）、(b) 对 pre-change 树做精确 grep，
+  (c) 引用既有测试锁。RED 结论未因顺序而改变，但不得表述为“先 RED 后 GREEN 的严格 TDD”。
+P1（真实缺陷，已被测试捕获）：seam 只做了一半 —— `connectSerial()` 仍在 `serialAdapter_` 上调用 openPort，
+  注入的 recording transport 永远没被打开 ⇒ TA02–TA09 初期整体失败（startAttemptCount 0）。
+  Root Cause：部分替换而非依赖反转（调用点遗漏）。Fix：openPort/closePort 全部走 `serialTransport_`。
+  Verification：TA01–TA16 全绿、qml gate 全绿。Regression Protection：TA 断言的是**注入对象**的 sendCount/ADU，
+  任何绕过 seam 的调用点会立刻让这些断言失败。
+P2（编译 RED→GREEN 实例）：core 测试调用 `analyzeObservedTransaction` 却未包含 PassiveTransactionAnalysis.h ⇒
+  `error: 'analyzeObservedTransaction' is not a member of 'modbuslens::core'`；补 include 后 17/17 全绿。
+P3（零警告纪律）：descriptor 的 designated initializer 触发 -Wmissing-field-initializers（TransactionIssue 9 个 optional、
+  TransactionAnalysis、TransactionListEntry 新字段）⇒ 显式补 std::nullopt 或改用局部默认初始化结构。
+P4（断言修正，非产品缺陷）：SA2 起初断言 0x000B 为 0，但 bank 只增长到写入地址 ⇒ 正确契约是
+  `holdingRegister(0x000B) == nullopt`（写入不会把文件撑到写入地址之外），已按真实契约修正断言。
+```
+
+### M18. 边界审计（本轮末实测）
+
+```text
+QML 改动文件数 = 0（UI Freeze：无 Write section / Write button / confirmation dialog / function selector）。
+新 Q_PROPERTY = 0（只加 C++ seam）；版本 / PE / icon / package / scripts / samples 全未改；
+`encodeWrite*` 在 src/ 出现 0 次（无写请求 encoder）；Agent 层无 write/send/raw-serial 工具（0 匹配），
+三只读 tools 与其测试未改；screenshots 未改。
+```
+
+### M19. FC03 行为等价审计
+
+```text
+范围/数量/超时/文案：`readHoldingRegistersOnce` 的 1..247 / 0..65535 / 1..125 / timeout>0 与四条中文错误文案**逐字未变**；
+  wire 字节：仍是 encodeReadHoldingRegistersRequest + RTU codec（金样 01 03 00 00 00 02 C4 0B，AC-02 锁定）；
+  response analysis：仍由 analyzeFunction03Transaction 产出（AC-08/09 + 既有 16 条全绿）；
+  统计 / 诊断：latest-only 单事务快照与单条 DiagnosisTransaction（既有 s05/s06/s07 全绿）；
+  source/session：modeLabel / sourceLabel / stale guard / Clear!=Disconnect 语义由既有 s01–s10 继续锁定。
+唯一的**非用户可见**差异：完成事务额外进入 append-only session history（证据层），presentation 未改（见 M12 Review item-1）。
+```
+
+### M20. Deferred / Review items
+
+```text
+1. presentation 切换为 append 投影（会改变 FC03 可见的行数与统计聚合）→ M10-B（§7 要求 STOP+RCA，不静默改）。
+2. 0x06 / 0x10 的主动 encoder + 主动 response validator + 写安全 UI/confirmation → M10-C/D/E。
+3. simulator 的写请求→应答帧接线（需要写编码器）→ M10-D/E。
+4. UI 是否展示 hex evidence → DEFER（本轮不加 role、不加 inspector）。
+5. real hardware 验证 → 非自动化；M10-F 若执行需单独人工验收并恢复原值。
+```
+
+### M21. Files Changed
+
+```text
+新增 core：src/core/active/ActiveRequestIntent.{h,cpp}、src/core/active/ActiveTransactionEvidence.{h,cpp}、
+  src/core/analysis/TransactionProvenance.{h,cpp}
+新增 app：src/ui/serial/SerialTransport.{h,cpp}
+新增 tests：tests/test_active_request.cpp、tests/test_active_master.cpp、tests/fake_serial_transport.{h,cpp}
+修改 core：SerialTransactionSession.{h,cpp}（泛化 + 快照 + analyzer seam）、SimulatedSlave.{h,cpp}（opt-in 可写）、
+  Function16.{h,cpp}（decode-only 请求 value 解码）
+修改 app：AnalysisController.{h,cpp}（seam / 快照 / 记录 / append / provenance）、TransactionListModel.h（可选 provenance）、
+  SerialPortAdapter.{h,cpp}（实现 seam / 证据累积 / disposition）
+修改 tests：test_serial_session.cpp、test_serial_adapter.cpp、test_simulated_slave.cpp（SA1–SA5）、test_ui_bridge.cpp（字段 + s10）
+修改构建：CMakeLists.txt（core 源、SerialTransport、两个新测试目标、offscreen 属性）
+```
+
+### M22. Git
+
+```text
+behavior-bearing（core / session / controller / transport / test 行为实质变化，见 M21）⇒ **不作 LKGC**。
+commit：`M10-A: establish Active Master contract foundation`（独立提交；不 amend `86e88ed`；不 rebase；不 push；
+未创建 v2.0.0 tag）。verified LKGC 保持 `aa2f3db`；M10 = IN PROGRESS；M10-A = 等待 Review。
+```

@@ -44,6 +44,18 @@ struct WriteMultipleRegistersFields {
 std::optional<WriteMultipleRegistersFields>
 readWriteMultipleRegistersFields(const ModbusRtuFrame& frame);
 
+// M10-A: strict request TEXT decoding (the register values themselves), added
+// for the deterministic writable-simulator foundation. Decode-only, like the
+// rest of this file — no wire builder, no encoder, no send API exists here.
+// `quantity` and `byteCount` are validated against the value payload, so the
+// decoded vector is the single value authority (no second count field).
+struct WriteMultipleRegistersRequest {
+    std::uint16_t startingAddress{};
+    std::vector<std::uint16_t> values;
+
+    bool operator==(const WriteMultipleRegistersRequest&) const = default;
+};
+
 struct WriteMultipleRegistersResponse {
     std::uint16_t startingAddress{};
     std::uint16_t quantityWritten{};
@@ -54,6 +66,10 @@ struct WriteMultipleRegistersResponse {
 enum class Function16DecodeErrorCode {
     WrongFunctionCode,
     InvalidResponseLength,
+    // ---- M10-A request-side additions ----
+    InvalidRequestLength,  // data below the 5-byte header
+    InvalidQuantity,       // quantity outside 1..123
+    InvalidByteCount,      // byteCount != 2*quantity or != payload size
 };
 
 struct Function16DecodeError {
@@ -64,6 +80,15 @@ struct Function16DecodeError {
 
 using WriteMultipleRegistersResponseResult =
     std::variant<WriteMultipleRegistersResponse, Function16DecodeError>;
+using WriteMultipleRegistersRequestResult =
+    std::variant<WriteMultipleRegistersRequest, Function16DecodeError>;
+
+// frame.functionCode must be 0x10; data must be 5 + 2*quantity bytes with
+// byteCount == 2*quantity (values big-endian). Strict on purpose: this is the
+// request a DEVICE would have to act on, so a structurally invalid request
+// must never decode into a mutating value list.
+WriteMultipleRegistersRequestResult
+decodeWriteMultipleRegistersRequest(const ModbusRtuFrame& frame);
 
 // frame.functionCode must be 0x10; data must be exactly 4 bytes
 // (startingAddress + quantityWritten, both big-endian).

@@ -30,7 +30,10 @@ add_library(modbuslens_core STATIC
     src/core/simulator/SimulationFault.cpp
     src/core/analysis/TransactionAnalysis.cpp
     src/core/analysis/PassiveTransactionAnalysis.cpp
+    src/core/analysis/TransactionProvenance.cpp
     src/core/analysis/TransactionStatistics.cpp
+    src/core/active/ActiveRequestIntent.cpp
+    src/core/active/ActiveTransactionEvidence.cpp
     src/core/replay/ReplayLog.cpp
     src/core/replay/ReplayAnalysis.cpp
     src/core/serial/SerialTransactionSession.cpp
@@ -112,6 +115,8 @@ qt_add_qml_module(modbuslens
         src/ui/AnalysisController.cpp
         src/ui/TransactionListModel.h
         src/ui/TransactionListModel.cpp
+        src/ui/serial/SerialTransport.h
+        src/ui/serial/SerialTransport.cpp
         src/ui/serial/SerialPortAdapter.h
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
@@ -263,6 +268,8 @@ if(BUILD_TESTING)
         src/ui/AnalysisController.cpp
         src/ui/TransactionListModel.h
         src/ui/TransactionListModel.cpp
+        src/ui/serial/SerialTransport.h
+        src/ui/serial/SerialTransport.cpp
         src/ui/serial/SerialPortAdapter.h
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
@@ -358,8 +365,67 @@ if(BUILD_TESTING)
 
     add_test(NAME serial COMMAND modbuslens_serial_tests)
 
+    # M10-A: unified active-request intent + generic session contract
+    # (Pure Core: intent validation/encoding, descriptor self-consistency,
+    # pending snapshot, frozen echo/orthogonality/broadcast semantics).
+    add_executable(modbuslens_active_request_tests tests/test_active_request.cpp)
+    target_link_libraries(modbuslens_active_request_tests PRIVATE
+        modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_active_request_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME active_request COMMAND modbuslens_active_request_tests)
+
+    # M10-A: Active Master contract foundation over the REAL controller with a
+    # deterministic RECORDING transport (TA1-TA9): send counts, exact ADU
+    # oracle, controlled completion timing, transmission disposition, wire
+    # evidence retention, session append foundation, Clear contract.
+    add_executable(modbuslens_active_master_tests
+        tests/test_active_master.cpp
+        tests/fake_serial_transport.h
+        tests/fake_serial_transport.cpp
+        src/ui/AnalysisController.h
+        src/ui/AnalysisController.cpp
+        src/ui/TransactionListModel.h
+        src/ui/TransactionListModel.cpp
+        src/ui/serial/SerialTransport.h
+        src/ui/serial/SerialTransport.cpp
+        src/ui/serial/SerialPortAdapter.h
+        src/ui/serial/SerialPortAdapter.cpp
+        src/ui/ai/ModelScopeDiagnosisClient.h
+        src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/DiagnosisPromptBuilder.h
+        src/ui/ai/DiagnosisPromptBuilder.cpp
+        src/ui/agent/AgentToolContext.h
+        src/ui/agent/AgentToolContext.cpp
+        src/ui/agent/AgentTools.h
+        src/ui/agent/AgentTools.cpp
+        src/ui/agent/AgentPromptBuilder.h
+        src/ui/agent/AgentPromptBuilder.cpp
+        src/ui/agent/ModelScopeAgentClient.h
+        src/ui/agent/ModelScopeAgentClient.cpp
+        src/ui/agent/AgentRuntime.h
+        src/ui/agent/AgentRuntime.cpp)
+    target_include_directories(modbuslens_active_master_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(modbuslens_active_master_tests PRIVATE
+        MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog")
+    target_link_libraries(modbuslens_active_master_tests PRIVATE
+        modbuslens_core Qt6::Qml Qt6::SerialPort Qt6::Network Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_active_master_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME active_master COMMAND modbuslens_active_master_tests)
+
     add_executable(modbuslens_serial_adapter_tests
         tests/test_serial_adapter.cpp
+        src/ui/serial/SerialTransport.h
+        src/ui/serial/SerialTransport.cpp
         src/ui/serial/SerialPortAdapter.h
         src/ui/serial/SerialPortAdapter.cpp)
     target_include_directories(modbuslens_serial_adapter_tests PRIVATE
@@ -460,6 +526,8 @@ if(BUILD_TESTING)
         src/ui/AnalysisController.cpp
         src/ui/TransactionListModel.h
         src/ui/TransactionListModel.cpp
+        src/ui/serial/SerialTransport.h
+        src/ui/serial/SerialTransport.cpp
         src/ui/serial/SerialPortAdapter.h
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
@@ -526,7 +594,7 @@ if(BUILD_TESTING)
         MODBUSLENS_PROTOCOL_ERROR_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t014_protocol_error.mlog")
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

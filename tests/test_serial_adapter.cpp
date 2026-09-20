@@ -6,10 +6,36 @@
 #include <QString>
 
 #include <chrono>
+#include <cstdint>
+#include <vector>
 
+#include "core/active/ActiveRequestIntent.h"
 #include "ui/serial/SerialPortAdapter.h"
 
-using modbuslens::core::TransactionAnalysis;
+using modbuslens::core::ActiveFunction;
+using modbuslens::core::ActiveRequestDescriptor;
+using modbuslens::core::ActiveRequestIntent;
+using modbuslens::core::ActiveTransactionResult;
+using modbuslens::core::ReadHoldingRegistersIntent;
+using modbuslens::core::TransportDisposition;
+using modbuslens::core::encodeActiveRequest;
+
+namespace {
+
+modbuslens::core::ActiveRequestDescriptor fc03Descriptor(
+    std::uint8_t unit = 0x01, std::uint16_t start = 0x0000,
+    std::uint16_t quantity = 0x0002)
+{
+    return std::get<ActiveRequestDescriptor>(encodeActiveRequest(
+        ActiveRequestIntent{
+            .function = ActiveFunction::ReadHoldingRegisters,
+            .unitId = unit,
+            .timeout = std::chrono::milliseconds{100},
+            .payload = ReadHoldingRegistersIntent{.startAddress = start,
+                                                  .quantity = quantity}}));
+}
+
+} // namespace
 
 // Adapter wiring tests WITHOUT real hardware (T010 Part B: SERIAL-I01~I05):
 // the heavy transaction logic is covered by the Pure session tests; here we
@@ -52,7 +78,7 @@ void SerialAdapterTest::i01_invalidPortOpen()
                 errorSignaled = true;
             });
     connect(&adapter, &SerialTransactionAdapter::transactionCompleted, this,
-            [&](TransactionAnalysis) { completed = true; });
+            [&](ActiveTransactionResult) { completed = true; });
 
     const bool opened = adapter.openPort(
         QStringLiteral("MODBUSLENS_TEST_NONEXISTENT_PORT"), 9600);
@@ -121,13 +147,13 @@ void SerialAdapterTest::i05_startWithoutOpenPort()
     QSignalSpy spy(&adapter, &SerialTransactionAdapter::transportError);
     bool completed = false;
     connect(&adapter, &SerialTransactionAdapter::transactionCompleted, this,
-            [&](TransactionAnalysis) { completed = true; });
+            [&](ActiveTransactionResult) { completed = true; });
 
-    const bool started = adapter.startTransaction(
-        /*slave*/ 0x01, /*start*/ 0x0000, /*quantity*/ 0x0002,
-        std::chrono::milliseconds{100});
+    const auto started = adapter.startActiveRequest(fc03Descriptor());
 
-    QVERIFY(!started);
+    QVERIFY(!started.accepted);
+    // The pre-send refusal is a transport FACT: provably nothing was sent.
+    QCOMPARE(started.disposition, TransportDisposition::NotSent);
     QCOMPARE(spy.count(), 1);
     QVERIFY(!adapter.hasActiveTransaction());
     QVERIFY(!adapter.isPortOpen());

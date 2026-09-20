@@ -151,10 +151,11 @@ AnalysisController::AnalysisController(QObject* parent)
 
     // The adapter is the ONLY QSerialPort owner in the app layer; QML never
     // sees it. Its signals are the only entry doors for serial results/errors.
-    connect(&serialAdapter_, &SerialTransactionAdapter::transactionCompleted,
-            this, &AnalysisController::handleSerialTransactionCompleted);
-    connect(&serialAdapter_, &SerialTransactionAdapter::transportError,
-            this, &AnalysisController::handleSerialTransportError);
+    // M10-A: the controller talks to the SERIAL TRANSPORT SEAM, whose
+    // production implementation is that adapter — tests may repoint it (see
+    // setSerialTransport) without touching any production behaviour.
+    serialTransport_ = &serialAdapter_;
+    connectSerialTransportSignals(*serialTransport_);
 
     // AI (T011 Part B): production config comes from the process environment
     // ONLY (BYOK). QML never sees the token — just aiConfigured.
@@ -857,24 +858,24 @@ void AnalysisController::clearSerialError()
 
 void AnalysisController::teardownSerialTransport()
 {
-    // Silent local close (adapter guarantees no transportError on intent):
+    // Silent local close (the adapter guarantees no transportError on intent):
     // cancels pending transaction, closes port, resets every serial flag.
-    serialAdapter_.closePort();
+    serialTransport_->closePort();
     serialConnected_ = false;
     serialBusy_ = false;
-    pendingSerialAddress_.reset();
+    pendingRequest_.reset();
     emit serialConnChanged();
     emit serialStatusChanged();
 }
 
 void AnalysisController::handleSerialTransportError(const QString& message)
 {
-    // A transport failure is NOT a Modbus diagnosis: sync state from the
-    // adapter and surface the message — statistics/rows/mode/source stay
-    // exactly as they are (old completed batch remains visible).
+    // Transport errors are NOT Modbus diagnoses: sync from the transport,
+    // drop the pending snapshot, surface the message — and touch NOTHING in
+    // statistics/rows/mode/source.
     serialBusy_ = false;
-    pendingSerialAddress_.reset();
-    serialConnected_ = serialAdapter_.isPortOpen();
+    pendingRequest_.reset();
+    serialConnected_ = serialTransport_->isPortOpen();
     setSerialError(QStringLiteral("串口传输错误：%1").arg(message));
     emit serialConnChanged();
     emit serialStatusChanged();
@@ -908,19 +909,25 @@ void AnalysisController::connectSerial(const QString& portName, int baudRate)
     }
 
     // Open FIRST; only a fully successful transport open may transition the
-    // source. On failure the adapter's bounded transportError reaches
+    // source. On failure the transport's bounded transportError reaches
     // handleSerialTransportError — the old batch/mode/source stay untouched
-    // (UI-S02).
-    if (!serialAdapter_.openPort(portName, baudRate)) {
+    // (UI-S02). The seam is used here too, so an injected transport is opened
+    // by exactly the same rule as the production adapter.
+    if (!serialTransport_->openPort(portName, baudRate)) {
         return;
     }
 
     // Connect success = explicit source transition: clear the old active
-    // batch so a Serial header can never sit over Replay/Demo rows.
+    // batch so a Serial header can never sit over Replay/Demo rows. A new
+    // Active Serial session also starts here: a fresh session id keeps the
+    // append-only history of two connections apart.
     applySnapshot(summarizeTransactions(
         std::span<const modbuslens::core::TransactionAnalysis>{}));
     transactionModel_.setEntries({});
     activeDiagnosisTransactions_.clear();
+    activeSerialRecords_.clear();
+    ++activeSerialSessionId_;
+    sourceKind_ = modbuslens::core::TransactionSourceKind::ActiveSerial;
     invalidateAiForBatchChange();
 
     serialSourceLabel_ = QStringLiteral("%1 @ %2").arg(portName).arg(baudRate);
@@ -947,7 +954,8 @@ void AnalysisController::readHoldingRegistersOnce(
 {
     // Range validation BEFORE any narrowing cast: QML numbers arrive as int,
     // and a silent uint8_t/uint16_t wrap here would be undefined-behavior
-    // territory the Core must never be handed.
+    // territory the Core must never be handed. The messages are part of the
+    // frozen FC03 contract and stay verbatim.
     if (slaveAddress < 1 || slaveAddress > 247) {
         setSerialError(QStringLiteral("串口错误：从站地址须在 1..247 之间"));
         return;
@@ -973,17 +981,38 @@ void AnalysisController::readHoldingRegistersOnce(
         return;
     }
 
-    // Accept only writes metadata AFTER the adapter really accepted: a
+    // M10-A: the unified intent is the single request model. Encode ONCE —
+    // the descriptor (intent + semantic frame + exact wire) is what travels,
+    // and the transport writes `wire` as-is.
+    const modbuslens::core::ActiveRequestIntent intent{
+        .function = modbuslens::core::ActiveFunction::ReadHoldingRegisters,
+        .unitId = static_cast<std::uint8_t>(slaveAddress),
+        .timeout = std::chrono::milliseconds{timeoutMs},
+        .payload = modbuslens::core::ReadHoldingRegistersIntent{
+            .startAddress = static_cast<std::uint16_t>(startAddress),
+            .quantity = static_cast<std::uint16_t>(quantity),
+        },
+    };
+    const auto encoded = modbuslens::core::encodeActiveRequest(intent);
+    if (std::get_if<modbuslens::core::ActiveRequestEncodeError>(&encoded)
+        != nullptr) {
+        // Defensive only: every encode-relevant range was validated above, so
+        // this branch is unreachable with the current function set. A local
+        // rejection sends NOTHING and fabricates no Modbus transaction.
+        setSerialError(QStringLiteral("串口错误：请求无效"));
+        return;
+    }
+    const auto& descriptor =
+        std::get<modbuslens::core::ActiveRequestDescriptor>(encoded);
+
+    // Accept only pending state AFTER the transport really accepted: a
     // failure drops us back with no pending state at all.
-    if (!serialAdapter_.startTransaction(
-            static_cast<std::uint8_t>(slaveAddress),
-            static_cast<std::uint16_t>(startAddress),
-            static_cast<std::uint16_t>(quantity),
-            std::chrono::milliseconds{timeoutMs})) {
-        return; // adapter already reported the bounded transport error
+    const auto start = serialTransport_->startActiveRequest(descriptor);
+    if (!start.accepted) {
+        return; // transport already reported the bounded transport error
     }
 
-    pendingSerialAddress_ = static_cast<std::uint8_t>(slaveAddress);
+    pendingRequest_ = descriptor;
     serialBusy_ = true;
     clearSerialError();
     emit serialStatusChanged();
@@ -991,30 +1020,138 @@ void AnalysisController::readHoldingRegistersOnce(
     // replaces it (Reading... state).
 }
 
+void AnalysisController::setSerialTransport(SerialTransport* transport)
+{
+    // nullptr restores the production adapter. Repointing is only allowed
+    // while nothing is in flight: a pending transaction belongs to the
+    // transport that accepted it.
+    if (serialBusy_) {
+        return;
+    }
+    if (serialTransport_ != nullptr) {
+        disconnect(serialTransport_, nullptr, this, nullptr);
+    }
+    serialTransport_ = transport != nullptr ? transport : &serialAdapter_;
+    connectSerialTransportSignals(*serialTransport_);
+}
+
+void AnalysisController::connectSerialTransportSignals(SerialTransport& transport)
+{
+    connect(&transport, &SerialTransport::transactionCompleted,
+            this, &AnalysisController::handleSerialTransactionCompleted);
+    connect(&transport, &SerialTransport::transportError,
+            this, &AnalysisController::handleSerialTransportError);
+}
+
+modbuslens::core::TransactionSourceKind AnalysisController::sourceKind() const
+{
+    return sourceKind_;
+}
+
+std::uint64_t AnalysisController::activeSerialSessionId() const
+{
+    return activeSerialSessionId_;
+}
+
+int AnalysisController::activeSerialRecordCount() const
+{
+    return static_cast<int>(activeSerialRecords_.size());
+}
+
+const std::vector<modbuslens::core::ActiveTransactionRecord>&
+AnalysisController::activeSerialRecords() const
+{
+    return activeSerialRecords_;
+}
+
+void AnalysisController::appendSerialTransaction(
+    const modbuslens::core::ActiveTransactionRecord& record)
+{
+    // Append foundation: the record joins the session history and the whole
+    // session is re-projected — nothing is ever replaced by a later record.
+    activeSerialRecords_.push_back(record);
+    rebuildActiveSerialProjection();
+}
+
+void AnalysisController::rebuildActiveSerialProjection()
+{
+    std::vector<TransactionListEntry> entries;
+    entries.reserve(activeSerialRecords_.size());
+    std::vector<modbuslens::core::TransactionAnalysis> analyses;
+    analyses.reserve(activeSerialRecords_.size());
+    activeDiagnosisTransactions_.clear();
+
+    for (const auto& record : activeSerialRecords_) {
+        entries.push_back(TransactionListEntry{
+            .deviceAddress = record.unitId(),
+            .functionCode = record.functionCode(),
+            .status = record.analysis.status,
+            .elapsedMs = record.analysis.elapsed.count(),
+            .exceptionCode = record.analysis.exceptionCode,
+            .issueText = issueDetailText(record.analysis),
+            .activeSerialProvenance = modbuslens::core::ActiveSerialProvenance{
+                .sessionId = record.sessionId,
+                .request = record.request,
+                .evidence = record.evidence,
+            },
+        });
+        analyses.push_back(record.analysis);
+        activeDiagnosisTransactions_.push_back(
+            modbuslens::core::DiagnosisTransaction{
+                .deviceAddress = record.unitId(),
+                .functionCode = record.functionCode(),
+                .analysis = record.analysis,
+                .requestIssues = {},
+            });
+    }
+
+    transactionModel_.setEntries(std::move(entries));
+    applySnapshot(modbuslens::core::summarizeTransactions(
+        std::span<const modbuslens::core::TransactionAnalysis>{analyses}));
+    invalidateAiForBatchChange();
+    modeLabel_ = QStringLiteral("串口模式");
+    sourceLabel_ = serialSourceLabel_;
+    emit statisticsChanged();
+    emit sourceChanged();
+}
+
 void AnalysisController::publishSerialResult(
     const QString& sourceLabel, int deviceAddress,
     const modbuslens::core::TransactionAnalysis& analysis)
 {
-    // Hardware-free mapping seam: one row + one-element statistics batch,
-    // replace semantics (rowCount is always 1 after a serial read).
+    // Hardware-free mapping seam: same projection the production completion
+    // uses, minus Active Serial provenance (this fixture path has none).
+    publishCompletedTransaction(sourceLabel, static_cast<std::uint8_t>(deviceAddress),
+                                0x03, analysis, std::nullopt);
+}
+
+void AnalysisController::publishCompletedTransaction(
+    const QString& sourceLabel, std::uint8_t deviceAddress,
+    std::uint8_t functionCode,
+    const modbuslens::core::TransactionAnalysis& analysis,
+    std::optional<modbuslens::core::ActiveSerialProvenance> provenance)
+{
+    // One row + one-element statistics batch, replace semantics (the row
+    // count is always 1 after a serial result on the presentation layer).
     std::vector<modbuslens::core::TransactionAnalysis> batch{analysis};
     auto snapshot = modbuslens::core::summarizeTransactions(batch);
 
     TransactionListEntry entry{
         .deviceAddress = deviceAddress,
-        .functionCode = 0x03,
+        .functionCode = functionCode,
         .status = analysis.status,
         .elapsedMs = analysis.elapsed.count(),
         .exceptionCode = analysis.exceptionCode,
         .issueText = issueDetailText(analysis),
+        .activeSerialProvenance = std::move(provenance),
     };
 
     transactionModel_.setEntries({std::move(entry)});
     statistics_ = std::move(snapshot);
     activeDiagnosisTransactions_ = {
         modbuslens::core::DiagnosisTransaction{
-            .deviceAddress = static_cast<std::uint8_t>(deviceAddress),
-            .functionCode = 0x03,
+            .deviceAddress = deviceAddress,
+            .functionCode = functionCode,
             .analysis = analysis,
             .requestIssues = {},
         },
@@ -1030,17 +1167,42 @@ void AnalysisController::publishSerialResult(
 }
 
 void AnalysisController::handleSerialTransactionCompleted(
-    const modbuslens::core::TransactionAnalysis& analysis)
+    const modbuslens::core::ActiveTransactionResult& result)
 {
-    // Stale-completion guard (UI-S10): an analysis with no pending metadata
+    // Stale-completion guard (UI-S10): a result with no pending snapshot
     // (e.g. after a source switch aged the completion out) must NEVER
-    // overwrite the current Simulator/Replay batch.
-    if (!pendingSerialAddress_.has_value()) {
+    // override the current Simulator/Replay batch.
+    if (!pendingRequest_.has_value()) {
         return;
     }
-    publishSerialResult(serialSourceLabel_,
-                        static_cast<int>(*pendingSerialAddress_), analysis);
-    pendingSerialAddress_.reset();
+    // The result must answer the request that is actually pending: the
+    // send-time snapshot is the only accepted identity. Anything else is a
+    // stale/duplicated completion and is ignored whole.
+    if (result.request != *pendingRequest_) {
+        return;
+    }
+
+    // Authority first: the transaction (intent snapshot + wire evidence +
+    // verdict) joins the append-only session history. The evidence is NOT
+    // handed to the presentation and dropped — it is retained.
+    const modbuslens::core::ActiveTransactionRecord record{
+        .sessionId = activeSerialSessionId_,
+        .request = *pendingRequest_,
+        .evidence = result.evidence(),
+        .analysis = result.analysis,
+    };
+    activeSerialRecords_.push_back(record);
+
+    // Presentation (unchanged FC03 contract): latest-only row + single
+    // transaction statistics, now carrying the record's provenance.
+    publishCompletedTransaction(serialSourceLabel_, record.unitId(),
+                                record.functionCode(), record.analysis,
+                                modbuslens::core::ActiveSerialProvenance{
+                                    .sessionId = record.sessionId,
+                                    .request = record.request,
+                                    .evidence = record.evidence,
+                                });
+    pendingRequest_.reset();
 }
 
 void AnalysisController::applySnapshot(
@@ -1091,6 +1253,7 @@ void AnalysisController::runDemoBatch()
             .elapsedMs = analysis.elapsed.count(),
             .exceptionCode = analysis.exceptionCode,
             .issueText = issueDetailText(analysis),
+            .activeSerialProvenance = std::nullopt,
         });
         diagnosisTransactions.push_back(modbuslens::core::DiagnosisTransaction{
             .deviceAddress = request.address,
@@ -1201,6 +1364,8 @@ void AnalysisController::runDemoBatch()
     invalidateAiForBatchChange();
     modeLabel_ = QStringLiteral("模拟器模式");
     sourceLabel_ = QStringLiteral("确定性演示");
+    sourceKind_ = modbuslens::core::TransactionSourceKind::Simulator;
+    activeSerialRecords_.clear();
     clearReplayError();
     clearReplayNotice();
     clearSerialError();
@@ -1212,11 +1377,16 @@ void AnalysisController::clearResults()
 {
     // Clears the analysis results and any pending replay/serial error, but
     // NEVER switches the source or closes the transport (Clear !=
-    // Disconnect): the user still sees which mode/source they are in.
+    // Disconnect): the user still sees which mode/source they are in. The
+    // completed Active Serial session history is result presentation/domain
+    // state and is cleared with the rest; a PENDING request is untouched —
+    // its future completion enters the now-empty view as a new transaction
+    // (M10 Phase 1 §18 / FC18).
     applySnapshot(summarizeTransactions(
         std::span<const modbuslens::core::TransactionAnalysis>{}));
     transactionModel_.setEntries({});
     activeDiagnosisTransactions_.clear();
+    activeSerialRecords_.clear();
     invalidateAiForBatchChange();
     clearReplayError();
     clearReplayNotice();
@@ -1275,6 +1445,7 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
             .elapsedMs = outcome.analysis.elapsed.count(),
             .exceptionCode = outcome.analysis.exceptionCode,
             .issueText = composeIssueText(outcome.analysis, outcome.requestIssues),
+            .activeSerialProvenance = std::nullopt,
         });
         diagnosisTransactions.push_back(modbuslens::core::DiagnosisTransaction{
             .deviceAddress = outcome.deviceAddress,
@@ -1314,6 +1485,8 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     modeLabel_ = QStringLiteral("回放模式");
     // Presentation keeps the basename only; the full path never enters the UI.
     sourceLabel_ = QFileInfo(filePath).fileName();
+    sourceKind_ = modbuslens::core::TransactionSourceKind::Replay;
+    activeSerialRecords_.clear();
     clearReplayError();
     clearSerialError();
     emit statisticsChanged();

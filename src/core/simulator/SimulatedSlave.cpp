@@ -1,12 +1,16 @@
 #include "core/simulator/SimulatedSlave.h"
 
 #include "core/protocol/Function03.h"
+#include "core/protocol/Function06.h"
+#include "core/protocol/Function16.h"
 
 namespace modbuslens::core {
 
 namespace {
 
 constexpr std::uint8_t kReadHoldingRegistersFunction = 0x03;
+constexpr std::uint8_t kWriteSingleRegisterFunction = 0x06;
+constexpr std::uint8_t kWriteMultipleRegistersFunction = 0x10;
 constexpr std::uint8_t kExceptionFlag = 0x80;
 constexpr std::uint8_t kIllegalFunction = 0x01;
 constexpr std::uint8_t kIllegalDataAddress = 0x02;
@@ -27,9 +31,15 @@ ModbusRtuFrame makeExceptionFrame(
 
 } // namespace
 
-SimulatedSlave::SimulatedSlave(std::uint8_t address)
+SimulatedSlave::SimulatedSlave(std::uint8_t address, WriteMode mode)
     : address_(address)
+    , mode_(mode)
 {
+}
+
+SimulatedSlave::WriteMode SimulatedSlave::writeMode() const
+{
+    return mode_;
 }
 
 void SimulatedSlave::setHoldingRegister(std::uint16_t address, std::uint16_t value)
@@ -41,6 +51,68 @@ void SimulatedSlave::setHoldingRegister(std::uint16_t address, std::uint16_t val
         holdingRegisters_.resize(index + 1, 0);
     }
     holdingRegisters_[index] = value;
+}
+
+std::optional<std::uint16_t> SimulatedSlave::holdingRegister(
+    std::uint16_t address) const
+{
+    const auto index = static_cast<std::size_t>(address);
+    if (index >= holdingRegisters_.size()) {
+        return std::nullopt;
+    }
+    return holdingRegisters_[index];
+}
+
+std::size_t SimulatedSlave::registerCount() const
+{
+    return holdingRegisters_.size();
+}
+
+SimulatorWriteOutcome SimulatedSlave::applyWriteRequest(const ModbusRtuFrame& request)
+{
+    // 1. Ownership: a slave never acts on another device's request, and v1 has
+    //    no broadcast semantics (address 0 is nobody's unicast address).
+    if (request.address != address_) {
+        return SimulatorWriteOutcome::NotMyAddress;
+    }
+    // 2. Exception-shaped frames are not requests at all.
+    if ((request.functionCode & kExceptionFlag) != 0) {
+        return SimulatorWriteOutcome::UnsupportedFunction;
+    }
+    // 3. Opt-in gate: the read-only endpoint mutates nothing, ever.
+    if (mode_ != WriteMode::Writable) {
+        return SimulatorWriteOutcome::ReadOnlyMode;
+    }
+
+    switch (request.functionCode) {
+    case kWriteSingleRegisterFunction: {
+        const auto decoded = decodeWriteSingleRegisterRequest(request);
+        if (const auto* error = std::get_if<Function06DecodeError>(&decoded)) {
+            static_cast<void>(error);
+            return SimulatorWriteOutcome::MalformedRequest;
+        }
+        const auto& write = std::get<WriteSingleRegisterRequest>(decoded);
+        setHoldingRegister(write.registerAddress, write.registerValue);
+        return SimulatorWriteOutcome::Applied;
+    }
+    case kWriteMultipleRegistersFunction: {
+        const auto decoded = decodeWriteMultipleRegistersRequest(request);
+        if (std::get_if<Function16DecodeError>(&decoded) != nullptr) {
+            return SimulatorWriteOutcome::MalformedRequest;
+        }
+        const auto& write = std::get<WriteMultipleRegistersRequest>(decoded);
+        // Contiguous block write: the values are the single authority, so the
+        // destination range is exactly values.size() registers from the start.
+        for (std::size_t offset = 0; offset < write.values.size(); ++offset) {
+            setHoldingRegister(
+                static_cast<std::uint16_t>(write.startingAddress + offset),
+                write.values[offset]);
+        }
+        return SimulatorWriteOutcome::Applied;
+    }
+    default:
+        return SimulatorWriteOutcome::UnsupportedFunction;
+    }
 }
 
 SimulatorResult SimulatedSlave::handleRequest(const ModbusRtuFrame& request) const

@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <optional>
 
+#include "core/active/ActiveRequestIntent.h"
+#include "core/active/ActiveTransactionEvidence.h"
 #include "core/analysis/TransactionAnalysis.h"
 #include "fake_chat_completions_server.h"
 #include "ui/AnalysisController.h"
@@ -29,6 +31,7 @@ TransactionListEntry successEntry()
         .elapsedMs = 25,
         .exceptionCode = std::nullopt,
         .issueText = QStringLiteral(""),
+        .activeSerialProvenance = std::nullopt,
     };
 }
 
@@ -41,6 +44,7 @@ TransactionListEntry exceptionEntry()
         .elapsedMs = 18,
         .exceptionCode = std::uint8_t{0x02},
         .issueText = QStringLiteral(""),
+        .activeSerialProvenance = std::nullopt,
     };
 }
 
@@ -244,6 +248,7 @@ void UiBridgeTest::a06_replaceModel()
         .elapsedMs = 12,
         .exceptionCode = std::nullopt,
         .issueText = QStringLiteral(""),
+        .activeSerialProvenance = std::nullopt,
     };
     model.setEntries({secondBatchRow});
 
@@ -848,10 +853,24 @@ void UiBridgeTest::s10_staleCompletionGuard()
     const auto rowsBefore = controller.transactionModel()->rowCount();
     const auto observedBefore = controller.observedCount();
 
-    // A late serial completion with NO pending metadata (source has moved
-    // on) must be ignored entirely.
+    // A late serial completion with NO pending snapshot (source has moved
+    // on) must be ignored entirely, even when it is a well-formed Active
+    // Serial result for a real request.
+    const auto descriptor = std::get<modbuslens::core::ActiveRequestDescriptor>(
+        modbuslens::core::encodeActiveRequest(
+            modbuslens::core::ActiveRequestIntent{
+                .function = modbuslens::core::ActiveFunction::ReadHoldingRegisters,
+                .unitId = 1,
+                .timeout = ms{1000},
+                .payload = modbuslens::core::ReadHoldingRegistersIntent{
+                    .startAddress = 0, .quantity = 2}}));
     controller.handleSerialTransactionCompleted(
-        makeAnalysis(modbuslens::core::TransactionStatus::Success, 25));
+        modbuslens::core::ActiveTransactionResult{
+            .request = descriptor,
+            .responseAdu = {},
+            .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+            .analysis = makeAnalysis(
+                modbuslens::core::TransactionStatus::Success, 25)});
 
     QCOMPARE(controller.transactionModel()->rowCount(), rowsBefore);
     QCOMPARE(controller.observedCount(), observedBefore);

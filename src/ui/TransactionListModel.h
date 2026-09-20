@@ -8,6 +8,7 @@
 #include <optional>
 #include <vector>
 
+#include "core/active/ActiveTransactionEvidence.h"
 #include "core/analysis/TransactionAnalysis.h"
 
 // App/Presentation adapter layer: UI-facing list of recent transactions.
@@ -21,6 +22,11 @@ struct TransactionListEntry {
     // T014: deterministic secondary text for ProtocolError rows formatted in
     // this Qt adapter (never in Core). Empty for every other row.
     QString issueText;
+    // M10-A: Active Serial provenance + wire evidence, OPTIONAL and
+    // provenance-scoped on purpose — Simulator/Replay/passive rows and every
+    // pre-M10 fixture construct the entry without it (no fake transport facts
+    // are ever invented for sources that have none).
+    std::optional<modbuslens::core::ActiveSerialProvenance> activeSerialProvenance;
 };
 
 // Adapter formatting: TransactionIssue -> conservative deterministic Chinese

@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <optional>
 
+#include "core/active/ActiveTransactionEvidence.h"
+#include "core/analysis/TransactionProvenance.h"
 #include "core/analysis/TransactionStatistics.h"
 #include "core/diagnosis/DiagnosisContext.h"
 #include "core/diagnosis/RuleBasedDiagnosis.h"
@@ -20,6 +22,7 @@
 #include "ui/agent/ModelScopeAgentClient.h"
 #include "ui/ai/ModelScopeDiagnosisClient.h"
 #include "ui/serial/SerialPortAdapter.h"
+#include "ui/serial/SerialTransport.h"
 
 // Application-layer adapter between modbuslens_core and QML (ADR001).
 // NOT part of modbuslens_core — Qt types are allowed only in this layer.
@@ -195,18 +198,43 @@ public:
 
     // T010 Part B hardware-free seam: maps an already-produced Core analysis
     // into the shared dashboard (one row + one-element statistics batch,
-    // replace semantics). Production path: the adapter's transactionCompleted
-    // reaches handleSerialTransactionCompleted, which validates pending
-    // metadata and delegates here; tests call this helper directly with
+    // replace semantics). Production path: the transport's completion
+    // reaches handleSerialTransactionCompleted, which validates the pending
+    // snapshot and delegates here; tests call this helper directly with
     // TransactionAnalysis fixtures — mapping correctness is what it proves.
     void publishSerialResult(const QString& sourceLabel, int deviceAddress,
                              const modbuslens::core::TransactionAnalysis& analysis);
 
-    // Production completion entry: guards against stale completions (an
-    // analysis arriving with no pending serial metadata must NEVER override
-    // the current Simulator/Replay batch — UI-S10).
+    // ---- M10-A: Active Master contract foundation (C++ seams only) ----
+    // Production completion entry: guards against stale completions (a
+    // result arriving with no pending serial metadata must NEVER override the
+    // current Simulator/Replay batch — UI-S10) and retains the transaction as
+    // an authoritative session record (send-time intent snapshot + wire
+    // evidence), which is never overwritten by a later transaction.
     void handleSerialTransactionCompleted(
-        const modbuslens::core::TransactionAnalysis& analysis);
+        const modbuslens::core::ActiveTransactionResult& result);
+
+    // Transport seam (never reaches QML): point the runtime at an alternative
+    // transport implementation — deterministic tests inject a recording
+    // transport here. nullptr restores the built-in production adapter. The
+    // injected transport is NOT owned by the controller.
+    void setSerialTransport(SerialTransport* transport);
+
+    // Append foundation for Active Serial session history: records one
+    // completed transaction and publishes the whole session by APPEND (rows
+    // and statistics project every record; nothing is replaced). The
+    // production FC03 path deliberately publishes latest-only presentation in
+    // M10-A — switching presentation to this projection changes visible
+    // aggregation and therefore belongs to the M10-B FC03 contract migration.
+    void appendSerialTransaction(const modbuslens::core::ActiveTransactionRecord& record);
+
+    // Source identity (typed, never inferred from modeLabel text, a workspace
+    // index or a filename) and the Active Serial session it belongs to.
+    [[nodiscard]] modbuslens::core::TransactionSourceKind sourceKind() const;
+    [[nodiscard]] std::uint64_t activeSerialSessionId() const;
+    [[nodiscard]] int activeSerialRecordCount() const;
+    [[nodiscard]] const std::vector<modbuslens::core::ActiveTransactionRecord>&
+    activeSerialRecords() const;
 
 signals:
     void statisticsChanged();
@@ -253,6 +281,20 @@ private:
     // identity invalidated, and activeBatchRevision_ is bumped.
     void invalidateAiForBatchChange();
 
+    // M10-A: single latest-only publish path shared by the production
+    // completion and the hardware-free mapping seam, so the two can never
+    // diverge. `provenance` is present only for Active Serial transactions.
+    void publishCompletedTransaction(
+        const QString& sourceLabel, std::uint8_t deviceAddress,
+        std::uint8_t functionCode,
+        const modbuslens::core::TransactionAnalysis& analysis,
+        std::optional<modbuslens::core::ActiveSerialProvenance> provenance);
+    // Append projection: rows/statistics/diagnosis batch are rebuilt from the
+    // whole Active Serial session history (used by appendSerialTransaction).
+    void rebuildActiveSerialProjection();
+    // (Re)connects the completion/error doors of the active transport.
+    void connectSerialTransportSignals(SerialTransport& transport);
+
     modbuslens::core::TransactionStatisticsSnapshot statistics_;
     TransactionListModel transactionModel_;
 
@@ -263,10 +305,17 @@ private:
     QString replayNoticeText_;
     QString modeLabel_ = QStringLiteral("模拟器模式");
     QString sourceLabel_ = QStringLiteral("确定性演示");
+    // M10-A: TYPED source identity (Simulator / Replay / ActiveSerial) — the
+    // label strings above stay presentation only.
+    modbuslens::core::TransactionSourceKind sourceKind_ =
+        modbuslens::core::TransactionSourceKind::Simulator;
 
     // T010 Part B: the SINGLE serial adapter owned by the app layer (never a
     // second QSerialPort anywhere; QML never sees this object).
     SerialTransactionAdapter serialAdapter_;
+    // M10-A seam: production default points at serialAdapter_; tests may point
+    // it at a recording transport instead (never owned here).
+    SerialTransport* serialTransport_ = nullptr;
 
     QStringList serialPortNames_;
     bool serialConnected_ = false;
@@ -274,7 +323,15 @@ private:
     bool hasSerialError_ = false;
     QString serialErrorMessage_;
     QString serialSourceLabel_;                       // "COM3 @ 9600"
-    std::optional<std::uint8_t> pendingSerialAddress_; // only while reading
+    // Active Serial session identity: bumped on every successful connect, so
+    // records of two sessions can never be confused for one history.
+    std::uint64_t activeSerialSessionId_ = 0;
+    // Send-time snapshot of the in-flight request (its presence is also the
+    // stale-completion guard). NEVER re-read from QML at completion time.
+    std::optional<modbuslens::core::ActiveRequestDescriptor> pendingRequest_;
+    // Authoritative Active Serial session history (append-only per completed
+    // transaction; the wire evidence lives here, not in a QML row).
+    std::vector<modbuslens::core::ActiveTransactionRecord> activeSerialRecords_;
 
     // T011 Part A: the STRUCTURED active batch for diagnosis — same source
     // as rows + statistics on every successful publish (never reconstructed

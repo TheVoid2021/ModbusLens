@@ -21,7 +21,7 @@ std::vector<std::uint8_t> toBytes(const QByteArray& data)
 } // namespace
 
 SerialTransactionAdapter::SerialTransactionAdapter(QObject* parent)
-    : QObject(parent)
+    : SerialTransport(parent)
 {
     // 8N1 — the v1 fixed configuration (baud is caller-provided).
     port_.setDataBits(QSerialPort::Data8);
@@ -36,7 +36,7 @@ SerialTransactionAdapter::SerialTransactionAdapter(QObject* parent)
     // Queued on purpose: errorOccurred fires SYNCHRONOUSLY inside open() on
     // failure, and re-entering the half-open port from that call stack
     // corrupts Qt state. Queued delivery defers handling until the event
-    // loop; the synchronous open-failure path in startTransaction already
+    // loop; the synchronous open-failure path in startActiveRequest already
     // reports the transport error itself.
     connect(&port_, &QSerialPort::errorOccurred,
             this, &SerialTransactionAdapter::handlePortError,
@@ -67,43 +67,51 @@ bool SerialTransactionAdapter::openPort(const QString& portName, qint32 baudRate
     return true;
 }
 
-bool SerialTransactionAdapter::startTransaction(
-    std::uint8_t slaveAddress, std::uint16_t startAddress,
-    std::uint16_t quantity, std::chrono::milliseconds timeout)
+modbuslens::core::ActiveStartResult SerialTransactionAdapter::startActiveRequest(
+    const modbuslens::core::ActiveRequestDescriptor& request)
 {
+    using modbuslens::core::ActiveStartResult;
+    using modbuslens::core::TransportDisposition;
+
     if (!port_.isOpen()) {
         emit transportError(QStringLiteral("串口未连接：请先打开串口"));
-        return false;
+        return ActiveStartResult{false, TransportDisposition::NotSent};
     }
     if (hasActiveTransaction()) {
         emit transportError(QStringLiteral("串口忙：已有事务进行中"));
-        return false;
+        return ActiveStartResult{false, TransportDisposition::NotSent};
     }
 
-    const auto begin = session_.beginReadHoldingRegisters(
-        slaveAddress, startAddress, quantity, timeout);
+    const auto begin = session_.beginActiveRequest(request);
     if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
         emit transportError(QStringLiteral("串口请求无效"));
-        return false;
+        return ActiveStartResult{false, TransportDisposition::NotSent};
     }
-    const auto& start = std::get<modbuslens::core::SerialRequestStart>(begin);
+    const auto& accepted = std::get<modbuslens::core::ActiveRequestDescriptor>(begin);
 
+    observedResponseBytes_.clear();
     const auto written = port_.write(
-        reinterpret_cast<const char*>(start.requestWire.data()),
-        static_cast<qint64>(start.requestWire.size()));
-    if (written != static_cast<qint64>(start.requestWire.size())) {
-        // Write failure is a local transport fact — never a 1000ms Timeout.
-        // The port is unusable after a failed write: close it and let the
-        // controller re-sync from isPortOpen().
+        reinterpret_cast<const char*>(accepted.wire.data()),
+        static_cast<qint64>(accepted.wire.size()));
+    if (written != static_cast<qint64>(accepted.wire.size())) {
+        // A short write is a local transport fact — never a 1000ms Timeout —
+        // but the bytes already accepted by Qt cannot be proven absent from
+        // the wire: PossiblySent, not NotSent. The port is unusable after a
+        // failed write: close it and let the controller re-sync from
+        // isPortOpen().
         cancelPending();
         emit transportError(
             QStringLiteral("串口写入失败：%1").arg(port_.errorString()));
-        return false;
+        return ActiveStartResult{false, TransportDisposition::PossiblySent};
     }
 
+    // Full write: the request is in the transmission lifecycle. Response
+    // waiting starts here (the QTimer is the response-timeout callback), and
+    // the threshold comes from the intent snapshot — never from a second
+    // parameter that could disagree with it.
     elapsed_.start();
-    timeoutTimer_.start(static_cast<int>(timeout.count()));
-    return true;
+    timeoutTimer_.start(static_cast<int>(accepted.intent.timeout.count()));
+    return ActiveStartResult{true, TransportDisposition::PossiblySent};
 }
 
 bool SerialTransactionAdapter::hasActiveTransaction() const
@@ -124,29 +132,59 @@ void SerialTransactionAdapter::closePort()
     timeoutTimer_.stop();
     port_.close();
     elapsed_.invalidate();
+    observedResponseBytes_.clear();
 }
 
 void SerialTransactionAdapter::handleReadyRead()
 {
     const auto bytes = toBytes(port_.readAll());
+    // Evidence first: whatever arrived is retained verbatim, even when it
+    // turns out to be an incomplete or corrupt candidate.
+    observedResponseBytes_.insert(
+        observedResponseBytes_.end(), bytes.begin(), bytes.end());
+
+    // The send-time snapshot must be captured BEFORE feeding: a completed
+    // feed resets the session to Idle.
+    const auto pending = session_.pendingRequest();
+
     const auto result = session_.feedResponseBytes(
         bytes, std::chrono::milliseconds{elapsed_.elapsed()});
 
     if (const auto* analysis =
             std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
         timeoutTimer_.stop();
-        emit transactionCompleted(*analysis);
+        if (pending.has_value()) {
+            emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
+                .request = *pending,
+                .responseAdu = observedResponseBytes_,
+                .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+                .analysis = *analysis,
+            });
+        }
+        observedResponseBytes_.clear();
     }
 }
 
 void SerialTransactionAdapter::handleTimeout()
 {
+    const auto pending = session_.pendingRequest();
+
     const auto result = session_.onResponseTimeout(
         std::chrono::milliseconds{elapsed_.elapsed()});
 
     if (const auto* analysis =
             std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
-        emit transactionCompleted(*analysis);
+        if (pending.has_value()) {
+            emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
+                .request = *pending,
+                // Empty when nothing was ever observed: the honest
+                // representation of a pure no-response timeout.
+                .responseAdu = observedResponseBytes_,
+                .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+                .analysis = *analysis,
+            });
+        }
+        observedResponseBytes_.clear();
     }
     // NotActive can only mean a stray timer fire after completion — the
     // timer is stopped on completion, nothing to do here.
@@ -162,7 +200,10 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
     suppressPortErrors_ = true;
     if (hasActiveTransaction()) {
         // Transport failure aborts the transaction WITHOUT fabricating a
-        // Modbus status (Timeout stays a purely "no response" fact).
+        // Modbus status (Timeout stays a purely "no response" fact). The
+        // bytes may already be on the wire, so no completion is emitted and
+        // the evidence of this attempt is discarded with the abort — the
+        // controller sees the transport error, not a fake transaction.
         session_.cancel();
         timeoutTimer_.stop();
         emit transportError(
@@ -170,6 +211,7 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
     }
     port_.close();
     elapsed_.invalidate();
+    observedResponseBytes_.clear();
 }
 
 void SerialTransactionAdapter::cancelPending()
@@ -179,4 +221,5 @@ void SerialTransactionAdapter::cancelPending()
     timeoutTimer_.stop();
     port_.close();
     elapsed_.invalidate();
+    observedResponseBytes_.clear();
 }

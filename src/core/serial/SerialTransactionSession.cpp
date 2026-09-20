@@ -7,10 +7,89 @@ namespace modbuslens::core {
 
 namespace {
 
-constexpr std::uint8_t kMinSlaveAddress = 1;
-constexpr std::uint8_t kMaxSlaveAddress = 247; // 0=broadcast, 248+ reserved
+// Local (pre-send) intent validation -> session error vocabulary. These are
+// NOT Modbus diagnoses: they are refused before any byte leaves the process.
+std::optional<SerialTransactionErrorCode> mapValidationError(
+    std::optional<ActiveRequestValidationError> error)
+{
+    if (!error.has_value()) {
+        return std::nullopt;
+    }
+    switch (*error) {
+    case ActiveRequestValidationError::UnitIdNotUnicast:
+        return SerialTransactionErrorCode::InvalidAddress;
+    case ActiveRequestValidationError::QuantityOutOfRange:
+        return SerialTransactionErrorCode::InvalidQuantity;
+    case ActiveRequestValidationError::TimeoutNotPositive:
+        return SerialTransactionErrorCode::InvalidTimeout;
+    case ActiveRequestValidationError::PayloadFunctionMismatch:
+        return SerialTransactionErrorCode::InvalidRequestDescriptor;
+    }
+    return SerialTransactionErrorCode::InvalidRequestDescriptor;
+}
+
+// A descriptor must be self-consistent: the semantic frame must describe the
+// same request as the intent, and the wire bytes must be exactly that frame's
+// encoding. This is what makes "the bytes handed to the transport ARE the
+// encoded intent" a property of the type system instead of a convention.
+bool descriptorIsConsistent(const ActiveRequestDescriptor& request)
+{
+    if (request.wire.empty()) {
+        return false;
+    }
+    if (request.frame.address != request.intent.unitId) {
+        return false;
+    }
+    if (request.frame.functionCode != activeFunctionCode(request.intent.function)) {
+        return false;
+    }
+    const auto decoded = decodeRtuFrame(request.wire);
+    const auto* frame = std::get_if<ModbusRtuFrame>(&decoded);
+    return frame != nullptr && *frame == request.frame;
+}
 
 } // namespace
+
+bool activeFunctionSupported(ActiveFunction function)
+{
+    // M10-A wires exactly one active analyzer (Function 0x03). 0x06 / 0x10
+    // stay structurally representable but are refused before any send until
+    // M10-D/E add their encoders and validators.
+    return function == ActiveFunction::ReadHoldingRegisters;
+}
+
+SerialStartResult SerialTransactionSession::beginActiveRequest(
+    const ActiveRequestDescriptor& request)
+{
+    // One-outstanding rule: a pending transaction stays 100% intact.
+    if (state_ != SerialTransactionState::Idle) {
+        return SerialTransactionError{SerialTransactionErrorCode::Busy};
+    }
+
+    // Reuse the shared validation (single source for both the Controller and
+    // the session) — never re-derive ranges here.
+    if (const auto error = mapValidationError(
+            validateActiveRequestIntent(request.intent));
+        error.has_value()) {
+        return SerialTransactionError{*error};
+    }
+
+    if (!activeFunctionSupported(request.intent.function)) {
+        return SerialTransactionError{
+            SerialTransactionErrorCode::UnsupportedFunction};
+    }
+    if (!descriptorIsConsistent(request)) {
+        return SerialTransactionError{
+            SerialTransactionErrorCode::InvalidRequestDescriptor};
+    }
+
+    // Commit: everything local first, a single mutation point, no half state.
+    pending_ = request;
+    timeoutThreshold_ = request.intent.timeout;
+    buffer_.clear();
+    state_ = SerialTransactionState::AwaitingResponse;
+    return request;
+}
 
 SerialStartResult SerialTransactionSession::beginReadHoldingRegisters(
     std::uint8_t slaveAddress,
@@ -18,34 +97,28 @@ SerialStartResult SerialTransactionSession::beginReadHoldingRegisters(
     std::uint16_t quantity,
     std::chrono::milliseconds timeoutThreshold)
 {
-    // One-outstanding rule: a pending transaction stays 100% intact.
-    if (state_ != SerialTransactionState::Idle) {
-        return SerialTransactionError{SerialTransactionErrorCode::Busy};
+    // Thin FC03 convenience: the unified intent is the only request model, so
+    // this path cannot drift from the generic one.
+    const ActiveRequestIntent intent{
+        .function = ActiveFunction::ReadHoldingRegisters,
+        .unitId = slaveAddress,
+        .timeout = timeoutThreshold,
+        .payload = ReadHoldingRegistersIntent{
+            .startAddress = startAddress,
+            .quantity = quantity,
+        },
+    };
+    // Local validation first so the historical error codes survive verbatim
+    // (InvalidAddress / InvalidQuantity) before the encoder adds its own.
+    if (const auto error = mapValidationError(validateActiveRequestIntent(intent));
+        error.has_value()) {
+        return SerialTransactionError{*error};
     }
-    // Unicast-only: FC03 requires a reply, broadcast has no reply semantics.
-    if (slaveAddress < kMinSlaveAddress || slaveAddress > kMaxSlaveAddress) {
-        return SerialTransactionError{SerialTransactionErrorCode::InvalidAddress};
-    }
-
-    // Trusted request: built by the semantic encoder (quantity validated
-    // there), wire + CRC by the RTU codec. Build every local BEFORE mutating
-    // any member so a failure never leaves a half-initialized state.
-    const auto encoded =
-        encodeReadHoldingRegistersRequest(slaveAddress, startAddress, quantity);
-    if (std::get_if<Function03EncodeError>(&encoded) != nullptr) {
+    const auto encoded = encodeActiveRequest(intent);
+    if (std::get_if<ActiveRequestEncodeError>(&encoded) != nullptr) {
         return SerialTransactionError{SerialTransactionErrorCode::InvalidQuantity};
     }
-    const auto requestFrame = std::get<ModbusRtuFrame>(encoded);
-    auto requestWire = encodeRtuFrame(requestFrame);
-
-    request_ = requestFrame;
-    timeoutThreshold_ = timeoutThreshold;
-    buffer_.clear();
-    state_ = SerialTransactionState::AwaitingResponse;
-    return SerialRequestStart{
-        .requestFrame = requestFrame,
-        .requestWire = std::move(requestWire),
-    };
+    return beginActiveRequest(std::get<ActiveRequestDescriptor>(encoded));
 }
 
 SerialFeedResult SerialTransactionSession::feedResponseBytes(
@@ -92,8 +165,8 @@ SerialTimeoutResult SerialTransactionSession::onResponseTimeout(
 
     TransactionAnalysis analysis{};
     if (buffer_.empty()) {
-        // No bytes at all: "no response" — T007 decides Timeout vs Pending
-        // from elapsed/threshold.
+        // No bytes at all: "no response" — the analyzer decides Timeout vs
+        // Pending from elapsed/threshold.
         analyzeAndReset(ResponseObservation{NoResponse{}}, elapsed, analysis);
     } else {
         // Partial or oversized bytes: the device DID answer something. Decode
@@ -124,6 +197,11 @@ SerialTransactionState SerialTransactionSession::state() const
     return state_;
 }
 
+std::optional<ActiveRequestDescriptor> SerialTransactionSession::pendingRequest() const
+{
+    return pending_;
+}
+
 std::optional<std::size_t> SerialTransactionSession::candidateFrameLength() const
 {
     // T010 framing rules:
@@ -140,7 +218,7 @@ std::optional<std::size_t> SerialTransactionSession::candidateFrameLength() cons
     }
     // Normal FC03 reply: Address | 03 | ByteCount | data | CRC(2) whose
     // total length is derived from the RESPONSE's own byteCount — never
-    // from the request quantity (A16: the mismatch is T007's verdict).
+    // from the request quantity (A16: the mismatch is the analyzer's verdict).
     if (function == 0x03) {
         if (buffer_.size() < 3) {
             return std::nullopt; // byteCount not arrived yet
@@ -156,7 +234,7 @@ std::optional<std::size_t> SerialTransactionSession::candidateFrameLength() cons
 void SerialTransactionSession::resetToIdle()
 {
     buffer_.clear();
-    request_ = ModbusRtuFrame{};
+    pending_.reset();
     state_ = SerialTransactionState::Idle;
 }
 
@@ -165,10 +243,43 @@ void SerialTransactionSession::analyzeAndReset(
     std::chrono::milliseconds elapsed,
     TransactionAnalysis& out)
 {
-    // Reuse the existing analyzer — the session never re-derives statuses.
-    out = analyzeFunction03Transaction(request_, observation, elapsed,
-                                       timeoutThreshold_);
+    // The response verdict comes from the shared analyzer — the session never
+    // re-derives statuses, and it dispatches on the SEND-TIME snapshot.
+    if (pending_.has_value()) {
+        out = analyzeActiveResponse(*pending_, observation, elapsed, timeoutThreshold_);
+    }
     resetToIdle();
+}
+
+TransactionAnalysis analyzeActiveResponse(
+    const ActiveRequestDescriptor& request,
+    const ResponseObservation& observation,
+    std::chrono::milliseconds elapsed,
+    std::chrono::milliseconds timeoutThreshold)
+{
+    switch (request.intent.function) {
+    case ActiveFunction::ReadHoldingRegisters:
+        // Trusted-request contract of the active path: the request was
+        // validated and encoded locally, so T007's analyzer is the authority.
+        return analyzeFunction03Transaction(
+            request.frame, observation, elapsed, timeoutThreshold);
+    case ActiveFunction::WriteSingleRegister:
+    case ActiveFunction::WriteMultipleRegisters:
+        // Unreachable: beginActiveRequest refuses unsupported functions
+        // before any send. Kept as a deterministic defensive branch (the same
+        // discipline as TransactionIssueCode::UnknownProtocolError) instead
+        // of inventing a verdict for a function nobody can send yet.
+        break;
+    }
+
+    TransactionIssue defensiveIssue{};
+    defensiveIssue.code = TransactionIssueCode::UnknownProtocolError;
+    return TransactionAnalysis{
+        .status = TransactionStatus::ProtocolError,
+        .elapsed = elapsed,
+        .exceptionCode = std::nullopt,
+        .issue = defensiveIssue,
+    };
 }
 
 } // namespace modbuslens::core
