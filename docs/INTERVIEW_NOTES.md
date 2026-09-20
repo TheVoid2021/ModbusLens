@@ -682,3 +682,16 @@
 - **Q：为什么 confirmation 方案不在 Phase 1 定案？** A：因为四种方案（每次 modal / armed mode / 分级确认 / 无 modal 但强显式）在安全性与操作性上有实质取舍，而且键盘可用性影响不同（modal 需要自管 Tab 边界）。这属于产品决策，Review 需要看到 trade-offs 后裁定；Learning 阶段替用户选一个反而是越权。
 - **Q：为什么不新建第 6 个 workspace？** A：因为 Communication workspace 已经是天然 owner（它已有串口连接、请求区、FC03 读按钮，且下游的 transactions/statistics/diagnosis 管线都在同一会话里）。M9 刚冻结的 IA 不应被顺手推翻；写能力应该在同一页内用 read/write 分区表达安全等级差异。
 - **Q：M10 会不会给 Agent 加写工具？** A：**不会**。冻结：AI / Agent 没有 implicit write authority，现有 3 个只读 tools（get_session_summary / get_recent_anomalies / get_transaction_detail）不得因 M10 升级；任何 AI-assisted write 必须另立产品与 safety design（新任务 + 新 ADR）。
+
+## 74. Post-T022 M10 Phase 1 Review = HOLD → Correction 条目（2026-09-20 追加）
+
+- **Q：Phase 1 的 source audit 已经被接受了，为什么还要 HOLD？** A：因为「理解现状」和「把安全契约冻结到可以实现」是两件事。HOLD 点名的是四个**进入代码前必须闭**的契约：确定性 transport seam、write transmission disposition、write evidence 归属、echo-mismatch 与 issue 正交；另外要求把 0x10 的命名写清、把 12 项 decision 从「待裁定」落成决议。设计方向没有被推翻，被要求的是**把模糊处写成可验证的句子**。
+- **Q：为什么必须要有 recording / fake transport？** A：因为写安全最关键的断言是**否定式**的：「这次动作**没有**发出任何请求」「连按两次**只**发出一次」。真实 QSerialPort 上没法证明这件事——没有设备时你连"发出了没有"都拿不到确定性证据。所以 M10-A 必须先建立 Controller → transport 的可替换 seam，让测试能记录 sendCount 与 exact ADU bytes，并配置 accept/reject、response、timeout、completion timing。**没有这个 seam，W1–W18 里一半的断言只能靠人工看日志猜。**
+- **Q：NotSent 和 PossiblySent 的区别为什么要单独立契约？** A：因为「写失败了」这句话在串口场景里可能是错的。代码审计显示：未连接 / 串口忙 / session begin 无效这三个前置拒绝**根本没进 write**，属于确定性的 NotSent；而 `write()` 后被断开或响应丢失时，字节**可能已经在线路上、设备可能已经执行**，这属于 PossiblySent，其设备状态是 **UNKNOWN**。如果 UI 把两者都写成「写入失败」，就是在告诉用户「设备没变」——一个我们并不拥有的事实。
+- **Q：timeout 为什么不能改成一个新的 outcome？** A：因为 outcome 与 presentation 是两层。M9 已冻结的 taxonomy（Pending/Success/Exception/CrcError/Timeout/ProtocolError/ExpectedNoResponse）继续用，写操作用的只是 **presentation/context 上的分层表述**：「响应超时，设备写入状态未知」。另造一套 public enum 会让事务、统计、诊断三处各自分叉。
+- **Q：审计里最有价值的一条发现是？** A：**FC06 与 0x10 的 echo 失配语义早已正确**：结构合法但回显字段不匹配 ⇒ `ProtocolError` + `WriteSingleRegisterEchoMismatch` / `WriteMultipleRegistersEchoMismatch`（带 expected/actual），而**匹配的回显即使请求语义非法也仍是 Success**——request issues 与 outcome 是正交轴，这一点写在源码注释里。所以 M10 不需要「修」这段行为，只需要**复用**；反过来，如果当初凭 issue 名字去猜 outcome，就会把已经正确的实现改坏。
+- **Q：为什么写操作的 raw ADU 一定要留在数据层？** A：因为写是不可逆的。FC03 读错了，重读一次即可；FC06 写错了，你需要的证据是「我到底发了什么字节、对方回了什么字节」。审计显示 `TransactionAnalysis` 与 `TransactionListEntry` 目前**一个字节都不保留**（`ResponseObservation` 只是分析输入，用完即弃），所以 M10 必须补最小字段。UI 要不要显示 hex 可以以后再说，但**数据层不能在发送后就把现场丢掉**。
+- **Q：为什么 active 广播写被直接拒绝，而不是用 ENR 表示？** A：广播写影响多个设备、且永远拿不到响应来确认结果；`ExpectedNoResponse` 的语义**恰恰是"不证明写成功"**。在诊断工具里给用户一个既不能确认成功、又可能同时改动多台设备的按钮，是拿安全性换功能性。v1 直接在 validation 拒绝（unit 0，sendCount = 0），passive/Replay 侧的 ENR 语义**原样保留**——它仍然是分析真实总线流量的重要状态。
+- **Q：为什么写操作要求每次确认，而不是用一个「armed write mode」？** A：armed mode 把安全性建立在**用户记得自己开过锁**上，而诊断工具的使用节奏是「很久写一次」，间隔越长越容易忘记状态。每次显式确认把危险动作绑在**当次的人为决策**上，也为 audit 提供清晰的边界（哪一次点击对应哪一次发送）。这条是 M10 v1 的冻结决定，不是永久产品决定。
+- **Q：为什么要求在同一个 session 内 append 事务，而不是新写一个 WriteHistoryModel？** A：因为第二套模型意味着第二套真相：统计、诊断、导出会各读一半。现有 `publishSerialResult` 是**单行替换**（FC03 场景下够用），但作为写操作的审计轨迹会把上一条证据覆盖掉——所以修的是**发布方式（append）**，不是**数据宇宙（复用现有 transaction universe）**。
+- **Q：这轮有没有偷偷改动产品代码？** A：没有。本轮严格 docs-only：三次审计只读源码，四个 blocker 全部以**设计契约 + 验收矩阵**的形式写进 T022（含 W1–W18、T1–T9），未改 src / QML / CMake / scripts / tests / assets / samples / screenshots。verified LKGC 保持 `aa2f3db`，v2.0.0 tag 仍 ABSENT，未 push。

@@ -1,10 +1,16 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：IN PROGRESS — Phase = Learning / Design（docs-only）；Implementation = NOT STARTED。**
+> **状态：IN PROGRESS — Phase = Learning / Design（docs-only）→ Phase 1 Review = HOLD → **Correction 已完成**（四个安全契约 A–D 闭环 + 12 项 decision requests 全部落为 Review 决议）；Implementation = NOT STARTED（等待 Re-review）。**
 > verified LKGC = `aa2f3db`（M9-F closure 后的 accepted behavior tree）；M9 = ✅ COMPLETE（不重开）。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
 > M9-E 的 version/PE/icon/package 契约、M9-F 的 focus/accessibility baseline **全部继续冻结**；M10 不得顺手改 focus visual / NavigationRail / packaging / StatisticsOverview。
+
+> **协议命名消歧批注（2026-09-20 Phase 1 Correction 追加，**不修改原有正文**）**
+> 本文档 §4 起的原始正文中出现的「**FC10**」一律指 **0x10（十进制 16，Write Multiple Registers）**，
+> 源码类名为 **`Function16`**——**不是**十进制 function code 10。
+> 此后所有 M10 文档：该功能**首次出现必须写全 `0x10（十进制 16，Write Multiple Registers）`**，**不得只写「FC10」**。
+> 原文按档案区规则保留不改，本批注即 §2 要求的 disambiguation。
 
 ## 0. V2 Protocol 对应
 
@@ -498,3 +504,375 @@ UI 层：qml_focus_check 架构内的 write 契约场景（W5/W6/W12；控件可
 未创建 v2.0.0 tag；未 push；未推进 verified LKGC（保持 `aa2f3db`）；未重开 M9 的任何主题。
 M10 Implementation = NOT STARTED（等待 Phase 1 Review）。
 ```
+
+## Phase 1 Review = HOLD + Correction（2026-09-20，append-only，docs-only）
+
+> **Phase 1 Review = HOLD（设计层面的窄 HOLD）**：**source audit 接受、Active Master 总体架构方向接受**；
+> HOLD 只因**进入 implementation 前必须冻结的四个安全契约尚未闭环**：
+> **A. deterministic transport seam** / **B. write transmission disposition** /
+> **C. transaction/write evidence ownership** / **D. echo-mismatch outcome 与 issue orthogonality**。
+> 本轮**只做 docs-only correction**：补齐上述契约并**把 12 项 decision requests 全部落为 Review 决议**（不再标 pending）。
+> 原 Phase 1 记录（§4–§43）**保留不删**；Implementation = **NOT STARTED**；verified LKGC 保持 `aa2f3db`；未创建 tag；未 push。
+
+### FC0. 本轮新做的三次真实源码审计（结论，非推断）
+
+```text
+① BLOCKER B 传输事实审计（`src/ui/serial/SerialPortAdapter.cpp`）：
+   startTransaction 有**四个** pre-send 返回点，其中前三个**完全未进入 write**：
+     1) `!port_.isOpen()`            → transportError「串口未连接…」→ **definitely not submitted**
+     2) `hasActiveTransaction()`     → transportError「串口忙…」    → **definitely not submitted**
+     3) `session_.beginReadHoldingRegisters(...)` 返回 error（Busy/InvalidAddress/InvalidQuantity）
+                                     → transportError「串口请求无效」→ **definitely not submitted**
+     4) `port_.write(...)` 短计数      → `cancelPending()`（session_.cancel + timer stop + **port close**）
+                                     → transportError「串口写入失败：…」→ **部分字节可能已交出 ⇒ 不是"definitely not"**
+   提交点：`port_.write(...)` 返回完整计数后立即 `elapsed_.start()` + `timeoutTimer_.start(timeout)`
+            ⇒ **进入 transmission lifecycle 与"开始等待响应"是同一时刻**。
+   运行期：`handleReadyRead` 形成完整候选 → 分析 → `transactionCompleted`；
+           `handleTimeout` → `session_.onResponseTimeout(elapsed)`（NoResponse→Timeout / 部分字节→CrcError·ProtocolError）；
+           `handlePortError` → 有 pending 时 `session_.cancel()` + transportError，**不伪造 Modbus 状态**；`closePort()` 为静默 cancel。
+   保守规则（冻结）：**`QSerialPort::write` 成功只证明字节被 Qt 接受，不证明到达线路** ⇒
+            once accepted into the transmission lifecycle，**无确认 response 一律按 UNKNOWN**（不制造精确性）。
+② BLOCKER D echo-mismatch 审计（`src/core/analysis/PassiveTransactionAnalysis.cpp`）：
+   **FC06**：结构合法但 echo 字段不匹配 ⇒ `status = **ProtocolError**` + issue = `WriteSingleRegisterEchoMismatch`
+             （payload：expected/actual registerAddress + expected/actual registerValue）。
+   **0x10**：同类不匹配 ⇒ `status = **ProtocolError**` + issue = `WriteMultipleRegistersEchoMismatch`
+             （payload：expected/actual startingAddress + expected/actual quantity）。
+   且代码显式保持正交：**matching normal reply ⇒ Success，即使 request 携带 invalid semantics**（那些事实只进 requestIssues）。
+   ⇒ **现有语义已满足 §17 的冻结架构，M10 只需复用，无需 behavior correction。**
+③ BLOCKER C evidence 审计（`src/core/analysis/TransactionAnalysis.h` + `src/ui/TransactionListModel.h`）：
+   `TransactionAnalysis` 只有 status / elapsed / exceptionCode / issue；`ResponseObservation`（`variant<ModbusRtuFrame, RtuDecodeError, NoResponse>`）
+   只是**分析输入**；Qt 层 `TransactionListEntry` 亦无字节字段。
+   ⇒ **wire evidence（request/response 原始 ADU）当前在分析后被丢弃** ⇒ M10 需按 §21 设计**最小新增字段**（数据层不得丢 wire evidence；UI v1 是否展示 hex 可 DEFER）。
+```
+
+### FC1. 协议命名消歧（冻结写法）
+
+```text
+M10 canonical 文档中，三种主动功能在**首次出现**时统一写：
+  **0x03（Read Holding Registers）** / **0x06（Write Single Register）** / **0x10（十进制 16，Write Multiple Registers）**。
+**不得**只写「FC10」——易被误读为十进制 function code 10；源码类名保持既有 **`Function16`**。
+历史标题可保留旧口径，但后续正文一律按上述消歧写法。
+```
+
+### FC2. v1 exact scope（冻结）
+
+```text
+M10 v1 主动功能 = **0x03 / 0x06 / 0x10** 三者；**不扩** 0x01 / 0x02 / 0x04 / 0x05 / 0x0F / vendor function。
+0x03 已有功能**不是重新实现**，而是纳入统一 Active Master contract（行为等价，见 FC21）。
+```
+
+### FC3. Broadcast Policy — Review 决议（active 广播在 v1 拒绝）
+
+```text
+**M10 v1 Active Master 不提供广播发送**：主动 UI 的 unit/slave = **0** 对 0x03 / 0x06 / 0x10 **一律在 validation 阶段拒绝**，
+**不得触达 transport**（sendCount = 0）。理由：广播写会影响多个设备且无响应可确认结果，在尚无专门广播安全设计时不暴露给用户。
+保留既有 `ExpectedNoResponse` / `InvalidBroadcastFunction` 在 **passive / Replay / protocol analysis** 中的语义（**不删除 ENR、不改统计定义**）。
+⇒ 原 Phase 1 计划中的「active broadcast write ENR」**移出 M10 v1 active acceptance matrix**，记录为**未来独立设计项**。
+```
+
+### FC4. Single In-flight — Review 决议
+
+```text
+M10 v1 = **single in-flight only**；不做 queue / parallel request / pipeline / concurrent writes。
+Controller 继续拥有 authoritative pending request；**只有当前事务完全结束**（Success / Exception / CrcError / Timeout / ProtocolError
+或本地 terminal result）后才允许下一次 Send。
+```
+
+### FC5. No Implicit Retry — Review 决议
+
+```text
+M10 v1：0x03 / 0x06 / 0x10 **全部 no implicit automatic retry**，包括 timeout / transport interruption / CRC error。
+用户可在一次事务终止后**显式再次按 Read·Write** 重试；**尤其禁止 write timeout 自动 resend**
+（设备可能已执行写入，只是 response 丢失）。
+```
+
+### FC6. Write Confirmation Policy — Review 决议
+
+```text
+**每次 0x06 / 0x10 都需要 explicit confirmation**。流程：编辑 draft → 点击 Write → **validation PASS** → 打开 confirmation →
+用户确认 → **才调用 transport**。**点击 Write 本身不得直接发送**。
+confirmation 必须展示：unit/slave、function、address；0x06 另需 **value**；0x10 另需 **start address / quantity / 全部 values**
+（允许滚动，**不允许隐藏实际 values**）；**不得**只显示「将写入 N 个寄存器」。
+confirmation 安全交互要求（contract，非 QML 实现）：Cancel 明确可达；keyboard focus 可见；**打开 dialog 本身不得发送**；
+**Enter/Space 不能因旧 hidden focus 绕过确认直接写**；**cancel = zero send**。
+最终 QML 形式留 Implementation；**不使用 armed write mode、不使用仅高风险值确认**（理由：诊断工具写频率较低，v1 优先 safety / auditability）。
+本条是 M10 v1 冻结决定，**不等于永久产品决定**。
+```
+
+### FC7. BLOCKER A — Deterministic Transport Seam（设计）
+
+```text
+源码事实：production transport 是 concrete `ui::SerialTransactionAdapter → QSerialPort`，**没有 deterministic fake transport**
+⇒ 对 write safety 测试不足。**M10-A 必须先建立 Controller → transport 的可替换 seam**。
+· Production implementation：QSerialPort adapter（不变）。
+· Test implementation：**Recording / Fake transport**，至少可：记录 send count / 记录 exact ADU bytes / 配置 accept·reject /
+  配置 response bytes / 配置 timeout / 配置 transport error / **明确控制 completion timing**。
+· 必须能确定性证明：**0 sends / exactly 1 send / never 2 sends**。
+· **不得把 QSerialPort 塞进 core**：core session 继续纯 C++20、无 Qt、无 COM knowledge。
+具体 interface 名称按现有命名风格在 Implementation 阶段定；本轮只冻结能力与边界（不预写代码）。
+```
+
+### FC8. Transport Test Boundary（两层冻结，禁止揉成一个 mock）
+
+```text
+A. **Transport fake** 回答：是否发送 / 发送几次 / 发送了什么 bytes / 何时收到结果。
+B. **SimulatedSlave** 回答：给定合法 ADU，**设备语义**如何响应。
+两者**分开**，不要把 transport 行为与设备语义揉成一个巨大 mock。
+```
+
+### FC9. BLOCKER B — Transmission Disposition（冻结定义）
+
+```text
+1. **NotSent**：请求在到达可实际发送阶段前已被拒绝。例如 validation fail / disconnected / busy / **confirmation cancel** /
+   adapter 明确 reject before send（FC0 的 1)2)3) 三类）。此时**可以确认设备没有因本次命令收到该 request**。
+2. **PossiblySent**：request 已进入可能离开主机的发送阶段，但**没有获得可信最终 response**。例如 response timeout /
+   发送后断线 / 某些 transport error / **短计数 write**。此时 **device state = UNKNOWN**。
+**不得把所有 transportError 都叫「write failed」。**
+```
+
+### FC10. Timeout Semantics（统一 outcome + 分层表述）
+
+```text
+outcome 继续统一使用既有 **Timeout**（**不引入第二套 outcome enum**）；presentation/context 区分：
+  · 0x03 timeout = 未收到读取响应。
+  · 0x06 / 0x10 timeout = **响应超时，设备写入状态未知**。
+**禁止**措辞：「写入失败」/「写入未发生」/「设备未改变」——均超出证据。
+```
+
+### FC11. Unified Validated Request Intent（三层责任）
+
+```text
+M10-A 设计**统一 validated intent**，至少可表达：function / unit·slave / start·register address / quantity /
+single value / multiple values / timeout，以及**必要 provenance**。
+分层：**UI Draft = page-local**；**Validated Intent = Controller/runtime authority**；**Encoded ADU = core codec 产物**。
+**QML 不得手拼 bytes；transport 不得重新解释 UI draft。**
+```
+
+### FC12. Pending Request Snapshot（冻结）
+
+```text
+开始发送后，pending request 必须保存 **Validated Intent snapshot**，**不得继续引用用户可编辑的 QML 字段**。
+用户发送后即使改 draft，进行中的 response matching **仍以发送时 snapshot 为唯一 authority**。
+匹配字段：**0x06 echo match = unit / function / address / value**；**0x10 response match = unit / function / start address / quantity**。
+```
+
+### FC13. SerialTransactionSession Generalization（设计）
+
+```text
+源码事实：当前 `core::SerialTransactionSession` 是 **0x03-specific**（`beginReadHoldingRegisters`）。
+Correction 设计要求：**泛化到 0x03 / 0x06 / 0x10，而不是复制三套平行状态机**
+（禁止 SerialWrite06Session / SerialWrite10Session 之类）。
+优先方案：**统一 request descriptor + function-specific response validation**（描述符携带 intent 快照与编码后的 request wire；
+响应校验按 function 分派），继续保持**纯 C++20 / 零 Qt**。本轮不 implementation。
+```
+
+### FC14. BLOCKER D — Echo-mismatch 现状（审计结论）
+
+```text
+见 FC0 ②：结构合法但 echo 不匹配时，**0x06 → ProtocolError + WriteSingleRegisterEchoMismatch**；
+**0x10 → ProtocolError + WriteMultipleRegistersEchoMismatch**；两者 payload 均含 expected/actual 字段。
+matching normal reply 即使 request 语义非法仍为 **Success**（request issues 独立承载）。
+⇒ **结论：现有 semantics 与冻结架构一致，M10 直接复用；本轮不需要 behavior correction，也未修改任何源码。**
+```
+
+### FC15. Outcome / Issue Orthogonality（继续冻结）
+
+```text
+Outcome 与 structured issue 是**正交轴**。**禁止**实现 `if issue exists → status = ProtocolError` 这类把 issue 当 status rewrite 的逻辑；
+0x06 / 0x10 的 echo mismatch 必须由 **response facts 分别导出 outcome 与 issue**（现有实现即如此）。
+```
+
+### FC16. Transaction Integration — Review 决议（同 universe + append）
+
+```text
+Active Master **复用现有 transaction universe**；**不建立** ActiveTransactionModel / WriteHistoryModel 之类**第二套世界**。
+但当前 `publishSerialResult` 的**单行 replacement** 不适合作为最终 write audit trail
+⇒ M10 设计：**同一个 Active Serial session 内，每次完成的 request APPEND transaction record**，
+**不得每次写覆盖上一条证据**；**Clear Results 才是显式清除入口**。
+```
+
+### FC17. Source Transition Boundary（冻结）
+
+```text
+source/session 切换继续遵守现有 **authoritative source contract**；**不得**把 Simulator / Replay / Active Serial 的 transaction
+无条件混成同一 session。进入 Active Serial source/session 时遵循现有 **source replacement** 语义；
+**同一个 Active Serial session 内** 0x03 / 0x06 / 0x10 连续请求 **append**。明确：**navigation 不切换 source**。
+```
+
+### FC18. Clear Results Contract（冻结，须写入 M10 acceptance）
+
+```text
+Clear Results **只清已经存在的 result / history presentation·domain records**；
+**不** disconnect、**不** cancel pending、**不** clear write draft、**不** send anything。
+若 Clear Results 发生在 request pending：**pending 继续**；未来 completion **作为新的 transaction 进入已经清空后的 session view**。
+```
+
+### FC19. BLOCKER C — Write Evidence（审计 + 最小字段设计）
+
+```text
+审计结论（FC0 ③）：现有 `TransactionAnalysis` / `TransactionListEntry` **均未保存 raw request·response bytes**。
+写操作至少需要可审计 evidence：**Validated Request Intent / Encoded request ADU / Raw response ADU（若存在）/ Outcome /
+Structured issues / transport disposition**。
+M10 最小新增（字段名 Implementation 定）：
+  · **request ADU bytes**（编码产物，随 pending snapshot 一起保存）；
+  · **response ADU bytes**（收到即保留，包含 CRC 错误/协议错误的原始字节）；
+  · **transport disposition**（NotSent / PossiblySent，见 FC9）。
+要求：**内部 transaction facts 至少保留 raw ADU**；**UI v1 是否立即展示 hex 可 DEFER**；
+**数据层不得把 wire evidence 发送后直接丢掉**。
+```
+
+### FC20. FC03 Regression Contract
+
+```text
+M10-B 目标 = 把既有 0x03 纳入统一 contract，**必须行为等价**：现有 valid read 继续工作；
+**不得**因统一框架改变 address range / quantity / timeout / statistics / diagnosis / source semantics（除非 Review 另行批准）。
+```
+
+### FC21. 0x06 Contract
+
+```text
+新增 **request encoder**。validated intent = unit / address / value / timeout。
+response matching = unit / function / address / value。
+本地 validation failure ⇒ **0 transport sends**；confirmation cancel ⇒ **0 transport sends**；accepted write ⇒ **exactly 1 send**；
+timeout ⇒ **Timeout + write state unknown**；echo mismatch ⇒ 按 FC14/FC15 的正交语义。
+```
+
+### FC22. 0x10（十进制 16）Contract
+
+```text
+名称统一 **0x10（decimal 16）Write Multiple Registers**。单一 authority = **values[]**，派生 **quantity 与 byteCount**；
+UI **不允许** values / quantity / byteCount 形成三份可互相冲突的 truth source。
+response matching = unit / function / start address / quantity。validation：**address + quantity 不得越寄存器范围**。
+同样：confirmation cancel = **0 send**；accepted = **exactly 1 send**。
+```
+
+### FC23. Active Broadcast Removal（修正原 Phase 1）
+
+```text
+M10 v1 simulator **不需要** active broadcast write acceptance（见 FC3）。
+原 **W8** 由「broadcast write = ENR」改为：**active unit 0 write 在 validation 阶段拒绝，transport send count = 0**。
+既有 **ENR 继续做 regression**（确保 M10 不破坏 passive broadcast semantics）。未来若支持 active broadcast：**另立安全设计**。
+```
+
+### FC24. Simulator Design（可写模拟从站）
+
+```text
+现有 `SimulatedSlave` 为 **const / read-only**。M10 设计：**显式 opt-in 的 mutable register bank**（默认初始化确定性）。
+  · 0x06 成功后：对应 register 更新；0x10 成功后：对应 contiguous registers 更新；
+  · **异常不得 mutation**；timeout / fault 按既有 fault seam **确定性**产生；
+  · **不要随机 / 线程 / 真实时钟**；
+  · 测试必须可精确断言 **before registers → request → after registers**。
+```
+
+### FC25. Recording Transport Acceptance Matrix（T1–T9）
+
+```text
+T1 validation reject → **sendCount = 0**
+T2 confirmation cancel → **sendCount = 0**
+T3 one explicit confirm → **sendCount = 1**
+T4 double click / repeated Space **while pending** → **sendCount = 1**
+T5 hidden Write control → **sendCount = 0**
+T6 navigation → **sendCount unchanged**
+T7 timeout after accepted send → **sendCount = 1 + write state UNKNOWN**
+T8 disconnect / busy precondition → 相应 **0-send** 行为
+T9 exact request ADU bytes **match encoder oracle**
+```
+
+### FC26. UI Ownership — Review 决议
+
+```text
+**Communication workspace** 拥有 Active Master UI，采用 **Read section + Write section**；**不新增 workspace**。
+Write section 内部可按 **0x06 / 0x10** 选择不同输入；
+**不得**用一个高度动态的巨大 function selector 把 read/write safety 混在一起。
+```
+
+### FC27. Draft Persistence（冻结）
+
+```text
+Write draft 继续 **page-local persistence**：切页 draft **保留**；pending request **Controller authoritative**。
+**page hidden 时不得** cancel / mutate intent / send / **receive keyboard activation** —— 继续**复用 M9-F page gating**。
+```
+
+### FC28. Real Hardware Boundary — Review 决议
+
+```text
+自动化 acceptance **不要求真实设备**。M10-F：若有**安全可写**的真实测试设备，人工验证 0x03 / 0x06 / 0x10 **并恢复原值**；
+若**无硬件**：M10 软件范围可 COMPLETE，但必须明确记录 **REAL HARDWARE NOT VERIFIED**，**不得**写 `hardware PASS`。
+任何未来正式发布 Active Write capability **应另有 hardware sign-off**。
+```
+
+### FC29. AI / Agent Authority — 最终决议
+
+```text
+**AI / Agent write authority = NONE**。M10 **不新增** write tool / send tool / raw serial tool。
+AI 可以**解释 / 建议 / 生成候选值**，但任何写操作必须**重新进入人类链路**：
+human UI → explicit Write → confirmation → transport。
+**不得**提供绕过 UI confirmation 的内部 Agent command。
+```
+
+### FC30. Updated Write-safety Matrix（W1–W18）
+
+```text
+W1  未连接不可发送（domain-side 拒绝，sendCount = 0）
+W2  非法输入永不触达 transport（UI + controller 双层校验，sendCount = 0）
+W3  一次显式动作 → 恰好 1 个 write request（sendCount = 1）
+W4  双击 / 连按 Space·Enter **在 pending 期间**不能产生重复 pending write（sendCount = 1）
+W5  导航不触发 write（sendCount 不变）
+W6  隐藏页保留焦点的控件不能触发 write（复用 M9-F page gating + H1S 型 oracle）
+W7  timeout 不得被表达为「设备未改变」（措辞/语义断言）
+W8  **改为：active unit 0 write 在 validation 阶段拒绝，sendCount = 0**（原「broadcast write = ENR」移出 v1）
+W9  Agent / AI 不能调用 write（tools 集合与调用路径断言）
+W10 校验失败保留 draft 供修正
+W11 response echo 失配 → 不是 Success（ProtocolError + 对应 issue，见 FC14）
+W12 Clear / reset UI 不得静默产生 write（sendCount = 0）
+W13 **confirmation cancel → sendCount = 0**
+W14 **transport accepted 后 timeout → device state UNKNOWN**
+W15 **transport pre-send rejection → NotSent**
+W16 **pending intent snapshot 不受后续 draft 编辑影响**
+W17 **raw request ADU 与 encoded intent 一致**
+W18 **同一 active serial session 内 transactions append，不覆盖旧 write evidence**
+```
+
+### FC31. Error / Result Semantics（分层，非第二套 public enum）
+
+```text
+至少设计：ValidationError / NotConnected·Busy（pre-send）/ TransportNotSent / PossiblySentTransportError / Timeout /
+ModbusException / ProtocolMismatch / Success。
+注意：**这不是要求创建另一套 public outcome enum** —— 这是 **presentation / transport disposition 的分层语义**；
+**public transaction outcome 继续复用既有 taxonomy**（Pending/Success/Exception/CrcError/Timeout/ProtocolError/ExpectedNoResponse）。
+```
+
+### FC32. Phase Sequencing — 修正后冻结（A→F）
+
+```text
+**M10-A Active Master contract foundation** 必须包括：unified Validated Intent / **generic SerialTransactionSession** /
+**deterministic recording transport seam** / transmission disposition / transaction append·evidence fields / **mutable simulator foundation**。
+**M10-B** 0x03 migration into unified contract（**行为等价**，见 FC20）。
+**M10-C** write safety UI foundation（write draft / confirmation / validation / busy·double-send / wording）。
+**M10-D** 0x06 end-to-end。**M10-E** 0x10 end-to-end。**M10-F** final automated·manual acceptance + optional real-hardware acceptance。
+**不得在 M10-A 直接实现 0x06 UI。**
+```
+
+### FC33. Decision Record（原 12 项全部标记为 Review 决议，不再 pending）
+
+```text
+ 1 scope = **0x03 / 0x06 / 0x10（decimal 16）**                                       —— RESOLVED（FC2）
+ 2 **single in-flight**                                                              —— RESOLVED（FC4）
+ 3 **每次 write 都 confirmation**                                                     —— RESOLVED（FC6）
+ 4 **no implicit retry**（read 与 write 皆无自动重试）                                 —— RESOLVED（FC5）
+ 5 **write timeout = state unknown**                                                 —— RESOLVED（FC10）
+ 6 **active broadcast 在 v1 拒绝**（passive ENR 保留）                                 —— RESOLVED（FC3）
+ 7 **Communication 拥有 UI**（Read + Write sections）                                  —— RESOLVED（FC26）
+ 8 **同一 transaction universe + active-session append**                              —— RESOLVED（FC16）
+ 9 **simulator + recording transport 双层测试**                                        —— RESOLVED（FC7/FC8）
+10 **hardware 非自动化；无硬件时必须披露 REAL HARDWARE NOT VERIFIED**                  —— RESOLVED（FC28）
+11 **AI / Agent authority = NONE**                                                   —— RESOLVED（FC29）
+12 **A→F sequencing 按本 correction 调整**                                             —— RESOLVED（FC32）
+```
+
+### FC34. 边界（本轮）
+
+```text
+docs-only：未修改 src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；
+未开始 M10-A implementation；未创建 v2.0.0 tag；未 push；**verified LKGC 保持 `aa2f3db`**；M9 保持 ✅ COMPLETE。
+状态：**M10 Phase 1 Correction / Re-review；Implementation = NOT STARTED**。
