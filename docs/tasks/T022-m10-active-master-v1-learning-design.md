@@ -1,7 +1,7 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：IN PROGRESS — Phase 1 = ✅ COMPLETE → M10-A 已实施 → Review = HOLD → Correction（post-submission evidence）→ Re-review = HOLD → **Final Closure：short-submission evidence 已保留**，等待 **M10-A Final Re-review**；M10-A **仍未 COMPLETE**；M10-B/C/D/E/F 未开始。**
-> verified LKGC = `aa2f3db`（M9-F closure 后的 accepted behavior tree）；M9 = ✅ COMPLETE（不重开）。
+> **状态：M10-A = ✅ COMPLETE（2026-09-20 Final Re-review PASS；最终 accepted behavior tree `b7a6151`，verified LKGC 已推进）。Next Action = **M10-B — FC03 Unified Contract Migration**（未开始）。**
+> verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
 > M9-E 的 version/PE/icon/package 契约、M9-F 的 focus/accessibility baseline **全部继续冻结**；M10 不得顺手改 focus visual / NavigationRail / packaging / StatisticsOverview。
@@ -1566,4 +1566,177 @@ tests：tests/fake_serial_transport.{h,cpp}（setSubmissionAcceptedBytes + 同 c
 behavior-bearing ⇒ 不作 LKGC。commit：`M10-A: retain short-submission evidence`
 （独立提交；不 amend `a09de6e`；不 rebase；不 push；未创建 v2.0.0 tag）。
 verified LKGC 保持 `aa2f3db`；**M10-A 等待最终 Re-review**（仍未 COMPLETE）。
+```
+## M10-A Final Acceptance / Closure（2026-09-20，docs-only）
+
+> **M10-A Final Re-review = PASS。M10-A = COMPLETE。**
+> 最终 accepted behavior tree = **`b7a6151`**。verified LKGC 由 `aa2f3db` 推进至 **`b7a6151`**。
+> 本轮严格 docs-only：未改 src / tests / QML / CMakeLists.txt / scripts / assets / samples / screenshots。
+
+### E0. Final Re-review PASS 归档
+
+```text
+M10-A Final Re-review = PASS（用户）；M10-A = COMPLETE。
+最后一个安全缺口（short submission 无 durable evidence）已关闭并通过验收。
+最终接受的 M10-A invariant：
+  **任何 attempt 若 submission disposition = PossiblySent，必须最终产生 exactly one durable evidence。**
+硬件状态：**M10-A 没有真实硬件验收 —— REAL HARDWARE NOT VERIFIED**；
+该事实**不阻塞** M10-A 的软件范围 COMPLETE，但不得被表述为 hardware PASS。
+```
+
+### E1. Accepted behavior chain（真实审计，按 `git show --stat --name-only` 文件列表分类，不看 commit message）
+
+```text
+18f27e9  M10-A: establish Active Master contract foundation      files=33 code/test=28 docs=5 ⇒ behavior-bearing
+a09de6e  M10-A: retain post-submission transport evidence          files=14 code/test= 9 docs=5 ⇒ behavior-bearing
+b7a6151  M10-A: retain short-submission evidence                   files=12 code/test= 7 docs=5 ⇒ behavior-bearing
+（同一区间的 docs/evidence-only 提交：2640556 / 0498d6c / 3e7aaeb / 86e88ed —— 均不作 LKGC。）
+最终 behavior tree = **b7a6151**（HEAD == b7a6151）⇒ 新 verified LKGC = `b7a6151`。
+本轮的 closure commit（docs-only）**不作 LKGC**。
+```
+
+### E2. M10-A Core Contracts（冻结）
+
+```text
+A. **ActiveRequestIntent** —— 统一 typed contract：`ActiveFunction{ReadHoldingRegisters(0x03), WriteSingleRegister(0x06),
+   WriteMultipleRegisters(0x10=十进制 16)}` + 闭合 payload variant + 单一 validation + `ActiveRequestDescriptor{intent, frame, exact wire}`；
+   无 QVariant map / 无 stringly-typed function / 无裸 JSON。
+B. **pending intent snapshot** —— 发送时 descriptor 是响应匹配的唯一权威；兼作 stale-completion guard。
+C. **generic SerialTransactionSession** —— 单一 lifecycle（Idle → begin(descriptor) → feed/timeout → Idle），
+   function-specific 语义收敛到 `analyzeActiveResponse()`；**不存在** SerialWrite06/10Session。
+D. **Controller → SerialTransport 可替换 seam** —— open / close / start 全部走 seam；注入对象不被 controller 所有。
+E. **production QSerialPort adapter** —— 真实串口语义（open/readyRead/timeout/port error、PE-4 有界错误）保持不变。
+F. **Recording / Fake transport** —— sendCount / startAttemptCount / exact ADU log / 可控 completion timing /
+   pre-send accept·reject / timeout / transport error / short-submission 注入；无 Sleep、无真实 COM、无 wall-clock race。
+G. **TransportDisposition 是 submission fact，不是 Modbus outcome**（两态；未 rename；可信 response 是更强事实）。
+H. **NotSent** —— pre-send 拒绝（validation / 未连接 / busy / pre-send reject / 未来 confirmation cancel）：
+   0 发送、无 transaction、无 terminal。
+I. **PossiblySent** —— 请求进入 transmission lifecycle 后线路无法被证明清白；**必须最终产生 exactly one durable evidence**。
+J. **raw request ADU retention** —— 发送时 descriptor 的 wire 原样保留（非事后重编码猜测）。
+K. **raw response ADU retention** —— 实际观察到的原始字节（含损坏/异常/协议错）保留。
+L. **partial / corrupt bytes retention** —— 终止与超时路径都不得在构造证据之前清空缓冲。
+M. **post-submit transport terminal evidence** —— `ActiveTransportTerminal`（不含 TransactionAnalysis）+ `transactionTerminated`。
+N. **ShortSubmission terminal evidence** —— submission 阶段部分接受 ⇒ terminal{ShortSubmission, submissionAcceptedByteCount}。
+O. **每个 attempt 最多一个 terminal path** —— 传输侧 cancel 后 session 回 Idle；controller 侧 pending 清空 + 身份校验。
+P. **Active Serial typed provenance** —— `TransactionSourceKind{Simulator, Replay, ActiveSerial}` + session id；不从文本/索引/文件名推断。
+Q. **session-scoped history foundation** —— `activeSerialRecords_`（completed）+ `activeSerialTerminations_`（terminal），
+   均为 append-only；source replacement 清空，不跨 source 泄漏。
+R. **Clear Results 不取消 pending** —— Clear 清 completed 结果与两类证据；pending 完成后作为新事件进入已清空视图。
+S. **deterministic writable simulator foundation** —— opt-in WriteMode、先解码后写入、非法/异常/异地址零 mutation、无随机/线程/真实时钟。
+T. **AI / Agent write authority = NONE** —— 无 write / send / raw-serial tool；seam 不是 Agent surface。
+```
+
+### E3. Submission Semantics Matrix（最终冻结，M10-D/E 不得自行重新解释）
+
+```text
+pre-send reject                    → NotSent      → no transaction → no terminal
+short submission                   → PossiblySent → no transaction → **one transport terminal**
+accepted + valid/exception response → PossiblySent（submission fact）→ one Modbus transaction → no transport terminal
+accepted + timeout                 → PossiblySent → one Timeout transaction → no transport terminal
+accepted + port error              → PossiblySent → no Modbus transaction → one transport terminal
+accepted + disconnect              → PossiblySent → no Modbus transaction → one transport terminal
+```
+
+### E4. Short Submission Contract（冻结）
+
+```text
+`ShortSubmission` 是 **transport terminal reason**（机器 token `short_submission`），保留：
+  Validated Request snapshot / **完整 intended request ADU** / **empty response ADU** / PossiblySent /
+  transport API accepted-byte count（若存在）。
+accepted-byte count 只代表 **transport API 报告接受的字节数**；
+**绝不代表**线上真实发送字节数，也**绝不代表**设备实际收到字节数。
+```
+
+### E5. Outcome Boundary（冻结）
+
+```text
+public outcome 继续为 Success / Exception / CrcError / Timeout / ProtocolError / Pending / ExpectedNoResponse。
+禁止因 transport terminal 新增或伪造第二套 public outcome（WriteFailed / TransportFailed / UnknownWriteOutcome…）。
+未来的 write 状态未知由 **operation context + Timeout / transport terminal + submission evidence** 组合表达。
+```
+
+### E6. M10-A Test Closure（最终 accepted gate，已归档，不再重跑）
+
+```text
+active_request ：17 passed（Pure Core：intent/validation/encode/descriptor 自洽/快照/泛化路径/evidence token/
+                 FC06·0x10 echo 回归/正交性回归/broadcast 拒绝）
+active_master  ：30 passed（按项目 QtTest 真实口径：TA15 + TF8 + TS5 = 28 用例 + initTestCase + cleanupTestCase）
+Debug ctest    ：29/29 PASS ；Release ctest：29/29 PASS（两构建零 warning / 零 error）
+qml_smoke / qml_nav / qml_geometry / qml_focus：PASS
+```
+
+### E7. FC03 Freeze（M10-A 未改变任何用户可见 FC03 行为）
+
+```text
+冻结：Communication UI / 参数范围（1..247、0..65535、1..125、timeout>0 及四条中文文案）/ FC03 wire bytes /
+busy behavior / timeout behavior / latest-only visible presentation —— 与 M9 及 M10 之前等价。
+注意：Active Serial 内部已有 **append history foundation**，但 **UI/presentation 仍 latest-only**；
+把 presentation 迁移到 append 投影属于 **M10-B**。
+```
+
+### E8. Write Scope Still Absent（M10-A COMPLETE ≠ Active Write 可用）
+
+```text
+0x06 active encoder：**不存在**（`encodeActiveRequest` → UnsupportedFunction）。
+0x10 active encoder：**不存在**（同上）。
+无 Write button / 无 confirmation dialog / 无 write UI / 无 Agent write tool。
+```
+
+### E9. Simulator Boundary
+
+```text
+writable simulator foundation 已存在（opt-in、确定性、非法零 mutation），但**真实硬件写入未验证**：
+**不得把 simulator PASS 写成 hardware PASS**。
+```
+
+### E10. Non-blocking Design Note（future hardening）
+
+```text
+**NON-BLOCKING NOTE**：当前 `ActiveStartResult` 通过 `accepted` + `disposition` + `optional terminal`
+三个字段表达三种合法 start semantics，构造点与测试已锁死合法矩阵。
+未来若该类型继续扩张，优先考虑 **factory / tagged variant / 等价 invariant-preserving API**，
+避免非法字段组合可被任意构造。这是 future hardening note，**不据此 reopening M10-A**。
+```
+
+### E11. Problems / RCA History（保留完整演进，不改写成一次成功）
+
+```text
+第一轮 18f27e9：transport injection 只做一半 ⇒ 注入的 fake 未被真正 open，TA02–TA09 初期整体失败。
+第二轮 a09de6e：post-submit error / disconnect / partial 路径**先清 evidence 后报错** ⇒ 证据丢失。
+第三轮 b7a6151：short submission 返回 false + PossiblySent **但无 durable evidence** ⇒ 不变式缺口。
+三次均由自动化或 Review 捕获，且每次都固化为契约/测试（TA、TF、TS、semantics matrix、PossiblySent invariant）。
+```
+
+### E12. M10-B Boundary（只记录 Next Action，不实现）
+
+```text
+**Next Action = M10-B — FC03 Unified Contract Migration。**
+目标方向：把现有 0x03 **完整迁移**到 M10-A 的统一 Active Master contract，保持 wire / protocol behavior **完全等价**，
+并处理 **Active Serial 内部 append history → 用户可见 transaction/history 契约**（presentation 迁移，需要 STOP+RCA 评审）。
+M10-B **不允许**顺手实现：0x06 encoder / 0x10 encoder / Write UI / confirmation。
+```
+
+### E13. Docs Changed（本轮）
+
+```text
+T022（本 §E0–E15 + header 状态）、PROJECT_STATUS（Milestone / Current Task / Phase / Next Action /
+两个 authoritative LKGC 行）、BACKLOG（M10 行 + changelog 新条目）、devlog（closure 条目）、
+INTERVIEW_NOTES（§78）。全部为 docs-only。
+```
+
+### E14. Final Verification
+
+```text
+提交前：`git diff --check` PASS；`git diff --name-only` 仅 docs/。
+提交后：`git status --porcelain` 为空；`git show --stat --name-only HEAD` 仅含 docs/；
+所有 authoritative verified LKGC 位置 = `b7a6151`；closure commit 不作 LKGC。
+```
+
+### E15. Git
+
+```text
+commit：`M10-A: close Active Master contract foundation`（独立 docs-only 提交；
+不 amend `b7a6151`；不 rebase；不 push；未创建 v2.0.0 tag）。
+M10 = IN PROGRESS；Phase 1 = COMPLETE；**M10-A = COMPLETE**；M10-B = NEXT；M9 = ✅ COMPLETE。
+verified LKGC = **`b7a6151`**。
 ```

@@ -727,3 +727,14 @@
 - **Q：写入返回 0 字节时为什么反而是 NotSent？** A：因为「一个字节都没被接受」可以确定地推出「本次调用没有任何字节离开进程」——这正是 NotSent 的定义。如果把 0 也归到 PossiblySent，不变式就会要求一个本不该存在的 terminal，同时把「确定没发」误报成「可能发了」。这是不变式自身的必要边界。
 - **Q：本轮留下的不变式对新功能意味着什么？** A：它是 M10-D/E 的**记账规则**：只要一次尝试的 submission disposition 是 PossiblySent，就必须能在会话里找到恰好一条对应的 durable evidence（事务记录或 terminal 记录）。这样「我到底发过没有」不再依赖日志文案，而是可以在代码与测试里被断言。
 - **Q：为什么这轮之后仍然不说 M10-A COMPLETE？** A：因为 M10-A 的定义是「通过人工 Re-review」，不是「自动测试全绿」。自动门禁（29/29 × Debug/Release、30 个 active_master 用例）只是提交条件；验收结论仍由 Review 给出，LKGC 也继续停在 `aa2f3db`。
+
+## 78. Post-T022 M10-A Final Acceptance / Closure 条目（2026-09-20 追加）
+
+- **Q：M10-A 的验收链为什么是三个 commit？** A：因为三次人工 Review 各挡住了一个真实缺口。`18f27e9` 建了地基（统一 intent / 泛化 session / transport seam / recording transport / evidence 保留）；Review 发现**submission 之后的终止路径会把证据丢掉**，于是有 `a09de6e`（port error / disconnect / partial 都保留快照与字节）；Re-review 又发现**short submission（写了一半）属于 PossiblySent 却没有任何证据**，于是有 `b7a6151`（ShortSubmission terminal + accepted-byte count + start-result 三语义）。classification 全部按 `git show --name-only` 的真实文件列表判定，不按 message。
+- **Q：为什么 LKGC 推到 `b7a6151` 而不是 closure commit？** A：LKGC 的定义是「最后一个**行为相关**且完整树通过全部门禁 + 人工验收」的提交。closure 提交只含 docs（T022/PROJECT_STATUS/BACKLOG/devlog/笔记），没有行为变化，不能代表行为树。这和 M9-F 时把 LKGC 推到 `aa2f3db` 而非 docs HEAD 是同一条规则。
+- **Q：「PossiblySent ⇒ exactly one durable evidence」到底约束了什么？** A：约束的是**记账完整性**：只要一次尝试可能已经把字节交给线路，运行时就必须能指出「这一次尝试」的证据——要么是一条已完成事务记录（走到 response/timeout），要么是一条 transport terminal（port error / disconnect / short submission）。这条不变式让未来的写操作不再依赖日志文案判断「我到底发过没有」。
+- **Q：semantics matrix 为什么要冻结成六行？** A：因为写操作最危险的错误不是崩溃，而是**把「未知」说成「确定」**。六行矩阵把「有没有事务记录」「有没有 terminal 证据」与每种 disposition 一一绑定，M10-D/E 实现写确认与结果展示时只能照着填，不能重新发明分类。例如 accepted + timeout 必须是「一条 Timeout 事务、没有 transport terminal」，而 accepted + port error 必须反过来。
+- **Q：为什么 short submission 的证据里还要留一个「接受字节数」？** A：为了在排障时能区分「一个字节都没被接受」与「接受了一半」。但它的语义被严格钉在 **transport API 边界**上：不是上线字节数，也不是设备收到字节数。把边界写死，才不会被当成物理层事实使用。
+- **Q：M10-A COMPLETE 是否意味着可以写寄存器了？** A：不意味。0x06 / 0x10 的 active encoder 仍然**不存在**（`encodeActiveRequest` 对它们返回 UnsupportedFunction），没有 Write button、没有确认对话框、Agent 也没有任何写工具。M10-A 交付的是**写操作的安全地基**（意图、快照、证据、终止语义、可注入的传输层），真正能写要等 M10-C/D/E。
+- **Q：为什么 simulator 能写不等于硬件能写？** A：simulator 是确定性的寄存器文件，写它没有任何物理后果；真机上写错寄存器可能改变设备行为。所以 M10-A 的结论只能是「软件范围 COMPLETE + REAL HARDWARE NOT VERIFIED」，绝不允许把 simulator PASS 写成 hardware PASS。
+- **Q：下一步 M10-B 的边界是什么？** A：把 0x03 完整迁移到统一 contract（行为等价），并处理 Active Serial 内部 append history 与用户可见 transaction/history 契约的差异——后者是**用户可见变化**，必须先 STOP+RCA 评审。M10-B 不允许顺手做写功能（encoder / Write UI / confirmation 都不行）。
