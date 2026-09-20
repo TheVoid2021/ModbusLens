@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1（§I0–I50）→ HOLD → Correction（§J0–J27）→ Re-review = HOLD → Final Correction 已落库（§K0–K21：confirmation state machine 与 dispatch capability 拆清；**13 项 decisions RESOLVED**），Implementation = NOT STARTED（等待 Phase 1 Final Re-review）**。**
+> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1（§I0–I50）→ §J0–J27 → §K0–K21 → **C1 已实现（§L0–L48：parser / validation / PreparedWriteSnapshot / 状态机 / invalidation / projection / tests），等待 M10-C1 Review；C2–C4 = NOT STARTED**（无 Dialog、无 production Write UI、无 encoder、无 transport send）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -3403,4 +3403,429 @@ docs-only：未改 src / tests / QML / CMakeLists.txt / scripts / assets / sampl
 未开始 C1；未实现 encoder / Write UI；未 push；未 tag；**verified LKGC 保持 `ef71244`**。
 commit：`M10-C: separate confirmation from write dispatch`（独立 docs-only 提交；不 amend `e1733a5`；不 rebase）。
 M10-C = Phase 1 Final Correction / Re-review（Implementation = NOT STARTED）。
+```
+## M10-C1 — Prepared Write Snapshot Foundation（2026-09-20，behavior-bearing）
+
+> **M10-C Phase 1 Final Re-review = PASS；M10-C Phase 1 = COMPLETE；M10-C1 = GO。**
+> 本轮实现**纯基础层**：write draft parsing / write validation（含 widened address-span）/
+> PreparedWriteSnapshot / generation·token / Prepared 状态机 / source·session·busy invalidation /
+> read-only projection / deterministic tests。
+> **本轮不做**：Dialog、production-visible Write UI、0x06 encoder、0x10 encoder、transport write send、
+> confirmation → transport、Agent write authority。继承冻结：§I / §J / §K 全部 Phase 1 decisions，不得重新解释。
+
+### L0. Preflight
+
+```text
+HEAD = `db2aea9`（main，clean）；verified LKGC = `ef71244`；M9 = ✅ COMPLETE；M10 Phase 1 = COMPLETE；
+M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE；M10-C Phase 1 = COMPLETE；CMake VERSION = 2.0.0；
+v1 tag object `2cee626` / target `ae067ab`；v2.0.0 **absent**；origin/main = `a40d935`（behind 0 / ahead 107）；
+`git diff --check` PASS —— 全部相符。
+```
+
+### L1. Source Re-read（A–F，实读源码事实）
+
+```text
+A. intent payload 真实字段类型：`WriteSingleRegisterIntent{ uint16 registerAddress, uint16 value }`；
+   `WriteMultipleRegistersIntent{ uint16 startAddress, std::vector<uint16> values }`；
+   `ActiveRequestIntent{ ActiveFunction, uint8 unitId, std::chrono::milliseconds timeout, payload }`。
+B. 因此 **uint8/uint16 字段无法表达未验证的越界输入**（65536 会变成 0、-1 会变成 65535）⇒
+   所有 draft/UI 侧输入必须以宽类型（int64_t）完成校验后才允许窄化（本轮的硬规则，见 §L3）。
+C. `serialBusy_` 写入点（源码）：`= false` 出现在 teardownSerialTransport / handleSerialTransportError /
+   connectSerial 成功 / 完成收尾 / 终止收尾；**`= true` 只有一处** = `readHoldingRegistersOnce` 被接受时。
+D. `sourceKind_` 写入点 = connectSerial 成功（ActiveSerial）/ runDemoBatch（Simulator）/ loadReplayFile 成功（Replay）；
+   `activeSerialSessionId_` 只在 connectSerial 成功时 `++`（单一会话边界）。
+E. **failed Replay replacement**：loadReplayFile 的所有失败分支都在 teardown/source 更新**之前** return ⇒
+   真实保持 ActiveSerial、同一 session、同一连接，仅置 replay 错误（本轮据此设计 I07 并实证）。
+F. **Clear Results** 只清 statistics / rows / 诊断批 / 两类会话证据 / 错误文案，**不改变** source / session /
+   connected / busy（源码实读）⇒ 不得 invalidate prepared snapshot（本轮 I09 实证）。
+```
+
+### L2. RED Baseline（R1–R8）
+
+```text
+RED 形式 = **编译级 + 源码事实**（新测试先写、真构建、真失败）：
+  命令：cmake --build build/debug --target modbuslens_write_prepare_tests
+  真实输出：`tests/test_write_prepare.cpp:9:10: fatal error: core/active/PreparedWriteSnapshot.h: No such file or directory`
+⇒ R1（无 PreparedWriteSnapshot）、R2（无 token/generation）、R3（无 Prepared/Consumed/Invalidated 状态机）、
+  R4（无严格 0x10 多行十进制 parser）、R5（无 widened span 的 write-prepare oracle）、
+  R8（Confirm one-shot 不可证明）在实现前**不可编译**；
+R6（Controller 不能保存 validated immutable write snapshot）与 R7（source/session/busy 变化不会 invalidate
+  不存在的 snapshot）由同一编译失败（Controller 新 seam 不存在）+ §L1 源码事实共同证明。
+**未使用临时 probe**（本轮采用编译级 RED，无需轮末删除物）。
+```
+
+### L3. Validate Before Narrowing（硬规则，已实现）
+
+```text
+`prepareWriteSingleRegisterIntent(unitId, registerAddress, value, timeoutMs)` 与
+`prepareWriteMultipleRegistersIntent(unitId, startAddress, valuesText, timeoutMs)` 的**全部入参都是 int64_t**，
+逐项校验通过后才 `static_cast` 到 uint8_t/uint16_t 并构造 typed intent。
+测试锁定：`65536` 不会变成 0 后通过；`-1` 不会变成 65535 后通过（V04/V06 断言 AddressOutOfRange / ValueOutOfRange）。
+```
+
+### L4. Write Validation Result（typed，非 bool / 非字符串 / 非 Modbus taxonomy）
+
+```text
+`WriteValidationError{ WriteValidationErrorCode code, std::optional<ValuesParseError> parseError }`：
+  UnitIdOutOfRange / AddressOutOfRange / ValueOutOfRange / TimeoutOutOfRange / ValuesParseError /
+  QuantityOutOfRange / AddressSpanOutOfRange。带 line/value 上下文（parse error 携带 lineIndex/valueIndex）。
+明确**不复用** `TransactionIssue` 或 Modbus outcome taxonomy：被拒绝的草稿不是协议事实，
+而是「这份输入无法成为写入意图」的本地事实。
+```
+
+### L5. 0x06 prepare validation
+
+```text
+unit 1..247（0 与 ≥248 reject，broadcast 不支持）；address 0..65535；value 0..65535；
+timeout 使用 **write UI presentation range 100..10000 ms**（`kWriteUiMinTimeoutMs` / `kWriteUiMaxTimeoutMs`；
+core authority 仍是 `> 0`，UI 刻意更严格且**从不静默 clamp**）。全部 PASS 后才窄化。
+```
+
+### L6. 0x10 Parser（纯 C++20，零 Qt）
+
+```text
+`parseRegisterValues(std::string_view) -> variant<ParsedRegisterValues, ValuesParseError>`：
+仅十进制无符号整数；每值 0..65535；保留输入顺序；拒绝 `+12` / `-1` / `0x10` / `1.5` / `1,2` / `abc` / `1 2`。
+```
+
+### L7. Line-ending 契约
+
+```text
+LF `"1\n2\n3"` 与 CRLF `"1\r\n2\r\n3"` 都必须接受；实现按行 trim `'\r'`（与普通空白一起），
+**不把行尾 '\r' 当作非法数字字符**，也不依赖 GUI 控件代为规范化（P02 机器测试锁定）。
+```
+
+### L8. Blank-line 契约（冻结自 Phase 1）
+
+```text
+首尾纯空白行忽略；**中间纯空白行 = error**（避免无声跳过一个寄存器位置）；
+全空白输入 = error（NoValues）；`blankLineIndex` 指向那条空白行（P04/P05 断言 lineIndex == 1）。
+```
+
+### L9. Parser Overflow
+
+```text
+逐字符累加到 uint64 并即时判 `> 65535` ⇒ `ValueOutOfRange`（**不 wrap、不抛异常、不依赖 locale**）。
+`999999999999999999999` 得到同一个确定性错误（P12）。
+```
+
+### L10. Quantity 契约
+
+```text
+quantity = values.size()；要求 1..123（123 PASS / 124 TooManyValues，P09/P10）。
+projection 的 quantity 由 `preparedQuantity(intent)` **实时派生**（0x06 → 1；0x10 → values.size()），
+**不存第二份 count**，因此不可能与 values 不一致。
+```
+
+### L11. Address-span 实现（widened）
+
+```text
+`registerSpanFitsAddressSpace(startAddress, quantity)`：`uint32(start) + uint32(quantity) <= 65536`
+（等价 `last = start + quantity - 1 <= 65535`）；quantity == 0 视为不成立。
+样例（V09–V12）：65535/1 VALID；65535/2 INVALID；65534/2 VALID；65534/3 INVALID。
+```
+
+### L12. PreparedWriteSnapshot（immutable）
+
+```text
+`PreparedWriteSnapshot{ uint64 token, ActiveRequestIntent intent, TransactionSourceKind sourceKind,
+uint64 sessionId, std::string connectionLabel }`。
+不重复保存可从 intent 无歧义派生的数据（quantity 由函数派生）⇒ 不存在第二份 truth；
+`operator==` 默认 ⇒ 可逐字段比较。
+```
+
+### L13. No Raw ADU（冻结）
+
+```text
+snapshot **不含 requestAdu**：M10-C1 没有 0x06/0x10 encoder，**不提前调用 encoder、不伪造 wire bytes**。
+raw request ADU 仍只在未来真正 dispatch 编码并交给 transport 时成为 wire evidence（M10-A 契约不变）。
+```
+
+### L14. 0x10 Values Authority
+
+```text
+snapshot.values 直接来自 parser 得到的 typed vector；quantity 从它派生（§L10）；
+不存在可独立修改的 quantity 字段（纯测试 S02 逐字段比对 projection 与 intent）。
+```
+
+### L15. Generation / Token
+
+```text
+单调 opaque `uint64_t` generation（Controller 侧 `preparedWriteGeneration_` 每次成功 prepare `++`）。
+不同成功 prepare 得到不同 token；旧 token 不匹配新 snapshot（纯测试 S08）。
+token **不是** session id、**不是** row index、**不是** pointer address。
+```
+
+### L16. Prepared 状态机
+
+```text
+`None → Prepared → Consumed | Invalidated`（后两者 terminal）；重新 prepare 创建新 generation 进入新的 Prepared；
+旧 token 永不复活（S04–S08）。
+```
+
+### L17. Prepare While Already Prepared
+
+```text
+已有 active Prepared snapshot 时再次 prepare ⇒ 返回 `PrepareAlreadyPrepared`，
+**不生成第二个 snapshot、不覆盖第一个**，原 generation/token 保持不变（纯测试 S03；controller 级 i01 实证）。
+后续 C2 可据此聚焦既有 dialog。
+```
+
+### L18. Confirmation Foundation
+
+```text
+`AnalysisController::confirmPreparedWrite(token)`（C++ seam，**不发送**）：检查
+token 匹配 / state == Prepared / source == ActiveSerial / session 未变 / connected / busy == false。
+PASS ⇒ `Prepared → Consumed`（`ConfirmAccepted`）；FAIL ⇒ `ConfirmRejected{reason}`，
+且**不产生任何 transport 发送**（Z02 实证 start/send 计数不变）。
+```
+
+### L19. Stale / Repeated Token
+
+```text
+token N 第一次 confirm ⇒ accepted ⇒ Consumed；第二次同 token ⇒ reject（NotPrepared）；
+创建 token N+1 后 token N ⇒ reject（TokenMismatch）；错误 token ⇒ reject。
+Confirm **从不重新读取 draft**（snapshot 是唯一 authority）。
+```
+
+### L20. Cancel Foundation
+
+```text
+`cancelPreparedWrite(token)` ⇒ `Prepared → Invalidated(UserCancelled)`；**不是 serial error**、
+**不产生** transaction / transport terminal / send（Z03 实证；`hasSerialError` 保持 false）。
+未来 C2 的 Escape/Cancel 只调用此 authority。
+```
+
+### L21. Invalidation Reasons（typed）
+
+```text
+`PreparedWriteInvalidReason{ UserCancelled, Disconnected, SessionChanged, SourceChanged, BusyBecameTrue,
+CapabilityUnavailable }`（最后一个为 M10-D/E 预留）。**不使用** Modbus outcome / TransactionIssue 表达这些状态。
+```
+
+### L22. Busy Invalidation（含「不复活」）
+
+```text
+Prepared 期间 `serialBusy` false→true ⇒ `Prepared → Invalidated(BusyBecameTrue)`；
+busy 回到 false **不复活**旧 token（i03/i04 实证：真实发起一次 FC03 读使 busy 变真，完成后再确认旧 token 仍被拒）。
+```
+
+### L23. Busy Already True at Prepare
+
+```text
+prepare 时 `serialBusy == true` ⇒ `PrepareRejected{Busy}`：**不创建 token、不覆盖已有 terminal 状态**；
+single in-flight 继续冻结（不排队、不并行）。
+```
+
+### L24. Disconnect Invalidation
+
+```text
+Prepared → `disconnectSerial()` ⇒ `Invalidated(Disconnected)`；旧 token confirm 被拒（i01）。
+C1 不处理 draft clearing（draft 不属于 Controller authority）。
+```
+
+### L25. Reconnect / Session Change
+
+```text
+snapshot 记录创建时 session id；任何**成功的新 Active Serial session** 都使旧 Prepared 失效（`SessionChanged`）。
+即使同一 COM 口同一波特率也不复用；authority = session id，**不是** display label。
+terminal reason 不被后续事件覆盖（i02 实证：disconnect 后的原因保持 `Disconnected`）。
+```
+
+### L26. Source Replacement
+
+```text
+Prepared 状态下成功的 Simulator replacement（i05）或 Replay replacement（i06）⇒ `Invalidated(SourceChanged)`；
+旧 token reject。实现上 SourceChanged 在这些路径的 **teardown 之前**记录，
+使 terminal reason 保持「来源变化」这一更准确的事实。
+```
+
+### L27. Failed Replay Replacement（重要回归）
+
+```text
+源码事实（§L1-E）：loadReplayFile 失败时保持 ActiveSerial / 同 session / 同连接。
+因此 prepared snapshot **继续保持 Prepared**，并且仍然可以确认成功（i07 实证：confirm ⇒ ConfirmAccepted）。
+**不因为**用户访问 Replay workspace 或 replay error 文案而 invalidate。
+```
+
+### L28. Navigation Invariance
+
+```text
+workspace navigation 本身不得 invalidate（workspace ≠ source）。C1 侧以「与来源/会话/忙碌无关的活动」
+（refreshSerialPorts / runBaselineDiagnosis / clearDiagnosis）实证 controller 内**没有隐藏失效路径**（i08）；
+QML 侧 navigation 由既有 qml_nav / focus 门禁继续把守（本轮 QML 零改动）。
+```
+
+### L29. Clear Results Invariance
+
+```text
+Clear Results 不 consume / 不 invalidate / 不 send ⇒ prepared snapshot 保持 Prepared（i09 实证），
+source / connected / busy 均不变。
+```
+
+### L30. Serial Error Text Invariance
+
+```text
+单纯 serialErrorMessage 变化（例：一次被拒的非法读请求）不足以 invalidate：安全 authority 基于真实状态，
+不是错误文案（i10 实证）。
+```
+
+### L31. Terminal-state Ordering
+
+```text
+invalidation **只作用于当前 Prepared generation**；已 Consumed / Invalidated 的 generation 不会被后续
+busy / disconnect / source change 改成另一个 terminal state，历史 reason 不被覆盖（store 实现 + i02 实证）。
+```
+
+### L32. Read-only Projection
+
+```text
+Controller getters（C++，**无 setter、无 Q_PROPERTY、无 QML 面**）：
+`preparedWriteState()` / `preparedWriteToken()` / `preparedWriteSnapshot()` / `preparedWriteInvalidReason()`。
+snapshot 携带 function / unitId / address / value(s) / timeout / derived quantity（函数派生）/
+connection display label。C2 才决定 QML 暴露形状。
+```
+
+### L33. QML session-id Exposure Decision
+
+```text
+**C1 不新增** `activeSerialSessionId` Q_PROPERTY（projection/harness 不需要）；QML 不负责 session equality check；
+Controller 自己判断（confirm guard）。若未来确实需要，仅允许 read-only 暴露。
+```
+
+### L34. Immutable Connection Label
+
+```text
+snapshot 捕获创建时的 connection display label（`serialSourceLabel_`，例 `COM_TEST @ 9600`）；
+projection 之后保持该 immutable 值。label 变化本身**不是** session equality（authority 仍是 sourceKind + sessionId）。
+```
+
+### L35. Confirmation Does Not Dispatch
+
+```text
+confirmPreparedWrite 函数体内 **零** transport 调用（`serialTransport_` / `startActiveRequest` / `port_` /
+`encodeActiveRequest` 出现次数 = 0，源码审计）；transport `startAttemptCount` / `sendCount` 不变（Z01–Z04 实证）。
+```
+
+### L36. 0x06 / 0x10 Encoder Freeze
+
+```text
+`encodeActiveRequest` 对 0x06 / 0x10 仍返回 `UnsupportedFunction`（源码未改）；`encodeWrite*` 在 src/ 出现 0 次。
+**Prepared snapshot 的存在不意味着 active write capability 存在**。
+```
+
+### L37. No Transaction Side Effects
+
+```text
+prepare / confirm / cancel / invalidate 均不新增 ActiveTransactionRecord、ActiveTransportTerminal、
+TransactionListModel row、statistics 计数或 diagnosis batch（Z05 实证：records/terminals/rows/observed 全部不变）。
+C1 = pre-dispatch intent foundation。
+```
+
+### L38. AI / Agent Freeze
+
+```text
+AI / Agent write authority = NONE；未新增 prepare write tool / confirm tool / send tool / raw serial tool
+（agent 层本轮零改动，源码 grep 0）。
+```
+
+### L39. Tests — Parser（P01–P12，pure）
+
+```text
+P01 LF `1\n2\n3` → [1,2,3]；P02 CRLF → [1,2,3]；P03 首尾空白行忽略（含 `\r\n` 与空格行）；
+P04 中间空行 error（lineIndex 1）；P05 中间纯空白行 error；P06 65535 valid；P07 65536 error；
+P08 `+12` / `-1` / `0x10` / `1.5` / `1,2` / `abc` / `1 2` / `0b101` 全部 InvalidCharacter；
+P09 123 values valid；P10 124 TooManyValues；P11 全空白 NoValues；P12 巨大整数 ValueOutOfRange（确定性）。
+```
+
+### L40. Tests — Numeric Validation（V01–V12，pure）
+
+```text
+V01 unit 1/247 valid；V02 unit 0/248/-1/65536 reject（UnitIdOutOfRange）；
+V03 address 65535 valid；V04 address -1/65536 reject（**窄化前**）；V05 value 65535 valid；
+V06 value -1/65536 reject（窄化前）；V07 timeout 100/10000 valid；V08 timeout 99/10001/0/-5 reject；
+V09–V12 地址跨度 65535/1 VALID、65535/2 INVALID、65534/2 VALID、65534/3 INVALID。
+```
+
+### L41. Tests — Snapshot State（S01–S09，pure）
+
+```text
+S01 prepare → Prepared + token；S02 projection 逐字段 == validated intent（含 derived quantity）；
+S03 二次 prepare → AlreadyPrepared 且 token 保持；S04 confirm → Consumed；S05 二次 confirm reject；
+S06 cancel → Invalidated(UserCancelled)；S07 invalidated 不能 confirm；S08 新 prepare 新 token、旧 token 失效；
+S09 后续 parse 得到的不同 intent **不能**改写已存在的 snapshot。
+```
+
+### L42. Tests — Context Invalidation（I01–I10，controller）
+
+```text
+I01 disconnect → Invalidated(Disconnected) + 旧 token reject（并附：二次 prepare ⇒ AlreadyPrepared，token 不变）；
+I02 reconnect/new session → 旧 token reject 且 terminal reason 保持 Disconnected；
+I03 真实 FC03 使 busy 变真 → Invalidated(BusyBecameTrue)；I04 busy 回 false 不复活；
+I05 Simulator replacement → Invalidated(SourceChanged)；I06 Replay 成功替换 → Invalidated(SourceChanged)；
+I07 **Replay 失败保持 ActiveSerial/session** → snapshot 仍 Prepared 且可确认成功；
+I08 与来源无关的活动（刷新端口 / 诊断）→ 仍 Prepared；I09 Clear Results → 仍 Prepared；
+I10 仅错误文案变化 → 仍 Prepared。
+```
+
+### L43. Tests — Zero Side Effects（Z01–Z05，controller）
+
+```text
+Z01 prepare → transport start/send 计数不变；Z02 confirm → 不变（且 Consumed）；Z03 cancel → 不变（且非 serial error）；
+Z04 disconnect invalidation → 不变；Z05 prepare/cancel/prepare/confirm 全序列 + 一次 invalidation
+→ records / terminals / rows / observed 全部不变。
+```
+
+### L44. Existing Regression Gates（A/B 封板未被破坏）
+
+```text
+Debug ctest **30/30 PASS**（27 → 29 之后新增 write_prepare = 30）；Release ctest **30/30 PASS**；
+active_master **54 passed**（原 39 + I01–I10 + Z01–Z05）；active_request 17 passed；ui_bridge **59 passed**；
+serial / serial_adapter / statistics / diagnosis / replay 全绿；qml_smoke / qml_nav_check / qml_geometry_check /
+qml_focus_check 全绿（C1 未改 QML，仍跑以证无回归）。
+FC03 golden wire / Active Serial history / statistics·diagnosis batch / selection append / M10-A transport safety /
+Replay preservation / Simulator replacement / navigation presentation-only / Clear while pending 全部保持。
+```
+
+### L45. Test Target / CMake 变更
+
+```text
+新增 pure core 源（modbuslens_core）：`src/core/active/WriteDraftParsing.cpp`、
+`WritePrepareValidation.cpp`、`PreparedWriteSnapshot.cpp`（core 仍**零 Qt**）。
+新增测试目标 `modbuslens_write_prepare_tests`（tests/test_write_prepare.cpp）+ `add_test(NAME write_prepare ...)`
++ offscreen 属性；controller 级 I/Z 用例并入既有 `active_master`（复用 recording transport 与 controller 源）。
+```
+
+### L46. Warnings
+
+```text
+**新增代码零 warning**（新增的 3 个 core 源、controller 变更、两个测试文件在 -Wall -Wextra 下均无告警；
+过程中修正了测试侧的 range-loop 拷贝告警与 address-of-rvalue）。
+**pre-existing**：`src/main.cpp` 5 条（unused variable ×3 / redundant capture ×1 / set-but-not-used ×1，
+行号 2492 / 2494 / 4592 / 5923 / 6161）——本轮**未修改该文件、未顺手修**。
+```
+
+### L47. Problems / RCA
+
+```text
+P1（实现期编译缺陷，已修）：`ConfirmWriteOutcome` 别名最初声明在 `ConfirmAccepted/ConfirmRejected` **之前**
+  ⇒ 编译报「not declared in this scope」。Fix：把别名移到 confirm 词汇之后。
+  Verification：两套测试目标全绿。
+P2（测试脚手架缺陷，已修）：测试初稿用 `std::get_if<T>(&controller.prepare…(...))` 取临时对象的地址
+  ⇒ `taking address of rvalue`；Fix：改为先绑定到引用/局部变量的 helper（isPrepared / isConfirmAccepted /
+  isConfirmRejected）。
+P3（编辑器/转义陷阱）：多行文本字面量 `"1\n2\n3"` 在脚本生成测试时被写成真实换行 ⇒ 编译报
+  「missing terminating " character」；Fix：以显式转义重建字面量。
+P4（设计一致性）：`preparedQuantity` 初版对 0x06 返回 0，与「0x06 恰好写一个寄存器」的语义不符 ⇒
+  改为全函数域：0x06 → 1、0x10 → values.size()、0x03 → 读数量（write 路径不投影它）。
+无 contract 冲突：未修改任何 M10-A/B 冻结契约；Controller 已有集中状态点（busy 只有一处 true、session id 只有一处 ++），
+  因此 invalidation 接线不需要字符串比较 / QML polling / label 比较。
+```
+
+### L48. Git
+
+```text
+behavior-bearing（core 新类型 + controller seam + 状态接线 + 测试）⇒ 不作 LKGC。
+commit：`M10-C1: add prepared write snapshot foundation`（独立提交；不 amend `db2aea9`；不 rebase；不 push；未 tag）。
+verified LKGC 保持 `ef71244`；M10-C1 = 等待 Review。
 ```

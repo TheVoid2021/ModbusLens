@@ -860,6 +860,10 @@ void AnalysisController::teardownSerialTransport()
 {
     // Silent local close (the adapter guarantees no transportError on intent):
     // cancels pending transaction, closes port, resets every serial flag.
+    // M10-C1: losing the connection invalidates a prepared write snapshot (a
+    // confirmation must never outlive the session it was captured for).
+    preparedWriteStore_.invalidate(
+        modbuslens::core::PreparedWriteInvalidReason::Disconnected);
     serialTransport_->closePort();
     serialConnected_ = false;
     serialBusy_ = false;
@@ -876,6 +880,11 @@ void AnalysisController::handleSerialTransportError(const QString& message)
     serialBusy_ = false;
     pendingRequest_.reset();
     serialConnected_ = serialTransport_->isPortOpen();
+    if (!serialConnected_) {
+        // The connection is gone: a prepared snapshot cannot outlive it.
+        preparedWriteStore_.invalidate(
+            modbuslens::core::PreparedWriteInvalidReason::Disconnected);
+    }
     setSerialError(QStringLiteral("串口传输错误：%1").arg(message));
     emit serialConnChanged();
     emit serialStatusChanged();
@@ -927,6 +936,10 @@ void AnalysisController::connectSerial(const QString& portName, int baudRate)
     activeDiagnosisTransactions_.clear();
     activeSerialRecords_.clear();
     activeSerialTerminations_.clear();
+    // M10-C1: a new Active Serial session invalidates any prepared snapshot
+    // from the previous one (even with the same port and baud).
+    preparedWriteStore_.invalidate(
+        modbuslens::core::PreparedWriteInvalidReason::SessionChanged);
     ++activeSerialSessionId_;
     sourceKind_ = modbuslens::core::TransactionSourceKind::ActiveSerial;
     invalidateAiForBatchChange();
@@ -1024,6 +1037,10 @@ void AnalysisController::readHoldingRegistersOnce(
 
     pendingRequest_ = descriptor;
     serialBusy_ = true;
+    // M10-C1: another request entered flight => the prepared write snapshot is
+    // permanently invalidated (busy returning to false does not revive it).
+    preparedWriteStore_.invalidate(
+        modbuslens::core::PreparedWriteInvalidReason::BusyBecameTrue);
     clearSerialError();
     emit serialStatusChanged();
     // The previous completed result stays visible until the new analysis
@@ -1113,6 +1130,123 @@ void AnalysisController::handleSerialTransactionTerminated(
     pendingRequest_.reset();
     serialBusy_ = false;
     emit serialStatusChanged();
+}
+
+modbuslens::core::WritePrepareOutcome AnalysisController::prepareWriteIntent(
+    modbuslens::core::WriteIntentResult intentResult)
+{
+    using namespace modbuslens::core;
+
+    // Repeated Write: an active prepared snapshot is KEPT (the caller focuses
+    // the existing dialog) and no second generation is minted.
+    if (preparedWriteStore_.state() == PreparedWriteState::Prepared) {
+        return PrepareAlreadyPrepared{};
+    }
+    // Context guards are runtime facts, never QML ones.
+    if (sourceKind_ != TransactionSourceKind::ActiveSerial) {
+        return PrepareRejected{PrepareRejectReason::SourceNotActiveSerial,
+                               std::nullopt};
+    }
+    if (!serialConnected_) {
+        return PrepareRejected{PrepareRejectReason::NotConnected, std::nullopt};
+    }
+    if (serialBusy_) {
+        return PrepareRejected{PrepareRejectReason::Busy, std::nullopt};
+    }
+    if (const auto* error = std::get_if<WriteValidationError>(&intentResult)) {
+        return PrepareRejected{PrepareRejectReason::ValidationFailed, *error};
+    }
+
+    ++preparedWriteGeneration_;
+    const auto stored = preparedWriteStore_.prepare(PreparedWriteSnapshot{
+        .token = preparedWriteGeneration_,
+        .intent = std::get<ActiveRequestIntent>(intentResult),
+        .sourceKind = sourceKind_,
+        .sessionId = activeSerialSessionId_,
+        .connectionLabel = serialSourceLabel_.toStdString(),
+    });
+    if (auto* already = std::get_if<PrepareAlreadyPrepared>(&stored)) {
+        return *already;
+    }
+    return PreparedWrite{};
+}
+
+modbuslens::core::WritePrepareOutcome
+AnalysisController::prepareWriteSingleRegister(std::int64_t unitId,
+                                               std::int64_t registerAddress,
+                                               std::int64_t value,
+                                               std::int64_t timeoutMs)
+{
+    return prepareWriteIntent(modbuslens::core::prepareWriteSingleRegisterIntent(
+        unitId, registerAddress, value, timeoutMs));
+}
+
+modbuslens::core::WritePrepareOutcome
+AnalysisController::prepareWriteMultipleRegisters(std::int64_t unitId,
+                                                  std::int64_t startAddress,
+                                                  std::string_view valuesText,
+                                                  std::int64_t timeoutMs)
+{
+    return prepareWriteIntent(
+        modbuslens::core::prepareWriteMultipleRegistersIntent(
+            unitId, startAddress, valuesText, timeoutMs));
+}
+
+modbuslens::core::ConfirmWriteOutcome AnalysisController::confirmPreparedWrite(
+    std::uint64_t token)
+{
+    using namespace modbuslens::core;
+
+    // The runtime re-checks its authoritative state at confirmation time (the
+    // same guards the M10-D/E dispatch will re-use); a failing guard
+    // invalidates the now-meaningless snapshot.
+    if (sourceKind_ != TransactionSourceKind::ActiveSerial) {
+        preparedWriteStore_.invalidate(PreparedWriteInvalidReason::SourceChanged);
+        return ConfirmRejected{ConfirmRejectReason::SourceNotActiveSerial};
+    }
+    if (!serialConnected_) {
+        preparedWriteStore_.invalidate(PreparedWriteInvalidReason::Disconnected);
+        return ConfirmRejected{ConfirmRejectReason::NotConnected};
+    }
+    if (const auto snapshot = preparedWriteStore_.snapshot();
+        snapshot.has_value() && snapshot->sessionId != activeSerialSessionId_) {
+        preparedWriteStore_.invalidate(PreparedWriteInvalidReason::SessionChanged);
+        return ConfirmRejected{ConfirmRejectReason::SessionChanged};
+    }
+    if (serialBusy_) {
+        preparedWriteStore_.invalidate(PreparedWriteInvalidReason::BusyBecameTrue);
+        return ConfirmRejected{ConfirmRejectReason::Busy};
+    }
+
+    // Token + generation lifecycle only — no encode, no transport, no send.
+    return preparedWriteStore_.confirm(token);
+}
+
+bool AnalysisController::cancelPreparedWrite(std::uint64_t token)
+{
+    return preparedWriteStore_.cancel(token);
+}
+
+modbuslens::core::PreparedWriteState AnalysisController::preparedWriteState() const
+{
+    return preparedWriteStore_.state();
+}
+
+std::optional<std::uint64_t> AnalysisController::preparedWriteToken() const
+{
+    return preparedWriteStore_.token();
+}
+
+std::optional<modbuslens::core::PreparedWriteSnapshot>
+AnalysisController::preparedWriteSnapshot() const
+{
+    return preparedWriteStore_.snapshot();
+}
+
+std::optional<modbuslens::core::PreparedWriteInvalidReason>
+AnalysisController::preparedWriteInvalidReason() const
+{
+    return preparedWriteStore_.invalidReason();
 }
 
 void AnalysisController::appendActiveSerialTransaction(
@@ -1234,6 +1368,11 @@ void AnalysisController::runDemoBatch()
     using ms = std::chrono::milliseconds;
     constexpr ms kThreshold{1000};
 
+    // M10-C1: replacing the source invalidates a prepared write snapshot.
+    // Recorded BEFORE the teardown reason so the reason stays the truthful
+    // "source changed" (a terminal reason is never overwritten).
+    preparedWriteStore_.invalidate(
+        modbuslens::core::PreparedWriteInvalidReason::SourceChanged);
     // Source transition: leave the serial transport entirely BEFORE
     // producing Simulator data — no background COM while in Simulator Mode.
     teardownSerialTransport();
@@ -1488,6 +1627,10 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     //
     // Serial teardown is part of the successful switch ONLY (SB-13): the
     // port is closed after the replay data is fully validated, never before.
+    // M10-C1: a SUCCESSFUL replay load replaces the source. A FAILED load
+    // returned long before this point and must invalidate nothing.
+    preparedWriteStore_.invalidate(
+        modbuslens::core::PreparedWriteInvalidReason::SourceChanged);
     teardownSerialTransport();
     transactionModel_.setEntries(std::move(entries));
     statistics_ = batch.statistics;

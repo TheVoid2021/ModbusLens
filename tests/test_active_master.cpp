@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/active/ActiveRequestIntent.h"
+#include "core/active/PreparedWriteSnapshot.h"
 #include "core/protocol/ModbusRtuCodec.h"
 #include "core/active/ActiveTransactionEvidence.h"
 #include "core/analysis/TransactionAnalysis.h"
@@ -33,6 +34,29 @@ using modbuslens::core::encodeActiveRequest;
 namespace {
 
 using ms = std::chrono::milliseconds;
+
+// M10-C1 helper: bind the prepare/confirm outcome to a reference first, so the
+// test never takes the address of a temporary variant.
+bool isPrepared(const modbuslens::core::WritePrepareOutcome& outcome)
+{
+    return std::get_if<modbuslens::core::PreparedWrite>(&outcome) != nullptr;
+}
+
+bool isAlreadyPrepared(const modbuslens::core::WritePrepareOutcome& outcome)
+{
+    return std::get_if<modbuslens::core::PrepareAlreadyPrepared>(&outcome) != nullptr;
+}
+
+bool isConfirmAccepted(const modbuslens::core::ConfirmWriteOutcome& outcome)
+{
+    return std::get_if<modbuslens::core::ConfirmAccepted>(&outcome) != nullptr;
+}
+
+bool isConfirmRejected(const modbuslens::core::ConfirmWriteOutcome& outcome)
+{
+    return std::get_if<modbuslens::core::ConfirmRejected>(&outcome) != nullptr;
+}
+
 
 // FC03 request 01 03 00 00 00 02 + CRC (T009 golden bytes).
 std::vector<std::uint8_t> goldenRequestWire(std::uint8_t unit = 0x01,
@@ -149,6 +173,25 @@ private slots:
     void b08_clearWhilePending();
     // B09: reconnect = new Active Serial session; old history is gone.
     void b09_reconnectStartsFreshHistory();
+
+    // ---- M10-C1: prepared write foundation (controller context) ----
+    // I01-I10: context invalidation matrix.
+    void i01_disconnectInvalidatesPrepared();
+    void i02_reconnectNewSessionRejectsOldToken();
+    void i03_busyBecameTrueInvalidates();
+    void i04_busyFalseDoesNotRevive();
+    void i05_simulatorReplacementInvalidates();
+    void i06_replayReplacementInvalidates();
+    void i07_failedReplayKeepsPrepared();
+    void i08_unrelatedActivityKeepsPrepared();
+    void i09_clearResultsKeepsPrepared();
+    void i10_serialErrorTextKeepsPrepared();
+    // Z01-Z05: zero dispatch / zero transaction side effects.
+    void z01_zeroTransportOnPrepare();
+    void z02_zeroTransportOnConfirm();
+    void z03_zeroTransportOnCancel();
+    void z04_zeroTransportOnInvalidation();
+    void z05_zeroTransactionSideEffects();
 };
 
 void ActiveMasterTest::ta01_closedTransportNotSent()
@@ -1229,6 +1272,292 @@ void ActiveMasterTest::b09_reconnectStartsFreshHistory()
     s.transport.completeWithResponse();
     QCOMPARE(s.controller.transactionModel()->rowCount(), 1);
     QCOMPARE(s.controller.activeSerialSessionId(), std::uint64_t{2});
+}
+
+// ---- M10-C1: prepared write foundation (controller context) ----
+
+void ActiveMasterTest::i01_disconnectInvalidatesPrepared()
+{
+    ConnectedSession s;
+    const auto prepared = s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000);
+    QVERIFY(isPrepared(prepared));
+    const auto token = s.controller.preparedWriteToken();
+    QVERIFY(token.has_value());
+
+    // Repeated Write with an active snapshot: rejected as AlreadyPrepared, and
+    // the original generation is kept (no second snapshot, no new token).
+    QVERIFY(isAlreadyPrepared(
+        s.controller.prepareWriteSingleRegister(22, 0x0100, 0x00FF, 2000)));
+    QCOMPARE(s.controller.preparedWriteToken(), token);
+    QCOMPARE(s.controller.preparedWriteSnapshot()->intent.unitId, std::uint8_t{11});
+
+    s.controller.disconnectSerial();
+
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Invalidated);
+    QCOMPARE(s.controller.preparedWriteInvalidReason(),
+             std::optional{modbuslens::core::PreparedWriteInvalidReason::Disconnected});
+    const auto confirmed = s.controller.confirmPreparedWrite(*token);
+    QVERIFY(isConfirmRejected(confirmed));
+}
+
+void ActiveMasterTest::i02_reconnectNewSessionRejectsOldToken()
+{
+    ConnectedSession s;
+    const auto prepared = s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000);
+    QVERIFY(isPrepared(prepared));
+    const auto oldToken = *s.controller.preparedWriteToken();
+    QCOMPARE(s.controller.activeSerialSessionId(), std::uint64_t{1});
+
+    s.controller.disconnectSerial();
+    s.controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+    QCOMPARE(s.controller.activeSerialSessionId(), std::uint64_t{2});
+
+    // The terminal reason from the disconnect is preserved (never rewritten),
+    // and the old token can never act in the new session.
+    QCOMPARE(s.controller.preparedWriteInvalidReason(),
+             std::optional{modbuslens::core::PreparedWriteInvalidReason::Disconnected});
+    const auto confirmed = s.controller.confirmPreparedWrite(oldToken);
+    QVERIFY(isConfirmRejected(confirmed));
+    QVERIFY(!s.controller.preparedWriteSnapshot().has_value());
+}
+
+void ActiveMasterTest::i03_busyBecameTrueInvalidates()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+
+    // A normal FC03 read entering flight makes serialBusy true.
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QVERIFY(s.controller.serialBusy());
+
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Invalidated);
+    QCOMPARE(s.controller.preparedWriteInvalidReason(),
+             std::optional{modbuslens::core::PreparedWriteInvalidReason::BusyBecameTrue});
+}
+
+void ActiveMasterTest::i04_busyFalseDoesNotRevive()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+    const auto token = *s.controller.preparedWriteToken();
+
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    QVERIFY(!s.controller.serialBusy());
+
+    // Busy is false again, but the invalidated snapshot stays dead.
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Invalidated);
+    const auto confirmed = s.controller.confirmPreparedWrite(token);
+    QVERIFY(isConfirmRejected(confirmed));
+    QVERIFY(!s.controller.preparedWriteSnapshot().has_value());
+}
+
+void ActiveMasterTest::i05_simulatorReplacementInvalidates()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+
+    s.controller.runDemoBatch();
+
+    QCOMPARE(s.controller.sourceKind(),
+             modbuslens::core::TransactionSourceKind::Simulator);
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Invalidated);
+    QCOMPARE(s.controller.preparedWriteInvalidReason(),
+             std::optional{modbuslens::core::PreparedWriteInvalidReason::SourceChanged});
+}
+
+void ActiveMasterTest::i06_replayReplacementInvalidates()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+
+    s.controller.loadReplayFile(
+        QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+
+    QVERIFY(!s.controller.hasReplayError());
+    QCOMPARE(s.controller.sourceKind(),
+             modbuslens::core::TransactionSourceKind::Replay);
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Invalidated);
+    QCOMPARE(s.controller.preparedWriteInvalidReason(),
+             std::optional{modbuslens::core::PreparedWriteInvalidReason::SourceChanged});
+}
+
+void ActiveMasterTest::i07_failedReplayKeepsPrepared()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+    const auto token = *s.controller.preparedWriteToken();
+
+    const QString missing = QDir::tempPath()
+        + QStringLiteral("/modbuslens_m10c1_missing.mlog");
+    QVERIFY(!QFile::exists(missing));
+    s.controller.loadReplayFile(QUrl::fromLocalFile(missing));
+
+    // Rule A: a FAILED replacement changes no authoritative source fact, so the
+    // prepared snapshot survives and can still be confirmed.
+    QVERIFY(s.controller.hasReplayError());
+    QCOMPARE(s.controller.sourceKind(),
+             modbuslens::core::TransactionSourceKind::ActiveSerial);
+    QVERIFY(s.controller.serialConnected());
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Prepared);
+    const auto confirmed = s.controller.confirmPreparedWrite(token);
+    QVERIFY(isConfirmAccepted(confirmed));
+}
+
+void ActiveMasterTest::i08_unrelatedActivityKeepsPrepared()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+
+    // Activities that are neither source nor session nor busy changes must not
+    // touch the snapshot (navigation itself is presentation-only and already
+    // guarded by the QML harness; this proves the runtime side has no
+    // hidden invalidation path).
+    s.controller.refreshSerialPorts();
+    s.controller.runBaselineDiagnosis();
+    s.controller.clearDiagnosis();
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Prepared);
+    QVERIFY(s.controller.preparedWriteSnapshot().has_value());
+}
+
+void ActiveMasterTest::i09_clearResultsKeepsPrepared()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+
+    s.controller.clearResults();
+
+    // Clear Results is a result-domain operation: it never consumes,
+    // invalidates or sends a prepared write.
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Prepared);
+    QCOMPARE(s.controller.sourceKind(),
+             modbuslens::core::TransactionSourceKind::ActiveSerial);
+    QVERIFY(s.controller.serialConnected());
+    QVERIFY(!s.controller.serialBusy());
+}
+
+void ActiveMasterTest::i10_serialErrorTextKeepsPrepared()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+
+    // A rejected read request only raises the serial error lane: no state that
+    // the safety authority depends on changed, so the snapshot lives on.
+    s.controller.readHoldingRegistersOnce(1, 0, 999, 1000);
+    QVERIFY(s.controller.hasSerialError());
+    QVERIFY(!s.controller.serialBusy());
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Prepared);
+}
+
+void ActiveMasterTest::z01_zeroTransportOnPrepare()
+{
+    ConnectedSession s;
+    const int attemptsBefore = s.transport.startAttemptCount();
+    const int sendsBefore = s.transport.sendCount();
+
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+
+    QCOMPARE(s.transport.startAttemptCount(), attemptsBefore);
+    QCOMPARE(s.transport.sendCount(), sendsBefore);
+}
+
+void ActiveMasterTest::z02_zeroTransportOnConfirm()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteMultipleRegisters(11, 0, "1\n2\n3", 1000)));
+    const auto token = *s.controller.preparedWriteToken();
+    const int attemptsBefore = s.transport.startAttemptCount();
+    const int sendsBefore = s.transport.sendCount();
+
+    const auto confirmed = s.controller.confirmPreparedWrite(token);
+
+    QVERIFY(isConfirmAccepted(confirmed));
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Consumed);
+    QCOMPARE(s.transport.startAttemptCount(), attemptsBefore);
+    QCOMPARE(s.transport.sendCount(), sendsBefore);
+    QVERIFY(!s.transport.hasPendingTransaction());
+}
+
+void ActiveMasterTest::z03_zeroTransportOnCancel()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+    const auto token = *s.controller.preparedWriteToken();
+    const int attemptsBefore = s.transport.startAttemptCount();
+    const int sendsBefore = s.transport.sendCount();
+
+    QVERIFY(s.controller.cancelPreparedWrite(token));
+
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Invalidated);
+    QCOMPARE(s.controller.preparedWriteInvalidReason(),
+             std::optional{modbuslens::core::PreparedWriteInvalidReason::UserCancelled});
+    QCOMPARE(s.transport.startAttemptCount(), attemptsBefore);
+    QCOMPARE(s.transport.sendCount(), sendsBefore);
+    // A cancel is not a serial error either.
+    QVERIFY(!s.controller.hasSerialError());
+}
+
+void ActiveMasterTest::z04_zeroTransportOnInvalidation()
+{
+    ConnectedSession s;
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+    const int attemptsBefore = s.transport.startAttemptCount();
+    const int sendsBefore = s.transport.sendCount();
+
+    s.controller.disconnectSerial();
+
+    QCOMPARE(s.controller.preparedWriteState(),
+             modbuslens::core::PreparedWriteState::Invalidated);
+    QCOMPARE(s.transport.startAttemptCount(), attemptsBefore);
+    QCOMPARE(s.transport.sendCount(), sendsBefore);
+}
+
+void ActiveMasterTest::z05_zeroTransactionSideEffects()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+
+    const int recordsBefore = s.controller.activeSerialRecordCount();
+    const int terminalsBefore = s.controller.activeSerialTerminalCount();
+    const int rowsBefore = s.controller.transactionModel()->rowCount();
+    const int observedBefore = s.controller.observedCount();
+
+    // prepare -> cancel -> prepare -> confirm -> invalidate
+    QVERIFY(isPrepared(s.controller.prepareWriteSingleRegister(11, 0x0064, 0x0064, 1000)));
+    const auto first = *s.controller.preparedWriteToken();
+    QVERIFY(s.controller.cancelPreparedWrite(first));
+    QVERIFY(isPrepared(s.controller.prepareWriteMultipleRegisters(11, 0x0010, "10\n20", 1000)));
+    const auto second = *s.controller.preparedWriteToken();
+    QVERIFY(second != first);
+    QVERIFY(isConfirmAccepted(s.controller.confirmPreparedWrite(second)));
+
+    // prepare / cancel / confirm added NO record, terminal, row or statistic.
+    QCOMPARE(s.controller.activeSerialRecordCount(), recordsBefore);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), terminalsBefore);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), rowsBefore);
+    QCOMPARE(s.controller.observedCount(), observedBefore);
+
+    // ... and an invalidation path does not touch them either.
+    s.controller.disconnectSerial();
+    QCOMPARE(s.controller.activeSerialRecordCount(), recordsBefore);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), terminalsBefore);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), rowsBefore);
+    QCOMPARE(s.controller.observedCount(), observedBefore);
 }
 
 QTEST_GUILESS_MAIN(ActiveMasterTest)

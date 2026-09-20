@@ -12,6 +12,7 @@
 #include <optional>
 
 #include "core/active/ActiveTransactionEvidence.h"
+#include "core/active/PreparedWriteSnapshot.h"
 #include "core/analysis/TransactionProvenance.h"
 #include "core/analysis/TransactionStatistics.h"
 #include "core/diagnosis/DiagnosisContext.h"
@@ -229,6 +230,37 @@ public:
     void appendActiveSerialTransaction(
         const modbuslens::core::ActiveTransactionRecord& record);
 
+    // ---- M10-C1: prepared write foundation (C++ seams; NO send, NO UI) ----
+    // Prepares an immutable write snapshot after authoritative validation.
+    // Rejects when the source is not Active Serial / not connected / busy /
+    // the draft fails validation; an existing Prepared snapshot is kept and
+    // reported instead of being replaced. Nothing here encodes, starts or
+    // sends anything: 0x06 / 0x10 encoders do not exist yet.
+    [[nodiscard]] modbuslens::core::WritePrepareOutcome prepareWriteSingleRegister(
+        std::int64_t unitId, std::int64_t registerAddress, std::int64_t value,
+        std::int64_t timeoutMs);
+    [[nodiscard]] modbuslens::core::WritePrepareOutcome prepareWriteMultipleRegisters(
+        std::int64_t unitId, std::int64_t startAddress, std::string_view valuesText,
+        std::int64_t timeoutMs);
+    // Confirmation consumes the snapshot (Prepared -> Consumed) after the
+    // runtime re-checks source / session / connection / busy. It does NOT
+    // dispatch: transport start/send counts stay untouched (dispatch is
+    // M10-D/E work).
+    [[nodiscard]] modbuslens::core::ConfirmWriteOutcome confirmPreparedWrite(
+        std::uint64_t token);
+    // Explicit cancel: Prepared -> Invalidated(UserCancelled). Never a serial
+    // error, never a transaction, never a send.
+    bool cancelPreparedWrite(std::uint64_t token);
+
+    // Read-only projection of the prepared snapshot (C2 will expose it to QML;
+    // C1 keeps it C++-only, with no setter and no QML surface).
+    [[nodiscard]] modbuslens::core::PreparedWriteState preparedWriteState() const;
+    [[nodiscard]] std::optional<std::uint64_t> preparedWriteToken() const;
+    [[nodiscard]] std::optional<modbuslens::core::PreparedWriteSnapshot>
+    preparedWriteSnapshot() const;
+    [[nodiscard]] std::optional<modbuslens::core::PreparedWriteInvalidReason>
+    preparedWriteInvalidReason() const;
+
     // Source identity (typed, never inferred from modeLabel text, a workspace
     // index or a filename) and the Active Serial session it belongs to.
     [[nodiscard]] modbuslens::core::TransactionSourceKind sourceKind() const;
@@ -297,6 +329,9 @@ private:
     void refreshActiveSessionDerivedViews();
     // (Re)connects the completion/error doors of the active transport.
     void connectSerialTransportSignals(SerialTransport& transport);
+    // Shared prepare plumbing: context guards, generation, store.
+    [[nodiscard]] modbuslens::core::WritePrepareOutcome prepareWriteIntent(
+        modbuslens::core::WriteIntentResult intentResult);
 
     modbuslens::core::TransactionStatisticsSnapshot statistics_;
     TransactionListModel transactionModel_;
@@ -339,6 +374,11 @@ private:
     // append-only evidence, never mixed into the completed-transaction
     // history (a transport abort is not a Modbus transaction).
     std::vector<modbuslens::core::ActiveTransportTerminal> activeSerialTerminations_;
+    // M10-C1: the ONE prepared write snapshot of this runtime (one-shot state
+    // machine) plus its monotonic generation counter. Draft data never enters
+    // this class — only an already-validated intent does.
+    modbuslens::core::PreparedWriteStore preparedWriteStore_;
+    std::uint64_t preparedWriteGeneration_ = 0;
 
     // T011 Part A: the STRUCTURED active batch for diagnosis — same source
     // as rows + statistics on every successful publish (never reconstructed

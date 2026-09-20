@@ -34,6 +34,9 @@ add_library(modbuslens_core STATIC
     src/core/analysis/TransactionStatistics.cpp
     src/core/active/ActiveRequestIntent.cpp
     src/core/active/ActiveTransactionEvidence.cpp
+    src/core/active/WriteDraftParsing.cpp
+    src/core/active/WritePrepareValidation.cpp
+    src/core/active/PreparedWriteSnapshot.cpp
     src/core/replay/ReplayLog.cpp
     src/core/replay/ReplayAnalysis.cpp
     src/core/serial/SerialTransactionSession.cpp
@@ -383,6 +386,19 @@ if(BUILD_TESTING)
 
     add_test(NAME active_request COMMAND modbuslens_active_request_tests)
 
+    # M10-C1: pure write-prepare foundation (parser / validation / prepared
+    # snapshot state machine). Zero Qt beyond the test framework; no encoder,
+    # no transport, no UI.
+    add_executable(modbuslens_write_prepare_tests tests/test_write_prepare.cpp)
+    target_link_libraries(modbuslens_write_prepare_tests PRIVATE
+        modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_write_prepare_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME write_prepare COMMAND modbuslens_write_prepare_tests)
+
     # M10-A: Active Master contract foundation over the REAL controller with a
     # deterministic RECORDING transport (TA1-TA9): send counts, exact ADU
     # oracle, controlled completion timing, transmission disposition, wire
@@ -599,7 +615,7 @@ if(BUILD_TESTING)
         MODBUSLENS_PROTOCOL_ERROR_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t014_protocol_error.mlog")
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()
