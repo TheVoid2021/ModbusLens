@@ -1,4 +1,5 @@
 #include <QAbstractItemModel>
+#include <QAccessible>
 #include <QGuiApplication>
 #include <QDir>
 #include <QImage>
@@ -12,6 +13,7 @@
 // through the controller's single production append seam, so the shipped
 // application type is included here (harness only — no product change).
 #include "core/active/ActiveRequestIntent.h"
+#include "core/serial/SerialTransactionSession.h"
 #include "core/active/ActiveTransactionEvidence.h"
 #include "ui/AnalysisController.h"
 #include <QQmlApplicationEngine>
@@ -4749,26 +4751,84 @@ public:
         return true;
     }
 
-    // There is no write capability in C2: every attempt is counted and
-    // refused as NotSent (nothing is ever handed over).
+    // Reads are accepted so the harness can create a REAL busy transition
+    // through the shipped FC03 path; WRITE functions are counted and refused
+    // as NotSent — there is no write capability in M10-C, and any attempt to
+    // dispatch one is both impossible and observable.
     modbuslens::core::ActiveStartResult startActiveRequest(
         const modbuslens::core::ActiveRequestDescriptor& request) override
     {
-        Q_UNUSED(request);
-        ++startAttempts_;
-        return modbuslens::core::ActiveStartResult{
-            false, modbuslens::core::TransportDisposition::NotSent, std::nullopt};
+        using modbuslens::core::ActiveFunction;
+        using modbuslens::core::ActiveStartResult;
+        using modbuslens::core::TransportDisposition;
+
+        if (request.intent.function != ActiveFunction::ReadHoldingRegisters) {
+            ++writeAttempts_;
+            return ActiveStartResult{false, TransportDisposition::NotSent,
+                                     std::nullopt};
+        }
+        ++readStarts_;
+        pending_ = request;
+        observed_.clear();
+        if (completeReadImmediately_) {
+            completeRead();
+        }
+        return ActiveStartResult{true, TransportDisposition::PossiblySent,
+                                 std::nullopt};
     }
 
-    [[nodiscard]] bool hasActiveTransaction() const override { return false; }
+    [[nodiscard]] bool hasActiveTransaction() const override
+    {
+        return pending_.has_value();
+    }
     [[nodiscard]] bool isPortOpen() const override { return portOpen_; }
-    [[nodiscard]] int startAttempts() const { return startAttempts_; }
+    [[nodiscard]] int readStarts() const { return readStarts_; }
+    [[nodiscard]] int writeAttempts() const { return writeAttempts_; }
 
-    void closePort() override { portOpen_ = false; }
+    // One deterministic FC03 answer (golden bytes), so the harness can end a
+    // read without any timing dependence.
+    void completeRead()
+    {
+        if (!pending_.has_value()) {
+            return;
+        }
+        modbuslens::core::SerialTransactionSession session;
+        const auto begin = session.beginActiveRequest(*pending_);
+        if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
+            return;
+        }
+        const std::vector<std::uint8_t> response = {0x01, 0x03, 0x04, 0x00,
+                                                    0x64, 0x00, 0xC8, 0xBA, 0x7A};
+        const auto result = session.feedResponseBytes(
+            response, std::chrono::milliseconds{25});
+        if (const auto* analysis =
+                std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
+            const auto finished = *pending_;
+            pending_.reset();
+            emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
+                .request = finished,
+                .responseAdu = response,
+                .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+                .analysis = *analysis,
+            });
+        }
+    }
+
+    void setCompleteReadImmediately(bool value) { completeReadImmediately_ = value; }
+
+    void closePort() override
+    {
+        portOpen_ = false;
+        pending_.reset();
+    }
 
 private:
     bool portOpen_ = false;
-    int startAttempts_ = 0;
+    bool completeReadImmediately_ = true;
+    int readStarts_ = 0;
+    int writeAttempts_ = 0;
+    std::optional<modbuslens::core::ActiveRequestDescriptor> pending_;
+    std::vector<std::uint8_t> observed_;
 };
 
 int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
@@ -4778,10 +4838,15 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto *controller = qobject_cast<AnalysisController *>(
         rootObj ? rootObj->findChild<QObject *>(QStringLiteral("analysisController"))
                 : nullptr);
-    if (!controller) {
-        qWarning() << "WRITEFAIL: no controller";
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    if (!controller || !window) {
+        qWarning() << "WRITEFAIL: no controller/window";
         return 1;
     }
+
+    // The harness transport is created up front so every oracle lambda can
+    // reference it (it is installed on the controller a few lines below).
+    auto *transport = new HarnessWriteTransport(&app);
 
     auto failures = std::make_shared<QStringList>();
     auto fail = [failures](const QString &m) { *failures << m; };
@@ -4835,6 +4900,75 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         auto *item = section();
         return item ? item->property("confirmationOpened").toBool() : false;
     };
+    // Real key delivery: Tab/Backtab go through the WINDOW (that is where Qt
+    // performs focus traversal); every other key goes to the active focus item.
+    auto sendKey = [window](Qt::Key key, Qt::KeyboardModifiers mods,
+                            bool toWindow) -> bool {
+        QObject *target = toWindow ? static_cast<QObject *>(window)
+                                   : window->activeFocusItem();
+        if (!target)
+            return false;
+        QKeyEvent press(QEvent::KeyPress, key, mods);
+        QCoreApplication::sendEvent(target, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, mods);
+        QCoreApplication::sendEvent(target, &release);
+        return true;
+    };
+    auto tab = [&sendKey](bool forward) {
+        return sendKey(forward ? Qt::Key_Tab : Qt::Key_Backtab, Qt::NoModifier, true);
+    };
+    auto focusName = [window]() {
+        auto *f = qobject_cast<QQuickItem *>(window->activeFocusItem());
+        return f ? f->objectName() : QStringLiteral("<null>");
+    };
+    auto focusOn = [&focusName](const QString &name) { return focusName() == name; };
+    // Accessible name / enabled state, read through Qt's own accessibility
+    // interface (never by inspecting text heuristically).
+    auto accessibleNameOf = [&itemOf](const QString &name) {
+        auto *item = itemOf(name);
+        if (!item)
+            return QString(); // missing item => empty name, never a placeholder
+        QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item);
+        return iface ? iface->text(QAccessible::Name) : QString();
+    };
+    // Nearest NAMED ancestor of the focused item. Qt moves focus to a control's
+    // internal child (e.g. a SpinBox's editor) in several cases, so the tab
+    // chain is described by OWNERSHIP rather than by exact object names.
+    auto focusOwnerName = [window]() {
+        for (auto *p = qobject_cast<QQuickItem *>(window->activeFocusItem()); p;
+             p = p->parentItem()) {
+            if (!p->objectName().isEmpty()) {
+                return p->objectName();
+            }
+        }
+        return QStringLiteral("<none>");
+    };
+    auto clickItemAt = [&roots, window](const QString &name) {
+        auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global, Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global, Qt::LeftButton,
+                            Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    auto railIndex = [&itemOf]() {
+        auto *r = itemOf(QStringLiteral("navigationRail"));
+        return r ? r->property("currentWorkspaceIndex").toInt() : -1;
+    };
+    // Cancel the prepared snapshot through the authority (used to reset the
+    // harness into a clean state between oracles).
+    auto clearIt = [&section]() {
+        auto *item = section();
+        if (item)
+            QMetaObject::invokeMethod(item, "cancelPreparedWrite");
+    };
     auto stateToken = [&controller]() { return controller->preparedWriteStateToken(); };
     auto tokenOf = [&controller]() { return controller->preparedWriteTokenValue(); };
     auto errorVisible = [&boolOf]() {
@@ -4845,7 +4979,6 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     };
 
     // Harness transport: connected Active Serial session, zero write capability.
-    auto *transport = new HarnessWriteTransport(&app);
     controller->setSerialTransport(transport);
     controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
 
@@ -4958,9 +5091,9 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                      .arg(stateToken()));
         if (tokenOf() == 0)
             fail(QStringLiteral("WRITEFAIL C03: no snapshot token"));
-        if (transport->startAttempts() != 0)
+        if (transport->writeAttempts() != 0)
             fail(QStringLiteral("WRITEFAIL C03: the transport was touched (%1)")
-                     .arg(transport->startAttempts()));
+                     .arg(transport->writeAttempts()));
         note(QStringLiteral("WRITE [C03]: prepared token=%1, dialog open, "
                             "startAttempts=0").arg(tokenOf()));
     });
@@ -5046,7 +5179,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             != QStringLiteral("user_cancelled"))
             fail(QStringLiteral("WRITEFAIL C04: reason=%1")
                      .arg(controller->preparedWriteInvalidReasonToken()));
-        if (transport->startAttempts() != 0)
+        if (transport->writeAttempts() != 0)
             fail(QStringLiteral("WRITEFAIL C04: the transport was touched"));
         if (itemOf(QStringLiteral("write06ValueSpin"))
             && itemOf(QStringLiteral("write06ValueSpin"))->property("value").toInt() == 0)
@@ -5126,9 +5259,9 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         // Second confirmation of the SAME token must be rejected.
         if (controller->confirmPreparedWriteToken(token))
             fail(QStringLiteral("WRITEFAIL C10-C: the same token confirmed twice"));
-        if (transport->startAttempts() != 0)
+        if (transport->writeAttempts() != 0)
             fail(QStringLiteral("WRITEFAIL C10-C: the transport was touched (%1)")
-                     .arg(transport->startAttempts()));
+                     .arg(transport->writeAttempts()));
         note(QStringLiteral("WRITE [C10-C]: one consumption for token=%1; second "
                             "confirm rejected; zero send").arg(token));
     });
@@ -5176,21 +5309,583 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                             "124 rejected"));
     });
 
+    // =========================================================================
+    // M10-C3: real keyboard + context + persistence + accessibility oracles.
+    // =========================================================================
+
+    // C06: the dialog opens with Cancel focused and Confirm NOT focused.
+    push([&]() {
+        setDraft("activeFunctionIndex", 0);
+        setDraft("unit06", 11);
+        setDraft("address06", 100);
+        setDraft("value06", 1234);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C06: valid 0x06 draft rejected"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C06: dialog not visible"));
+    });
+    push([&]() {
+        if (!focusOn(QStringLiteral("writeConfirmCancelButton")))
+            fail(QStringLiteral("WRITEFAIL C06: initial focus is [%1], expected "
+                                "the Cancel button").arg(focusName()));
+        if (focusOn(QStringLiteral("writeConfirmAcceptButton")))
+            fail(QStringLiteral("WRITEFAIL C06: the destructive Confirm button "
+                                "holds the initial focus"));
+        note(QStringLiteral("WRITE [C06]: initial focus = %1").arg(focusName()));
+    });
+
+    // C07: Enter immediately after opening must NOT consume.
+    push([&]() { sendKey(Qt::Key_Return, Qt::NoModifier, false); });
+    push([&]() {
+        if (stateToken() == QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL C07: an immediate Enter consumed the "
+                                "prepared write"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C07: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [C07]: immediate Enter -> state=%1 reason=%2")
+                 .arg(stateToken())
+                 .arg(controller->preparedWriteInvalidReasonToken()));
+    });
+
+    // C05: Space immediately after opening — Cancel holds focus, so a
+    // non-destructive Cancel is allowed; consumption is not.
+    push([&]() {
+        if (stateToken() != QStringLiteral("prepared")) {
+            setDraft("value06", 1234);
+            if (!activateWrite())
+                fail(QStringLiteral("WRITEFAIL C05: could not re-prepare"));
+        }
+        sendKey(Qt::Key_Space, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (stateToken() == QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL C05: Space on Cancel consumed the write"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C05: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [C05]: immediate Space -> state=%1 reason=%2")
+                 .arg(stateToken())
+                 .arg(controller->preparedWriteInvalidReasonToken()));
+    });
+
+    // C08: real Tab moves focus to Confirm; Space then accepts exactly once.
+    push([&]() {
+        if (stateToken() != QStringLiteral("prepared")) {
+            setDraft("value06", 1234);
+            if (!activateWrite())
+                fail(QStringLiteral("WRITEFAIL C08: could not re-prepare"));
+        }
+        for (int i = 0; i < 5
+             && !focusOn(QStringLiteral("writeConfirmAcceptButton")); ++i) {
+            tab(true);
+        }
+        if (!focusOn(QStringLiteral("writeConfirmAcceptButton")))
+            fail(QStringLiteral("WRITEFAIL C08: could not focus Confirm by Tab "
+                                "(focus=%1)").arg(focusName()));
+    });
+    push([&]() {
+        const auto tokenBefore = tokenOf();
+        sendKey(Qt::Key_Space, Qt::NoModifier, false);
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL C08: Space on Confirm gave state=%1")
+                     .arg(stateToken()));
+        if (controller->confirmPreparedWriteToken(tokenBefore))
+            fail(QStringLiteral("WRITEFAIL C08: the token confirmed twice"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C08: write dispatch was attempted"));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C08: the dialog stayed open after a "
+                                "successful confirmation"));
+        note(QStringLiteral("WRITE [C08]: Confirm+Space -> consumed once "
+                            "(token=%1), dialog closed, zero write dispatch")
+                 .arg(tokenBefore));
+    });
+
+    // C08b: Enter works the same way while Confirm holds active focus.
+    push([&]() {
+        setDraft("value06", 4321);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C08b: could not prepare"));
+        for (int i = 0; i < 5
+             && !focusOn(QStringLiteral("writeConfirmAcceptButton")); ++i) {
+            tab(true);
+        }
+        if (!focusOn(QStringLiteral("writeConfirmAcceptButton")))
+            fail(QStringLiteral("WRITEFAIL C08b: could not focus Confirm"));
+        sendKey(Qt::Key_Return, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL C08b: Enter on Confirm gave state=%1")
+                     .arg(stateToken()));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C08b: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [C08b]: Confirm+Enter -> consumed"));
+    });
+
+    // Double activation: two rapid Space presses on Confirm consume at most once.
+    push([&]() {
+        setDraft("value06", 777);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL double: could not prepare"));
+        for (int i = 0; i < 5
+             && !focusOn(QStringLiteral("writeConfirmAcceptButton")); ++i) {
+            tab(true);
+        }
+        sendKey(Qt::Key_Space, Qt::NoModifier, false);
+        sendKey(Qt::Key_Space, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL double: state=%1").arg(stateToken()));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL double: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [double]: two rapid activations -> one "
+                            "consumption, zero write dispatch"));
+    });
+
+    // Escape: real key -> Invalidated(UserCancelled), dialog closed, draft kept.
+    push([&]() {
+        setDraft("value06", 5555);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL Escape: could not prepare"));
+    });
+    // Escape goes through the WINDOW: Qt routes popup close-policy handling
+    // (CloseOnEscape) at the window/overlay level, not at the focused item.
+    push([&]() { sendKey(Qt::Key_Escape, Qt::NoModifier, true); });
+    push([&]() {
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("WRITEFAIL Escape: state=%1").arg(stateToken()));
+        if (controller->preparedWriteInvalidReasonToken()
+            != QStringLiteral("user_cancelled"))
+            fail(QStringLiteral("WRITEFAIL Escape: reason=%1")
+                     .arg(controller->preparedWriteInvalidReasonToken()));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL Escape: the dialog stayed visible"));
+        auto *item = section();
+        if (!item || item->property("value06").toInt() != 5555)
+            fail(QStringLiteral("WRITEFAIL Escape: the draft was not preserved"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL Escape: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [Escape]: invalidated(user_cancelled), dialog "
+                            "closed, draft preserved"));
+    });
+
+    // Outside click: closePolicy excludes outside-press, so the dialog and the
+    // snapshot must survive a click on the page background.
+    push([&]() {
+        setDraft("value06", 1234);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL outside-click: could not prepare"));
+    });
+    push([&]() {
+        if (!clickItemAt(QStringLiteral("communicationHeader")))
+            fail(QStringLiteral("WRITEFAIL outside-click: the background target "
+                                "is not clickable"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL outside-click: the dialog closed on an "
+                                "outside click"));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL outside-click: state=%1")
+                     .arg(stateToken()));
+        note(QStringLiteral("WRITE [outside-click]: dialog stayed open, snapshot "
+                            "stayed prepared"));
+    });
+
+    // Modal/background navigation: a rail click must never confirm/cancel/send.
+    push([&]() {
+        const int railBefore = railIndex();
+        clickItemAt(QStringLiteral("navItem_0"));
+        const int railAfter = railIndex();
+        if (stateToken() == QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL modal-nav: navigation consumed the "
+                                "prepared write"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL modal-nav: write dispatch attempted"));
+        note(QStringLiteral("WRITE [modal-nav]: rail %1 -> %2 (%3); state=%4")
+                 .arg(railBefore).arg(railAfter)
+                 .arg(railBefore == railAfter
+                          ? QStringLiteral("modal blocked the click")
+                          : QStringLiteral("click reached the rail"))
+                 .arg(stateToken()));
+    });
+
+    // C11: disconnect while the dialog is open -> authority-first invalidation.
+    push([&]() {
+        clickItemAt(QStringLiteral("navItem_2"));
+        if (stateToken() != QStringLiteral("prepared")) {
+            setDraft("value06", 1234);
+            if (!activateWrite())
+                fail(QStringLiteral("WRITEFAIL C11: could not prepare"));
+        }
+        controller->disconnectSerial();
+    });
+    push([&]() {
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("WRITEFAIL C11: state=%1").arg(stateToken()));
+        if (controller->preparedWriteInvalidReasonToken()
+            != QStringLiteral("disconnected"))
+            fail(QStringLiteral("WRITEFAIL C11: reason=%1")
+                     .arg(controller->preparedWriteInvalidReasonToken()));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C11: the dialog survived the "
+                                "invalidation"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C11: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [C11]: disconnect -> invalidated(disconnected), "
+                            "dialog closed by the authority"));
+    });
+
+    // C12: reconnect with the SAME port/baud must never revive the old token.
+    push([&]() {
+        const auto oldToken = tokenOf();
+        controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+        if (controller->preparedWriteStateToken() == QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL C12: a snapshot survived a reconnect"));
+        if (oldToken != 0 && controller->confirmPreparedWriteToken(oldToken))
+            fail(QStringLiteral("WRITEFAIL C12: the old token confirmed in the "
+                                "new session"));
+        note(QStringLiteral("WRITE [C12]: reconnect -> old token %1 unusable "
+                            "(session=%2)").arg(oldToken)
+                 .arg(controller->activeSerialSessionId()));
+    });
+
+    // C13/C14: a REAL FC03 read makes busy true (permanent invalidation);
+    // busy returning to false must not revive the token.
+    push([&]() {
+        setDraft("value06", 999);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C13: could not prepare"));
+        transport->setCompleteReadImmediately(false);
+        controller->readHoldingRegistersOnce(1, 0, 2, 1000);
+    });
+    push([&]() {
+        if (!controller->serialBusy())
+            fail(QStringLiteral("WRITEFAIL C13: the FC03 read did not make the "
+                                "runtime busy"));
+        if (stateToken() != QStringLiteral("invalidated")
+            || controller->preparedWriteInvalidReasonToken()
+                != QStringLiteral("busy_became_true"))
+            fail(QStringLiteral("WRITEFAIL C13: state=%1 reason=%2")
+                     .arg(stateToken())
+                     .arg(controller->preparedWriteInvalidReasonToken()));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C13: the dialog survived busy-true"));
+        transport->setCompleteReadImmediately(true);
+        transport->completeRead();
+    });
+    push([&]() {
+        if (controller->serialBusy())
+            fail(QStringLiteral("WRITEFAIL C14: the read did not finish"));
+        if (stateToken() == QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL C14: busy->false revived the snapshot"));
+        note(QStringLiteral("WRITE [C13/C14]: busy false->true invalidated; "
+                            "busy->false did not revive (reads=%1, write attempts=%2)")
+                 .arg(transport->readStarts()).arg(transport->writeAttempts()));
+    });
+
+    // C35: a later disconnect must not overwrite the busy reason.
+    push([&]() {
+        setDraft("value06", 1234);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C35: could not prepare"));
+        transport->setCompleteReadImmediately(false);
+        controller->readHoldingRegistersOnce(1, 0, 2, 1000);
+    });
+    push([&]() {
+        transport->setCompleteReadImmediately(true);
+        transport->completeRead();
+        controller->disconnectSerial();
+        if (controller->preparedWriteInvalidReasonToken()
+            != QStringLiteral("busy_became_true"))
+            fail(QStringLiteral("WRITEFAIL C35: the reason was overwritten (%1)")
+                     .arg(controller->preparedWriteInvalidReasonToken()));
+        note(QStringLiteral("WRITE [C35]: reason stays busy_became_true after a "
+                            "later disconnect"));
+        controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+    });
+
+    // C15: Clear Results preserves drafts and never invalidates a prepared
+    // snapshot.
+    push([&]() {
+        setDraft("unit06", 33);
+        setDraft("value06", 321);
+        setDraft("activeFunctionIndex", 1);
+        setDraft("unit10", 44);
+        setDraft("valuesText10", QStringLiteral("5"));
+        setDraft("activeFunctionIndex", 0);
+        controller->clearResults();
+    });
+    push([&]() {
+        auto *item = section();
+        if (!item || item->property("unit06").toInt() != 33
+            || item->property("value06").toInt() != 321
+            || item->property("unit10").toInt() != 44
+            || item->property("valuesText10").toString() != QStringLiteral("5"))
+            fail(QStringLiteral("WRITEFAIL C15: Clear Results cleared a draft"));
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C15: could not prepare"));
+        controller->clearResults();
+    });
+    push([&]() {
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL C15: Clear Results invalidated the "
+                                "snapshot (%1)").arg(stateToken()));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C15: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [C15]: Clear Results preserved drafts and the "
+                            "prepared snapshot"));
+        clearIt();
+    });
+
+    // C30: successful Simulator replacement invalidates, drafts survive.
+    push([&]() {
+        setDraft("activeFunctionIndex", 1);
+        setDraft("unit10", 55);
+        setDraft("valuesText10", QStringLiteral("9"));
+        setDraft("activeFunctionIndex", 0);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C30: could not prepare"));
+        controller->runDemoBatch();
+    });
+    push([&]() {
+        if (controller->preparedWriteInvalidReasonToken()
+            != QStringLiteral("source_changed"))
+            fail(QStringLiteral("WRITEFAIL C30: reason=%1")
+                     .arg(controller->preparedWriteInvalidReasonToken()));
+        auto *item = section();
+        if (!item || item->property("unit10").toInt() != 55
+            || item->property("valuesText10").toString() != QStringLiteral("9"))
+            fail(QStringLiteral("WRITEFAIL C30: the 0x10 draft was lost on a "
+                                "source change"));
+        note(QStringLiteral("WRITE [C30]: Simulator replacement -> "
+                            "invalidated(source_changed), drafts preserved"));
+    });
+
+    // C31: a FAILED replay load preserves the snapshot AND the drafts.
+    push([&]() {
+        clickItemAt(QStringLiteral("navItem_2"));
+        controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+        setDraft("value06", 4242);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C31: could not prepare"));
+        controller->loadReplayFile(QUrl::fromLocalFile(
+            QDir::tempPath() + QStringLiteral("/modbuslens_c3_missing.mlog")));
+    });
+    push([&]() {
+        if (!controller->hasReplayError())
+            fail(QStringLiteral("WRITEFAIL C31: the replay load did not fail"));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL C31: a failed load changed the snapshot "
+                                "(%1)").arg(stateToken()));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C31: the dialog was closed by a failed "
+                                "load"));
+        auto *item = section();
+        if (!item || item->property("value06").toInt() != 4242)
+            fail(QStringLiteral("WRITEFAIL C31: the draft was lost"));
+        note(QStringLiteral("WRITE [C31]: failed Replay load -> snapshot and draft "
+                            "preserved"));
+        clearIt();
+    });
+
+    // C32: disconnect/reconnect preserves drafts but kills the old snapshot.
+    push([&]() {
+        setDraft("value06", 8888);
+        setDraft("unit10", 66);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C32: could not prepare"));
+        controller->disconnectSerial();
+        controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+    });
+    push([&]() {
+        auto *item = section();
+        if (!item || item->property("value06").toInt() != 8888
+            || item->property("unit10").toInt() != 66)
+            fail(QStringLiteral("WRITEFAIL C32: drafts did not survive the "
+                                "disconnect/reconnect"));
+        if (controller->preparedWriteStateToken() == QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL C32: the old snapshot survived"));
+        note(QStringLiteral("WRITE [C32]: drafts preserved; old snapshot "
+                            "invalidated (draft persistence != confirmation "
+                            "persistence)"));
+    });
+
+    // C14 (hidden page): with the foundation loaded, leave Communication and
+    // prove no write control can be activated from the hidden page.
+    push([&]() {
+        setDraft("value06", 1234);
+        clickItemAt(QStringLiteral("navItem_0"));
+    });
+    push([&]() {
+        if (railIndex() != 0)
+            fail(QStringLiteral("WRITEFAIL C14: the workspace did not change (%1)")
+                     .arg(railIndex()));
+        auto *page = itemOf(QStringLiteral("communicationWorkspace"));
+        if (!page)
+            fail(QStringLiteral("WRITEFAIL C14: communicationWorkspace not found"));
+        else if (page->isEnabled())
+            fail(QStringLiteral("WRITEFAIL C14: the hidden Communication page is "
+                                "still enabled"));
+        sendKey(Qt::Key_Tab, Qt::NoModifier, true);
+        sendKey(Qt::Key_Space, Qt::NoModifier, false);
+        sendKey(Qt::Key_Return, Qt::NoModifier, false);
+        if (tokenOf() != 0 || stateToken() == QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL C14: a hidden write control prepared a "
+                                "snapshot"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C14: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [C14]: hidden page disabled; Tab/Space/Enter "
+                            "prepared nothing, dispatched nothing"));
+    });
+    push([&]() {
+        clickItemAt(QStringLiteral("navItem_2"));
+        auto *item = section();
+        if (!item || item->property("value06").toInt() != 1234)
+            fail(QStringLiteral("WRITEFAIL C14: navigation lost the draft"));
+        if (tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL C14: a snapshot appeared after "
+                                "navigating back"));
+        note(QStringLiteral("WRITE [C14]: back on Communication, draft intact, no "
+                            "snapshot"));
+    });
+
+    // Accessibility: names on the new controls. The dialog's own buttons are
+    // only in the item tree while the popup is shown, so a dialog is opened
+    // for this stage (and cancelled again afterwards).
+    push([&]() {
+        setDraft("value06", 1234);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL a11y: could not prepare for the "
+                                "dialog name checks"));
+        else if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL a11y: the dialog did not open"));
+    });
+    push([&]() {
+        const QStringList named = {QStringLiteral("writeActivateButton"),
+                                   QStringLiteral("write10ValuesArea"),
+                                   QStringLiteral("write06UnitSpin"),
+                                   QStringLiteral("writeConfirmCancelButton"),
+                                   QStringLiteral("writeConfirmAcceptButton")};
+        for (const QString &name : named) {
+            if (!itemOf(name))
+                fail(QStringLiteral("WRITEFAIL a11y: %1 is not in the control "
+                                    "tree").arg(name));
+            else if (accessibleNameOf(name).isEmpty())
+                fail(QStringLiteral("WRITEFAIL a11y: %1 has no accessible name")
+                         .arg(name));
+        }
+        if (!textOf(QStringLiteral("writeSummaryFunction")).isEmpty()
+            == false)
+            fail(QStringLiteral("WRITEFAIL a11y: the open dialog shows no "
+                                "function line"));
+        note(QStringLiteral("WRITE [a11y]: names present (%1 / %2 / %3)")
+                 .arg(accessibleNameOf(QStringLiteral("writeActivateButton")),
+                      accessibleNameOf(QStringLiteral("writeConfirmCancelButton")),
+                      accessibleNameOf(QStringLiteral("writeConfirmAcceptButton"))));
+        clearIt();
+    });
+    // Enabled-state consistency: a busy runtime disables the Write action.
+    push([&]() {
+        transport->setCompleteReadImmediately(false);
+        controller->readHoldingRegistersOnce(1, 0, 2, 1000);
+    });
+    push([&]() {
+        auto *writeButton = itemOf(QStringLiteral("writeActivateButton"));
+        if (!writeButton)
+            fail(QStringLiteral("WRITEFAIL a11y: writeActivateButton missing"));
+        else if (controller->serialBusy() && writeButton->isEnabled())
+            fail(QStringLiteral("WRITEFAIL a11y: the Write action stays enabled "
+                                "while the runtime is busy"));
+        else
+            note(QStringLiteral("WRITE [a11y]: busy runtime -> Write action "
+                                "disabled=%1")
+                     .arg(writeButton->isEnabled() ? 0 : 1));
+        transport->setCompleteReadImmediately(true);
+        transport->completeRead();
+    });
+
+    // Tab order: the 0x06 chain covers its own fields and never reaches the
+    // 0x10-only editor.
+    push([&]() {
+        setDraft("activeFunctionIndex", 0);
+        auto *tab06 = itemOf(QStringLiteral("writeTab06"));
+        if (!tab06)
+            fail(QStringLiteral("WRITEFAIL taborder: writeTab06 not found"));
+        else
+            tab06->forceActiveFocus(Qt::TabFocusReason);
+        QStringList owners;
+        owners << focusOwnerName();
+        for (int i = 0; i < 8; ++i) {
+            tab(true);
+            owners << focusOwnerName();
+        }
+        const QString joined = owners.join(QStringLiteral(","));
+        for (const QString &expected : {QStringLiteral("write06UnitSpin"),
+                                        QStringLiteral("write06AddressSpin"),
+                                        QStringLiteral("write06ValueSpin"),
+                                        QStringLiteral("write06TimeoutSpin"),
+                                        QStringLiteral("writeActivateButton")}) {
+            if (!owners.contains(expected))
+                fail(QStringLiteral("WRITEFAIL taborder: %1 never receives focus "
+                                    "(chain=[%2])").arg(expected, joined));
+        }
+        if (owners.contains(QStringLiteral("write10ValuesArea"))
+            || owners.contains(QStringLiteral("write10UnitSpin")))
+            fail(QStringLiteral("WRITEFAIL taborder: the inactive tab's controls "
+                                "are reachable ([%1])").arg(joined));
+        note(QStringLiteral("WRITE [taborder]: 0x06 owners = [%1]").arg(joined));
+    });
+
+    // C36: the values TextArea must not trap Tab; Backtab returns to it.
+    push([&]() {
+        setDraft("activeFunctionIndex", 1);
+        auto *area = itemOf(QStringLiteral("write10ValuesArea"));
+        if (!area)
+            fail(QStringLiteral("WRITEFAIL C36: write10ValuesArea not found"));
+        else
+            area->forceActiveFocus(Qt::TabFocusReason);
+    });
+    push([&]() {
+        if (!focusOn(QStringLiteral("write10ValuesArea")))
+            fail(QStringLiteral("WRITEFAIL C36: the values editor did not take "
+                                "focus (focus=%1)").arg(focusName()));
+        tab(true);
+    });
+    push([&]() {
+        if (focusOn(QStringLiteral("write10ValuesArea")))
+            fail(QStringLiteral("WRITEFAIL C36: Tab did not escape the values "
+                                "editor"));
+        const QString afterTab = focusName();
+        tab(false);
+        if (!focusOn(QStringLiteral("write10ValuesArea")))
+            fail(QStringLiteral("WRITEFAIL C36: Backtab did not return to the "
+                                "values editor (focus=%1)").arg(focusName()));
+        note(QStringLiteral("WRITE [C36]: Tab escaped to [%1]; Backtab returned to "
+                            "[%2]").arg(afterTab, focusName()));
+    });
+
     auto step = std::make_shared<int>(0);
     const int settleMs = 60;
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, step, schedule]() {
         if (*step >= steps->size()) {
-            if (transport->startAttempts() != 0)
-                fail(QStringLiteral("WRITEFAIL final: transport startAttempts=%1")
-                         .arg(transport->startAttempts()));
+            if (transport->writeAttempts() != 0)
+                fail(QStringLiteral("WRITEFAIL final: write dispatch attempts=%1 "
+                                    "(reads=%2, which are the deliberate FC03 "
+                                    "busy oracle)")
+                         .arg(transport->writeAttempts())
+                         .arg(transport->readStarts()));
             if (failures->isEmpty())
                 qInfo() << "WRITE FOUNDATION CHECK PASS (C01 unit 0; C02 parser "
                            "value; C03/C19 prepared + summary == snapshot; C04 "
                            "cancel; C09 repeated write; C10-C one consumption; "
                            "C16 independent drafts; C17 0x10 quantity/values; C18 "
                            "address span; C20 draft edit cannot alter snapshot; "
-                           "parser presentation) — zero dispatch";
+                           "parser presentation; C05/C06/C07/C08/C08b keyboard; "
+                           "C11 disconnect; C12 reconnect; C13/C14 busy; C15 Clear; "
+                           "C30 Simulator; C31 failed replay; C32 draft persistence; "
+                           "C35 reason preservation; C36 Tab escape; a11y; tab order) "
+                           "— zero write dispatch";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "WRITEFAIL:" << f;

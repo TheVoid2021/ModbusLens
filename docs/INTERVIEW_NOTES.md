@@ -823,3 +823,14 @@
 - **Q：summary 为什么必须逐字段比对一个 snapshot，而不是「看起来对」？** A：因为确认对话框是写操作的最后一句话。C19 让 harness 从 Controller projection 读到 unit/address/value/label，再逐字段与被显示的文本比较；C20 进一步证明「prepare 之后改 draft」既不改 snapshot 也不改 summary。这样「你确认的就是将要发送的」才是被证明的事实。
 - **Q：重复 Write 与重复 Confirm 分别在哪里兜住？** A：重复 Write 由 Controller 的 store 兜（已有 Prepared 就返回 AlreadyPrepared、不换 token、不生成第二份），QML 只是把既有 Dialog 重新聚焦；重复 Confirm 由 Controller 的 one-shot 状态机兜（同 token 第二次确认一律 reject），QML **不维护** `confirmConsumed` 之类的第二套状态——authority 只有一个。
 - **Q：为什么这轮没有出现「写入成功」？** A：因为 C2 根本没有 dispatch。Confirm 的语义只是「用户确认意图已被一次性接受」（Consumed），把它写成「写入成功」等于伪造设备行为。真正的成功语义要等 M10-D 接上 0x06 encoder、收到匹配响应并由 analyzer 判 Success 之后才允许出现。
+
+## 87. Post-T022 M10-C3（Context / Keyboard / Accessibility Safety）条目（2026-09-20 追加）
+
+- **Q：为什么「结构上没设 default button」还不够，一定要真发键盘事件？** A：因为不安全的行为往往来自我们没意识到会发生的路径。实测给出三个只有真按才看得见的事实：一打开就按 Enter **什么都不发生**（state 仍 prepared），按 Space 会激活持焦点的 Cancel（非破坏性取消），而 Escape 发到焦点控件**完全无效**——Qt 把 popup 的 CloseOnEscape 处理挂在 window/overlay 层。第三条如果不真发，就会写出一个「以为测过 Escape」的假绿。
+- **Q：对话打开时点背景会发生什么？** A：实测 dialog 保持打开、snapshot 保持 prepared（closePolicy 显式排除 outside-press，鼠标事件被 modal overlay 吞掉）。同样地，点 rail 导航也**打不穿 modal**（rail 索引 2→2 没变），所以「背景交互破坏确认」这条风险在当前结构下不成立——但它是被**测量**出来的，不是被假设的。
+- **Q：draft persistence 与 confirmation persistence 的区别为什么值得一个专门 oracle？** A：因为它们看起来很像但安全性相反：draft 是用户输入，跨导航/清空/断线**都应该保留**；confirmation 是「对某一刻某一会话的授权」，一旦 session/source/busy 变化就**必须失效**。C32/C30/C31 把这两件事同时摆出来：同一时刻 draft 还在，旧 snapshot 已经作废。
+- **Q：Clear Results 为什么不清 draft、也不关确认框？** A：因为它是结果域操作（清事务/统计/诊断），不是「恢复安全状态」。把它当撤销键用会产生一种错觉：用户以为清一下就让待确认的写变安全了。真正让确认失效的只有权威事实变化（连接/会话/忙碌/来源）。
+- **Q：busy 变化为什么要用真实 FC03 读来制造？** A：因为「忙碌」是运行时的真实状态，不是测试里的一个布尔值。用 shipped 路径发一次读，能让 busy 真的从 false 变 true（同时也就验证了 busy 是读写共享的单一 in-flight 槽），随后读完成变回 false，再看旧 token 是否复活——答案是不复活，这正是永久失效契约。
+- **Q：harness 里的读写计数为什么要分开？** A：因为「零发送」这个结论必须精确：用 FC03 制造 busy 本来就会发生一次读，如果笼统统计「发送次数」就会把这次读算进来、导致要么误报要么掩盖真正的写派发。所以传输双替身接受读、拒绝一切写，并在失败信息里同时打印 `reads` 与 `write attempts`。
+- **Q：可访问性这轮做到什么程度？** A：只做基线：控件有可读的名字（经 Qt 自己的可访问性接口验证）、enabled 状态与运行时一致、Tab 顺序确定且不会跑到未激活 tab 的控件上、多行编辑器不再吞掉 Tab。**不声称 WCAG 或屏幕阅读器认证**——这与 M9-F 的边界一致。
+- **Q：这轮有没有发现产品缺陷？** A：没有发现安全或状态缺陷。唯一的产品侧观察是 ISSUE-014：TransactionsPage 的 delegate 绑定在模型 reset 的瞬间对 undefined 角色求值，产生 9 条告警（只在「delegate 已存在 + 模型 reset」时出现，nav harness 为 0 条），无功能影响，记为 **PRE-EXISTING NON-BLOCKING**，留待未来的 warning hygiene 任务统一处理。

@@ -135,6 +135,7 @@ Item {
                     Label { text: qsTr("从站地址") }
                     SpinBox {
                         objectName: "write06UnitSpin"
+                        Accessible.name: qsTr("0x06 从站地址")
                         from: 1; to: 247; value: section.unit06
                         enabled: !section.analysisController.serialBusy
                         onValueModified: section.unit06 = value
@@ -142,6 +143,7 @@ Item {
                     Label { text: qsTr("寄存器地址") }
                     SpinBox {
                         objectName: "write06AddressSpin"
+                        Accessible.name: qsTr("0x06 寄存器地址")
                         from: 0; to: 65535; value: section.address06
                         enabled: !section.analysisController.serialBusy
                         onValueModified: section.address06 = value
@@ -149,6 +151,7 @@ Item {
                     Label { text: qsTr("写入值") }
                     SpinBox {
                         objectName: "write06ValueSpin"
+                        Accessible.name: qsTr("0x06 写入值")
                         from: 0; to: 65535; value: section.value06
                         enabled: !section.analysisController.serialBusy
                         onValueModified: section.value06 = value
@@ -156,6 +159,7 @@ Item {
                     Label { text: qsTr("超时 (ms)") }
                     SpinBox {
                         objectName: "write06TimeoutSpin"
+                        Accessible.name: qsTr("0x06 超时（毫秒）")
                         from: 100; to: 10000; value: section.timeout06; stepSize: 100
                         enabled: !section.analysisController.serialBusy
                         onValueModified: section.timeout06 = value
@@ -175,6 +179,7 @@ Item {
                         Label { text: qsTr("从站地址") }
                         SpinBox {
                             objectName: "write10UnitSpin"
+                            Accessible.name: qsTr("0x10 从站地址")
                             from: 1; to: 247; value: section.unit10
                             enabled: !section.analysisController.serialBusy
                             onValueModified: section.unit10 = value
@@ -182,6 +187,7 @@ Item {
                         Label { text: qsTr("起始地址") }
                         SpinBox {
                             objectName: "write10StartSpin"
+                            Accessible.name: qsTr("0x10 起始地址")
                             from: 0; to: 65535; value: section.start10
                             enabled: !section.analysisController.serialBusy
                             onValueModified: section.start10 = value
@@ -189,6 +195,7 @@ Item {
                         Label { text: qsTr("超时 (ms)") }
                         SpinBox {
                             objectName: "write10TimeoutSpin"
+                            Accessible.name: qsTr("0x10 超时（毫秒）")
                             from: 100; to: 10000; value: section.timeout10; stepSize: 100
                             enabled: !section.analysisController.serialBusy
                             onValueModified: section.timeout10 = value
@@ -209,11 +216,31 @@ Item {
                         TextArea {
                             id: valuesArea
                             objectName: "write10ValuesArea"
+                            Accessible.name: qsTr("0x10 寄存器值（每行一个）")
                             text: section.valuesText10
                             enabled: !section.analysisController.serialBusy
                             wrapMode: TextArea.NoWrap
                             selectByMouse: true
                             onTextChanged: section.valuesText10 = text
+                            // A multi-line editor would otherwise swallow Tab
+                            // forever. Only Tab/Backtab change meaning here
+                            // (the same pattern the Agent draft uses); every
+                            // editing key keeps its text semantics, so the
+                            // line-per-value input contract is unchanged.
+                            Keys.onTabPressed: (event) => {
+                                var next = valuesArea.nextItemInFocusChain(true)
+                                if (next) {
+                                    next.forceActiveFocus(Qt.TabFocusReason)
+                                    event.accepted = true
+                                }
+                            }
+                            Keys.onBacktabPressed: (event) => {
+                                var prev = valuesArea.nextItemInFocusChain(false)
+                                if (prev) {
+                                    prev.forceActiveFocus(Qt.BacktabFocusReason)
+                                    event.accepted = true
+                                }
+                            }
                         }
                     }
                 }
@@ -222,6 +249,7 @@ Item {
                     Layout.fillWidth: true
                     AppButton {
                         objectName: "writeActivateButton"
+                        Accessible.name: qsTr("写入（打开确认对话框）")
                         text: qsTr("写入")
                         tone: "primary"
                         enabled: section.analysisController.serialConnected
@@ -367,6 +395,7 @@ Item {
             AppButton {
                 id: cancelButton
                 objectName: "writeConfirmCancelButton"
+                Accessible.name: qsTr("取消写入（不发送任何请求）")
                 text: qsTr("取消")
                 tone: "secondary"
                 onClicked: {
@@ -375,11 +404,21 @@ Item {
                 }
             }
             AppButton {
+                id: confirmButton
                 objectName: "writeConfirmAcceptButton"
+                Accessible.name: qsTr("确认写入意图")
                 text: qsTr("确认写入")
                 tone: "primary"
                 // Never the default/highlighted button: an accidental Enter
-                // right after opening must not confirm.
+                // right after opening must not confirm. Enter is wired
+                // explicitly and therefore acts ONLY while this button itself
+                // holds active focus (never because the dialog is open).
+                Keys.onReturnPressed: (event) => {
+                    if (confirmButton.activeFocus) {
+                        confirmButton.clicked()
+                        event.accepted = true
+                    }
+                }
                 onClicked: {
                     if (section.confirmPreparedWrite())
                         confirmationDialog.close()
