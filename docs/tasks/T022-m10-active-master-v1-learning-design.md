@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE（accepted behavior tree `b7a6151`，verified LKGC）。**M10-B = FC03 Unified Contract Migration：实现完成，等待 M10-B Review**（IN PROGRESS）。**
+> **状态：M10-A = ✅ COMPLETE（accepted behavior tree `b7a6151`，verified LKGC）。**M10-B = FC03 Unified Contract Migration：Review = HOLD → Correction（selection-on-append QML runtime oracle）已实施，等待 M10-B Final Re-review**（IN PROGRESS）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -1926,4 +1926,107 @@ REAL HARDWARE NOT VERIFIED 继续（M10-B 不要求真机；不得把 simulator/
 behavior-bearing ⇒ 不作 LKGC。commit：`M10-B: migrate FC03 to unified Active Master history`
 （独立提交；不 amend `d870922`；不 rebase；不 push；未创建 v2.0.0 tag）。
 verified LKGC 保持 `b7a6151`；M10-B = 等待 Review。
+```
+## M10-B Correction — Transactions Selection-on-Append QML Runtime Oracle（2026-09-20，harness-only）
+
+> **M10-B Review = HOLD（极窄 test-oracle correction）。** M10-B 主体实现**全部接受**：FC03 unified contract /
+> Active Serial history append / statistics whole-session batch / diagnosis whole-session batch / Clear Results /
+> reconnect·new session / Simulator·Replay replacement / transport terminal exclusion / M10-A safety contracts。
+> **唯一缺口**：B05 / B06 当时主要由 **model signal-level** 证据支持，而 Transactions selection 是 **QML page-local
+> presentation state** —— 必须在真实 `TransactionsPage.qml` + `ListView` runtime 里直接证明。
+> 原 M10-B 历史（§F0–F13）**未改写**。
+
+### G0. 选择权威的真实审计（A–F）
+
+```text
+A. ListView id = `transactionsList`（TransactionsPage.qml）。
+B. selection authority 有两层且同源：`ListView.currentIndex`（Qt 原生 Up/Down/Home/End 与鼠标 tap 都改它）
+   与页面本地快照 `selectedRow` / `selectedEntry`（`onCurrentIndexChanged: page.selectRow(currentIndex)` 驱动）。
+C. selected detail 由页面本地快照驱动：`transactionDetail*` 标签绑定 `page.hasTransactionSelection ? selectedEntry.<field> : ""`；
+   快照由 `captureEntry(item)` 在**选择时**从 delegate 的 `row*` 只读属性复制（presentation copy，非权威）。
+D. 失效路径唯一：`Connections { target: transactionModel; onModelReset }` ⇒ 清 `selectedRow/selectedEntry/pendingSelectionRow`
+   并把 `currentIndex = -1`。**只有 modelReset**。
+E. `rowsInserted` **没有任何 handler**（审计确认）——append 不触碰选择状态。
+F. 因此 append（`appendEntries` → `beginInsertRows/endInsertRows`）时：模型不 reset、已有行不 dataChanged、
+   Qt 不移动 currentIndex ⇒ currentIndex/快照保持；页面也不会自动选中任何新行（无该逻辑）。
+   ——以上为源码事实，本轮用**真实 runtime**验证，而不是继续推断。
+```
+
+### G1. 运行时场景 FM（B05-QML：selection survives append）
+
+```text
+harness：`--qml-focus-check` 内的新场景 **FM**（真实 app + 真实 QML + 真实 controller）。
+注意：**不使用 AppBar「清空结果」作为焦点锚点** —— 点击它是破坏性清空（M9-F F1 已记录），会删掉本 oracle 需要的行；
+      改用 rail 条目（`selectWorkspace(0)`）+ workspace 自身 Tab 链进入列表。
+步骤与断言（真实输出）：
+  1) clearResults() → 通过**唯一生产 append seam**（`appendActiveSerialTransaction`，与 transport 完成同一方法）
+     追加 unit 11 / Success 与 unit 22 / Timeout 两条记录；ListView count = 2。
+  2) 键盘进入列表（Tab 链；若 20+ 次未到达则退回页面自身的 `selectRow()` 入口——FA 已单独把守遍历契约）
+     → Home 选中 row 0。
+  3) 断言：currentIndex = 0、selectedRow = 0、detail 文本 = [设备 11][成功]、`assertTransactionDetailMapping` 字段逐一相等。
+  4) **追加第三条**（unit 33 / Exception）后立即断言：
+       · model 与 list 均 3 行（append 真的发生）；
+       · currentIndex 仍 = 0、selectedRow 仍 = 0（未被抢走）；
+       · currentIndex ≠ 2（新行未被 auto-select）；
+       · detail 仍是 [设备 11][成功]（不是 [设备 33][异常]），字段映射仍逐项相等。
+  5) 追加后键盘回归：End → currentIndex = 2 且 detail **显式**跟随（用户动作照常生效）；Home → 回到 0。
+  6) 追加后代替换回归：点击「清空结果」（真实 modelReset）→ currentIndex = -1、selectedRow = -1、快照清空、
+     空态提示可见 ⇒ **append 保持** 与 **replacement 失效** 两个机制互不混淆。
+真实输出：
+  FOCUS [FM]: row #1 (unit 11) selected; detail shows [设备 11][成功]
+  FOCUS [FM] PASS: currentIndex=0 selectedRow=0 detail=[设备 11][成功] after appending row #3
+  FOCUS [FM] PASS: Up/Down/Home/End still drive the currentIndex -> selectRow path after an append
+  FOCUS [FM] PASS: reset/replacement invalidates the selection while append preserves it
+```
+
+### G2. 运行时场景 FN（B06-QML：no selection stays none after append）
+
+```text
+步骤与断言：
+  1) 处于**真实 no-selection 状态且至少有 1 行**（上一步的 reset 已清空模型，随后追加 unit 44 / Success 一条）。
+  2) 断言：rows = 1、currentIndex = -1、selectedRow = -1、快照为空、空态提示可见。
+  3) 键盘进入列表：**不得**因 focus entry 或 delegate 创建而选中任何行（currentIndex 仍 = -1）。
+  4) 追加 unit 55 / Timeout → 断言 rows = 2、currentIndex 仍 = -1、selectedRow 仍 = -1、快照仍为空、空态提示仍在。
+真实输出：
+  FOCUS [FN] PASS: no selection before and after the append; detail stayed in the no-selection state
+汇总行已扩展：`... FM selection survives append; FN no selection stays none after append`。
+```
+
+### G3. 产品代码 diff
+
+```text
+**零产品 diff**：本轮未改 QML（TransactionsPage.qml 无改动）、未改 `TransactionListModel`、未改 `AnalysisController`、
+未改 core / simulator / transport / evidence。唯一 src 改动是 **harness 文件 `src/main.cpp`**（新增 FM/FN 场景与
+`appendActiveSerialRecord` 辅助）。按 §10 未引入任何「fake selection authority」，selection 权威仍留在 QML page。
+（`src/main.cpp` 中 5 条 `-Wunused-variable` 等告警经 HEAD 副本比对确认为**既有**告警，未在本轮引入，按 scope freeze 未动。）
+```
+
+### G4. 门禁（真实输出）
+
+```text
+`--qml-focus-check`（含 FM/FN）：exit 0，FOCUS CHECK PASS。
+Debug ctest **29/29 PASS**；Release ctest **29/29 PASS**（含 qml_smoke / qml_geometry_check / qml_nav_check / qml_focus_check）。
+`ui_bridge` **59 passed / 0 failed**；`active_master` **39 passed / 0 failed**；`active_request` 17 passed。
+`git diff --check` PASS。
+```
+
+### G5. Problems / RCA
+
+```text
+P1（harness 设计缺陷，本轮自查发现）：FM/FN 第一版沿用 FA 的焦点锚点 `appBarClearResults`（点它就是「清空结果」），
+  于是刚追加的记录被清掉 —— 表现为 `selection is -1/-1`、`after append model=1 list=1`。
+  Root Cause：锚点是破坏性动作（M9-F F1 已记录过同一陷阱），新场景直接复用而未评估副作用。
+  Fix：改用 rail 条目 + workspace Tab 链作为入口；破坏性清空只在**需要证明 replacement 失效**的那一步使用。
+  Verification：FM/FN 全绿（见 G1/G2 真实输出）。
+P2（可观测性）：聚焦 harness 的失败信息在本机被吞掉（WIN32 GUI 子系统无控制台）。定位手段：
+  `QT_ASSUME_STDERR_HAS_CONSOLE=1` 强制 Qt 消息处理器写 stderr —— 这是**诊断手段**，未写入产品/CI。
+  记录以便后续排查同类 harness 失败。
+```
+
+### G6. Git
+
+```text
+harness/test 行为变化 ⇒ **behavior-bearing**（按项目治理：无 production diff 也不例外）。
+commit：`M10-B: prove Transactions selection survives append`（独立提交；不 amend `6e7c6a3`；不 rebase；不 push；未创建 tag）。
+verified LKGC 保持 `b7a6151`；M10-B = 等待 Final Re-review。
 ```

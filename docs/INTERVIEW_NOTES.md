@@ -749,3 +749,13 @@
 - **Q：本轮抓到的最有价值的问题是什么？** A：一次「迁移时留下两个写入点」的缺陷：新的 append 路径生效后，旧的 `push_back` 忘了删，导致一次完成写两条记录（记录 2 / 可见行 1 / 统计按 2 聚合）。是 ui_bridge 的断言（observed=2）先把它抓出来。教训是：**迁移所有权时，旧写入点必须显式删除**，否则「唯一权威」变成「两份历史」。
 - **Q：为什么删掉了 M10-A 的 `publishSerialResult` seam？** A：它是「手工把一条 analysis 塞进界面」的合成入口，latest-only 语义正是本轮要改的契约。删掉后，serial bridge 测试改用 **deterministic recording transport 驱动真实生产路径**（无 COM、无 sleep），断言覆盖面反而更大——测试不再验证一条影子路径，而是验证用户实际走的那条。
 - **Q：REAL HARDWARE NOT VERIFIED 还在吗？** A：在。M10-B 的全部结论都来自自动化与确定性 fake；没有真机验证，也不允许把 simulator/fake PASS 写成 hardware PASS。
+
+## 80. Post-T022 M10-B Review HOLD → Selection-on-Append QML Runtime Oracle 条目（2026-09-20 追加）
+
+- **Q：为什么「model 没 reset」不足以证明选择没被破坏？** A：因为 selection 的权威不在 model 里，而在**页面的 QML runtime**：`ListView.currentIndex` 加上页面本地快照 `selectedRow/selectedEntry`，detail 面板由快照驱动。model 信号只能说明「没有触发 reset」，无法说明「currentIndex 没动、快照没变、detail 还指着原来那条」。所以必须在真实 TransactionsPage + ListView 里把这三层都读出来断言。
+- **Q：FM 场景具体断言了什么？** A：选中 row#1（unit 11 / 成功）→ 通过**唯一生产 append seam** 追加 row#3（unit 33 / 异常）→ 断言 `currentIndex` 仍 0、`selectedRow` 仍 0、detail 仍显示 [设备 11][成功]（不是 [设备 33][异常]）、且新行没有被自动选中；随后按 End 是**用户显式移动**，此时 detail 才跟着切到 row#3 —— 这正好区分了「append 不抢选择」与「用户操作照常生效」。
+- **Q：为什么还要证明「replacement 仍然失效选择」？** A：因为这是两条**不同机制**：append 是 insert（保持），source replacement / Clear 是 modelReset（失效）。只证明前者会让「选择永不失效」变成一个可能的错误结论。FM 末尾点击「清空结果」后断言 `currentIndex=-1`、快照清空、空态提示出现，两条机制同时被钉住。
+- **Q：FN 场景解决了什么？** A：无选择状态。它先进入「有行但无选择」的真实状态（上一步 reset 清空模型后追加一行），确认键盘进入列表**不会**因为获得焦点或 delegate 创建而选中任何行，再追加一行，断言仍旧无选择、detail 仍是空态提示 —— 排除了「rowsInserted / count 变化 / currentItem 创建顺带选中」这类隐性行为。
+- **Q：这轮为什么没有改产品代码？** A：因为真实 runtime 直接 PASS —— 规则是「若真实 QML runtime 已经 PASS：不得改产品代码」。选择权威仍然留在 QML page，没有为了测试方便在 Controller/model 里新造 selection state，也没有引入 auto-scroll / auto-select 的 follow-tail 行为。
+- **Q：harness 里踩到了什么坑？** A：复用了 FA 的焦点锚点「清空结果」按钮 —— 点它本身就是**破坏性清空**（M9-F 已记录过同一陷阱），结果刚追加的记录被删掉，表现为 `selection is -1/-1` 与 `after append model=1 list=1`。改用 rail 条目进入 workspace 的 Tab 链后一切正常；破坏性清空只在需要证明 replacement 失效的那一步使用。教训：**测试的「起点动作」必须先审计副作用**。
+- **Q：为什么调试 harness 失败这么费劲？** A：因为应用是 WIN32 GUI 子系统程序，没有控制台，Qt 默认消息处理器的输出被丢弃（只有退出码可见）。解决手段是 `QT_ASSUME_STDERR_HAS_CONSOLE=1` 强制写 stderr —— 这是**诊断手段**，没有写进产品或 CI。

@@ -8,6 +8,12 @@
 
 // M9-E E1: generated version interface (configure_file output, build tree only).
 #include "modbuslens_version.h"
+// M10-B correction: the focus harness appends REAL Active Serial records
+// through the controller's single production append seam, so the shipped
+// application type is included here (harness only — no product change).
+#include "core/active/ActiveRequestIntent.h"
+#include "core/active/ActiveTransactionEvidence.h"
+#include "ui/AnalysisController.h"
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -4888,6 +4894,54 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         return t ? t->property("text").toString() : QStringLiteral("<none>");
     };
     auto note = [](const QString &line) { qInfo().noquote() << line; };
+    // M10-B correction (FM/FN): drive the ONE production append seam — the
+    // same method the transport completion calls — so the oracle exercises the
+    // real append, never a test-only shadow path. Records are machine
+    // distinguishable (unit / status / elapsed) so the detail oracle can prove
+    // WHICH transaction the pane still shows.
+    auto controller = qobject_cast<AnalysisController *>(ctrl);
+    auto appendActiveRecord = [controller](std::uint64_t sessionId,
+                                           std::uint8_t unit,
+                                           modbuslens::core::TransactionStatus status,
+                                           long long elapsedMs) {
+        using namespace modbuslens::core;
+        const auto encoded = encodeActiveRequest(ActiveRequestIntent{
+            .function = ActiveFunction::ReadHoldingRegisters,
+            .unitId = unit,
+            .timeout = std::chrono::milliseconds{1000},
+            .payload = ReadHoldingRegistersIntent{.startAddress = 0,
+                                                  .quantity = 2}});
+        if (std::get_if<ActiveRequestEncodeError>(&encoded) != nullptr)
+            return false;
+        const auto descriptor = std::get<ActiveRequestDescriptor>(encoded);
+        controller->appendActiveSerialTransaction(ActiveTransactionRecord{
+            .sessionId = sessionId,
+            .request = descriptor,
+            .evidence = ActiveTransactionEvidence{
+                .requestAdu = descriptor.wire,
+                .responseAdu = {},
+                .disposition = TransportDisposition::PossiblySent,
+            },
+            .analysis = TransactionAnalysis{
+                .status = status,
+                .elapsed = std::chrono::milliseconds{elapsedMs},
+                .exceptionCode = std::nullopt,
+                .issue = std::nullopt},
+        });
+        return true;
+    };
+    auto detailStatusText = [&itemOf]() {
+        auto *label = itemOf(QStringLiteral("transactionDetailStatus"));
+        return label ? label->property("text").toString() : QStringLiteral("<none>");
+    };
+    auto detailDeviceText = [&itemOf]() {
+        auto *label = itemOf(QStringLiteral("transactionDetailDevice"));
+        return label ? label->property("text").toString() : QStringLiteral("<none>");
+    };
+    auto detailEmptyVisible = [&itemOf]() {
+        auto *hint = itemOf(QStringLiteral("transactionDetailEmpty"));
+        return hint ? hint->isVisible() : false;
+    };
     // M9-F F1 correction: the border group of a control's custom background
     // (Rectangle.border -> QQuickPen) is the machine-visible focus state for
     // controls whose focus indication IS the border (AppButton / TabButton).
@@ -5621,6 +5675,176 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                 "existing currentIndex -> selectRow path"));
     });
 
+    // ---- M10-B correction: FM (B05-QML) selection survives append ----
+    // A real QML runtime oracle: the page's own selection state, the
+    // ListView's currentIndex and the DETAIL PANE are read after a real
+    // append, so "the model did not reset" is not accepted as proof.
+    // NOTE: the AppBar 清空结果 button is NOT used as the focus anchor here —
+    // clicking it is a destructive clear (measured in M9-F F1), which would
+    // delete the very rows this oracle needs. The rail entry is used instead.
+    push([&]() {
+        if (!QMetaObject::invokeMethod(ctrl, "clearResults"))
+            fail(QStringLiteral("FOCUSFAIL FM: clearResults() not invokable"));
+        appendActiveRecord(7, 11, modbuslens::core::TransactionStatus::Success, 25);
+        appendActiveRecord(7, 22, modbuslens::core::TransactionStatus::Timeout, 1000);
+        selectWorkspace(0);
+    });
+    push([&]() {
+        if (rowCountOf(ctrl) != 2 || listCount() != 2)
+            fail(QStringLiteral("FOCUSFAIL FM: expected 2 rows, model=%1 list=%2")
+                     .arg(rowCountOf(ctrl)).arg(listCount()));
+        // Keyboard entry through the workspace's own Tab chain (the FA
+        // contract); the four-key move below then selects row 0 through the
+        // product path (currentIndex -> selectRow).
+        QQuickItem *list = nullptr;
+        for (int i = 0; i < 24 && list == nullptr; ++i) {
+            tab(true);
+            if (focusName() == QStringLiteral("transactionsList"))
+                list = itemOf(QStringLiteral("transactionsList"));
+        }
+        if (!list) {
+            // Traversal itself is FA's contract; this oracle may still drive
+            // the selection through the page's own entry point (the same seam
+            // the nav harness uses) without weakening the append assertions.
+            note(QStringLiteral("FOCUS [FM]: list not reached from the rail by "
+                                "Tab; driving selection through the page entry "
+                                "point instead"));
+            if (!requestTransactionSelection(roots, 0))
+                fail(QStringLiteral("FOCUSFAIL FM: selectRow() not invokable"));
+            return;
+        }
+        sendKey(Qt::Key_Home, Qt::NoModifier, false); // select row 0 (unit 11)
+    });
+    push([&]() {
+        if (listIndex() != 0 || selectedRow() != 0)
+            fail(QStringLiteral("FOCUSFAIL FM: selection is %1/%2, expected 0/0")
+                     .arg(listIndex()).arg(selectedRow()));
+        if (!detailDeviceText().contains(QStringLiteral("11"))
+            || detailStatusText() != QStringLiteral("成功"))
+            fail(QStringLiteral("FOCUSFAIL FM: detail shows [%1][%2], expected "
+                                "device 11 / 成功")
+                     .arg(detailDeviceText(), detailStatusText()));
+        assertTransactionDetailMapping(roots, QStringLiteral("FM before append"),
+                                       *failures);
+        note(QStringLiteral("FOCUS [FM]: row #1 (unit 11) selected; detail shows "
+                            "[%1][%2]").arg(detailDeviceText(), detailStatusText()));
+        // THE APPEND under test: a third, machine-distinguishable transaction.
+        appendActiveRecord(7, 33, modbuslens::core::TransactionStatus::Exception, 18);
+    });
+    push([&]() {
+        if (rowCountOf(ctrl) != 3 || listCount() != 3)
+            fail(QStringLiteral("FOCUSFAIL FM: after append model=%1 list=%2, "
+                                "expected 3/3").arg(rowCountOf(ctrl)).arg(listCount()));
+        if (listIndex() != 0 || selectedRow() != 0)
+            fail(QStringLiteral("FOCUSFAIL FM: append moved the selection to "
+                                "%1/%2 (auto-follow)").arg(listIndex())
+                     .arg(selectedRow()));
+        if (listIndex() == 2)
+            fail(QStringLiteral("FOCUSFAIL FM: the appended row was auto-selected"));
+        if (detailDeviceText().contains(QStringLiteral("33"))
+            || detailStatusText() == QStringLiteral("异常"))
+            fail(QStringLiteral("FOCUSFAIL FM: detail switched to the appended row "
+                                "[%1][%2]").arg(detailDeviceText(),
+                                                detailStatusText()));
+        if (!detailDeviceText().contains(QStringLiteral("11"))
+            || detailStatusText() != QStringLiteral("成功"))
+            fail(QStringLiteral("FOCUSFAIL FM: detail identity lost after append: "
+                                "[%1][%2]").arg(detailDeviceText(),
+                                                detailStatusText()));
+        assertTransactionDetailMapping(roots, QStringLiteral("FM after append"),
+                                       *failures);
+        note(QStringLiteral("FOCUS [FM] PASS: currentIndex=%1 selectedRow=%2 "
+                            "detail=[%3][%4] after appending row #3")
+                 .arg(listIndex()).arg(selectedRow())
+                 .arg(detailDeviceText(), detailStatusText()));
+        sendKey(Qt::Key_End, Qt::NoModifier, false);
+    });
+    push([&]() {
+        // Keyboard after append still drives the one currentIndex -> selectRow
+        // path: an explicit move DOES switch the detail (no contract change).
+        if (listIndex() != 2 || selectedRow() != 2)
+            fail(QStringLiteral("FOCUSFAIL FM: End after append gave %1/%2, "
+                                "expected 2/2").arg(listIndex()).arg(selectedRow()));
+        else if (!detailDeviceText().contains(QStringLiteral("33")))
+            fail(QStringLiteral("FOCUSFAIL FM: detail did not follow the explicit "
+                                "End move: [%1]").arg(detailDeviceText()));
+        else
+            note(QStringLiteral("FOCUS [FM] PASS: Up/Down/Home/End still drive the "
+                                "currentIndex -> selectRow path after an append"));
+        sendKey(Qt::Key_Home, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (listIndex() != 0 || selectedRow() != 0)
+            fail(QStringLiteral("FOCUSFAIL FM: Home after append gave %1/%2, "
+                                "expected 0/0").arg(listIndex()).arg(selectedRow()));
+        // ---- replacement invalidation (the OTHER mechanism, still intact) ----
+        if (!clickNamed(QStringLiteral("appBarClearResults")))
+            fail(QStringLiteral("FOCUSFAIL FM: appBarClearResults not clickable"));
+    });
+    push([&]() {
+        if (listIndex() != -1 || selectedRow() != -1
+            || !selectedEntryOf(roots).isEmpty())
+            fail(QStringLiteral("FOCUSFAIL FM: a RESET did not invalidate the "
+                                "selection (%1/%2)").arg(listIndex())
+                     .arg(selectedRow()));
+        if (!detailEmptyVisible())
+            fail(QStringLiteral("FOCUSFAIL FM: the no-selection detail state is "
+                                "missing after a reset"));
+        note(QStringLiteral("FOCUS [FM] PASS: reset/replacement invalidates the "
+                            "selection while append preserves it"));
+    });
+
+    // ---- M10-B correction: FN (B06-QML) no selection stays none ----
+    push([&]() {
+        // Reach a genuine no-selection state with at least one row: the
+        // destructive anchor above already cleared the model, so one append
+        // builds the row without ever selecting anything.
+        appendActiveRecord(9, 44, modbuslens::core::TransactionStatus::Success, 25);
+        selectWorkspace(0);
+    });
+    push([&]() {
+        if (rowCountOf(ctrl) != 1)
+            fail(QStringLiteral("FOCUSFAIL FN: expected 1 row, got %1")
+                     .arg(rowCountOf(ctrl)));
+        if (listIndex() != -1 || selectedRow() != -1
+            || !selectedEntryOf(roots).isEmpty())
+            fail(QStringLiteral("FOCUSFAIL FN: a selection appeared out of nowhere "
+                                "(%1/%2)").arg(listIndex()).arg(selectedRow()));
+        if (!detailEmptyVisible())
+            fail(QStringLiteral("FOCUSFAIL FN: the no-selection hint is not visible"));
+        // Keyboard entry must not select either (FA contract, re-checked here
+        // because the model now has rows while nothing is selected).
+        QQuickItem *list = nullptr;
+        for (int i = 0; i < 24 && list == nullptr; ++i) {
+            tab(true);
+            if (focusName() == QStringLiteral("transactionsList"))
+                list = itemOf(QStringLiteral("transactionsList"));
+        }
+        if (list && listIndex() != -1)
+            fail(QStringLiteral("FOCUSFAIL FN: keyboard entry selected row %1")
+                     .arg(listIndex()));
+    });
+    push([&]() {
+        appendActiveRecord(9, 55, modbuslens::core::TransactionStatus::Timeout, 1000);
+    });
+    push([&]() {
+        if (rowCountOf(ctrl) != 2)
+            fail(QStringLiteral("FOCUSFAIL FN: append did not land (rows=%1)")
+                     .arg(rowCountOf(ctrl)));
+        if (listIndex() != -1)
+            fail(QStringLiteral("FOCUSFAIL FN: the appended row was auto-selected "
+                                "(currentIndex=%1)").arg(listIndex()));
+        if (selectedRow() != -1 || !selectedEntryOf(roots).isEmpty())
+            fail(QStringLiteral("FOCUSFAIL FN: a selection exists after appending "
+                                "without one (selectedRow=%1)").arg(selectedRow()));
+        if (!detailEmptyVisible())
+            fail(QStringLiteral("FOCUSFAIL FN: the no-selection detail state is gone"));
+        assertTransactionDetailMapping(roots, QStringLiteral("FN no selection"),
+                                       *failures);
+        note(QStringLiteral("FOCUS [FN] PASS: no selection before and after the "
+                            "append; detail stayed in the no-selection state"));
+    });
+
     auto step = std::make_shared<int>(0);
     const int settleMs = 120;
     auto schedule = std::make_shared<std::function<void()>>();
@@ -5633,7 +5857,8 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "Enter/Space x5; FF Device disabled; FK per-type "
                            "focus indication; FL TextArea Left/Right/Home/End/"
                            "Up/Down; FG/FH Agent TextArea traversal; FI list "
-                           "four-key regression)";
+                           "four-key regression; FM selection survives append; "
+                           "FN no selection stays none after append)";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "FOCUSFAIL:" << f;
