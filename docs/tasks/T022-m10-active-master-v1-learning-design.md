@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1（§I）→ §J → §K → C1（§L，COMPLETE `7562678`）→ C2（§M，COMPLETE `447e346`）→ **C3 已实现（§N0–N28：context / keyboard / accessibility safety；production 仍不可见；zero write dispatch），等待 M10-C3 Review；C4 = NOT STARTED**（无 encoder、无 confirm→dispatch）。**
+> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1（§I）→ §J → §K → C1（§L）→ C2（§M）→ C3（§N：context / keyboard / accessibility safety）→ Review = HOLD → **Correction 已落库（§O0–O10：E1/E2 rapid-Enter spillover oracle；产品 QML 零变化），等待 M10-C3 Final Re-review；C4 = NOT STARTED**（无 encoder、无 confirm→dispatch）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -4381,4 +4381,136 @@ C3 的 runtime 键盘/焦点 oracle 放在 **`--qml-write-foundation-check`**（
 而不是 `qml_focus_check`：后者运行在 normal production 配置下，其职责是 **prod-hidden oracle**
 （证明 write 控件根本不存在）。两者合起来覆盖 §53 要求的「qml_focus_check（加入 C3 runtime keyboard/focus）」
 意图：keyboard/focus 的真实运行时断言 + production 不可见性，各自在能真实成立的环境里执行。
+```
+## M10-C3 Correction — Rapid Enter Spillover Oracle Closure（2026-09-20，harness-only）
+
+> **M10-C3 Review = HOLD（窄范围 keyboard safety oracle correction）。** C3 主体实现**全部接受、不重做**：
+> modal/background safety / Cancel initial focus / immediate Enter zero-confirm / immediate Space non-destructive /
+> Confirm+Space / Confirm+Enter / Escape / disconnect·reconnect / busy invalidation / source invalidation /
+> failed Replay preservation / draft persistence / page gating / accessibility / Tab order / TextArea escape /
+> production hidden / zero write dispatch。
+> **唯一 blocker**：Confirm 消费并关闭 Dialog 后，**第二个快速 Enter 是否 spill 到背景控件**尚无真实 QML runtime oracle。
+> 原 §N 记录**不改写**（只追加本节）。
+
+### O0. Narrow HOLD 归档
+
+```text
+M10-C3 Review = HOLD；唯一 blocker = rapid Enter post-Dialog-close spillover 缺 runtime oracle。
+本轮边界：未开始 M10-C4；未实现 encoder / dispatch；Write UI 未进入 production；未 push；未 tag；
+verified LKGC 保持 `ef71244`。
+```
+
+### O1. Focus Return Path 实读（§2）
+
+```text
+· `WriteFoundationSection.qml` 的 Confirm：`Keys.onReturnPressed` 内 **先判 `confirmButton.activeFocus`**
+  再 `confirmButton.clicked()`，随后 `onClicked` → `section.confirmPreparedWrite()`（携带 opaque token）
+  → 成功则 `confirmationDialog.close()`。
+· Dialog 关闭后 Qt 的真实焦点归属：**runtime 实测为 `Main`**（窗口内容根 Item），
+  不是任意背景**控件**（不是 Write 按钮、不是 rail、不是 Read/清空结果）。
+  该事实由 E1/E2 的 `focus after close = Main (owner Main)` 记录，**作为证据而非契约**：
+  无论焦点落在哪里，rapid second Enter 都不得形成新的 write flow（§5/§6）。
+· harness 的 key 投递：Tab 走 window（Qt 在此做 focus traversal），其余键走 `window->activeFocusItem()`——
+  与 C3 已冻结的投递方式一致，**未在两次按键之间做任何焦点干预**（§12）。
+```
+
+### O2. Scenario E1 — Back-to-back Enter（真实 QML runtime）
+
+```text
+准备：valid 0x06 draft → open Dialog → 真实 Tab 到 Confirm → 断言 Confirm 持有 active focus。
+真实输出：`WRITE [E1]: ready — token=8 state=prepared dialog=1 focus=writeConfirmAcceptButton`
+动作：**连续两个 Return，无 sleep、无 focus 干预**（两键之间不重新设置焦点）。
+结果（真实输出）：
+  `WRITE [E1]: back-to-back Enter -> one consumption (token=8), no new snapshot/dialog, no background action, writes=0`
+断言（全部通过）：
+  · confirmation acceptance count = **1**（随后用同 token 直接调用 confirm 返回 false ⇒ 二次拒绝）
+  · token 8 = **Consumed**（`stateToken() == "consumed"`），随后 `tokenOf() == 0`、`hasPreparedWrite() == false`
+  · **未**出现新 generation / 新 Prepared snapshot / 第二个 Dialog / 第二次 acceptance
+  · transport `writeAttempts == 0`（write dispatch 全程 0）
+  · 背景未被激活：rail index 不变、transaction rows 与 observedCount 不变（清空结果类动作未发生）、
+    `readStarts` 不变（**第二个 Enter 没有触发 Read**）、session id 不变
+```
+
+### O3. Focus-after-close Evidence（§6）
+
+```text
+真实输出（E1 与 E2 各一条，取自不同时序）：
+  `WRITE [E1] focus after close = Main (owner Main)`
+  `WRITE [E2]: focus after close = Main (owner Main)`
+⇒ **Dialog 关闭后焦点回到窗口内容根 Item，而不是某个背景控件**。
+本轮**没有**为了测试把焦点强制移到「人工安全位置」：产品 QML 真实行为就是如此，
+harness 只是在事件循环的下一轮读取它（§12）。
+```
+
+### O4. Scenario E2 — Next-turn Enter（更接近用户连按第二下）
+
+```text
+意图：捕获「第二个 key 落到**已经恢复后的背景焦点**」这一情形（而不是两个事件都在 popup 关闭前入队）。
+步骤：prepare → Tab 到 Confirm → 第一个 Return（消费 + 关闭 Dialog）→ **等待正常 event-loop
+  完成 close/focus restore 一轮** → 不重新选择任何控件 → 再发第二个 Return。
+真实输出：
+  `WRITE [E2]: focus after close = Main (owner Main)`
+  `WRITE [E2]: next-turn Enter after close -> no new flow, no background action, writes=0`
+断言（全部通过）：无新 snapshot（token 0 / hasPreparedWrite false）、无 Dialog 重开、
+state 仍 consumed、rail index 不变、rows/observed 不变、`readStarts` 不变、session 不变、`writeAttempts == 0`。
+```
+
+### O5. 回归（不得因本轮破坏既有 oracle）
+
+```text
+· **double Space**（Confirm 持焦点连按两次 Space）：继续 `one consumption, zero write dispatch`。
+· **immediate Enter**（dialog 刚打开、Cancel 持焦点）：继续 `state=prepared reason=`（**zero confirmation**）；
+  本轮**未**为了统一行为把它改成 Cancel（§9：真实结果就是「不动作」，安全，保持原样）。
+· **Escape / C05**：继续 `invalidated(user_cancelled), dialog closed, draft preserved`。
+· 其余 C01–C36 全部继续 PASS（**未修改任何旧断言**）。
+```
+
+### O6. C05 编号更正（append-only，§10）
+
+```text
+**冻结矩阵口径**：**C05 = Escape → Cancel semantics → zero write send**。
+本轮之前 harness 输出中把「immediate Space」标成了 `[C05]`，属于**编号漂移**；
+现更正为：
+  · `[C05/Escape]` = Escape → Cancel → zero write send；
+  · **`[C05b]`** = immediate Space（**additional keyboard safety oracle**，不是冻结矩阵里的 C05）。
+原历史记录（§N5 的文字与当时的输出）**保留不改**，本节即更正声明；
+§N4–N7 的技术结论不受影响（它们描述的是行为，编号只是标签）。
+```
+
+### O7. Product / Harness Diff
+
+```text
+· **产品 QML：零变化**（E1/E2 真实 PASS ⇒ 按 §11 不得改产品 QML）。
+· 唯一改动 = harness（`src/main.cpp`）：新增 E1/E2 两组 stage、C05 编号更正、summary 行补充。
+  未通过任何「手动清 focus / 手动聚焦安全 Item / 禁用 window / 隐藏背景 / 直接调用 Controller 代替按键」
+  的方式让测试通过（§12）；E1/E2 全部使用**真实 QML key event + 真实 Dialog close + 真实 focus restore**。
+· 本轮**不需要**制造 busy，因此没有额外的 FC03 read；`readStarts` 在 E1/E2 内保持不变，
+  与 `writeAttempts` 分开报告（§13）。
+```
+
+### O8. 门禁（真实输出）
+
+```text
+`qml_write_foundation_check`：**PASS（exit 0）**，覆盖 C01–C36 + parser + a11y + taborder + **E1/E2**，zero write dispatch。
+Debug ctest **31/31 PASS**；Release ctest **31/31 PASS**（含 qml_smoke / qml_geometry / qml_nav / qml_focus）。
+write_prepare **32** / active_master **54** / ui_bridge **59** / active_request 17 全绿。
+**新增代码零 warning**；`src/main.cpp` 5 条 pre-existing warnings 未动（同时实测确认：2494 / 2496 / 4594 三条行号不变；7277 与 7515 因本轮插入发生位移，旧行号为 7138 / 7376；五条均为 previous-existing，本轮新增代码零 warning）。
+```
+
+### O9. Problems / RCA
+
+```text
+本轮未发现产品缺陷或 Controller 状态缺陷；E1/E2 均一次通过（无需修改产品）。
+harness 侧记录一条**编号漂移**（O6：immediate Space 曾被标为 C05）——分类 **documentation/harness labeling defect**，
+已按 append-only 方式更正，不删除历史。
+（其余实现期问题已在 §N26 记录：Escape 需发到 window、Tab 链祖先归属、a11y 空洞通过、footer 仅在显示时入树、
+Q_OBJECT/AUTOMOC、脚本插入等，本轮未新增同类问题。）
+```
+
+### O10. Git
+
+```text
+harness/test 行为变化 ⇒ **behavior-bearing**（产品 QML 零变化也不例外）。
+commit：`M10-C3: prove rapid Enter cannot escape confirmation`（独立提交；不 amend `0d5c219`；不 rebase；不 push；未 tag）。
+verified LKGC 保持 `ef71244`；M10-C3 = 等待 Final Re-review。
 ```

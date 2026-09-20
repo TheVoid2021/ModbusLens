@@ -5353,16 +5353,16 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (stateToken() != QStringLiteral("prepared")) {
             setDraft("value06", 1234);
             if (!activateWrite())
-                fail(QStringLiteral("WRITEFAIL C05: could not re-prepare"));
+                fail(QStringLiteral("WRITEFAIL C05b: could not re-prepare"));
         }
         sendKey(Qt::Key_Space, Qt::NoModifier, false);
     });
     push([&]() {
         if (stateToken() == QStringLiteral("consumed"))
-            fail(QStringLiteral("WRITEFAIL C05: Space on Cancel consumed the write"));
+            fail(QStringLiteral("WRITEFAIL C05b: Space on Cancel consumed the write"));
         if (transport->writeAttempts() != 0)
-            fail(QStringLiteral("WRITEFAIL C05: write dispatch was attempted"));
-        note(QStringLiteral("WRITE [C05]: immediate Space -> state=%1 reason=%2")
+            fail(QStringLiteral("WRITEFAIL C05b: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [C05b]: immediate Space -> state=%1 reason=%2")
                  .arg(stateToken())
                  .arg(controller->preparedWriteInvalidReasonToken()));
     });
@@ -5443,30 +5443,169 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                             "consumption, zero write dispatch"));
     });
 
+    // =========================================================================
+    // M10-C3 correction: rapid Enter spillover (E1 back-to-back, E2 next turn).
+    //
+    // Confirming consumes the snapshot and closes the dialog. The safety
+    // question is what the SECOND Enter does once the popup is gone: it must
+    // never reach a background control (Write action, Read, Clear Results,
+    // rail) and must never start a new write flow.
+    // =========================================================================
+
+    // E1: two Enter presses back-to-back, no focus manipulation in between.
+    push([&]() {
+        setDraft("activeFunctionIndex", 0);
+        setDraft("unit06", 11);
+        setDraft("address06", 100);
+        setDraft("value06", 1234);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL E1: could not prepare"));
+        for (int i = 0; i < 5
+             && !focusOn(QStringLiteral("writeConfirmAcceptButton")); ++i) {
+            tab(true);
+        }
+        if (!focusOn(QStringLiteral("writeConfirmAcceptButton")))
+            fail(QStringLiteral("WRITEFAIL E1: Confirm does not hold active focus "
+                                "(focus=%1)").arg(focusName()));
+        note(QStringLiteral("WRITE [E1]: ready — token=%1 state=%2 dialog=%3 "
+                            "focus=%4")
+                 .arg(tokenOf()).arg(stateToken())
+                 .arg(dialogVisible() ? 1 : 0).arg(focusName()));
+    });
+    push([&]() {
+        const auto tokenBefore = tokenOf();
+        const int railBefore = railIndex();
+        const int rowsBefore = controller->transactionModel()->rowCount();
+        const int observedBefore = controller->observedCount();
+        const int readsBefore = transport->readStarts();
+        const auto sessionBefore = controller->activeSerialSessionId();
+
+        // Back-to-back activation with NO sleep and NO focus intervention.
+        sendKey(Qt::Key_Return, Qt::NoModifier, false);
+        sendKey(Qt::Key_Return, Qt::NoModifier, false);
+
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL E1: state=%1, expected consumed")
+                     .arg(stateToken()));
+        if (tokenBefore != 0 && controller->confirmPreparedWriteToken(tokenBefore))
+            fail(QStringLiteral("WRITEFAIL E1: the token was accepted twice"));
+        if (tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL E1: a new prepared token appeared (%1)")
+                     .arg(tokenOf()));
+        if (controller->hasPreparedWrite())
+            fail(QStringLiteral("WRITEFAIL E1: a new Prepared snapshot exists"));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL E1: a dialog is open again"));
+        if (railIndex() != railBefore)
+            fail(QStringLiteral("WRITEFAIL E1: a background rail action ran (%1 -> %2)")
+                     .arg(railBefore).arg(railIndex()));
+        if (controller->transactionModel()->rowCount() != rowsBefore
+            || controller->observedCount() != observedBefore)
+            fail(QStringLiteral("WRITEFAIL E1: a background result action ran "
+                                "(rows %1 -> %2, observed %3 -> %4)")
+                     .arg(rowsBefore)
+                     .arg(controller->transactionModel()->rowCount())
+                     .arg(observedBefore)
+                     .arg(controller->observedCount()));
+        if (transport->readStarts() != readsBefore)
+            fail(QStringLiteral("WRITEFAIL E1: the second Enter started a READ "
+                                "(%1 -> %2)").arg(readsBefore)
+                     .arg(transport->readStarts()));
+        if (controller->activeSerialSessionId() != sessionBefore)
+            fail(QStringLiteral("WRITEFAIL E1: the session changed"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL E1: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [E1]: back-to-back Enter -> one consumption "
+                            "(token=%1), no new snapshot/dialog, no background "
+                            "action, writes=%2")
+                 .arg(tokenBefore).arg(transport->writeAttempts()));
+    });
+    // Focus after close is EVIDENCE, not a contract: record where it lands.
+    push([&]() {
+        note(QStringLiteral("WRITE [E1] focus after close = %1 (owner %2)")
+                 .arg(focusName(), focusOwnerName()));
+    });
+
+    // E2: the second Enter arrives on a LATER turn, after the dialog close has
+    // fully settled (this is the "focus restored to the background" case).
+    push([&]() {
+        setDraft("value06", 2222);
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL E2: could not prepare"));
+        for (int i = 0; i < 5
+             && !focusOn(QStringLiteral("writeConfirmAcceptButton")); ++i) {
+            tab(true);
+        }
+        sendKey(Qt::Key_Return, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL E2: first Enter gave state=%1")
+                     .arg(stateToken()));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL E2: the dialog is still visible"));
+    });
+    push([&]() {
+        // One settled event-loop turn later: no control is re-selected here —
+        // the key goes exactly where the restored focus is.
+        const int railBefore = railIndex();
+        const int rowsBefore = controller->transactionModel()->rowCount();
+        const int observedBefore = controller->observedCount();
+        const int readsBefore = transport->readStarts();
+        const auto sessionBefore = controller->activeSerialSessionId();
+        note(QStringLiteral("WRITE [E2]: focus after close = %1 (owner %2)")
+                 .arg(focusName(), focusOwnerName()));
+
+        sendKey(Qt::Key_Return, Qt::NoModifier, false);
+
+        if (tokenOf() != 0 || controller->hasPreparedWrite())
+            fail(QStringLiteral("WRITEFAIL E2: the second Enter started a new "
+                                "write flow (token=%1)").arg(tokenOf()));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL E2: a dialog reopened"));
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL E2: state=%1").arg(stateToken()));
+        if (railIndex() != railBefore)
+            fail(QStringLiteral("WRITEFAIL E2: a background rail action ran (%1 -> %2)")
+                     .arg(railBefore).arg(railIndex()));
+        if (controller->transactionModel()->rowCount() != rowsBefore
+            || controller->observedCount() != observedBefore)
+            fail(QStringLiteral("WRITEFAIL E2: a background result action ran"));
+        if (transport->readStarts() != readsBefore)
+            fail(QStringLiteral("WRITEFAIL E2: the second Enter started a READ"));
+        if (controller->activeSerialSessionId() != sessionBefore)
+            fail(QStringLiteral("WRITEFAIL E2: the session changed"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL E2: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [E2]: next-turn Enter after close -> no new "
+                            "flow, no background action, writes=%1")
+                 .arg(transport->writeAttempts()));
+    });
+
     // Escape: real key -> Invalidated(UserCancelled), dialog closed, draft kept.
     push([&]() {
         setDraft("value06", 5555);
         if (!activateWrite())
-            fail(QStringLiteral("WRITEFAIL Escape: could not prepare"));
+            fail(QStringLiteral("WRITEFAIL C05: could not prepare"));
     });
     // Escape goes through the WINDOW: Qt routes popup close-policy handling
     // (CloseOnEscape) at the window/overlay level, not at the focused item.
     push([&]() { sendKey(Qt::Key_Escape, Qt::NoModifier, true); });
     push([&]() {
         if (stateToken() != QStringLiteral("invalidated"))
-            fail(QStringLiteral("WRITEFAIL Escape: state=%1").arg(stateToken()));
+            fail(QStringLiteral("WRITEFAIL C05: state=%1").arg(stateToken()));
         if (controller->preparedWriteInvalidReasonToken()
             != QStringLiteral("user_cancelled"))
-            fail(QStringLiteral("WRITEFAIL Escape: reason=%1")
+            fail(QStringLiteral("WRITEFAIL C05: reason=%1")
                      .arg(controller->preparedWriteInvalidReasonToken()));
         if (dialogVisible())
-            fail(QStringLiteral("WRITEFAIL Escape: the dialog stayed visible"));
+            fail(QStringLiteral("WRITEFAIL C05: the dialog stayed visible"));
         auto *item = section();
         if (!item || item->property("value06").toInt() != 5555)
-            fail(QStringLiteral("WRITEFAIL Escape: the draft was not preserved"));
+            fail(QStringLiteral("WRITEFAIL C05: the draft was not preserved"));
         if (transport->writeAttempts() != 0)
-            fail(QStringLiteral("WRITEFAIL Escape: write dispatch was attempted"));
-        note(QStringLiteral("WRITE [Escape]: invalidated(user_cancelled), dialog "
+            fail(QStringLiteral("WRITEFAIL C05: write dispatch was attempted"));
+        note(QStringLiteral("WRITE [C05/Escape]: invalidated(user_cancelled), dialog "
                             "closed, draft preserved"));
     });
 
@@ -5884,8 +6023,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "parser presentation; C05/C06/C07/C08/C08b keyboard; "
                            "C11 disconnect; C12 reconnect; C13/C14 busy; C15 Clear; "
                            "C30 Simulator; C31 failed replay; C32 draft persistence; "
-                           "C35 reason preservation; C36 Tab escape; a11y; tab order) "
-                           "— zero write dispatch";
+                           "C35 reason preservation; C36 Tab escape; a11y; tab order; "
+                           "E1/E2 rapid-Enter spillover) — zero write dispatch";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "WRITEFAIL:" << f;
