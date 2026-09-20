@@ -29,6 +29,8 @@ std::string_view transportTerminalReasonName(TransportTerminalReason reason)
         return "transport_error";
     case TransportTerminalReason::DisconnectedAfterSubmission:
         return "disconnected_after_submission";
+    case TransportTerminalReason::ShortSubmission:
+        return "short_submission";
     }
     return "unknown";
 }

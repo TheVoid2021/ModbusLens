@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：IN PROGRESS — Phase 1 = ✅ COMPLETE → M10-A 已实施（behavior-bearing）→ **M10-A Review = HOLD（窄范围）** → **Correction：post-submission transport failure evidence 已保留**，等待 **M10-A Re-review**；M10-A **仍未 COMPLETE**；M10-B/C/D/E/F 未开始。**
+> **状态：IN PROGRESS — Phase 1 = ✅ COMPLETE → M10-A 已实施 → Review = HOLD → Correction（post-submission evidence）→ Re-review = HOLD → **Final Closure：short-submission evidence 已保留**，等待 **M10-A Final Re-review**；M10-A **仍未 COMPLETE**；M10-B/C/D/E/F 未开始。**
 > verified LKGC = `aa2f3db`（M9-F closure 后的 accepted behavior tree）；M9 = ✅ COMPLETE（不重开）。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -1389,4 +1389,181 @@ Debug `ctest`：**29/29 PASS**；Release `ctest`：**29/29 PASS**（含 qml_smok
 behavior-bearing ⇒ 不作 LKGC。commit：`M10-A: retain post-submission transport evidence`
 （独立提交；不 amend `18f27e9`；不 rebase；不 push；未创建 v2.0.0 tag）。
 verified LKGC 保持 `aa2f3db`；M10-A **仍未 COMPLETE**（等待 Re-review）。
+```
+## M10-A Final Closure — Short-Submission Evidence（2026-09-20，append-only）
+
+> **M10-A Re-review = HOLD（最后一个已知窄范围 safety correction）。** 上一轮 correction 的其余部分**全部接受**：
+> unified intent / generic session / transport seam / recording transport / NotSent·PossiblySent /
+> raw request·response evidence / post-submit transport-error evidence / disconnect evidence / partial-response evidence /
+> Active Serial append foundation / Clear Results / source·session isolation / writable simulator foundation / FC03 behavior equivalence。
+> **TransportDisposition 不要求 rename。**
+> **唯一 blocker**：`startTransaction` 在 submission 阶段出现 **short-count write** 时，返回
+> `accepted = false + PossiblySent`，但**没有留下 durable terminal evidence**。
+
+### D0. HOLD 归档与不变式
+
+```text
+M10-A Re-review = HOLD；唯一 blocker = short-count submission 被分类为 PossiblySent 却无 durable evidence。
+本轮新增并冻结的 **M10-A invariant**：
+  任何 Active Master request attempt，若 submission disposition = **PossiblySent**，
+  则必须产生 **exactly one durable attempt evidence**，无论它是：
+    A. 正常进入 pending（后续 response / timeout）        → 由 completed transaction record 承载
+    B. pending 后 transport error                        → 一个 transport terminal
+    C. pending 后 disconnect                             → 一个 transport terminal
+    D. submission 阶段 short-count / partial acceptance  → 一个 transport terminal（本轮补上）
+  **禁止存在：PossiblySent 但无任何 evidence。**
+```
+
+### D1. 真实 short-count 控制流（逐行实读修正前的生产代码）
+
+```text
+AnalysisController::readHoldingRegistersOnce
+  → 本地 validation（1..247 / 0..65535 / 1..125 / timeout>0）→ 构建 intent → encodeActiveRequest → descriptor
+  → serialTransport_->startActiveRequest(descriptor)
+SerialTransactionAdapter::startActiveRequest
+  → port_.isOpen() / hasActiveTransaction() / session_.beginActiveRequest(descriptor)   [三个 pre-send 返回点：NotSent]
+  → observedResponseBytes_.clear()
+  → const auto written = port_.write(wire.data(), wire.size());        ← 真实 QSerialPort 调用点
+  → if (written != wire.size()):
+        cancelPending()   → session_.cancel()（session 回 Idle）+ timeoutTimer_.stop() + port_.close()
+                            + elapsed_.invalidate() + observedResponseBytes_.clear()
+        emit transportError("串口写入失败：…")
+        return ActiveStartResult{false, PossiblySent}                  ← **修正前：不带任何证据**
+  → Controller: if (!start.accepted) return;                           ← pending 从未建立，证据无处可去
+```
+
+### D2. 根因（RCA）
+
+```text
+Observed：short-count start result = {accepted=false, PossiblySent}，但运行时不持有任何 durable evidence；
+          用户可见的只有一句「串口写入失败：…」文案。
+Expected：PossiblySent 必然恰好对应一个 durable attempt evidence（D0 不变式）。
+Root Cause：start contract 把 **accepted（是否进入 pending）** 与 **evidence persistence（是否落库）**
+          错误地绑定在一起 —— 「不进入 pending」被误等同于「不需要 terminal evidence」。
+Fix：显式新增 submission-阶段终止表达 **`TerminatedDuringSubmission`**（start result 的第 3 种语义），
+          让 `accepted=false + PossiblySent` 也能同步落库；reason = **`ShortSubmission`**。
+Verification：TS1–TS5 + 全部 regression（Debug/Release ctest 29/29）。
+```
+
+### D3. 新 start-result 契约（三种语义，冻结）
+
+```text
+A. **RejectedNotSent**      ：accepted = false, disposition = NotSent
+   → 0 send / **无 terminal evidence** / 不产生 Modbus transaction。
+B. **InFlight**             ：accepted = true,  disposition = PossiblySent
+   → 建立 pending；后续 response / timeout / error / disconnect **恰好一条** terminal path。
+C. **TerminatedDuringSubmission**：accepted = false, disposition = PossiblySent
+   → 不建立 pending，**但必须立即保存 exactly one terminal evidence**。
+类型：`ActiveStartResult{ accepted, disposition, std::optional<ActiveTransportTerminal> terminatedDuringSubmission }`。
+选择依据（T022 §5 优先级）：**用返回值携带该 terminal fact**，而不是让 transport 在 runtime 尚无 pending 时
+先 emit `transactionTerminated` —— 那种顺序会被 stale/no-pending guard 静默丢弃（危险方案）。
+不引入第二套 public outcome。
+```
+
+### D4. Reasoning 与字节数证据
+
+```text
+`TransportTerminalReason` 新增 **`ShortSubmission`**（机器 token `short_submission`）。
+语义（冻结）：transport API 在本次调用中只接受了**小于完整 ADU 长度**的字节数，
+因此完整 request **没有被本调用完整接受**，但**不能安全证明线路上完全没有出现过字节** ⇒ disposition = PossiblySent。
+不把它含糊塞进 `DisconnectedAfterSubmission`。
+
+`ActiveTransportTerminal` 新增 **`std::optional<std::uint16_t> submissionAcceptedByteCount`**（仅 ShortSubmission 填充）：
+  · 表示 **transport API 报告接受的 byte count**（例：requested ADU = 8，Qt write 返回 4）；
+  · **不是**「已到达设备的字节数」，也**不是**「已实际发送到线路的字节数」；
+  · 其余 reason 一律 `std::nullopt`，不制造物理层精确性。
+`requestAdu` 仍表示**本次尝试准备提交的完整 exact ADU**（8 字节），**不写成**「设备收到的完整 ADU」。
+```
+
+### D5. 生产 / fake 对等（§24）
+
+```text
+生产分支（SerialPortAdapter）现在显式构造同 contract 的证据：
+  写入返回 <= 0 字节 ⇒ **NotSent + 无 terminal**（可证明没有任何字节离开进程；这是不变式的必要补充，
+    否则 0 字节也会被误报为 PossiblySent）；
+  写入返回 >  0 字节但 < 完整 ADU ⇒ **PossiblySent + terminal{ShortSubmission, submissionAcceptedByteCount}**，
+    证据在 `cancelPending()` 之前构造（清理会清空缓冲）。
+fake（RecordingSerialTransport）：新增 `setSubmissionAcceptedBytes(count)`（0 < count < ADU 长度）
+  → 返回 `{accepted=false, PossiblySent, terminal{ShortSubmission, count}}`，不建立 pending、不计入 sendCount、
+  **不把该 ADU 记入 accepted-ADU 日志**（从未被完整交出）。
+两者形状一致；生产分支无法在无硬件环境强制 QSerialPort 返回 short count，故契约由 seam 侧确定性测试锁定 +
+代码审读确认（**REAL HARDWARE NOT VERIFIED**）。
+```
+
+### D6. Controller 持久化与 ghost-pending 防护
+
+```text
+`readHoldingRegistersOnce`：`start` 未被接受时，若 `start.terminatedDuringSubmission` 有值 ⇒
+  **同步** `activeSerialTerminations_.push_back(*…)`（同步而非依赖信号，因为此时没有 pending 可被匹配）。
+状态：`serialBusy_` 保持 false、`pendingRequest_` 为空、session 回 Idle ⇒ **无 ghost pending**（TS2 断言并可继续下一次请求）。
+不产生任何 Modbus outcome：Transactions / statistics 不新增任何行或计数（TS1/TS3 断言 record = 0、rowCount = 0）。
+```
+
+### D7. Clear / source 归属（不变式延续）
+
+```text
+short-submission terminal 与其他 completed transport terminal **同一 contract**：
+  Clear Results 清掉它（TS4），source replacement（新 serial session / Replay / Simulator）清掉它（TS5），
+  它属于当前 Active Serial session，不污染其它 source。
+error lane 继续显示人类可读文案，但**文案不是 evidence authority**；machine-checkable 事实为 terminal record + typed reason。
+```
+
+### D8. Semantics Matrix（冻结，M10-D/E 不得重新解释）
+
+```text
+pre-send reject          → NotSent      → 无 transaction → 无 terminal
+short submission         → PossiblySent → 无 transaction → **恰好一个 terminal**
+accepted + response      → PossiblySent（submission fact）→ 一个 transaction（Success/Exception/…）→ 无 transport terminal
+accepted + timeout       → PossiblySent → 一个 Timeout transaction → 无 transport terminal
+accepted + port error    → PossiblySent → 无 transaction → 恰好一个 terminal
+accepted + disconnect    → PossiblySent → 无 transaction → 恰好一个 terminal
+```
+
+### D9. 新增测试（TS1–TS5）
+
+```text
+TS1 8-byte ADU / write accepted = 4：startAttemptCount 1、sendCount 0、accepted=false、PossiblySent、
+    terminal 恰好 1（reason ShortSubmission、token short_submission）、requestAdu = 完整 8 字节金样、
+    responseAdu 空、submissionAcceptedByteCount = 4、无行无统计、serial error lane 仍报文案。
+TS2 short submission 后 serialBusy=false、transport 无 active transaction、pending 为空；
+    随后的正常请求可完整接受并完成（record 1 / terminal 仍 1）。
+TS3 terminal 形成后驱动迟到 timeout / completion / transport error / disconnect ⇒ terminal 仍为 1、record 0、rowCount 0。
+TS4 Clear Results ⇒ terminal 0；modeLabel / sourceLabel / serialConnected / sessionId 按既有 contract 保持。
+TS5 source replacement（新 Active Serial session / Simulator / Replay）逐项清空并校验 typed sourceKind。
+```
+
+### D10. 门禁（真实输出）
+
+```text
+`active_master`：**30 passed / 0 failed**（原 25 + TS1–TS5）。`active_request`：17 passed / 0 failed。
+Debug ctest **29/29 PASS**；Release ctest **29/29 PASS**（含 qml_smoke / qml_geometry_check / qml_nav_check /
+  qml_focus_check）。两构建零 warning / 零 error（含为新增 optional 字段补齐的 -Wmissing-field-initializers）。
+`git diff --check` PASS。
+```
+
+### D11. 冻结核对
+
+```text
+未改 QML（0）、Communication UI / FC03 参数 / FC03 wire / 按钮行为 / latest-only presentation / 统计可见行为
+全部未变；`encodeWrite*` 0（0x06 / 0x10 active encoder 仍不存在，encodeActiveRequest 对两者仍 UnsupportedFunction）；
+SimulatedSlave 未改；Agent 层未改（write authority = NONE）；未 push / 未 tag / 未推进 LKGC。
+```
+
+### D12. Files Changed（本轮）
+
+```text
+core：src/core/active/ActiveTransactionEvidence.{h,cpp}（ShortSubmission reason + token、
+  submissionAcceptedByteCount、ActiveStartResult 三种语义 + terminatedDuringSubmission）
+app：src/ui/serial/SerialPortAdapter.cpp（short-count 分支构造证据；<=0 字节 ⇒ NotSent）、
+  src/ui/AnalysisController.cpp（同步归档 submission terminal）
+tests：tests/fake_serial_transport.{h,cpp}（setSubmissionAcceptedBytes + 同 contract 注入）、
+  tests/test_active_master.cpp（TS1–TS5）
+```
+
+### D13. Git
+
+```text
+behavior-bearing ⇒ 不作 LKGC。commit：`M10-A: retain short-submission evidence`
+（独立提交；不 amend `a09de6e`；不 rebase；不 push；未创建 v2.0.0 tag）。
+verified LKGC 保持 `aa2f3db`；**M10-A 等待最终 Re-review**（仍未 COMPLETE）。
 ```

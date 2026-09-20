@@ -112,6 +112,18 @@ private slots:
     // Clear Results clears terminal evidence too; a pending request survives
     // it and its later termination lands in the cleared session.
     void tf08_clearResultsAndTerminalEvidence();
+
+    // ---- M10-A final closure: SHORT SUBMISSION (partial acceptance) ----
+    // TS1: short submission keeps the full intended ADU + accepted-byte count.
+    void ts01_shortSubmissionRetainsEvidence();
+    // TS2: no ghost pending/busy afterwards; the next request works normally.
+    void ts02_noGhostPendingAfterShortSubmission();
+    // TS3: late drivers cannot add a second terminal or a transaction record.
+    void ts03_noSecondTerminalAfterShortSubmission();
+    // TS4: Clear Results clears the short-submission evidence too.
+    void ts04_clearResultsClearsShortSubmissionEvidence();
+    // TS5: source replacement clears it; evidence never crosses sources.
+    void ts05_sourceReplacementClearsShortSubmissionEvidence();
 };
 
 void ActiveMasterTest::ta01_closedTransportNotSent()
@@ -734,6 +746,7 @@ void ActiveMasterTest::tf07_noDoubleTerminalPerAcceptedRequest()
             .responseAdu = {},
             .disposition = TransportDisposition::PossiblySent,
             .reason = modbuslens::core::TransportTerminalReason::TransportError,
+            .submissionAcceptedByteCount = std::nullopt,
         };
         controller.handleSerialTransactionTerminated(terminal);
         controller.handleSerialTransactionTerminated(terminal); // duplicate
@@ -782,6 +795,148 @@ void ActiveMasterTest::tf08_clearResultsAndTerminalEvidence()
     QCOMPARE(terminal.request.wire, kGoldenWire);
     QCOMPARE(s.controller.activeSerialRecordCount(), 0);
     QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+}
+
+// ---- M10-A final closure: short submission ----
+
+void ActiveMasterTest::ts01_shortSubmissionRetainsEvidence()
+{
+    ConnectedSession s;
+    // 8-byte FC03 ADU; the transport API reports accepting only 4 bytes.
+    s.transport.setSubmissionAcceptedBytes(4);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+
+    // The attempt happened once, but it was NEVER a fully accepted send and
+    // never became accepted sendCount.
+    QCOMPARE(s.transport.startAttemptCount(), 1);
+    QCOMPARE(s.transport.sendCount(), 0);
+    QCOMPARE(s.transport.lastStartResult().accepted, false);
+    QCOMPARE(s.transport.lastStartResult().disposition,
+             TransportDisposition::PossiblySent);
+    QVERIFY(!s.transport.hasPendingTransaction());
+
+    // Durable evidence: exactly one terminal, typed as ShortSubmission.
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    const auto& terminal = s.controller.activeSerialTerminations().front();
+    QCOMPARE(terminal.reason,
+             modbuslens::core::TransportTerminalReason::ShortSubmission);
+    QCOMPARE(modbuslens::core::transportTerminalReasonName(terminal.reason),
+             std::string_view{"short_submission"});
+    QCOMPARE(terminal.disposition, TransportDisposition::PossiblySent);
+    // requestAdu = the COMPLETE intended ADU of this attempt (not the part
+    // the API accepted, and not "what the device received").
+    QCOMPARE(terminal.request.wire, kGoldenWire);
+    QCOMPARE(terminal.request.wire.size(), std::size_t{8});
+    QCOMPARE(terminal.evidence().requestAdu, kGoldenWire);
+    QVERIFY(terminal.responseAdu.empty());
+    // The accepted-byte count describes the transport API boundary only.
+    QVERIFY(terminal.submissionAcceptedByteCount.has_value());
+    QCOMPARE(*terminal.submissionAcceptedByteCount, std::uint16_t{4});
+
+    // No Modbus verdict, no row, no statistics entry.
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+    QCOMPARE(s.controller.observedCount(), 0);
+    QVERIFY(!s.controller.serialBusy());
+    QVERIFY(s.controller.hasSerialError()); // the existing human-readable lane
+}
+
+void ActiveMasterTest::ts02_noGhostPendingAfterShortSubmission()
+{
+    ConnectedSession s;
+    s.transport.setSubmissionAcceptedBytes(3);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+
+    // No ghost state: nothing pending anywhere, and the runtime is idle.
+    QVERIFY(!s.controller.serialBusy());
+    QVERIFY(!s.transport.hasPendingTransaction());
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+
+    // The very next request works normally: full acceptance + completion.
+    s.transport.setSubmissionAcceptedBytes(std::nullopt);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QCOMPARE(s.transport.startAttemptCount(), 2);
+    QCOMPARE(s.transport.sendCount(), 1); // only the fully accepted one
+    QVERIFY(s.controller.serialBusy());
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+
+    QCOMPARE(s.controller.activeSerialRecordCount(), 1);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1); // unchanged
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 1);
+    QVERIFY(!s.controller.serialBusy());
+}
+
+void ActiveMasterTest::ts03_noSecondTerminalAfterShortSubmission()
+{
+    ConnectedSession s;
+    s.transport.setSubmissionAcceptedBytes(4);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    QCOMPARE(s.transport.sendCount(), 0);
+
+    // Every late driver must stay silent: there is no pending request to
+    // terminate and no session transaction to complete.
+    s.transport.completeWithTimeout();
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    s.transport.failTransport(QStringLiteral("迟到错误"));
+    s.transport.disconnectAfterSubmission();
+
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+    QCOMPARE(s.controller.observedCount(), 0);
+}
+
+void ActiveMasterTest::ts04_clearResultsClearsShortSubmissionEvidence()
+{
+    ConnectedSession s;
+    s.transport.setSubmissionAcceptedBytes(4);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+
+    s.controller.clearResults();
+
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+    // Source identity is untouched by Clear (Clear != Disconnect).
+    QCOMPARE(s.controller.modeLabel(), QStringLiteral("串口模式"));
+    QCOMPARE(s.controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
+    QVERIFY(s.controller.serialConnected());
+    QCOMPARE(s.controller.activeSerialSessionId(), std::uint64_t{1});
+}
+
+void ActiveMasterTest::ts05_sourceReplacementClearsShortSubmissionEvidence()
+{
+    ConnectedSession s;
+
+    // (a) a NEW Active Serial session clears the previous session's evidence.
+    s.transport.setSubmissionAcceptedBytes(4);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    s.controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+    QCOMPARE(s.controller.activeSerialSessionId(), std::uint64_t{2});
+
+    // (b) Simulator replacement clears it and the source is typed Simulator.
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    s.controller.runDemoBatch();
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+    QCOMPARE(s.controller.sourceKind(),
+             modbuslens::core::TransactionSourceKind::Simulator);
+
+    // (c) Replay replacement clears it as well.
+    s.controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    s.controller.loadReplayFile(
+        QUrl::fromLocalFile(QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+    QCOMPARE(s.controller.sourceKind(),
+             modbuslens::core::TransactionSourceKind::Replay);
+    QCOMPARE(s.controller.modeLabel(), QStringLiteral("回放模式"));
 }
 
 QTEST_GUILESS_MAIN(ActiveMasterTest)

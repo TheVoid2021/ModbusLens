@@ -717,3 +717,13 @@
 - **Q：Clear Results 与“pending 不被取消”的矛盾怎么解？** A：Clear 是**结果域**操作，不是传输操作：它清掉已完成事务记录与已完成的终止证据，但不动正在飞的请求。于是会出现「先清空、后到达」的时序——那个 pending 完成或终止时，证据作为**新记录**进入已经被清清的会话视图。TF8 就是这个时序的断言，也解释了为什么 Clear 不能顺手 cancel。
 - **Q：为什么新 session 会清掉上一段的终止证据？** A：因为证据属于**某个 Active Serial session**（有 sessionId）。重新 connect 意味着新的会话边界，旧会话的证据不能污染新会话，就像 Replay/Simulator 不能拿到串口证据一样。这正是 §18「不得根据 modeLabel / workspace / filename 推断 source」的反面：来源身份是 typed 的，证据归属也必须是 typed 的。
 - **Q：本轮留下了什么没做？** A：两件事显式记录而非偷偷补：① **短计数 write**（写到一半失败）在 start 边界已经报 `{accepted=false, PossiblySent}`，但因为它从未建立 pending，所以不会产生 terminal 记录——对未来的写操作这是一个「字节可能已上线却没有记录」的缺口，交 Review 裁定；② 生产适配器的 port-error 终止路径无法在无硬件环境端到端驱动，契约由 seam 侧的确定性注入测试证明，真机仍是 **REAL HARDWARE NOT VERIFIED**。
+
+## 77. Post-T022 M10-A Final Closure — Short-Submission Evidence 条目（2026-09-20 追加）
+
+- **Q：short-count write 到底危险在哪里？** A：危险在「部分字节可能已经离开进程」。`port_.write()` 返回小于 ADU 长度，意味着**没有完整交出请求**——设备也许完全没收到，也许收到了半条被判为畸形帧。两种可能都无法证伪，所以 disposition 必须是 PossiblySent；但如果这时只留一句「串口写入失败」文案，运行时就**没有任何机器可校验的证据**说明这次尝试发生过、发了什么、接受了几个字节。未来写操作时，这一条正是「设备状态未知」的现场。
+- **Q：为什么不能靠 start 返回值的 accepted 标志就够了？** A：因为 accepted 表达的是「是否进入 pending」，而证据需求看的是「是否可能已上线」。原实现把两者绑在一起，于是 `accepted=false` 的短计数尝试直接被当成「不需要留证据」。修正的做法是给 start 结果补上第三种语义 **TerminatedDuringSubmission**：既不进入 pending，也必须携带一个 terminal evidence。
+- **Q：为什么用返回值携带证据，而不是让 transport 直接 emit 一个 terminal 信号？** A：因为信号会在**运行时还没有 pending 状态**的时候到达——controller 的 stale/no-pending guard 会把它当作迟到事件静默丢弃。返回值携带是同步的、有序的、不可能被 guard 吃掉；这比依赖 emit 顺序安全得多。
+- **Q：`submissionAcceptedByteCount` 为什么必须加注解？** A：因为它极易被误读。它只表示 **transport API 报告接受了的字节数**（Qt write 的返回值），既不是「到达设备的字节数」，也不是「真正上线了的字节数」。写清这一点，才不至于在 UI 或诊断里制造物理层精确性。
+- **Q：写入返回 0 字节时为什么反而是 NotSent？** A：因为「一个字节都没被接受」可以确定地推出「本次调用没有任何字节离开进程」——这正是 NotSent 的定义。如果把 0 也归到 PossiblySent，不变式就会要求一个本不该存在的 terminal，同时把「确定没发」误报成「可能发了」。这是不变式自身的必要边界。
+- **Q：本轮留下的不变式对新功能意味着什么？** A：它是 M10-D/E 的**记账规则**：只要一次尝试的 submission disposition 是 PossiblySent，就必须能在会话里找到恰好一条对应的 durable evidence（事务记录或 terminal 记录）。这样「我到底发过没有」不再依赖日志文案，而是可以在代码与测试里被断言。
+- **Q：为什么这轮之后仍然不说 M10-A COMPLETE？** A：因为 M10-A 的定义是「通过人工 Re-review」，不是「自动测试全绿」。自动门禁（29/29 × Debug/Release、30 个 active_master 用例）只是提交条件；验收结论仍由 Review 给出，LKGC 也继续停在 `aa2f3db`。

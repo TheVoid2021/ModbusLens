@@ -40,6 +40,12 @@ public:
     void setAcceptRequests(bool accept);   // pre-send rejection gate
     void setResponseBytes(std::vector<std::uint8_t> bytes);
     void setCompletionElapsed(std::chrono::milliseconds elapsed);
+    // Configurable SHORT SUBMISSION: the transport API reports accepting only
+    // this many bytes of the request ADU (0 < count < ADU size). The start
+    // then returns {accepted=false, PossiblySent} WITH durable terminal
+    // evidence, exactly like the production adapter's short-write branch.
+    // count >= ADU size (or nullopt) means a normal full acceptance.
+    void setSubmissionAcceptedBytes(std::optional<std::uint16_t> count);
 
     // ---- observation (the recording oracle) ----
     [[nodiscard]] int startAttemptCount() const;
@@ -95,5 +101,6 @@ private:
     std::vector<std::uint8_t> responseBytes_;
     std::vector<std::uint8_t> deliveredBytes_;
     std::chrono::milliseconds completionElapsed_{25};
+    std::optional<std::uint16_t> submissionAcceptedBytes_;
     modbuslens::core::ActiveStartResult lastStart_{};
 };

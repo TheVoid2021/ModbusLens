@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -55,17 +56,6 @@ struct ActiveTransactionEvidence {
     bool operator==(const ActiveTransactionEvidence&) const = default;
 };
 
-// The outcome of one ATTEMPT to start a transaction. `accepted` means the
-// full request entered the transmission lifecycle and a completion will
-// follow; `disposition` states what the wire may have seen. A short write
-// leaves accepted == false WITH PossiblySent (the wire cannot be cleared).
-struct ActiveStartResult {
-    bool accepted{false};
-    TransportDisposition disposition{TransportDisposition::NotSent};
-
-    bool operator==(const ActiveStartResult&) const = default;
-};
-
 // Transport completion envelope: everything one finished active transaction
 // produced, travelling together so a completion can never lose its evidence.
 struct ActiveTransactionResult {
@@ -94,6 +84,11 @@ struct ActiveTransactionResult {
 enum class TransportTerminalReason {
     TransportError,              // port/transport failure after submission
     DisconnectedAfterSubmission, // explicit close / cancel / source teardown
+    // The transport API accepted only PART of the request ADU during the
+    // submission call itself (0 < accepted < complete). The full request was
+    // never completely accepted by this call, but bytes may already have left
+    // the process — so the wire cannot be proven clean.
+    ShortSubmission,
 };
 
 [[nodiscard]] std::string_view transportTerminalReasonName(TransportTerminalReason reason);
@@ -117,10 +112,35 @@ struct ActiveTransportTerminal {
     // lifecycle, so the wire cannot be proven clean.
     TransportDisposition disposition{TransportDisposition::PossiblySent};
     TransportTerminalReason reason{TransportTerminalReason::TransportError};
+    // Set ONLY for ShortSubmission: the byte count the transport API itself
+    // reported as accepted for this call. It is NEITHER "bytes that reached
+    // the device" NOR "bytes actually put on the wire" — the transport API
+    // boundary is the only thing this number describes. Deliberately absent
+    // for every other reason (no fabricated physical-layer precision).
+    std::optional<std::uint16_t> submissionAcceptedByteCount;
 
     [[nodiscard]] ActiveTransactionEvidence evidence() const;
 
     bool operator==(const ActiveTransportTerminal&) const = default;
+};
+
+// Outcome of one ATTEMPT to start a transaction. Three semantics, deliberately
+// distinct:
+//   A. rejected, nothing sent  -> {accepted=false, NotSent}          (no evidence)
+//   B. in flight               -> {accepted=true,  PossiblySent}     (pending + exactly one later terminal path)
+//   C. terminated during the submission call -> {accepted=false, PossiblySent}
+//      and `terminatedDuringSubmission` carries the durable attempt
+//      evidence, so a PossiblySent attempt can never evaporate.
+struct ActiveStartResult {
+    bool accepted{false};
+    TransportDisposition disposition{TransportDisposition::NotSent};
+    // Present exactly for case C (accepted == false && disposition ==
+    // PossiblySent). The runtime archives it synchronously: a signal emitted
+    // before the runtime has any pending state would be dropped by its
+    // stale/no-pending guard.
+    std::optional<ActiveTransportTerminal> terminatedDuringSubmission;
+
+    bool operator==(const ActiveStartResult&) const = default;
 };
 
 // Provenance of one PUBLISHED transaction: which runtime session authored it

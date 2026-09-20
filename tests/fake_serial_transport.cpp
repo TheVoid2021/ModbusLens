@@ -26,6 +26,12 @@ void RecordingSerialTransport::setCompletionElapsed(
     completionElapsed_ = elapsed;
 }
 
+void RecordingSerialTransport::setSubmissionAcceptedBytes(
+    std::optional<std::uint16_t> count)
+{
+    submissionAcceptedBytes_ = count;
+}
+
 int RecordingSerialTransport::startAttemptCount() const
 {
     return startAttempts_;
@@ -74,25 +80,49 @@ modbuslens::core::ActiveStartResult RecordingSerialTransport::startActiveRequest
     ++startAttempts_;
 
     if (!portOpen_) {
-        lastStart_ = ActiveStartResult{false, TransportDisposition::NotSent};
+        lastStart_ = ActiveStartResult{false, TransportDisposition::NotSent, std::nullopt};
         emit transportError(QStringLiteral("串口未连接：请先打开串口"));
         return lastStart_;
     }
     if (hasPendingTransaction()) {
-        lastStart_ = ActiveStartResult{false, TransportDisposition::NotSent};
+        lastStart_ = ActiveStartResult{false, TransportDisposition::NotSent, std::nullopt};
         emit transportError(QStringLiteral("串口忙：已有事务进行中"));
         return lastStart_;
     }
     if (!acceptRequests_) {
         // Explicit pre-send rejection: provably zero bytes left the process.
-        lastStart_ = ActiveStartResult{false, TransportDisposition::NotSent};
+        lastStart_ = ActiveStartResult{false, TransportDisposition::NotSent, std::nullopt};
         emit transportError(QStringLiteral("串口请求被拒绝"));
+        return lastStart_;
+    }
+
+    // Configurable short submission: mirrors the production adapter's
+    // short-write branch — the transport API accepts only PART of the ADU.
+    if (submissionAcceptedBytes_.has_value()
+        && *submissionAcceptedBytes_ > 0
+        && *submissionAcceptedBytes_ < request.wire.size()) {
+        // No pending is ever established, and the attempt still carries its
+        // durable evidence out through the start result.
+        lastStart_ = ActiveStartResult{
+            false,
+            TransportDisposition::PossiblySent,
+            modbuslens::core::ActiveTransportTerminal{
+                .request = request,
+                .responseAdu = {},
+                .disposition = TransportDisposition::PossiblySent,
+                .reason = modbuslens::core::TransportTerminalReason::ShortSubmission,
+                .submissionAcceptedByteCount = *submissionAcceptedBytes_,
+            },
+        };
+        // The ADU was never fully handed over, so it does NOT enter the
+        // accepted-ADU log — the terminal evidence carries the intended ADU.
+        emit transportError(QStringLiteral("串口写入失败：短计数"));
         return lastStart_;
     }
 
     const auto begin = session_.beginActiveRequest(request);
     if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
-        lastStart_ = ActiveStartResult{false, TransportDisposition::NotSent};
+        lastStart_ = ActiveStartResult{false, TransportDisposition::NotSent, std::nullopt};
         emit transportError(QStringLiteral("串口请求无效"));
         return lastStart_;
     }
@@ -101,7 +131,7 @@ modbuslens::core::ActiveStartResult RecordingSerialTransport::startActiveRequest
     deliveredBytes_.clear();
     ++sendCount_;
     sentAduLog_.push_back(pending_->wire);
-    lastStart_ = ActiveStartResult{true, TransportDisposition::PossiblySent};
+    lastStart_ = ActiveStartResult{true, TransportDisposition::PossiblySent, std::nullopt};
     return lastStart_;
 }
 
@@ -133,6 +163,7 @@ void RecordingSerialTransport::emitTerminalIfSubmitted(
         .responseAdu = deliveredBytes_,
         .disposition = modbuslens::core::TransportDisposition::PossiblySent,
         .reason = reason,
+        .submissionAcceptedByteCount = std::nullopt,
     };
     session_.cancel();
     pending_.reset();

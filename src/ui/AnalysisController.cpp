@@ -1010,6 +1010,15 @@ void AnalysisController::readHoldingRegistersOnce(
     // failure drops us back with no pending state at all.
     const auto start = serialTransport_->startActiveRequest(descriptor);
     if (!start.accepted) {
+        // A submission that terminated during the write itself (short count)
+        // already handed part of the ADU over: its evidence is archived
+        // synchronously here, because no pending request exists that a later
+        // signal could be matched against. The evidence belongs to this
+        // Active Serial session and therefore follows the same Clear Results /
+        // source-replacement contracts as every other terminal.
+        if (start.terminatedDuringSubmission.has_value()) {
+            activeSerialTerminations_.push_back(*start.terminatedDuringSubmission);
+        }
         return; // transport already reported the bounded transport error
     }
 

@@ -71,21 +71,23 @@ modbuslens::core::ActiveStartResult SerialTransactionAdapter::startActiveRequest
     const modbuslens::core::ActiveRequestDescriptor& request)
 {
     using modbuslens::core::ActiveStartResult;
+    using modbuslens::core::ActiveTransportTerminal;
     using modbuslens::core::TransportDisposition;
+    using modbuslens::core::TransportTerminalReason;
 
     if (!port_.isOpen()) {
         emit transportError(QStringLiteral("串口未连接：请先打开串口"));
-        return ActiveStartResult{false, TransportDisposition::NotSent};
+        return ActiveStartResult{false, TransportDisposition::NotSent, std::nullopt};
     }
     if (hasActiveTransaction()) {
         emit transportError(QStringLiteral("串口忙：已有事务进行中"));
-        return ActiveStartResult{false, TransportDisposition::NotSent};
+        return ActiveStartResult{false, TransportDisposition::NotSent, std::nullopt};
     }
 
     const auto begin = session_.beginActiveRequest(request);
     if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
         emit transportError(QStringLiteral("串口请求无效"));
-        return ActiveStartResult{false, TransportDisposition::NotSent};
+        return ActiveStartResult{false, TransportDisposition::NotSent, std::nullopt};
     }
     const auto& accepted = std::get<modbuslens::core::ActiveRequestDescriptor>(begin);
 
@@ -94,15 +96,40 @@ modbuslens::core::ActiveStartResult SerialTransactionAdapter::startActiveRequest
         reinterpret_cast<const char*>(accepted.wire.data()),
         static_cast<qint64>(accepted.wire.size()));
     if (written != static_cast<qint64>(accepted.wire.size())) {
-        // A short write is a local transport fact — never a 1000ms Timeout —
-        // but the bytes already accepted by Qt cannot be proven absent from
-        // the wire: PossiblySent, not NotSent. The port is unusable after a
-        // failed write: close it and let the controller re-sync from
-        // isPortOpen().
+        // A short write is a local transport fact — never a 1000ms Timeout.
+        // Two distinct dispositions, because the wire facts differ:
+        //   <= 0 bytes accepted -> provably nothing left the process: NotSent
+        //   >  0 bytes accepted -> PART of the ADU may already be on the wire:
+        //                          PossiblySent, and the attempt must not
+        //                          evaporate without durable evidence.
+        // The port is unusable after a failed write: close it and let the
+        // controller re-sync from isPortOpen().
+        if (written <= 0) {
+            cancelPending();
+            emit transportError(
+                QStringLiteral("串口写入失败：%1").arg(port_.errorString()));
+            return ActiveStartResult{false, TransportDisposition::NotSent, std::nullopt};
+        }
+
+        // Evidence BEFORE the abort: the session cleanup below clears the
+        // buffers, so the snapshot and the accepted-byte count are captured
+        // first. No Modbus outcome is produced for this attempt.
+        ActiveStartResult result{
+            false,
+            TransportDisposition::PossiblySent,
+            ActiveTransportTerminal{
+                .request = accepted,
+                .responseAdu = {},
+                .disposition = TransportDisposition::PossiblySent,
+                .reason = TransportTerminalReason::ShortSubmission,
+                .submissionAcceptedByteCount =
+                    static_cast<std::uint16_t>(written),
+            },
+        };
         cancelPending();
         emit transportError(
             QStringLiteral("串口写入失败：%1").arg(port_.errorString()));
-        return ActiveStartResult{false, TransportDisposition::PossiblySent};
+        return result;
     }
 
     // Full write: the request is in the transmission lifecycle. Response
@@ -111,7 +138,7 @@ modbuslens::core::ActiveStartResult SerialTransactionAdapter::startActiveRequest
     // parameter that could disagree with it.
     elapsed_.start();
     timeoutTimer_.start(static_cast<int>(accepted.intent.timeout.count()));
-    return ActiveStartResult{true, TransportDisposition::PossiblySent};
+    return ActiveStartResult{true, TransportDisposition::PossiblySent, std::nullopt};
 }
 
 bool SerialTransactionAdapter::hasActiveTransaction() const
@@ -151,6 +178,7 @@ void SerialTransactionAdapter::closePort()
             .responseAdu = observed,
             .disposition = TransportDisposition::PossiblySent,
             .reason = TransportTerminalReason::DisconnectedAfterSubmission,
+            .submissionAcceptedByteCount = std::nullopt,
         });
     }
 }
@@ -249,6 +277,7 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
             .responseAdu = observed,
             .disposition = TransportDisposition::PossiblySent,
             .reason = TransportTerminalReason::TransportError,
+            .submissionAcceptedByteCount = std::nullopt,
         });
         emit transportError(
             QStringLiteral("串口错误：%1").arg(port_.errorString()));
