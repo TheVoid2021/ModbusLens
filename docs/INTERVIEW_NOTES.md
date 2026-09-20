@@ -791,3 +791,14 @@
 - **Q：为什么 M10-C 的确认对话框在 production 里根本不可见？** A：因为 M10-C 还没有 encoder，Confirm 没有可发送的对象。可见但不可发送的控件无论怎么设计都是「dead UI」：用户会以为功能存在、或者以为失败是环境问题。正确做法是 foundation 只在 harness 可见（用来跑安全 oracle），到 M10-D 真正能编码 0x06 时再出现，并且**按真实 capability 出现**而不是手写 `visible = true`。
 - **Q：为什么不让用户直接填 quantity / byteCount？** A：那会产生三份真源（values、quantity、byteCount），它们一旦不一致，协议帧就是错的，而用户无从判断「以哪个为准」。所以 values 是唯一 authority，quantity 与 byteCount 都由它派生，UI 只读显示。
 - **Q：多行文本解析里为什么「中间空白行」要报错？** A：因为要保证「用户看到的行」与「寄存器位置」一一对应。如果静默跳过中间空行，用户以为第 5 行对应第 5 个寄存器，实际却是第 4 个——写寄存器写错位置是真实事故。首尾空白行 trim 是宽容，中间空白行报错是精确。
+
+## 84. Post-T022 M10-C Phase 1 Final Correction（Confirmation vs Dispatch）条目（2026-09-20 追加）
+
+- **Q：这轮到底修了什么矛盾？** A：文档一边要求「确认前的 guard 检查该 function 是否有 capability」，一边又要求在还没有 encoder 的 M10-C 阶段用 hidden harness 证明「Prepared → Consumed」的一次性确认——后者在前一条约束下根本不可能通过。根因是把**两个不同问题**写成了同一个 guard：确认要回答「用户是否确认了这份不可变快照」，能力要回答「产品现在能不能把这份意图编码并交给传输层」。
+- **Q：为什么要把权威拆成三层？** A：因为三者的生命周期与归属完全不同：draft 是用户正在编辑的可变表单（页面本地）；prepared snapshot 是用户明确点 Write 且通过权威校验后冻结的不可变意图（Controller 持有、token 化、一次性）；dispatch 才是把意图变成 ADU 交给 transport 的能力。混在一起就会出现「为了测试状态机去假装有能力」或「有能力却先消费确认、再异步发送」这类危险设计。
+- **Q：确认的 validity guard 为什么可以不检查 capability？** A：因为确认的有效性只与**快照自身与其来源会话**有关：token 有效、source 仍是 ActiveSerial、session 没变、连接在、不忙、快照既没被消费也没失效。能力是另一件事，而且它在 M10-D/E 之前**真实为 false**。把 capability 从确认 guard 移出，M10-C 才能独立验证状态机；把它放在 dispatch boundary，M10-D/E 才无法绕过它。
+- **Q：M10-D/E 的 Confirm 为什么强调「原子」？** A：因为顺序本身就是安全性：如果先消费快照、再异步发送，中间就有窗口——用户可能看到「已确认」但什么都没发，或者被另一个动作插进来。正确形态是 Controller 侧一个同步·原子操作：查 token → 检查会话与忙碌 → 检查能力 → 消费 → 立即用同一份快照 encode 并启动传输，中途绝不回头读 UI。
+- **Q：能力缺失但 token 有效会怎样？** A：这是 pre-dispatch 的本地拒绝：零发送、不产生任何 Modbus 事务或 transport terminal、也不会有 PossiblySent。快照按保守规则**直接失效**（不让旧确认滞留在未知时间里），原因记为 `CapabilityUnavailable`，**绝不伪装成 ProtocolError**——把本地拒绝说成协议错误会误导排查方向。
+- **Q：为什么不允许加一个「假装支持写」的开关让测试通过？** A：因为那会把测试变成自证：production capability 明明不存在，却有一个让它看起来存在的开关，后续任何误用都会变成「用户点了确认、什么都没发」。正确做法是让 harness 只观察**真实的** snapshot / confirmation foundation，capability 始终诚实保持 absent。
+- **Q：QML 到底要不要 session id？** A：不强制。QML 不承担 session 相等性判断（那是 Controller 的权威）；UI 需要的只是「当前确认还有效吗」这类反应式信息，所以更合适的暴露是 preparedWriteValid / generation / state / invalidReason 这类投影属性。session id 若实现或 harness 确实需要，可以只读暴露，但它既不是必要条件也不是安全边界。
+- **Q：为什么决策计数要专门更正成 13？** A：因为原文档标题写「12 项」，正文却列了 13 项（含 closePolicy 与 staging）。正确做法是更正计数、保留全部内容，而不是删掉两项去凑数字——文档的可信度来自「说的和做的一致」，不是标题好看。

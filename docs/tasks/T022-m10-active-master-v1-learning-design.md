@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1 Learning / Design（§I0–I50）→ Phase 1 Review = HOLD → Correction 已落库（§J0–J27：地址跨度契约 / PreparedWriteSnapshot bridge / production visibility 时序 / 12 项 decisions RESOLVED），Implementation = NOT STARTED（等待 Phase 1 Re-review）**。**
+> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1（§I0–I50）→ HOLD → Correction（§J0–J27）→ Re-review = HOLD → Final Correction 已落库（§K0–K21：confirmation state machine 与 dispatch capability 拆清；**13 项 decisions RESOLVED**），Implementation = NOT STARTED（等待 Phase 1 Final Re-review）**。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -3143,6 +3143,8 @@ C29 123 valid values → PASS
 
 ### J26. 12 项 Decision Requests = RESOLVED（不再标 pending）
 
+> **更正批注（2026-09-20，§K17 追加）**：本节实际列出 **13 项**；正式计数以 §K17/§K18 的 **13 项**为准（不删除 closePolicy，也不删除 staging）。
+
 ```text
  1. production visibility = **C hidden / D 0x06 / E 0x10**                              —— RESOLVED（J18）
  2. selector = **two sub-tabs**（复用 TabButton pattern）                               —— RESOLVED（J19）
@@ -3167,4 +3169,238 @@ docs-only：未改 src / tests / QML / CMakeLists.txt / scripts / assets / sampl
 未开始 C1；未实现 Write UI / encoder；未调用 transport；未新增 Agent tool；未 push；未 tag；
 **verified LKGC 保持 `ef71244`**；M10-C = Phase 1 Correction / Re-review（Implementation = NOT STARTED）。
 commit：`M10-C: close write UI safety design decisions`（独立 docs-only 提交；不 amend `c859db2`；不 rebase）。
+```
+## M10-C Phase 1 Final Correction — Confirmation vs Dispatch Boundary（2026-09-20，docs-only）
+
+> **M10-C Phase 1 Re-review = HOLD（最后一个已知的 Phase 1 设计语义 blocker）。**
+> 现有设计其余部分**全部接受、不重做**（0x10 widened address-span validation / values[] single authority /
+> multiline decimal parser / Controller-owned PreparedWriteSnapshot / opaque token·generation / immutable summary projection /
+> session·source invalidation / busy permanent invalidation / modal Dialog / Cancel initial focus /
+> Enter·Space·Escape safety / M10-C production hidden / M10-D 只暴露 0x06 / M10-E 才暴露 0x10 /
+> independent drafts / no-dead-UI / C1–C4 staging）。
+> **唯一 blocker**：文档同时要求 ① Confirm guard 检查 **function capability supported**，② M10-C 在
+> encoder/capability **尚不存在**时由 hidden harness 证明 `Prepared → Consumed` 的一次性 confirmation —— 两者语义冲突。
+> 本轮把这**两个职责拆清**：**confirmation state machine ≠ dispatch capability**。仍严格 docs-only。
+
+### K0. Final HOLD 归档
+
+```text
+M10-C Phase 1 Re-review = HOLD；唯一 blocker = **confirmation consumption 与 function dispatch capability 的职责边界不一致**。
+原 §I / §J 记录**不改写**（只追加本 §K）。
+本轮：未开始 C1；未改 src / tests / QML / CMakeLists.txt；未实现 encoder；未创建 Write UI；未 push；未 tag；
+verified LKGC 保持 `ef71244`。
+```
+
+### K1. 三层权威正式区分（冻结）
+
+```text
+A. **Draft authority** = QML page-local mutable presentation state（用户正在编辑的表单）。
+B. **Prepared snapshot authority** = Controller/runtime immutable validated snapshot（token 化，一次性）。
+C. **Dispatch authority** = Controller → encoder → SerialTransport（真正把 intent 变成 ADU 并交给传输层）。
+三层**不得**重新混合成一个 handler：draft 只管输入；snapshot 只管「用户确认过这一份不可变意图」；
+dispatch 只管「当前产品是否具备编码并提交该 intent 的能力」。
+```
+
+### K2. Confirmation vs Dispatch（本轮核心结论）
+
+```text
+· **confirmation** 回答：「**用户是否明确确认了这一份 immutable snapshot？**」
+· **dispatch** 回答：「**当前产品是否具有将该 confirmed intent 编码并提交到 transport 的能力？**」
+两者是**不同概念**。因此：
+  · **function encoder / capability 不是 PreparedWriteSnapshot 存在的前提**；
+  · 也**不是**测试 one-shot confirmation state machine 的前提。
+（原表述把 capability 写进 Confirm guard，导致 M10-C 阶段（无 encoder）无法独立验证状态机——本轮修正。）
+```
+
+### K3. Prepared 状态机（冻结）
+
+```text
+状态：`None → Prepared → Consumed | Invalidated`；**Consumed 与 Invalidated 均为 terminal**。
+同一个 generation / token **不得**：Consumed 两次 / Invalidated 后再 Consumed / Consumed 后复活。
+（状态权威在 Controller/runtime；QML 只读投影，见 K13/K14。）
+```
+
+### K4. 什么会「消费」一个 snapshot（confirmation validity guards）
+
+```text
+M10-C foundation 中的 confirmation acceptance 需要检查（**全部属于 confirmation validity**）：
+  · token 当前有效（属于当前 generation，未被替换）
+  · source 仍为 ActiveSerial
+  · session identity 未变化（snapshot.sessionId == 当前 sessionId）
+  · `serialConnected == true`
+  · `serialBusy == false`
+  · snapshot 未 consumed
+  · snapshot 未 invalidated
+**不在**这个基础 one-shot state machine 中要求：0x06 encoder exists / 0x10 encoder exists /
+transport dispatch capability exists —— 否则 M10-C 无法独立验证该状态机（这正是本轮 blocker 的修复）。
+```
+
+### K5. Dispatch Capability Boundary（冻结位置）
+
+```text
+function capability check 冻结在**真正的 dispatch boundary**：
+  · M10-D：0x06 dispatch capability = true，0x10 = false；
+  · M10-E：0x06 = true，0x10 = true。
+真正发送**之前**必须检查「该 function 的 capability 存在」；capability absent ⇒ **不得 encode**、**不得 transport send**。
+```
+
+### K6. Production Atomicity（M10-D/E 要求）
+
+```text
+虽然设计上 confirmation validity 与 dispatch capability 是两个职责，未来 M10-D/E 的 production Confirm
+**不得**实现成「QML 先 consume → 过一会儿 → 另一个异步 handler send」。
+要求：Controller 侧**一个同步/原子语义 operation** 完成：
+  ① lookup token → ② 检查（token / source / session / connected / !busy）→ ③ 检查 dispatch capability
+  → ④ consume snapshot → ⑤ 用该 snapshot intent 做 encode / start transport。
+**不得**在 ④ 与 ⑤ 之间重新读取 QML draft；**不得**留下可由另一个 UI action 插入的竞态窗口。
+（该原子性要求已被冻结进 C1–C4 的 C2/C3 纪律：M10-C 阶段只实现到 ④ 之前的 foundation。）
+```
+
+### K7. M10-C 阶段测试含义（冻结）
+
+```text
+M10-C 没有 encoder / send，因此 C 阶段**只直接测试**：
+  `Prepared → confirmation accepted → Consumed`，以及 `second confirmation → reject`。
+transport：**sendCount 必须继续为 0**。
+这**不是** fake write capability，而是对 **confirmation state machine 自身**的测试。
+```
+
+### K8. No Fake Production Capability（禁止）
+
+```text
+**禁止**为了让 C10 PASS 在 production Controller 中增加 `pretendWriteSupported` / `testOnlyWriteCapability` /
+`fake0x06Capability` 或任何等价开关。
+M10-C 的 production capability **仍然真实为 absent**；hidden harness 测试的是 **snapshot / confirmation foundation**，
+不是「假装真正能写」。
+```
+
+### K9. Harness Boundary（C2/C3）
+
+```text
+若 QML runtime 需要驱动 `Prepared → Consumed`，允许通过**明确的 harness / test seam** 观察
+`confirmRequested(token)` 与 Controller/runtime 的 confirmation state machine。
+但该 seam **不得**：调用 SerialTransport / 构造 raw ADU / 伪造 encoder success。
+优先**复用真实 snapshot authority**；**不要**在 QML 自己维护第二套 consumed state。
+```
+
+### K10. Future D/E Confirm API（提前冻结概念）
+
+```text
+未来 production API 可以是 **`confirmAndDispatchPreparedWrite(token)`**（或项目风格等价命名）。
+它**只接受 token**；**不得**接受 unit / address / value / values[] / timeout 等 QML draft fields。
+Controller 从自身 snapshot store 取得完整 typed intent。
+```
+
+### K11. Capability Failure Semantics（未来异常路径）
+
+```text
+若 token valid 但 **dispatch capability absent**（异常/降级情形）：
+  · **zero send**；**不得**产生 Modbus transaction / transport terminal / PossiblySent（这是 **pre-dispatch local rejection**）；
+  · 是否消费 snapshot：采用**保守规则** —— **invalidate snapshot**（避免旧确认继续被使用），用户必须重新开始 Write flow；
+  · 记录明确原因 **`CapabilityUnavailable`**（或内部等价 reason）；**不得**伪造成 `ProtocolError`。
+```
+
+### K12. Busy / Session Race（C 阶段同规则锁定）
+
+```text
+未来 D/E 的最终 controller operation 必须在真正 start 前**重新检查** session / connected / busy；
+C 阶段的状态机测试锁定**同样规则**。示例：dialog 已打开（busy=false）→ busy false→true ⇒ snapshot **立即 Invalidated**；
+即使随后 busy 回到 false，**旧 token 仍 reject**（§J13 的永久失效语义不变）。
+```
+
+### K13. Reactive QML Boundary（修正原文暗示）
+
+```text
+**修正**：不再暗示「必须暴露 sessionId」。冻结：
+  · QML **不承担** session equality authority；
+  · 首选 reactive exposure = `preparedWriteValid` / `preparedWriteGeneration`（或 token）/ `preparedWriteState` /
+    `preparedWriteInvalidReason`（具体属性形状实施时决定）；
+  · **Controller 负责**检测 session / source / busy 并 invalidate snapshot；
+  · `activeSerialSessionId` 如实现或 harness **确实需要**，允许 read-only 暴露，但**不是必须条件**，
+    也**不是** QML safety authority。
+```
+
+### K14. Confirmation Projection 生命周期
+
+```text
+QML summary 继续读取 **Controller-owned snapshot projection**；projection 可在 snapshot 处于 **Prepared** 期间显示。
+**Consumed / Invalidated 之后 Confirm 不可再执行**。
+dialog 是否立即关闭按 UX implementation 决定，但**状态 authority 不能由 dialog visible 反推**。
+```
+
+### K15. C03 / C10 更新（含义冻结）
+
+```text
+**C03（更新）**：valid 0x06 draft 在 hidden harness ⇒ `prepare snapshot N` → **displayed summary == snapshot projection**
+  → **dialog merely open 时状态仍为 Prepared** → confirmation count = 0 → **transport sendCount = 0**。
+  注意：M10-C 中 0x06 **可以 prepare / confirm foundation**，但**不能 encode / send**。
+**C10（更新，C10-C）**：Prepared token N → 第一次显式 confirmation ⇒ **恰好一次 confirmation acceptance** ⇒ state = **Consumed**
+  → 第二次 confirmation（同 token N）⇒ **rejected** → **transport sendCount = 0**。
+  **M10-D** 升级为：0x06 valid token → double confirm → **exactly one transport send**；**M10-E** 对 0x10 同样证明。
+（C01–C29 其余不变；C18A–D / C23–C29 不受本轮影响。）
+```
+
+### K16. No-dead-UI 保持
+
+```text
+本轮不改变「M10-C production Write UI hidden」⇒ **不会**出现「用户确认成功但什么都没发送」的产品 dead UI：
+confirmation-only 行为**只由 hidden runtime harness** 测试。
+**M10-D 首次把「0x06 production UI + dispatch capability」同时启用**（M10-E 再启用 0x10）。
+```
+
+### K17. Decision Count Correction（12 → 13）
+
+```text
+更正：§J26 的标题写作「12 项」，但其正文实际列出 **13** 项（含 closePolicy 与 staging）。
+**正式计数 = 13 项**；**不删除** closePolicy、**不删除** staging 去凑 12。内容全部保留（见 K18）。
+（§I49 的「12 项」与 §J26 的标题属历史记录，保留原文；本轮以本节为权威口径。）
+```
+
+### K18. Final Decision List（13 项，全部 RESOLVED）
+
+```text
+ 1. production visibility（C hidden / D 0x06 / E 0x10）          —— RESOLVED
+ 2. function selector（two sub-tabs）                             —— RESOLVED
+ 3. 0x10 values editor（multiline, one decimal per line）         —— RESOLVED
+ 4. number format（decimal only）                                 —— RESOLVED
+ 5. draft persistence across source（preserve）                    —— RESOLVED
+ 6. Dialog component（Qt Quick Controls modal Dialog）             —— RESOLVED
+ 7. Dialog closePolicy（no outside-close）                         —— RESOLVED
+ 8. initial focus（Cancel）                                        —— RESOLVED
+ 9. session invalidation（invalidate snapshot）                    —— RESOLVED
+10. busy invalidation（permanent invalidate）                      —— RESOLVED
+11. connection summary identity（immutable display label；authority = typed source + session） —— RESOLVED
+12. M10-C hidden foundation                                       —— RESOLVED
+13. C1–C4 staging                                                 —— RESOLVED
+```
+
+### K19. C1–C4 Scope Clarification（冻结）
+
+```text
+**C1**（pure / core / controller foundation 为主）：values parser / write validation（含 widened address-span 规则）/
+  PreparedWriteSnapshot / token·generation / **prepared state machine** / invalidation seams /
+  read-only snapshot projection / tests。
+  **不实现**：Dialog、production-visible Write UI、transport send、0x06 encoder、0x10 encoder。
+**C2**：hidden Write QML + Dialog + snapshot projection + **Cancel / Confirm UI wiring**；
+  Confirm 只作用于 **M10-C confirmation foundation**；**sendCount 始终 0**；无 production-visible write capability。
+**C3**：session / source / busy invalidation + page gating + focus + Enter·Space·Escape + repeated activation + accessibility。
+**C4**：C01–C29 + QML runtime + controller·pure tests + geometry + full regressions + final Review。
+```
+
+### K20. 本轮未改动项（复核）
+
+```text
+· **0x10 address-span 规则不变**（§J1：`start + quantity - 1 ≤ 0xFFFF`，uint32 扩宽计算，禁止 uint16 wrap）。
+· **parser 契约不变**（§J3：仅十进制、0..65535、保序、首尾空白行 trim、中间空白行 error、1..123、parse failure 保留 draft）。
+· **production visibility 不变**（§J18/K16：C hidden / D 0x06 / E 0x10；禁止 disabled roadmap preview 与 clickable no-op）。
+· 其余 §J 冻结项（Dialog/closePolicy/initial focus/Enter·Space·Escape/summary/no-dead-UI/staging/失效矩阵）全部不变。
+```
+
+### K21. Boundary / Git
+
+```text
+docs-only：未改 src / tests / QML / CMakeLists.txt / scripts / assets / samples / screenshots；
+未开始 C1；未实现 encoder / Write UI；未 push；未 tag；**verified LKGC 保持 `ef71244`**。
+commit：`M10-C: separate confirmation from write dispatch`（独立 docs-only 提交；不 amend `e1733a5`；不 rebase）。
+M10-C = Phase 1 Final Correction / Re-review（Implementation = NOT STARTED）。
 ```
