@@ -80,6 +80,49 @@ struct ActiveTransactionResult {
     bool operator==(const ActiveTransactionResult&) const = default;
 };
 
+// ---------------------------------------------------------------------------
+// M10-A correction: post-submission TRANSPORT TERMINATION.
+//
+// A request that was already handed to the transmission lifecycle can end
+// WITHOUT any trusted Modbus response — the port fails, the user
+// disconnects, the source is torn down. That ending is a TRANSPORT fact, so
+// it must never be squeezed into the Modbus outcome taxonomy (no fabricated
+// ProtocolError / Timeout / Exception / Success), and its evidence must
+// never be discarded together with the pending transaction.
+// ---------------------------------------------------------------------------
+
+enum class TransportTerminalReason {
+    TransportError,              // port/transport failure after submission
+    DisconnectedAfterSubmission, // explicit close / cancel / source teardown
+};
+
+[[nodiscard]] std::string_view transportTerminalReasonName(TransportTerminalReason reason);
+
+// Evidence of one submitted request whose transaction ended without a trusted
+// Modbus response. Deliberately carries NO TransactionAnalysis: for a future
+// write this is exactly the "device mutation state UNKNOWN" case, and
+// claiming NotSent / "device unchanged" / "write definitely failed" would all
+// be unsupported statements.
+//
+// Authority is this record + the typed reason; the human-readable transport
+// error text stays where it already lives (the serial error lane) and is
+// never the evidence authority.
+struct ActiveTransportTerminal {
+    // Send-time snapshot: the request as it was handed to the transport.
+    ActiveRequestDescriptor request{};
+    // Every byte the transport actually observed before the termination
+    // (empty when nothing arrived). Never cleared as part of the abort.
+    std::vector<std::uint8_t> responseAdu{};
+    // Always PossiblySent on this path: the request entered the transmission
+    // lifecycle, so the wire cannot be proven clean.
+    TransportDisposition disposition{TransportDisposition::PossiblySent};
+    TransportTerminalReason reason{TransportTerminalReason::TransportError};
+
+    [[nodiscard]] ActiveTransactionEvidence evidence() const;
+
+    bool operator==(const ActiveTransportTerminal&) const = default;
+};
+
 // Provenance of one PUBLISHED transaction: which runtime session authored it
 // plus, for Active Serial, the send-time request snapshot and the wire
 // evidence. A presentation row may carry this; it never becomes the

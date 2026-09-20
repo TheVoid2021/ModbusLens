@@ -93,6 +93,25 @@ private slots:
     void ta13_clearResultsContract();
     void ta14_typedSourceIdentity();
     void ta15_staleOrForeignCompletionIgnored();
+
+    // ---- M10-A correction: post-submission transport termination ----
+    // TF1: accepted request -> transport error before any response.
+    void tf01_transportErrorAfterSubmission();
+    // TF2: accepted request -> partial response -> transport error.
+    void tf02_partialResponseThenTransportError();
+    // TF3: accepted request -> explicit disconnect (real user path).
+    void tf03_disconnectAfterSubmission();
+    // TF4: pre-send rejection stays NotSent and creates NO terminal evidence.
+    void tf04_preSendRejectCreatesNoTerminalEvidence();
+    // TF5: a trusted response is the stronger fact (no terminal overrides it).
+    void tf05_trustedResponseIsStrongerEvidence();
+    // TF6: timeout keeps the observed bytes verbatim (empty vs partial).
+    void tf06_timeoutKeepsObservedBytesExactly();
+    // Oracle: exactly ONE terminal event per accepted request, ever.
+    void tf07_noDoubleTerminalPerAcceptedRequest();
+    // Clear Results clears terminal evidence too; a pending request survives
+    // it and its later termination lands in the cleared session.
+    void tf08_clearResultsAndTerminalEvidence();
 };
 
 void ActiveMasterTest::ta01_closedTransportNotSent()
@@ -496,6 +515,273 @@ void ActiveMasterTest::ta15_staleOrForeignCompletionIgnored()
     transport.completeWithResponse();
     QCOMPARE(controller.activeSerialRecordCount(), 1);
     QCOMPARE(controller.transactionModel()->rowCount(), 1);
+}
+
+// ---- M10-A correction: post-submission transport termination ----
+
+void ActiveMasterTest::tf01_transportErrorAfterSubmission()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QCOMPARE(s.transport.sendCount(), 1);
+
+    s.transport.failTransport(QStringLiteral("测试传输失败"));
+
+    // The attempt is retained: snapshot + exact ADU + empty response + the
+    // conservative submission disposition + the typed reason.
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    const auto& terminal = s.controller.activeSerialTerminations().front();
+    QCOMPARE(terminal.request.intent.unitId, std::uint8_t{1});
+    QCOMPARE(std::get<ReadHoldingRegistersIntent>(terminal.request.intent.payload)
+                 .startAddress,
+             std::uint16_t{0});
+    QCOMPARE(terminal.request.wire, kGoldenWire);
+    QCOMPARE(terminal.evidence().requestAdu, kGoldenWire);
+    QCOMPARE(terminal.evidence().requestAdu, s.transport.sentAduLog()[0]);
+    QVERIFY(terminal.responseAdu.empty());
+    QCOMPARE(terminal.disposition, TransportDisposition::PossiblySent);
+    QCOMPARE(terminal.reason,
+             modbuslens::core::TransportTerminalReason::TransportError);
+    QCOMPARE(modbuslens::core::transportTerminalReasonName(terminal.reason),
+             std::string_view{"transport_error"});
+
+    // No Modbus outcome was fabricated and no row/statistics appeared.
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+    QCOMPARE(s.controller.observedCount(), 0);
+    QVERIFY(!s.controller.serialBusy());
+    QVERIFY(s.controller.hasSerialError());
+    QCOMPARE(s.transport.sendCount(), 1); // exactly one send, ever
+}
+
+void ActiveMasterTest::tf02_partialResponseThenTransportError()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+
+    const std::vector<std::uint8_t> partial = {0x01, 0x03, 0x04, 0x00};
+    s.transport.setResponseBytes(partial);
+    s.transport.feedPartialBytes(); // observed, candidate not complete
+    s.transport.failTransport(QStringLiteral("测试传输失败"));
+
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    const auto& terminal = s.controller.activeSerialTerminations().front();
+    // The partial bytes survive the abort BYTE FOR BYTE — the abort must not
+    // clear them before the evidence is built.
+    QCOMPARE(terminal.responseAdu, partial);
+    QCOMPARE(terminal.evidence().responseAdu, partial);
+    QCOMPARE(terminal.request.wire, kGoldenWire);
+    QCOMPARE(terminal.disposition, TransportDisposition::PossiblySent);
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0); // never a fake verdict
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+}
+
+void ActiveMasterTest::tf03_disconnectAfterSubmission()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QVERIFY(s.transport.hasPendingTransaction());
+
+    // Real user path: disconnect -> controller teardown -> transport close.
+    s.controller.disconnectSerial();
+
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    const auto& terminal = s.controller.activeSerialTerminations().front();
+    QCOMPARE(terminal.reason,
+             modbuslens::core::TransportTerminalReason::DisconnectedAfterSubmission);
+    QCOMPARE(modbuslens::core::transportTerminalReasonName(terminal.reason),
+             std::string_view{"disconnected_after_submission"});
+    QCOMPARE(terminal.disposition, TransportDisposition::PossiblySent);
+    QCOMPARE(terminal.request.wire, kGoldenWire);
+    QVERIFY(terminal.responseAdu.empty());
+    QCOMPARE(s.transport.sendCount(), 1);
+    QVERIFY(!s.controller.serialConnected());
+    QVERIFY(!s.controller.serialBusy());
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0); // not a transaction
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+
+    // A new connection is a NEW Active Serial session: the previous session's
+    // termination evidence is cleared by the source-replacement contract
+    // (evidence never leaks across sessions).
+    s.controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+
+    // Exactly like the production adapter: a close with NOTHING in flight is
+    // a pure connection change and adds no terminal evidence.
+    s.transport.disconnectAfterSubmission();
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+}
+
+void ActiveMasterTest::tf04_preSendRejectCreatesNoTerminalEvidence()
+{
+    ConnectedSession s;
+    s.transport.setAcceptRequests(false);
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+
+    QCOMPARE(s.transport.sendCount(), 0);
+    QCOMPARE(s.transport.lastStartResult().disposition,
+             TransportDisposition::NotSent);
+    // A pre-send rejection produces NO completed transaction AND no terminal
+    // evidence: it never entered the transmission lifecycle.
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+    QVERIFY(s.controller.hasSerialError());
+}
+
+void ActiveMasterTest::tf05_trustedResponseIsStrongerEvidence()
+{
+    ConnectedSession s;
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+
+    // The response is the stronger fact: a completed Modbus transaction with
+    // its verdict, and NO terminal event on top of it. The recorded
+    // submission disposition is still PossiblySent (a transport fact) — it
+    // must never be presented as a final error state.
+    QCOMPARE(s.controller.activeSerialRecordCount(), 1);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+    const auto& record = s.controller.activeSerialRecords().front();
+    QCOMPARE(record.analysis.status, TransactionStatus::Success);
+    QCOMPARE(record.evidence.disposition, TransportDisposition::PossiblySent);
+    QCOMPARE(record.evidence.responseAdu, kGoodResponse9);
+    QCOMPARE(s.controller.successCount(), 1);
+}
+
+void ActiveMasterTest::tf06_timeoutKeepsObservedBytesExactly()
+{
+    // Scenario A: nothing was ever observed -> pure no-response Timeout with
+    // an EMPTY response ADU (never a fabricated byte).
+    {
+        ConnectedSession s;
+        s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+        s.transport.setCompletionElapsed(ms{1000});
+        s.transport.completeWithTimeout();
+
+        QCOMPARE(s.controller.activeSerialRecordCount(), 1);
+        QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+        const auto& record = s.controller.activeSerialRecords().front();
+        QCOMPARE(record.analysis.status, TransactionStatus::Timeout);
+        QCOMPARE(record.evidence.disposition, TransportDisposition::PossiblySent);
+        QVERIFY(record.evidence.responseAdu.empty());
+        QCOMPARE(record.evidence.requestAdu, kGoldenWire);
+    }
+    // Scenario B: bytes DID arrive -> the wire-truth verdict over the exact
+    // observed bytes (3 bytes cannot be a frame -> ProtocolError), still with
+    // PossiblySent and still no terminal event.
+    {
+        ConnectedSession s;
+        s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+        const std::vector<std::uint8_t> partial = {0x01, 0x03, 0x04};
+        s.transport.setResponseBytes(partial);
+        s.transport.feedPartialBytes();
+        s.transport.setCompletionElapsed(ms{1000});
+        s.transport.completeWithTimeout();
+
+        QCOMPARE(s.controller.activeSerialRecordCount(), 1);
+        QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+        const auto& record = s.controller.activeSerialRecords().front();
+        QCOMPARE(record.analysis.status, TransactionStatus::ProtocolError);
+        QCOMPARE(record.evidence.responseAdu, partial);
+        QCOMPARE(record.evidence.disposition, TransportDisposition::PossiblySent);
+    }
+}
+
+void ActiveMasterTest::tf07_noDoubleTerminalPerAcceptedRequest()
+{
+    // Part 1: terminal first, then every late driver must stay silent.
+    {
+        ConnectedSession s;
+        s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+        s.transport.failTransport(QStringLiteral("测试传输失败"));
+        QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+
+        // A late timeout callback (the stopped timer's equivalent), a late
+        // response completion, a second disconnect and a repeated error may
+        // not add anything.
+        s.transport.completeWithTimeout();
+        s.transport.setResponseBytes(kGoodResponse9);
+        s.transport.completeWithResponse();
+        s.transport.disconnectAfterSubmission();
+        s.transport.failTransport(QStringLiteral("重复错误"));
+
+        QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+        QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+        QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+        QCOMPARE(s.transport.sendCount(), 1);
+    }
+    // Part 2: the controller boundary is a guard too — a duplicate terminal
+    // for the same request is ignored, and a terminal with no pending request
+    // never lands.
+    {
+        AnalysisController controller;
+        RecordingSerialTransport transport;
+        transport.setPortOpen(true);
+        controller.setSerialTransport(&transport);
+        controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+        controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+
+        const auto descriptor = std::get<ActiveRequestDescriptor>(
+            encodeActiveRequest(ActiveRequestIntent{
+                .function = ActiveFunction::ReadHoldingRegisters,
+                .unitId = 1,
+                .timeout = ms{1000},
+                .payload = ReadHoldingRegistersIntent{.startAddress = 0,
+                                                      .quantity = 2}}));
+        const modbuslens::core::ActiveTransportTerminal terminal{
+            .request = descriptor,
+            .responseAdu = {},
+            .disposition = TransportDisposition::PossiblySent,
+            .reason = modbuslens::core::TransportTerminalReason::TransportError,
+        };
+        controller.handleSerialTransactionTerminated(terminal);
+        controller.handleSerialTransactionTerminated(terminal); // duplicate
+        QCOMPARE(controller.activeSerialTerminalCount(), 1);
+
+        // No pending request any more -> a late terminal is ignored whole.
+        controller.handleSerialTransactionTerminated(terminal);
+        QCOMPARE(controller.activeSerialTerminalCount(), 1);
+    }
+}
+
+void ActiveMasterTest::tf08_clearResultsAndTerminalEvidence()
+{
+    ConnectedSession s;
+    // One completed transaction + one terminated attempt in the session.
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.setResponseBytes(kGoodResponse9);
+    s.transport.completeWithResponse();
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    s.transport.failTransport(QStringLiteral("测试传输失败"));
+    QCOMPARE(s.controller.activeSerialRecordCount(), 1);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+
+    s.controller.clearResults();
+
+    // Both kinds of completed evidence are cleared together; the source
+    // identity survives and nothing was cancelled.
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+    QCOMPARE(s.controller.modeLabel(), QStringLiteral("串口模式"));
+    QVERIFY(s.controller.serialConnected());
+
+    // Clear -> pending -> post-submission error: the pending request was NOT
+    // cancelled, and its termination evidence enters the cleared session.
+    s.controller.readHoldingRegistersOnce(1, 0, 2, 1000);
+    QVERIFY(s.transport.hasPendingTransaction());
+    s.controller.clearResults();
+    QVERIFY(s.transport.hasPendingTransaction());
+    s.transport.failTransport(QStringLiteral("测试传输失败"));
+
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1); // idempotent read
+    const auto& terminal = s.controller.activeSerialTerminations().front();
+    QCOMPARE(terminal.reason,
+             modbuslens::core::TransportTerminalReason::TransportError);
+    QCOMPARE(terminal.request.wire, kGoldenWire);
+    QCOMPARE(s.controller.activeSerialRecordCount(), 0);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
 }
 
 QTEST_GUILESS_MAIN(ActiveMasterTest)

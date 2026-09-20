@@ -214,6 +214,14 @@ public:
     void handleSerialTransactionCompleted(
         const modbuslens::core::ActiveTransactionResult& result);
 
+    // Production termination entry (M10-A correction): a SUBMITTED request
+    // that ended without a trusted Modbus response (port error / explicit
+    // disconnect / source teardown). Retains the attempt's evidence in the
+    // same Active Serial session — no Modbus outcome is fabricated, and the
+    // evidence is never dropped together with the pending snapshot.
+    void handleSerialTransactionTerminated(
+        const modbuslens::core::ActiveTransportTerminal& terminal);
+
     // Transport seam (never reaches QML): point the runtime at an alternative
     // transport implementation — deterministic tests inject a recording
     // transport here. nullptr restores the built-in production adapter. The
@@ -235,6 +243,12 @@ public:
     [[nodiscard]] int activeSerialRecordCount() const;
     [[nodiscard]] const std::vector<modbuslens::core::ActiveTransactionRecord>&
     activeSerialRecords() const;
+    // Post-submission transport terminations of the same session (parallel
+    // authoritative evidence — deliberately NOT faked into completed
+    // transactions).
+    [[nodiscard]] int activeSerialTerminalCount() const;
+    [[nodiscard]] const std::vector<modbuslens::core::ActiveTransportTerminal>&
+    activeSerialTerminations() const;
 
 signals:
     void statisticsChanged();
@@ -332,6 +346,10 @@ private:
     // Authoritative Active Serial session history (append-only per completed
     // transaction; the wire evidence lives here, not in a QML row).
     std::vector<modbuslens::core::ActiveTransactionRecord> activeSerialRecords_;
+    // Post-submission transport terminations of the same session: parallel
+    // append-only evidence, never mixed into the completed-transaction
+    // history (a transport abort is not a Modbus transaction).
+    std::vector<modbuslens::core::ActiveTransportTerminal> activeSerialTerminations_;
 
     // T011 Part A: the STRUCTURED active batch for diagnosis — same source
     // as rows + statistics on every successful publish (never reconstructed

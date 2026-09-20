@@ -22,6 +22,26 @@ ActiveTransactionEvidence ActiveTransactionResult::evidence() const
     };
 }
 
+std::string_view transportTerminalReasonName(TransportTerminalReason reason)
+{
+    switch (reason) {
+    case TransportTerminalReason::TransportError:
+        return "transport_error";
+    case TransportTerminalReason::DisconnectedAfterSubmission:
+        return "disconnected_after_submission";
+    }
+    return "unknown";
+}
+
+ActiveTransactionEvidence ActiveTransportTerminal::evidence() const
+{
+    return ActiveTransactionEvidence{
+        .requestAdu = request.wire,
+        .responseAdu = responseAdu,
+        .disposition = disposition,
+    };
+}
+
 std::uint8_t ActiveTransactionRecord::unitId() const
 {
     return request.intent.unitId;

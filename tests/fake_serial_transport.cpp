@@ -112,11 +112,32 @@ bool RecordingSerialTransport::isPortOpen() const
 
 void RecordingSerialTransport::closePort()
 {
-    // Intentional close: silent abort, exactly like the production adapter.
+    // Intentional close: mirrors the production adapter exactly — with a
+    // SUBMITTED request the attempt's evidence is emitted as one terminal
+    // event; with nothing pending the close stays completely silent.
+    emitTerminalIfSubmitted(modbuslens::core::TransportTerminalReason::
+                                DisconnectedAfterSubmission);
+    portOpen_ = false;
+}
+
+void RecordingSerialTransport::emitTerminalIfSubmitted(
+    modbuslens::core::TransportTerminalReason reason)
+{
+    // Snapshot and observed bytes are captured BEFORE the abort clears them.
+    if (!pending_.has_value()) {
+        session_.cancel();
+        return;
+    }
+    const auto terminal = modbuslens::core::ActiveTransportTerminal{
+        .request = *pending_,
+        .responseAdu = deliveredBytes_,
+        .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+        .reason = reason,
+    };
     session_.cancel();
     pending_.reset();
     deliveredBytes_.clear();
-    portOpen_ = false;
+    emit transactionTerminated(terminal);
 }
 
 void RecordingSerialTransport::emitCompletion(
@@ -174,8 +195,17 @@ void RecordingSerialTransport::feedPartialBytes()
 
 void RecordingSerialTransport::failTransport(const QString& message)
 {
-    session_.cancel();
-    pending_.reset();
-    deliveredBytes_.clear();
+    // Post-submission transport failure: ONE terminal event with the retained
+    // evidence (request snapshot + exact request ADU + any bytes observed so
+    // far + PossiblySent), then the existing bounded error lane. No Modbus
+    // outcome is invented.
+    emitTerminalIfSubmitted(
+        modbuslens::core::TransportTerminalReason::TransportError);
     emit transportError(message);
+}
+
+void RecordingSerialTransport::disconnectAfterSubmission()
+{
+    emitTerminalIfSubmitted(modbuslens::core::TransportTerminalReason::
+                                DisconnectedAfterSubmission);
 }

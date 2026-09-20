@@ -126,13 +126,33 @@ bool SerialTransactionAdapter::isPortOpen() const
 
 void SerialTransactionAdapter::closePort()
 {
-    // User-requested close: abort silently — not a Modbus diagnosis.
+    using modbuslens::core::ActiveTransportTerminal;
+    using modbuslens::core::TransportDisposition;
+    using modbuslens::core::TransportTerminalReason;
+
+    // An explicit close with a SUBMITTED request is a post-submission
+    // termination: the bytes may already be on the wire, so the attempt's
+    // evidence is emitted before anything is cleared. Without a pending
+    // transaction a close stays completely silent (pure connection change).
+    const auto pending = session_.pendingRequest();
+    const auto observed = observedResponseBytes_;
+    const bool wasSubmitted = pending.has_value();
+
     suppressPortErrors_ = true; // closing triggers error emissions; ignore
     session_.cancel();
     timeoutTimer_.stop();
     port_.close();
     elapsed_.invalidate();
     observedResponseBytes_.clear();
+
+    if (wasSubmitted) {
+        emit transactionTerminated(ActiveTransportTerminal{
+            .request = *pending,
+            .responseAdu = observed,
+            .disposition = TransportDisposition::PossiblySent,
+            .reason = TransportTerminalReason::DisconnectedAfterSubmission,
+        });
+    }
 }
 
 void SerialTransactionAdapter::handleReadyRead()
@@ -192,26 +212,47 @@ void SerialTransactionAdapter::handleTimeout()
 
 void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError error)
 {
+    using modbuslens::core::ActiveTransportTerminal;
+    using modbuslens::core::TransportDisposition;
+    using modbuslens::core::TransportTerminalReason;
+
     if (error == QSerialPort::NoError || suppressPortErrors_) {
         return;
     }
     // A failed/closed port keeps re-emitting DeviceNotFoundError: handle the
     // fatal fact exactly once, then swallow the rest until the next start.
     suppressPortErrors_ = true;
-    if (hasActiveTransaction()) {
-        // Transport failure aborts the transaction WITHOUT fabricating a
-        // Modbus status (Timeout stays a purely "no response" fact). The
-        // bytes may already be on the wire, so no completion is emitted and
-        // the evidence of this attempt is discarded with the abort — the
-        // controller sees the transport error, not a fake transaction.
+
+    // Evidence FIRST, abort second: the port error is NOT a Modbus response,
+    // so no TransactionAnalysis is fabricated — but a request that already
+    // entered the transmission lifecycle keeps its snapshot, its exact wire
+    // bytes and any response bytes observed so far. Clearing the abort first
+    // would destroy exactly the evidence a future write needs.
+    const auto pending = session_.pendingRequest();
+    const auto observed = observedResponseBytes_;
+    const bool wasSubmitted = pending.has_value();
+
+    if (wasSubmitted) {
         session_.cancel();
         timeoutTimer_.stop();
-        emit transportError(
-            QStringLiteral("串口错误：%1").arg(port_.errorString()));
     }
     port_.close();
     elapsed_.invalidate();
     observedResponseBytes_.clear();
+
+    if (wasSubmitted) {
+        // Terminal transport fact, then the existing error lane (bounded,
+        // presentation-only). The controller must never receive a second
+        // terminal for this request.
+        emit transactionTerminated(ActiveTransportTerminal{
+            .request = *pending,
+            .responseAdu = observed,
+            .disposition = TransportDisposition::PossiblySent,
+            .reason = TransportTerminalReason::TransportError,
+        });
+        emit transportError(
+            QStringLiteral("串口错误：%1").arg(port_.errorString()));
+    }
 }
 
 void SerialTransactionAdapter::cancelPending()

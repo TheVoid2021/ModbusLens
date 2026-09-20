@@ -59,5 +59,11 @@ signals:
     // Completion travels WITH its evidence: the send-time request snapshot,
     // the exact observed response bytes and the transport disposition.
     void transactionCompleted(modbuslens::core::ActiveTransactionResult result);
+    // A SUBMITTED request ended without a trusted Modbus response (port
+    // failure or explicit close/cancel). Separate from transactionCompleted
+    // exactly because it carries no Modbus outcome — and separate from
+    // transportError because it must carry the retained evidence.
+    // Contract: at most one terminal event per accepted request.
+    void transactionTerminated(modbuslens::core::ActiveTransportTerminal terminal);
     void transportError(const QString& message);
 };

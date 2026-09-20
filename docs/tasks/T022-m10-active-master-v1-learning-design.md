@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：IN PROGRESS — Phase 1 = ✅ COMPLETE（Re-review PASS）→ **M10-A Active Master Contract Foundation 已实施（behavior-bearing）**，等待 M10-A Review；M10-B/C/D/E/F 未开始。**
+> **状态：IN PROGRESS — Phase 1 = ✅ COMPLETE → M10-A 已实施（behavior-bearing）→ **M10-A Review = HOLD（窄范围）** → **Correction：post-submission transport failure evidence 已保留**，等待 **M10-A Re-review**；M10-A **仍未 COMPLETE**；M10-B/C/D/E/F 未开始。**
 > verified LKGC = `aa2f3db`（M9-F closure 后的 accepted behavior tree）；M9 = ✅ COMPLETE（不重开）。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -1192,4 +1192,201 @@ QML 改动文件数 = 0（UI Freeze：无 Write section / Write button / confirm
 behavior-bearing（core / session / controller / transport / test 行为实质变化，见 M21）⇒ **不作 LKGC**。
 commit：`M10-A: establish Active Master contract foundation`（独立提交；不 amend `86e88ed`；不 rebase；不 push；
 未创建 v2.0.0 tag）。verified LKGC 保持 `aa2f3db`；M10 = IN PROGRESS；M10-A = 等待 Review。
+```
+## M10-A Correction — Post-Submission Transport Failure Evidence（2026-09-20，append-only）
+
+> **M10-A Review = HOLD（窄范围）。** 主体 foundation **已接受、不重做**：unified ActiveRequestIntent / pending snapshot /
+> generic SerialTransactionSession / SerialTransport seam / Recording transport / NotSent·PossiblySent / raw request·response
+> ADU evidence / Active Serial append foundation / source identity / Clear Results foundation / writable simulator foundation /
+> FC03 regression —— 全部保持。
+> **唯一 blocker**：请求已进入 transmission lifecycle 之后发生 transport error / disconnect / cancel 时，
+> **证据会丢失**（request snapshot / request ADU / partial response bytes / submission disposition / terminal reason）。
+> 本轮只修这一条；原 M10-A 历史记录（§M0–M22）**未改写**。
+
+### C0. HOLD 归档
+
+```text
+M10-A Review = HOLD；blocker = post-submission transport termination 尚未证明 evidence 不会丢失。
+本轮边界：不开 M10-B；不改 UI；不实现 0x06 / 0x10 encoder；不实现 Write button；不扩展 SimulatedSlave；
+        不 push；不 tag；verified LKGC 继续 `aa2f3db`。
+```
+
+### C1. 真实终止路径（逐条实读源码后的实际行为，见「修正前」列）
+
+```text
+路径                                  修正前真实行为                                        证据是否保留
+A. pre-send reject                    未连接 / 忙 / descriptor 无效 → {false, NotSent} + 一条 transportError；   ✔ 无需保留
+                                      不建立 pending、不产生任何 transaction
+B. accepted → response completion     session 完成 → transactionCompleted{request 快照, responseAdu,          ✔ 已保留
+                                      PossiblySent, analysis}
+C. accepted → timeout                 session onResponseTimeout → transactionCompleted{…, observed bytes…}     ✔ 已保留
+D. accepted → port error              适配器 `handlePortError`：`session_.cancel()` → `timeoutTimer_.stop()`    ✘ **全丢**
+                                      → emit transportError → `port_.close()` → **`observedResponseBytes_.clear()`**
+                                      ⇒ request 快照 / request ADU / 已观察字节 / disposition / reason 全部消失
+E. accepted → explicit close/disconnect 适配器 `closePort()`：静默 cancel + close + clear                        ✘ **全丢**
+                                      （注释当时即写明「silent abort」——连 terminal fact 都不存在）
+F. accepted → partial → port error    同 D，且 partial bytes 被显式 `clear()`                                   ✘ **全丢**
+（源码事实：`SerialPortAdapter.cpp` 的 handlePortError 注释当时写的是
+  “the evidence of this attempt is discarded with the abort” —— 即本 blocker 的直接自证。）
+```
+
+### C2. RCA（真实缺陷，非仅 fake 补字段）
+
+```text
+Observed：路径 D/E/F 下 controller 只收到一句 transportError 字符串；`handleSerialTransportError` 随后
+          `pendingRequest_.reset()` ⇒ 运行时不持有该次尝试的任何证据（快照/ADU/字节/原因）。
+Expected：已被 transmission lifecycle 接受的请求，其尝试证据必须保留，并保守表达 submission disposition 与 terminal reason。
+Root Cause：终止路径把「本地中止」实现为**先清后报**：`session_.cancel()`（清 buffer）与
+          `observedResponseBytes_.clear()` 都在构造任何证据之前执行；且 closePort 路径**从不产生任何 terminal fact**。
+          （`cancelPending()` 同样先清 buffer + 观察字节 + 关端口。）
+Fix：证据先于中止构造 —— 终止路径统一为「取 pending 快照 → 取 observed bytes → 中止/清理 → emit terminal evidence」；
+          生产适配器与 recording transport 走同一形状；controller 侧新增 terminate 入口保留证据。
+Verification：TF1–TF3、TF6、TF8（含 partial bytes 逐字节保留、Clear 后 pending 终止进入已清空会话）；既有 29/29 全绿。
+Regression Protection：TF2 断言 partial bytes 逐字节保留；TF7 断言每个 accepted 请求只允许一个 terminal。
+```
+
+### C3. 设计：transport terminal evidence（不伪造 Modbus outcome）
+
+```text
+core 新增（`core/active/ActiveTransactionEvidence.h`）：
+  · `TransportTerminalReason{ TransportError, DisconnectedAfterSubmission }` + 机器 token
+    （`transport_error` / `disconnected_after_submission`）；
+  · `ActiveTransportTerminal{ request(发送时快照), responseAdu(已观察字节，可为空), disposition, reason }`
+    + `evidence()` 投影（requestAdu 取快照 wire）。
+**刻意不携带 TransactionAnalysis**：transport 中止不是 Modbus 响应，禁止为了塞进既有 taxonomy 伪造
+ProtocolError / Timeout / Exception / Success；public outcome taxonomy 继续冻结（§4）。
+权威 = 该记录 + typed reason；人可读的 transport error 文案继续留在既有 serial error lane（presentation），
+**不作为 evidence authority**（§5）。
+```
+
+### C4. 生产适配器契约（`SerialPortAdapter`）
+
+```text
+`handlePortError`（accepted 路径）：先取快照与已观察字节 → `session_.cancel()` + `timeoutTimer_.stop()` →
+  `port_.close()` + `elapsed_.invalidate()` + 清观察缓冲 → **emit transactionTerminated{…, TransportError}**
+  → 再 emit 既有 transportError（有界、presentation）。无 pending 时行为与修正前完全一致（关端口、无 terminal、无新增错误）。
+`closePort`：有 pending ⇒ emit transactionTerminated{…, DisconnectedAfterSubmission}（**先取证据后清理**）；
+  无 pending ⇒ 完全静默（纯连接状态变化，§13-A）。
+短计数 write（`cancelPending()` 路径）：请求**未被接受**（accepted=false），controller 从未建立 pending，
+  故不产生 terminal 记录；PossiblySent 在 start 边界即以 `ActiveStartResult{false, PossiblySent}` 表达（见 C13-1 Review item）。
+每个 accepted 请求**至多一个** terminal：cancel 之后 session 回 Idle ⇒ 后续 timeout 回调 / completion 都不可能再产生事件。
+```
+
+### C5. Recording transport 能力（修正前 → 修正后）
+
+```text
+修正前：`failTransport()` 取消 + `pending_.reset()` + **`deliveredBytes_.clear()`** 后才 emit 一条 transportError
+        ⇒ partial bytes 丢失；`closePort()` 静默 ⇒ 无 terminal 注入能力（§9 gap）。
+修正后：共用 `emitTerminalIfSubmitted(reason)`：无 pending ⇒ 静默 cancel（与生产一致）；有 pending ⇒
+        快照 + 已观察字节 → cancel/清理 → **emit transactionTerminated**。
+        新增注入入口：`failTransport(message)`（TransportError）、`disconnectAfterSubmission()`（DisconnectedAfterSubmission），
+        与既有 `feedPartialBytes()` 组合即可构造「partial → error」。
+        全部 deterministic：无 Sleep、无真实 COM、无 wall-clock race。
+```
+
+### C6. Controller / runtime evidence ownership
+
+```text
+新增 `handleSerialTransactionTerminated(terminal)`：身份规则与 completion 相同（必须与 `pendingRequest_` 相等，
+否则整条忽略），命中的终止追加进 `activeSerialTerminations_`（与 `activeSerialRecords_` **并行的权威证据**，
+不伪装成已完成事务），随后 `pendingRequest_.reset()` + `serialBusy_ = false`；
+**不触碰 statistics / rows / mode / source**（transport 中止不改写最近一次已完成分析）。
+Clear Results：`activeSerialRecords_.clear()` 与 `activeSerialTerminations_.clear()` 同步；**pending 不取消**。
+source replacement（connect / demo / replay）：两者同步清空（证据不跨 session 泄漏，§18）。
+```
+
+### C7. Pre-send 边界（继续冻结）
+
+```text
+validation failure / not connected / busy / adapter pre-send reject（未来 confirmation cancel）一律 **NotSent、sendCount = 0**，
+不产生 completed transaction，也**不产生 terminal evidence**（TF4 断言）。§6 的「不得把 pre-send error 变成 completed transaction」成立。
+```
+
+### C8. PossiblySent 语义（§7）
+
+```text
+`TransportDisposition` 的语义已在类型注释中冻结为 **submission boundary 的保守发送事实**：
+  · 不是 transaction outcome；
+  · 不是「当前所有 evidence 的最终最高置信度」——若随后观察到可信 response bytes 并完成 response analysis，
+    **response evidence + outcome 是更强事实**；
+  · 因此 UI 未来不得机械显示「可能已发送」去覆盖已存在的成功/异常响应事实。
+本轮在 `ActiveTransactionEvidence.h` 的 disposition 文档块与 `ActiveTransportTerminal` 文档中显式写明该规则，
+并由 TF5（存在可信响应时**不产生** terminal 记录、且记录的 disposition 仍为 PossiblySent 但 outcome 为 Success）与
+TF6（timeout 场景下 observed bytes 逐字节保留）锁定。
+```
+
+### C9. 两态 disposition 与命名（§8 评估结论）
+
+```text
+决定：**保持两态 NotSent / PossiblySent**，不新增 Sent / DefinitelySent（会暗示「物理线路已确认发送」，
+而 response 自身已提供更强的 observable evidence）；**enum 名称保持 `TransportDisposition`** ——
+该名称未达到「明显导致误用」的程度，且其文档注释已明确其为 submission disposition，
+按 §8「不要做大范围命名重构」不做 rename。字段语义在 `ActiveStartResult` / `ActiveTransactionResult` /
+`ActiveTransportTerminal` 三处注释中统一表述为 submission disposition。
+```
+
+### C10. 新增确定性测试（TF1–TF8）
+
+```text
+TF1 accepted →（无响应）transport error：sendCount 1 / requestAdu 逐字节 = 金样（且 = transport 记录的 ADU）/
+    responseAdu 空 / disposition PossiblySent / reason TransportError / 不产生任何 Modbus 行或统计。
+TF2 accepted → partial(01 03 04 00) → transport error：partial responseAdu **逐字节保留**，仍无任何 Modbus verdict。
+TF3 accepted → 显式 disconnect（真实用户路径 controller.disconnectSerial → teardown → closePort）：
+    sendCount 1 / reason DisconnectedAfterSubmission / PossiblySent / requestAdu 保留 / 无行；
+    重连 = 新 session ⇒ 旧证据按 source replacement 清空；无 pending 时 disconnect 完全静默（不新增证据）。
+TF4 pre-send reject：sendCount 0 / NotSent / **terminal evidence = 0** / 无行（继续冻结）。
+TF5 可信响应：record = 1 / terminal = 0 / outcome Success / 记录 disposition 仍 PossibleSent（更强事实规则）。
+TF6 timeout：(A) 无字节 ⇒ Timeout + 空 responseAdu；(B) 有 3 字节 ⇒ 逐字节保留 + wire-truth ProtocolError。
+TF7 no-double-terminal oracle：terminal 之后所有迟到驱动（timeout / completion / disconnect / 重复 error）
+    均不得新增事件；controller 边界对重复 terminal 与无 pending terminal 同样忽略（Part 1 + Part 2）。
+TF8 Clear 契约扩展：Clear 同时清 record 与 terminal；Clear → pending → post-submit error ⇒
+    终止证据进入已清空会话（count = 1，requestAdu 保留，仍然 0 行）。
+```
+
+### C11. 门禁（真实输出）
+
+```text
+`active_master`：**25 passed / 0 failed**（原 17 + TF1–TF8 = 24 用例 + init）。
+`active_request`：**17 passed / 0 failed**（未改语义）。
+Debug `ctest`：**29/29 PASS**；Release `ctest`：**29/29 PASS**（含 qml_smoke / qml_geometry_check / qml_nav_check /
+  qml_focus_check 全绿）。Debug 与 Release 构建**零 warning / 零 error**。`git diff --check` PASS。
+```
+
+### C12. 用户可见冻结核对（§19）
+
+```text
+未改 QML（0 文件）；未改 Communication layout / 按钮文案 / 范围校验 / 超时 / latest-only 可见 presentation /
+统计可见行为；本轮 runtime 内部只**新增**了终止证据的保存与访问器（C++ seam），无新 Q_PROPERTY。
+```
+
+### C13. Deferred / Review items
+
+```text
+1. **短计数 write（partial submission）**：适配器已以 `{accepted=false, PossiblySent}` 在 start 边界表达，
+   但该情形**不产生** terminal 记录（因为从未建立 pending）。对未来的写操作而言这是「字节可能已上线、
+   却没有证据记录」的一个缺口 —— 按本轮 §16 的 TF 定义未要求，故不改，显式列为 Review item 供裁定。
+2. **生产适配器的 port-error 终止路径无法在无硬件环境端到端驱动**（`startActiveRequest` 需要真实打开的端口）：
+   同一契约由 seam 侧 recording transport 以确定性方式证明（TF1–TF8），生产实现为同形状代码 + 代码审阅；
+   **REAL HARDWARE NOT VERIFIED**（继续披露，不写 hardware PASS）。
+3. 命名：未 rename `TransportDisposition` → `SubmissionDisposition`（见 C9 理由）。
+```
+
+### C14. Files Changed（本轮）
+
+```text
+修改 core：src/core/active/ActiveTransactionEvidence.{h,cpp}（新增 TransportTerminalReason / ActiveTransportTerminal
+  / evidence() / 机器 token；PossiblySent 语义注释强化）
+修改 app：src/ui/serial/SerialTransport.h（新增 transactionTerminated 信号 + 契约注释）、
+  src/ui/serial/SerialPortAdapter.cpp（handlePortError 与 closePort 的证据保留 + terminal 发射）、
+  src/ui/AnalysisController.{h,cpp}（terminated 入口 / activeSerialTerminations_ / 访问器 / Clear 与 source 契约）
+修改 tests：tests/fake_serial_transport.{h,cpp}（emitTerminalIfSubmitted + failTransport 保留证据 +
+  disconnectAfterSubmission 注入）、tests/test_active_master.cpp（TF1–TF8）
+```
+
+### C15. Git
+
+```text
+behavior-bearing ⇒ 不作 LKGC。commit：`M10-A: retain post-submission transport evidence`
+（独立提交；不 amend `18f27e9`；不 rebase；不 push；未创建 v2.0.0 tag）。
+verified LKGC 保持 `aa2f3db`；M10-A **仍未 COMPLETE**（等待 Re-review）。
 ```

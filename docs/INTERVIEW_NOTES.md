@@ -707,3 +707,13 @@
 - **Q：可写 simulator 为什么要 opt-in？** A：因为它把“只读端点”变成“会改变状态的东西”。默认 ReadOnly 保证既有 0x03/演示/回放路径一行未改；只有显式 `WriteMode::Writable` 才允许 mutation，而且**先解码成功再写**：非法长度、byteCount 不符、异常形状、异地址全部零 mutation（SA1–SA5 断言 before→request→after）。没有随机、没有线程、没有真实时钟，所以它可被精确断言。
 - **Q：为什么 Function16 加了请求解码却仍然“没有写能力”？** A：解码与编码是两种能力。设备侧理解“别人发来的写请求”是本次新增的 decode-only 函数；**主动构造并发出写请求**需要 encoder + 校验器 + 确认 UI，本轮明确不做（`encodeWrite*` 在 src/ 中 0 匹配）。这也解释了为什么 0x06/0x10 的 descriptor 在 session.begin 处会被 UnsupportedFunction 拒绝——不是能力不完整，而是**故意不存在**。
 - **Q：本轮抓到的真实缺陷是什么？** A：seam 只做了一半：`connectSerial` 仍在具体 adapter 上调用 openPort，于是注入的 recording transport 从来没被打开，TA02–TA09 集体失败（startAttemptCount = 0）。修法不是改断言，而是把 open/close/start 全部走 seam；保护机制是 TA 系列断言的都是**注入对象**的 sendCount 与 ADU —— 任何绕过 seam 的调用点都会立刻让它们变红。
+
+## 76. Post-T022 M10-A Review HOLD → Post-Submission Evidence Correction 条目（2026-09-20 追加）
+
+- **Q：HOLD 指的“证据丢失”具体丢在哪一步？** A：丢在**顺序**上。原来的终止路径是「先清后报」：`session_.cancel()` 先清掉 session 内部缓冲，随后 `observedResponseBytes_.clear()` 再把适配器自己累积的原始字节清掉，然后才 emit 一句 transportError。于是那一次尝试的 request 快照、exact ADU、已经收到的部分响应、disposition 与终止原因全部消失——源码注释当时甚至写着 "the evidence of this attempt is discarded with the abort"。修法不是加字段，而是把顺序反过来：**先构造证据，再中止**。
+- **Q：为什么 transport 中止不能写成一次 ProtocolError / Timeout 事务？** A：因为那不是 Modbus 事实。outcome taxonomy（Success/Exception/CrcError/Timeout/ProtocolError/…）描述的是「请求与响应之间的关系」；而端口错误、用户主动断开根本没有响应可分析。硬塞进去就等于伪造一个设备行为，未来写操作时会把「设备状态未知」污染成「协议错误」，指错排查方向。所以新增的是**正交的 transport terminal 证据**：有快照、有字节、有 disposition、有 reason，唯独没有 TransactionAnalysis。
+- **Q：PossiblySent 为什么不能被 UI 当成“最终状态”？** A：它只描述**提交边界**能保守证明的事：字节交给传输层了，但不保证上线、更不保证设备执行。一旦可信响应到达并完成分析，那个响应就是更强的证据；如果 UI 机械地把「可能已发送」叠在上面，用户会以为自己看到的成功/异常是假的。所以冻结成：PossiblySent 是 submission fact，不是 outcome，也不是证据链的最高置信度。
+- **Q：“每个 accepted 请求只允许一个 terminal”怎么保证？** A：三层：① 传输侧——terminal 之前先 `session_.cancel()`，session 回到 Idle，之后 timeout 回调或 completion 都不可能再成立；② 控制器侧——terminal 命中后立刻清掉 `pendingRequest_`，重复 terminal 与无 pending 的 terminal 一律整条忽略；③ 测试侧——TF7 把迟到 timeout、迟到 completion、再次 disconnect、重复 error 全部驱动一遍，断言计数不变。
+- **Q：Clear Results 与“pending 不被取消”的矛盾怎么解？** A：Clear 是**结果域**操作，不是传输操作：它清掉已完成事务记录与已完成的终止证据，但不动正在飞的请求。于是会出现「先清空、后到达」的时序——那个 pending 完成或终止时，证据作为**新记录**进入已经被清清的会话视图。TF8 就是这个时序的断言，也解释了为什么 Clear 不能顺手 cancel。
+- **Q：为什么新 session 会清掉上一段的终止证据？** A：因为证据属于**某个 Active Serial session**（有 sessionId）。重新 connect 意味着新的会话边界，旧会话的证据不能污染新会话，就像 Replay/Simulator 不能拿到串口证据一样。这正是 §18「不得根据 modeLabel / workspace / filename 推断 source」的反面：来源身份是 typed 的，证据归属也必须是 typed 的。
+- **Q：本轮留下了什么没做？** A：两件事显式记录而非偷偷补：① **短计数 write**（写到一半失败）在 start 边界已经报 `{accepted=false, PossiblySent}`，但因为它从未建立 pending，所以不会产生 terminal 记录——对未来的写操作这是一个「字节可能已上线却没有记录」的缺口，交 Review 裁定；② 生产适配器的 port-error 终止路径无法在无硬件环境端到端驱动，契约由 seam 侧的确定性注入测试证明，真机仍是 **REAL HARDWARE NOT VERIFIED**。

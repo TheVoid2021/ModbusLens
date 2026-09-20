@@ -58,8 +58,15 @@ public:
     void completeWithTimeout();
     // Deliver some bytes WITHOUT completing the candidate (partial evidence).
     void feedPartialBytes();
-    // Transport failure while pending: abort locally + one bounded error.
+    // ---- post-submission termination injection (M10-A correction) ----
+    // Transport failure AFTER the request entered the transmission lifecycle:
+    // emits one terminal event (TransportError) carrying the retained
+    // evidence, then the existing bounded error. No Modbus outcome.
     void failTransport(const QString& message);
+    // Explicit close/cancel after submission: emits one terminal event
+    // (DisconnectedAfterSubmission). Without a pending request it is silent,
+    // exactly like the production adapter.
+    void disconnectAfterSubmission();
 
     // ---- SerialTransport implementation ----
     bool openPort(const QString& portName, qint32 baudRate) override;
@@ -73,6 +80,10 @@ public slots:
 
 private:
     void emitCompletion(modbuslens::core::TransactionAnalysis analysis);
+    // Shared termination path: captures evidence first, aborts second, emits
+    // at most one terminal event (and nothing at all when nothing is pending).
+    void emitTerminalIfSubmitted(
+        modbuslens::core::TransportTerminalReason reason);
 
     modbuslens::core::SerialTransactionSession session_;
     bool portOpen_ = false;

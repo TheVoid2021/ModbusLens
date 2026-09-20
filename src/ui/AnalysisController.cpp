@@ -926,6 +926,7 @@ void AnalysisController::connectSerial(const QString& portName, int baudRate)
     transactionModel_.setEntries({});
     activeDiagnosisTransactions_.clear();
     activeSerialRecords_.clear();
+    activeSerialTerminations_.clear();
     ++activeSerialSessionId_;
     sourceKind_ = modbuslens::core::TransactionSourceKind::ActiveSerial;
     invalidateAiForBatchChange();
@@ -1039,6 +1040,8 @@ void AnalysisController::connectSerialTransportSignals(SerialTransport& transpor
 {
     connect(&transport, &SerialTransport::transactionCompleted,
             this, &AnalysisController::handleSerialTransactionCompleted);
+    connect(&transport, &SerialTransport::transactionTerminated,
+            this, &AnalysisController::handleSerialTransactionTerminated);
     connect(&transport, &SerialTransport::transportError,
             this, &AnalysisController::handleSerialTransportError);
 }
@@ -1062,6 +1065,45 @@ const std::vector<modbuslens::core::ActiveTransactionRecord>&
 AnalysisController::activeSerialRecords() const
 {
     return activeSerialRecords_;
+}
+
+int AnalysisController::activeSerialTerminalCount() const
+{
+    return static_cast<int>(activeSerialTerminations_.size());
+}
+
+const std::vector<modbuslens::core::ActiveTransportTerminal>&
+AnalysisController::activeSerialTerminations() const
+{
+    return activeSerialTerminations_;
+}
+
+void AnalysisController::handleSerialTransactionTerminated(
+    const modbuslens::core::ActiveTransportTerminal& terminal)
+{
+    // Same identity rule as a completion: only the request that is actually
+    // pending may be terminated. A terminal for anything else (or a second
+    // terminal for the same request, which the transports must never emit) is
+    // ignored whole — this is the no-double-terminal guard.
+    if (!pendingRequest_.has_value()) {
+        return;
+    }
+    if (terminal.request != *pendingRequest_) {
+        return;
+    }
+
+    // Retain the attempt: send-time snapshot + exact request ADU + every byte
+    // observed before the abort + PossiblySent + the typed termination reason.
+    // No TransactionAnalysis is invented here — a transport abort is not a
+    // Modbus response.
+    activeSerialTerminations_.push_back(terminal);
+
+    // The request is over (locally): the in-flight state ends, but nothing in
+    // statistics / rows / mode / source is touched (a transport abort never
+    // rewrites the last completed analysis).
+    pendingRequest_.reset();
+    serialBusy_ = false;
+    emit serialStatusChanged();
 }
 
 void AnalysisController::appendSerialTransaction(
@@ -1366,6 +1408,7 @@ void AnalysisController::runDemoBatch()
     sourceLabel_ = QStringLiteral("确定性演示");
     sourceKind_ = modbuslens::core::TransactionSourceKind::Simulator;
     activeSerialRecords_.clear();
+    activeSerialTerminations_.clear();
     clearReplayError();
     clearReplayNotice();
     clearSerialError();
@@ -1387,6 +1430,7 @@ void AnalysisController::clearResults()
     transactionModel_.setEntries({});
     activeDiagnosisTransactions_.clear();
     activeSerialRecords_.clear();
+    activeSerialTerminations_.clear();
     invalidateAiForBatchChange();
     clearReplayError();
     clearReplayNotice();
@@ -1487,6 +1531,7 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     sourceLabel_ = QFileInfo(filePath).fileName();
     sourceKind_ = modbuslens::core::TransactionSourceKind::Replay;
     activeSerialRecords_.clear();
+    activeSerialTerminations_.clear();
     clearReplayError();
     clearSerialError();
     emit statisticsChanged();
