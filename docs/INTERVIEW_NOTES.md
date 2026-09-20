@@ -759,3 +759,13 @@
 - **Q：这轮为什么没有改产品代码？** A：因为真实 runtime 直接 PASS —— 规则是「若真实 QML runtime 已经 PASS：不得改产品代码」。选择权威仍然留在 QML page，没有为了测试方便在 Controller/model 里新造 selection state，也没有引入 auto-scroll / auto-select 的 follow-tail 行为。
 - **Q：harness 里踩到了什么坑？** A：复用了 FA 的焦点锚点「清空结果」按钮 —— 点它本身就是**破坏性清空**（M9-F 已记录过同一陷阱），结果刚追加的记录被删掉，表现为 `selection is -1/-1` 与 `after append model=1 list=1`。改用 rail 条目进入 workspace 的 Tab 链后一切正常；破坏性清空只在需要证明 replacement 失效的那一步使用。教训：**测试的「起点动作」必须先审计副作用**。
 - **Q：为什么调试 harness 失败这么费劲？** A：因为应用是 WIN32 GUI 子系统程序，没有控制台，Qt 默认消息处理器的输出被丢弃（只有退出码可见）。解决手段是 `QT_ASSUME_STDERR_HAS_CONSOLE=1` 强制写 stderr —— 这是**诊断手段**，没有写进产品或 CI。
+
+## 81. Post-T022 M10-B Final Acceptance / Closure 条目（2026-09-20 追加）
+
+- **Q：M10-B 的 behavior chain 为什么到 `ef71244` 而不是 `6e7c6a3`？** A：因为 `ef71244` 虽然**产品代码零 diff**，但改了 `src/main.cpp` 里的 harness runtime 行为（新增 FM/FN 两个真实 QML 验收 oracle）。按项目治理规则，**test/harness 行为变化同样属于 behavior-bearing**。既然它是被 Final Re-review 接受的行为相关提交，最终 accepted behavior tree 就必须是它，LKGC 也随之推进到它。
+- **Q：`ef71244` 证明了哪六件事？** A：A 已有 selection 在 Active Serial append 后保持；B detail pane 继续显示原 transaction（不是新行）；C 新行不被 auto-select；D 无选择状态在 append 后仍无选择；E append 后 Home/End 等键盘导航仍正常；F model reset 仍让 selection 正确失效。这六条合起来才叫「selection-on-append contract」，缺一条都可能掩盖真实缺陷。
+- **Q：为什么统计与诊断必须基于整段会话，而不是最近一条？** A：因为会话是用户实际的工作单元。一次调试里连续读了几个从站，成功/超时/异常都发生过；只统计最后一条会让「这次调试到底稳不稳」得出错误结论，也会让基线诊断漏掉前几条的异常。M10-B 之后统计是整段会话（`successRate = success/(completed−ENR)` 定义没动），诊断输入也是整段批量——但诊断仍然只做分析，不发送、不重试、不写。
+- **Q：transport terminal 为什么不进 Transactions？** A：因为它不是 Modbus 结果。端口错误、用户断开、写了一半都没有 response 可分析；把它们渲染成行会让用户以为「设备回了什么」，也会污染统计计数。它们属于 serial error lane + runtime evidence（`activeSerialTerminations_`），未来写安全的展示（M10-C/D）再基于同一份证据设计。
+- **Q：Clear Results 与 pending 的关系为什么这么小心？** A：Clear 是结果域操作、不是传输操作。它清掉已完成记录（含 terminal 证据）、可见行、统计与诊断派生批，但**不**断开连接、**不**取消在飞的请求。于是会出现「先清空、后到达」——那个 pending 完成或终止时，作为**第一条新记录**进入已被清清的会话，旧记录永不复活。
+- **Q：M10-B 之后能写寄存器了吗？** A：不能。0x06 / 0x10 的 active encoder 仍然不存在（`encodeActiveRequest` 对它们返回 `UnsupportedFunction`），没有 Write UI、没有确认对话框、Agent 也没有任何写工具。M10-B 完成的是**读路径的统一与历史契约**；写能力从 M10-C 才开始（且 M10-C 只做写安全 UI 基础，不一开始就做完整发送）。
+- **Q：为什么报告里要保留三次失败的历史？** A：因为三次都是真实的：实现期把历史写了两次（旧 `push_back` 未删）、完成路径漏清 `serialBusy_` 导致第二次 FC03 被拒、harness 第一版复用「清空结果」当焦点锚点把测试数据清掉。把它们改写成「一次通过」会抹掉最有价值的部分——**每次失败都变成了契约或 oracle**（唯一写入点、完成必须收尾 in-flight、harness 起点动作必须先审计副作用）。

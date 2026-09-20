@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE（accepted behavior tree `b7a6151`，verified LKGC）。**M10-B = FC03 Unified Contract Migration：Review = HOLD → Correction（selection-on-append QML runtime oracle）已实施，等待 M10-B Final Re-review**（IN PROGRESS）。**
+> **状态：M10-A = ✅ COMPLETE；**M10-B = ✅ COMPLETE（2026-09-20 Final Re-review PASS；最终 accepted behavior tree `ef71244`，verified LKGC 已推进）**；Next Action = **M10-C — Write Safety UI Foundation**（未开始）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -2029,4 +2029,146 @@ P2（可观测性）：聚焦 harness 的失败信息在本机被吞掉（WIN32 
 harness/test 行为变化 ⇒ **behavior-bearing**（按项目治理：无 production diff 也不例外）。
 commit：`M10-B: prove Transactions selection survives append`（独立提交；不 amend `6e7c6a3`；不 rebase；不 push；未创建 tag）。
 verified LKGC 保持 `b7a6151`；M10-B = 等待 Final Re-review。
+```
+## M10-B Final Acceptance / Closure（2026-09-20，docs-only）
+
+> **M10-B Final Re-review = PASS。M10-B = COMPLETE。**
+> 最终 accepted behavior tree = **`ef71244`**。verified LKGC 由 `b7a6151` 推进至 **`ef71244`**。
+> 本轮严格 docs-only：未改 src / tests / QML / CMakeLists.txt / scripts / assets / samples / screenshots。
+
+### H0. Final Re-review PASS 归档（真实 QML runtime 已直接证明）
+
+```text
+A. 已有 selection 在 Active Serial append 后**保持**（currentIndex 与 selectedRow 均不变）。
+B. detail pane **继续显示原 transaction**（[设备 11][成功]，未切到新行的 [设备 33][异常]，字段映射逐项相等）。
+C. 新增 row **不 auto-select**（currentIndex ≠ 新行 index）。
+D. **no-selection 在 append 后仍 no-selection**（currentIndex / selectedRow 仍 -1，detail 仍空态）。
+E. append 后 **Home / End 等键盘导航仍正常**（End → 2/2 且 detail 显式跟随；Home → 0/0）。
+F. **model reset 仍使 page-local selection 正确失效**（currentIndex → -1、快照清空、空态提示出现）。
+硬件：**REAL HARDWARE NOT VERIFIED**（不阻塞 M10-B 的软件范围 COMPLETE，不得写成 hardware PASS）。
+```
+
+### H1. M10-B Commit Classification Audit（`git show --stat --name-only` 真实文件列表）
+
+```text
+6e7c6a3  M10-A/B: migrate FC03 to unified Active Master history   files=13 code/test= 8 ⇒ **behavior-bearing**
+         （AnalysisController.{h,cpp}、TransactionListModel.{h,cpp}、TransactionsPage.qml、两个测试文件、CMakeLists）
+ef71244  M10-B: prove Transactions selection survives append       files= 6 code/test= 1 ⇒ **behavior-bearing**
+         （唯一非 docs 文件 = src/main.cpp：harness runtime behavior 变化，新增 FM/FN QML runtime acceptance oracle；
+          项目治理：test/harness behavior change 属于 behavior-bearing）
+⇒ behavior chain = 6e7c6a3 → ef71244；**final accepted behavior tree = `ef71244`**（不是 6e7c6a3）。
+本轮 closure commit 为 docs-only ⇒ **不作 LKGC**。
+```
+
+### H2. FC03 Unified Contract（冻结）
+
+```text
+0x03 主动请求完整路径（唯一，不得重新引入第二套 FC03 lifecycle）：
+  UI Draft → validation → ActiveRequestIntent → ActiveRequestDescriptor → SerialTransport
+  → SerialTransactionSession → ActiveTransactionResult → Active Serial history → model/statistics/diagnosis projection。
+`readHoldingRegistersOnce` 仍是 UI 唯一入口，内部只构造统一 intent 并调用统一 active path。
+```
+
+### H3. FC03 Wire Equivalence（冻结）
+
+```text
+M10-B 是 **state/history migration，不是协议行为变化**。冻结不变：unit 1..247 / start 0..65535 / quantity 1..125 /
+timeout contract（elapsed vs threshold）/ request wire bytes 与 CRC（金样 `01 03 00 00 00 02 C4 0B`）/
+normal response / exception / CRC error / timeout / ProtocolError 判定（仍由共享 analyzer 产出）。
+```
+
+### H4. Active Serial History（冻结）
+
+```text
+同一 Active Serial session 内：completed Modbus transaction 按**完成顺序 append**，**不再 latest replaces previous**；
+顺序 = **oldest → newest**，新行追加在**末端**；旧 rows **不重排、不修改**（内容/顺序/identity 不变）。
+```
+
+### H5. Transport Terminal Boundary（冻结）
+
+```text
+`ActiveTransportTerminal`（TransportError / DisconnectedAfterSubmission / ShortSubmission）**不伪装成 Transaction row**，
+也**不进入任何 Modbus 统计**（observed / completed / Success / Timeout / ProtocolError 均不变）；
+它们继续属于 **serial error lane + runtime evidence**（`activeSerialTerminations_`）。
+```
+
+### H6. Statistics / Diagnosis（冻结）
+
+```text
+Statistics（Active Serial source）：基于当前 session **全部 completed Modbus records** 的同一 batch；
+  `successRate = success / (completed − ExpectedNoResponse)` —— **M9-C 定义未改**。
+Diagnosis（Active Serial source）：deterministic diagnosis 输入 = 当前 session **完整 completed transaction batch**（不再只分析 latest）；
+  但 diagnosis **仍然只 analysis**：不 send / 不 retry / 不 write / 不 control device。
+```
+
+### H7. Selection Ownership 与三条 runtime 契约（冻结）
+
+```text
+Selection 继续是 **page-local presentation state**（`selectedRow`/`selectedEntry` 快照 + ListView.currentIndex）；
+**不得**搬到 Controller 或 TransactionListModel（禁止 fake selection authority）。
+· same-session append ⇒ **不 invalidate** selection（真实 runtime 已证明）。
+· selected-row append contract：已有 selected row → append 新行 → currentIndex 保持、selectedRow 保持、
+  detail snapshot 保持、**new row 不抢 selection**；**禁止**未来无 Review 改成 auto-follow / auto-select latest。
+· no-selection append contract：currentIndex = -1 → append → 仍 -1、selectedRow 仍 -1、detail 仍空态；
+  Tab 进入 list 仍不得 auto-select。
+· replacement invalidation contract：model reset ⇒ selection **必须失效**（currentIndex → -1、快照清空、empty detail）；
+  Simulator / Replay successful / new Active Serial session 只要走真实 source replacement / model reset 即适用。
+```
+
+### H8. Clear Results / Session / Source 边界（冻结）
+
+```text
+Clear Results（Active Serial）：清 completed records + transport terminals + visible rows + statistics + diagnosis derived batch；
+  **不** disconnect / 不 cancel pending / 不清 draft / 不发送。
+Clear while pending：pending 继续；完成后成为**清空后的第一条新 transaction**（旧记录不复活）。
+Session boundary：成功 reconnect ⇒ **new Active Serial session id**；旧 session 的 records / terminals / visible history
+  **不得进入新 session**；navigation **不得**创建 session。
+Source replacement：Simulator = replacement；Replay 成功 = replacement；**Replay 失败 = 继续保存旧 authoritative source**；
+  workspace ≠ source；navigation ≠ source switch —— M10-B 的 append 未破坏这些 M9 冻结语义。
+```
+
+### H9. Evidence（冻结）
+
+```text
+presentation rows 仍然只是 **`ActiveTransactionRecord` 的 projection**；authority 继续保留在 runtime record：
+requestAdu / responseAdu / TransportDisposition / provenance / session identity。
+**不得**为了 UI history 重新构造 wire evidence。
+```
+
+### H10. Final Test State（归档；本轮 docs-only 未重跑）
+
+```text
+active_master：**39 passed / 0 failed**（TA15 + TF8 + TS5 + B01–B09 + init/cleanup）
+ui_bridge：**59 passed / 0 failed**（含 B10–B12，serial 用例已迁移真实生产路径）
+active_request：17 passed / 0 failed
+qml_focus_check：**PASS（含 FM/FN runtime oracle）**；qml_smoke / qml_nav_check / qml_geometry_check：PASS
+Debug ctest：**29/29 PASS**；Release ctest：**29/29 PASS**
+（未重跑的前提已核实：`ef71244..HEAD` 无任何 src / tests / QML / CMakeLists.txt 行为 diff。）
+```
+
+### H11. RCA 历史（保留，不清洗）
+
+```text
+实现期（§F11）：P1 completion path **double-write history**（旧 push_back 未删 + 新 append ⇒ 记录 2 / 行 1 / 统计按 2 聚合）；
+  P2 漏清 `serialBusy_` ⇒ 第二次 FC03 被 busy guard 拒绝；P3 测试夹具修正（异常/异地址回包 CRC、append 后行 index）。
+harness 期（§G5）：FM/FN 第一版错误复用 `appBarClearResults` 作为 focus anchor（点击即破坏性清空）导致测试自身清掉数据；
+  Root Cause = harness anchor 有副作用；Fix = 改用 non-destructive rail anchor（破坏性清空只在证明 replacement 失效时使用）。
+两段历史均保留，**未改写成「第一次即 PASS」**。
+```
+
+### H12. Non-blocking Warning Note
+
+```text
+`src/main.cpp` 中 5 条 `-Wunused-variable` / `-Wunused-but-set-variable` / redundant-capture 类告警，经 HEAD 副本比对
+确认为 **PRE-EXISTING NON-BLOCKING**（非 M10-B 引入）。M10-B closure **不顺带修**；留待未来统一的 warning hygiene task。
+```
+
+### H13. 边界与 Git
+
+```text
+0x06 / 0x10 active encoder **ABSENT**；Write UI / confirmation dialog **ABSENT** ⇒ **M10-B COMPLETE ≠ write capability available**。
+AI / Agent write authority = **NONE**（无 write tool / send serial tool / raw serial tool）。
+REAL HARDWARE NOT VERIFIED（simulator/fake PASS 不得写成 hardware PASS）。
+commit：`M10-B: close FC03 unified history migration`（独立 docs-only 提交；不 amend `ef71244`；不 rebase；不 push；未创建 tag）。
+verified LKGC = **`ef71244`**；M10 = IN PROGRESS；Phase 1 = COMPLETE；M10-A = COMPLETE；**M10-B = COMPLETE**；M10-C = NEXT。
 ```
