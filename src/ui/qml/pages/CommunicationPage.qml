@@ -225,17 +225,25 @@ Item {
             }
         }
 
-        // ---- M10-C2 hidden write foundation ----
-        // Instantiated ONLY under the harness visibility seam. Normal
-        // production never loads this file, so no write control exists in the
-        // production scene: nothing to Tab into, nothing to activate, and
-        // nothing that could be mistaken for a write capability. The context
-        // property is owned by main.cpp and is NOT a capability flag.
+        // ---- M10-D4 write section ----
+        // The section EXISTS because of a STRUCTURAL capability, never because
+        // of runtime availability: `write06Supported` is a constant of this
+        // build, while serialConnected / serialBusy / source / draft validity
+        // only decide whether the ACTION is enabled. Binding existence to any
+        // of those would unload the whole panel — and the user's page-local
+        // draft with it — on every disconnect or busy blip.
+        //
+        // `writeFoundationVisible` is the TEST-FOUNDATION seam owned by
+        // main.cpp. It is NOT a capability flag: it cannot make
+        // write06Supported true and it cannot reveal 0x10 in production. It
+        // only selects the hidden FC06+FC10 / confirmation-only mode. With it
+        // off, a capability-carrying build instantiates this section in
+        // PRODUCTION mode (FC06 only, atomic confirm+dispatch).
         Loader {
             id: writeFoundationLoader
             objectName: "writeFoundationLoader"
             Layout.fillWidth: true
-            active: writeFoundationVisible
+            active: page.analysisController.write06Supported || writeFoundationVisible
             // An inline Component (not a URL source) so the required
             // controller property is satisfied at creation time; while
             // `active` is false the component is never instantiated.
@@ -245,6 +253,9 @@ Item {
             id: writeFoundationComponent
             WriteFoundationSection {
                 analysisController: page.analysisController
+                // WHO instantiated us decides the mode: the harness seam asks
+                // for the test foundation; everyone else gets the shipped UI.
+                testFoundationMode: writeFoundationVisible
             }
         }
 

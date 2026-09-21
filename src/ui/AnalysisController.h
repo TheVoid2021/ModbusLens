@@ -97,6 +97,21 @@ class AnalysisController : public QObject
     // presentation identity — never a second validation authority.
     Q_PROPERTY(QString writeDraftErrorField READ writeDraftErrorField NOTIFY writeDraftErrorChanged)
 
+    // ---- M10-D4: write OUTCOME presentation (separate from draft errors) ----
+    // A draft error is a LOCAL validation fact ("what is wrong with the
+    // input"). This is a DISPATCH/transaction fact ("what happened to the
+    // request"). They are different lanes on purpose: a validation error must
+    // never be presented as a send result, and a send result must never be
+    // presented as a validation problem.
+    //
+    // Only NON-SUCCESS states are ever reported here, so the panel can never
+    // be read as a success toast: an accepted submission says nothing (its
+    // outcome belongs to the transaction row), and nothing at all is claimed
+    // from the transport's acceptance alone.
+    Q_PROPERTY(bool hasWriteDispatchNotice READ hasWriteDispatchNotice NOTIFY writeDispatchNoticeChanged)
+    Q_PROPERTY(QString writeDispatchNotice READ writeDispatchNotice NOTIFY writeDispatchNoticeChanged)
+    Q_PROPERTY(QString writeDispatchNoticeTone READ writeDispatchNoticeTone NOTIFY writeDispatchNoticeChanged)
+
     // ---- M10-D3: product write capability (structural, NOT availability) ----
     // True iff THIS build end-to-end owns 0x06: encoder + protocol/session
     // response support + the Controller's atomic confirm+dispatch operation +
@@ -326,6 +341,21 @@ public:
     Q_INVOKABLE bool confirmPreparedWriteToken(qulonglong token);
     Q_INVOKABLE bool cancelPreparedWriteToken(qulonglong token);
 
+    // M10-D4: the PRODUCTION Confirm entry point.
+    //
+    // Returns NOTHING on purpose. A bool handed back to QML invites
+    // `if (dispatch(token)) dialog.close()`, which silently promotes one of
+    // two different facts — "the confirmation was consumed", or worse "the
+    // transport accepted the bytes" — into a send-success authority. The
+    // dialog closes because the snapshot left Prepared (the projection
+    // signal), and for no other reason.
+    //
+    // It performs the whole atomic operation; the observable outcome reaches
+    // the user through the existing lanes (writeDispatchNotice for the
+    // non-success states, the transaction history / statistics / diagnosis
+    // for a completed transaction).
+    Q_INVOKABLE void requestPreparedWriteDispatch(qulonglong token);
+
     // QML projection getters (read-only; typed accessors above stay for C++).
     [[nodiscard]] bool hasPreparedWrite() const;
     [[nodiscard]] QString preparedWriteStateToken() const;
@@ -342,6 +372,11 @@ public:
     [[nodiscard]] bool hasWriteDraftError() const;
     [[nodiscard]] QString writeDraftError() const;
     [[nodiscard]] QString writeDraftErrorField() const;
+
+    // M10-D4 write-outcome projection (see the Q_PROPERTY note).
+    [[nodiscard]] bool hasWriteDispatchNotice() const;
+    [[nodiscard]] QString writeDispatchNotice() const;
+    [[nodiscard]] QString writeDispatchNoticeTone() const;
 
     // M10-D3: STRUCTURAL product write capability (see the Q_PROPERTY note).
     // Derived from the core's compile-time product-capability constant, never
@@ -386,6 +421,7 @@ signals:
     // polls and never observes a half-updated frame.
     void preparedWriteChanged();
     void writeDraftErrorChanged();
+    void writeDispatchNoticeChanged();
 
 private slots:
     // Serial transport errors are NOT Modbus diagnoses: sync state from the
@@ -458,6 +494,24 @@ private:
                                  const QString& fieldLabel,
                                  const modbuslens::core::ValuesParseError& error);
     void clearWriteDraftError();
+    // ---- M10-D4: write dispatch notice (OUTCOME lane) ----
+    enum class WriteDispatchNoticeKind {
+        None,
+        // After a real attempt the request provably never entered the
+        // transmission lifecycle (the transport accepted 0 bytes). Only a new
+        // confirmation can retry.
+        NotSent,
+        // Only PART of the ADU was handed over: the device mutation state is
+        // UNKNOWN. Must never read as "the device was not written".
+        ShortSubmission,
+        // A 0x06 transaction completed with no trusted response: the device
+        // write state is UNKNOWN. Must never read as "the device was not
+        // written".
+        WriteTimeoutUnknown,
+    };
+    void setWriteDispatchNotice(WriteDispatchNoticeKind kind);
+    void clearWriteDispatchNotice();
+    WriteDispatchNoticeKind writeDispatchNoticeKind_ = WriteDispatchNoticeKind::None;
     // Emitted after every prepared-state transition (prepare/confirm/cancel/
     // invalidate) so the projection stays consistent in one step.
     void announcePreparedWriteChanged();

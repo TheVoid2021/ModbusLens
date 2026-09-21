@@ -4795,6 +4795,7 @@ public:
             }
             // Full acceptance of the write ADU.
             ++writeSends_;
+            writeAduLog_.push_back(request.wire);
             written_ = request;
             pending_ = request;
             return ActiveStartResult{true, TransportDisposition::PossiblySent,
@@ -4818,6 +4819,15 @@ public:
     }
     [[nodiscard]] int writeSends() const { return writeSends_; }
     [[nodiscard]] int writeTerminals() const { return writeTerminals_; }
+    // The EXACT accepted write ADUs, in order (one entry per full acceptance).
+    [[nodiscard]] int sentAduLogSize() const
+    {
+        return static_cast<int>(writeAduLog_.size());
+    }
+    [[nodiscard]] const std::vector<std::vector<std::uint8_t>> &writeAduLog() const
+    {
+        return writeAduLog_;
+    }
     [[nodiscard]] std::optional<modbuslens::core::ActiveRequestDescriptor>
     writtenDescriptor() const
     {
@@ -4867,6 +4877,69 @@ public:
 
     void setCompleteReadImmediately(bool value) { completeReadImmediately_ = value; }
 
+    // Complete an accepted WRITE with no response at all: a real 0x06 Timeout
+    // produced by the SHIPPED analyzer (its own session, the request's own
+    // threshold), not a fabricated verdict.
+    void completeWriteWithTimeout()
+    {
+        if (!pending_.has_value()
+            || pending_->intent.function
+                != modbuslens::core::ActiveFunction::WriteSingleRegister) {
+            return;
+        }
+        modbuslens::core::SerialTransactionSession session;
+        const auto begin = session.beginActiveRequest(*pending_);
+        if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
+            return;
+        }
+        // elapsed == the intent's own timeout: at/above the threshold -> Timeout.
+        const auto result = session.onResponseTimeout(pending_->intent.timeout);
+        if (const auto *analysis =
+                std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
+            const auto finished = *pending_;
+            pending_.reset();
+            emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
+                .request = finished,
+                .responseAdu = {},
+                .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+                .analysis = *analysis,
+            });
+        }
+    }
+
+    // Complete an accepted WRITE with a trusted 0x06 echo (the shipped analyzer
+    // decides the outcome).
+    void completeWriteWithEcho()
+    {
+        if (!pending_.has_value()
+            || pending_->intent.function
+                != modbuslens::core::ActiveFunction::WriteSingleRegister) {
+            return;
+        }
+        modbuslens::core::SerialTransactionSession session;
+        const auto begin = session.beginActiveRequest(*pending_);
+        if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
+            return;
+        }
+        const auto &descriptor =
+            std::get<modbuslens::core::ActiveRequestDescriptor>(begin);
+        // The echo IS the request frame (that is what 0x06 requires).
+        const std::vector<std::uint8_t> echo = descriptor.wire;
+        const auto result = session.feedResponseBytes(
+            echo, std::chrono::milliseconds{25});
+        if (const auto *analysis =
+                std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
+            const auto finished = *pending_;
+            pending_.reset();
+            emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
+                .request = finished,
+                .responseAdu = echo,
+                .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+                .analysis = *analysis,
+            });
+        }
+    }
+
     void closePort() override
     {
         portOpen_ = false;
@@ -4883,6 +4956,7 @@ private:
     std::optional<std::uint16_t> writeShortAcceptedBytes_;
     int writeSends_ = 0;
     int writeTerminals_ = 0;
+    std::vector<std::vector<std::uint8_t>> writeAduLog_;
     std::optional<modbuslens::core::ActiveRequestDescriptor> written_;
     std::optional<modbuslens::core::ActiveRequestDescriptor> pending_;
     std::vector<std::uint8_t> observed_;
@@ -7632,6 +7706,606 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
+// ---------------------------------------------------------------------------
+// M10-D4 `--qml-production-write-check`: the SHIPPED production write UI,
+// driven end to end.
+//
+// This is the oracle the review asked for: the section is present because
+// `write06Supported` is a structural capability (NOT because a harness flag
+// revealed it), it runs in PRODUCTION mode, and its Confirm button performs the
+// Controller's atomic confirm+dispatch. The normal Confirm button IS the thing
+// under test here.
+//
+// Everything is deterministic: a recording transport, no COM port, no sleep
+// beyond the staged event-loop turns, no wall-clock race.
+// ---------------------------------------------------------------------------
+int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *controller = qobject_cast<AnalysisController *>(
+        rootObj ? rootObj->findChild<QObject *>(QStringLiteral("analysisController"))
+                : nullptr);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    if (!controller || !window) {
+        qWarning() << "PRODWRITEFAIL: no controller/window";
+        return 1;
+    }
+
+    auto *transport = new HarnessWriteTransport(&app);
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &line) { qInfo().noquote() << line; };
+
+    auto itemOf = [&roots](const QString &name) {
+        return qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+    };
+    auto section = [&itemOf]() { return itemOf(QStringLiteral("writeFoundationSection")); };
+    auto setDraft = [&section](const char *prop, const QVariant &value) {
+        if (auto *item = section())
+            item->setProperty(prop, value);
+    };
+    auto dialogVisible = [&section]() {
+        auto *item = section();
+        return item ? item->property("confirmationVisible").toBool() : false;
+    };
+    auto stateToken = [&controller]() { return controller->preparedWriteStateToken(); };
+    auto tokenOf = [&controller]() { return controller->preparedWriteTokenValue(); };
+    auto noticeText = [&controller]() { return controller->writeDispatchNotice(); };
+    auto sendKey = [window](Qt::Key key, bool toWindow) -> bool {
+        QObject *target = toWindow ? static_cast<QObject *>(window)
+                                   : window->activeFocusItem();
+        if (!target)
+            return false;
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(target, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(target, &release);
+        return true;
+    };
+    auto tab = [&sendKey]() { return sendKey(Qt::Key_Tab, true); };
+    auto focusOwnerName = [window]() {
+        for (auto *p = qobject_cast<QQuickItem *>(window->activeFocusItem()); p;
+             p = p->parentItem()) {
+            if (!p->objectName().isEmpty())
+                return p->objectName();
+        }
+        return QStringLiteral("<none>");
+    };
+    auto tabToOwner = [&tab, &focusOwnerName](const QString &name, int maxPresses) {
+        for (int i = 1; i <= maxPresses; ++i) {
+            tab();
+            if (focusOwnerName() == name)
+                return i;
+        }
+        return -1;
+    };
+    auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global, Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global, Qt::LeftButton,
+                            Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    // Open the dialog through the SHIPPED path: set the production draft and
+    // press the real Write button.
+    auto openDialog = [&](int address, int value) {
+        setDraft("unit06", 11);
+        setDraft("addressText06", QString::number(address));
+        setDraft("valueText06", QString::number(value));
+        setDraft("timeout06", 1000);
+        return clickNamed(QStringLiteral("writeActivateButton"));
+    };
+    auto writeRows = [&controller]() {
+        int n = 0;
+        if (auto *model = controller->transactionModel()) {
+            const int role = model->roleNames().key(QByteArrayLiteral("functionCode"), -1);
+            for (int r = 0; r < model->rowCount(); ++r) {
+                if (model->data(model->index(r, 0), role).toInt() == 6)
+                    ++n;
+            }
+        }
+        return n;
+    };
+    auto resetWrite = [&controller, &transport]() {
+        if (controller->serialBusy())
+            controller->disconnectSerial();
+        if (controller->hasPreparedWrite())
+            (void)controller->cancelPreparedWrite(controller->preparedWriteTokenValue());
+        if (!controller->serialConnected())
+            controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+        transport->setAcceptWrites(true);
+        transport->setWriteShortAcceptedBytes(std::nullopt);
+    };
+
+    controller->setSerialTransport(transport);
+    controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+
+    const int settleMs = 60;
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // ---- setup ----
+    push([&]() {
+        if (controller->metaObject()->indexOfProperty("write06Supported") < 0
+            || !controller->property("write06Supported").toBool())
+            fail(QStringLiteral("PRODWRITEFAIL setup: write06Supported is not true"));
+        clickNamed(QStringLiteral("navItem_2"));
+        auto *s = section();
+        if (!s)
+            fail(QStringLiteral("PRODWRITEFAIL setup: the production write section "
+                                "is absent"));
+        else if (s->property("testFoundationMode").toBool())
+            fail(QStringLiteral("PRODWRITEFAIL setup: the section is in "
+                                "test-foundation mode"));
+        if (!controller->serialConnected())
+            fail(QStringLiteral("PRODWRITEFAIL setup: no Active Serial session"));
+        note(QStringLiteral("PRODWRITE [setup]: production section present, "
+                            "testFoundationMode=false, connected"));
+    });
+
+    // ---- P1: Write opens the dialog; initial focus is Cancel ----
+    push([&]() {
+        resetWrite();
+        if (!openDialog(100, 5))
+            fail(QStringLiteral("PRODWRITEFAIL P1: the Write button was not "
+                                "clickable"));
+        if (!dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P1: the confirmation dialog did not "
+                                "open (state=%1)").arg(stateToken()));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL P1: state=%1, expected prepared")
+                     .arg(stateToken()));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("PRODWRITEFAIL P1: merely opening the dialog "
+                                "dispatched a write"));
+        note(QStringLiteral("PRODWRITE [P1]: dialog open, token=%1, attempts=0")
+                 .arg(tokenOf()));
+    });
+    push([&]() {
+        if (focusOwnerName() != QStringLiteral("writeConfirmCancelButton"))
+            fail(QStringLiteral("PRODWRITEFAIL P1: initial focus is [%1], expected "
+                                "the Cancel button").arg(focusOwnerName()));
+        else
+            note(QStringLiteral("PRODWRITE [P1]: initial focus = Cancel"));
+    });
+
+    // ---- P2/P3: Space on Confirm sends exactly once, then the echo completes ----
+    push([&]() {
+        const int attemptsBefore = transport->writeAttempts();
+        if (tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10) < 0)
+            fail(QStringLiteral("PRODWRITEFAIL P2: Confirm is not reachable by Tab "
+                                "from Cancel (focus=%1)").arg(focusOwnerName()));
+        sendKey(Qt::Key_Space, false);
+        const int attempts = transport->writeAttempts() - attemptsBefore;
+        if (attempts != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P2: Space produced %1 attempts, "
+                                "expected exactly 1").arg(attempts));
+        if (transport->writeSends() != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P2: sends=%1, expected 1")
+                     .arg(transport->writeSends()));
+        if (transport->sentAduLogSize() != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P2: ADU log size=%1, expected 1")
+                     .arg(transport->sentAduLogSize()));
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("PRODWRITEFAIL P2: state=%1, expected consumed")
+                     .arg(stateToken()));
+        if (!controller->serialBusy())
+            fail(QStringLiteral("PRODWRITEFAIL P2: busy was not raised"));
+        if (auto *s = section();
+            s && s->property("valueText06").toString() != QStringLiteral("5"))
+            fail(QStringLiteral("PRODWRITEFAIL P2: the draft was cleared "
+                                "(valueText06=[%1])")
+                     .arg(s->property("valueText06").toString()));
+        note(QStringLiteral("PRODWRITE [P2]: Space -> 1 attempt / 1 send / 1 ADU, "
+                            "Consumed, busy, draft preserved"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P3: the dialog is still visible after "
+                                "the atomic dispatch"));
+        transport->completeWriteWithEcho();
+        if (writeRows() != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P3: write rows=%1, expected 1")
+                     .arg(writeRows()));
+        if (controller->serialBusy())
+            fail(QStringLiteral("PRODWRITEFAIL P3: still busy after completion"));
+        if (controller->successCount() != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P3: successCount=%1, expected 1")
+                     .arg(controller->successCount()));
+        if (controller->hasWriteDispatchNotice())
+            fail(QStringLiteral("PRODWRITEFAIL P3: a successful write produced a "
+                                "non-success notice [%1]").arg(noticeText()));
+        note(QStringLiteral("PRODWRITE [P3]: dialog closed; echo -> 1 Success 0x06 "
+                            "transaction in the shared history; no notice"));
+    });
+
+    // ---- P4: rapid Enter x2 -> exactly one dispatch ----
+    push([&]() {
+        resetWrite();
+        if (!openDialog(101, 6))
+            fail(QStringLiteral("PRODWRITEFAIL P4: Write not clickable"));
+        if (!dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P4: dialog did not open"));
+        const int before = transport->writeAttempts();
+        tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10);
+        sendKey(Qt::Key_Return, false);
+        sendKey(Qt::Key_Return, false);
+        const int attempts = transport->writeAttempts() - before;
+        if (attempts != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P4: rapid Enter produced %1 "
+                                "dispatches, expected exactly 1").arg(attempts));
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("PRODWRITEFAIL P4: state=%1").arg(stateToken()));
+        note(QStringLiteral("PRODWRITE [P4]: rapid Enter x2 -> 1 dispatch"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P4: the dialog reopened after the "
+                                "second Enter"));
+        if (transport->writeSends() != 2)
+            fail(QStringLiteral("PRODWRITEFAIL P4: total sends=%1, expected 2")
+                     .arg(transport->writeSends()));
+        transport->completeWriteWithEcho();
+        note(QStringLiteral("PRODWRITE [P4]: dialog closed, no second send, no "
+                            "background action"));
+    });
+
+    // ---- P5: rapid Space x2 -> exactly one dispatch ----
+    push([&]() {
+        resetWrite();
+        if (!openDialog(102, 7))
+            fail(QStringLiteral("PRODWRITEFAIL P5: Write not clickable"));
+        const int before = transport->writeAttempts();
+        tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10);
+        sendKey(Qt::Key_Space, false);
+        sendKey(Qt::Key_Space, false);
+        const int attempts = transport->writeAttempts() - before;
+        if (attempts != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P5: rapid Space produced %1 "
+                                "dispatches, expected exactly 1").arg(attempts));
+        note(QStringLiteral("PRODWRITE [P5]: rapid Space x2 -> 1 dispatch"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P5: the dialog reopened"));
+        transport->completeWriteWithEcho();
+        note(QStringLiteral("PRODWRITE [P5]: dialog closed, no second send"));
+    });
+
+    // ---- P6: immediate Enter (focus still Cancel) must not dispatch ----
+    push([&]() {
+        resetWrite();
+        if (!openDialog(103, 8))
+            fail(QStringLiteral("PRODWRITEFAIL P6: Write not clickable"));
+        const int before = transport->writeAttempts();
+        sendKey(Qt::Key_Return, false); // Cancel holds focus: must be inert
+        const int attempts = transport->writeAttempts() - before;
+        if (attempts != 0)
+            fail(QStringLiteral("PRODWRITEFAIL P6: an immediate Enter dispatched %1 "
+                                "write(s)").arg(attempts));
+        note(QStringLiteral("PRODWRITE [P6]: immediate Enter -> 0 dispatch "
+                            "(state=%1)").arg(stateToken()));
+    });
+
+    // ---- P7: Cancel click ----
+    push([&]() {
+        resetWrite();
+        if (!openDialog(104, 9))
+            fail(QStringLiteral("PRODWRITEFAIL P7: Write not clickable"));
+        const int before = transport->writeAttempts();
+        clickNamed(QStringLiteral("writeConfirmCancelButton"));
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("PRODWRITEFAIL P7: state=%1 after Cancel")
+                     .arg(stateToken()));
+        if (controller->preparedWriteInvalidReason()
+            != std::optional{modbuslens::core::PreparedWriteInvalidReason::UserCancelled})
+            fail(QStringLiteral("PRODWRITEFAIL P7: the reason is not UserCancelled"));
+        if (transport->writeAttempts() != before)
+            fail(QStringLiteral("PRODWRITEFAIL P7: Cancel dispatched a write"));
+        if (auto *s = section(); s && s->property("valueText06").toString().isEmpty())
+            fail(QStringLiteral("PRODWRITEFAIL P7: Cancel cleared the draft"));
+        note(QStringLiteral("PRODWRITE [P7]: Cancel -> Invalidated(UserCancelled), "
+                            "0 dispatch, draft preserved"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P7: the dialog is still visible after "
+                                "Cancel"));
+    });
+
+    // ---- P8: Escape ----
+    push([&]() {
+        resetWrite();
+        if (!openDialog(105, 10))
+            fail(QStringLiteral("PRODWRITEFAIL P8: Write not clickable"));
+        const int before = transport->writeAttempts();
+        sendKey(Qt::Key_Escape, true); // delivered at the window/overlay layer
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("PRODWRITEFAIL P8: state=%1 after Escape")
+                     .arg(stateToken()));
+        if (transport->writeAttempts() != before)
+            fail(QStringLiteral("PRODWRITEFAIL P8: Escape dispatched a write"));
+        note(QStringLiteral("PRODWRITE [P8]: Escape -> Invalidated, 0 dispatch"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P8: the dialog is still visible after "
+                                "Escape"));
+    });
+
+    // ---- P9: transport NotSent -> dialog closes, honest non-success notice ----
+    push([&]() {
+        resetWrite();
+        transport->setAcceptWrites(false); // count the attempt, accept 0 bytes
+        const int before = transport->writeAttempts();
+        const int sendsBefore = transport->writeSends();
+        if (!openDialog(106, 11))
+            fail(QStringLiteral("PRODWRITEFAIL P9: Write not clickable"));
+        tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10);
+        sendKey(Qt::Key_Space, false);
+        if (transport->writeAttempts() - before != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P9: attempts delta != 1"));
+        if (transport->writeSends() != sendsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL P9: an accepted send was counted"));
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("PRODWRITEFAIL P9: state=%1").arg(stateToken()));
+        if (!controller->hasWriteDispatchNotice())
+            fail(QStringLiteral("PRODWRITEFAIL P9: no non-success notice was "
+                                "presented"));
+        else {
+            const QString text = noticeText();
+            if (!text.contains(QStringLiteral("未发送")))
+                fail(QStringLiteral("PRODWRITEFAIL P9: the notice does not say the "
+                                    "request was not sent: [%1]").arg(text));
+            if (text.contains(QStringLiteral("写入成功"))
+                || text.contains(QStringLiteral("设备已写入"))
+                || text.contains(QStringLiteral("超时")))
+                fail(QStringLiteral("PRODWRITEFAIL P9: the notice claims something "
+                                    "unsupported: [%1]").arg(text));
+        }
+        note(QStringLiteral("PRODWRITE [P9]: NotSent -> notice [%1]")
+                 .arg(noticeText()));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P9: the dialog is still visible after "
+                                "a NotSent attempt"));
+        note(QStringLiteral("PRODWRITE [P9]: dialog closed, no transaction"));
+    });
+
+    // ---- P10: short submission -> unknown device state ----
+    push([&]() {
+        resetWrite();
+        transport->setWriteShortAcceptedBytes(3);
+        const int rowsBefore = writeRows();
+        if (!openDialog(107, 12))
+            fail(QStringLiteral("PRODWRITEFAIL P10: Write not clickable"));
+        tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10);
+        sendKey(Qt::Key_Space, false);
+        if (transport->writeTerminals() != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P10: terminals=%1, expected 1")
+                     .arg(transport->writeTerminals()));
+        if (writeRows() != rowsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL P10: a short submission produced a "
+                                "transaction (rows=%1)").arg(writeRows()));
+        const QString text = noticeText();
+        if (!text.contains(QStringLiteral("设备写入状态未知")))
+            fail(QStringLiteral("PRODWRITEFAIL P10: the notice must say the device "
+                                "state is unknown: [%1]").arg(text));
+        if (text.contains(QStringLiteral("设备未写入")))
+            fail(QStringLiteral("PRODWRITEFAIL P10: the notice claims the device "
+                                "was not written: [%1]").arg(text));
+        note(QStringLiteral("PRODWRITE [P10]: short -> notice [%1]").arg(text));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P10: the dialog is still visible"));
+        transport->setWriteShortAcceptedBytes(std::nullopt);
+        note(QStringLiteral("PRODWRITE [P10]: dialog closed, zero transaction"));
+    });
+
+    // ---- P11: write Timeout presentation ----
+    push([&]() {
+        resetWrite();
+        if (!openDialog(108, 13))
+            fail(QStringLiteral("PRODWRITEFAIL P11: Write not clickable"));
+        tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10);
+        sendKey(Qt::Key_Space, false);
+        transport->completeWriteWithTimeout();
+        if (controller->timeoutCount() != 1)
+            fail(QStringLiteral("PRODWRITEFAIL P11: timeoutCount=%1, expected 1")
+                     .arg(controller->timeoutCount()));
+        const QString text = noticeText();
+        if (!text.contains(QStringLiteral("响应超时"))
+            || !text.contains(QStringLiteral("设备写入状态未知")))
+            fail(QStringLiteral("PRODWRITEFAIL P11: the notice must read as "
+                                "\"response timed out, device write state "
+                                "unknown\": [%1]").arg(text));
+        if (text.contains(QStringLiteral("设备未写入")))
+            fail(QStringLiteral("PRODWRITEFAIL P11: the notice claims the device "
+                                "was not written: [%1]").arg(text));
+        note(QStringLiteral("PRODWRITE [P11]: timeout -> notice [%1]").arg(text));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL P11: the dialog is still visible"));
+        note(QStringLiteral("PRODWRITE [P11]: dialog closed"));
+    });
+
+    // ---- P12: geometry 1024x720 and 1000x700 ----
+    // One step per phase: a Qt Quick Popup needs its own event-loop turn before
+    // `visible` reflects the open, exactly like P1/P2.
+    // One step per phase: a programmatic resize needs its own turn to settle
+    // the layout, and a Qt Quick Popup needs its own turn before `visible`
+    // reflects the open — exactly like P1/P2.
+    auto activateWriteAtSize = [&](const QSize size) {
+        setDraft("unit06", 11);
+        setDraft("addressText06", QString::number(109));
+        setDraft("valueText06", QString::number(14));
+        setDraft("timeout06", 1000);
+        // Keyboard activation rather than a click: a focused control can be
+        // activated regardless of scroll position, so this gate measures the
+        // DIALOG geometry instead of whatever happens to be in the viewport —
+        // and it additionally proves the Write action is keyboard-reachable at
+        // the minimum window size.
+        clickNamed(QStringLiteral("appBarClearResults")); // focus anchor
+        if (tabToOwner(QStringLiteral("writeActivateButton"), 80) < 0)
+            fail(QStringLiteral("PRODWRITEFAIL P12: the Write action is not "
+                                "keyboard-reachable at %1x%2 (focus=%3)")
+                     .arg(size.width())
+                     .arg(size.height())
+                     .arg(focusOwnerName()));
+        else
+            sendKey(Qt::Key_Space, false);
+    };
+    auto assertDialogGeometry = [&](const QSize size) {
+        // The confirmation Dialog is a QObject (a Popup), NOT an Item — the
+        // component exposes its state through read-only properties for exactly
+        // this reason. Geometry is therefore read from its own x/y/width/height
+        // properties, and the buttons (real Items) give the on-screen position.
+        QObject *dialog = rootObj->findChild<QObject *>(
+            QStringLiteral("writeConfirmationDialog"));
+        // MEASURED geometry is the gate. The popup's `visible` flag is reported
+        // but NOT gated: after a PROGRAMMATIC window resize the offscreen
+        // platform does not settle Popup.visible in this harness, even though
+        // the snapshot really is Prepared and open() really was called (P1/P2
+        // prove the visible transition at the default size). Gating on it would
+        // assert something this gate cannot actually see, so the residual
+        // question is left to the D5 manual visual review.
+        if (!dialog) {
+            fail(QStringLiteral("PRODWRITEFAIL P12: the dialog object is missing at "
+                                "%1x%2").arg(size.width()).arg(size.height()));
+        } else {
+            const double dw = dialog->property("width").toDouble();
+            const double dh = dialog->property("height").toDouble();
+            note(QStringLiteral("PRODWRITE [P12]: %1x%2 state=%3 dialog=%4x%5 "
+                                "visible=%6")
+                     .arg(size.width())
+                     .arg(size.height())
+                     .arg(stateToken())
+                     .arg(dw)
+                     .arg(dh)
+                     .arg(dialogVisible() ? 1 : 0));
+            // Now that the popup is read through its own object (not as an
+            // Item), its visibility is genuinely observable and IS gated.
+            if (!dialogVisible())
+                fail(QStringLiteral("PRODWRITEFAIL P12: the confirmation dialog is "
+                                    "not visible at %1x%2")
+                         .arg(size.width())
+                         .arg(size.height()));
+            if (dw <= 0 || dh <= 0)
+                fail(QStringLiteral("PRODWRITEFAIL P12: the dialog has no geometry "
+                                    "(%1x%2) at %3x%4")
+                         .arg(dw)
+                         .arg(dh)
+                         .arg(size.width())
+                         .arg(size.height()));
+            if (dw > size.width() || dh > size.height())
+                fail(QStringLiteral("PRODWRITEFAIL P12: the dialog (%1x%2) exceeds "
+                                    "the %3x%4 window")
+                         .arg(dw)
+                         .arg(dh)
+                         .arg(size.width())
+                         .arg(size.height()));
+        }
+        for (const QString &button : {QStringLiteral("writeConfirmCancelButton"),
+                                      QStringLiteral("writeConfirmAcceptButton")}) {
+            auto *b = qobject_cast<QQuickItem *>(findNamedItem(roots, button));
+            if (!b) {
+                fail(QStringLiteral("PRODWRITEFAIL P12: %1 is missing at %2x%3")
+                         .arg(button)
+                         .arg(size.width())
+                         .arg(size.height()));
+                continue;
+            }
+            const QPointF p = b->mapToScene(QPointF(0, 0));
+            if (p.x() < 0 || p.y() < 0 || p.x() + b->width() > size.width()
+                || p.y() + b->height() > size.height())
+                fail(QStringLiteral("PRODWRITEFAIL P12: %1 is outside the window at "
+                                    "%2x%3 (origin %4,%5 size %6x%7)")
+                         .arg(button)
+                         .arg(size.width())
+                         .arg(size.height())
+                         .arg(p.x())
+                         .arg(p.y())
+                         .arg(b->width())
+                         .arg(b->height()));
+        }
+        if (window->width() != size.width() || window->height() != size.height())
+            fail(QStringLiteral("PRODWRITEFAIL P12: the window resized itself to "
+                                "%1x%2 instead of accepting %3x%4")
+                     .arg(window->width())
+                     .arg(window->height())
+                     .arg(size.width())
+                     .arg(size.height()));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL P12: state=%1 at %2x%3, expected a "
+                                "prepared snapshot")
+                     .arg(stateToken())
+                     .arg(size.width())
+                     .arg(size.height()));
+        // ALWAYS leave a clean state for the next phase, even on failure.
+        clickNamed(QStringLiteral("writeConfirmCancelButton"));
+    };
+    push([&]() {
+        resetWrite();
+        window->resize(QSize(1024, 720));
+    });
+    push([&]() { activateWriteAtSize(QSize(1024, 720)); });
+    push([&]() { assertDialogGeometry(QSize(1024, 720)); });
+    push([&]() {
+        resetWrite();
+        window->resize(QSize(1000, 700));
+    });
+    push([&]() { activateWriteAtSize(QSize(1000, 700)); });
+    push([&]() { assertDialogGeometry(QSize(1000, 700)); });
+
+    auto step = std::make_shared<int>(0);
+    auto schedule = std::make_shared<std::function<void()>>();
+    *schedule = [&, step, schedule]() {
+        if (*step >= steps->size()) {
+            // Accounting: exactly the accepted sends the oracles asked for
+            // (P2, P4, P5, P11) = 4; P9 adds an attempt only, P10 a terminal.
+            if (transport->writeSends() != 4)
+                fail(QStringLiteral("PRODWRITEFAIL final: accepted sends=%1, "
+                                    "expected 4").arg(transport->writeSends()));
+            if (transport->sentAduLogSize() != 4)
+                fail(QStringLiteral("PRODWRITEFAIL final: ADU log=%1, expected 4")
+                         .arg(transport->sentAduLogSize()));
+            if (transport->writeTerminals() != 1)
+                fail(QStringLiteral("PRODWRITEFAIL final: terminals=%1, expected 1")
+                         .arg(transport->writeTerminals()));
+            if (failures->isEmpty())
+                qInfo() << "PRODUCTION WRITE CHECK PASS (P1 dialog + Cancel focus; "
+                           "P2 Space send exactly one + draft preserved; P3 echo -> "
+                           "one shared 0x06 transaction; P4 rapid Enter x2 -> one; "
+                           "P5 rapid Space x2 -> one; P6 immediate Enter -> zero; "
+                           "P7 Cancel; P8 Escape; P9 NotSent notice; P10 short "
+                           "submission notice; P11 write timeout notice; P12 "
+                           "1024x720 + 1000x700 geometry)";
+            else
+                for (const QString &f : *failures)
+                    qWarning().noquote() << "PRODWRITEFAIL:" << f;
+            app.exit(failures->isEmpty() ? 0 : 1);
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
 // M9-F F1 `--qml-focus-check`: keyboard focus / traversal guard for the
 // shell. Same architecture as the other QML harness modes: the REAL app
 // loads its own shipped QML and drives it through the same synthetic event
@@ -7689,6 +8363,19 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         auto *f = focusItem();
         return f ? f->objectName() : QStringLiteral("<null>");
     };
+    // Nearest NAMED ancestor of the focused item. Qt moves focus to a control's
+    // internal child in several cases (a SpinBox's editor; a DecimalField's
+    // deliberately-unnamed TextField), so "which named control owns the focus"
+    // is described by OWNERSHIP, not by an exact object-name match.
+    auto focusOwnerName = [&focusItem]() {
+        for (auto *p = focusItem(); p; p = p->parentItem()) {
+            if (!p->objectName().isEmpty())
+                return p->objectName();
+        }
+        return QStringLiteral("<none>");
+    };
+    // Keyboard-traversal reachability by OWNER name (defined next to tabTo,
+    // which it uses).
     auto railIndex = [&itemOf]() {
         auto *r = itemOf(QStringLiteral("navigationRail"));
         return r ? r->property("currentWorkspaceIndex").toInt() : -1;
@@ -7768,6 +8455,17 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         for (int i = 1; i <= maxPresses; ++i) {
             tab(true);
             if (focusName() == name)
+                return i;
+        }
+        return -1;
+    };
+    // The same walk, matched by OWNER name: Qt focuses a control's internal
+    // child for SpinBox and for DecimalField (whose inner TextField is
+    // deliberately unnamed), so an exact focusName() match cannot see them.
+    auto tabToOwner = [&tab, &focusOwnerName](const QString &name, int maxPresses) {
+        for (int i = 1; i <= maxPresses; ++i) {
+            tab(true);
+            if (focusOwnerName() == name)
                 return i;
         }
         return -1;
@@ -7909,90 +8607,188 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                  .arg(hasBaseline() ? 1 : 0));
     });
 
-    // M10-C2 production-hidden oracle: in a NORMAL run the write foundation is
-    // never instantiated, so there is no write control in the scene at all —
-    // nothing to Tab into, nothing to activate, nothing that could be mistaken
-    // for a write capability. (The dedicated harness mode is the only place
-    // the foundation is loaded, and it asserts the safety oracles there.)
-    // M10-C4 deepened production-hidden proof: not just "the loader is off" —
-    // the whole scene is scanned for any write control, the Communication Tab
-    // chain is walked, and the authority is asked whether startup created a
-    // snapshot. A normal run must show NONE of them.
+    // M10-D4 — production WRITE VISIBILITY contract.
+    //
+    // THIS SUPERSEDES the M10-C2/C4 "production-hidden" oracle (kept as a
+    // rename + replacement of its assertions, never deleted).
+    //
+    // Why the old contract ended: M10-C/D1/D2 deliberately shipped the write
+    // machinery with NO production presence, so the strongest safety statement
+    // available then was "nothing exists". D4 intentionally publishes the 0x06
+    // write UI, so "nothing write-related exists" is no longer true BY DESIGN —
+    // an intentional contract transition, not a regression. The negative
+    // coverage therefore MOVES to what must still be absent: 0x10 in every
+    // form, the test-foundation seam, and any write control that could act
+    // while the ACTION is unavailable.
     push([&]() {
         auto *loader = itemOf(QStringLiteral("writeFoundationLoader"));
-        if (!loader)
-            fail(QStringLiteral("FOCUSFAIL prod-hidden: writeFoundationLoader "
+        if (!loader) {
+            fail(QStringLiteral("FOCUSFAIL prod-write: writeFoundationLoader "
                                 "missing from the Communication page"));
-        else if (loader->property("active").toBool())
-            fail(QStringLiteral("FOCUSFAIL prod-hidden: the loader is ACTIVE in "
-                                "a normal run"));
-        else if (loader->property("item").value<QQuickItem *>() != nullptr)
-            fail(QStringLiteral("FOCUSFAIL prod-hidden: the write foundation was "
-                                "instantiated in a normal run"));
-        // (1) no write control anywhere in the Item tree: every name in the
-        // scene is scanned, so a control cannot hide behind a renamed parent.
-        QStringList writeNames;
+            return;
+        }
+        // (1) the section exists because of a STRUCTURAL capability…
+        if (!ctrl->property("write06Supported").toBool())
+            fail(QStringLiteral("FOCUSFAIL prod-write: write06Supported is false "
+                                "in a capability-carrying build"));
+        if (!loader->property("active").toBool())
+            fail(QStringLiteral("FOCUSFAIL prod-write: the loader is INACTIVE even "
+                                "though the product supports 0x06"));
+        if (loader->property("item").value<QQuickItem *>() == nullptr)
+            fail(QStringLiteral("FOCUSFAIL prod-write: the section was not "
+                                "instantiated"));
+        // (2) …and it is the PRODUCTION mode, not the test foundation.
+        auto *section = itemOf(QStringLiteral("writeFoundationSection"));
+        if (!section)
+            fail(QStringLiteral("FOCUSFAIL prod-write: writeFoundationSection is "
+                                "absent"));
+        else {
+            if (section->property("testFoundationMode").toBool())
+                fail(QStringLiteral("FOCUSFAIL prod-write: the production section "
+                                    "was instantiated in TEST-FOUNDATION mode"));
+            if (!section->property("productionMode").toBool())
+                fail(QStringLiteral("FOCUSFAIL prod-write: productionMode is false"));
+        }
+        // (3) TRANSFERRED NEGATIVE COVERAGE — 0x10 must not exist anywhere in
+        // the scene, by object name, in any form.
+        QStringList found10;
         int scanned = 0;
         for (QObject *root : roots) {
             const QList<QObject *> all = root->findChildren<QObject *>();
             for (QObject *obj : all) {
                 ++scanned;
-                const QString name = obj->objectName();
-                if (name.startsWith(QStringLiteral("write"))
-                    && name != QStringLiteral("writeFoundationLoader"))
-                    writeNames << name;
+                if (obj->objectName().startsWith(QStringLiteral("write10")))
+                    found10 << obj->objectName();
             }
         }
-        if (!writeNames.isEmpty())
-            fail(QStringLiteral("FOCUSFAIL prod-hidden: write controls exist in a "
-                                "normal run: [%1]").arg(writeNames.join(QStringLiteral(", "))));
-        // (2) the named write controls really are absent (a name scan alone
-        // cannot distinguish "not instantiated" from "instantiated unnamed").
-        for (const QString &missing : {QStringLiteral("writeFoundationSection"),
-                                       QStringLiteral("writeActivateButton"),
-                                       QStringLiteral("writeFunctionTabs"),
-                                       QStringLiteral("write10ValuesArea"),
-                                       QStringLiteral("write06AddressField"),
-                                       QStringLiteral("writeSummaryValues"),
-                                       QStringLiteral("writeConfirmAcceptButton")}) {
-            if (findNamedItem(roots, missing) != nullptr)
-                fail(QStringLiteral("FOCUSFAIL prod-hidden: %1 exists in a normal "
-                                    "run").arg(missing));
+        if (!found10.isEmpty())
+            fail(QStringLiteral("FOCUSFAIL prod-write: 0x10 production nodes exist: "
+                                "[%1]").arg(found10.join(QStringLiteral(", "))));
+        for (const QString &absent : {QStringLiteral("writeFunctionTabs"),
+                                      QStringLiteral("writeTab10"),
+                                      QStringLiteral("write10ValuesArea"),
+                                      QStringLiteral("writeSummaryQuantity")}) {
+            if (findNamedItem(roots, absent) != nullptr)
+                fail(QStringLiteral("FOCUSFAIL prod-write: %1 exists in production")
+                         .arg(absent));
         }
-        // (3) startup created no prepared snapshot (authority, not presentation).
+        if (ctrl->metaObject()->indexOfProperty("write10Supported") >= 0)
+            fail(QStringLiteral("FOCUSFAIL prod-write: a write10Supported property "
+                                "exists"));
+        // (4) …including in the ACCESSIBILITY tree of the write section (a name
+        // scan alone cannot catch "instantiated but unnamed").
+        if (section) {
+            QStringList a11y10;
+            const QList<QObject *> subtree = section->findChildren<QObject *>();
+            for (QObject *obj : subtree) {
+                auto *item = qobject_cast<QQuickItem *>(obj);
+                if (!item)
+                    continue;
+                QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item);
+                if (iface && iface->text(QAccessible::Name).contains(QStringLiteral("0x10")))
+                    a11y10 << iface->text(QAccessible::Name);
+            }
+            if (!a11y10.isEmpty())
+                fail(QStringLiteral("FOCUSFAIL prod-write: 0x10 accessible nodes "
+                                    "exist in production: [%1]")
+                         .arg(a11y10.join(QStringLiteral(" | "))));
+        }
+        // (5) the 0x06 controls DO exist and each carries an accessible name
+        // (the D4 supersession of "production has no write a11y").
+        for (const auto &entry : {std::pair<const char *, const char *>{
+                                      "write06UnitSpin", "从站地址"},
+                                  {"write06AddressField", "寄存器地址"},
+                                  {"write06ValueField", "写入值"},
+                                  {"write06TimeoutSpin", "超时"},
+                                  {"writeActivateButton", "写入"}}) {
+            auto *item = findNamedItem(roots, QString::fromUtf8(entry.first));
+            if (!item) {
+                fail(QStringLiteral("FOCUSFAIL prod-write: required 0x06 control %1 "
+                                    "is missing").arg(QString::fromUtf8(entry.first)));
+                continue;
+            }
+            QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item);
+            const QString name = iface ? iface->text(QAccessible::Name) : QString();
+            if (!name.contains(QString::fromUtf8(entry.second)))
+                fail(QStringLiteral("FOCUSFAIL prod-write: %1 accessible name is [%2]")
+                         .arg(QString::fromUtf8(entry.first), name));
+        }
+        // (6) no startup snapshot (authority, not presentation) — unchanged.
         if (ctrl->property("hasPreparedWrite").toBool()
             || ctrl->property("preparedWriteToken").toULongLong() != 0
             || ctrl->property("preparedWriteState").toString()
                    != QStringLiteral("none"))
-            fail(QStringLiteral("FOCUSFAIL prod-hidden: startup produced a write "
+            fail(QStringLiteral("FOCUSFAIL prod-write: startup produced a write "
                                 "snapshot (state=%1 token=%2)")
                      .arg(ctrl->property("preparedWriteState").toString())
                      .arg(ctrl->property("preparedWriteToken").toULongLong()));
-        note(QStringLiteral("FOCUS [prod-hidden] PASS: loader inactive/item null; "
-                            "%1 objects scanned — no write control, no write "
-                            "accessible node, no write tab stop, no prepared "
-                            "snapshot").arg(scanned));
+        note(QStringLiteral("FOCUS [prod-write] PASS: section present in PRODUCTION "
+                            "mode from write06Supported; %1 objects scanned — no "
+                            "0x10 node, no 0x10 accessible node, no 0x10 property, "
+                            "no startup snapshot; 0x06 controls + a11y present")
+                 .arg(scanned));
     });
-    // (4) the Communication Tab chain itself contains no write control: the
-    // foundation is not merely invisible, it is not in the keyboard order.
+    // (7) RUNTIME GATING: capability decides EXISTENCE, runtime decides whether
+    // the ACTION can run. With no serial connection the section stays visible
+    // (and the page-local draft stays alive) while Write is disabled — the
+    // inverse of the old "unload everything" behaviour.
+    push([&]() {
+        if (ctrl->property("serialConnected").toBool())
+            fail(QStringLiteral("FOCUSFAIL prod-write: the focus harness unexpectedly "
+                                "has an open serial connection"));
+        auto *button = qobject_cast<QQuickItem *>(
+            findNamedItem(roots, QStringLiteral("writeActivateButton")));
+        if (!button)
+            fail(QStringLiteral("FOCUSFAIL prod-write: writeActivateButton missing"));
+        else if (button->property("enabled").toBool())
+            fail(QStringLiteral("FOCUSFAIL prod-write: Write is ENABLED while "
+                                "disconnected"));
+        // Capability != availability: the section is still INSTANTIATED and its
+        // loader still active even with no connection. (Effective `isVisible()`
+        // is deliberately NOT asserted — the Communication page is only visible
+        // while it is the current workspace, which is a navigation fact, not a
+        // write-capability fact.)
+        auto *loader = itemOf(QStringLiteral("writeFoundationLoader"));
+        if (!loader || !loader->property("active").toBool()
+            || loader->property("item").value<QQuickItem *>() == nullptr)
+            fail(QStringLiteral("FOCUSFAIL prod-write: a disconnected runtime state "
+                                "UNLOADED the write section (capability must not "
+                                "follow availability)"));
+        note(QStringLiteral("FOCUS [prod-write] PASS: disconnected -> section still "
+                            "instantiated, Write disabled (capability != "
+                            "availability)"));
+    });
+    // (7) the Communication Tab chain: D4 makes the 0x06 write controls part of
+    // the REAL keyboard order (the old contract asserted they were absent),
+    // while 0x10 must contribute no stop at all because it does not exist.
     push([&]() {
         selectWorkspace(2);
-        anchorFocus();
-        QStringList chain;
-        QList<int> pages;
-        walkTabs(25, true, chain, pages);
-        QStringList writeStops;
-        for (const QString &name : chain) {
-            if (name.startsWith(QStringLiteral("write")))
-                writeStops << name;
+        for (const QString &required : {QStringLiteral("write06UnitSpin"),
+                                        QStringLiteral("write06AddressField"),
+                                        QStringLiteral("write06ValueField"),
+                                        QStringLiteral("write06TimeoutSpin")}) {
+            const int presses = tabToOwner(required, 60);
+            if (presses < 0)
+                fail(QStringLiteral("FOCUSFAIL prod-write: %1 is not reachable by "
+                                    "Tab in production").arg(required));
+            else
+                note(QStringLiteral("FOCUS [prod-write]: %1 reached after %2 Tab "
+                                    "press(es)")
+                         .arg(required)
+                         .arg(presses));
         }
-        if (!writeStops.isEmpty())
-            fail(QStringLiteral("FOCUSFAIL prod-hidden: write tab stops in a "
-                                "normal run: [%1]").arg(writeStops.join(QStringLiteral(", "))));
-        else
-            note(QStringLiteral("FOCUS [prod-hidden] PASS: Communication Tab chain "
-                                "has no write stop ([%1])")
-                     .arg(chain.join(QStringLiteral(", "))));
+        // Negative coverage, moved here from the retired foundation oracle: no
+        // 0x10 control is Tab-reachable, because none of them is ever created.
+        for (const QString &absent : {QStringLiteral("write10ValuesArea"),
+                                      QStringLiteral("write10UnitSpin"),
+                                      QStringLiteral("writeTab10")}) {
+            if (tabTo(absent, 60) >= 0)
+                fail(QStringLiteral("FOCUSFAIL prod-write: %1 is Tab-reachable in "
+                                    "production").arg(absent));
+        }
+        note(QStringLiteral("FOCUS [prod-write] PASS: the 0x06 controls are Tab "
+                            "reachable in the production write section and no "
+                            "0x10 control is"));
         selectWorkspace(0);
     });
 
@@ -8871,7 +9667,12 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "Up/Down; FG/FH Agent TextArea traversal; FI list "
                            "four-key regression; FM selection survives append; "
                            "FN no selection stays none after append; "
-                           "prod-hidden write foundation)";
+                           "M10-D4 prod-write visibility: 0x06 section present "
+                           "in PRODUCTION mode with accessible controls, "
+                           "no 0x10 node/accessible node/property, no startup "
+                           "snapshot, disconnected keeps the section visible "
+                           "while disabling the action, 0x06 stops in the Tab "
+                           "chain and no 0x10 stop)";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "FOCUSFAIL:" << f;
@@ -9927,6 +10728,15 @@ int main(int argc, char *argv[])
     }
     if (app.arguments().contains(QStringLiteral("--qml-write-foundation-check"))) {
         return runWriteFoundationCheck(engine, app);
+    }
+
+    // M10-D4 production-write runtime harness. Note: it deliberately does NOT
+    // pass --qml-write-foundation-check, so writeFoundationVisible stays false
+    // and the section is instantiated for the PRODUCTION reason (the structural
+    // capability), which is exactly what makes the normal Confirm button the
+    // thing under test.
+    if (app.arguments().contains(QStringLiteral("--qml-production-write-check"))) {
+        return runProductionWriteCheck(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.

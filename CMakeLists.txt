@@ -686,6 +686,15 @@ if(BUILD_TESTING)
     add_test(NAME qml_write_foundation_check
         COMMAND modbuslens --qml-write-foundation-check)
 
+    # M10-D4 production-write guard: the SHIPPED production write section (FC06
+    # only) is present because of the structural capability, and its real
+    # Confirm button performs the atomic confirm+dispatch. Asserts the send
+    # oracles (Space / Enter / rapid x2 / immediate Enter), Cancel / Escape,
+    # modal safety, the non-success presentation lane (not sent / short
+    # submission / write timeout) and the 1024x720 + 1000x700 geometry.
+    add_test(NAME qml_production_write_check
+        COMMAND modbuslens --qml-production-write-check)
+
     # M9-B4.3 scenario fixtures (repo-relative: copied into the build tree,
     # same mechanism as the demo_v1 test_data above -- no absolute paths).
     target_compile_definitions(modbuslens PRIVATE
@@ -695,7 +704,7 @@ if(BUILD_TESTING)
         MODBUSLENS_PROTOCOL_ERROR_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t014_protocol_error.mlog")
 
     # Headless-safe on every platform (no display server needed).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 endif()

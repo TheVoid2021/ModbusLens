@@ -3,15 +3,22 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import ModbusLens
 
-// M10-C2 — HIDDEN write foundation (draft + validation presentation + the
-// modal confirmation dialog). It is instantiated ONLY when the harness
-// visibility seam is on: normal production never loads this file, so no write
-// control exists in the production scene at all (no Tab entry, no Space
-// activation, no clickable area, nothing to misread as a capability).
+// M10-D4 — the WRITE section, now part of the PRODUCTION UI for 0x06.
 //
-// It is NOT a write capability: there is no 0x06 / 0x10 encoder and no
-// dispatch. Confirming consumes an immutable PreparedWriteSnapshot in the
-// controller (a UI acknowledgement), and the transport is never touched here.
+// This is the SAME component the hidden foundation used: production and the
+// harness differ only by `testFoundationMode`, never by a second copied file.
+// A parallel ProductionWrite06.qml would be a second draft/validation/dialog
+// authority, which is exactly what this project forbids.
+//
+// Mode (chosen by WHO instantiated the section, never by runtime state):
+//   · production      — FC06 ONLY. Confirm performs the Controller's atomic
+//                       confirm+dispatch. This is the shipped UI.
+//   · test-foundation — the hidden M10-C/D1/D2 foundation (FC06 + FC10 drafts,
+//                       confirmation-only Confirm) kept so C01-C37 / E1 / E2
+//                       keep testing zero-dispatch safety.
+//
+// Protocol truth still lives ONLY in the Controller/core: this file owns
+// presentation, page-local drafts and the opaque token hand-back.
 //
 // Ownership (Phase 1 §I/§J/§K frozen):
 //   · drafts below are PAGE-LOCAL presentation state, one set per function,
@@ -24,6 +31,12 @@ Item {
     objectName: "writeFoundationSection"
 
     required property var analysisController
+
+    // See the header note. Production never exposes 0x10 (no encoder, no
+    // dispatch capability), so 0x10 controls exist only in the test
+    // foundation.
+    property bool testFoundationMode: false
+    readonly property bool productionMode: !testFoundationMode
 
     // ---- page-local drafts (two independent sets) ----
     // 0x06 address/value are RAW TEXT drafts (M10-D1): the user's exact input
@@ -57,10 +70,13 @@ Item {
             confirmationDialog.open()
             return true
         }
-        const accepted = section.activeFunctionIndex === 0
-            ? section.analysisController.prepareWrite06Draft(
+        // 0x10 exists ONLY in the test foundation; production is 0x06-only, so
+        // a production instance can never prepare an unsupported function.
+        const wants10 = section.testFoundationMode && section.activeFunctionIndex === 1
+        const accepted = wants10
+            ? section.analysisController.prepareWrite10(unit10, start10, valuesText10, timeout10)
+            : section.analysisController.prepareWrite06Draft(
                   unit06, addressText06, valueText06, timeout06)
-            : section.analysisController.prepareWrite10(unit10, start10, valuesText10, timeout10)
         if (accepted)
             confirmationDialog.open()
         return accepted
@@ -74,11 +90,29 @@ Item {
     }
 
     // Confirm authority: opaque token only, no draft fields.
+    //
+    // The return value answers exactly one question — "was a request issued for
+    // a real token?" It is NOT a send result and NOT a Modbus outcome, and no
+    // caller may read it as one. In production the atomic call returns nothing
+    // at all, precisely so that "the transport accepted the bytes" can never be
+    // mistaken for "the write succeeded":
+    //   · the dialog leaves the flow because the SNAPSHOT left Prepared
+    //     (the onPreparedWriteChanged authority chain, proven by DLG1-DLG5);
+    //   · what actually happened to the request is reported through the
+    //     outcome lane (writeDispatchNotice) and the transaction history.
     function confirmPreparedWrite() {
         const token = section.analysisController.preparedWriteToken
         if (token === 0)
             return false
-        return section.analysisController.confirmPreparedWriteToken(token)
+        if (section.productionMode) {
+            // ONE atomic Controller authority step: consume + encode + start.
+            section.analysisController.requestPreparedWriteDispatch(token)
+        } else {
+            // Test foundation: confirmation only, so the M10-C oracles keep
+            // asserting zero write dispatch.
+            section.analysisController.confirmPreparedWriteToken(token)
+        }
+        return true
     }
 
     // The controller is the ONLY authority: when it stops being Prepared (an
@@ -112,23 +146,38 @@ Item {
 
                 // Write 内两个子 Tab (0x06 / 0x10), reusing the TabButton
                 // pattern already proven on the Diagnosis page.
-                TabBar {
-                    id: writeTabs
-                    objectName: "writeFunctionTabs"
+                //
+                // TEST FOUNDATION ONLY, and loaded as a unit so production
+                // NEVER CREATES it. `visible: false` would not be enough: a
+                // hidden item still exists in the object tree and still answers
+                // the accessibility interface, while D4's contract is that 0x10
+                // has no production node at all — not hidden, absent.
+                Loader {
+                    objectName: "writeFunctionTabsLoader"
                     Layout.fillWidth: true
-                    onCurrentIndexChanged: section.activeFunctionIndex = currentIndex
+                    active: section.testFoundationMode
+                    sourceComponent: writeFunctionTabsComponent
+                }
+                Component {
+                    id: writeFunctionTabsComponent
+                    TabBar {
+                        id: writeTabs
+                        objectName: "writeFunctionTabs"
+                        Layout.fillWidth: true
+                        onCurrentIndexChanged: section.activeFunctionIndex = currentIndex
 
-                    TabButton {
-                        objectName: "writeTab06"
-                        text: qsTr("0x06 单寄存器")
-                        width: implicitWidth
-                        focusPolicy: Qt.TabFocus
-                    }
-                    TabButton {
-                        objectName: "writeTab10"
-                        text: qsTr("0x10 多寄存器")
-                        width: implicitWidth
-                        focusPolicy: Qt.TabFocus
+                        TabButton {
+                            objectName: "writeTab06"
+                            text: qsTr("0x06 单寄存器")
+                            width: implicitWidth
+                            focusPolicy: Qt.TabFocus
+                        }
+                        TabButton {
+                            objectName: "writeTab10"
+                            text: qsTr("0x10 多寄存器")
+                            width: implicitWidth
+                            focusPolicy: Qt.TabFocus
+                        }
                     }
                 }
 
@@ -180,12 +229,28 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
 
-                // ---------- 0x10 draft ----------
-                ColumnLayout {
-                    objectName: "write10DraftColumn"
+                // ---------- 0x10 draft (TEST FOUNDATION ONLY) ----------
+                // Loaded as a unit for the same reason as the tabs: production
+                // must create NO 0x10 draft control and NO 0x10 accessible node.
+                Loader {
+                    objectName: "writeMultiDraftLoader"
                     Layout.fillWidth: true
-                    visible: section.activeFunctionIndex === 1
-                    spacing: DS.spacingS
+                    active: section.testFoundationMode
+                    // Two independent concerns, deliberately kept apart:
+                    //   active  -> is this object CREATED AT ALL (production: no)
+                    //   visible -> is it on screen right now (inactive tab: no).
+                    // The second one matters: an invisible item is excluded from
+                    // keyboard traversal, which is what keeps the inactive
+                    // tab's controls unreachable (frozen M10-C contract).
+                    visible: active && section.activeFunctionIndex === 1
+                    sourceComponent: write10DraftComponent
+                }
+                Component {
+                    id: write10DraftComponent
+                    ColumnLayout {
+                        objectName: "write10DraftColumn"
+                        Layout.fillWidth: true
+                        spacing: DS.spacingS
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -256,7 +321,8 @@ Item {
                             }
                         }
                     }
-                }
+                    } // write10DraftColumn
+                } // write10DraftComponent
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -280,6 +346,23 @@ Item {
                     visible: section.analysisController.hasWriteDraftError
                     text: section.analysisController.writeDraftError
                     color: DS.error
+                    wrapMode: Text.Wrap
+                }
+
+                // ---- M10-D4 OUTCOME lane (a different fact from the above) ----
+                // A draft error says "your input is wrong"; this says "here is
+                // what happened to the request". Only NON-SUCCESS states appear,
+                // so this label can never be read as a success toast: a full
+                // submission says nothing here (its outcome is the transaction
+                // row), and nothing is ever claimed from the transport's byte
+                // acceptance alone. Uses DS.notice (warning), never DS.error —
+                // an incomplete submission is not an input error.
+                Label {
+                    objectName: "writeDispatchNotice"
+                    Layout.fillWidth: true
+                    visible: section.analysisController.hasWriteDispatchNotice
+                    text: section.analysisController.writeDispatchNotice
+                    color: DS.notice
                     wrapMode: Text.Wrap
                 }
             }

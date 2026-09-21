@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A/B/C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D：Phase 1 ✅ COMPLETE → D1 ✅ COMPLETE（`6ab97e1`）→ D2 ✅ COMPLETE（`ee3bc3e`，Review PASS）→ D3 实现主体已接受（`42fcd0b`），Review = HOLD → Review Correction（§X，harness-only）已关闭唯一 blocker，AWAITING M10-D3 FINAL RE-REVIEW；D4–D5 = NOT STARTED**；**0x06 已具备产品级 dispatch 与 `write06Supported`，但 production Write UI 仍不可见（D4 才 rollout）；0x10 encoder/dispatch ABSENT（仅 framing 识别）。Active Write 仍不可由用户界面发起。**
+> **状态：M10-A/B/C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D：Phase 1 ✅ → D1 ✅（`6ab97e1`）→ D2 ✅（`ee3bc3e`）→ D3 ✅ COMPLETE（`42fcd0b` + correction `94b6a9c`，Final Re-review PASS）→ D4 = Production FC06 Write UI / Confirmation Dispatch / Usability & Safety 已实现（§Y），AWAITING M10-D4 REVIEW；D5 = NOT STARTED**；**0x06 写入已正式 production-visible（由 `write06Supported` 驱动），normal Confirm 已接到原子派发；0x10 encoder/dispatch/UI 全部 ABSENT（仅 framing 识别）；Agent 写权限 NONE。REAL HARDWARE NOT VERIFIED；MANUAL VISUAL NOT VERIFIED（本轮）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
@@ -6993,5 +6993,140 @@ Files：**仅 `src/main.cpp`**（HarnessWriteTransport 增加 opt-in 写接受�
 分类：**behavior-bearing**（harness 的验收行为变化 ⇒ 按项目规则属 behavior-bearing，与 M10-B correction 同例）
 commit：`M10-D3: prove atomic dispatch dialog reaction`（独立 correction 提交；**不 amend `42fcd0b`**；
        不 rebase；不 push；不 tag）
+verified LKGC 继续 `fc86dcc`（不自行推进）。
+```
+
+## M10-D4 — Production FC06 Write UI / Confirmation Dispatch / Usability & Safety（2026-09-21，behavior-bearing）
+
+> **M10-D3 Final Re-review = PASS ⇒ M10-D3 = COMPLETE ⇒ M10-D4 = GO。** 本轮首次把 0x06 写入
+> **发布为 production UI**：`write06Supported` 成为该区块存在性的唯一权威，production Confirm 接到
+> **原子** `confirmAndDispatchPreparedWrite`，并交付写入结果的**非成功呈现**通道（未发送 / 提交不完整 / 响应超时）。
+> **未做**：D5 未开始；0x10 仍全 ABSENT；Agent 写权限 NONE；无 automatic retry；未 push；未 tag；**LKGC 保持 `fc86dcc`**。
+
+### Y0. Preflight 与归档（§1 / §3）
+
+```text
+HEAD = 94b6a9c（branch = main，普通 git status --porcelain = 空）
+verified LKGC = fc86dcc；origin/main = a40d935；ahead 120 / behind 0；CMake VERSION = 2.0.0；v2.0.0 = ABSENT
+归档：M10-D3 Final Re-review = PASS；M10-D3 = COMPLETE；accepted D3 behavior chain = 42fcd0b → 94b6a9c；
+     M10-D4 = Production FC06 Write UI / Confirmation Dispatch / Usability & Safety = IN PROGRESS → 本节 COMPLETE。
+     **不产生单独 docs-only closure 提交**，随本轮 behavior commit 一起归档。
+```
+
+### Y1. Handoff Fingerprint（§2，源码实证）
+
+```text
+FC06_ENCODER = YES；FC06_SESSION = YES；FC06_CONTROLLER_DISPATCH = YES（M10-D3，本轮首次接入 production UI）
+WRITE06_SUPPORTED = TRUE（只读 CONSTANT）
+PRODUCTION_WRITE = **VISIBLE（本轮有意变更）**；NORMAL_CONFIRM_DISPATCH = **YES（本轮有意变更）**
+FC10: ENCODER = NO / ACTIVE = NO / DISPATCH = NO / PRODUCTION_UI = NO / FRAMING_RECOGNITION = YES
+AGENT_WRITE_AUTHORITY = NONE；PUBLIC_ISSUE_CODES = 14
+```
+
+### Y2. Source Re-read 特别回答（§5）
+
+| # | 问题 | 实读结论 |
+| --- | --- | --- |
+| A | 当前 Loader 如何由 `writeFoundationVisible` 控制 | 唯一开关，`app.arguments().contains("--qml-write-foundation-check")`，normal production 恒 false |
+| B | 如何让 production 基于 `write06Supported` 显示 0x06、同时保持 harness seam 正交 | Loader `active: analysisController.write06Supported \|\| writeFoundationVisible`；**模式由「谁实例化」决定**：`testFoundationMode: writeFoundationVisible`。seam 只选择 test foundation，**不能**伪造 capability、**不能**在 production 显示 0x10 |
+| C | 如何保证 0x10 只存在于 test foundation | 0x10 的两个区块（function TabBar 与 0x10 draft 列）各自放进 `Loader{active: testFoundationMode}`。**`visible:false` 不够** —— 隐藏对象仍在对象树里、仍响应 accessibility 接口；`active:false` 才是「从不创建」。另加 `visible: active && activeFunctionIndex===1` 保持「非活动 tab 的控件不可 Tab 达」这一 M10-C 冻结契约 |
+| D | 当前 Confirm QML 调用哪个 API | 旧：`confirmPreparedWriteToken(token)`（仅确认）。本轮 production 分支改为 `requestPreparedWriteDispatch(token)` |
+| E | D4 如何切换 production 0x06 Confirm 到 atomic dispatch、同时不破坏 M10-C hidden-foundation 语义 | `confirmPreparedWrite()` 内按 `productionMode` 分流：production → 原子派发；test foundation → 保持 confirmation-only（C01–C37 / E1 / E2 继续测零派发）。**同一组件、同一 draft/validation/Dialog/summary/键盘，不另造第二套 UI** |
+| F | write error/status 当前已有哪个用户可见 lane | ① `writeValidationError`（**输入**错误，DS.error）；② serial error lane（`communicationSerialError`）。**缺少写作结果的语义化表述**，故本轮新增 outcome lane（见 Y4） |
+
+### Y3. 有意契约转移：production-hidden → production-visible（§4 / §46）
+
+```text
+旧契约（M10-C/D1/D2）：production 中**不存在任何写控件**。
+D4 有意取代：0x06 写入**发布**为 production UI —— 这是 intentional contract transition，不是 regression。
+处理纪律（不删断言、不降强度）：
+  · `qml_focus_check` 的 prod-hidden oracle **改名并改写**为 prod-write oracle，保留其全部取证手法
+    （对象树扫描 / 命名控件存在性 / accessibility 接口 / 启动无 snapshot）；
+  · **负向覆盖迁移**（不是消失）：
+      ① 0x10 全形态缺席（对象名 `write10*` 全场景扫描 + section 子树内 accessible name 含 "0x10" 扫描
+         + `write10Supported` 属性缺席 + 关键名缺席）；
+      ② test-foundation seam 不泄漏（section 必须是 productionMode，`testFoundationMode == false`）；
+      ③ 0x10 控件不可 Tab 达（`tabTo` 负向）；
+  · 新增**正向**断言（旧 oracle 没有的）：0x06 控件存在且各自有 accessible name；Tab 顺序可达；
+    disconnected 时区块**仍实例化**、仅 action disabled（capability ≠ availability）。
+```
+
+### Y4. 实现（§6–§15）
+
+```text
+Controller
+ · Q_INVOKABLE void requestPreparedWriteDispatch(qulonglong token)
+   —— production Confirm 入口。**返回 void 是有意的**：把 bool 交回 QML 会诱发
+      `if (dispatch(...)) dialog.close()`，从而把「确认被消费」或更糟的「transport 接受了字节」
+      悄悄升格为 send-success 权威。Dialog 仍只由 snapshot 离开 Prepared（投影信号）关闭。
+ · 新增写结果**呈现**投影（OUTCOME lane，与 draft error 严格分离）：
+   hasWriteDispatchNotice / writeDispatchNotice / writeDispatchNoticeTone + writeDispatchNoticeChanged。
+   只有**非成功**状态入这条通道：accepted submission **什么都不说**（其结果属于事务行），
+   transport 仅「接受字节」永不呈现为成功。三态文案：
+     NotSent           →「本次请求未发送；如需重试，请重新确认写入。」
+     ShortSubmission   →「提交不完整（仅部分字节被接受），设备写入状态未知；如需重试，请重新确认写入。」
+     WriteTimeoutUnknown→「响应超时，设备写入状态未知；如需重试，请重新确认写入。」
+   **禁止**「设备未写入 / 设备未修改 / 写入成功」之类的无据表述。
+   置位点：`confirmAndDispatchPreparedWrite` 的 start 结果（NotSent / short）；
+            `handleSerialTransactionCompleted` 中 0x06 ∧ Timeout → WriteTimeoutUnknown。
+   清除点：新的 prepare、Clear Results、disconnect、新 session（draft 一律不动）。
+QML（**没有第二套写 UI**：同一 WriteFoundationSection，靠 mode 区分）
+ · 新增 `testFoundationMode` / `productionMode`；0x10 两区块改为 Loader（active: testFoundationMode）；
+ · `activateWrite()` 只在 test foundation 才可能走 0x10 分支；
+ · Confirm 按 mode 分流（production 原子派发 / test foundation 仅确认）；
+ · outcome lane 用 `DS.notice`（warning）呈现，**不复用** `DS.error`（输入错误 ≠ 发送未完成）。
+Visibility authority（§6/§10）：区块**存在**只由 `write06Supported`（结构能力）决定；
+serialConnected / serialBusy / source / draft validity **只**决定 Write action 的 enabled ——
+因此 disconnect / busy / Simulator / Replay 都不会卸载区块或清掉 page-local draft。
+production 只呈现 0x06；0x10 无 tab / 无 values editor / 无 quantity / 无可聚焦或 accessible 节点。
+```
+
+### Y5. 实测 oracle
+
+```text
+`--qml-production-write-check`（**新增 ctest 目标 qml_production_write_check**；真实 production 区块 + 正常 Confirm 按钮）
+  P1  Write → Dialog open（token≠0、attempts=0）；**初始焦点 = Cancel**
+  P2  Confirm → Space：**exactly 1 attempt / 1 send / 1 ADU**，Consumed，busy=true，**draft 保留**
+  P3  Dialog closed（关闭来自 authority，不是 send success）；可信 echo → 恰好 1 条 0x06 Success 进入
+      **同一** Transactions/stats/diagnosis；成功**不产生**非成功 notice
+  P4  rapid Enter ×2 → **exactly 1** dispatch，Dialog 不重开、无第二 send、无背景动作
+  P5  rapid Space ×2 → **exactly 1** dispatch，无第二 send
+  P6  immediate Enter（焦点仍在 Cancel）→ **0 dispatch**（state 保持 prepared）
+  P7  Cancel → Invalidated(UserCancelled)，0 dispatch，draft 保留，Dialog 关闭
+  P8  Escape → Invalidated，0 dispatch，Dialog 关闭
+  P9  transport 接受 0 字节 → Dialog 关闭、0 transaction、0 terminal，
+      notice 含「未发送」且**不含**「写入成功 / 设备已写入 / 超时」
+  P10 short submission → 恰 1 条 terminal、0 transaction，notice 含「设备写入状态未知」、
+      **不含**「设备未写入」
+  P11 write Timeout → 1 条 Timeout 事务，notice 含「响应超时」+「设备写入状态未知」
+  P12 geometry 1024×720 与 1000×700：Write **键盘可达**；Dialog 560×144 且 visible；
+      Cancel/Confirm 均在窗口内；**窗口未自我放大**
+  final 计账：sends=4 / ADU log=4 / terminals=1（与各 oracle 的预期逐一对应）
+`qml_focus_check`（改名后的 prod-write oracle）
+  区块因 write06Supported 而存在且处于 production 模式；859 对象扫描无 `write10*` /
+  section 子树无 "0x10" accessible name / 无 write10Supported；0x06 五个控件各有 accessible name；
+  启动无 snapshot；disconnected → 区块**仍实例化**、Write disabled；0x06 控件 Tab 可达、0x10 不可达
+C++（test_write_dispatch 新增 7 例）
+  requestPreparedWriteDispatch 执行完整原子操作（attempt/send/ADU/exact ADU/busy）；
+  该 Q_INVOKABLE 的**返回类型是 void**（元对象实证）；NotSent / short / 0x06 Timeout 三态 notice 文案与 tone；
+  成功**无** notice；notice 被新 prepare 与 Clear 清除
+```
+
+### Y6. 门禁 / 环境 / 文件
+
+```text
+真实 CTest：Debug **35/35 PASS**、Release **35/35 PASS**（34 → 35：新增 qml_production_write_check）
+关键套件：write_dispatch 44（37 + 7 新）/ write_prepare 48 / write_encoder 19 / fc06_active 31 /
+          active_request 17 / active_master 54 / ui_bridge 61 / serial 21 / serial_adapter 7 /
+          passive 55 / statistics 12 / statistics_integration 3 / diagnosis 17
+QML 门禁：qml_production_write_check（新）/ qml_write_foundation_check（**未降低**：C01–C37 / E1 / E2 全绿）/
+          qml_focus_check / qml_smoke / qml_nav_check / qml_geometry_check
+Warnings：新增 C++ / QML **零 warning**；main.cpp 5 条 pre-existing 未动；ISSUE-014 PRE-EXISTING NON-BLOCKING
+**MANUAL VISUAL NOT VERIFIED**：本轮无真实人眼视觉检查；自动 geometry gate **不能**冒充人眼 review（见 §49）。
+Files：src/ui/AnalysisController.{h,cpp}、src/ui/qml/components/WriteFoundationSection.qml、
+       src/ui/qml/pages/CommunicationPage.qml、src/main.cpp（production harness + prod-write oracle 改写 +
+       HarnessWriteTransport 扩展）、tests/test_write_dispatch.cpp、CMakeLists.txt（+ docs）
+分类：**behavior-bearing**（production UI 首次公开 + Controller dispatch 入口 + 呈现通道）
+commit：`M10-D4: expose safe FC06 production write UI`（独立提交；不 amend；不 rebase；不 push；不 tag）
 verified LKGC 继续 `fc86dcc`（不自行推进）。
 ```

@@ -217,6 +217,15 @@ private slots:
     void write06SupportedDoesNotRevealProductionUi();
     void hiddenConfirmSeamStillDispatchesNothing();
     void fc10CapabilityStaysFrozen();
+
+    // ---- M10-D4: production dispatch entry + outcome presentation lane ----
+    void d4_requestDispatchIsTheAtomicOperation();
+    void d4_requestDispatchReturnsVoidToQml();
+    void d4_notSentNoticeSaysNotSent();
+    void d4_shortSubmissionNoticeSaysUnknown();
+    void d4_writeTimeoutNoticeSaysUnknown();
+    void d4_successProducesNoNotice();
+    void d4_noticeClearedByNewPrepareAndByClear();
 };
 
 // ---------------------------------------------------------------------------
@@ -1052,6 +1061,130 @@ void WriteDispatchTest::fc10CapabilityStaysFrozen()
     // capability to report.
     Session s;
     QCOMPARE(s.controller.metaObject()->indexOfProperty("write10Supported"), -1);
+}
+
+// ---------------------------------------------------------------------------
+// M10-D4 — the production dispatch entry and the write OUTCOME lane.
+// ---------------------------------------------------------------------------
+
+void WriteDispatchTest::d4_requestDispatchIsTheAtomicOperation()
+{
+    // The production entry performs the WHOLE atomic operation: consume, encode
+    // and start in one call, with an opaque token as the only input.
+    Session s;
+    const auto token = s.prepare06();
+    s.controller.requestPreparedWriteDispatch(static_cast<qulonglong>(token));
+
+    QCOMPARE(s.controller.preparedWriteState(), PreparedWriteState::Consumed);
+    QCOMPARE(s.transport.startAttemptCount(), 1);
+    QCOMPARE(s.transport.sendCount(), 1);
+    QCOMPARE(s.transport.sentAduLog().size(), std::size_t{1});
+    QCOMPARE(s.transport.sentAduLog().front(), kGoldenWrite06Adu);
+    QVERIFY(s.controller.serialBusy());
+}
+
+void WriteDispatchTest::d4_requestDispatchReturnsVoidToQml()
+{
+    // It returns NOTHING on purpose: a bool handed back to QML invites
+    // "if (dispatch(token)) close()", which would quietly promote one of two
+    // different facts (confirmation consumed, or transport accepted the bytes)
+    // into a send-success authority.
+    Session s;
+    const QMetaObject *meta = s.controller.metaObject();
+    const int index = meta->indexOfMethod("requestPreparedWriteDispatch(qulonglong)");
+    QVERIFY(index >= 0);
+    const QMetaMethod method = meta->method(index);
+    QVERIFY(method.access() == QMetaMethod::Public);
+    // In Qt 6 returnType() is the metatype id, so compare against the id.
+    QCOMPARE(method.returnType(), static_cast<int>(QMetaType::Void));
+    // And the confirmation-only seam still exists and still returns a bool —
+    // the two are different doors with different contracts.
+    QVERIFY(meta->indexOfMethod("confirmPreparedWriteToken(qulonglong)") >= 0);
+}
+
+void WriteDispatchTest::d4_notSentNoticeSaysNotSent()
+{
+    Session s;
+    const auto token = s.prepare06();
+    s.transport.setSubmissionAcceptedBytes(0);
+    s.controller.requestPreparedWriteDispatch(static_cast<qulonglong>(token));
+
+    QVERIFY(s.controller.hasWriteDispatchNotice());
+    const QString text = s.controller.writeDispatchNotice();
+    QVERIFY(text.contains(QStringLiteral("未发送")));
+    QCOMPARE(s.controller.writeDispatchNoticeTone(), QStringLiteral("warning"));
+    // Never framed as a protocol outcome.
+    QVERIFY(!text.contains(QStringLiteral("写入成功")));
+    QVERIFY(!text.contains(QStringLiteral("设备已写入")));
+    QVERIFY(!text.contains(QStringLiteral("超时")));
+    QCOMPARE(s.controller.observedCount(), 0);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+}
+
+void WriteDispatchTest::d4_shortSubmissionNoticeSaysUnknown()
+{
+    Session s;
+    const auto token = s.prepare06();
+    s.transport.setSubmissionAcceptedBytes(3);
+    s.controller.requestPreparedWriteDispatch(static_cast<qulonglong>(token));
+
+    const QString text = s.controller.writeDispatchNotice();
+    QVERIFY(text.contains(QStringLiteral("设备写入状态未知")));
+    // The forbidden claim: a partial handover cannot prove the device is
+    // unchanged.
+    QVERIFY(!text.contains(QStringLiteral("设备未写入")));
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    QCOMPARE(s.controller.observedCount(), 0);
+}
+
+void WriteDispatchTest::d4_writeTimeoutNoticeSaysUnknown()
+{
+    Session s;
+    const auto token = s.prepare06();
+    s.controller.requestPreparedWriteDispatch(static_cast<qulonglong>(token));
+    s.completeAtTimeout();
+
+    QCOMPARE(s.controller.timeoutCount(), 1);
+    const QString text = s.controller.writeDispatchNotice();
+    QVERIFY(text.contains(QStringLiteral("响应超时")));
+    QVERIFY(text.contains(QStringLiteral("设备写入状态未知")));
+    QVERIFY(!text.contains(QStringLiteral("设备未写入")));
+}
+
+void WriteDispatchTest::d4_successProducesNoNotice()
+{
+    // Only a TRUSTED response may look like success, and it must NOT produce a
+    // non-success notice.
+    Session s;
+    const auto token = s.prepare06();
+    s.controller.requestPreparedWriteDispatch(static_cast<qulonglong>(token));
+    s.transport.setResponseBytes(echoWire());
+    s.transport.completeWithResponse();
+
+    QCOMPARE(s.controller.successCount(), 1);
+    QVERIFY(!s.controller.hasWriteDispatchNotice());
+}
+
+void WriteDispatchTest::d4_noticeClearedByNewPrepareAndByClear()
+{
+    Session s;
+    auto token = s.prepare06();
+    s.transport.setSubmissionAcceptedBytes(0);
+    s.controller.requestPreparedWriteDispatch(static_cast<qulonglong>(token));
+    QVERIFY(s.controller.hasWriteDispatchNotice());
+
+    // A new Write starts a fresh attempt (and must not disturb the draft).
+    s.transport.setSubmissionAcceptedBytes(std::nullopt);
+    const auto token2 = s.prepare06();
+    QVERIFY(token2 != 0);
+    QVERIFY(!s.controller.hasWriteDispatchNotice());
+
+    // Clear Results is result state and clears it too.
+    s.transport.setSubmissionAcceptedBytes(0);
+    s.controller.requestPreparedWriteDispatch(static_cast<qulonglong>(token2));
+    QVERIFY(s.controller.hasWriteDispatchNotice());
+    s.controller.clearResults();
+    QVERIFY(!s.controller.hasWriteDispatchNotice());
 }
 
 QTEST_MAIN(WriteDispatchTest)

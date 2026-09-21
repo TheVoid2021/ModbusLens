@@ -869,6 +869,8 @@ void AnalysisController::teardownSerialTransport()
             modbuslens::core::PreparedWriteInvalidReason::Disconnected)) {
         announcePreparedWriteChanged();
     }
+    // The connection the notice was about is gone; the draft stays.
+    clearWriteDispatchNotice();
     serialTransport_->closePort();
     serialConnected_ = false;
     serialBusy_ = false;
@@ -943,6 +945,8 @@ void AnalysisController::connectSerial(const QString& portName, int baudRate)
     activeDiagnosisTransactions_.clear();
     activeSerialRecords_.clear();
     activeSerialTerminations_.clear();
+    // A new Active Serial session: any notice about the previous one is stale.
+    clearWriteDispatchNotice();
     // M10-C1: a new Active Serial session invalidates any prepared snapshot
     // from the previous one (even with the same port and baud).
     if (preparedWriteStore_.invalidate(
@@ -1383,6 +1387,18 @@ bool AnalysisController::cancelPreparedWriteToken(qulonglong token)
     return cancelled;
 }
 
+void AnalysisController::requestPreparedWriteDispatch(qulonglong token)
+{
+    // The production Confirm path: ONE atomic Controller authority step.
+    //
+    // The result is deliberately NOT returned to QML (see the header): the
+    // dialog closes because the snapshot left Prepared. Everything the user
+    // needs to know about the attempt travels through the notice projection
+    // (set inside confirmAndDispatchPreparedWrite) or through the ordinary
+    // transaction history once a response arrives.
+    (void)confirmAndDispatchPreparedWrite(static_cast<std::uint64_t>(token));
+}
+
 bool AnalysisController::hasPreparedWrite() const
 {
     return preparedWriteStore_.state() == modbuslens::core::PreparedWriteState::Prepared;
@@ -1534,6 +1550,60 @@ bool AnalysisController::write06Supported() const
     return modbuslens::core::kProductWrite06Supported;
 }
 
+void AnalysisController::setWriteDispatchNotice(WriteDispatchNoticeKind kind)
+{
+    if (writeDispatchNoticeKind_ == kind) {
+        return;
+    }
+    writeDispatchNoticeKind_ = kind;
+    emit writeDispatchNoticeChanged();
+}
+
+void AnalysisController::clearWriteDispatchNotice()
+{
+    setWriteDispatchNotice(WriteDispatchNoticeKind::None);
+}
+
+bool AnalysisController::hasWriteDispatchNotice() const
+{
+    return writeDispatchNoticeKind_ != WriteDispatchNoticeKind::None;
+}
+
+QString AnalysisController::writeDispatchNotice() const
+{
+    switch (writeDispatchNoticeKind_) {
+    case WriteDispatchNoticeKind::None:
+        return QString();
+    case WriteDispatchNoticeKind::NotSent:
+        // Provably nothing entered the transmission lifecycle: this is the one
+        // state where "not sent" is a supported statement.
+        return QStringLiteral("本次请求未发送；如需重试，请重新确认写入。");
+    case WriteDispatchNoticeKind::ShortSubmission:
+        // Partial handover: the wire cannot be proven clean, so the device
+        // state is UNKNOWN — never "the device was not written".
+        return QStringLiteral("提交不完整（仅部分字节被接受），设备写入状态未知；"
+                              "如需重试，请重新确认写入。");
+    case WriteDispatchNoticeKind::WriteTimeoutUnknown:
+        return QStringLiteral("响应超时，设备写入状态未知；如需重试，请重新确认写入。");
+    }
+    return QString();
+}
+
+QString AnalysisController::writeDispatchNoticeTone() const
+{
+    // Presentation token only (never a protocol fact): the panel renders a
+    // warning tone for all three, because none of them is a success.
+    switch (writeDispatchNoticeKind_) {
+    case WriteDispatchNoticeKind::None:
+        return QString();
+    case WriteDispatchNoticeKind::NotSent:
+    case WriteDispatchNoticeKind::ShortSubmission:
+    case WriteDispatchNoticeKind::WriteTimeoutUnknown:
+        return QStringLiteral("warning");
+    }
+    return QString();
+}
+
 bool AnalysisController::hasWriteDraftError() const
 {
     return hasWriteDraftError_;
@@ -1585,6 +1655,10 @@ modbuslens::core::WritePrepareOutcome AnalysisController::prepareWriteIntent(
     if (auto* already = std::get_if<PrepareAlreadyPrepared>(&stored)) {
         return *already;
     }
+    // A brand-new Write starts a fresh attempt: the previous attempt's outcome
+    // notice is no longer about the thing the user is looking at. (The DRAFT is
+    // untouched — this is the result lane, not the input lane.)
+    clearWriteDispatchNotice();
     return PreparedWrite{};
 }
 
@@ -1753,6 +1827,21 @@ AnalysisController::confirmAndDispatchPreparedWrite(std::uint64_t token)
     // ---- START (exactly one attempt for this confirmation) ----
     result.dispatchAttempted = true;
     result.startResult = startActiveDescriptor(std::get<ActiveRequestDescriptor>(encoded));
+
+    // M10-D4 outcome lane. An ACCEPTED submission claims NOTHING here: its
+    // result belongs to the transaction history once a trusted response
+    // arrives (or to the timeout notice below) — accepting bytes is not, and
+    // must never read as, a write success. Only the two already-final
+    // non-success states are reported: in one the device is provably untouched
+    // (NotSent), in the other its state is unknown (short submission).
+    if (!result.startResult->accepted) {
+        setWriteDispatchNotice(
+            result.startResult->disposition == TransportDisposition::NotSent
+                ? WriteDispatchNoticeKind::NotSent
+                : WriteDispatchNoticeKind::ShortSubmission);
+    } else {
+        clearWriteDispatchNotice();
+    }
     return result;
 }
 
@@ -1867,6 +1956,16 @@ void AnalysisController::handleSerialTransactionCompleted(
         .evidence = result.evidence(),
         .analysis = result.analysis,
     });
+    // M10-D4: a WRITE that ends with no trusted response leaves the device
+    // mutation state UNKNOWN. The transaction row already reports the Modbus
+    // status, but for a WRITE that status does not by itself tell the user
+    // what it means for the device, so it is stated explicitly. It never says
+    // the device was not written.
+    if (pendingRequest_->intent.function
+            == modbuslens::core::ActiveFunction::WriteSingleRegister
+        && result.analysis.status == modbuslens::core::TransactionStatus::Timeout) {
+        setWriteDispatchNotice(WriteDispatchNoticeKind::WriteTimeoutUnknown);
+    }
     // The request is over: end the in-flight state and clear the stale serial
     // error (a completed transaction proves the transport answered). Only the
     // in-flight/presentation flags change here — rows, statistics, source
@@ -2072,6 +2171,9 @@ void AnalysisController::clearResults()
     clearReplayError();
     clearReplayNotice();
     clearSerialError();
+    // The dispatch notice is result state too (it describes a request whose
+    // record is being cleared); the write DRAFT is deliberately untouched.
+    clearWriteDispatchNotice();
 }
 
 void AnalysisController::loadReplayFile(const QUrl& fileUrl)
