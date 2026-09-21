@@ -1,7 +1,8 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A/B/C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D：Phase 1 ✅ COMPLETE → D1 ✅ COMPLETE（`6ab97e1`）→ D2 ✅ COMPLETE（`ee3bc3e`，Review PASS）→ D3 = Atomic Dispatch / Evidence / Product Capability 已实现（§W），AWAITING M10-D3 REVIEW；D4–D5 = NOT STARTED**；**0x06 已具备产品级 dispatch 与 `write06Supported`，但 production Write UI 仍不可见（D4 才 rollout）；0x10 encoder/dispatch ABSENT（仅 framing 识别）。Active Write 仍不可由用户界面发起。**
+> **状态：M10-A/B/C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D：Phase 1 ✅ COMPLETE → D1 ✅ COMPLETE（`6ab97e1`）→ D2 ✅ COMPLETE（`ee3bc3e`，Review PASS）→ D3 实现主体已接受（`42fcd0b`），Review = HOLD → Review Correction（§X，harness-only）已关闭唯一 blocker，AWAITING M10-D3 FINAL RE-REVIEW；D4–D5 = NOT STARTED**；**0x06 已具备产品级 dispatch 与 `write06Supported`，但 production Write UI 仍不可见（D4 才 rollout）；0x10 encoder/dispatch ABSENT（仅 framing 识别）。Active Write 仍不可由用户界面发起。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
+> *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
 > M9-E 的 version/PE/icon/package 契约、M9-F 的 focus/accessibility baseline **全部继续冻结**；M10 不得顺手改 focus visual / NavigationRail / packaging / StatisticsOverview。
@@ -6879,4 +6880,118 @@ docs：T022（本节 §W）+ PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES
 分类：**behavior-bearing**（core / Controller / tests / harness / CMake 行为与验收行为均变化）
 commit：`M10-D3: add atomic FC06 dispatch and evidence integration`（独立提交；不 amend ee3bc3e；不 rebase；不 push；不 tag）
 verified LKGC 继续 `fc86dcc`（**不自行推进**；等 Human Review）。
+```
+
+## M10-D3 Review Correction — Atomic Dispatch Dialog Reaction Oracle（2026-09-21，harness-only）
+
+> **M10-D3 Review = HOLD。** D3 实现**主体接受**（R1–R5 core semantics、statistics、history、
+> capability、transport evidence 全部不重开）。**唯一 blocker**：新的 atomic confirm+dispatch path
+> 缺少「Prepared → Consumed / Invalidated 之后 QML confirmation Dialog **真实退出 flow**」的
+> **runtime oracle**。本轮只关闭该 gap；**产品实现未改一行**（结论见 X2）。
+> **未做**：D4 未开始；production Write 仍 hidden；normal Confirm 仍 confirmation-only；未实现 0x10；
+> 未 push；未 tag；**LKGC 保持 `fc86dcc`**。
+
+### X0. Preflight（§1）
+
+```text
+HEAD = 42fcd0b（branch = main，普通 git status --porcelain = 空）
+verified LKGC = fc86dcc；origin/main = a40d935；ahead 119 / behind 0；CMake VERSION = 2.0.0
+M10-D3 Review = HOLD；production Write = HIDDEN；write06Supported = true（structural）；
+0x10 active support = false；v2.0.0 = ABSENT
+```
+
+### X1. Source Audit — A / B / C / D（§3）
+
+| # | 问题 | 实读结论 |
+| --- | --- | --- |
+| A | 旧 confirmation-only path 在 consume/invalidate 后由谁 emit projection change | `AnalysisController::confirmPreparedWrite` 自身在状态迁移后由调用者 `confirmPreparedWriteToken` 调 `announcePreparedWriteChanged()`；**store 本身不持 Qt 对象、不发信号**（`PreparedWriteStore` 是纯 core 类型）。外部事件侧（`teardownSerialTransport` / `handleSerialTransportError` / `connectSerial` / `startActiveDescriptor`）在 `invalidate()` 返回 true 时各自调用 `announcePreparedWriteChanged()` |
+| B | 新 atomic path 是否经过**完全相同**的 notification path | **是**。`confirmAndDispatchPreparedWrite` 在 consume 之后调用 `announcePreparedWriteChanged()`；guard 失败分支各自调用它；进入 flight 时由共享 `startActiveDescriptor()` 调用它。emit 的对象是**同一个** `preparedWriteChanged()` 信号 |
+| C | 若 store 的 `confirm()` 不 emit Qt signal，atomic API 是否显式 emit | store 确实不发信号（Zero Qt），**atomic API 显式 emit**（见 B）。实测 full-accept 路径恰好 **+1** 次通知：consume 一次；随后 `startActiveDescriptor` 的 `invalidate(BusyBecameTrue)` 在 **Consumed** 代际上是 no-op（`PreparedWriteStore::invalidate` 只作用于 Prepared），因此**不产生第二次通知** —— 这也顺带独立复证了「Consumed 不被 busy 覆写」不变量 |
+| D | QML Dialog close 真实依赖哪个 property/signal | `WriteFoundationSection.qml` 的 `Connections { target: ...; function onPreparedWriteChanged() { if (!section.analysisController.hasPreparedWrite && confirmationDialog.opened) confirmationDialog.close() } }`。权威链：**store state → Controller emit → QML 读 `hasPreparedWrite`（= state == Prepared）→ close()**。与 transport 结果**无关** |
+
+### X2. RED 结果与「是否需要产品修复」（§4 / §12）
+
+```text
+RED-first：DLG oracle 先写、先跑，**产品代码未做任何修改**（本轮唯一改动 = harness）。
+实测结果：**全部通过** ⇒ 判定为 ORACLE GAP，不是 PRODUCT DEFECT。
+产品修复：**NO**（按 §12「如果现有产品代码本来正确：只补 runtime oracle，不要无意义改产品」）。
+证据：DLG1 实测 `notifies +1` —— atomic path 确实通过既有 `preparedWriteChanged` 发出投影通知，
+      QML 因此关闭 Dialog；五个场景 Dialog 全部真实退出确认流。
+```
+
+### X3. DLG 实测矩阵（§5–§10）
+
+```text
+DLG1 full accepted   ：Dialog open + Prepared → atomic → confirmationAccepted=true / dispatchAttempted=true /
+                       startResult.accepted=true / PossiblySent / state=Consumed / attempts 1 / sends 1 /
+                       dispatched ADU 8 字节 / **notifies +1** → **Dialog closed**；
+                       同 token 再调：不接受、attempts/sends 不增、**Dialog 不重开**。
+DLG2 acceptedCount=0 ：Dialog open + Prepared → atomic → confirmationAccepted=true / attempt 1 / send 0 /
+                       **NotSent** / 有 startResult（明确**不是** guard failure）/ 无 terminal /
+                       state=Consumed → **Dialog closed**（关键证明：close 不依赖 send success）；
+                       同 token 再调 inert。
+DLG3 short submission：0<3<8 → confirmationAccepted=true / attempt 1 / send 0 / PossiblySent /
+                       **恰好一条 ShortSubmission terminal** / state=Consumed → **Dialog closed**；
+                       同 token 再调 inert。
+DLG4 capability      ：真实 hidden **0x10** prepared snapshot（Dialog open、Prepared、function=0x10）→
+                       atomic → confirmationAccepted=false / dispatchAttempted=false / **无 startResult**
+                       （transport 未被咨询）/ reject reason = **CapabilityUnavailable** /
+                       state=**Invalidated** + invalidReason=**CapabilityUnavailable** → **Dialog closed**；
+                       零 consume、零 encode、零 transport。
+DLG5 external        ：Dialog open + Prepared → **disconnect**（context event）→
+                       state=Invalidated + reason=**Disconnected** → **Dialog closed**；
+                       随后旧 token 调 atomic → reject reason = **NotPrepared**（见 X4）。
+DLG5b external(busy) ：Dialog open + Prepared → 真实 FC03 读进入 flight（busy false→true）→
+                       reason=**BusyBecameTrue** → **Dialog closed**。
+```
+
+### X4. 两层术语冻结（§14 —— R4 口径更正）
+
+**必须分两层，不得混为一个字段、也不得互相替代：**
+
+```text
+【第一层】外部 context event（事件本身即权威失效原因）
+    Prepared → Invalidated(reason)
+    reason ∈ { Disconnected, BusyBecameTrue, SessionChanged, SourceChanged, UserCancelled,
+               CapabilityUnavailable }
+    —— 这是 snapshot 的代际终态原因，由**事件**写入，且**永不改写**。
+
+【第二层】事件之后，用**旧 token** 再调 atomic API
+    reject reason = **NotPrepared**（或源码真实等价）
+    —— 因为此刻 store 已不在 Prepared 代际，连 token 匹配都到不了。
+    **此时不会**返回 Disconnected / BusyBecameTrue / NotConnected。
+```
+
+**禁止的旧表述**：「atomic 的 disconnected guard 一定返回 `NotConnected`」——**错**。真实 disconnect
+路径是**第一层先 invalidate(Disconnected)**，第二层旧 token 只能得到 `NotPrepared`；
+`ConfirmRejectReason::NotConnected` 分支因此是 **defensive**（prepare 本身要求已连接，公开序列到不了它）。
+`CapabilityUnavailable` 是**唯一**两层可以同名表达的情形：若 snapshot 仍 Prepared 且由 atomic 的 capability
+guard 直接发现，则 result 的 reject reason 与 snapshot 的 invalidation reason **都是 CapabilityUnavailable**。
+本更正同时落在 `docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、devlog 与 `INTERVIEW_NOTES.md`。
+
+### X5. QML wiring freeze 与旧契约保持（§13 / §15）
+
+```text
+**QML 本轮零改动**：normal production Confirm 仍是 confirmation-only（未被接到 dispatch）；
+production Write 仍 hidden；DLG oracle 全部从 harness 的 C++ 层直接调用 atomic seam，D4 未开始。
+M10-C 安全契约**未降低**：C01–C37 / E1/E2 全部继续 PASS（本轮零修改）。
+harness 的「confirmation-only 阶段零 write dispatch / 零 write transaction」断言**保留**，
+但按语义**分段计量**：DLG 之前的阶段仍要求 attempts=0 / sends=0（实测 0）；
+DLG 段自身按 oracle 计账（attempts=3 / sends=1 / terminals=1），并由 final gate 逐项核对。
+未新增任何 production-only signal：投影通知复用既有 `preparedWriteChanged`。
+```
+
+### X6. 验证与文件（§16–§19）
+
+```text
+聚焦回归：write_dispatch / qml_write_foundation_check（含 DLG1–DLG5）/ ui_bridge / active_master /
+          write_prepare / write_encoder / fc06_active 全部 PASS
+全量：**真实 CTest** Debug 34/34、Release 34/34（目标数不变：本轮不新增 target）
+Warnings：零新增；main.cpp 5 条 pre-existing 未动；ISSUE-014 PRE-EXISTING NON-BLOCKING
+Files：**仅 `src/main.cpp`**（HarnessWriteTransport 增加 opt-in 写接受能力 + DLG oracle 段 +
+       final gate 分段计量）+ docs 同步。
+分类：**behavior-bearing**（harness 的验收行为变化 ⇒ 按项目规则属 behavior-bearing，与 M10-B correction 同例）
+commit：`M10-D3: prove atomic dispatch dialog reaction`（独立 correction 提交；**不 amend `42fcd0b`**；
+       不 rebase；不 push；不 tag）
+verified LKGC 继续 `fc86dcc`（不自行推进）。
 ```

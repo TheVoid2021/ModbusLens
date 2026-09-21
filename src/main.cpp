@@ -4755,8 +4755,14 @@ public:
 
     // Reads are accepted so the harness can create a REAL busy transition
     // through the shipped FC03 path; WRITE functions are counted and refused
-    // as NotSent — there is no write capability in M10-C, and any attempt to
-    // dispatch one is both impossible and observable.
+    // as NotSent by default — there is no write capability in M10-C, and any
+    // attempt to dispatch one is both impossible and observable.
+    //
+    // M10-D3 correction: the DLG dialog-reaction oracles need the transport to
+    // REALLY accept (or short-submit) a write. That capability is OPT-IN and
+    // off by default, so every pre-D3 oracle keeps its exact original meaning
+    // ("count and refuse"), and the C/D1 phases still end with zero successful
+    // write submissions.
     modbuslens::core::ActiveStartResult startActiveRequest(
         const modbuslens::core::ActiveRequestDescriptor& request) override
     {
@@ -4766,7 +4772,32 @@ public:
 
         if (request.intent.function != ActiveFunction::ReadHoldingRegisters) {
             ++writeAttempts_;
-            return ActiveStartResult{false, TransportDisposition::NotSent,
+            if (!acceptWrites_) {
+                return ActiveStartResult{false, TransportDisposition::NotSent,
+                                         std::nullopt};
+            }
+            if (writeShortAcceptedBytes_.has_value()
+                && *writeShortAcceptedBytes_ > 0
+                && *writeShortAcceptedBytes_ < request.wire.size()) {
+                // Partial handover: PossiblySent + exactly one terminal, no
+                // pending and no accepted-send counter.
+                ++writeTerminals_;
+                return ActiveStartResult{
+                    false, TransportDisposition::PossiblySent,
+                    modbuslens::core::ActiveTransportTerminal{
+                        .request = request,
+                        .responseAdu = {},
+                        .disposition = TransportDisposition::PossiblySent,
+                        .reason = modbuslens::core::TransportTerminalReason::
+                            ShortSubmission,
+                        .submissionAcceptedByteCount = *writeShortAcceptedBytes_,
+                    }};
+            }
+            // Full acceptance of the write ADU.
+            ++writeSends_;
+            written_ = request;
+            pending_ = request;
+            return ActiveStartResult{true, TransportDisposition::PossiblySent,
                                      std::nullopt};
         }
         ++readStarts_;
@@ -4779,6 +4810,20 @@ public:
                                  std::nullopt};
     }
 
+    // ---- M10-D3 correction: opt-in write acceptance (DLG oracles only) ----
+    void setAcceptWrites(bool accept) { acceptWrites_ = accept; }
+    void setWriteShortAcceptedBytes(std::optional<std::uint16_t> count)
+    {
+        writeShortAcceptedBytes_ = count;
+    }
+    [[nodiscard]] int writeSends() const { return writeSends_; }
+    [[nodiscard]] int writeTerminals() const { return writeTerminals_; }
+    [[nodiscard]] std::optional<modbuslens::core::ActiveRequestDescriptor>
+    writtenDescriptor() const
+    {
+        return written_;
+    }
+
     [[nodiscard]] bool hasActiveTransaction() const override
     {
         return pending_.has_value();
@@ -4788,10 +4833,14 @@ public:
     [[nodiscard]] int writeAttempts() const { return writeAttempts_; }
 
     // One deterministic FC03 answer (golden bytes), so the harness can end a
-    // read without any timing dependence.
+    // read without any timing dependence. Reads only: an accepted WRITE (the
+    // M10-D3 DLG oracles) is deliberately never completed here, so the dialog
+    // reaction is observed without any completion signal in play.
     void completeRead()
     {
-        if (!pending_.has_value()) {
+        if (!pending_.has_value()
+            || pending_->intent.function
+                != modbuslens::core::ActiveFunction::ReadHoldingRegisters) {
             return;
         }
         modbuslens::core::SerialTransactionSession session;
@@ -4829,6 +4878,12 @@ private:
     bool completeReadImmediately_ = true;
     int readStarts_ = 0;
     int writeAttempts_ = 0;
+    // M10-D3 correction: off by default so the pre-D3 oracles are unchanged.
+    bool acceptWrites_ = false;
+    std::optional<std::uint16_t> writeShortAcceptedBytes_;
+    int writeSends_ = 0;
+    int writeTerminals_ = 0;
+    std::optional<modbuslens::core::ActiveRequestDescriptor> written_;
     std::optional<modbuslens::core::ActiveRequestDescriptor> pending_;
     std::vector<std::uint8_t> observed_;
 };
@@ -7124,17 +7179,398 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                  .arg(addressName, valueName));
     });
 
+    // ---- M10-D3 correction: atomic-dispatch → Dialog reaction oracles ----
+    //
+    // RED-first framing: these steps are written and executed BEFORE any
+    // product change, so whatever they observe is the truth about the shipped
+    // notification path. They never touch the normal Confirm button — D4 has
+    // not started — they drive the Controller's C++ atomic seam directly,
+    // exactly like the C++ focused tests do.
+    //
+    // The M10-C contract "zero write dispatch / zero write transaction" belongs
+    // to the confirmation-only foundation, so it is asserted over exactly the
+    // phases that exercise it (snapshotted here) rather than over these steps.
+    auto writeAttemptsBeforeDlg = std::make_shared<int>(0);
+    auto writeSendsBeforeDlg = std::make_shared<int>(0);
+    auto dlgSectionRan = std::make_shared<bool>(false);
+
+    // §11 projection-signal oracle: the atomic path must notify through the
+    // SAME existing signal the old confirmation path uses. No new
+    // production-only signal is introduced for the test.
+    auto preparedNotifies = std::make_shared<int>(0);
+    QObject::connect(controller, &AnalysisController::preparedWriteChanged, &app,
+                     [preparedNotifies]() { ++*preparedNotifies; });
+
+    // Return the harness to a clean, connected Active Serial session with no
+    // prepared snapshot, without ever invoking the normal Confirm button.
+    auto resetWriteContext = [&controller]() {
+        if (controller->serialBusy()) {
+            controller->disconnectSerial();
+        }
+        if (controller->hasPreparedWrite()) {
+            (void)controller->cancelPreparedWrite(
+                controller->preparedWriteTokenValue());
+        }
+        if (!controller->serialConnected()) {
+            controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+        }
+    };
+    auto prepareFc06Dialog = [&]() {
+        setDraft("activeFunctionIndex", 0);
+        setDraft("unit06", 11);
+        setDraft("addressText06", QString::number(0x0064));
+        setDraft("valueText06", QString::number(5));
+        setDraft("timeout06", 1000);
+        return activateWrite();
+    };
+
+    // ---- DLG1: full accepted -> Consumed -> Dialog exits the flow ----
+    push([&]() {
+        resetWriteContext();
+        *dlgSectionRan = true;
+        transport->setAcceptWrites(true);
+        transport->setWriteShortAcceptedBytes(std::nullopt);
+        *writeAttemptsBeforeDlg = transport->writeAttempts();
+        *writeSendsBeforeDlg = transport->writeSends();
+
+        if (!prepareFc06Dialog())
+            fail(QStringLiteral("WRITEFAIL DLG1: could not prepare 0x06"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG1: the dialog did not open"));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL DLG1: state=%1, expected prepared")
+                     .arg(stateToken()));
+        const auto token = tokenOf();
+        if (token == 0)
+            fail(QStringLiteral("WRITEFAIL DLG1: no snapshot token"));
+
+        const int notifiesBefore = *preparedNotifies;
+        const auto result = controller->confirmAndDispatchPreparedWrite(token);
+
+        if (!result.confirmationAccepted)
+            fail(QStringLiteral("WRITEFAIL DLG1: confirmationAccepted=false"));
+        if (!result.dispatchAttempted)
+            fail(QStringLiteral("WRITEFAIL DLG1: dispatchAttempted=false"));
+        if (!result.startResult.has_value() || !result.startResult->accepted)
+            fail(QStringLiteral("WRITEFAIL DLG1: the transport did not accept"));
+        else if (result.startResult->disposition
+                 != modbuslens::core::TransportDisposition::PossiblySent)
+            fail(QStringLiteral("WRITEFAIL DLG1: disposition is not PossiblySent"));
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL DLG1: state=%1, expected consumed")
+                     .arg(stateToken()));
+        if (transport->writeAttempts() - *writeAttemptsBeforeDlg != 1)
+            fail(QStringLiteral("WRITEFAIL DLG1: attempts=%1, expected exactly 1")
+                     .arg(transport->writeAttempts() - *writeAttemptsBeforeDlg));
+        if (transport->writeSends() - *writeSendsBeforeDlg != 1)
+            fail(QStringLiteral("WRITEFAIL DLG1: sends=%1, expected exactly 1")
+                     .arg(transport->writeSends() - *writeSendsBeforeDlg));
+        if (!transport->writtenDescriptor().has_value()
+            || transport->writtenDescriptor()->wire.size() != 8)
+            fail(QStringLiteral("WRITEFAIL DLG1: the dispatched ADU is not the "
+                                "8-byte 0x06 wire"));
+        // §11: the authority change must be announced through the existing
+        // projection signal (the dialog cannot close off a silent transition).
+        if (*preparedNotifies <= notifiesBefore)
+            fail(QStringLiteral("WRITEFAIL DLG1: the atomic path emitted NO "
+                                "preparedWriteChanged projection notification"));
+        note(QStringLiteral("WRITE [DLG1]: full accepted attempt=1 send=1 -> "
+                            "state=consumed, notifies +%1")
+                 .arg(*preparedNotifies - notifiesBefore));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG1: the dialog is still visible after "
+                                "a Consumed snapshot (transport success must not "
+                                "be the close authority)"));
+        // §10: the same (consumed) token can never reopen the dialog nor widen
+        // the attempt counters.
+        const int attempts = transport->writeAttempts();
+        const int sends = transport->writeSends();
+        const auto again = controller->confirmAndDispatchPreparedWrite(tokenOf());
+        if (again.confirmationAccepted || again.dispatchAttempted)
+            fail(QStringLiteral("WRITEFAIL DLG1: a consumed token dispatched again"));
+        if (transport->writeAttempts() != attempts || transport->writeSends() != sends)
+            fail(QStringLiteral("WRITEFAIL DLG1: a consumed token produced extra "
+                                "attempts/sends"));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG1: the dialog reopened for a consumed "
+                                "token"));
+        note(QStringLiteral("WRITE [DLG1]: dialog closed; consumed token inert "
+                            "(attempts=%1 sends=%2)")
+                 .arg(attempts)
+                 .arg(sends));
+    });
+
+    // ---- DLG2: the transport accepts NOTHING -> still Consumed -> closed ----
+    push([&]() {
+        resetWriteContext();
+        transport->setAcceptWrites(false); // count the attempt, accept 0 bytes
+        transport->setWriteShortAcceptedBytes(std::nullopt);
+        const int attemptsBefore = transport->writeAttempts();
+        const int sendsBefore = transport->writeSends();
+
+        if (!prepareFc06Dialog())
+            fail(QStringLiteral("WRITEFAIL DLG2: could not prepare 0x06"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG2: the dialog did not open"));
+        const auto token = tokenOf();
+
+        const auto result = controller->confirmAndDispatchPreparedWrite(token);
+
+        if (!result.confirmationAccepted || !result.dispatchAttempted)
+            fail(QStringLiteral("WRITEFAIL DLG2: the confirmation was not consumed"));
+        if (!result.startResult.has_value())
+            fail(QStringLiteral("WRITEFAIL DLG2: no startResult (this is NOT a "
+                                "guard failure)"));
+        else {
+            if (result.startResult->accepted)
+                fail(QStringLiteral("WRITEFAIL DLG2: the transport accepted"));
+            if (result.startResult->disposition
+                != modbuslens::core::TransportDisposition::NotSent)
+                fail(QStringLiteral("WRITEFAIL DLG2: disposition is not NotSent"));
+        }
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL DLG2: state=%1, expected consumed")
+                     .arg(stateToken()));
+        if (transport->writeAttempts() - attemptsBefore != 1)
+            fail(QStringLiteral("WRITEFAIL DLG2: attempts delta=%1, expected 1")
+                     .arg(transport->writeAttempts() - attemptsBefore));
+        if (transport->writeSends() != sendsBefore)
+            fail(QStringLiteral("WRITEFAIL DLG2: a send was counted"));
+        if (transport->writeTerminals() != 0)
+            fail(QStringLiteral("WRITEFAIL DLG2: a zero-accept produced a terminal"));
+        note(QStringLiteral("WRITE [DLG2]: zero-accept attempt=1 send=0 NotSent -> "
+                            "state=consumed"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG2: the dialog is still visible — the "
+                                "close must NOT depend on send success"));
+        const int attempts = transport->writeAttempts();
+        const auto again = controller->confirmAndDispatchPreparedWrite(tokenOf());
+        if (again.confirmationAccepted || transport->writeAttempts() != attempts)
+            fail(QStringLiteral("WRITEFAIL DLG2: a consumed token acted again"));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG2: the dialog reopened"));
+        note(QStringLiteral("WRITE [DLG2]: dialog closed; token inert"));
+    });
+
+    // ---- DLG3: short submission -> Consumed + one terminal -> closed ----
+    push([&]() {
+        resetWriteContext();
+        transport->setAcceptWrites(true);
+        transport->setWriteShortAcceptedBytes(3);
+        const int attemptsBefore = transport->writeAttempts();
+        const int sendsBefore = transport->writeSends();
+        const int terminalsBefore = transport->writeTerminals();
+
+        if (!prepareFc06Dialog())
+            fail(QStringLiteral("WRITEFAIL DLG3: could not prepare 0x06"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG3: the dialog did not open"));
+        const auto token = tokenOf();
+
+        const auto result = controller->confirmAndDispatchPreparedWrite(token);
+
+        if (!result.confirmationAccepted || !result.dispatchAttempted)
+            fail(QStringLiteral("WRITEFAIL DLG3: the confirmation was not consumed"));
+        if (!result.startResult.has_value() || result.startResult->accepted)
+            fail(QStringLiteral("WRITEFAIL DLG3: a short submission was reported "
+                                "as accepted"));
+        else if (result.startResult->disposition
+                 != modbuslens::core::TransportDisposition::PossiblySent)
+            fail(QStringLiteral("WRITEFAIL DLG3: disposition is not PossiblySent"));
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL DLG3: state=%1, expected consumed")
+                     .arg(stateToken()));
+        if (transport->writeAttempts() - attemptsBefore != 1)
+            fail(QStringLiteral("WRITEFAIL DLG3: attempts delta != 1"));
+        if (transport->writeSends() != sendsBefore)
+            fail(QStringLiteral("WRITEFAIL DLG3: a send was counted"));
+        if (transport->writeTerminals() - terminalsBefore != 1)
+            fail(QStringLiteral("WRITEFAIL DLG3: expected exactly one "
+                                "ShortSubmission terminal"));
+        note(QStringLiteral("WRITE [DLG3]: short attempt=1 send=0 PossiblySent + "
+                            "1 terminal -> state=consumed"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG3: the dialog is still visible after "
+                                "a short submission"));
+        const int attempts = transport->writeAttempts();
+        const auto again = controller->confirmAndDispatchPreparedWrite(tokenOf());
+        if (again.confirmationAccepted || transport->writeAttempts() != attempts)
+            fail(QStringLiteral("WRITEFAIL DLG3: a consumed token acted again"));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG3: the dialog reopened"));
+        note(QStringLiteral("WRITE [DLG3]: dialog closed; token inert"));
+    });
+
+    // ---- DLG4: prepared 0x10 -> CapabilityUnavailable -> closed ----
+    push([&]() {
+        resetWriteContext();
+        transport->setAcceptWrites(true);
+        transport->setWriteShortAcceptedBytes(std::nullopt);
+        const int attemptsBefore = transport->writeAttempts();
+        const int sendsBefore = transport->writeSends();
+
+        setDraft("activeFunctionIndex", 1);
+        setDraft("unit10", 1);
+        setDraft("start10", 0);
+        setDraft("valuesText10", QStringLiteral("7"));
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL DLG4: could not prepare 0x10"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG4: the dialog did not open"));
+        if (controller->preparedWriteFunction() != 0x10)
+            fail(QStringLiteral("WRITEFAIL DLG4: prepared function is not 0x10"));
+        const auto token = tokenOf();
+
+        const auto result = controller->confirmAndDispatchPreparedWrite(token);
+
+        // Zero consume, zero encode, zero transport call — but honestly marked.
+        if (result.confirmationAccepted || result.dispatchAttempted)
+            fail(QStringLiteral("WRITEFAIL DLG4: an unsupported capability was "
+                                "consumed or dispatched"));
+        if (result.startResult.has_value())
+            fail(QStringLiteral("WRITEFAIL DLG4: the transport was consulted"));
+        if (!result.rejectedReason.has_value()
+            || *result.rejectedReason
+                != modbuslens::core::ConfirmRejectReason::CapabilityUnavailable)
+            fail(QStringLiteral("WRITEFAIL DLG4: reject reason is not "
+                                "CapabilityUnavailable"));
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("WRITEFAIL DLG4: state=%1, expected invalidated")
+                     .arg(stateToken()));
+        if (controller->preparedWriteInvalidReason()
+            != std::optional{modbuslens::core::PreparedWriteInvalidReason::
+                                 CapabilityUnavailable})
+            fail(QStringLiteral("WRITEFAIL DLG4: invalidation reason is not "
+                                "CapabilityUnavailable"));
+        if (transport->writeAttempts() != attemptsBefore
+            || transport->writeSends() != sendsBefore)
+            fail(QStringLiteral("WRITEFAIL DLG4: the transport was touched"));
+        note(QStringLiteral("WRITE [DLG4]: 0x10 -> CapabilityUnavailable, "
+                            "zero consume/encode/transport"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG4: the dialog is still visible after "
+                                "an Invalidated(CapabilityUnavailable) snapshot"));
+        note(QStringLiteral("WRITE [DLG4]: dialog closed"));
+    });
+
+    // ---- DLG5: EXTERNAL invalidation (disconnect / busy) + old-token API ----
+    push([&]() {
+        resetWriteContext();
+        if (!prepareFc06Dialog())
+            fail(QStringLiteral("WRITEFAIL DLG5: could not prepare 0x06"));
+        if (!dialogVisible() || stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL DLG5: the dialog/snapshot is not "
+                                "Prepared"));
+        // The CONTEXT EVENT itself carries the authoritative reason...
+        controller->disconnectSerial();
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("WRITEFAIL DLG5: disconnect did not invalidate "
+                                "(state=%1)").arg(stateToken()));
+        if (controller->preparedWriteInvalidReason()
+            != std::optional{modbuslens::core::PreparedWriteInvalidReason::
+                                 Disconnected})
+            fail(QStringLiteral("WRITEFAIL DLG5: the reason is not Disconnected"));
+        note(QStringLiteral("WRITE [DLG5]: disconnect -> Invalidated(Disconnected)"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG5: the dialog is still visible after "
+                                "an external invalidation"));
+        // ...while the LATER old-token API call reports simply "nothing is
+        // prepared". The two are different facts and must never be merged into
+        // one field.
+        const int attempts = transport->writeAttempts();
+        const auto late = controller->confirmAndDispatchPreparedWrite(tokenOf());
+        if (late.confirmationAccepted || late.dispatchAttempted)
+            fail(QStringLiteral("WRITEFAIL DLG5: the old token dispatched"));
+        if (!late.rejectedReason.has_value()
+            || *late.rejectedReason
+                != modbuslens::core::ConfirmRejectReason::NotPrepared)
+            fail(QStringLiteral("WRITEFAIL DLG5: the post-event reject reason is not "
+                                "NotPrepared"));
+        if (transport->writeAttempts() != attempts)
+            fail(QStringLiteral("WRITEFAIL DLG5: the old token reached the transport"));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG5: the dialog reopened"));
+        note(QStringLiteral("WRITE [DLG5]: dialog closed; old token -> "
+                            "NotPrepared (distinct from the Disconnected reason)"));
+    });
+    // DLG5b: the same two-layer distinction for the busy transition.
+    push([&]() {
+        resetWriteContext();
+        if (!prepareFc06Dialog())
+            fail(QStringLiteral("WRITEFAIL DLG5b: could not prepare 0x06"));
+        if (!dialogVisible() || stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL DLG5b: not Prepared before the read"));
+        // A real FC03 read entering flight (test-controlled completion).
+        transport->setCompleteReadImmediately(false);
+        controller->readHoldingRegistersOnce(11, 0, 2, 1000);
+        if (!controller->serialBusy())
+            fail(QStringLiteral("WRITEFAIL DLG5b: the read did not make busy true"));
+        if (controller->preparedWriteInvalidReason()
+            != std::optional{modbuslens::core::PreparedWriteInvalidReason::
+                                 BusyBecameTrue})
+            fail(QStringLiteral("WRITEFAIL DLG5b: the reason is not "
+                                "BusyBecameTrue"));
+        note(QStringLiteral("WRITE [DLG5b]: busy false->true -> "
+                            "Invalidated(BusyBecameTrue)"));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL DLG5b: the dialog is still visible after "
+                                "the busy invalidation"));
+        transport->setCompleteReadImmediately(true);
+        controller->disconnectSerial(); // aborts the in-flight read locally
+        note(QStringLiteral("WRITE [DLG5b]: dialog closed"));
+    });
+
     auto step = std::make_shared<int>(0);
     const int settleMs = 60;
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, step, schedule]() {
         if (*step >= steps->size()) {
-            if (transport->writeAttempts() != 0)
-                fail(QStringLiteral("WRITEFAIL final: write dispatch attempts=%1 "
-                                    "(reads=%2, which are the deliberate FC03 "
-                                    "busy oracle)")
-                         .arg(transport->writeAttempts())
-                         .arg(transport->readStarts()));
+            // M10-C contract, scoped correctly: the confirmation-only
+            // foundation must still end with ZERO successful write submissions
+            // and ZERO write dispatch. The DLG oracles deliberately dispatch
+            // real writes (that is their subject), so this is measured as a
+            // DELTA from the snapshot taken just before the first DLG step
+            // (which is 0 in the expected pre-DLG phases), and the DLG section
+            // then accounts for its own attempts separately.
+            const int preDlgAttempts =
+                *writeAttemptsBeforeDlg; // absolute count before DLG section
+            const int dlgAttempts = transport->writeAttempts() - preDlgAttempts;
+            const int dlgSends = transport->writeSends() - *writeSendsBeforeDlg;
+            if (preDlgAttempts != 0)
+                fail(QStringLiteral("WRITEFAIL final: the confirmation-only phases "
+                                    "attempted %1 write dispatch(es)")
+                         .arg(preDlgAttempts));
+            if (*writeSendsBeforeDlg != 0)
+                fail(QStringLiteral("WRITEFAIL final: the confirmation-only phases "
+                                    "completed %1 write submission(s)")
+                         .arg(*writeSendsBeforeDlg));
+            // The DLG oracles must have produced exactly the attempts they
+            // claim: 1 (DLG1 full) + 1 (DLG2 zero-accept) + 1 (DLG3 short)
+            // + 0 (DLG4 capability) + 0 (DLG5 external) = 3 attempts, exactly
+            // one accepted send, exactly one ShortSubmission terminal.
+            if (!*dlgSectionRan)
+                fail(QStringLiteral("WRITEFAIL final: the DLG oracle section never "
+                                    "ran"));
+            else if (dlgAttempts != 3 || dlgSends != 1
+                     || transport->writeTerminals() != 1)
+                fail(QStringLiteral("WRITEFAIL final: DLG accounting mismatch "
+                                    "(attempts=%1 sends=%2 terminals=%3; expected "
+                                    "3 / 1 / 1)")
+                         .arg(dlgAttempts)
+                         .arg(dlgSends)
+                         .arg(transport->writeTerminals()));
             // M10-C4: zero write TRANSACTIONS too. The session history is the
             // user-visible record, so "no 0x06 / 0x10 row" is the presentation-level
             // twin of "no write dispatch"; the FC03 reads (the deliberate busy
@@ -7177,7 +7613,11 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "1000x700; C4 editor first/last line scroll; C4 "
                            "confirmation all-values scroll; C4 123/124 boundary; C4 "
                            "long-summary keyboard; D1 raw-text O1-O7/R0-R3 + keyboard "
-                           "+ a11y) — zero write dispatch, zero write transaction";
+                           "+ a11y; M10-D3 DLG1-DLG5 atomic-dispatch dialog "
+                           "reaction) — confirmation-only phases: zero write "
+                           "dispatch, zero write transaction; DLG phases: 3 "
+                           "dispatches / 1 accepted send / 1 short terminal, every "
+                           "Dialog exit sourced from snapshot authority";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "WRITEFAIL:" << f;
