@@ -2,6 +2,7 @@
 
 #include "core/protocol/Function03.h"
 #include "core/protocol/Function06.h"
+#include "core/protocol/Function16.h"
 #include "core/protocol/ModbusRtuCodec.h"
 
 namespace modbuslens::core {
@@ -124,12 +125,24 @@ ActiveRequestEncodeResult encodeActiveRequest(const ActiveRequestIntent& intent)
             .wire = encodeRtuFrame(frame),
         };
     }
-    case ActiveFunction::WriteMultipleRegisters:
-        // Active write encoding for 0x10 does not exist yet BY DESIGN (0x06
-        // first, 0x10 is M10-E work). Passive decoding of captured 0x10
-        // traffic is a different capability and stays untouched.
-        return ActiveRequestEncodeError{
-            ActiveRequestEncodeErrorCode::UnsupportedFunction};
+    case ActiveFunction::WriteMultipleRegisters: {
+        // M10-E1: the 0x10 REQUEST ENCODER now exists, symmetric to 0x03/0x06.
+        // An encoder is still NOT a product capability — nothing here can be
+        // sent, because the session gate (activeFunctionSupported) does NOT
+        // admit 0x10 yet: the active response analyzer and its session
+        // lifecycle tests are M10-E2 work. Keeping that gate closed is what
+        // makes "an encoder exists" safe; the Controller's capability check
+        // and the production UI stay absent for the same reason.
+        const auto& payload =
+            std::get<WriteMultipleRegistersIntent>(intent.payload);
+        const auto frame = encodeWriteMultipleRegistersRequest(
+            intent.unitId, payload.startAddress, payload.values);
+        return ActiveRequestDescriptor{
+            .intent = intent,
+            .frame = frame,
+            .wire = encodeRtuFrame(frame),
+        };
+    }
     }
     return ActiveRequestEncodeError{ActiveRequestEncodeErrorCode::UnsupportedFunction};
 }

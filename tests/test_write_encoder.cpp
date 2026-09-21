@@ -7,7 +7,9 @@
 #include <vector>
 
 #include "core/active/ActiveRequestIntent.h"
+#include "core/active/WritePrepareValidation.h"
 #include "core/protocol/Function06.h"
+#include "core/protocol/Function16.h"
 #include "core/serial/SerialTransactionSession.h"
 
 using modbuslens::core::ActiveFunction;
@@ -16,8 +18,10 @@ using modbuslens::core::ActiveRequestEncodeError;
 using modbuslens::core::ActiveRequestEncodeErrorCode;
 using modbuslens::core::ActiveRequestIntent;
 using modbuslens::core::encodeActiveRequest;
+using modbuslens::core::encodeWriteMultipleRegistersRequest;
 using modbuslens::core::encodeWriteSingleRegisterRequest;
 using modbuslens::core::ModbusRtuFrame;
+using modbuslens::core::WriteMultipleRegistersIntent;
 using modbuslens::core::WriteSingleRegisterIntent;
 
 namespace {
@@ -93,6 +97,67 @@ ActiveRequestIntent writeIntent(std::uint8_t unit, std::uint16_t address,
     };
 }
 
+ActiveRequestIntent writeMultipleIntent(std::uint8_t unit,
+                                        std::uint16_t address,
+                                        std::vector<std::uint16_t> values)
+{
+    return ActiveRequestIntent{
+        .function = ActiveFunction::WriteMultipleRegisters,
+        .unitId = unit,
+        .timeout = std::chrono::milliseconds{1000},
+        .payload = WriteMultipleRegistersIntent{.startAddress = address,
+                                                .values = std::move(values)},
+    };
+}
+
+// ---------------------------------------------------------------------------
+// M10-E1 golden vector table for FC16 / 0x10.
+//
+// Layout per MODBUS Application Protocol V1.1b3 §6.12:
+//   [unit][0x10][start 2B][quantity 2B][byteCount 1B][values 2N][CRC lo hi]
+//
+// The small rows carry the WHOLE ADU as a source-fixed literal. F16-G6 is the
+// published MODBUS Application Protocol example for Write Multiple Registers
+// (unit 0x11, start 1, quantity 2, byteCount 4, values 0x000A 0x0102), so the
+// field layout is corroborated by an external document, not only by our own
+// decoder. The CRC columns were computed with the independent test-local
+// implementation below — never with the production codec.
+// ---------------------------------------------------------------------------
+struct GoldenVector16 {
+    const char* name;
+    std::uint8_t unit;
+    std::uint16_t address;
+    std::vector<std::uint16_t> values;
+    std::vector<std::uint8_t> expectedAdu;
+};
+
+std::vector<GoldenVector16> goldenVectors16()
+{
+    return {
+        {"F16-G1 minimum (1 / 0 / [0])", 1, 0, {0},
+         {0x01, 0x10, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00, 0xA6, 0x50}},
+        {"F16-G2 smallest non-zero (1 / 0 / [1])", 1, 0, {1},
+         {0x01, 0x10, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x01, 0x67, 0x90}},
+        {"F16-G3 mixed values (1 / 0 / [1, 0x1234, 0xABCD])", 1, 0,
+         {0x0001, 0x1234, 0xABCD},
+         {0x01, 0x10, 0x00, 0x00, 0x00, 0x03, 0x06, 0x00, 0x01, 0x12, 0x34,
+          0xAB, 0xCD, 0x21, 0x53}},
+        {"F16-G4 upper unit (247 / 0 / [1])", 247, 0, {1},
+         {0xF7, 0x10, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x01, 0x48, 0x34}},
+        {"F16-G5 upper span (1 / 65535 / [0xFFFF])", 1, 65535, {0xFFFF},
+         {0x01, 0x10, 0xFF, 0xFF, 0x00, 0x01, 0x02, 0xFF, 0xFF, 0xBC, 0xE0}},
+        {"F16-G6 protocol example (0x11 / 1 / [0x000A, 0x0102])", 0x11, 1,
+         {0x000A, 0x0102},
+         {0x11, 0x10, 0x00, 0x01, 0x00, 0x02, 0x04, 0x00, 0x0A, 0x01, 0x02,
+          0xC6, 0xF0}},
+        {"F16-G7 high/low asymmetry (1 / 0x1234 / "
+         "[0x00FF, 0xFF00, 0x8000, 0x0001])",
+         1, 0x1234, {0x00FF, 0xFF00, 0x8000, 0x0001},
+         {0x01, 0x10, 0x12, 0x34, 0x00, 0x04, 0x08, 0x00, 0xFF, 0xFF, 0x00,
+          0x80, 0x00, 0x00, 0x01, 0xCD, 0x27}},
+    };
+}
+
 } // namespace
 
 class WriteEncoderTest : public QObject
@@ -115,7 +180,24 @@ private slots:
     void e8_unitAbove247Rejected();
     void e9_descriptorFunctionIs0x06();
     void e10_wireSizeIsEight();
-    void e12_writeMultipleRegistersStillUnsupported();
+    // M10-E1 intentional transition: the old e12 asserted
+    // encodeActiveRequest(0x10) == UnsupportedFunction. The 0x10 encoder now
+    // exists, so the frozen negative moved one level up (session still
+    // refuses, capability still absent) — see f16_* below and RCA in T022.
+    void e12_writeMultipleRegistersEncodesButIsNotActive();
+
+    // ---- M10-E1: FC16 / 0x10 request encoder ----
+    void f16_goldenVectorsAreByteExact();
+    void f16_maxQuantityHeaderPayloadLengthAndCrc();
+    void f16_byteCountIsDerived();
+    void f16_wireLengthIs9Plus2N();
+    void f16_orderIsPreserved();
+    void f16_unitZeroRejected();
+    void f16_unitAbove247Rejected();
+    void f16_emptyValuesRejected();
+    void f16_124ValuesRejected();
+    void f16_spanOverflowRejectedAtPrepareLayer();
+    void f16_sessionStillRefuses();
 
     // ---- descriptor contract ----
     void d1_descriptorKeepsIntentFrameAndWire();
@@ -253,20 +335,32 @@ void WriteEncoderTest::e10_wireSizeIsEight()
     QCOMPARE(descriptor->frame.data.size(), std::size_t{4});
 }
 
-void WriteEncoderTest::e12_writeMultipleRegistersStillUnsupported()
+void WriteEncoderTest::e12_writeMultipleRegistersEncodesButIsNotActive()
 {
-    // 0x10 stays ABSENT: D1 adds the 0x06 encoder only.
-    const auto intent = ActiveRequestIntent{
-        .function = ActiveFunction::WriteMultipleRegisters,
-        .unitId = 1,
-        .timeout = std::chrono::milliseconds{1000},
-        .payload = modbuslens::core::WriteMultipleRegistersIntent{
-            .startAddress = 0, .values = {1, 2}},
-    };
-    const auto encoded = encodeActiveRequest(intent);
-    const auto* error = std::get_if<ActiveRequestEncodeError>(&encoded);
-    QVERIFY(error != nullptr);
-    QCOMPARE(error->code, ActiveRequestEncodeErrorCode::UnsupportedFunction);
+    // INTENTIONAL CONTRACT TRANSITION (M10-E1, recorded in T022 §ZE):
+    // the old e12 asserted encodeActiveRequest(0x10) == UnsupportedFunction.
+    // E1 adds the 0x10 request encoder, so "encoder exists" is now YES — but
+    // it is deliberately still NOT a product capability, so the frozen
+    // negatives move up one level and must all stay true:
+    //   encode 0x10        = YES  (this test)
+    //   session 0x10       = NO   (f16_sessionStillRefuses)
+    //   dispatch 0x10      = NO   (Controller capability check, unchanged)
+    //   product capability = ABSENT (write10Supported has no property)
+    //   production UI      = ABSENT (no 0x10 node is ever created)
+    const auto encoded =
+        encodeActiveRequest(writeMultipleIntent(1, 10, {1, 2}));
+    const auto* descriptor = std::get_if<ActiveRequestDescriptor>(&encoded);
+    QVERIFY(descriptor != nullptr);
+    QCOMPARE(descriptor->frame.functionCode, std::uint8_t{0x10});
+    QCOMPARE(descriptor->wire.size(), std::size_t{13}); // 9 + 2*2
+
+    // Session gate unchanged: the request cannot even begin.
+    QVERIFY(!modbuslens::core::activeFunctionSupported(
+        ActiveFunction::WriteMultipleRegisters));
+    modbuslens::core::SerialTransactionSession session;
+    const auto begin = session.beginActiveRequest(*descriptor);
+    QVERIFY(std::get_if<modbuslens::core::SerialTransactionError>(&begin)
+            != nullptr);
 }
 
 void WriteEncoderTest::d1_descriptorKeepsIntentFrameAndWire()
@@ -329,6 +423,208 @@ void WriteEncoderTest::s6_sessionRefusesToBeginWriteSingleRegister()
         ActiveFunction::ReadHoldingRegisters));
     QVERIFY(!modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteMultipleRegisters));
+}
+
+// ---------------------------------------------------------------------------
+// M10-E1: FC16 / 0x10 request encoder.
+// ---------------------------------------------------------------------------
+
+void WriteEncoderTest::f16_goldenVectorsAreByteExact()
+{
+    for (const GoldenVector16& vector : goldenVectors16()) {
+        const std::string label = vector.name;
+        const auto encoded =
+            encodeActiveRequest(writeMultipleIntent(vector.unit, vector.address,
+                                                    vector.values));
+        const auto* descriptor = std::get_if<ActiveRequestDescriptor>(&encoded);
+        QVERIFY2(descriptor != nullptr, (label + ": encode failed").c_str());
+        // The ADU must equal the source-fixed literal byte for byte.
+        QVERIFY2(descriptor->wire == vector.expectedAdu,
+                 (label + ": ADU mismatch").c_str());
+        // And the independent oracle must agree with that same literal — the
+        // production codec is never used to derive the expectation.
+        const std::vector<std::uint8_t> payload(
+            vector.expectedAdu.begin(), vector.expectedAdu.end() - 2);
+        const auto crc = independentCrc(payload);
+        QCOMPARE(static_cast<int>(vector.expectedAdu[vector.expectedAdu.size() - 2]),
+                 static_cast<int>(crc & 0xFF));
+        QCOMPARE(static_cast<int>(vector.expectedAdu.back()),
+                 static_cast<int>((crc >> 8) & 0xFF));
+    }
+}
+
+void WriteEncoderTest::f16_maxQuantityHeaderPayloadLengthAndCrc()
+{
+    // 123 registers is the protocol maximum: quantity=123 (0x007B),
+    // byteCount=246 (0xF6), ADU = 9 + 2*123 = 255 bytes. Writing out 246 value
+    // bytes by hand adds no information, so this row pins the header, the
+    // length, selected payload positions and the independent CRC instead.
+    std::vector<std::uint16_t> values(123);
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        values[index] = static_cast<std::uint16_t>(index & 0xFFFF);
+    }
+    const auto encoded = encodeActiveRequest(writeMultipleIntent(1, 0, values));
+    const auto* descriptor = std::get_if<ActiveRequestDescriptor>(&encoded);
+    QVERIFY(descriptor != nullptr);
+
+    QCOMPARE(descriptor->wire.size(), std::size_t{255});
+    // frame.data excludes unit/function/CRC: start(2)+quantity(2)+byteCount(1)
+    // + values(2*123) = 251; the ADU adds unit(1)+function(1)+CRC(2).
+    QCOMPARE(descriptor->frame.data.size(), std::size_t{251});
+    // header: unit / function / start / quantity / byteCount (ADU offsets)
+    QCOMPARE(descriptor->wire[0], std::uint8_t{0x01});
+    QCOMPARE(descriptor->wire[1], std::uint8_t{0x10});
+    QCOMPARE(descriptor->wire[2], std::uint8_t{0x00});
+    QCOMPARE(descriptor->wire[3], std::uint8_t{0x00});
+    QCOMPARE(descriptor->wire[4], std::uint8_t{0x00}); // quantity hi
+    QCOMPARE(descriptor->wire[5], std::uint8_t{0x7B}); // quantity lo = 123
+    QCOMPARE(descriptor->wire[6], std::uint8_t{0xF6}); // byteCount = 246
+    // selected payload positions (first / second / last register)
+    QCOMPARE(descriptor->wire[7], std::uint8_t{0x00});
+    QCOMPARE(descriptor->wire[8], std::uint8_t{0x00});
+    QCOMPARE(descriptor->wire[9], std::uint8_t{0x00});
+    QCOMPARE(descriptor->wire[10], std::uint8_t{0x01});
+    QCOMPARE(descriptor->wire[251], std::uint8_t{0x00}); // last value hi (122)
+    QCOMPARE(descriptor->wire[252], std::uint8_t{0x7A}); // last value lo
+    // independent CRC over everything before it
+    const std::vector<std::uint8_t> payload(descriptor->wire.begin(),
+                                            descriptor->wire.end() - 2);
+    const auto crc = independentCrc(payload);
+    QCOMPARE(static_cast<int>(descriptor->wire[253]),
+             static_cast<int>(crc & 0xFF));
+    QCOMPARE(static_cast<int>(descriptor->wire.back()),
+             static_cast<int>((crc >> 8) & 0xFF));
+}
+
+void WriteEncoderTest::f16_byteCountIsDerived()
+{
+    // byteCount is DERIVED from values (2 * N) and is never caller-supplied:
+    // the intent has no quantity/byteCount field at all.
+    const auto one = encodeActiveRequest(writeMultipleIntent(1, 0, {7}));
+    const auto two = encodeActiveRequest(writeMultipleIntent(1, 0, {7, 8}));
+    std::vector<std::uint16_t> many(123);
+    const auto max = encodeActiveRequest(writeMultipleIntent(1, 0, many));
+    const auto* oneD = std::get_if<ActiveRequestDescriptor>(&one);
+    const auto* twoD = std::get_if<ActiveRequestDescriptor>(&two);
+    const auto* maxD = std::get_if<ActiveRequestDescriptor>(&max);
+    QVERIFY(oneD != nullptr);
+    QVERIFY(twoD != nullptr);
+    QVERIFY(maxD != nullptr);
+    QCOMPARE(oneD->frame.data[4], std::uint8_t{2});   // 1 register  -> 2
+    QCOMPARE(twoD->frame.data[4], std::uint8_t{4});   // 2 registers -> 4
+    QCOMPARE(maxD->frame.data[4], std::uint8_t{246}); // 123         -> 246
+    // and the declared quantity always equals values.size() (data[2..3])
+    QCOMPARE(oneD->frame.data[2], std::uint8_t{0});
+    QCOMPARE(oneD->frame.data[3], std::uint8_t{1});
+    QCOMPARE(twoD->frame.data[3], std::uint8_t{2});
+    QCOMPARE(maxD->frame.data[2], std::uint8_t{0});
+    QCOMPARE(maxD->frame.data[3], std::uint8_t{123});
+}
+
+void WriteEncoderTest::f16_wireLengthIs9Plus2N()
+{
+    // RTU ADU = unit(1) + function(1) + start(2) + quantity(2) + byteCount(1)
+    //          + 2*N values + CRC(2)  =  9 + 2*N.
+    struct Row { std::size_t count; std::size_t adu; };
+    const Row rows[] = {{1, 11}, {3, 15}, {123, 255}};
+    for (const Row& row : rows) {
+        std::vector<std::uint16_t> values(row.count);
+        const auto encoded =
+            encodeActiveRequest(writeMultipleIntent(1, 0, values));
+        const auto* descriptor = std::get_if<ActiveRequestDescriptor>(&encoded);
+        QVERIFY(descriptor != nullptr);
+        QCOMPARE(descriptor->wire.size(), row.adu);
+    }
+}
+
+void WriteEncoderTest::f16_orderIsPreserved()
+{
+    // Wire order == input order, big-endian per register: no sorting and no
+    // word swap (M11's byte/word-order decode is unrelated to this layer).
+    const auto encoded = encodeActiveRequest(
+        writeMultipleIntent(1, 0, {0x0001, 0x1234, 0xABCD}));
+    const auto* descriptor = std::get_if<ActiveRequestDescriptor>(&encoded);
+    QVERIFY(descriptor != nullptr);
+    const std::vector<std::uint8_t> expectedPayload = {
+        0x00, 0x01, 0x12, 0x34, 0xAB, 0xCD};
+    // frame.data = start(2)+quantity(2)+byteCount(1)+values(2N): the values
+    // therefore start at offset 5 inside frame.data (offset 7 in the ADU).
+    const std::vector<std::uint8_t> actual(
+        descriptor->frame.data.begin() + 5, descriptor->frame.data.end());
+    QCOMPARE(actual, expectedPayload);
+}
+
+void WriteEncoderTest::f16_unitZeroRejected()
+{
+    const auto encoded = encodeActiveRequest(writeMultipleIntent(0, 10, {1}));
+    const auto* error = std::get_if<ActiveRequestEncodeError>(&encoded);
+    QVERIFY(error != nullptr);
+    QCOMPARE(error->code, ActiveRequestEncodeErrorCode::IntentInvalid);
+}
+
+void WriteEncoderTest::f16_unitAbove247Rejected()
+{
+    const auto encoded = encodeActiveRequest(writeMultipleIntent(248, 10, {1}));
+    const auto* error = std::get_if<ActiveRequestEncodeError>(&encoded);
+    QVERIFY(error != nullptr);
+    QCOMPARE(error->code, ActiveRequestEncodeErrorCode::IntentInvalid);
+}
+
+void WriteEncoderTest::f16_emptyValuesRejected()
+{
+    // quantity 0 is structurally impossible to encode meaningfully: the
+    // intent layer rejects it before any frame exists.
+    const auto encoded = encodeActiveRequest(writeMultipleIntent(1, 10, {}));
+    const auto* error = std::get_if<ActiveRequestEncodeError>(&encoded);
+    QVERIFY(error != nullptr);
+    QCOMPARE(error->code, ActiveRequestEncodeErrorCode::IntentInvalid);
+}
+
+void WriteEncoderTest::f16_124ValuesRejected()
+{
+    // 124 > the protocol maximum of 123, rejected at the intent layer.
+    std::vector<std::uint16_t> values(124);
+    const auto encoded = encodeActiveRequest(writeMultipleIntent(1, 0, values));
+    const auto* error = std::get_if<ActiveRequestEncodeError>(&encoded);
+    QVERIFY(error != nullptr);
+    QCOMPARE(error->code, ActiveRequestEncodeErrorCode::IntentInvalid);
+}
+
+void WriteEncoderTest::f16_spanOverflowRejectedAtPrepareLayer()
+{
+    // The address-span rule (start + quantity <= 65536) belongs to the
+    // PREPARE layer, where the user's draft is validated — the same layering
+    // as every other range policy. start=65535 with 2 registers needs
+    // registers 65535 and 65536, and the second does not exist.
+    const auto result = modbuslens::core::prepareWriteMultipleRegistersIntent(
+        1, 65535, "1\n2", 1000);
+    const auto* error = std::get_if<modbuslens::core::WriteValidationError>(
+        &result);
+    QVERIFY(error != nullptr);
+    QCOMPARE(error->code,
+             modbuslens::core::WriteValidationErrorCode::AddressSpanOutOfRange);
+}
+
+void WriteEncoderTest::f16_sessionStillRefuses()
+{
+    // The E1 staging point: an encoder exists, but active support does NOT.
+    // The session must still refuse 0x10 before any send (M10-E2 lands the
+    // active analyzer and opens the gate).
+    QVERIFY(!modbuslens::core::activeFunctionSupported(
+        ActiveFunction::WriteMultipleRegisters));
+
+    const auto encoded =
+        encodeActiveRequest(writeMultipleIntent(1, 10, {1, 2}));
+    const auto* descriptor = std::get_if<ActiveRequestDescriptor>(&encoded);
+    QVERIFY(descriptor != nullptr);
+    modbuslens::core::SerialTransactionSession session;
+    const auto begin = session.beginActiveRequest(*descriptor);
+    const auto* error = std::get_if<modbuslens::core::SerialTransactionError>(
+        &begin);
+    QVERIFY(error != nullptr);
+    QCOMPARE(error->code,
+             modbuslens::core::SerialTransactionErrorCode::UnsupportedFunction);
+    QCOMPARE(session.state(), modbuslens::core::SerialTransactionState::Idle);
 }
 
 QTEST_GUILESS_MAIN(WriteEncoderTest)

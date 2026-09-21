@@ -976,3 +976,12 @@
 - **Q：为什么 span 校验必须用 widened arithmetic？** A：uint16 加法会回绕——65535 + 2 会变成 1，比较就「通过」了。现有 `registerSpanFitsAddressSpace` 用 uint32 算 `start + count <= 65536`，注释明说这是有意的。0x10 的 quantity 最多 123，看似不会溢出，但 start 本身可以到 65535，所以这条规则对 0x10 同样是硬边界。
 - **Q：M10-E 的分阶段为什么是 E1–E5 而不是照抄 D1–D5？** A：因为 0x10 与 0x06 的**剩余工作量分布不同**：0x10 的 input parsing、validation、snapshot、simulator 写语义**已经存在**（D 阶段顺手建好了 hidden foundation），缺的是 encoder、共享 analyzer、session gate、dispatch 和 production UI。所以 E1 只做 core wire + goldens，E2 做 analyzer 抽取与 session 接线，E3 才开 capability 与 dispatch，E4 才上 production UI，E5 是 final acceptance。硬性原则只有一条：**capability 和 production UI 不得早于 end-to-end 支持**。
 - **Q：这轮最应该记住的治理规则是什么？** A：Agent 只能提出 **LKGC candidate**；在 Human Review PASS 之前不得自行宣布 "verified LKGC advanced"。D5 closure 里我提前写了 LKGC 推进，被 Human Review 补齐授权后免于回滚，但规则自即日起生效——这是一个流程边界，不是可以事后补救的措辞问题。
+
+
+## 101. M10-E1（FC16/0x10 active request encoder）条目（2026-09-21 追加）
+
+- **Q：encoder 加了，为什么还不算「支持 0x10」？** A：因为「能生成正确的字节」只是发送链的第一环。0x10 现在能编出 wire 字节了，但 activeFunctionSupported 仍拒绝它、Controller 的能力检查仍拒绝它、生产 UI 也不存在——三层都还没放行。这三层各自有自己的验收（E2 的 analyzer/session、E3 的 dispatch/capability、E4 的 UI），提前放行任何一层都是在没有响应语义或证据链的情况下允许设备变更。
+- **Q：encoder 为什么不做 quantity 1..123 和 span 校验？** A：分层。这一层只负责字段顺序与 big-endian 打包——unit/timeout 校验在 intent 层，quantity 域在 validatePayload，地址跨度在 prepare 层。这和 0x06 完全一致（0x06 encoder 也不做 unit 校验）。把 range policy 塞进 encoder 会让同一个规则出现在两处，之后必然漂移。
+- **Q：quantity 和 byteCount 为什么坚持派生？** A：因为调用方同时提供 values 和 counts 时，两者可能不一致——而 wire 上只能有一种 truth。在 encoder 内部由 values.size() 派生，第二个 count 就根本不存在了。解码侧同理：Function16 的 decoder 要求 byteCount == 2*quantity 且等于实际到达的字节数，三重一致才接受。
+- **Q：golden vector 里为什么专门放一条规范公开示例？** A：F16-G6（11 10 00 01 00 02 04 00 0A 01 02 C6 F0）就是 MODBUS Application Protocol 里 Write Multiple Registers 的示例请求。它让字段布局由**外部文档**佐证，而不是只由我们自己的 decoder 证明我们自己的 encoder——再配上测试侧独立的 bitwise CRC，形成三层互证。
+- **Q：这轮你自己的 bug 是什么？** A：我把 **ADU 偏移**当成了 **frame.data 偏移**来断言。ADU = unit(1)+function(1)+data(5+2N)+CRC(2)，而 frame.data 从 start 开始，所以 values 在 data 里从 offset 5 起。123 寄存器时 data.size()=251、ADU=255。golden 向量（只比较 wire）首轮就全过，错的只是我新测试里的三个偏移常量——产品 encoder 是对的。教训：**语义帧与 ADU 是两个不同的坐标系**，写断言前先明确自己站在哪个坐标系里。

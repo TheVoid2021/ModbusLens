@@ -1041,9 +1041,11 @@ void WriteDispatchTest::hiddenConfirmSeamStillDispatchesNothing()
 
 void WriteDispatchTest::fc10CapabilityStaysFrozen()
 {
-    // M10-D3 changes NOTHING about 0x10: no encoder, no active support, no
-    // dispatch, no product capability. Only the response-shape recognition
-    // rule exists, and it lives in the session framing table.
+    // M10-E1 changes ONE thing about 0x10: the request ENCODER now exists, so
+    // this test no longer asserts UnsupportedFunction at the encode step.
+    // Everything that actually gates dispatch stays frozen: no active
+    // session support, no Controller dispatch, no product capability, no
+    // production UI. Only the response-shape recognition rule existed before.
     QVERIFY(!modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteMultipleRegisters));
     const auto encoded = encodeActiveRequest(ActiveRequestIntent{
@@ -1052,10 +1054,13 @@ void WriteDispatchTest::fc10CapabilityStaysFrozen()
         .timeout = ms{kTimeoutMs},
         .payload = modbuslens::core::WriteMultipleRegistersIntent{
             .startAddress = kAddress, .values = {1, 2}}});
-    const auto* error = std::get_if<ActiveRequestEncodeError>(&encoded);
-    QVERIFY(error != nullptr);
-    QCOMPARE(error->code,
-             modbuslens::core::ActiveRequestEncodeErrorCode::UnsupportedFunction);
+    // M10-E1 INTENTIONAL TRANSITION: a descriptor is produced now; the frozen
+    // negatives are the session gate above and the Controller capability check
+    // below (r4_capabilityUnavailableForFc10 still covers the dispatch path).
+    const auto* descriptor =
+        std::get_if<ActiveRequestDescriptor>(&encoded);
+    QVERIFY(descriptor != nullptr);
+    QCOMPARE(descriptor->frame.functionCode, std::uint8_t{0x10});
 
     // No write10Supported property exists either: 0x10 has no product
     // capability to report.

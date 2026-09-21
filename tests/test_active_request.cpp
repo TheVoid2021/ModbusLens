@@ -19,6 +19,7 @@ using modbuslens::core::ActiveFunction;
 using modbuslens::core::ActiveRequestDescriptor;
 using modbuslens::core::ActiveRequestEncodeError;
 using modbuslens::core::ActiveRequestEncodeErrorCode;
+using modbuslens::core::ActiveRequestEncodeResult;
 using modbuslens::core::ActiveRequestIntent;
 using modbuslens::core::ActiveRequestValidationError;
 using modbuslens::core::ActiveTransactionEvidence;
@@ -202,16 +203,26 @@ void ActiveRequestTest::ac03_writeEncodeContract()
     const std::vector<std::uint8_t> expectedData = {0x00, 0x0A, 0x00, 0x64};
     QCOMPARE(singleDescriptor->frame.data, expectedData);
 
-    const auto multiple = encodeActiveRequest(ActiveRequestIntent{
-        .function = ActiveFunction::WriteMultipleRegisters,
-        .unitId = 1,
-        .timeout = ms{1000},
-        .payload = WriteMultipleRegistersIntent{
-            .startAddress = 0x0010,
-            .values = std::vector<std::uint16_t>{0x0001, 0x0002}}});
-    const auto multipleError = as<ActiveRequestEncodeError>(multiple);
-    QVERIFY(multipleError.has_value());
-    QCOMPARE(multipleError->code, ActiveRequestEncodeErrorCode::UnsupportedFunction);
+    // M10-E1 INTENTIONAL TRANSITION: the 0x10 request encoder now exists, so
+    // this contract changed from "returns UnsupportedFunction" to "returns a
+    // descriptor". An encoder is still NOT active support — the session gate
+    // (activeFunctionSupported) refuses 0x10 until M10-E2, so nothing here
+    // can be sent. See T022 §ZE for the recorded transition.
+    const ActiveRequestEncodeResult multiple = encodeActiveRequest(
+        ActiveRequestIntent{
+            .function = ActiveFunction::WriteMultipleRegisters,
+            .unitId = 1,
+            .timeout = ms{1000},
+            .payload = WriteMultipleRegistersIntent{
+                .startAddress = 0x0010,
+                .values = std::vector<std::uint16_t>{0x0001, 0x0002}}});
+    const auto* multipleDescriptor =
+        std::get_if<ActiveRequestDescriptor>(&multiple);
+    QVERIFY(multipleDescriptor != nullptr);
+    QCOMPARE(multipleDescriptor->frame.functionCode, std::uint8_t{0x10});
+    // start(2) + quantity(2) + byteCount(1) + values(2*2)
+    QCOMPARE(multipleDescriptor->frame.data.size(), std::size_t{9});
+    QCOMPARE(multipleDescriptor->wire.size(), std::size_t{13});
 }
 
 void ActiveRequestTest::ac04_beginAcceptsDescriptorAndSnapshots()

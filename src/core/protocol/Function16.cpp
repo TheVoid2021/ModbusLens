@@ -89,4 +89,38 @@ decodeWriteMultipleRegistersResponse(const ModbusRtuFrame& frame)
     };
 }
 
+ModbusRtuFrame encodeWriteMultipleRegistersRequest(
+    std::uint8_t address, std::uint16_t startingAddress,
+    const std::vector<std::uint16_t>& values)
+{
+    // Symmetric to Function 0x03/0x06's encoders: field order and big-endian
+    // packing are the ONLY things this layer owns.
+    //
+    // quantity and byteCount are derived from `values` right here — the
+    // single value authority — so a caller can never hand in a count that
+    // disagrees with the payload it also supplies. Range policy (quantity
+    // 1..123, address span, unit bounds, no broadcast) is the intent/session
+    // layer's job, exactly as it is for 0x06: this function encodes whatever
+    // bytes the given values imply.
+    ModbusRtuFrame frame;
+    frame.address = address;
+    frame.functionCode = kWriteMultipleRegistersFunction;
+    frame.data.reserve(kWriteMultipleRegistersHeaderSize
+                       + static_cast<std::size_t>(2u) * values.size());
+    frame.data.push_back(static_cast<std::uint8_t>(startingAddress >> 8));
+    frame.data.push_back(static_cast<std::uint8_t>(startingAddress & 0xFF));
+    const auto quantity = static_cast<std::uint16_t>(values.size());
+    frame.data.push_back(static_cast<std::uint8_t>(quantity >> 8));
+    frame.data.push_back(static_cast<std::uint8_t>(quantity & 0xFF));
+    const auto byteCount = static_cast<std::uint8_t>(2u * values.size());
+    frame.data.push_back(byteCount);
+    for (const std::uint16_t value : values) {
+        // Wire order == input order, big-endian per register: no sorting, no
+        // word swap (M11's byte/word-order decode is a different concern).
+        frame.data.push_back(static_cast<std::uint8_t>(value >> 8));
+        frame.data.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    }
+    return frame;
+}
+
 } // namespace modbuslens::core

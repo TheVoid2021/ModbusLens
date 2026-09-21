@@ -1,8 +1,8 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（2026-09-21 Roadmap Consistency Audit 更正）：M10-D = ✅ COMPLETE；**M10 overall = IN PROGRESS；M10-E（FC16/0x10 Write Multiple Registers）= NEXT；M10-F（final acceptance）= AFTER M10-E；M11 = HOLD（不接受 re-scope，active 0x10 仍在 M10 冻结范围 §FC33 决议 1）。**
+> **状态（M10-E1 实现后）：M10-D = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E Phase 1 design = PASS；M10-E1 = 已实现（FC16/0x10 request encoder + core validation + golden wire vectors），AWAITING REVIEW；M10-E2+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
-> 能力终态：0x03 与 0x06 = encoder + session + Controller dispatch + production UI（0x06 另有 `write06Supported` 结构能力常量）；**0x10 = 仅 framing 识别（encoder / active analyzer / session gate / dispatch / `write10Supported` / production UI 全 ABSENT，详见 §ZE1）**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E Phase 1 Review → M10-E implementation（非 M11）。**
+> 能力终态：0x03 与 0x06 = encoder + session + Controller dispatch + production UI；**0x10 = passive decode + validation + framing + request encoder（M10-E1 新增）= YES；active analyzer / session gate / Controller dispatch / `write10Supported` / production UI 仍 ABSENT**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E1 Review → M10-E2（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
@@ -7793,4 +7793,123 @@ M10 overall = IN PROGRESS；M11 = HOLD。
 本轮 docs-only；**不宣布 M10-E GO**（须 Human Review 接受本设计）。
 verified LKGC 保持 9bdd99c（不推进）；
 未来 Agent 只提出 LKGC candidate，Human Review PASS 前不自行宣布 advance。
+```
+
+## M10-E1 — FC16/0x10 Active Request Encoder / Core Validation / Golden Wire Vectors（2026-09-21，behavior-bearing）
+
+> **M10-E Phase 1 Design Review = PASS ⇒ M10-E1 = GO。**
+> 范围（§0）：**只做** FC16/0x10 active request semantic encoding + core validation + golden wire tests。
+> **未做**（并已实测证明）：session support / Controller dispatch / `write10Supported` / production UI / analyzer（E2+）。
+
+### ZF0. Preflight 与 RED fingerprint（§1 / §3）
+
+```text
+HEAD = 227b5c7（main，clean）；origin/main = a40d935；ahead 125/0；verified LKGC = 9bdd99c；v2.0.0 = ABSENT
+实现前基线（源码实证）：
+  0x10 intent validation   已有（validatePayload → quantity 1..123；prepare 层另有 span/unit/timeout）
+  0x10 passive decode      已有（Function16.cpp decodeWriteMultipleRegistersRequest）
+  0x10 framing recognition 已有（PassiveTransactionAnalysis / decodeWriteMultipleRegistersResponse）
+  encodeActiveRequest(0x10) → UnsupportedFunction     ← 本轮被 intentional supersede
+  activeFunctionSupported(0x10) → false               ← 本轮保持 FALSE（未开放）
+  Controller dispatch 0x10 → CapabilityUnavailable    ← 保持（r4 oracle 未动）
+  write10Supported → ABSENT                            ← 保持
+  production UI → ABSENT                               ← 保持
+```
+
+### ZF1. 实现（§5 / §6）
+
+```text
+· Function16.cpp 新增 encodeWriteMultipleRegistersRequest(address, startingAddress, values)
+  —— 与 Function03/06 encoder 完全对称：本层只负责字段顺序与 big-endian 打包，
+     CRC 与 wire 字节流仍归 ModbusRtuCodec（encodeRtuFrame）。
+  · quantity 与 byteCount 在此**派生**（quantity = values.size()，byteCount = 2 * values.size()），
+    **绝不**由 caller 提供 —— 不存在可与之冲突的第二套 count 字段。
+  · values 顺序 == wire 顺序，每个寄存器 big-endian：不排序、不换 word order
+    （M11 的 byte/word-order 解码与本层无关）。
+  · 不做 range policy（quantity 1..123 / span / unit）—— 与 0x06 的分层一致：
+    unit 校验属于 intent/session 层，span 校验属于 prepare 层（registerSpanFitsAddressSpace）。
+· Function16.h：新增声明 + 文件头注释更正（"PASSIVE semantics only / there is no encoder"
+  → M10-E1 已有 encoder，但 active support 仍需 session/analyzer/dispatch/UI）。
+· ActiveRequestIntent.cpp：WriteMultipleRegisters case 由 UnsupportedFunction 改为真实编码，
+  并写明「encoder ≠ product capability：session gate 不放行 0x10（M10-E2）」。
+· ActiveRequestIntent.h：UnsupportedFunction 注释更正为「预留的 cannot-execute 分支」
+  （当前没有任何 ActiveFunction 会命中它，与 UnknownProtocolError 同一纪律）；
+  encodeActiveRequest 注释列出 0x03/0x06/0x10 三者均已实现，并强调 encoder ≠ active support。
+```
+
+### ZF2. Intentional supersede —— 三个旧 oracle 的 RCA（§20）
+
+```text
+被取代的冻结断言：encodeActiveRequest(0x10) → UnsupportedFunction（三个套件各一处）。
+取代原因：M10-E1 的目的就是让 0x10 请求可编码；该断言与目标直接冲突。
+处理：**没有删除**，三条都改名/改写为「encoder 已存在，但下一层仍拒绝」，并各自保留新的负向覆盖：
+  1) test_active_request.cpp ac03_writeEncodeContract
+     旧：multiple → ActiveRequestEncodeError(UnsupportedFunction)
+     新：multiple → ActiveRequestDescriptor（function=0x10，data=9B，wire=13B）
+  2) test_fc06_active.cpp sup1_supportMatrix
+     旧：encode 0x10 → EncodeError
+     新：encode 0x10 → descriptor；**session.beginActiveRequest 仍返回 SerialTransactionError**
+  3) test_write_dispatch.cpp fc10CapabilityStaysFrozen
+     旧：encode 0x10 → EncodeError
+     新：encode 0x10 → descriptor；gate 仍 false；**write10Supported 属性仍缺席**
+         （Controller dispatch 路径仍由 r4_capabilityUnavailableForFc10 覆盖，未动）
+取代后冻结矩阵（本轮逐项实测）：
+  encode 0x10 = YES / active session 0x10 = NO / dispatch 0x10 = NO /
+  product capability = NO / production UI = NO
+```
+
+### ZF3. Golden wire vectors 与证据（§7–§13）
+
+```text
+独立 CRC oracle：test 侧 bitwise CRC-16/MODBUS（poly 0xA001 reflected / init 0xFFFF / LSB-first），
+  不调用 production calculateModbusCrc / RTU encoder / Function16 encoder ⇒ 无 self-certification。
+byte-exact literals（小向量整帧）：
+  F16-G1 minimum        1 / 0     / [0]      → 01 10 00 00 00 01 02 00 00 A6 50        (11B)
+  F16-G2 smallest nz    1 / 0     / [1]      → 01 10 00 00 00 01 02 00 01 67 90        (11B)
+  F16-G3 mixed          1 / 0     / [1,0x1234,0xABCD]      → …00 03 06 00 01 12 34 AB CD 21 53 (15B)
+  F16-G4 upper unit     247 / 0   / [1]      → F7 10 00 00 00 01 02 00 01 48 34        (11B)
+  F16-G5 upper span     1 / 65535 / [0xFFFF] → 01 10 FF FF 00 01 02 FF FF BC E0        (11B)
+  F16-G6 protocol example 0x11 / 1 / [0x000A,0x0102] → 11 10 00 01 00 02 04 00 0A 01 02 C6 F0 (13B)
+        —— 即 MODBUS Application Protocol 规范中 Write Multiple Registers 的公开示例，
+           字段布局由外部文档佐证，不依赖自家 decoder
+  F16-G7 high/low asym  1 / 0x1234 / [0x00FF,0xFF00,0x8000,0x0001] (17B)
+大向量（max quantity）：123 registers —— 断言 header（unit/function/start/quantity=0x007B/
+  byteCount=0xF6）、ADU 长度 255、selected payload positions（首/第二/末寄存器）、
+  以及独立 CRC（不手写 246 字节 literal）。
+byteCount 派生：1→2、2→4、123→246（data[4]）；quantity 派生同测（data[2..3]）。
+ADU 长度：9 + 2*N —— N=1 → 11B，N=3 → 15B，N=123 → 255B。
+顺序保持：[0x0001,0x1234,0xABCD] → payload 00 01 12 34 AB CD（frame.data offset 5 起）。
+```
+
+### ZF4. RCA（本轮踩坑）
+
+```text
+RCA-17（测试作者错误，非产品缺陷）：首轮三个新测试失败，原因是我把 **ADU 偏移**当成了
+  **frame.data 偏移**来断言。ADU = unit(1)+function(1)+data(5+2N)+CRC(2)，而 frame.data
+  从 start 开始 —— values 在 frame.data 里从 offset 5 起（在 ADU 里是 offset 7），
+  123 寄存器时 data.size() = 251 而 ADU = 255。产品 encoder 完全正确，golden 向量
+  （只比较 wire）首轮就通过了；错的只有我测试里的三个偏移/长度常量。已修正并重跑全绿。
+RCA-18（工具）：Qt 6.11 的 QTest 没有 QCOMPARE2（那是 Qt 6.8+ 的 QTRY/QCOMPARE 重载），
+  且 QVERIFY2 的 message 参数是 const char*，不能直接传 QString；改用 std::string + .c_str()。
+```
+
+### ZF5. 门禁 / 状态 / Git（§21–§26 / §34 / §35）
+
+```text
+targeted（真实 Totals）：
+  write_encoder 30（19 → 30，+11）/ write_prepare 48 / write_dispatch 44 /
+  active_request 17 / fc06_active 31 —— 全 PASS
+QML 负向回归：本轮 0 QML 改动；qml_focus_check / qml_smoke 等 6 个 QML gate 仍在
+  全量 CTest 内全 PASS —— production 0x10 absence oracle（无 write10* 节点/a11y/tab stop）
+  未被破坏，且其断言文本保持原样（0x10 在 production 仍从不创建）。
+真实 CTest：Debug **35/35**、Release **35/35**（35 个目标，数量与上轮一致，未新增 target）
+warnings：0 新增；main.cpp 5 条 pre-existing 未动；ISSUE-014 PRE-EXISTING NON-BLOCKING
+Files：src/core/protocol/Function16.{h,cpp}、src/core/active/ActiveRequestIntent.{h,cpp}、
+       tests/test_write_encoder.cpp、tests/test_active_request.cpp、tests/test_fc06_active.cpp、
+       tests/test_write_dispatch.cpp
+分类：**behavior-bearing**（0x10 请求可编码 = 验收行为变化）
+commit：`M10-E1: add FC16 active request encoding`（独立；不 amend；不 rebase；不 push；不 tag）
+状态：M10-D = COMPLETE；**M10-E1 = AWAITING REVIEW**；M10-E2+ = NOT STARTED；
+  M10 overall = IN PROGRESS；M11 = HOLD。
+verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
 ```

@@ -121,7 +121,12 @@ struct ActiveRequestDescriptor {
 };
 
 enum class ActiveRequestEncodeErrorCode {
-    UnsupportedFunction, // no active encoder exists for this function (0x10 = M10-E)
+    // Reserved for a function whose request encoding does not exist. No
+    // current ActiveFunction hits this any more (0x10 gained its encoder in
+    // M10-E1), but the branch stays as the deterministic "cannot encode" arm
+    // for any future function — the same discipline as
+    // TransactionIssueCode::UnknownProtocolError.
+    UnsupportedFunction,
     InvalidQuantity,
     IntentInvalid, // validateActiveRequestIntent rejected it (see that result)
 };
@@ -135,9 +140,14 @@ struct ActiveRequestEncodeError {
 using ActiveRequestEncodeResult =
     std::variant<ActiveRequestDescriptor, ActiveRequestEncodeError>;
 
-// Build the descriptor for a validated intent. 0x03 (M10-A) and 0x06 (M10-D1)
-// are implemented; 0x10 returns UnsupportedFunction (no write-request encoder
-// exists for it — that is M10-E work, gated behind review).
+// Build the descriptor for a validated intent. 0x03 (M10-A), 0x06 (M10-D1)
+// and 0x10 (M10-E1) are implemented.
+//
+// An encoder is NOT a product capability and NOT active support: 0x10 still
+// cannot be SENT, because the session gate (activeFunctionSupported) does not
+// admit it until the active response analyzer and its session lifecycle land
+// (M10-E2). The Controller capability check and the production UI stay absent
+// for the same reason.
 ActiveRequestEncodeResult encodeActiveRequest(const ActiveRequestIntent& intent);
 
 } // namespace modbuslens::core

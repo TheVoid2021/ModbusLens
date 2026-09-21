@@ -673,7 +673,8 @@ void Fc06ActiveTest::sup1_supportMatrix()
     // 0x06: encoder + session support (D2), but NO product capability.
     QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteSingleRegister));
-    // 0x10: recognition only — no encoder, no active support.
+    // 0x10: recognition only — no active support (M10-E1 added the request
+    // ENCODER, but the session gate still refuses it, so nothing can be sent).
     QVERIFY(!modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteMultipleRegisters));
     const auto encoded = encodeActiveRequest(ActiveRequestIntent{
@@ -681,9 +682,16 @@ void Fc06ActiveTest::sup1_supportMatrix()
         .unitId = kUnit,
         .timeout = kTimeout,
         .payload = modbuslens::core::WriteMultipleRegistersIntent{
-            .startAddress = 0, .values = {1}},
-    });
-    QVERIFY(std::holds_alternative<modbuslens::core::ActiveRequestEncodeError>(encoded));
+            .startAddress = 0, .values = {1}}});
+    // M10-E1 INTENTIONAL TRANSITION: the encoder now yields a descriptor; the
+    // frozen negative is the SESSION gate below, not the encoder.
+    const auto* descriptor =
+        std::get_if<modbuslens::core::ActiveRequestDescriptor>(&encoded);
+    QVERIFY(descriptor != nullptr);
+    QCOMPARE(descriptor->frame.functionCode, std::uint8_t{0x10});
+    SerialTransactionSession session;
+    const auto begin = session.beginActiveRequest(*descriptor);
+    QVERIFY(std::get_if<SerialTransactionError>(&begin) != nullptr);
 }
 
 QTEST_GUILESS_MAIN(Fc06ActiveTest)

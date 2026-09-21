@@ -9,14 +9,19 @@
 namespace modbuslens::core {
 
 // ---------------------------------------------------------------------------
-// Function 0x10 (Write Multiple Registers, decimal 16) — PASSIVE semantics
-// only (T015 Part C).
+// Function 0x10 (Write Multiple Registers, decimal 16).
+//
+//   M10-E1 adds the REQUEST ENCODER (semantic frame only — CRC and the wire
+//   byte stream stay with ModbusRtuCodec, exactly like Function 0x03/0x06).
+//   An encoder is still NOT a product capability: the active response
+//   analyzer, the session gate (activeFunctionSupported), the Controller
+//   dispatch and the production UI all remain absent until their own M10-E
+//   stages land, so nothing can actually be SENT yet.
 //
 //   Passive replay needs to know what a captured write request MEANT and
-//   whether a captured reply matches its declared echo contract. Active
-//   writing remains impossible by construction: there is no encoder, no
-//   wire sender, no Serial API and no Qt type anywhere in this file
-//   (Passive support != Active capability).
+//   whether a captured reply matches its declared echo contract. There is no
+//   Qt type anywhere in this file, and "can decode/encode a frame" never
+//   implies "may dispatch one" (Passive support != Active capability).
 //
 // Official facts (MODBUS Application Protocol V1.1b3, see
 // docs/03_MODBUS_LEARNING.md §4.5):
@@ -94,5 +99,21 @@ decodeWriteMultipleRegistersRequest(const ModbusRtuFrame& frame);
 // (startingAddress + quantityWritten, both big-endian).
 WriteMultipleRegistersResponseResult
 decodeWriteMultipleRegistersResponse(const ModbusRtuFrame& frame);
+
+// ---------------------------------------------------------------------------
+// M10-E1: the 0x10 REQUEST ENCODER, symmetric to Function 0x03/0x06's
+// encoders.
+//
+// Owns ONLY field order and big-endian packing. `quantity` and `byteCount`
+// are DERIVED here from `values` — the single value authority — and are
+// never caller-supplied, so no second count field can ever disagree with the
+// payload. Range policy (quantity 1..123, address-span, unit bounds, no
+// broadcast) belongs to the intent/session layer, exactly like unit
+// validation for 0x06: this function accepts every uint16 value and every
+// values vector, and produces the frame those bytes imply.
+// ---------------------------------------------------------------------------
+ModbusRtuFrame encodeWriteMultipleRegistersRequest(
+    std::uint8_t address, std::uint16_t startingAddress,
+    const std::vector<std::uint16_t>& values);
 
 } // namespace modbuslens::core
