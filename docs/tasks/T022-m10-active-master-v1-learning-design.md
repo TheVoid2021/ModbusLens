@@ -1,8 +1,8 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10 全部 COMPLETE** —— M10-A/B/C = ✅ COMPLETE（verified LKGC = `fc86dcc`）；**M10-D = ✅ COMPLETE（Final Acceptance = PASS，§ZD）**：Phase 1 ✅ → D1 ✅（`6ab97e1`）→ D2 ✅（`ee3bc3e`）→ D3 ✅（`42fcd0b`+`94b6a9c`）→ D4 ✅（`d20c07b`+`8974178`+`9bdd99c`，Human Review PASS）→ D5 ✅（acceptance-only，零行为改动）。
-> **M10-D accepted behavior tree = `9bdd99c`；verified LKGC：`fc86dcc` → `9bdd99c`（Human Final Acceptance 后推进）。**
-> 能力终态：0x03 与 0x06 = encoder + session + Controller dispatch + production UI（0x06 另有 `write06Supported` 结构能力常量）；0x10 = 仅 framing 识别（encoder / active / dispatch / `write10Supported` / production UI 全 ABSENT）；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** Next = M11 Learning / Design。
+> **状态（2026-09-21 Roadmap Consistency Audit 更正）：M10-D = ✅ COMPLETE；**M10 overall = IN PROGRESS；M10-E（FC16/0x10 Write Multiple Registers）= NEXT；M10-F（final acceptance）= AFTER M10-E；M11 = HOLD（不接受 re-scope，active 0x10 仍在 M10 冻结范围 §FC33 决议 1）。**
+> **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
+> 能力终态：0x03 与 0x06 = encoder + session + Controller dispatch + production UI（0x06 另有 `write06Supported` 结构能力常量）；**0x10 = 仅 framing 识别（encoder / active analyzer / session gate / dispatch / `write10Supported` / production UI 全 ABSENT，详见 §ZE1）**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E Phase 1 Review → M10-E implementation（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
@@ -7496,4 +7496,301 @@ verified LKGC：fc86dcc → 9bdd99c（Human Final Acceptance 后的治理推进�
 REAL HARDWARE NOT VERIFIED（§22）：M10-D 验收基于 RecordingSerialTransport / scripted responses /
   production adapter source audit / runtime UI 与 deployment gates；**未声称真实 PLC/device 写入已验证**。
 Next Action：M10-D COMPLETE → **M11 Learning / Design**（不开始 implementation）。
+```
+
+> ### ⚠️ 2026-09-21 Roadmap Consistency Audit 更正（append-only，不改写上文）
+> 上文 §ZD 第 8 行「Next Action：M10-D COMPLETE → M11 Learning / Design」为 **roadmap drift，已被
+> Roadmap Consistency Audit（PASS）与 Human Review 裁定更正**：
+> **M10-D = COMPLETE ≠ M10 overall COMPLETE**。active FC16/0x10 仍属于 M10 冻结范围（§FC33 决议 1），
+> **M10-E = NEXT**，**M10-F = AFTER M10-E**，**M11 = HOLD**。详见下文 §ZE。
+> §ZE 之后的 current-facing docs（PROJECT_STATUS / BACKLOG / devlog / RESUME_INTERVIEW_QA）已按此更正。
+
+## M10-E Phase 1 — FC16/0x10 Write Multiple Registers Learning / Design + Roadmap Drift Correction（2026-09-21，DESIGN / DOCUMENTATION ONLY）
+
+> **本轮 NO IMPLEMENTATION**：不改任何 C++ / QML / tests / harness / packaging 行为。
+> Human Review 裁定（Roadmap Consistency Audit = PASS）：**M10-D = COMPLETE；M10 overall = IN PROGRESS；
+> M10-E = NEXT；M10-F = AFTER M10-E；M11 = HOLD；不接受 re-scope** —— active 0x10 仍在 M10 冻结范围内。
+
+### ZE0. Roadmap Drift Correction（§2 / §3 / §4）
+
+```text
+审计结论（CASE B —— 不存在 accepted scope correction）：
+  · 原始范围：11_V2_UPGRADE_PLAN.md:95「FC03 active read；FC06 active write single register；
+    Function 0x10 active write multiple registers」
+  · 决议记录：T022 §FC33 决议 1「scope = 0x03 / 0x06 / 0x10（decimal 16）—— RESOLVED（FC2）」
+  · 冻结时序：T022 §FC32「…M10-D 0x06 end-to-end。M10-E 0x10 end-to-end。
+    M10-F final automated·manual acceptance + optional real-hardware acceptance」
+  · 0cf0748（D5 closure）曾宣布「M10 全部 COMPLETE / Next = M11」并写「M10-A/B/C/D/E 全部完成」——
+    与上述 accepted 决议冲突（M10-E 从未实现）。historical record 保留，不重写；
+    current-facing 状态按本节更正。
+更正项：
+  · M10-D = COMPLETE（0x06 闭环，质量结论不变）
+  · M10 overall = IN PROGRESS
+  · M10-E = NEXT（FC16/0x10 Write Multiple Registers end-to-end）
+  · M10-F = AFTER M10-E（final automated/manual acceptance，real hardware OPTIONAL）
+  · M11 = HOLD（M10-E/F 完成前不得开始）
+  · 撤回「M10-A/B/C/D/E 全部完成」（事实错误）与「M10 全部 COMPLETE」；恢复 M10-E/M10-F 的可见追踪。
+```
+
+### ZE1. 现有 0x10 Foundation —— 按能力分类实测（§6 / §7）
+
+```text
+分类口径：A passive decode / B request validation / C response-shape recognition /
+D Prepared snapshot / E active request encoder / F active response analyzer /
+G session active support / H Controller dispatch / I product capability / J production UI
+（不得由 A/B/C 推断 E–J 存在。）
+
+A passive decode                     = YES   Function16.cpp:37-75 decodeWriteMultipleRegistersRequest
+                                             （quantity 1..123、byteCount==2*quantity、
+                                              actualValueByteCount==2*quantity 三重一致、按序取 values）
+B request validation                 = YES   WritePrepareValidation.cpp:84-128 prepareWriteMultipleRegistersIntent
+                                             （unit/address/timeout → parseRegisterValues → 1..123 → span）
+C response-shape recognition         = YES   Function16.cpp:77-90 decodeWriteMultipleRegistersResponse
+                                             （固定 data 4 字节 = start echo + quantity echo）
+D Prepared snapshot                  = YES   PreparedWriteStore 与 function 无关（token/confirm/cancel/invalidate 通用）；
+                                             PreparedWriteSnapshot.cpp:5-23 preparedQuantity 由 values.size() 派生（不存储）
+E active request encoder             = NO    ActiveRequestIntent.cpp:127-132 显式 UnsupportedFunction
+F active response analyzer           = NO    全仓无 analyzeWriteMultipleRegistersTransaction；
+                                             回显比对逻辑目前内联在 PassiveTransactionAnalysis.cpp:315-348
+G session active support             = NO    SerialTransactionSession.cpp:53-61 只放行 0x03/0x06
+H Controller dispatch                = NO    D3 R4 实测 prepared 0x10 → CapabilityUnavailable / attempt 0
+I product capability (write10Supported) = ABSENT（全仓仅 4 处，全为断言缺席）
+J production UI                      = NO    0x10 仅存在于 testFoundationMode 的两个 Loader 内；
+                                             production 从不创建（qml_focus_check 859 对象实测无 write10* 节点）
+另：parseRegisterValues（多行解析）= YES；registerSpanFitsAddressSpace = YES（uint32 widened，
+    start + count <= 65536）；SimulatedSlave 0x10 writable semantics = YES（decode 全过才原子应用，
+    失败零部分变更）；Simulator WriteMode 只读默认不变。
+```
+
+### ZE2. 原 accepted M10-E 范围（§8，不加戏）
+
+```text
+T022 §39 / §FC32 冻结原文所要求的 M10-E 交付 = FC16/0x10 写多寄存器 end-to-end，具体：
+  · FC16/0x10 语义 encoder（由 values[] 生成 request frame）
+  · byteCount 派生、quantity 派生（values[] 唯一 authority）
+  · 多值 confirmation summary
+  · simulator 支持（已存在，见 ZE1）
+  · active response lifecycle + Controller dispatch + transport evidence
+  · product capability（write10Supported）+ production UI（第二个子 Tab）
+  · M10-C 已冻结的写安全模型原样复用
+不添加历史设计未要求的任何功能（见 §ZE17 non-goals）。
+```
+
+### ZE3. 命名冻结（§5）
+
+```text
+协议含义：function byte = 0x10 hex = 16 decimal；规范名 = Write Multiple Registers。
+代码命名保持：Function16 / WriteMultipleRegisters* / ActiveFunction::WriteMultipleRegisters。
+新文档优先写「FC16 / 0x10」或「Function 0x10 (decimal 16)」；
+避免单独写「FC10」；禁止「decimal Function 10」。
+（T022:452 历史原文「FC10(0x10)」自带消歧，保留不改写。）
+```
+
+### ZE4. 复用 FC06 安全模型（§9）
+
+```text
+0x10 写操作必须复用 FC06 已冻结的完整链，不得新建第二套：
+  explicit Write → authoritative validation → immutable PreparedWriteSnapshot
+  → explicit confirmation → atomic Controller dispatch → transport evidence → transaction outcome
+继续成立：single in-flight / no queue / no parallel / no implicit retry / Agent no write。
+不得新增：第二套 confirmation store、第二套 transport taxonomy、第二套 write session、
+第二套 history、第二套 statistics。
+```
+
+### ZE5. Intent authority / 派生 / span（§10）
+
+```text
+values[] = 唯一值列表 authority。
+quantity  = values.size()            （已由 PreparedWriteSnapshot.cpp:11-14 派生，绝不存储）
+byteCount = 2 * values.size()        （wire 时派生；0x10 max quantity 123 ⇒ byteCount max 246）
+span 校验 = registerSpanFitsAddressSpace（uint32 widened：start + count <= 65536）
+1..123 边界重证：Function16.cpp:10-11（min 1 / max 123）与 WriteDraftParsing.cpp:10（kMaxValues=123）
+   两处常量来源一致（kWriteMultipleRegistersMaxQuantity）。
+```
+
+### ZE6. Raw input contract（§11，复用现有 parser，不改 authority）
+
+```text
+parseRegisterValues 已实现的最终规则（WriteDraftParsing.cpp:55-116）：
+  一行一个值；outer blank lines 可 trim；middle blank → BlankLineInside 拒绝；
+  CRLF 支持（trim 含 '\r'）；顺序保持；0..65535（溢出 → ValueOutOfRange，绝不 wrap）；
+  ASCII decimal only（c < '0' || c > '9' ⇒ InvalidCharacter ⇒ 天然拒绝 hex/正负号/小数/逗号）；
+  空 → NoValues；>123 → TooManyValues。
+QML 永远不是 validation authority（无 validator）。
+```
+
+### ZE7. FC16 request wire 设计（§12）
+
+```text
+Modbus RTU 0x10 request 布局（production semantic encoder 设计）：
+  [unit 1B][function 0x10 1B][start addr 2B BE][quantity 2B BE][byteCount 1B]
+  [N × register value 2B BE][CRC16 low-byte first]
+其中 quantity = values.size()；byteCount = quantity * 2（max 246）。
+encoder 语义帧由 Function06.cpp 的同构模式产生（frame 语义层），CRC/wire 复用现有 codec
+（encodeRtuFrame）—— 与 0x06 完全同构，不另写 CRC。
+放置建议：新增 encodeWriteMultipleRegistersRequest 于 Function16.cpp（与 decoder 同文件对称）。
+```
+
+### ZE8. Golden-vector 策略（§13）
+
+```text
+独立 oracle：test 侧 CRC 必须独立实现或采用可信固定 vectors，不得以 production CRC 作为唯一 oracle。
+至少设计：
+  · minimum   unit 1 / address 0 / 1 register（值 0）→ byte-exact literal
+  · boundary  unit 247 / 123 registers（quantity=123, byteCount=246，span 上限）
+  · protocol-like known example（可对照公开 vector）
+  · mixed values 0 / 1 / 65535（高低字节模式：0x0000 / 0x0001 / 0xFFFF）
+  · negative：quantity=0、124、byteCount 与 quantity 不一致、actual != declared
+```
+
+### ZE9. Response contract 与 echo mismatch（§14）
+
+```text
+正常 0x10 response 固定 data 4 字节：unit + 0x10 + start echo + quantity echo + CRC。
+成功条件：unit match ∧ function match ∧ start echo match ∧ quantity echo match ∧ CRC valid。
+echo mismatch：TransactionIssueCode::WriteMultipleRegistersEchoMismatch **已存在**
+  （TransactionAnalysis.h:46），且被动路径已构造 expected/actual address+quantity 四元组
+  （PassiveTransactionAnalysis.cpp:338-347）—— 复用，不新建 taxonomy。
+```
+
+### ZE10. 共享 analyzer 抽取（§15，0x06 模式复刻）
+
+```text
+现状差异：0x06 的语义比对在**共享核心函数** analyzeWriteSingleRegisterTransaction
+  （passive 与 active 同一实现，PassiveTransactionAnalysis.cpp:305-312 注释明示
+   "lives in ONE shared core function that the active path also calls"）；
+而 0x10 的回显比对目前**内联在 passive analyzer**（:315-348）。
+M10-E 设计要求：把该内联块抽取为 analyzeWriteMultipleRegistersTransaction(request, observation,
+  elapsed, timeoutThreshold)（与 0x06 同签名、同一 trusted-request contract），
+passive 改为调用共享函数，active 也调用它 —— 不得形成两个略有差异的 lifecycle。
+Exception / wrong unit / wrong function / CRC / partial timeout / overlong 继续走
+generic 共享规则，不复制 FC06 analyzer。
+```
+
+### ZE11. Session / Controller / capability（§16 / §17 / §18）
+
+```text
+activeFunctionSupported(0x10) = true 的**前提**（全部真实满足才允许）：
+  encoder exists（ZE7）∧ active analyzer exists（ZE10）∧ framing 已识别（已成立）
+  ∧ session lifecycle tested。
+不得因 candidate framing 已认识 0x10 就提前 true。
+Controller dispatch：复用 D3 的 generic confirmAndDispatchPreparedWrite / startActiveDescriptor
+  （按 intent.function 自然分派）—— **不新增** confirmAndDispatchWrite10。
+QML 继续只传 token。
+write10Supported 设计 = 结构性产品能力（encoder ∧ active session ∧ Controller dispatch ∧
+  evidence/outcome integration），CONSTANT；与 runtime availability 无关
+  （disconnect / busy / Simulator / Replay / invalid draft 不改变它）。
+Capability staging：product capability 与 production UI **不得早于** end-to-end 支持全部成立。
+```
+
+### ZE12. Production UI / multi-value summary / 123·124 / scroll（§20 / §21 / §27 / §28）
+
+```text
+M10-E 最终形态：Communication 的 Write section 内**新增第二个子 Tab**「FC16 / 0x10 多寄存器」，
+复用**同一个** WriteFoundationSection（不得另写 ProductionWrite10.qml 复制整条 flow）。
+现有 testFoundationMode 的 0x10 editor（write10DraftColumn，DecimalField 0x06 行 + 多行 TextArea）
+是基础，但 production 需重新验收 usability / a11y / geometry / keyboard / modal / scroll。
+Confirmation summary 来自 immutable snapshot：unit / function / start address / quantity /
+values / connection。123 values 不要求全部同时可见，但必须**可滚动到首尾且完整可访问**
+（不得出现 "... and N more" 省略）。
+确认后发送 snapshot values，不是当前 draft。
+123 / 124 边界：123 通过、124 拒绝（既有 C23-C29 parser 用例已覆盖，M10-E 需在 production 路径重验）。
+```
+
+### ZE13. Transport evidence / 宇宙 / 统计 / 诊断 / simulator / broadcast / AI / timeout（§22–§27）
+
+```text
+transport evidence：0x10 完全复用 guard failure / NotSent / PossiblySent / ShortSubmission /
+  TransportError / DisconnectedAfterSubmission / Timeout —— **不得引入** Write10Sent/Write10Failed。
+transaction universe：进入现有 Transactions / Statistics / Diagnosis，同一 session、同一 append 顺序。
+statistics：公式不变；**不得**出现 write10 success rate 第二套 authority。
+diagnosis：同一 deterministic batch。
+simulator：现有 writable 0x10 语义已满足 M10-E 要求（decode 全过才原子应用连续值；
+  失败零部分变更；只读默认安全）；**不得**把 simulator 当作 production active transport 替代物。
+broadcast：active unit 0 继续 **本地 reject，attempt = 0**；passive ExpectedNoResponse 支持广播
+  不构成允许 active send 的理由。
+AI/Agent：write authority 继续 NONE；不得新增 multi-write / batch write / raw ADU 工具。
+timeout：Outcome = Timeout；用户语义「响应超时，设备写入状态未知」；不得按 values 数量做隐式部分重试。
+```
+
+### ZE14. M10-F / M11 boundary（§28 / §29）
+
+```text
+M10-F = final automated / manual acceptance，覆盖 0x03 + 0x06 + 0x10 整体回归；
+  real hardware = **OPTIONAL**；允许最终「REAL HARDWARE NOT VERIFIED」，只要自动化、
+  人工客户端、部署包全部通过且诚实披露。真实 PLC **不是**硬性 completion gate。
+M11 = Register Readout & Decode，继续 HOLD；其解码对象主要来自 successful FC03 raw registers；
+  不得把 M10 的 0x10 write 与 M11 的 register decode 混成一个阶段。
+```
+
+### ZE15. 建议分阶段方案（§33，按 0x10 实际复杂度，不机械复制 D1–D5）
+
+```text
+E1  Core wire + golden vectors（NO UI）
+    Goal：FC16 semantic encoder + 独立 CRC oracle + byte-exact goldens（含 123/124、byteCount 不一致）
+    Layers：core/protocol/Function16.{h,cpp}、tests/test_write_encoder.cpp
+    RED：encodeActiveRequest(0x10) == UnsupportedFunction
+    Visibility：production 不变（0x06 only）；capability：write10Supported 仍 ABSENT
+    Review point：encoder + goldens Review
+E2  共享 analyzer 抽取 + active analyzer wiring（NO UI）
+    Goal：抽取出 analyzeWriteMultipleRegistersTransaction；passive 改调用共享函数（行为等价回归）；
+          active 路径接上；Session 单元测试覆盖 0x10 lifecycle（含 echo mismatch / exception / timeout）
+    Layers：core/analysis/*、core/serial/SerialTransactionSession.cpp、tests/test_fc06_active.cpp（或新增 test_fc16_active）
+    RED：无 analyzeWriteMultipleRegistersTransaction；activeFunctionSupported(0x10)==false
+    Visibility/Capability：仍不开放
+    Review point：analyzer + session Review（此处才允许讨论打开 gate）
+E3  Capability + Controller dispatch（NO production UI）
+    Goal：activeFunctionSupported(0x10)=true；write10Supported CONSTANT 属性（false→true 语义由 Review 定）；
+          Controller atomic dispatch 接受 prepared 0x10（token-only）；evidence/统计/诊断集成回归；
+          harness 0x10 dispatch oracle（含 NotSent / short / terminal / timeout）
+    RED：dispatch → CapabilityUnavailable；write10Supported 缺席
+    Visibility：仍 0x06 only（test foundation 可开始用真实 dispatch）
+    Review point：capability Review
+E4  Production UI（第二个子 Tab）+ a11y/geometry/keyboard/modal/scroll
+    Goal：production 0x10 editor + 多值 summary（可滚动完整访问）+ 0x10 absence 负向覆盖迁移为
+          「0x10 production present」正向覆盖；production-write oracle 扩展 0x10 矩阵
+    RED：production 无 0x10 节点（现行 oracle）
+    Visibility：production 0x10 VISIBLE（本阶段结束时）
+E5  Final acceptance（M10-F 前置）：全量回归 + deploy/package + 部署客户端验收
+    （M10-F 仍独立存在，覆盖 0x03/0x06/0x10 整体 + optional real hardware）
+```
+
+### ZE16. Test plan（§30）与 RED plan（§31）
+
+```text
+Test plan（实现期覆盖）：parser boundaries（空/中间空行/CRLF/顺序/65536/非十进制字符/123/124）·
+  wire goldens（byte-exact）· active request encoding · response analyzer · fragmentation ·
+  exception · wrong unit · wrong function · echo mismatch · CRC · timeout · NotSent · short ·
+  transport error · disconnect · token one-shot · Clear pending · source replacement ·
+  mixed FC03/06/10 history · statistics · diagnosis · production UI · 123/124 · scroll ·
+  a11y · keyboard · modal · geometry · deploy/package。
+RED plan（实现开始前必须真实观察到）：
+  R1 encodeActiveRequest(0x10) → UnsupportedFunction
+  R2 activeFunctionSupported(0x10) → false
+  R3 write10Supported 属性缺席
+  R4 Controller dispatch prepared 0x10 → CapabilityUnavailable（attempt 0）
+  R5 production 0x10 节点缺席（现行 prod-write oracle）
+  R6 Simulator active-write10：writable 语义**已存在**（非 RED）—— 若实现涉及改动才另立 RED
+RED 必须来自真实当前行为（已由 ZE1 源码实证 + 既有 oracle 落地）。
+```
+
+### ZE17. Superseded / non-goals（§32）
+
+```text
+不实现：0x17 及其它 function code · active broadcast · write queue · parallel writes ·
+  automatic retry · Agent write · M11 decoding · M12 profile · installer/signing/publish ·
+  第二套 confirmation store / transport taxonomy / session / history / statistics ·
+  Write10Sent/Write10Failed 等 parallel status。
+superseded 记录：「M10 全部 COMPLETE / Next = M11 / M10-A/B/C/D/E 全部完成」由本节更正
+  （audit 裁定），历史 as-of snapshot 不重写。
+```
+
+### ZE18. 设计完成后的 roadmap 状态（§34）与治理（§35）
+
+```text
+M10-D = COMPLETE；M10-E Phase 1 = **AWAITING REVIEW**；M10-F = NOT STARTED；
+M10 overall = IN PROGRESS；M11 = HOLD。
+本轮 docs-only；**不宣布 M10-E GO**（须 Human Review 接受本设计）。
+verified LKGC 保持 9bdd99c（不推进）；
+未来 Agent 只提出 LKGC candidate，Human Review PASS 前不自行宣布 advance。
 ```
