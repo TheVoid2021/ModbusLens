@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A/B = ✅ COMPLETE；**M10-C = Write Safety UI Foundation = ✅ COMPLETE**（§Q closure，verified LKGC = `fc86dcc`）；**M10-D = 0x06 Write Single Register：Phase 1 Learning / Design 已落库（§R0–R20），Implementation = NOT STARTED**；**Active Write = NOT AVAILABLE；0x06 / 0x10 encoder ABSENT；write dispatch ABSENT**。
+> **状态：M10-A/B = ✅ COMPLETE；**M10-C = ✅ COMPLETE**（§Q closure，verified LKGC = `fc86dcc`）；**M10-D = 0x06 Write Single Register：Phase 1 Learning / Design（§R）→ Review = HOLD → Correction 已落库（§S：input authority / exactly-one 计数 / unexpected-function framing），AWAITING M10-D PHASE 1 FINAL RE-REVIEW；Implementation = NOT STARTED**；**Active Write = NOT AVAILABLE；0x06 / 0x10 encoder ABSENT；write dispatch ABSENT**。
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -5643,4 +5643,278 @@ QML raw text vs 权威校验 ：通过 `grep -rln TextField src/ui/qml/` 为空�
       verified LKGC = fc86dcc（本轮 docs-only，不推进）。
 提交：`M10-D: design FC06 end-to-end active write`（docs-only design commit）。
 不得 amend 19ca421；不得 rebase；不得 push；不得 tag（含 v2.0.0）。
+```
+## M10-D Phase 1 Correction — Input Authority / Exactly-one-send / Unexpected-function Framing（2026-09-20，docs-only）
+
+> **M10-D Phase 1 Review = HOLD。现有 Phase 1 总体设计接受**（不重做：FC06 passive semantics、generic Active
+> lifecycle、snapshot model、atomic confirmation、submission evidence、history/statistics/diagnosis、
+> timeout unknown-state、production capability gating、D1–D5 总体 staging）。
+> 本轮只关闭 **3 个 blocker**；**不改写 §R 原记录**，以本节为更正声明。严格 docs-only：
+> 未开始 D1、未实现 encoder / dispatch、未改输入控件、未 production-enable Write、未 push、未 tag。
+
+```text
+HOLD 的 3 个 blocker：
+  B1  hard validator 与 raw invalid draft authority 冲突
+  B2  sendCount <= 1 不能证明 exactly-one **successful** send
+  B3  0x06 framing rule 没有完整解决 unexpected-function response 可能退化为 Timeout
+```
+
+### S0. Preflight（§0）
+
+```text
+HEAD = 7ddec58（branch = main，working tree clean）
+verified LKGC = fc86dcc
+M10-C = COMPLETE；M10-D = Learning / Design；Implementation = NOT STARTED
+CMake VERSION = 2.0.0；v2.0.0 = ABSENT
+origin/main = a40d935；ahead = 114；behind = 0
+git diff --check = PASS
+```
+
+### S1. B1 — DecimalField raw-text authority（§2–§5）
+
+**冲突的实质**：§R 的 R2 同时写了「raw text 保留非法中间态」与「可加 presentation-only validator」。
+若该 validator **阻止** `-1` / `12x` / `65536` / `0x10` / 空串进入 `TextField.text`，则 QML 实际上成了
+acceptance authority —— raw draft 不再是用户真实输入，core 也就无法给出**唯一权威**的判定。这正是 HOLD 的 B1。
+
+**冻结（Authority）**：
+
+```text
+DecimalField = presentation / input component。
+它必须允许 QML draft 保留**用户真实输入文本**。
+禁止把「会阻止 Invalid text 进入 TextField.text 的 hard validator」当作协议合法性 authority。
+下列输入必须能够形成 raw draft text，并在用户触发 Write（或 validation）时进入 core 权威解析器：
+    "-1"  "12x"  "65536"  "0x10"  ""
+```
+
+**允许的 QML 辅助（§3）**：`inputMethodHints`、placeholder、focus ring、accessible name、error visual state、
+select-all / paste / delete —— **均属 presentation assistance**。
+**禁止**：QML 先对字符串做 silent normalize、silent clamp、silent drop invalid character，然后把「改好的合法串」
+交给 Controller。**QML 交给 core 的永远是用户原串。**
+
+**唯一 decimal 解析 authority（§4）**：core 侧新增
+**`parseDecimalRegisterValue(std::string_view rawText)`**（采纳 Review 的中性命名），规则与既有
+`parseRegisterValues` **同源**（同一份 trim / 逐字符十进制累加 / 越界语义），仅额外要求「恰好一个值」：
+
+| 输入 | 结果 |
+| --- | --- |
+| 前后空白（含 `\r`） | trim 后继续（`" 1234 "` → 1234） |
+| 空串 / 全空白 | `NoValues` |
+| 纯 `0-9` | 继续解析 |
+| 其它字符（`-`、`x`、`.`、`0x`、空白夹在中间） | `InvalidCharacter` |
+| 数值 > 65535（含超大整数） | `ValueOutOfRange`（**不 wrap、不抛异常、不受 locale 影响**） |
+| `"00010"` | **合法 typed 10** |
+
+**不得**存在 QML parser 与 core parser 两套 acceptance rules。
+
+**Raw-invalid runtime oracle 计划（§5，D1 必须做）**：
+
+```text
+O1  "1234"  → draft raw == "1234"  → typed == 1234
+O2  "00010" → draft raw 保留原串   → confirmation 显示 10（typing → canonical）
+O3  " 1234 "→ draft raw 保留原串   → typed == 1234
+O4  "-1"    → draft raw 仍 == "-1" → validation error
+O5  "12x"   → draft raw 仍 == "12x"→ validation error
+O6  "65536" → draft raw 仍 == "65536" → validation error
+O7  paste invalid string → 可观察到 raw draft 原样 → validation error
+```
+
+**诚实性要求**：如果 Qt 的 `TextField` 自身会修改这些输入（例如平台/输入法行为），**D1 必须先记录真实
+runtime 行为，并据此调整方案或明确 limitation，不得伪造 raw-preservation PASS**。因此 O1–O7 的断言对象是
+**`TextField.text` 的真实值 + Controller 侧 raw draft 的真实值**（两处都要观测），而不是只断言「错误出现了」。
+
+### S2. B2 — Exactly-one 词汇与计数（§6–§9）
+
+**冻结词汇（§6）**：
+
+```text
+A. dispatch attempt          = Controller 真正把请求交给 transport 的次数
+B. transport accepted send   = transport 完整接受（accepted=true，PossiblySent）的次数
+dispatch attempt 可以发生而 acceptedCount = 0 ⇒ 两者语义不同，startAttemptCount 与 sendCount 不是同一件事。
+```
+
+**RecordingTransport 的真实计数定义（实读 `tests/fake_serial_transport.cpp`）**：
+
+| 计数器 | 真实语义（源码事实） |
+| --- | --- |
+| `startAttempts_`（`startAttemptCount()`） | **每次** `startActiveRequest` 调用都 +1（无论后续是拒绝、短写还是完整接受） |
+| `sendCount_`（`sendCount()`） | **只在完整接受**时 +1（`pending_` 建立、`PossiblySent`、ADU 进入 `sentAduLog_`） |
+| `sentAduLog_` | 只在完整接受时 push 一次 `pending_->wire`（**精确** ADU 字节） |
+| 短写（`0 < accepted < wire.size()`） | **不建立 pending、不 +sendCount、不进 ADU log**；terminal evidence 携带 intended ADU + accepted byte count |
+| pre-send 拒绝（未连接 / busy / accept 关闭 / begin 失败） | `NotSent`，不建立 pending，除 `startAttempts_` 外无计数 |
+
+**成功的 exactly-one-send oracle（§7）**：对正常 deterministic accepting transport，一次有效 Confirm 必须满足
+
+```text
+startAttemptCount == 1  &&  sendCount == 1  &&  sentAduLog.size() == 1
+且 sentAduLog[0] == 预期 0x06 wire（逐字节，含 CRC）
+```
+
+并且在下列重复动作之后 **三项仍必须全部为 1**：Confirm+Space 重复、Confirm+Enter 重复、rapid Enter×2、
+rapid Space×2、repeated clicked signal、同 token 第二次 API 调用。
+**禁止**用 `sendCount <= 1` 证明「successful exactly-one send」（它只在完整接受时递增，单独看无法区分
+「一次完整接受」与「一次都没有」）。
+
+**Pre-send reject oracle（§8，独立场景）**：Controller 已执行**一次 dispatch attempt** 而 transport `acceptedCount = 0`：
+
+```text
+startAttemptCount == 1；sendCount == 0；Disposition == NotSent；
+no transaction；no terminal；
+token 仍为终态（Consumed / Invalidated，按 §R 冻结的 D7/D8 设计：守卫失败 → Invalidated，
+  消费之后失败 → 保持 Consumed）；
+不得自动重新确认或自动重试。
+```
+
+**Short submission 计数（§9）**：`0 < acceptedCount < frameSize` 时
+
+```text
+startAttemptCount == 1
+sendCount 的真实值按实现记录 = 0（该 ADU 从未完整交付，不进 accepted-ADU log）
+安全 oracle **不得只依赖 sendCount**，必须直接检查：
+   acceptedCount（= 配置的部分字节数）、Disposition == PossiblySent、
+   terminal evidence 中的 exact intended requestAdu、恰好一条 ShortSubmission terminal、zero transaction。
+```
+
+### S3. B3 — Unexpected-function Framing（§10–§15）
+
+**§10 实读结论（源码事实，不是推断）**：
+
+```text
+candidateFrameLength() 是 SerialTransactionSession 的 **const 成员**，只读取：
+    buffer_[1]  → **响应** function 字节
+    buffer_[2]  → 仅当 function == 0x03 时作为 byteCount
+⇒ 判定依据是 **response function（响应自身的字节）**，既不读 request function，也不做两者比较。
+current algorithm（原文行为）：
+    异常位 (fn & 0x80) → 5
+    fn == 0x03         → 5 + buffer_[2]
+    其它               → nullopt（继续累积，直到超时才收尾）
+feedResponseBytes：**只在 buffer_.size() == candidate 时**成帧；超长缓冲**永不截断**（等超时后整段解码）。
+现有覆盖：0x03 request 收到 0x06/0x84 等 wrong-function 响应已有测试
+    （`tests/test_serial_session.cpp:380` → `UnexpectedResponseFunction`）。
+```
+
+**§12 三个备选对比**：
+
+| 方案 | 说明 | 错误截短 | 错误吞帧 | unknown 永远超时 |
+| --- | --- | --- | --- | --- |
+| A 全量 response-length 规则表 | 为**所有**已知 Modbus response 维护长度 | 低 | 低 | 无（但需要为项目未实现的 function 发明规则 ⇒ 不可靠） |
+| B 用 request 的 expected shape 定长 | 只按请求期望长度成帧 | 低 | **高**：wrong-function 响应长度不符 ⇒ 永不 subsets，退化为 Timeout | 有 |
+| C 最小支持集合 + 明确 limitation | 只给「项目自身能发出的 function」+ 通用异常格式建规则 | 低 | 中（未知 function 仍超时，但**明确记录**） | 部分（记录为已知 limitation） |
+
+**§11 冻结原则**：若已收到**足以确定为完整、但 function 与 request 不匹配**的 RTU frame，
+**不得**仅因「该 function 没有 active encoder」就把它退化为 Timeout —— 必须让 protocol analyzer 有机会产生
+现有 wrong-function / ProtocolError 语义；**但不得**为此发明不可靠的任意帧长度猜测。
+
+**§13 选定设计（A 的受限形式 + C 的显式 limitation）**：
+
+```text
+framing 表（按 **响应 function**）：
+    (fn & 0x80) != 0        → 5                    （协议通用异常格式，现有）
+    fn == 0x03              → 5 + byteCount        （现有；响应自描述）
+    fn == 0x06              → 8                    （新增；正常响应固定 8 字节）
+    fn == 0x10              → 8                    （新增；正常响应固定 8 字节 —— 依据
+                                                    Function16.cpp: kWriteMultipleRegistersResponseDataSize = 4
+                                                    ⇒ 1+1+4+2 = 8）
+    其它 function           → nullopt              （保持现有：累积到超时后整段交给 analyzer）
+```
+
+**三风险的对策**：① **错误截短**——成帧只发生在精确边界，且超长缓冲永不截断（现有规则）；
+② **错误吞帧**——wrong-function 响应按其**自身** function 成帧后立即交给 analyzer，
+不看它是否属于当前请求的期望集合；③ **unknown function 永远等超时**——**明确记录为已知 limitation**：
+对 0x01/0x02/0x04/0x05/0x08/0x0F/0x11/0x2B 等本项目未实现的 function，**不发明**长度规则；
+其响应将在超时路径上以整段字节被分析（可能得到 CrcError/ProtocolError 等真实线缆诊断，
+也可能只是 Timeout）。**不得声称对这些 function 有 ProtocolError coverage。**
+
+**0x06 expected length（§13）**：request = 0x06 时，匹配的正常响应 **8 字节**、异常响应 **5 字节**（均无争议）。
+若响应 function 既非 `0x06` 也非 `0x86`，由 framing 表按**响应自身 function** 决定（0x03 / 0x10 / 异常位可成帧；
+未知 function 走超时路径）——**不写「只新增 0x06 → 8」就结束**。
+
+**§14 Wrong-function oracles（D3 必须做，至少两个 direct case）**：
+
+```text
+WF1  0x06 request + 完整 0x03 normal response（长度由 byteCount 决定，framing 规则已存在）
+     ⇒ 期望 ProtocolError + UnexpectedResponseFunction（actual function = 0x03）；**不得**变 Timeout。
+WF2  0x06 request + 完整 0x10 normal response（固定 8 字节，本轮新增 framing 规则）
+     ⇒ 期望 ProtocolError + UnexpectedResponseFunction（actual function = 0x10）；**不得**变 Timeout。
+```
+
+两者都必须复用既有 frozen analyzer 语义（`TransactionIssueCode::UnexpectedResponseFunction` + `actualFunctionCode`），
+**不新建**任何 write 专用结果类型。
+
+**§15 Wrong unit ≠ echo mismatch（冻结区分）**：
+
+```text
+frame 可可靠成帧时的 wrong unit  → ProtocolError + ResponseAddressMismatch
+                                   （payload = expected/actual **DEVICE** address）
+echo register-address mismatch   → ProtocolError + WriteSingleRegisterEchoMismatch
+                                   （payload = expected/actual **REGISTER** address + value）
+两者概念不同、payload 字段族不同，**不得合并**为一个 issue 或一个概念。
+```
+
+### S4. Capability / Runtime / Visibility / Harness / Simulator（§16–§20）
+
+**§16 capability 命名与语义（采纳 Review 决定）**：只读属性使用 **`write06Supported`**（**替代** §R 中的
+`write06Available`）。语义 = 「此产品当前代码路径已端到端拥有 0x06 支持（encoder + atomic dispatch +
+response lifecycle）」；**它不表示「此刻可以发送」**，因此**不得**因 disconnected / busy / invalid draft 而变 false。
+
+**§17 runtime enabled state（另行决定）**：Write action 的 **enabled** 由运行态计算：
+`source == ActiveSerial` ∧ connected ∧ `!busy` ∧ draft 具备可尝试 prepare 的条件 ∧ 无 active confirmation 等。
+⇒ disconnect / busy **不会**销毁 Write Loader、**不会**丢失 page-local draft。
+
+**§18 production visibility**：production 的 Write section 可见性由 **`write06Supported`** 决定；
+M10-D 中 `supported == true` 之后显示 **0x06 only（0x10 不显示）**；Write button 的 enabled 由运行态决定。
+**禁止**把 visibility 直接绑定 `serialConnected` 或 `serialBusy`。
+
+**§19 harness orthogonality**：`writeFoundationVisible` 继续只是「为测试加载 foundation」的 seam，
+与 `write06Supported` **完全正交**；harness **不得**通过修改 `write06Supported` 伪造 capability。
+
+**§20 simulator scope**：M10-D **不要求** Simulator 生成 0x06 production response；主要 deterministic
+end-to-end oracle 是 `RecordingSerialTransport` + scripted response。既有 `WriteMode` / `applyWriteRequest`
+foundation 继续保留；Simulator 的 0x06 request-response loop 可作为未来 enhancement 或 D3 的额外实现，
+**不得**为 M10-D 扩大必做 scope。REAL HARDWARE 仍**非**自动 acceptance requirement。
+
+### S5. 16 项决策 — 全部 RESOLVED（§21）
+
+| # | 决策 | 裁定 |
+| --- | --- | --- |
+| D1 | address / value 输入控件类型 | **RESOLVED：DecimalField（基于 TextField）** |
+| D2 | raw text ownership | **RESOLVED：draft = page-local raw text** |
+| D3 | parser rules | **RESOLVED：core 权威十进制解析器（`parseDecimalRegisterValue`）** |
+| D4 | leading zeros | **RESOLVED：接受；summary 显示 typed canonical number** |
+| D5 | outer whitespace | **RESOLVED：core 统一 trim / 接受** |
+| D6 | invalid presentation | **RESOLVED：保留 raw + 字段错误；无 silent normalization** |
+| D7 | consumption ordering | **RESOLVED：guards → consume → encode → start** |
+| D8 | pre-send 失败后 | **RESOLVED：消费之后的任何失败都要求重新确认** |
+| D9 | capability 表达 | **RESOLVED：只读 `write06Supported`**（取代 `write06Available`） |
+| D10 | production 可见性切换 | **RESOLVED：同一 Write 组件；production capability 控制 0x06 呈现；harness seam 正交** |
+| D11 | echo 复用 | **RESOLVED：共享 FC06 core analyzer** |
+| D12 | Simulator 是否回答 0x06 | **RESOLVED：M10-D 不要求** |
+| D13 | Success 成立条件 | **RESOLVED：有效可信帧 + 正确 unit/function + 精确 address/value echo + 无任何冻结错误条件** |
+| D14 | timeout 文案 | **RESOLVED：「响应超时，设备写入状态未知」** |
+| D15 | 真实硬件检查 | **RESOLVED：非阻塞 follow-up** |
+| D16 | D1–D5 staging | **RESOLVED：接受，但以本节 framing correction 为准** |
+
+### S6. D1–D5 Scope（§22–§26，Review 裁定）
+
+```text
+D1（本轮 correction PASS 后才可以实现）：
+    DecimalField；单值解析器；0x06 encoder；独立 golden CRC 向量；pure tests。
+    **不做**：Controller dispatch、SerialTransport send、production visibility、response integration。
+    注意：unexpected-function framing 的实现属于 D3，但**其设计已在本轮闭环**。
+D2：write06Supported capability seam；atomic confirmAndDispatchPreparedWrite(token)；
+    RecordingTransport；exactly-one **successful** send；pre-send reject；short submission；
+    session/busy/source guards。**不做** production-visible UI。
+D3：0x06 candidate framing（含 S3 的 framing 表）；共享 FC06 analyzer；normal echo；exception；CRC；
+    wrong unit/function（WF1/WF2）；timeout；fragmentation；history；statistics；diagnosis；terminal/evidence 集成。
+D4：production-visible **0x06-only** UI；DecimalField 生产用法；runtime capability gating；input UX；
+    keyboard/a11y；geometry；C01–C37 回归。
+D5：full exactly-one 矩阵；zero-send 矩阵；全部 response/error 矩阵；Debug/Release regression；
+    manual visual sanity；M10-D Final Review。
+```
+
+### S7. Docs / 提交（§27–§29）
+
+```text
+同步：T022（本节 §S）· PROJECT_STATUS · BACKLOG · devlog · INTERVIEW_NOTES。
+状态：M10-D Phase 1 = Correction / Re-review；Implementation = NOT STARTED；verified LKGC = fc86dcc。
+提交：`M10-D: close FC06 dispatch design gaps`（docs-only；不 amend 7ddec58；不 rebase；不 push；不 tag）。
 ```

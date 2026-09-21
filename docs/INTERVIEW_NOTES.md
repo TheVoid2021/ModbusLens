@@ -871,3 +871,12 @@
 - **Q：写超时为什么必须说「设备写入状态未知」？** A：因为「没有收到可信响应」和「设备没有执行」是两件事：请求可能已经在设备侧生效，只是响应丢了。把超时说成「设备未写入」，等于对未曾观测的事实做确定性断言——这正是 M10-A 已经冻结的 `PossiblySent` 证据语义要防止的错误。
 - **Q：这轮为什么要列 16 项决策请求？** A：因为写安全设计里有大量「两种都说得通、但必须二选一」的选择（输入控件类型、raw text 归属、前导零、空白、消费时序、pre-send 失败后是否重新确认、capability 表达方式、production 可见性切换、是否让 simulator 回答 0x06…）。把它们显式列出来交给 Review 裁定，比在实现阶段「凭感觉」决定更安全，也让每个选择的理由可追溯。
 - **Q：为什么修复一个 bug 前要先看两个提交的历史？** A：本项目在 C4 阶段真实遇到过「harness oracle 缺陷被误当成产品缺陷」的情况（编辑器可见带被算了两次、cacheBuffer 把视口外 delegate 当成可读）。所以本轮在设计任何新 oracle 之前，都先从源码确认事实（例如 framing 规则、invalidate 的作用域），而不是凭印象假设——印象错了，测试就会把错误固化成「契约」。
+
+## 92. Post-T022 M10-D Phase 1 Correction（三个 blocker 的关闭）条目（2026-09-20 追加）
+
+- **Q：为什么「输入框要不要加校验器」会成为设计 blocker？** A：因为校验器住在两个不同的世界里。如果 QML 的校验器**阻止**非法字符进入输入框（比如干脆不让输入 `-` 或第 6 位数字），那么「用户到底输入了什么」这个事实就被 QML 改写了——core 拿到的是被净化过的串，它就只能批准。写操作最大的风险正是「用户以为系统拒绝了 65536，实际上被悄悄改成 65535 发出去了」。所以冻结的规则是：输入框只负责让用户输入，**协议合法性永远由 core 判定**，QML 交给 Controller 的必须是用户原串。
+- **Q：「dispatch attempt」和「send」为什么要分开算？** A：因为它们回答两个不同的问题。attempt 回答「Controller 有没有真的去发」，send 回答「transport 有没有完整接受」。一次 attempt 完全可能是 0 字节被接受（未连接、忙碌、能力缺失、transport 直接拒绝）——这时候如果只看 send 计数，你会看到 0，无法区分「一次都没尝试」和「尝试了但被拒」。反过来，用 `sendCount <= 1` 去证明「成功只发了一次」也是错的：它同样无法区分「一次完整接受」和「一次都没有」。所以成功的 oracle 必须同时断言 attempt == 1、accepted send == 1、ADU log 恰好一条且逐字节等于预期。
+- **Q：短写（partial write）为什么不能靠 sendCount 证明？** A：因为在这个项目的 recording transport 里，短写**不建立 pending、不增加 sendCount、不写 ADU log**——它的证据走的是另一条通道：terminal evidence 携带 intended ADU 与 accepted byte count，disposition = PossiblySent。所以短写的安全 oracle 必须直接检查 acceptedCount、disposition、terminal 数量与「零 transaction」，而不是看一个恰好为 0 的计数器。
+- **Q：framing 到底是谁决定的？** A：实读源码后可以确切回答：`candidateFrameLength()` 是 session 的 const 成员，**只看响应自己的 function 字节**（以及 0x03 的 byteCount），既不看请求的 function，也不做两者比较。这一点很关键——正因为它按「响应自己」成帧，一个 function 与请求不符、但长度可确定的响应才有机会被交给 analyzer 判成 ProtocolError，而不是永远等超时。
+- **Q：为什么不能给所有 function 都加长度规则？** A：因为长度规则必须**可靠**。0x03 的响应自带 byteCount（自描述）、0x06/0x10 的正常响应是固定 8 字节、异常响应固定 5 字节——这些都是协议层面确定的。而 0x01/0x02/0x04/0x08 等本项目根本没实现的 function，若我们凭印象写一个长度，一旦猜错就会把两条报文粘在一起或截断，产生**假**的协议结论。所以设计是「最小可靠集合 + 明确记录 limitation」：宁可让未知 function 走超时路径、如实报告，也不虚构 coverage。
+- **Q：为什么 capability 从 available 改名成 supported？** A：因为 available 会让人以为它随运行状态变化（断开就 false、忙碌就 false）。而我们真正要表达的是「这份代码端到端拥有 0x06 能力」——它是**代码能力**，不是**此刻可不可发**。「此刻能不能发」是另一件事，由运行态（来源、连接、忙碌、草稿是否可尝试）决定，用于控制按钮的 enabled。把两者分开，才能保证断开连接不会把整个写界面卸载掉、也不会丢掉用户已经填好的草稿。
