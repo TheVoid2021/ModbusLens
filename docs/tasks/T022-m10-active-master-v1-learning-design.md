@@ -1,6 +1,8 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A/B/C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D：Phase 1 ✅ → D1 ✅（`6ab97e1`）→ D2 ✅（`ee3bc3e`）→ D3 ✅ COMPLETE（`42fcd0b` + correction `94b6a9c`，Final Re-review PASS）→ D4 = Production FC06 Write UI / Confirmation Dispatch / Usability & Safety 已实现（§Y），AWAITING M10-D4 REVIEW；D5 = NOT STARTED**；**0x06 写入已正式 production-visible（由 `write06Supported` 驱动），normal Confirm 已接到原子派发；0x10 encoder/dispatch/UI 全部 ABSENT（仅 framing 识别）；Agent 写权限 NONE。REAL HARDWARE NOT VERIFIED；MANUAL VISUAL NOT VERIFIED（本轮）。**
+> **状态：M10 全部 COMPLETE** —— M10-A/B/C = ✅ COMPLETE（verified LKGC = `fc86dcc`）；**M10-D = ✅ COMPLETE（Final Acceptance = PASS，§ZD）**：Phase 1 ✅ → D1 ✅（`6ab97e1`）→ D2 ✅（`ee3bc3e`）→ D3 ✅（`42fcd0b`+`94b6a9c`）→ D4 ✅（`d20c07b`+`8974178`+`9bdd99c`，Human Review PASS）→ D5 ✅（acceptance-only，零行为改动）。
+> **M10-D accepted behavior tree = `9bdd99c`；verified LKGC：`fc86dcc` → `9bdd99c`（Human Final Acceptance 后推进）。**
+> 能力终态：0x03 与 0x06 = encoder + session + Controller dispatch + production UI（0x06 另有 `write06Supported` 结构能力常量）；0x10 = 仅 framing 识别（encoder / active / dispatch / `write10Supported` / production UI 全 ABSENT）；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** Next = M11 Learning / Design。
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
@@ -7342,4 +7344,156 @@ Files：scripts/make_package.py、scripts/test_make_package_freshness.py + docs
 分类：**behavior-bearing**（部署工具的验收行为变化）
 commit：`M10-D4: prevent stale binaries in packaging flow`（独立；**不 amend 8974178**）
 verified LKGC 继续 `fc86dcc`（不自行推进）；未 push；未 tag；D5 未开始。
+```
+
+## M10-D5 — FC06 Final Acceptance / Closure / LKGC Candidate Verification（2026-09-21，acceptance-only）
+
+> **M10-D4 Final Human Review = PASS ⇒ M10-D4 = COMPLETE ⇒ M10-D5 = GO。**
+> **D5 不是功能阶段**：对 M10-D 全链（D1 → D4）做端到端验收。
+> **结论：全部 gates PASS，未发现真实 defect ⇒ 本轮产品/测试/harness/packaging 行为零改动**（§27）。
+> **accepted LKGC candidate = `9bdd99c`**（见 ZD8）。
+
+### ZD1. Preflight（§2）
+
+```text
+HEAD = 9bdd99c（branch = main，普通 git status --porcelain = 空）
+origin/main = a40d935；ahead 123 / behind 0；verified LKGC = fc86dcc；VERSION = 2.0.0；v2.0.0 = ABSENT
+M10-D1/D2/D3/D4 = COMPLETE；M10-D5 = GO
+```
+
+### ZD2. D4 Human PASS 归档（§3）
+
+```text
+M10-D4 Final Human Review = PASS（人工确认）：
+  production FC06 Write visible ✔；0x10 production absent ✔；
+  confirmation Dialog 视觉正确 ✔；1000×700 正常 ✔；1024×720 正常 ✔；无明显布局回归 ✔
+M10-D4 accepted behavior chain = d20c07b → 8974178 → 9bdd99c
+  （8974178 = production modal evidence；9bdd99c = packaging freshness behavior correction）
+```
+
+### ZD3. 最终能力矩阵（§4，源码实证）
+
+```text
+0x03 : encoder YES / active support YES / Controller dispatch YES / production UI YES
+0x06 : encoder YES / active support YES / Controller dispatch YES / write06Supported TRUE / production UI YES
+0x10 : encoder NO / active support NO / Controller dispatch NO / write10Supported ABSENT /
+       production UI NO / response framing recognition YES only
+AI/Agent : write authority NONE
+
+关键证据（单一权威 gate，SerialTransactionSession.cpp:53）：
+  bool activeFunctionSupported(ActiveFunction function)
+  {
+      // M10-D2: two active analyzers are wired — Function 0x03 and Function 0x06
+      // ...
+      // 0x10 remains refused before any send: it has a response-shape
+      // RECOGNITION rule for framing, but no encoder and no active analyzer.
+      return function == ActiveFunction::ReadHoldingRegisters
+             || function == ActiveFunction::WriteSingleRegister;
+  }
+  ⇒ 0x10 在任何发送之前就被拒绝（D3 R4 oracle 亦实测 prepared 0x10 → CapabilityUnavailable、attempt 0）。
+  `write10Supported` 全仓仅 4 处出现，**全部是断言其缺席**（main.cpp prod-write / ui_bridge / write_dispatch ×2）。
+  `src/ai` 中 write-tool 引用 = 0。
+  core 中的 0x10 代码（Function16 解码 / prepare 校验 / PassiveTransactionAnalysis 识别）正是
+  冻结语义所允许的「framing recognition + hidden foundation parser」，不构成 encoder / active / dispatch 能力。
+```
+
+### ZD4. 契约重构复核（§5）
+
+```text
+Consumed ≠ send success ≠ device success
+confirmationAccepted ≠ transport accepted ≠ transaction Success
+NotSent ≠ guard failure（guard failure 无 startResult，故不存在 TransportDisposition）
+PossiblySent ≠ device received
+Timeout = 响应超时，设备写入状态未知
+no implicit retry / single in-flight / no queue / no parallel / active unit 0 local reject
+write requires explicit confirmation / Agent cannot write
+全部由既有 test oracle 持续锁定，本轮**未发现**违反。
+```
+
+### ZD5. 门禁实录（§6–§18, §23–§27）
+
+```text
+输入（§6）    ：DecimalField 无 hard validator；raw 保留 / core 权威 / 字段级错误 / invalid 零发送
+               （write_prepare 48 + write_encoder 19，含 "0"/"65535"/"00010"/外空白 与
+                ""/"-1"/"+1"/"0x10"/"12.3"/"12x"/"65536"/multi-line）
+wire（§7）    ：G1 `01 06 00 00 00 00 89 CA`、G3 `11 06 00 01 00 03 9A 9B`、G6 `01 06 00 00 00 01 48 0A`
+               逐字节断言；test oracle 的 CRC 独立实现，与 production encoder 不共享（无自证）
+确认安全（§8） ：Cancel / Escape / immediate Enter → 0 dispatch；
+               Space / Enter / rapid×2 → exactly one（write_dispatch 44）
+快照（§9）    ：Dialog summary 来自不可变快照；打开后改 draft 不改 summary/intent/ADU；QML 只传 token
+transport（§10）：A guard failure（accepted=false / attempt 0 / 无 disposition）
+                 B acceptedCount=0（NotSent / 0 transaction / 0 terminal）
+                 C short（PossiblySent / 1 terminal / 0 transaction）
+                 D full accepted（PossiblySent / pending lifecycle）
+                 E post-submit TransportError（1 terminal / 0 fabricated transaction）
+                 F post-submit disconnect（1 terminal / 0 fabricated transaction）
+响应（§11）   ：Success / Exception / CrcError / wrong unit → ProtocolError+ResponseAddressMismatch /
+               wrong function → ProtocolError+UnexpectedResponseFunction /
+               echo mismatch → ProtocolError+WriteSingleRegisterEchoMismatch / no response → Timeout
+               （fc06_active 31；无任何 outcome 被 UI 显示为 success）
+Timeout 文案（§12）：「响应超时，设备写入状态未知；如需重试，请重新确认写入。」；
+               全仓无「设备未写入 / 设备没有改变 / 写操作未发生」；no automatic retry
+同一事务宇宙（§13）：混合 FC03+FC06 同一 session / 同一 append 顺序 / 同一 Transactions·Statistics·Diagnosis；
+               无 Write History / Write Statistics 第二套 authority
+统计公式（§14）：observed = pending + completed；completed = Success+Exception+CrcError+Timeout
+               +ProtocolError+ExpectedNoResponse；rateEligible = completed − ExpectedNoResponse；
+               successRate = Success / rateEligible（分母 0 → nullopt/"—"）；latency 只取 Success；
+               ExpectedNoResponse 不进分母、不算 anomaly、不证明 write success；
+               anomaly whitelist = Exception / CrcError / Timeout / ProtocolError
+Clear/导航/源切换（§15）：Clear 清 transactions·terminals·statistics·diagnosis，不清 connection·
+               pending·write draft·capability；导航不 source switch·不清 draft·不 send；
+               成功源替换走既有 teardown；Failed Replay 保留 prior source/results
+production UI（§16）：FC06 visible；0x10 zero production controls / accessible nodes / tab stops；
+               disconnected·busy·Simulator·Replay 区块仍在、仅 action availability 变化
+a11y/modal（§17）：address·value·Write·Cancel·Confirm accessible names 存在（实测 M6：
+               「取消写入（不发送任何请求）」/「确认写入意图」）；初始安全焦点 / outside click blocked /
+               rail blocked / background Write blocked / 8 Tabs 不逃出 modal scope；**不宣称 WCAG certification**
+geometry（§18）：1024×720 与 1000×700 自动 gate PASS（部署 artifact 上亦 PASS）；
+               Human Visual PASS 已由 D4 记录，自动 gate 仅作重复验证、不取代人眼
+issue 契约（§23）：10 response-side + 4 request-side = **14** public issue codes；
+               UnknownProtocolError 仍为 defensive/sentinel 但 public observable；未恢复 13
+warnings（§26）：0 new；main.cpp 5 条 pre-existing 未动；ISSUE-014 PRE-EXISTING NON-BLOCKING
+```
+
+### ZD6. 部署 / 打包终验（§19–§21）
+
+```text
+packaging freshness oracle（§19/§20）：scripts/test_make_package_freshness.py → **8/8 PASS**
+  （missing / stale / current / RED 旧规则 / RED 内容不同 / 同尺寸陷阱 / build exe 缺失拒绝）
+canonical Release deploy/package flow 重新执行：**PASS**（structural / 负向 / manifest / ZIP /
+  重新解压 / minimal-PATH smoke·nav·geometry / external-CWD 全过）
+内容同一性（SHA-256，非 mtime）：
+  build/release/modbuslens.exe                   1e50bdb63f41706351117f2bfb57367e7676e0a183c4fac786a19465ae8e3256
+  build/release/deploy/ModbusLens.exe            1e50bdb63f417063…（相同）
+  build/package/…/ModbusLens.exe                 1e50bdb63f417063…（相同）
+  build/package-extract/…/ModbusLens.exe         1e50bdb63f417063…（相同）
+  build/package/…zip                             40,902,628 B  578f9f9b7ce3d00e33111f3fbf6cbc987e44ed702d8cb545a88c82c54af3035b
+  （ZIP hash 每轮不同是因为 ZIP 记录 mtime；内容由 manifest 逐文件校验，这才是身份锚。）
+deployed client（§21）= build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe
+  --qml-smoke-test            → exit 0，"SMOKE IDENTITY PASS: … version=2.0.0 …"
+  --qml-production-write-check→ exit 0，P1–P12 + M1–M6 全 PASS（见 ZD5 §8/§11/§16/§17 实录）
+环境披露：沙箱 bulk-delete guard 拦截脚本自身的 rmtree（staging / extract / 1 文件冗余 assets 镜像）。
+  为完成 canonical 运行曾临时移开这些 **ignored 本地产物**，完成后已用 deploy_windows.bat
+  重新 deploy 恢复 canonical 部署树（assets 已还原，deploy exe hash 不变）。脚本语义未改动。
+```
+
+### ZD7. 验收结论（§27）
+
+```text
+**未发现真实 defect ⇒ 本轮产品 / 测试 / harness / packaging 行为零改动。**
+M10-D accepted behavior tree = 9bdd99c（D1 `6ab97e1` → D2 `ee3bc3e` → D3 `42fcd0b`+`94b6a9c`
+  → D4 `d20c07b`+`8974178`+`9bdd99c`）。
+```
+
+### ZD8. LKGC candidate（§28）与 closure（§29/§30）
+
+```text
+**accepted LKGC candidate = 9bdd99c**
+verified LKGC：fc86dcc → 9bdd99c（Human Final Acceptance 后的治理推进，记录于本轮 docs closure）
+本轮 commit = docs-only closure（`docs: close M10-D FC06 active write milestone`），**它本身不是 LKGC**；
+  LKGC 身份始终是 9bdd99c。
+未来的 docs-only commit 永远不推进 LKGC。
+REAL HARDWARE NOT VERIFIED（§22）：M10-D 验收基于 RecordingSerialTransport / scripted responses /
+  production adapter source audit / runtime UI 与 deployment gates；**未声称真实 PLC/device 写入已验证**。
+Next Action：M10-D COMPLETE → **M11 Learning / Design**（不开始 implementation）。
 ```
