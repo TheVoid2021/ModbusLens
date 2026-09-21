@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A/B = ✅ COMPLETE；**M10-C = ✅ COMPLETE**（§Q closure，verified LKGC = `fc86dcc`）；**M10-D = 0x06 Write Single Register：Phase 1 Learning / Design（§R）→ Review = HOLD → Correction 已落库（§S：input authority / exactly-one 计数 / unexpected-function framing），AWAITING M10-D PHASE 1 FINAL RE-REVIEW；Implementation = NOT STARTED**；**Active Write = NOT AVAILABLE；0x06 / 0x10 encoder ABSENT；write dispatch ABSENT**。
+> **状态：M10-A/B = ✅ COMPLETE；**M10-C = ✅ COMPLETE**（§Q closure，verified LKGC = `fc86dcc`）；**M10-D = 0x06 Write Single Register：Phase 1（§R）→ HOLD（§S：B1/B2/B3 CLOSED）→ Final Correction 已落库（§T：B4 capability staging / B5 confirm·dispatch result semantics），AWAITING M10-D PHASE 1 FINAL RE-REVIEW；Implementation = NOT STARTED**；**Active Write = NOT AVAILABLE；0x06 / 0x10 encoder ABSENT；write dispatch ABSENT**。
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -5917,4 +5917,213 @@ D5：full exactly-one 矩阵；zero-send 矩阵；全部 response/error 矩阵�
 同步：T022（本节 §S）· PROJECT_STATUS · BACKLOG · devlog · INTERVIEW_NOTES。
 状态：M10-D Phase 1 = Correction / Re-review；Implementation = NOT STARTED；verified LKGC = fc86dcc。
 提交：`M10-D: close FC06 dispatch design gaps`（docs-only；不 amend 7ddec58；不 rebase；不 push；不 tag）。
+```
+## M10-D Phase 1 Final Correction — Capability Staging 与 Confirm/Dispatch Result Semantics（2026-09-20，docs-only）
+
+> **M10-D Phase 1 Final Re-review = HOLD。** §R + §S 主体设计接受；**已有 B1 / B2 / B3 全部 CLOSED（禁止重做）**。
+> 本轮只关闭两个新发现：**B4** product capability 与 staging 顺序矛盾；**B5** confirmation result 与 dispatch
+> result 语义混在单一 bool 中（并可能让 Consumed snapshot 对应的 Dialog 悬挂）。
+> **不改写 §R / §S**；严格 docs-only：未开始 D1、未实现 encoder / DecimalField / dispatch、
+> 未 production-enable Write、未 push、未 tag。
+
+```text
+最终 HOLD 状态：§R（Learning/Design）+ §S（round-1 correction）主体接受；
+B1 raw-text authority = CLOSED；B2 exactly-one counting = CLOSED；B3 unexpected-function framing = CLOSED；
+B4 capability staging 矛盾 = 本节关闭；B5 confirm/dispatch result semantics = 本节关闭。
+```
+
+### T0. Preflight（§0）
+
+```text
+HEAD = 1e3a4ce（branch = main，working tree clean）
+verified LKGC = fc86dcc
+M10-C = COMPLETE；M10-D = Learning / Design；Implementation = NOT STARTED
+CMake VERSION = 2.0.0；v2.0.0 = ABSENT
+origin/main = a40d935；ahead = 115；behind = 0
+git diff --check = PASS
+```
+
+### T1. B4 — 两级 Capability 与 staging 时序（§2–§10）
+
+**矛盾实质**：§S 把「新增 0x06 framing + 共享 FC06 analyzer + response lifecycle」放在 **D3**（原 D3），
+却又把 `write06Supported`（产品级能力）放在 **D2** 的交付里，并要求它「只在端到端支持存在时为 true」——
+D2 时 response lifecycle 尚未实现，`write06Supported` 只能靠 override / fake 才能为 true，这正是设计矛盾。
+
+**冻结的两级能力**：
+
+```text
+A. internal active protocol/session support
+   = activeFunctionSupported(0x06)（或项目真实等价的 internal seam）
+   含义：protocol/session 已经能正确处理 0x06 request/response lifecycle。
+   **不**表示产品可写；**不**控制任何 UI。
+
+B. product-level Write06 support
+   = write06Supported（只读属性）
+   含义：产品已**端到端**拥有：0x06 encoder + protocol/session response support +
+        Controller atomic dispatch + evidence/outcome integration。
+   只有 B 可以控制 production Write 0x06 是否呈现。
+```
+
+**诚实性要求（§3）**：`write06Supported` **不得**在 response lifecycle 尚未实现时、为了让 D2 测试通过而临时变 true。
+**禁止** test override / fake capability / build-type capability / harness capability；
+它**只能**在真实 end-to-end path 已经成立时为 true。
+
+**修订后的 staging 与能力时序（§4–§10）**：
+
+```text
+D1 = input / parser / encoder
+     DecimalField raw-text draft integration + parseDecimalRegisterValue + 0x06 encoder +
+     independent golden vectors + pure tests。
+     D1 结束时：encoder 可以存在，但 Controller dispatch 仍不存在、production UI 仍 hidden、
+     **write06Supported 仍 false / absent**（不得因为 encoder 存在就宣称 product support）、
+     **activeFunctionSupported(0x06) 仍为 false**（不得提前打开）。
+D2 = protocol / session response support（原 D3 的 response-lifecycle 基础前移）
+     0x06 candidate framing、共享 FC06 core analyzer、normal echo、exception、CRC、wrong unit、
+     wrong function（WF1/WF2）、timeout、fragmentation、response length；
+     用 **direct SerialTransactionSession 或等价 lower-level tests** 验证。
+     只有当 encoder 已存在 ∧ 0x06 candidate framing 已正确 ∧ analyzeActiveResponse 可处理 0x06 ∧
+     normal/exception/error session tests PASS 之后，internal `activeFunctionSupported(0x06)`
+     （或等价 lower-level support）**才允许**为 true。
+     D2 **不实现**：Controller confirmation dispatch、production UI。
+D3 = Controller dispatch / evidence / product capability
+     confirmAndDispatchPreparedWrite + RecordingSerialTransport 集成 + exactly-one successful send +
+     acceptedCount=0 + short submission + post-submit error/disconnect + session/source/busy guards +
+     history append + statistics + diagnosis + **write06Supported**。
+     D3 初始 write06Supported = **false**；只有 D3 的 end-to-end acceptance PASS 之后才允许 = true。
+     即使 write06Supported == true，D3 期间 normal production 的 Write UI **仍可保持不可见**（D4 未完成）——
+     **capability ready ≠ production presentation rollout**。
+D4 = production UI（0x06-only、DecimalField 正式 wiring、write06Supported 驱动的呈现、
+     runtime enable 规则、validation/error 呈现、keyboard/a11y、geometry、M10-C safety regression；0x10 仍不显示）
+D5 = final acceptance（full exactly-one 矩阵、zero-send 矩阵、normal/error/evidence 矩阵、
+     Debug/Release regression、manual visual sanity、optional non-blocking hardware check、M10-D Final Review）
+```
+
+**0x10 framing recognition 边界（§7）**：D2 **允许**添加 `response function 0x10 → candidate length 8`
+**仅**作为 *known-response-shape recognition*（用于 wrong-function framing）。明确它**不代表**：
+`activeFunctionSupported(0x10)`、**也不代表** 0x10 encoder、0x10 dispatch、0x10 UI capability ——
+**四者继续 ABSENT / false**。
+
+**0x10 framing 回归要求（§8）**：`candidateFrameLength` 是**共享 session 规则**，新增 0x10 recognition
+必须测试其对既有 FC03 行为的影响。至少：**0x03 request 收到完整 0x10 response → 可可靠成帧 →
+走既有 `UnexpectedResponseFunction` / `ProtocolError` 语义**；不得静默变成未记录的新行为；
+其它 unknown function 的 limitation 继续保留（不发明长度规则）。
+
+### T2. B5 — Confirm/Dispatch 的两个正交事实与 Dialog authority（§13–§25）
+
+**冻结（§13）**：一次 Confirm operation 至少包含**两个正交事实**：
+
+```text
+A. confirmationAccepted   —— 用户明确确认了当前 immutable snapshot（一次性消费的结果）
+B. dispatch/start result  —— 本次 attempt 的运输事实（disposition / accepted / evidence）
+不能用一个 bool 同时表示两者（§17 的 bool 歧义）。
+例：token 成功 consume 但 transport acceptedCount = 0
+    ⇒ confirmationAccepted = true 且 disposition = NotSent —— 两个事实必须同时可表达。
+```
+
+**Typed internal result（§16）**：Controller/core 内部使用 typed 结果（`PreparedDispatchResult` 或项目风格等价，
+不强制命名），至少能表达：`confirmationAccepted`、`dispatchAttempted`、**existing `ActiveStartResult`**
+（或等价 start result）、local pre-start failure（若存在）。**优先复用** `ActiveStartResult` /
+`TransportDisposition` / `ActiveTransportTerminal`；**不得**新建 `WriteTransportStatus` / `WriteSendOutcome`
+第二套 transport taxonomy。
+
+**Dialog authority 规则（§14，冻结）**：Dialog 生命周期**必须继续服从 `PreparedWriteSnapshot` state**：
+
+```text
+Prepared    → Dialog 可以存在
+Consumed    → 旧 confirmation 已 terminal，Dialog **必须退出** confirmation flow
+Invalidated → 同样退出
+一旦 Prepared → Consumed，即使随后发生 encode failure / acceptedCount=0 / short submission /
+transport error，**都不得**因为 send/start 失败而让旧 confirmation Dialog 保持可确认状态。
+```
+
+**已有实现证据**：该规则在 M10-C2 已经落地并被 oracle 证明 —— `WriteFoundationSection.qml` 的
+`Connections.onPreparedWriteChanged { if (!hasPreparedWrite && confirmationDialog.opened) close() }`，
+配合 C10-C（一次消费）/ E1（rapid Enter 不重置）/ E2（下一轮 Enter 不复活）等 runtime oracle。
+M10-D **必须复用**该机制，**不得**给它加上「transport success」条件。
+
+**QML 侧边界（§15 / §17）**：**禁止**未来 QML 写
+`if (confirmAndDispatch(...)) { dialog.close() }` 并把该 bool 理解为 **transport send success**。
+Dialog 关闭**必须**基于 Controller authoritative prepared state 离开 Prepared
+（或 Controller 明确返回 confirmation-consumed fact）——**transport success 绝不是 Dialog authority**。
+Phase 1 **不强制** Q_INVOKABLE 最终返回 struct：可以是 private typed operation + QML wrapper、
+enum/presentation result、或 state-notification 驱动的 void call；但**必须冻结**：
+QML 不能仅凭单个模糊 bool 区分 **confirmation accepted** / **send accepted** / **device success**。
+具体 API shape 在 **D3 的 source re-read 之后**决定。
+
+**guard-before-consume（§18）**：stale token / source changed / session changed / disconnected / busy /
+capability unavailable 发生在 consume 之前 ⇒ **zero dispatch attempt、zero send**；snapshot 按 frozen reason
+**Invalidated** 或保持旧 terminal；Dialog 因 authority 不再 Prepared 而退出 confirmation flow。
+
+**failure-after-consume（§19）**：guard PASS、`Prepared → Consumed` 之后发生的
+encode internal failure / transport acceptedCount=0 / short submission / post-submit transport terminal ——
+**旧 token 不复活**；Dialog **不得**继续允许 Confirm；**draft 继续保留**；再次尝试必须重新
+**Write → prepare → confirmation**。
+
+**acceptedCount = 0 的呈现（§20）**：confirmation 已接受但 request 未被 transport 完整接受发送 ⇒
+`Disposition = NotSent`、**无 transaction**、**无 transport terminal**（继承 M10-A）。必须有 non-success
+presentation 或现有 serial error / evidence lane 能告知「**本次请求未发送，如需重试必须重新确认**」；
+**不得**显示「写入成功 / 设备已写入」。
+
+**Short submission 的呈现（§21）**：`PossiblySent` + **一条 `ShortSubmission` terminal**；Dialog 不复活；
+用户-facing 必须体现「**设备状态未知 / 提交不完整**」而**不是**「未写入」；继续禁止 retry。
+
+**Encode failure 语义（§22）**：理论上 validated snapshot + `write06Supported` 使 0x06 encoder 失败成为
+**内部不变量异常**；仍需设计：**zero transport attempt**、token 保持 **Consumed**、**no Modbus transaction**、
+**no transport terminal**、明确的 **local/internal error lane**；**不得**把 encoder bug 伪造成 ProtocolError
+或 device response。
+
+**R1–R5 result oracles（§23，D3 必须做）**：
+
+```text
+R1 full accepted        ：confirmationAccepted=true；startAttempt=1；send=1；PossiblySent
+R2 acceptedCount=0      ：confirmationAccepted=true；startAttempt=1；send=0；NotSent
+R3 short submission     ：confirmationAccepted=true；startAttempt=1；send=0；PossiblySent + ShortSubmission terminal
+R4 guard failure        ：confirmationAccepted=false；startAttempt=0；send=0
+R5 same token 2nd call  ：confirmationAccepted=false；无额外 attempt / send
+```
+
+**Dialog oracle 矩阵（§24，D3/D4 必须直接证明）**：R1 后 Dialog closed；R2 后 Dialog closed；
+R3 后 Dialog closed；guard invalidation 后 Dialog closed；同一 consumed token **无法在没有新 prepare 的情况下
+重新打开 / 重新确认**。⇒ 由此证明 **Dialog authority 不是 transport success**。
+
+**Exactly-one 定义保持（§25）**：沿用上一轮冻结 —— successful full acceptance：`startAttemptCount == 1` ∧
+`sendCount == 1` ∧ `sentAduLog.size() == 1`；acceptedCount=0：`1 / 0`；short：`1 / 0` **加** acceptedCount +
+PossiblySent + terminal。**不得**退回 `sendCount <= 1` 这种弱 oracle。
+
+### T3. 决策状态（§26）
+
+```text
+D1–D15（上一轮 RESOLVED）继续有效，本轮**不重开**。
+D16 staging 更正为：D1 input/parser/encoder → D2 protocol/session response support →
+                    D3 Controller dispatch/evidence/product capability → D4 production UI →
+                    D5 final acceptance；并以此最终 staging 标记 **RESOLVED**。
+```
+
+### T4. Threat Matrix Correction（§27）
+
+以下条目按「confirmationAccepted / dispatchAttempt / sendCount / TransportDisposition / snapshot terminal /
+Dialog state」六个事实重写：
+
+| # | 场景 | confirmationAccepted | dispatchAttempt | sendCount | Disposition | snapshot terminal | Dialog |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| T08 | disconnect before submit | true（若已 Confirm） | 1 | 0 | `NotSent`（本地取消） | Consumed | closed（authority） |
+| T10 | short submission | true | 1 | 0 | `PossiblySent` | Consumed | closed |
+| T11 | acceptedCount = 0 | true | 1 | 0 | `NotSent` | Consumed | closed |
+| T23 | stale capability / UI | false（guard 失败） | 0 | 0 | —— | `Invalidated(CapabilityUnavailable)` | closed（authority） |
+| T04/T05 | double Confirm / rapid Enter | 首次 true，其后 false | 首次 1，其后 0 | 1 / 0 | 首次 `PossiblySent` | Consumed | closed |
+| T12 | timeout | true | 1 | 1 | `PossiblySent` | Consumed | closed |
+| T06/T07 | busy（consume 前） | false | 0 | 0 | —— | `Invalidated(BusyBecameTrue)` | closed（authority） |
+| T19/T22 | stale session token / reconnect | false | 0 | 0 | —— | `Invalidated(SessionChanged)` | closed（authority） |
+| T25 | draft edited after confirmation | true | 1 | 1 | `PossiblySent` | Consumed（snapshot 不受 draft 影响） | closed |
+
+（其余 T01–T03 / T09 / T13–T18 / T20–T21 / T24 语义不变；T20 切源仍按 §R/S4：先 `SourceChanged` 再 teardown，
+pending 时本地取消并（若已提交）产生 terminal。）
+
+### T5. Docs / 提交（§28–§30）
+
+```text
+同步：T022（本节 §T）· PROJECT_STATUS · BACKLOG · devlog · INTERVIEW_NOTES。
+状态：M10-D Phase 1 = Final Correction / Final Re-review；Implementation = NOT STARTED；verified LKGC = fc86dcc。
+提交：`M10-D: align FC06 capability staging and dispatch result semantics`（docs-only；
+      不 amend 1e3a4ce；不 rebase；不 push；不 tag）。
 ```
