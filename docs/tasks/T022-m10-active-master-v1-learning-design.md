@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（verified LKGC `ef71244`）；**M10-C = Write Safety UI Foundation：Phase 1（§I）→ §J → §K → C1（§L）→ C2（§M）→ C3（§N + §O：context / keyboard / accessibility safety + rapid-Enter oracle）→ **C3 Final Re-review = PASS，C3 = COMPLETE**；C4 = Final Acceptance 已执行（§P：C01–C37 矩阵 / geometry 1024×720 + 1000×700 / 滚动可达 / 123·124 边界 / 键盘与 modal 矩阵 / production-hidden 终证 / **产品代码零变化**），AWAITING M10-C4 REVIEW**（无 encoder、无 confirm→dispatch；Write UI production 不可见）。**
+> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE；**M10-C = Write Safety UI Foundation = ✅ COMPLETE**（Phase 1 §I → §J → §K → C1 §L → C2 §M → C3 §N + §O → C4 §P Final Acceptance；M10-C4 Review = PASS，closure 见 §Q0–Q11）；**M10-D = NEXT（Phase 1 Learning / Design，未开始 implementation）**；verified LKGC = `fc86dcc`（closure docs-only commit 不作 LKGC）。**Write UI 在 normal production 仍完全不可见；Active Write = NOT AVAILABLE**（0x06 / 0x10 encoder ABSENT、write dispatch ABSENT、writeAttempts = 0）。
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -4952,3 +4952,256 @@ Observed / Expected / Evidence / Root Cause / Fix / Verification / Regression Pr
 - **LKGC 规则**：C4 自动测试 PASS **不**推进 LKGC；先 M10-C4 Review，Review PASS 后再用
   docs-only closure 推进 `ef71244` → 最终 accepted M10-C behavior-bearing tree（C4 commit），
   closure commit 本身不作 LKGC。
+## M10-C Closure — Final Acceptance Docs-only Closure（2026-09-20，docs-only）
+
+> **M10-C4 Review = PASS。M10-C4 = COMPLETE。M10-C = COMPLETE。**
+> 本轮严格 docs-only：不改 `src/` / `tests/` / QML / CMake；不实现 encoder / dispatch；不 production-enable Write UI；
+> 不修 ISSUE-014、不修 SpinBox；未 push、未 tag。本节 append-only，原 §I–§P 不改写。
+
+### Q0. Preflight 与 LKGC Context-drift Audit（§0 / §1）
+
+```text
+HEAD = fc86dcc（branch = main，working tree clean）
+verified LKGC（closure 前）= ef71244
+v1 tag object = 2cee626；v1 target = ae067ab；v2.0.0 = ABSENT
+origin/main = a40d935；ahead = 112；behind = 0
+CMake VERSION = 2.0.0；git diff --check = PASS
+M9 / M10 Phase 1 / M10-A / M10-B / M10-C Phase 1 / C1 / C2 / C3 / C4（Review PASS）全部 COMPLETE
+```
+
+**LKGC 权威位置审计（closure 前）**：
+
+| 位置 | 当前 LKGC 声明 | 判定 |
+| --- | --- | --- |
+| `docs/PROJECT_STATUS.md`（单行 LKGC 行 + 状态面板 LKGC 行，**两处**） | `ef71244`（M10-B closure） | ✅ 与预期一致，无 drift |
+| `docs/BACKLOG.md` | M10-C 行写「verified LKGC 保持 `ef71244`」 | ✅ 一致 |
+| `docs/tasks/T022-*.md` | §O/§P 写「verified LKGC 保持 `ef71244`，Review PASS 后才推进」 | ✅ 一致 |
+| `docs/devlog/…` / `docs/INTERVIEW_NOTES.md` | 同口径（保持 `ef71244`） | ✅ 一致 |
+
+**`ae067ab` 出现位置审计（允许类别）**：
+
+```text
+docs/PROJECT_STATUS.md            → 历史值列表 + 「V1 tag v1.0.0 = ae067ab（object 2cee626，永久不变）」+ T015 行
+docs/11_V2_UPGRADE_PLAN.md:10     → 「verified LKGC（PROJECT_STATUS 记录）：ae067ab（T015 整体 DONE 的 verified
+                                    code/test baseline）」= V2 规划文档中的 V1 baseline 陈述（V1-era）
+docs/11_PROJECT_FINAL_RETROSPECTIVE.md:24 → 「Last Known Good Commit = ae067ab（T015 整体 DONE）」= V1 复盘事实
+```
+
+⇒ **没有任何 authoritative 当前状态位置把 `ae067ab` 写成当前 verified LKGC**；它只以
+**V1 verified product baseline / v1.0.0 target / historical LKGC** 三类允许身份出现。因此**不触发 STOP**，
+也不改写任何档案原文（只增不改）；报告叙事里出现过的「LKGC v1.0.0 → ae067ab」按 **report narrative drift**
+处理，不代表仓库状态。
+
+### Q1. M10-C4 Final Acceptance PASS 归档（§2）
+
+```text
+M10-C4 Review = PASS ⇒ M10-C4 = COMPLETE ⇒ M10-C = COMPLETE
+C01–C37 Final Acceptance = PASS（pare/core + controller + QML runtime 三层组合）
+分层归档（§2 要求逐项覆盖）：
+  · pure/core        ：write_prepare 32 passed（parser P01–P12、validation V01–V12、store S01–S09）
+  · controller       ：active_request 17 / active_master 54 / ui_bridge 59（authority-first 失效与消费）
+  · QML runtime      ：qml_write_foundation_check（C01–C37 + E1/E2 + C4 全部）
+  · keyboard         ：Dialog 初始 focus=Cancel；Enter/Space/Escape/Tab/Backtab/rapid Enter×2 全部 PASS
+  · modal            ：outside click / rail click / 背景 tab / 背景 Write 均不改变 snapshot、不发送
+  · geometry         ：1024×720 PASS、1000×700 PASS（Dialog 亦可达；窗口无需自动扩大）
+  · scrollability    ：editor 首/末行可达；confirmation 全量 values 可滚动访问；123 边界 PASS；124 拒绝
+  · production-hidden：normal production 无 write control / Dialog / Tab stop / a11y action / startup snapshot
+  · full regression  ：Debug ctest 31/31、Release ctest 31/31
+```
+
+### Q2. Behavior Chain Audit（§3，真实 `git show --stat --name-only`）
+
+```text
+7562678 M10-C1 → src/core/active/{PreparedWriteSnapshot,WriteDraftParsing,WritePrepareValidation}.*,
+                 src/ui/AnalysisController.*, tests/*, CMakeLists.txt                 ⇒ behavior-bearing
+447e346 M10-C2 → src/main.cpp, src/ui/AnalysisController.*,
+                 src/ui/qml/components/WriteFoundationSection.qml,
+                 src/ui/qml/pages/CommunicationPage.qml, CMakeLists.txt              ⇒ behavior-bearing
+0d5c219 M10-C3 → src/main.cpp, src/ui/qml/components/WriteFoundationSection.qml      ⇒ behavior-bearing
+c50dbfe M10-C3 → src/main.cpp（correction：E1/E2 rapid-Enter oracle）                ⇒ behavior-bearing
+        correction
+fc86dcc M10-C4 → src/main.cpp（geometry / scroll / boundary / keyboard / dialog-reachability /
+                 zero-write-transaction oracle / prod-hidden 深度化）                ⇒ behavior-bearing
+```
+
+分类依据是**真实 changed files**（行为或验收行为发生变化），不是 commit message。
+
+### Q3. Amend-history Preservation（§4）
+
+```text
+0d5c219 未被 amend。
+其后的 C3 correction task 最初产生 50ac736，随后在同一任务内 amend 为 c50dbfe。
+正确口径：accepted behavior chain 使用最终值 `0d5c219 → c50dbfe`；
+`50ac736` 作为 correction-task intermediate hash 保留在档案历史中。
+禁止表述：「整个 M10-C3 从未 amend」。
+```
+
+### Q4. Final Accepted M10-C Tree 与 LKGC Advance（§5 / §6）
+
+```text
+最终 accepted M10-C behavior chain = 7562678 → 447e346 → 0d5c219 → c50dbfe → fc86dcc
+最终 accepted behavior tree        = fc86dcc（不是 c50dbfe，也不是本轮 closure docs commit）
+LKGC：ef71244 → fc86dcc
+本轮 closure commit 本身不得成为 LKGC（docs-only）。
+```
+
+### Q5. Frozen Contracts（§7–§26，逐条冻结）
+
+```text
+A. Authority model（§7）
+   QML Draft = page-local mutable presentation state
+   Controller prepare = authoritative validation
+   PreparedWriteSnapshot = Controller/runtime immutable authority
+   Dialog = snapshot projection
+   Confirm = opaque token only
+   Transport dispatch = 未来 M10-D/E authority
+   ⇒ 这些层不得重新合并。
+
+B. Validation（§8）：validate before narrowing。UI/draft 输入先用宽类型验证，再转 uint8/uint16/typed intent；
+   禁止 65536 先变 0、-1 先变 65535。
+
+C. 0x10 parser（§9，M10 v1）：decimal only；一行一个值；0..65535；1..123；首尾空白行可忽略；中间空白行 error；
+   CRLF 支持；values[] 是唯一 authority；quantity = values.size()（派生，不另存）。
+
+D. Address span（§10）：uint32(start) + uint32(quantity) <= 65536 ⇔ lastAddress = start + quantity - 1 <= 65535；
+   禁止 uint16 先加后判。
+
+E. Snapshot state machine（§11）：None → Prepared → Consumed | Invalidated；两者 terminal；旧 token 永不复活；
+   同 token 不得二次 Consumed；prepare while Prepared 不得覆盖 snapshot（返回 AlreadyPrepared）。
+
+F. Confirmation meaning（§12）：Consumed 只表示「用户明确确认了当前 immutable snapshot」，
+   不表示 request 已发送 / device 已收到 / write 成功 / Modbus Success；M10-C 完全没有 write dispatch。
+
+G. Cancel / Escape（§13）：Prepared → Invalidated(UserCancelled)，draft preserved，
+   zero write dispatch / zero write transaction / zero write terminal。
+
+H. Keyboard safety（§14，runtime evidence）：初始 focus = Cancel；刚打开时 Enter = zero confirm；
+   Cancel+Space = Cancel；Confirm 明确 focus + Space = exactly one consumption；
+   Confirm 明确 focus + Enter = exactly one consumption；rapid Enter×2 = one consumption 且 no spillover；
+   Escape = Cancel；0x10 TextArea Tab/Shift+Tab 可离开；hidden page Enter/Space = zero write action。
+
+I. Modal safety（§15）：Dialog open 时 outside click 不关闭/不改变 snapshot；rail click 不切 workspace；
+   背景 tab 不操作；背景 Write 不形成第二 flow；modal 交互不得 confirm / cancel / send / source switch，
+   除非通过 Dialog 自身明确动作。
+
+J. Context invalidation（§16）：disconnect → Invalidated；successful new session → 旧 token invalid；
+   successful source replacement → Invalidated(SourceChanged)；busy false→true → Invalidated(BusyBecameTrue)；
+   busy 再 false 不复活。authority = typed source + session id + connected/busy state，
+   不是 connection label / dialog visibility / error string。
+
+K. Failed Replay boundary（§17）：Replay replacement 失败且真实保留 ActiveSerial（same session / same connection）
+   ⇒ Prepared snapshot 继续有效、draft 继续保留；不得因 Replay error text 或用户访问 Replay workspace 而 invalidate。
+
+L. Draft persistence（§18）：write06Draft / write10Draft 属 QML page-local state，保留跨 workspace navigation /
+   Clear Results / disconnect / reconnect / successful source replacement / failed source replacement；
+   但 draft persistence ≠ prepared confirmation persistence。
+
+M. Clear Results orthogonality（§19）：继续清 transactions / transport terminals / statistics / diagnosis derived state；
+   不清 write draft、不 invalidate/consume Prepared snapshot、不 disconnect、不 cancel pending、不 send write；
+   M10-B clear-while-pending 契约继续。
+
+N. Production-hidden（§20）：normal production 下 Loader inactive、item null、无 write controls / Dialog /
+   tab stops / accessibility action、startup 无 prepared snapshot。**M10-C COMPLETE ≠ Active Write available**。
+
+O. Harness-only seam（§21）：write foundation 只能由明确 harness path 加载；该 seam 不是 write capability；
+   未来不得把 `writeFoundationVisible` 等价解释为「0x06 supported」。
+
+P. Encoder / dispatch absence（§22）：0x06 encoder = ABSENT；0x10 encoder = ABSENT；
+   `encodeActiveRequest` 对二者 = UnsupportedFunction；write dispatch = ABSENT；M10-C acceptance 的
+   `writeAttempts` = 0。
+
+Q. Transaction boundary（§23）：M10-C 不产生 0x06 / 0x10 transaction，也不产生 write transport terminal；
+   用于 busy oracle 的 FC03 属于真实 read transaction，单独归属（会话历史 function codes = [3]）。
+
+R. Timeout future contract（§24，归档 M10-D/E）：write timeout 仍使用 `Timeout` outcome；
+   用户语义「响应超时，设备写入状态未知」；禁止「设备未写入」「写操作未发生」等无证据的确定性表述。
+
+S. PossiblySent future contract（§25，继承 M10-A）：ShortSubmission / TransportError after submission /
+   DisconnectedAfterSubmission 属于 PossiblySent 或相应 submission evidence；不得据此断言 device unchanged；
+   M10-D/E 不得重新解释。
+
+T. AI / Agent boundary（§26）：AI / Agent write authority = NONE；无 prepare-write tool / confirm-write tool /
+   serial-send tool / raw-ADU tool。
+```
+
+### Q6. Acceptance Archives（§27–§29）
+
+```text
+Geometry（§27）：1024×720 PASS；1000×700 PASS；Write draft / validation / Dialog / Cancel / Confirm 均可访问；
+                 窗口无需自动扩大。
+Scroll（§28）：editor 第一项可达、最后一项可达；confirmation **全部 snapshot values 都可通过滚动访问**；
+               123 values PASS（quantity=123、first/last reachable）；124 values = validation reject + no Dialog。
+               禁止写「所有值同时可见」。
+Accessibility（§29）：basic accessible names / keyboard focus / enabled-state consistency PASS；
+                      不声明 WCAG certification 或 screen-reader certification。
+```
+
+### Q7. ISSUE-014 与 M10-D Design Blocker（§30 / §31）
+
+```text
+ISSUE-014（§30）：继续 PRE-EXISTING NON-BLOCKING；本轮 closure 不修（无 issue code fix）。
+  归档 append-only 澄清：旧文档曾写「9 条」，C4 实测「10 条」，同一 reset-window warning family，
+  分布在 TransactionsPage.qml 271–277 / 344 / 349 / 379；写 UI 自身 0 条。
+
+M10-D DESIGN BLOCKER（§31，正式冻结）：
+  当前 0x06 address / value 使用 non-editable SpinBox，range 0..65535，step = 1；
+  C4 真实 usability probe：typing 1234 = 无效；Up key = 无效；indicator click = 0 → 1。
+  ⇒ 作为 production 0x06 大范围输入**不可接受**。
+  分类：**M10-D DESIGN BLOCKER**（不是 M10-C product safety defect）；不得在 closure 顺手修改。
+```
+
+### Q8. M10-D Requirements 与 Production Visibility Gate（§32 / §33）
+
+```text
+M10-D 不得直接开始 encoder。第一阶段必须 Learning / Design，至少先解决：
+  A. 0x06 address/value 生产输入控件方案
+  B. 直接十进制键盘输入
+  C. invalid text 如何 presentation
+  D. validate-before-narrowing 如何保持
+  E. confirmation snapshot 如何复用
+  F. 0x06 encoder golden wire
+  G. echo matching
+  H. write timeout / unknown-state semantics
+  I. exactly-one dispatch
+  J. production visibility capability gating
+Review PASS 以后才能进入 Implementation。
+
+0x06 Write section 首次 production-visible 必须**同时**满足：
+  1. 输入 usability blocker 解决；2. 0x06 encoder 存在并通过 golden vectors；3. dispatch 存在；
+  4. response matching 存在；5. write timeout semantics 存在；6. exactly-one-send 已证明；
+  7. confirmation / session safety 继续通过；8. production capability 真实为 available。
+禁止：先显示 UI、以后再补能力。
+```
+
+### Q9. Final Test Archive（§34）
+
+```text
+write_prepare 32 · active_request 17 · active_master 54 · ui_bridge 59 · statistics 12 ·
+statistics_integration 3 · diagnosis 17 · serial 21 · serial_adapter 7 · replay_log 14 ·
+replay_analysis 9 · transaction 20 · transaction_integration 5 · function03 15 · fault 7 ·
+fault_integration 4 · passive 55 · codec 9 · crc 8 · frame 6 · simulator 15 ·
+simulator_integration 3 · ai 23 · agent_tools 15 · agent_runtime 28 · agent_integration 24
+QML：qml_write_foundation_check PASS · qml_focus PASS · qml_smoke PASS · qml_nav PASS · qml_geometry PASS
+Debug ctest 31/31 PASS；Release ctest 31/31 PASS。
+closure 为 docs-only ⇒ 无需重跑（前提：fc86dcc..closure HEAD 零 behavior diff —— 已实证）。
+```
+
+### Q10. REAL HARDWARE 边界（§35）
+
+```text
+REAL HARDWARE NOT VERIFIED（继续）。
+M10-C 是 software safety foundation COMPLETE；不得写「hardware write verified」。
+Active Write = NOT AVAILABLE；0x06 encoder = ABSENT；0x10 encoder = ABSENT。
+```
+
+### Q11. Docs / Commit（§36–§39）
+
+```text
+同步：T022（本节）· PROJECT_STATUS · BACKLOG · devlog · INTERVIEW_NOTES。
+最终状态：M10 = IN PROGRESS；M10-A/B/C = COMPLETE；M10-D = NEXT / Learning & Design；
+          verified LKGC = fc86dcc；Active Write = NOT AVAILABLE。
+closure commit：`M10-C: close write safety foundation`（独立 docs-only commit）。
+不得 amend fc86dcc；不得 rebase；不得 push；不得 tag（含 v2.0.0）。closure commit 不作 LKGC。
+验证：git diff --check PASS；git status --porcelain 为空；git show --name-only HEAD 仅 docs；
+      fc86dcc..HEAD 无 src/ tests/ QML CMake 行为 diff；全部 authoritative LKGC = fc86dcc。
+```
