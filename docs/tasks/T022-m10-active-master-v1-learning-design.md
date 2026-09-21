@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE；**M10-C = Write Safety UI Foundation = ✅ COMPLETE**（Phase 1 §I → §J → §K → C1 §L → C2 §M → C3 §N + §O → C4 §P Final Acceptance；M10-C4 Review = PASS，closure 见 §Q0–Q11）；**M10-D = NEXT（Phase 1 Learning / Design，未开始 implementation）**；verified LKGC = `fc86dcc`（closure docs-only commit 不作 LKGC）。**Write UI 在 normal production 仍完全不可见；Active Write = NOT AVAILABLE**（0x06 / 0x10 encoder ABSENT、write dispatch ABSENT、writeAttempts = 0）。
+> **状态：M10-A/B = ✅ COMPLETE；**M10-C = Write Safety UI Foundation = ✅ COMPLETE**（§Q closure，verified LKGC = `fc86dcc`）；**M10-D = 0x06 Write Single Register：Phase 1 Learning / Design 已落库（§R0–R20），Implementation = NOT STARTED**；**Active Write = NOT AVAILABLE；0x06 / 0x10 encoder ABSENT；write dispatch ABSENT**。
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -5204,4 +5204,443 @@ closure commit：`M10-C: close write safety foundation`（独立 docs-only commi
 不得 amend fc86dcc；不得 rebase；不得 push；不得 tag（含 v2.0.0）。closure commit 不作 LKGC。
 验证：git diff --check PASS；git status --porcelain 为空；git show --name-only HEAD 仅 docs；
       fc86dcc..HEAD 无 src/ tests/ QML CMake 行为 diff；全部 authoritative LKGC = fc86dcc。
+```
+## M10-D Phase 1 — 0x06 Write Single Register：Learning / Design（2026-09-20，docs-only）
+
+> **M10-C Closure Review = PASS。M10-C = COMPLETE。M10-D = GO（仅 Phase 1）。**
+> 本轮**只做学习与设计**：实读当前实现、产出设计、列出待 Review 裁定的决策。**Implementation = NOT STARTED**；
+> 不实现 0x06 encoder、不实现 dispatch、不 production-enable Write UI、不改输入控件、不实现 0x10、不新增 Agent
+> 写权限；未 push、未 tag。**不得重新打开已冻结的 M10-C confirmation safety foundation**（本节全部设计都建立在它之上）。
+
+### R0. Preflight 与 M10-C → M10-D 过渡归档（§0 / §1）
+
+```text
+HEAD = 19ca421（branch = main，working tree clean）
+verified LKGC = fc86dcc（M10-C closure 推进后）
+v1 tag object = 2cee626；v1 target = ae067ab；v2.0.0 = ABSENT
+origin/main = a40d935；ahead = 113；behind = 0
+CMake VERSION = 2.0.0；git diff --check = PASS
+M9 / M10 Phase 1 / M10-A / M10-B / M10-C 全部 COMPLETE；M10-D Implementation = NOT STARTED
+Active Write = NOT AVAILABLE；0x06 encoder ABSENT；0x10 encoder ABSENT；write dispatch ABSENT
+```
+
+归档：**M10-C = COMPLETE；final accepted M10-C behavior tree = `fc86dcc`；verified LKGC = `fc86dcc`**（详见 §Q）。
+M10-D 的目标是让 0x06 成为**第一个真正 production-visible、端到端可用的 active write 能力**；最终链路为
+draft → authoritative validation → PreparedWriteSnapshot → user confirmation → **atomic confirm + dispatch**
+→ 0x06 encoder → SerialTransport → SerialTransactionSession → response analysis → ActiveTransactionRecord →
+现有 session history → Transactions / Statistics / Diagnosis。**本轮不实现其中任何一段。**
+
+### R1. Mandatory Source Re-read — 审计结论 A–L（§3 / §4）
+
+实读文件：`ActiveRequestIntent.{h,cpp}`、`ActiveRequestDescriptor`（同头文件）、`PreparedWriteSnapshot.{h,cpp}`、
+`WriteDraftParsing.{h,cpp}`、`WritePrepareValidation.{h,cpp}`、`encodeActiveRequest`（`ActiveRequestIntent.cpp`）、
+`Function03.{h,cpp}`、`Function06.h`、`Function16.h`、`ModbusCrc.h`、`ModbusRtuCodec.{h,cpp}`、`ModbusRtuFrame.h`、
+`TransactionAnalysis.{h,cpp}`、`PassiveTransactionAnalysis.cpp`、`SerialTransactionSession.{h,cpp}`、
+`SerialTransport.h` + `SerialPortAdapter.cpp`、`tests/fake_serial_transport.{h,cpp}`、`AnalysisController.{h,cpp}`、
+`CoreSimulator`（`SimulatedSlave.h`）、`WriteFoundationSection.qml`、`CommunicationPage.qml`、`DiagnosisPage.qml`
+（唯一既有文本输入模式）、`DS/DesignSystem.qml`、`src/main.cpp`（qml write/focus harness）、
+测试：`active_request` / `active_master` / `write_prepare` / `passive` / `codec` / `frame` / `crc` / `transaction` / `ui_bridge`。
+
+| # | 问题 | 真实结论（含证据位置） |
+| --- | --- | --- |
+| A | 0x06 typed payload | `WriteSingleRegisterIntent{ std::uint16_t registerAddress; std::uint16_t value; }`，位于 `ActiveRequestIntent{ function, unitId(uint8), timeout(ms), payload(closed variant) }`；单播域 `kMinUnicastUnitId=1 / kMaxUnicastUnitId=247`（`ActiveRequestIntent.h:52-104`） |
+| B | 0x06 passive analyzer 已验证的语义 | `Function06.h`：`decodeWriteSingleRegisterRequest/Response`（functionCode 必须 0x06、data 恰好 4 字节、big-endian）；`PassiveTransactionAnalysis.cpp:287-313`：request 解码失败 → `ProtocolError + UnknownProtocolError`；response 形状错 → `ProtocolError + MalformedNormalResponse`；**地址或值 echo 不一致 → `ProtocolError + WriteSingleRegisterEchoMismatch`**（携带 expected/actual 地址与值四元组）；完全一致 → **`Success`** |
+| C | normal 0x06 response 如何判断 echo | 冻结顺序（被动/主动共用同一条管线）：① `response.address != request.address` → `ProtocolError + ResponseAddressMismatch`；② 异常位分支 `(fn\|0x80)`；③ function 匹配 0x06+0x06 → 解码 + **逐字段 echo 比较（registerAddress 与 value 同时相等）** |
+| D | echo mismatch 用什么表达 | **Outcome 与 Issue 是两个正交事实**：`TransactionStatus::ProtocolError` **+** `TransactionIssueCode::WriteSingleRegisterEchoMismatch`（`TransactionAnalysis.h:44`）；**不是 Success，也不是新 outcome**；七 outcome 冻结不变 |
+| E | 0x06 exception response | **通用异常路径**（`PassiveTransactionAnalysis.cpp:236-250`，为所有 function 写一次）：`fn\|0x80` 且 data.size()==1 → `Exception` + 数字 exceptionCode；data.size()!=1 → `ProtocolError + MalformedExceptionResponse`。0x06 的异常 function 是 **0x86**，session 的 framing 规则已按「异常位 → 5 字节」通用处理，**不需要新 taxonomy** |
+| F | CRC / ProtocolError / Timeout 如何形成 | `TransactionAnalysis.cpp`（`analyzeFunction03Transaction`）：NoResponse 且 `elapsed < threshold` → `Pending`；`>= threshold` → `Timeout`；`RtuDecodeError{CrcMismatch}` → `CrcError`；`{FrameTooShort}` → `ProtocolError + ResponseFrameTooShort`；解码帧但 function 不匹配 → `ProtocolError + UnexpectedResponseFunction`；其它防御分支 → `UnknownProtocolError` |
+| G | `encodeActiveRequest` 组织方式 | 先 `validateActiveRequestIntent`（失败 → `IntentInvalid`），再按 `switch (intent.function)`：0x03 → `encodeReadHoldingRegistersRequest`（语义帧）→ `encodeRtuFrame`（CRC 线缆字节）→ `ActiveRequestDescriptor`；**0x06 / 0x10 → `UnsupportedFunction`**（`ActiveRequestIntent.cpp:88-119`） |
+| H | FC03 active lifecycle 可复用部分 | 除**三个函数相关 seam** 外全部可复用：intent → descriptor → `SerialTransport::startActiveRequest` → `SerialTransactionSession::beginActiveRequest`（通用）→ `feedResponseBytes`/`onResponseTimeout` → `analyzeActiveResponse`（单一 dispatch 点）→ `ActiveTransactionResult` → `AnalysisController::handleSerialTransactionCompleted`（send-time 身份守卫）→ `appendActiveSerialTransaction` → rows/statistics/diagnosis。**需扩展的三处**：`activeFunctionSupported`（现仅 0x03）、`candidateFrameLength`（现仅 0x03 + 异常位）、`analyzeActiveResponse`（现仅 0x03 分支） |
+| I | 是否已有 generic descriptor/session path 承载 0x06 | **是**（M10-A 已把 session 做成 function-generic：`SerialTransactionSession.h:17-37` 明确「不会出现 SerialWrite06Session / SerialWrite10Session，将来也不会有」）。0x06 必须骑同一条路径 |
+| J | `serialBusy` 是否唯一 authority | **是**：单一 `serialBusy_`，在读请求入口守卫（`AnalysisController.cpp:999`）、在 start 被接受后置真（1045）、在完成/终止/teardown 处置假（871/882/957/1139/1649）；进入 flight 时以 `BusyBecameTrue` 失效 prepared snapshot（1048-1051）。**不得新增 writeBusy** |
+| K | fake transport 的确定性能力 | `RecordingSerialTransport` 已具备 M10-D 全部 oracle 所需：`setPortOpen` / `setAcceptRequests`（pre-send 拒绝）/ `setResponseBytes`（normal·exception·CRC 损坏·任意字节）/ `setCompletionElapsed` / `setSubmissionAcceptedBytes`（short submission）/ `completeWithResponse` / `completeWithTimeout` / `feedPartialBytes`（分片）/ `failTransport` / `disconnectAfterSubmission`；观测面：`startAttemptCount` / `sendCount` / `sentAduLog` / `lastStartResult` |
+| L | simulator 的 writable 语义 | **有 foundation、无应答框架**：`WriteMode{ReadOnly(默认), Writable}` + `applyWriteRequest()` → `SimulatorWriteOutcome{Applied, ReadOnlyMode, NotMyAddress, UnsupportedFunction, MalformedRequest}`（先解码、失败零改动）；但 `handleRequest()` 是 const 且**仍不回答写请求**（注释明确：应答框架需要 M10-D/E 的写 encoder）。⇒ 0x06 应答 echo 需要**同一个 encoder**，是本轮设计的一个可选项（见 R17-D12） |
+
+**额外发现（本轮必须记录，影响设计）：**
+
+```text
+S1. session 的 candidateFrameLength() 目前**没有 0x06 规则** —— 除 0x03 与异常位之外一律返回 nullopt
+    （「不发明长度解析器，等超时收尾」）。因此若不扩展，0x06 normal response **不会在到达时成帧**，
+    只能在 timeout 时按整段字节分析 ⇒ 会得到 Timeout/ProtocolError 而非 Success。
+    M10-D 必须新增 framing 规则：function == 0x06 → 8 字节（1+1+4+2）。异常位规则已通用（5 字节），无需改动。
+S2. PreparedWriteStore::invalidate() **只对 Prepared generation 生效**（`PreparedWriteSnapshot.cpp`: 状态 != Prepared
+    直接 return false，terminal 与其历史原因永不改写）⇒ 0x06 dispatch 若「先 consume 再进入 flight」，
+    随后 read 路径式的 BusyBecameTrue 失效调用对已 Consumed 的代际是 **no-op**。这是 §17/§18 的关键依据。
+S3. 源码中**不存在任何 TextField**（`grep -rln TextField src/ui/qml/` 为空）：应用里唯一的文本输入先例是
+    Agent 提问用的 **TextArea**（含 M9-F 的 Tab/Backtab 逃逸模式）。⇒ 「复用现有 TextField pattern」在事实上
+    没有对象可复用；0x06 的十进制输入将是本应用**第一个单行文本输入**（见 R2）。
+S4. 源码切换（Simulator demo / Replay 成功）**无条件** `teardownSerialTransport()`（runDemoBatch 1683、
+    loadReplayFile 1941），不看 serialBusy；teardown 会 `closePort()` + `pendingRequest_.reset()` + busy=false，
+    并且**先** invalidate(SourceChanged)（顺序被注释固定为「原因必须真实」）。⇒ 「pending 期间切源」在 M10-A/B
+    已是冻结行为：本地取消 +（若已提交）terminal 证据；M10-D 必须原样复用，不得改契约（§38）。
+```
+
+### R2. Input Blocker 解决方案（§6–§9、§56–§61）
+
+**已确认的 blocker（C4 实测，§31）**：0x06 的 address / value 使用 **non-editable** SpinBox，range 0..65535、
+step=1；typing 无效、Up 键无效、只有指示器点击每次 ±1 ⇒ 最坏 65535 次点击。
+
+**四个候选方案对比**（评价维度来自 §6）：
+
+| 维度 | A. editable SpinBox | B. TextField + validator + C++ 权威校验 | C. DecimalField（TextField foundation） | D. SpinBox + 直接编辑 |
+| --- | --- | --- | --- | --- |
+| 键盘输入效率 | 好（可输入） | 好 | 好 | 好 |
+| paste / 全选 / 删除 | 依赖 SpinBox 内部 | 原生支持 | 原生支持 | 依赖内部 |
+| invalid intermediate text | **差**：SpinBox 把 `value` 当模型，非法文本的保留/回退由 Qt 内部策略决定（可能 commit 时被回退或钳制） | **好**：raw text 可保留，合法性判定在 core | **好** | 差 |
+| focus / accessibility | 需重新测（内容项是编辑器） | 标准 | 标准（可加 focus ring + Accessible.name） | 需重测 |
+| range presentation | 只有 `from..to` | 可显示范围提示 + 错误文案 | 同 B | 同 A |
+| 实现复杂度 | **最低**（一行 `editable: true`） | 低 | 中（一个新组件） | 中 |
+| silent clamp 风险 | **高**（Qt 在 commit/focus-out 时可能把文本收敛为范围内值） | **无**（我们从不改写用户文本） | **无** | 高 |
+| 复用性（0x10 起始地址 / M11 / M12） | 差 | 中 | **好** | 差 |
+
+**推荐：方案 C —— 新增 `DecimalField.qml`（基于 QQC2 `TextField`）**，理由：
+1. **raw text 必须保留**（§8）：只有 TextField 系能把用户原串当 draft，让 core 做权威判定；SpinBox 的模型是数值，
+   非法中间态要么被 Qt 吞掉、要么被收敛，两种都会让「哪个值被接受」变得不可解释。
+2. **silent clamp 风险为零**：我们**从不**把 65536 改写成 65535、也从不把 -1 改写成 0 —— 一律拒绝并呈现原因（§7）。
+3. **单一 decimal authority**：合法性与解析由 core 的既有十进制解析器决定（见下），QML 只做输入体验。
+4. **可复用且不过度抽象**：0x10 起始地址、后续 M11/M12 的寄存器地址都可用同一组件；但 M10-D v1 只为 0x06 落地。
+5. **unit / timeout 保留 SpinBox**：`1..247` 与 `100..10000` 的量级下步进是可用的（247 步可接受，65535 步不可接受），
+   且这两个控件在 M10-C 已通过键盘/无障碍 oracle——**不为了统一而改它们**。
+
+**Raw text vs numeric authority（§8 决策）**：production draft 保存 **raw decimal text**（每个字段一个字符串），
+Controller 侧以 **int64 → 权威校验 → 窄化** 的既有链路处理（M10-C1 冻结的 validate-before-narrowing）。
+**QML 在任何阶段都不得先把文本窄化成 uint16**；`DecimalField` 不持有数值模型，只持有文本 + 「当前呈现态」。
+
+**Decimal-only（§9）**：v1 保持十进制输入；不引入 hex 模式、`0x` 前缀或 dec/hex 切换；`0x06` 只是**协议身份显示**，
+不是输入格式（未来的 hex 输入是单独的 enhancement）。
+
+**单值解析（新增，复用既有唯一 authority）**：在 `core/active/WriteDraftParsing` 内新增
+`parseSingleRegisterValue(text) -> variant<uint16_t, ValuesParseError>`，**复用同一份 trim / 逐字符十进制累加 /
+`> 65535` → ValueOutOfRange（不 wrap、不抛异常、不受 locale 影响）** 规则；仅额外要求「恰好一个值」
+（多行输入 → 明确的 typed 错误）。⇒ 地址与值字段与 0x10 的多行解析共享**同一套十进制语义**（§59 要求 QML 与 C++
+不出现两套规则）。
+
+**Invalid input UX（§57）**：
+
+| 输入 | 判定（core typed error） | 呈现 | 是否改写 draft |
+| --- | --- | --- | --- |
+| `""`（空） | `NoValues` | 「请输入数值」 | 否 |
+| `-1` / `12x` / `1.5` / `0x10` | `InvalidCharacter` | 「只能输入十进制数字（0-9）」 | 否 |
+| `65536` / 超大整数 | `ValueOutOfRange` | 「数值必须在 0..65535 之间」 | 否 |
+| ` 1234 `（前后空白） | **接受**（core 统一 trim） | 显示权威数值 | 否（保留原串） |
+| `00010`（前导零） | **接受** = 10 | draft 保留原串；**confirmation 显示权威数值 10** | 否 |
+| 多行粘贴 | 明确的单值错误 | 「该字段只能输入一个数值」 | 否 |
+
+**Whitespace 决策（§59）**：**接受**两端空白（与 core parser 现有 `trim` 一致），QML **不再 trim 一次**
+（避免出现两套规则）；呈现层只显示 core 的判断结果。**Leading-zero 决策（§58）**：`00010` 是合法十进制 10，
+draft 保留 raw text，confirmation 只显示权威数值。
+
+**Component ownership（§60）**：`DecimalField.qml` **只负责呈现与输入体验**（文本、选择、粘贴、focus ring、
+`Accessible.name`、范围提示位）；**协议合法性永远由 core / Controller 判定**，组件内**不得**写死 unit/address/value
+的协议范围。**Input accessibility（§56）**：必须支持直接键盘输入、全选、删除、粘贴、Tab 离开 / Shift+Tab 返回、
+focus indicator；**不得**要求 mouse-only 操作。新控件必须加入既有约定：focus ring（M9-F 的 border 通道）、
+`Accessible.name`、Tab 顺序、disabled 态与 accessible enabled 一致。
+
+### R3. Wire Format 学习：0x06 RTU ADU（§12）
+
+依据：项目实现（`encodeReadHoldingRegistersRequest` 的字段打包方式 + `encodeRtuFrame` 的 CRC 放置）+
+MODBUS over Serial Line V1.02 / Application Protocol V1.1b3（已回填 `docs/03_MODBUS_LEARNING.md` §4.5）。
+
+**请求（master → slave），8 字节**：
+
+| offset | 字段 | 长度 | 说明 |
+| --- | --- | --- | --- |
+| 0 | unit id | 1 | 单播 1..247；**0（broadcast）在 active 路径本地拒绝** |
+| 1 | function | 1 | `0x06` |
+| 2..3 | register address | 2 | **big-endian**（hi, lo），0..65535 |
+| 4..5 | register value | 2 | **big-endian**（hi, lo），0..65535 |
+| 6..7 | CRC-16/MODBUS | 2 | **低字节在前**（V1.02；由 `encodeRtuFrame` 计算） |
+
+**CRC coverage = offset 0..5（address + function + data）**，即 CRC 覆盖除自身以外的全部字节。
+**正常响应 = 请求的逐字段 echo**，同样 8 字节（CRC 独立重算）。
+**异常响应**：unit + `0x86` + exception code + CRC = **5 字节**（session 已按「异常位」通用成帧）。
+
+**§12 的学习结论**：语义帧（地址/功能/数据）与线缆字节（含 CRC）在项目里**分层且单一来源**——
+`encode*Request` 只产出 `ModbusRtuFrame`，CRC 与低字节序由 `ModbusRtuCodec::encodeRtuFrame` 负责，
+帧模型**刻意不存 CRC**（`ModbusRtuFrame.h:8-12`），避免 stale-CRC。0x06 encoder 必须沿用同一分层。
+
+### R4. Golden Wire 策略（§13，仅设计）
+
+- **独立 oracle 优先**：测试内的期望字节由**独立实现**算得——测试文件内含一份**按 V1.02 定义手写的 bitwise CRC**
+  （不复用 `calculateModbusCrc`），字段按 R3 表手工拼装；生产实现与期待值**互为交叉验证**。
+- **向量集合（至少）**：① canonical：unit 1 / address 0x0000 / value 0x0000；② 高边界：unit 247 / address 0xFFFF /
+  value 0xFFFF；③ 规范示例型：unit 0x11 / address 0x0001 / value 0x0003（协议文档应用示例的字段序列）。
+  边界另加：address 65535 + value 0、address 0 + value 65535、value 1（最小非零）。
+- **禁止**「production encoder 自己算、自己验证」的闭环；若独立 oracle 与实现不一致，**两边都必须重新推导**，
+  绝不允许把期望值改成实现的输出。
+
+### R5. Descriptor 契约（§14，冻结）
+
+未来的 0x06 encoder **必须仍返回 `ActiveRequestDescriptor{ intent, frame, wire }`**：intent = 发送时快照，
+frame = 语义帧，wire = 精确线缆字节（CRC 含）。**禁止**：QML 构建 raw ADU、Controller 拼字节、UI 保存/计算 CRC ——
+wire evidence 永远由 protocol 层产生；transport 只按原样写出 `wire`。
+
+### R6. Confirmation Snapshot 复用（§15，冻结）
+
+**不得新建第二套 write confirmation model。** M10-D 复用：`PreparedWriteSnapshot`（不可变、token 标识）、
+opaque token、`None → Prepared → Consumed | Invalidated` 一次性状态机、M10-C 的 dialog 投影、
+Cancel/Escape、键盘/模态/会话/busy 安全、以及全部 C01–C37 oracle。**production enable 只是把已验证的 foundation
+接到真实 0x06 dispatch capability 上**，不修改它的语义。
+
+### R7. Confirm-and-Dispatch：API、原子性、消费时序（§16–§18）
+
+**API（草案）**：`Q_INVOKABLE bool confirmAndDispatchPreparedWrite(qulonglong token)`。
+输入**只允许 opaque token**；**不得**再传 unit / address / value / timeout 或任何 QML draft 字段 ——
+Controller 必须从自己的 snapshot 取 typed intent。
+
+**一个同步 operation 的 11 步与失败语义**（§17 的步骤表 + 每步的状态后果）：
+
+| # | 步骤 | 失败时 | snapshot 状态 | send |
+| --- | --- | --- | --- | --- |
+| 1 | token lookup | token 不匹配 | 不变（terminal 不会被改写） | 0 |
+| 2 | `state == Prepared` | 已 Consumed/Invalidated | 不变 | 0 |
+| 3 | `source == ActiveSerial` | 是别的 source | `Invalidated(SourceChanged)` | 0 |
+| 4 | session unchanged | 已换 session | `Invalidated(SessionChanged)` | 0 |
+| 5 | connected | 未连接 | `Invalidated(Disconnected)` | 0 |
+| 6 | `!busy` | 有事务在飞 | `Invalidated(BusyBecameTrue)` | 0 |
+| 7 | `function == 0x06` | 别的 function（当前只可能 0x06/0x10） | `Invalidated(CapabilityUnavailable)` | 0 |
+| 8 | 0x06 dispatch capability 存在 | 能力缺失（回归/stale UI） | `Invalidated(CapabilityUnavailable)` | 0 |
+| 9 | **consume one-shot snapshot** | —— | **`Consumed`（terminal）** | 0 |
+| 10 | encode descriptor | encode 失败（防御分支） | 保持 `Consumed` | **0** |
+| 11 | start Active request lifecycle | transport pre-send 拒绝 | 保持 `Consumed`（**不复活**） | 0（NotSent）或已提交证据 |
+
+**Consumption ordering（§18 的正式答案）**：**先所有上下文守卫 → 再 consume → 再 encode → 再 start**。
+依据 S2：`PreparedWriteStore::invalidate()` 只对 Prepared 代际生效，因此进入 flight 后（读路径式的
+`BusyBecameTrue` 失效）对已 Consumed 的代际是 **no-op**，terminal 语义不被污染。
+
+**因此下列重复输入只能产生一次 dispatch attempt**：双 Enter、双 Space、重复 clicked 信号、同 token 第二次调用
+（第 2 步即被拒：state 已 terminal）。这正是 §42 要把 M10-C 的「one confirmation acceptance」升级成的
+**one confirmation → exactly one 0x06 dispatch attempt**。
+
+**§35 的保守策略（本轮采纳）**：token 一旦 Consumed，**任何**后续失败（含 pre-send transport reject）
+都**不复活**该 token；用户必须重新 Write → prepare → confirm 才能再试。UI 不得提供 armed mode / one-click repeat。
+
+### R8. Capability 模型与守卫（§19 / §40）
+
+- Controller 暴露只读 `write06Available`（`NOTIFY` 与状态变化一起），语义为「**encoder + dispatch 是否 ready**」，
+  取值为 core 的单一能力谓词（`activeFunctionSupported(WriteSingleRegister)`）与 dispatch 路径存在性的真实合取。
+- **禁止**：hard-code `true`、只看 build type、只看 UI/harness flag。harness 的 `writeFoundationVisible`
+  **不是** capability 信号（M10-C §Q5-O 已冻结），不得参与该判定。
+- **capability guard 保留**：即使 production 只在 ready 时显示 UI，Controller 仍保留第 8 步守卫，
+  防止 stale UI / test misuse / 未来回归（§19）。
+
+### R9. Response Echo Matching 复用与 framing（§20 / §21 / §53）
+
+- **单一来源**：0x06 的 echo 语义**不得**写第二套。设计：把现被动分析器中的 FC06 配对逻辑抽成
+  一个可复用的 core 分析函数（`analyzeWriteSingleRegisterTransaction(request, observation, elapsed, threshold)`
+  → `TransactionAnalysis`），**主动路径**（`analyzeActiveResponse` 的 0x06 分支）与**被动路径**（FC06 分支）
+  都调用它；被动侧继续在其外层叠加 request-issues 层（主动路径的请求是已校验的可信请求，requestIssues 恒空）。
+- **语义表（复用既有，不新增）**：echo 完全一致 → `Success`；地址或值不一致 → `ProtocolError` +
+  `WriteSingleRegisterEchoMismatch`（携带四个 expected/actual 字段）；响应形状错（非 4 字节数据）→
+  `ProtocolError + MalformedNormalResponse`；请求本身不可读 → `ProtocolError + UnknownProtocolError`。
+- **framing（S1）**：`candidateFrameLength()` 新增 `function == 0x06 → 8`；异常位规则已通用（5 字节）。
+  这样 0x06 正常响应**到达即成帧**，而不是等超时。
+- **response length authority**：帧完成判定永远属于 protocol/session 层；**UI / Controller 不得 hard-code 长度**（§53）。
+- **分片（§52）**：0x06 响应仍走 `SerialTransactionSession::feedResponseBytes` 的任意 chunk 累积
+  （partial chunks / 多次 readyRead / 达到候选长度才成帧），**不得**假设一次 readyRead 就是完整响应。
+
+### R10. Outcome / Evidence 矩阵（§22–§28、§46–§51）
+
+| 场景 | Outcome（七态之一） | Issues / evidence | send | 用户文案类别 |
+| --- | --- | --- | --- | --- |
+| 正常 echo | `Success` | —— | 1 | 成功（含 request/response ADU 与 provenance） |
+| echo 地址/值不一致 | `ProtocolError` | `WriteSingleRegisterEchoMismatch` + 四元组 | 1 | 协议错误（响应与请求不符） |
+| 合法异常响应（0x86） | `Exception` | exceptionCode（数字） | 1 | 设备返回异常（不产生 transport terminal） |
+| CRC 错但字节完整 | `CrcError` | 保留 raw response bytes | 1 | 帧校验失败 |
+| 功能码/形状不符 | `ProtocolError` | `UnexpectedResponseFunction` / `MalformedNormalResponse` | 1 | 协议错误 |
+| 超时（已接受、无完整响应） | `Timeout` | submission disposition 保留 `PossiblySent` | 1 | **响应超时，设备写入状态未知** |
+| short submission（0 < n < 帧长） | **无 Modbus transaction** | 一条 `ShortSubmission` terminal + 完整 intended requestAdu + accepted count | 1（部分） | 写入证据不完整，设备状态未知 |
+| submission 后 transport error / disconnect | **无 Modbus transaction** | terminal（`TransportError` / `DisconnectedAfterSubmission`） | 1（已提交） | 设备状态未知 |
+| pre-send 拒绝（未连接 / busy / stale token / capability 缺失 / transport accepts 0） | **无 transaction、无 terminal** | 本地 rejection | **0** | 本地拒绝（不是设备结果） |
+
+- **No implicit retry（§25，冻结）**：一次确认**最多**形成一次 request submission lifecycle。Timeout / CRC error /
+  exception / transport error **都不得自动重发**；要再写必须重新发起新的 confirmation。
+- **Submission evidence（§26，继承 M10-A）**：pre-send → `NotSent`；accepted → `PossiblySent`；
+  short → `PossiblySent` + terminal；post-submission disconnect/error → terminal/evidence。
+  **API accepted bytes ≠ device received bytes**，措辞不得越界。
+- **Short submission（§27）**：沿用 M10-A 语义（保留 intended requestAdu、responseAdu 空、恰好一条 terminal、
+  **不伪造** Modbus transaction）；`acceptedCount = 0` ⇒ `NotSent` 且**无** terminal。
+- **Post-submit disconnect（§28）**：只允许「submission evidence + device state unknown」，
+  **禁止**「写入失败且设备未改变」；不自动重试。
+
+### R11. 集成（§29–§32）
+
+```text
+History（§29）：0x06 的 Success / Exception / CrcError / ProtocolError / Timeout 产生的 Modbus transaction
+                进入**当前 Active Serial 同一 session history**，append（oldest → newest）；
+                **不得**另建 Write History；row 的 provenance 与 FC03 完全同构。
+Terminals（§30）：TransportError / DisconnectedAfterSubmission / ShortSubmission **继续**不进入 transaction rows、
+                不进入 Modbus statistics；留在 transport/evidence lane。**M10-B 契约不得改变。**
+Statistics（§31）：0x06 transaction 加入同一 batch，继续使用 M9-C 冻结公式；**不新增 writeSuccessRate**
+                作为第二套核心统计 authority；未来若要按 read/write 过滤，只能是 projection/filter。
+Diagnosis（§32）：0x06 结果进入同一 deterministic diagnosis batch；仍 analysis only；
+                **不得**因 write timeout 自动建议并执行 retry；AI/Agent 仍不获得控制权。
+```
+
+### R12. Draft / Token 生命周期（§33–§38）
+
+- **dispatch 之后 draft（§33，建议保留）**：确认并进入 dispatch 后，`write06Draft` **保留**（用户常要微调重复写）。
+  但每次再发必须重新 Write → prepare → confirmation；**不得** armed mode / one-click repeat / auto-send。
+- **各种 outcome 之后 draft（§34，建议统一保留）**：Success / Exception / Timeout / CrcError / ProtocolError /
+  transport terminal / disconnect **一律保留 draft**。history 与 draft 是两个 authority，**不得**根据 outcome 偷偷改写输入。
+- **失败 dispatch 之后的 token（§35）**：Consumed 终态，**任何**失败都不复活（见 R7）。
+- **Clear while pending（§36）**：继续 M10-B —— 清已完成的 history/terminals/derived state，
+  **不** cancel pending、**不** disconnect、**不清** draft；0x06 pending 之后完成 → 成为清空后的第一条新
+  transaction 或 terminal evidence。
+- **Disconnect while pending（§37）**：复用 M10-A 单一 lifecycle；**submission 前**（本地取消，无证据、无行）与
+  **submission 后**（terminal 证据、设备状态未知）必须在 UI 上**分开**呈现，**不得**统一成「写入失败」。
+- **Source replacement while pending（§38）**：以真实代码为准（S4）——Simulator/Replay 成功切换**无条件** teardown
+  （`closePort()` + 清 pending + busy=false），且**先** invalidate(SourceChanged) 再 teardown（原因真实性）。
+  这是 M10-A/B 的冻结行为，**M10-D 原样复用、不修改契约**；若未来需要「busy 时禁止切源」，必须另开 ADR/Review。
+
+### R13. Production Visibility 与 Hidden Harness 共存（§39 / §41）
+
+- **0x06-only**：production 首次显示 Write section 时**只显示 0x06**；**0x10 不实例化、不显示**，
+  **不得**放 disabled 的 roadmap tab。可见性**绑定真实 0x06 capability**（R8），**不绑定** harness flag。
+- **推荐实现**：沿用**同一个** `WriteFoundationSection.qml`，tab 集合由 capability 决定
+  （harness 模式两者都在 ⇒ C01–C37 原样可跑；production 只有 0x06）；备选是把 production section 独立成
+  新组件。**本轮不改任何 QML**，仅记录方案 —— 由 Review 在 R17-D10 裁定。
+- **Hidden harness 兼容（§41）**：C01–C37 / E1/E2 / C4 的 safety oracle **必须继续可运行**；
+  **不得**因为 UI 已 production-visible 就删除 hidden oracle。harness 模式与真实 capability 的关系是
+  「正交且都可见」：harness 证明 foundation 的安全契约，capability 决定 production 是否显示。
+
+### R14. 测试分层与 D1–D5 Staging（§65 / §66）
+
+```text
+A. pure protocol        ：0x06 encoder golden vectors（独立 CRC oracle）、非法域、descriptor 自洽
+B. pure/passive analyzer：echo matching / issues（既被动又主动复用同一函数）
+C. active/session       ：framing（8 字节）、分片、timeout、exception、CRC、候选长度
+D. controller           ：atomic confirm+dispatch、one-shot、session/busy/source 守卫、token 语义
+E. recording transport  ：exactly-one-send、NotSent/PossiblySent、short submission、post-submit disconnect
+F. QML runtime          ：production 输入控件（键盘/粘贴/非法输入）、confirmation、capability visibility、
+                          C01–C37 回归（harness 模式继续）
+G. full regression      ：M10-A/B/C + M9 全量 + Debug/Release ctest + qml gates
+```
+
+**提议的后续小阶段（按真实架构，允许 Review 调整）**：
+
+```text
+D1  输入组件（DecimalField 或裁定方案）+ 0x06 encoder（pure）+ golden vectors + core 单值解析
+D2  Controller atomic confirm+dispatch + capability 属性/守卫 + recording transport oracles（exactly-one-send）
+D3  response framing/echo 复用 + outcome/evidence + history/statistics/diagnosis 集成
+D4  production-visible 0x06 UI + capability gating + 键盘/无障碍/几何 oracle
+D5  runtime safety（rapid Enter / modal / session）+ full regression + final review
+```
+
+### R15. Oracle 设计（§42–§51）
+
+```text
+Exactly-one-send（§42）：Confirm+Space / Confirm+Enter / rapid Enter×2 / rapid Space×2 / 重复 signal /
+   同 token 第二次调用 —— 每种都要求 **exactly 1** request lifecycle（RecordingTransport.startAttemptCount == 1,
+   sendCount <= 1，且重复调用后仍为 1）。
+Zero-send 矩阵（§43）：invalid draft / Cancel / Escape / session changed / busy / disconnected / source changed /
+   capability absent / stale token / 第二次使用同一 token —— 全部 **0 write send**（本地拒绝，无 transaction）。
+Success（§44）：deterministic echo ⇒ one transaction、`Success`、exact requestAdu/responseAdu、
+   source = ActiveSerial、same session id、history append、statistics/diagnosis 纳入 batch。
+Echo mismatch（§45）：地址不一致与值不一致两个 case ⇒ 严格复用既有 outcome/issues；**不得**显示 Success；
+   **不得**新建 ad-hoc write result。
+Exception（§46）：合法 0x86 ⇒ `Exception` + 保留 raw evidence；**不**产生 transport terminal。
+Timeout（§47）：已 accepted 但无完整响应 ⇒ `Timeout` + 保留 `PossiblySent` submission evidence；
+   UI 文案「设备写入状态未知」；**exactly one send**。
+CRC error（§48）：完整但 CRC 错 ⇒ 既有 analyzer 的 frozen outcome/issues；**保留 raw response bytes**；不重试。
+Short submission（§49）：0 < n < 帧长 ⇒ 恰好一条 `ShortSubmission` terminal、**无 transaction**、
+   intended requestAdu 完整保留、accepted count 仅表示 API accepted count。
+Post-submit disconnect（§50）：submission accepted 后断开 ⇒ terminal evidence、**不伪造** write transaction、
+   device state unknown、不重试。
+Pre-send reject（§51）：not connected / busy / stale token / capability unavailable / transport 接受 0
+   ⇒ 对应层分别证明 zero transaction、zero fake outcome；并明确 transport API accepts 0 的 frozen 语义是
+   **NotSent / 无 terminal**。
+```
+
+### R16. Scope Fences（§62–§64）与键盘/无障碍继承（§55）
+
+- **不做 0x10（§62）**：M10-D 只实现 0x06；0x10 继续 ABSENT。**不得**因为做 encoder 框架就顺手接上 0x10（M10-E 单独 Review）。
+- **不做 Agent 扩展（§63）**：AI/Agent write authority 继续 **NONE**；不得因为 0x06 production 可写就新增
+  Agent write tool / 「AI confirm」/ 自动 write recommendation → send。
+- **硬件边界（§64）**：自动化验收**不要求**真实硬件（用 RecordingTransport / deterministic response fake /
+  若真实适用的 writable simulator）；**fake/simulator PASS 不得写成 REAL HARDWARE VERIFIED**。
+  建议：把「真实硬件人工写入检查」列为**非阻塞**的后续验收项（Review 裁定 R17-D15）。
+- **继承 M10-C（§55）**：production enable 必须继续满足 Cancel 初始焦点、Enter/Space 安全、Escape、
+  rapid Enter no-spillover、0x10 TextArea Tab 逃逸（0x10 仍 hidden，但 oracle 保留）、page gating、accessible names；
+  **新输入控件**同样要有 focus ring、accessible name、Tab 顺序。
+
+### R17. Design Decision Requests（§67，16 项，等待 Review 裁定）
+
+| # | 决策 | 本轮建议 | 状态 |
+| --- | --- | --- | --- |
+| D1 | address / value 输入控件类型 | **方案 C：新增 `DecimalField.qml`（TextField foundation）**；unit / timeout 保留 SpinBox | PENDING REVIEW |
+| D2 | raw text ownership | draft 持有 raw text；core 解析；**QML 不窄化** | PENDING REVIEW |
+| D3 | decimal parser rules | 复用既有唯一十进制解析器 + 新增单值包装（同一 trim/累加/越界语义） | PENDING REVIEW |
+| D4 | leading-zero policy | 接受（`00010` = 10）；draft 留原串，confirmation 显示权威数值 | PENDING REVIEW |
+| D5 | whitespace policy | 接受两端空白（core 统一）；QML 不再 trim | PENDING REVIEW |
+| D6 | invalid presentation | 五类 typed error → 固定中文文案（见 R2 表）；**永不 silent normalize** | PENDING REVIEW |
+| D7 | consumed 与 dispatch ordering | **先守卫 → consume → encode → start**（依据 S2） | PENDING REVIEW |
+| D8 | pre-send failure 后是否必须重新确认 | **是**（保守策略）：Consumed 不复活 | PENDING REVIEW |
+| D9 | 0x06 capability 如何表达 | 只读 `write06Available`，取自 core 能力谓词 + dispatch 存在性；harness flag 不参与 | PENDING REVIEW |
+| D10 | production Write section 如何从 hidden 切到 0x06-only | 同一组件 + capability 决定 tab 集合（备选：独立 production 组件） | PENDING REVIEW |
+| D11 | echo mismatch 如何复用既有 analyzer | 抽出共享 FC06 分析函数，主动/被动都调用；**不写第二套比较** | PENDING REVIEW |
+| D12 | simulator 是否回答 0x06（binding 写语义） | 建议：**D3 阶段**评估用同一 encoder 让 `SimulatedSlave` 回答 echo + 应用写（需 Review 裁定是否纳入 M10-D 或后置） | PENDING REVIEW |
+| D13 | normal success 何时成立 | 严格按既有语义：地址配对 + function 匹配 + echo 全等 + 帧有效 = `Success` | PENDING REVIEW |
+| D14 | timeout wording 具体 presentation | 「响应超时，设备写入状态未知」（M10-C §Q5-R 已冻结，本轮给 UI 文案位） | PENDING REVIEW |
+| D15 | hardware manual check 是否列为非阻塞验收 | 建议：列为**非阻塞**后续项（本机无硬件） | PENDING REVIEW |
+| D16 | D1–D5 staging | 采纳 R14 提议（允许 Review 调整） | PENDING REVIEW |
+
+### R18. Threat / Failure Matrix（§68，T01–T25）
+
+| # | 场景 | 权威层 | Outcome / evidence | send | UI 文案类别 |
+| --- | --- | --- | --- | --- | --- |
+| T01 | invalid address（>65535 / 非数字） | core validation | 本地拒绝，无 transaction | 0 | 校验错误 |
+| T02 | invalid value（同上） | core validation | 本地拒绝，无 transaction | 0 | 校验错误 |
+| T03 | unit 0（broadcast） | core validation | 本地拒绝 | 0 | 校验错误 |
+| T04 | double Confirm | store 一次性 | 第一次 consume + 1 次 dispatch；第二次被拒 | 1 | 无（第二次无动作） |
+| T05 | rapid Enter | 既有键盘契约 | 同 T04 | 1 | 无 |
+| T06 | busy before confirm | controller | `Invalidated(BusyBecameTrue)` | 0 | 本地拒绝（事务进行中） |
+| T07 | busy race during confirm | controller（第 6 步） | `Invalidated(BusyBecameTrue)` | 0 | 本地拒绝 |
+| T08 | disconnect before submit | controller/transport | 本地取消；无证据无行 | 0 | 连接已断开 |
+| T09 | disconnect after submit | transport evidence | terminal（DisconnectedAfterSubmission） | 1（已提交） | **设备状态未知** |
+| T10 | short submission | transport evidence | `ShortSubmission` terminal，无 transaction | 1（部分） | 证据不完整，设备状态未知 |
+| T11 | transport accepted 0 | transport | `NotSent`，无 terminal | 0 | 本地拒绝 |
+| T12 | timeout | analyzer | `Timeout` + `PossiblySent` 证据 | 1 | **响应超时，设备写入状态未知** |
+| T13 | CRC bad response | analyzer | `CrcError` + raw bytes | 1 | 帧校验失败 |
+| T14 | exception response | analyzer | `Exception` + code | 1 | 设备异常 |
+| T15 | echo address mismatch | analyzer | `ProtocolError + WriteSingleRegisterEchoMismatch` | 1 | 协议错误 |
+| T16 | echo value mismatch | analyzer | 同上（值字段不同） | 1 | 协议错误 |
+| T17 | wrong unit / function | analyzer | `ResponseAddressMismatch` / `UnexpectedResponseFunction` | 1 | 协议错误 |
+| T18 | fragmented response | session framing | 成帧后按实际内容分类（Success/…） | 1 | 取决于结果 |
+| T19 | stale session token | store + controller | `Invalidated(SessionChanged)` | 0 | 本地拒绝（会话已变） |
+| T20 | source replacement | controller（先 SourceChanged 再 teardown） | 见 R12（pending 时 teardown 取消） | 0/1（取决于是否已提交） | 依 R12 分开呈现 |
+| T21 | Clear while pending | 既有 M10-B 契约 | 不影响 pending；完成后成为新首行 | 1 | 无 |
+| T22 | reconnect same port | controller | 新 session id；旧 token 失效 | 0 | 本地拒绝 |
+| T23 | capability stale UI | controller（第 8 步） | `Invalidated(CapabilityUnavailable)` | 0 | 本地拒绝（能力不可用） |
+| T24 | Agent/AI 尝试写入 | authority = NONE | 不存在该工具（结构性不可达） | 0 | —— |
+| T25 | draft edited after confirmation | snapshot 不可变 | dispatch 使用 snapshot，不受 draft 影响 | 1 | 无 |
+
+### R19. Knowledge Ownership（§69，真实出处）
+
+```text
+0x06 echo semantics      ：通过实现 M10-D 的 C 层 oracle 之前，先实读 `PassiveTransactionAnalysis.cpp:287-313`
+                           与 `test_passive_analysis.cpp:271`，理解了「echo 不一致 = ProtocolError + Issue」是
+                           **既有冻结语义**，而不是可以顺手改成 Success 的新判断。
+CRC 放置                 ：通过 `ModbusRtuCodec::encodeRtuFrame` 与 `ModbusRtuFrame.h` 的「帧不存 CRC」注释，
+                           理解 CRC 是派生产物、低字节在前、覆盖 addr+fn+data。
+active vs passive 复用   ：通过 `SerialTransactionSession.h:17-37` 的「不写 per-function session」声明与
+                           `analyzeActiveResponse` 的单一 dispatch 点，理解主动路径必须复用同一条 lifecycle。
+submission evidence      ：通过 M10-A 的 `ActiveStartResult{accepted, disposition, terminatedDuringSubmission}`
+                           与 `RecordingSerialTransport::setSubmissionAcceptedBytes`，理解 accepted bytes != device bytes。
+timeout unknown-state    ：通过 `analyzeFunction03Transaction` 的 Timeout 分支 + M10-C §Q5-R 的措辞冻结，
+                           理解「没有可信响应」不等于「设备未执行」。
+one-shot dispatch        ：通过 `PreparedWriteStore::invalidate()` 只作用于 Prepared 代际这一实现细节，
+                           推出「先 consume 再进入 flight」的时序是安全且必要的。
+QML raw text vs 权威校验 ：通过 `grep -rln TextField src/ui/qml/` 为空这一事实，理解本项目尚无单行文本输入先例；
+                           并通过 `WriteDraftParsing` 的逐字符解析，确认十进制 authority 已经在 core 里。
+```
+
+### R20. Docs / 提交（§70–§72）
+
+```text
+同步：T022（本节 §R）· PROJECT_STATUS · BACKLOG · devlog · INTERVIEW_NOTES。
+状态：M10 = IN PROGRESS；M10-C = COMPLETE；M10-D = Learning / Design（Implementation = NOT STARTED）；
+      verified LKGC = fc86dcc（本轮 docs-only，不推进）。
+提交：`M10-D: design FC06 end-to-end active write`（docs-only design commit）。
+不得 amend 19ca421；不得 rebase；不得 push；不得 tag（含 v2.0.0）。
 ```
