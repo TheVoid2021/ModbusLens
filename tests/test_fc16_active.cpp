@@ -27,6 +27,8 @@ using modbuslens::core::encodeWriteMultipleRegistersRequest;
 using modbuslens::core::ModbusRtuFrame;
 using modbuslens::core::NoResponse;
 using modbuslens::core::ResponseObservation;
+using modbuslens::core::RtuDecodeError;
+using modbuslens::core::RtuDecodeErrorCode;
 using modbuslens::core::SerialFeedResult;
 using modbuslens::core::SerialTransactionSession;
 using modbuslens::core::SerialTransactionState;
@@ -158,6 +160,7 @@ private slots:
 
     // ---- shared analyzer equivalence + support matrix ----
     void eq1_passiveAndSharedAgree();
+    void eq2_crcEquivalence();
     void sup1_supportMatrix();
 };
 
@@ -534,6 +537,51 @@ void Fc16ActiveTest::sup1_supportMatrix()
         ActiveFunction::WriteSingleRegister));
     QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteMultipleRegisters));
+}
+
+void Fc16ActiveTest::eq2_crcEquivalence()
+{
+    // M10-E2 REVIEW CORRECTION (T022 §ZI): eq1 compares DECODED-frame pairs
+    // only, so a CRC failure — which is a WIRE-level decode failure, never a
+    // semantic frame — had no direct pair oracle. This test closes that gap.
+    //
+    // Construction (no self-certification): start from a clearly LEGAL 0x10
+    // response ADU, then deterministically flip the LOW BIT OF THE CRC LOW
+    // BYTE (last-2). The candidate framing still holds (8 bytes) and the CRC
+    // is necessarily wrong; the production codec is used ONLY to classify the
+    // stimulus as CrcMismatch — the asserted equivalence (both analyzers
+    // answering CrcError) is what this test proves.
+    const ModbusRtuFrame request =
+        encodeWriteMultipleRegistersRequest(kUnit, kAddress, kValues);
+
+    std::vector<std::uint8_t> wire = echoWire();
+    const std::size_t crcLowIndex = wire.size() - 2;
+    wire[crcLowIndex] ^= 0x01;
+    // Stimulus classification: the mutated bytes really are a CRC failure.
+    const auto decoded = modbuslens::core::decodeRtuFrame(wire);
+    const auto* decodeError = std::get_if<RtuDecodeError>(&decoded);
+    QVERIFY(decodeError != nullptr);
+    QCOMPARE(decodeError->code, RtuDecodeErrorCode::CrcMismatch);
+
+    // The SAME observation (a wire-level CrcMismatch) through both paths.
+    const ResponseObservation observation = RtuDecodeError{
+        RtuDecodeErrorCode::CrcMismatch};
+    const auto shared = analyzeWriteMultipleRegistersTransaction(
+        request, observation, ms{25}, kTimeout);
+    const auto passive =
+        analyzeObservedTransaction(request, observation, ms{25}, kTimeout);
+    const auto* analyzed = std::get_if<AnalyzedObservedTransaction>(&passive);
+    QVERIFY(analyzed != nullptr);
+
+    QCOMPARE(shared.status, TransactionStatus::CrcError);
+    QCOMPARE(analyzed->analysis.status, TransactionStatus::CrcError);
+    // CrcError carries NO issue and NO exception code on either path.
+    QVERIFY(!shared.issue.has_value());
+    QVERIFY(!analyzed->analysis.issue.has_value());
+    QVERIFY(!shared.exceptionCode.has_value());
+    QVERIFY(!analyzed->analysis.exceptionCode.has_value());
+    // A corrupted wire is judged by wire truth even though the payload LOOKS
+    // like a correct echo (the mutated CRC byte is the only difference).
 }
 
 QTEST_GUILESS_MAIN(Fc16ActiveTest)

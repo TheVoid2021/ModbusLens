@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E2 实现后）：M10-E1 = ✅ COMPLETE（Re-review PASS）；M10 overall = IN PROGRESS；**M10-E2 = 已实现（shared FC16 analyzer + active session response support），AWAITING REVIEW；M10-E3+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
+> **状态（M10-E2 review correction 后）：M10-E1 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E2 = 已实现（Review 曾 HOLD：CRC active/passive 直接等价 pair 缺失，已按 §ZI 补齐 eq2）= AWAITING RE-REVIEW；M10-E3+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
 > 能力终态：0x03 与 0x06 = encoder + session + dispatch + UI；**0x10 = encoder + 共享 analyzer + session lifecycle（M10-E2 新增）= YES；Controller dispatch / `write10Supported` / production UI 仍 ABSENT**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E2 Review → M10-E3（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
@@ -8147,4 +8147,70 @@ commit：`M10-E2: add shared FC16 active response support`（独立；不 amend�
 状态：M10-E1 = COMPLETE；**M10-E2 = AWAITING REVIEW**；M10-E3 = NOT STARTED；
   M10 overall = IN PROGRESS；M11 = HOLD。
 verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
+```
+
+## M10-E2 Review Correction — FC16 CRC Active/Passive Equivalence Evidence（2026-09-21）
+
+> **M10-E2 Review = HOLD**，原因：冻结计划要求的 CRC error 等价验证缺少**直接 pair oracle** ——
+> eq1 只比较了「已解码语义帧」构成的 7 组，而 CRC 失败在体系里是 **wire 级解码失败**
+> （`RtuDecodeError{CrcMismatch}`），永远不会以语义帧形式出现，因此在该表结构下
+> **结构性无法表达**。本轮补齐。**NO PRODUCT CHANGE**（无任何证据表明 FC16 行为有 defect）。
+
+### ZI1. 缺失根因（§3，实读源码而非猜测）
+
+```text
+ResponseObservation = std::variant<ModbusRtuFrame, RtuDecodeError, NoResponse>
+                     （TransactionAnalysis.h:131）
+CRC 失败的观察形态 = RtuDecodeError{CrcMismatch}（ModbusRtuCodec.h:12-21）
+eq1 的 Case 结构体 = { const char* name; ModbusRtuFrame response; } —— 只持**语义帧**。
+⇒ CRC case 无法进入该表：不是「忘了写」，而是表的数据类型表达不了 wire 级失败。
+```
+
+### ZI2. 补充的 pair oracle（§4 / §5 —— eq2）
+
+```text
+新测试 test_fc16_active::eq2_crcEquivalence：
+  构造（无 self-certification）：
+    · 从明确合法的 FC16 response ADU 出发（F16-G6 同型：unit 0x11 / start 0x0001 /
+      quantity 2，经 encodeRtuFrame 生成 stimulus —— 这只是构造设备应答，不是 oracle）；
+    · **确定性变异**：翻转 CRC 低字节的最低位（wire[size-2] ^= 0x01）——
+      candidate framing 仍成立（8 字节），CRC 必然错误；
+    · 以 production codec 的 decodeRtuFrame **对 stimulus 做分类实证**：
+      确实得到 RtuDecodeError{CrcMismatch}（codec 在此充当 stimulus 分类器，
+      被 assert 的等价结论是两条分析路径各自给出的 CrcError，二者互证）。
+  断言：同一份 合法 request + 同一 corrupted-CRC observation（RtuDecodeError{CrcMismatch}）
+    分别送入 A. passive（analyzeObservedTransaction）与 B. active 共享
+    （analyzeWriteMultipleRegistersTransaction）：
+      Outcome:      CrcError == CrcError
+      issue set:    两侧均为空（CrcError 不携带 issue）
+      exceptionCode: 两侧均为空
+  记录：变异策略 = 翻转 CRC 低字节 bit0；payload（回显 start/quantity）保持逐字节不变 ——
+    证明「payload 看似正确 echo」不会绕过 wire truth。
+（§6 可选项顺带记录：FrameTooShort / NoResponse 的等价性由共享分析器的
+   同一 wire-failure/NoResponse 分支与 passive 通用前置共同覆盖，本轮未另开 pair，
+   未扩大实现范围。）
+```
+
+### ZH 补充：完整性核对（§7）
+
+```text
+activeFunctionSupported(0x10) = true（fc16_active sup1）
+Controller 0x10 dispatch = closed（write_dispatch r4 + fc10CapabilityStaysFrozen，attempt=0/send=0）
+write10Supported = ABSENT（同上）
+production 0x10 UI = ABSENT（--qml-production-write-check）
+issue count = 14（无新增）
+```
+
+### ZI3. 门禁 / Git（§9–§12）
+
+```text
+targeted：fc16_active **24**（23 → 24，+eq2）/ passive 55 / active_request 17 /
+  write_dispatch 44 / write_encoder 30 —— 全 PASS
+真实 CTest：Debug **36/36**、Release **36/36**
+warnings：**0 NEW / 5 PRE-EXISTING（main.cpp）**（warning-bearing TU 经强制重编实证）
+ISSUE-014：PRE-EXISTING NON-BLOCKING
+分类：**behavior-bearing**（test/harness 变更；产品源码零改动）
+commit：`M10-E2: prove FC16 CRC path equivalence`（独立；不 amend；不 rebase；不 push；不 tag）
+状态：M10-E2 = **AWAITING RE-REVIEW**；M10-E3 = NOT STARTED；M10 overall = IN PROGRESS；
+  M11 = HOLD。verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
 ```
