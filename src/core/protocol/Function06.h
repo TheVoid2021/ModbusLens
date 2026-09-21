@@ -65,4 +65,20 @@ decodeWriteSingleRegisterRequest(const ModbusRtuFrame& frame);
 WriteSingleRegisterResponseResult
 decodeWriteSingleRegisterResponse(const ModbusRtuFrame& frame);
 
+// ---------------------------------------------------------------------------
+// M10-D1: the ENCODE side (the decode-only note above describes the T015
+// passive milestone; the symmetric semantic-frame encoder arrives with the
+// active 0x06 foundation).
+//
+// It builds the SEMANTIC frame only — wire bytes and CRC stay
+// ModbusRtuCodec::encodeRtuFrame's job, exactly like Function 0x03's encoder.
+// Every uint16 address/value pair is encodable, so there is deliberately no
+// error variant: unicast-unit validation and the protocol range checks live
+// in the intent validation / session layers, not in a codec helper (a generic
+// codec stays address-agnostic).
+// ---------------------------------------------------------------------------
+ModbusRtuFrame encodeWriteSingleRegisterRequest(std::uint8_t address,
+                                                std::uint16_t registerAddress,
+                                                std::uint16_t registerValue);
+
 } // namespace modbuslens::core

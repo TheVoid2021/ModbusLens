@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A/B = ✅ COMPLETE；**M10-C = ✅ COMPLETE**（§Q closure，verified LKGC = `fc86dcc`）；**M10-D = 0x06 Write Single Register：Phase 1（§R）→ HOLD（§S：B1/B2/B3 CLOSED）→ Final Correction 已落库（§T：B4 capability staging / B5 confirm·dispatch result semantics），AWAITING M10-D PHASE 1 FINAL RE-REVIEW；Implementation = NOT STARTED**；**Active Write = NOT AVAILABLE；0x06 / 0x10 encoder ABSENT；write dispatch ABSENT**。
+> **状态：M10-A/B = ✅ COMPLETE；**M10-C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D Phase 1 = ✅ COMPLETE（§R/§S/§T）→ D1 = Decimal Input + FC06 Encoder Foundation 已实现（§U），AWAITING M10-D1 REVIEW；D2 = NOT STARTED**；**Active Write = NOT AVAILABLE；0x10 encoder ABSENT；write dispatch ABSENT；`write06Supported` 不存在（encoder ≠ capability）**。
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -6126,4 +6126,216 @@ pending 时本地取消并（若已提交）产生 terminal。）
 状态：M10-D Phase 1 = Final Correction / Final Re-review；Implementation = NOT STARTED；verified LKGC = fc86dcc。
 提交：`M10-D: align FC06 capability staging and dispatch result semantics`（docs-only；
       不 amend 1e3a4ce；不 rebase；不 push；不 tag）。
+```
+## M10-D1 — Decimal Input + FC06 Encoder Foundation（2026-09-20，behavior-bearing）
+
+> **M10-D Phase 1 Final Re-review = PASS ⇒ M10-D Phase 1 = COMPLETE ⇒ M10-D1 = GO。**
+> 本轮实现：`DecimalField` 表现层组件、0x06 address/value **raw-text draft**、`parseDecimalRegisterValue`、
+> raw-text → 权威校验边界、0x06 语义 encoder、`encodeActiveRequest` 的 0x06 描述符、独立 golden 向量、
+> pure 与 hidden-runtime 测试。**未做**：Controller write dispatch、transport write send、0x06 response lifecycle、
+> `candidateFrameLength` 0x06、共享 FC06 active analyzer、`write06Supported = true`、production-visible Write UI、
+> 0x10 encoder、Agent write authority。**D2 未开始。**
+
+### U0. Preflight 与 Phase 1 PASS 归档（§0 / §1）
+
+```text
+HEAD（开工前）= 98dc310（branch = main，working tree clean）
+verified LKGC = fc86dcc；v2.0.0 = ABSENT；origin/main = a40d935；behind 0
+CMake VERSION = 2.0.0；git diff --check = PASS
+accepted design chain = 7ddec58 → 1e3a4ce → 98dc310（三轮 correction 均 docs-only，LKGC 未推进）
+本轮记录：M10-D1 = Decimal Input + FC06 Encoder Foundation，状态 IN PROGRESS → 本节完成后等待 Review
+```
+
+### U1. Mandatory Source Re-read — 审计结论 A–F（§2）
+
+| # | 问题 | 真实结论（含证据） |
+| --- | --- | --- |
+| A | `prepareWrite06` 当前 QML-facing 参数类型 | `Q_INVOKABLE bool prepareWrite06(int unitId, int registerAddress, int value, int timeoutMs)`（全部 `int`）——QML 侧原本传的是 SpinBox 的**数值**，没有 raw 概念 |
+| B | 是否已有内部 typed prepare helper | **有**：`prepareWriteSingleRegister(int64, int64, int64, int64)` → `prepareWriteIntent(WriteIntentResult)`（private）→ `PreparedWriteStore::prepare`；Q_INVOKABLE 只是薄包装 |
+| C | `encodeActiveRequest` 是否与 `activeFunctionSupported` 直接耦合 | **不耦合**：`grep` 全仓仅 `SerialTransactionSession.cpp:77`（`beginActiveRequest` 的门）引用它；encode 路径只做 `validateActiveRequestIntent` + function 分派。⇒ **D1 可以放行 0x06 encoder 而 internal support 保持 false**（这正是 staging 需要的） |
+| D | `activeFunctionSupported(0x06)` 由哪里决定 | `SerialTransactionSession.cpp:53`，当前 `return function == ReadHoldingRegisters;`（仅 0x03）——**本轮未改动** |
+| E | Function06 现有能力 | **原本只有 decode**（`decodeWriteSingleRegisterRequest/Response`）；本轮新增 **`encodeWriteSingleRegisterRequest`**（semantic frame，无 CRC、无错误分支） |
+| F | QML 0x06 address/value 的 property/objectName 现状与 harness 用法 | 原为 `SpinBox{objectName: write06AddressSpin/write06ValueSpin, value: section.address06/value06}`；harness 以 `setDraft("address06"/"value06", <int>)` 写入、以 `property("value06").toInt()` 读取、并在 tab-order / a11y / C4 探针中按 objectName 引用 |
+
+**未出现「必须提前打开 `activeFunctionSupported(0x06)`」的情形**（结论 C），因此本轮无 STOP、无 RCA 例外。
+
+### U2. DecimalField 与 Raw-Text Authority（§4–§9）
+
+```text
+新增 src/ui/qml/components/DecimalField.qml（QML_FILES 已注册）：
+  · 基础 = QQC2 TextField；**没有任何 validator**（既不阻止非法字符，也不做范围判定）；
+  · 职责仅限：raw text editing / focus ring（M9-F 的 border 通道）/ error 视觉态 / accessible name /
+    键盘 ergonomics（单行 TextField 原生 Tab 离开，未重路由任何按键）；
+  · 暴露：text（alias）、placeholderText、accessibleName、fieldLabel、hasError；
+  · 内层 TextField **刻意不具名**：组件本身承载 identity（与既有 SpinBox 的「焦点落到内部子项」约定一致）；
+  · Accessible.name 同时设在组件与外层焦点元素上（前者是 oracle 读取对象，后者是屏幕阅读器实际聚焦的元素）；
+  · **不持有协议业务 truth**：文件中不存在 0..65535、1..247 等协议范围（范围判定只在 core / Controller）。
+```
+
+- **No hard validator 证明**：O1–O7 全部以**真实按键/真实剪贴板粘贴**驱动，断言 **`TextField.text` 原样** ——
+  `-1` / `12x` / `65536` / `00010` / ` 1234 ` 都真的进入了控件文本，且没有任何 QML 侧改写。
+- **QML assistance**：使用 placeholder / focus ring / accessible name / error state / select-all / copy·paste / delete；
+  **刻意不使用 `inputMethodHints`**：桌面平台的数字 hint 也可能在某些输入法/平台上影响字符进入，而本组件的契约是
+  「必须能承载任意 raw 文本」——因此不引入任何可能过滤输入的机制（该决定记录于本节，供 Review 追溯）。
+- **Raw draft ownership**：`addressText06` / `valueText06` 为 **page-local raw text**（`unit06` / `timeout06` 保持数值 draft）；
+  双向绑定 `text: section.addressText06` + `onTextChanged: section.addressText06 = text`。
+  draft 继承 M10-C 的持久化契约（导航 / Clear / disconnect / reconnect / source replacement 均保留，C14/C15/C31/C32 继续通过）。
+- **Raw-Text Controller 边界**：新增 `Q_INVOKABLE bool prepareWrite06Draft(int unitId, const QString& addressRaw,
+  const QString& valueRaw, int timeoutMs)`；它**先 parse（core 权威）再委托既有 typed helper**
+  （`prepareWrite06` → `prepareWriteSingleRegister` → 既有 validation → 既有 snapshot）；
+  Controller **不是**持续 draft owner（只在用户触发 Write 时接收一次当前 draft）。
+- **Typed helper 保留（§9）**：`prepareWrite06` / `prepareWriteSingleRegister` 未删除、未复制第二份校验；
+  范围校验仍只有一份（raw 边界只做 decimal 解析 + 字段身份映射）。
+
+### U3. `parseDecimalRegisterValue`（§10–§13）
+
+```text
+core/active/WriteDraftParsing：新增 SingleRegisterValue + SingleValueParseResult +
+parseDecimalRegisterValue(std::string_view rawText)；错误 taxonomy 最小扩展一个码：
+MultipleValuesInSingleField（单值字段收到两个值）。
+实现复用 parseRegisterValues（同一份 trim / 逐字符十进制累加 / 越界语义）——**不存在第二套 acceptance table**：
+  · 先 trim 外层空白（空格 / TAB / CR / LF）；
+  · 余下文本含换行 ⇒ MultipleValuesInSingleField（**不**取首行、**不**取末行、**不**拼接）；
+  · 空 ⇒ NoValues；纯 0-9 ⇒ 十进制累加；其它字符 ⇒ InvalidCharacter；>65535 / 超大整数 ⇒ ValueOutOfRange
+    （不 wrap、不 throw、不依赖 locale）；"00010" ⇒ typed 10。
+```
+
+- **空输入**：`""` / 全空白 / 仅换行 ⇒ `NoValues`，Write 时 validation reject、Dialog 不开、snapshot 不建、zero transport attempt，
+  **绝不自动变 0**（R0 实测）。
+- **多行输入**：`"1\n2"` 与 `"1\r\n2"` ⇒ `MultipleValuesInSingleField`（P13/P14 纯测试 + 实现层同源）。
+- **空白**：`" 1234 "` / `"\t 1234 \r\n"` 接受（typed 1234），**draft 仍保存原串**（O3 实测 raw `[ 1234 ]`）。
+- **前导零**：`"00010"` 合法 = 10；draft 保留 `"00010"`，**confirmation summary 显示权威数值 10**（O2 实测）。
+
+### U4. Encoder（§20–§26）
+
+```text
+Function06.h/.cpp：ModbusRtuFrame encodeWriteSingleRegisterRequest(address, registerAddress, registerValue)
+  —— 只产出**语义帧**（address + 0x06 + addrHi/addrLo + valHi/valLo），CRC 仍由 encodeRtuFrame 负责；
+  每个 uint16 组合都可编码 ⇒ **不制造假的错误分支**；单播校验继续留在 intent/session 层（codec 保持 address-agnostic）。
+ActiveRequestIntent.cpp：encodeActiveRequest 新增 WriteSingleRegister 分支 → semantic encoder → encodeRtuFrame →
+  ActiveRequestDescriptor{intent, frame, wire}；**WriteMultipleRegisters 仍返回 UnsupportedFunction**。
+unit 0：继续在 intent validation 阶段被拒（IntentInvalid），**不产生 descriptor / 不产生 wire**（E7 实测）。
+**无 framing 改动**：candidateFrameLength / analyzeActiveResponse / FC06 active response path 一行未动 ⇒
+  0x06 response 仍无法完成 active transaction（s1 测试：begin 仍返回 UnsupportedFunction，session 保持 Idle）。
+**无 dispatch**：未新增 confirmAndDispatchPreparedWrite、未调用 transport 写路径、hidden Confirm 仍 zero dispatch。
+```
+
+### U5. 独立 Golden Oracle 与向量（§27–§29）
+
+- **独立性**：新增测试目标 `write_encoder`（`tests/test_write_encoder.cpp`）**自带 test-only bitwise CRC**
+  （按定义实现：poly 0xA001 reflected / init 0xFFFF / LSB-first），**不 include 生产 `ModbusCrc.h`**；
+  期望 ADU 同时以**固定 literal**形式写死在测试源码里（长期 golden vector），因此
+  「encoder 与 oracle 从同一 helper 自证」在结构上不可能发生；若两者不一致，测试失败 ⇒ 重新推导，**绝不挑一个能过的**。
+- **向量集合（全部 8 字节，CRC 低字节在前）**：
+
+| # | unit | address | value | 完整 ADU（literal） |
+| --- | --- | --- | --- | --- |
+| G1 | 1 | 0 | 0 | `01 06 00 00 00 00 89 CA` |
+| G2 | 247 | 65535 | 65535 | `F7 06 FF FF FF FF 9C C8` |
+| G3 | 0x11 | 1 | 3 | `11 06 00 01 00 03 9A 9B`（= 协议文档应用示例的字段序列） |
+| G4 | 1 | 65535 | 0 | `01 06 FF FF 00 00 89 EE` |
+| G5 | 1 | 0 | 65535 | `01 06 00 00 FF FF 88 7A` |
+| G6 | 1 | 0 | 1 | `01 06 00 00 00 01 48 0A` |
+
+- **来源/推导**：字段由 R3 的字节表手工拼装；CRC 由**两份互相独立的实现**（bitwise 与查表）交叉验证后写为 literal；
+  G3 与公开协议示例序列一致，构成外部佐证。测试同时断言「独立 CRC 复算 == literal」与「production descriptor == literal」。
+- 每向量逐项断言：字段顺序、`wire.size() == 8`、CRC 低/高字节顺序、descriptor 的 intent/frame/wire。
+
+### U6. Staging 证明（§32 / §41）
+
+```text
+S1 encodeActiveRequest(0x06) 成功（descriptor + 8 字节 wire）          —— write_encoder 测试
+S2 activeFunctionSupported(0x06) 仍为 **false**；0x03 仍 true；0x10 仍 false —— write_encoder 测试
+S6 SerialTransactionSession::beginActiveRequest(0x06 descriptor) 仍返回 **UnsupportedFunction**，
+   session 保持 Idle、无 pendingRequest ⇒ 0x06 response 不可能完成 active transaction（framing 未变）
+S3 产品级 capability **不存在**：AnalysisController 上 indexOfProperty("write06Supported") < 0
+   （同时确认旧的 write06Available 也不存在）                            —— ui_bridge 测试
+S4 normal production：Loader inactive / item null / 675 对象无 write 控件、无 write tab stop、
+   startup 无 snapshot                                                  —— qml_focus_check（Debug + Release）
+S5 hidden Confirm：全部 oracle 跑完后 writeAttempts == 0；会话历史 function codes = [3]（只有 FC03 读）
+```
+
+**三个事实同时成立**：encoder 可用 ∧ internal support 关闭 ∧ product capability 不存在 —— 这正是 §4/§6 要求的时序。
+
+### U7. Runtime 与回归 Oracle（§14–§19）
+
+```text
+真实 hidden QML runtime（--qml-write-foundation-check）实测输出：
+O1  typing "1234"   -> TextField.text=[1234]  raw draft=[1234]  typed address=1234
+O2  typing "00010"  -> raw [00010] 保留；snapshot address=10；summary 显示 10
+O3  typing " 1234 " -> raw [ 1234 ] 保留；typed 1234
+O4  typing "-1"     -> raw [-1] 保留；validation error，error field = address
+O5  typing "12x"    -> raw [12x] 保留；validation error，error field = value
+O6  typing "65536"  -> raw [65536] 保留（无 clamp）；validation error，error field = value
+O7  真实剪贴板 paste "12x" -> raw 原样；validation error，error field = address
+R0  空串 -> 仍为空（绝不自动 0）；validation error，error field = address
+R1  Ctrl+A + 重打 -> raw [65535]，typed 65535（Dialog 打开）
+R3  Tab -> [write06ValueField]；Shift+Tab -> [write06AddressField]
+a11y address=[0x06 寄存器地址（十进制）] value=[0x06 写入值（十进制）]
+```
+
+- **字段身份区分（§19）**：新增只读投影 `writeDraftErrorField`（token：unit/address/value/timeout/values/quantity/span）；
+  `setWriteDraftParseError` 共享 parser 的 typed reason、由**边界**补字段前缀 ⇒ 地址错误与写入值错误**不会**都显示成「输入错误」。
+- **M10-C 安全回归**：C01–C37 / E1 / E2 / C4 全部继续 PASS（本轮把 0x06 draft 从数值改为 raw text、
+  控件名改为 `write06AddressField` / `write06ValueField`，**断言强度未降低**：新增了 raw 原串观测与字段身份断言）。
+- C04 的「draft 未被清空」检查改为读**控件 raw text 非空**（原为 SpinBox value != 0）——语义等价且更贴近 raw 契约。
+
+### U8. 边界冻结（§33–§37）
+
+```text
+production-hidden：normal production 仍不可见（Loader inactive / item null / 无 write 控件与 tab stop / 无 snapshot）；
+  0x06 encoder 的存在**不**改变可见性。
+Zero transport side effects：raw input / prepare / Dialog / Confirm / Cancel / encoder 单测 —— 全部未触发
+  SerialTransport start、sendCount、write transaction、transport terminal；harness writeAttempts = 0。
+history / statistics / diagnosis / transaction model / terminal lane：**未改动**。
+AI / Agent write authority = NONE：未新增 prepare-write / confirm-write / send / raw-ADU 工具。
+```
+
+### U9. 测试与门禁（§38–§44）
+
+```text
+write_prepare  48 passed（32 + 16 个 D1 单值解析用例 P1–P14 等价集 + 与多行解析的同源一致性）
+write_encoder  19 passed（G1–G6 + E7–E12 + descriptor 契约 + S1/S2/S6）
+active_request 17 passed（ac3 按 D1 契约更新：0x06 现在编码成功、0x10 仍 UnsupportedFunction）
+ui_bridge      61 passed（59 + S3 capability 缺失 + raw 边界字段身份）
+其余 23 套件全绿：active_master 54 / passive 55 / serial 21 / transaction 20 / diagnosis 17 / agent_runtime 28 …
+Debug ctest **32/32 PASS**；Release ctest **32/32 PASS**（新增 write_encoder 目标 ⇒ 31 → 32）
+新增代码：C++ / QML **零新增 warning**（src/main.cpp 5 条 pre-existing 未动）
+ISSUE-014：仍 PRE-EXISTING NON-BLOCKING（write harness 10 条 TransactionsPage reset-window 告警，
+  **写 UI / DecimalField 0 条**）；未顺手修。
+```
+
+### U10. Problems Encountered / RCA（§45）
+
+```text
+RCA-1（harness 焦点身份）：DecimalField 内层 TextField 最初带 objectName（"…Input"），导致 focusOwnerName()
+  返回内部子项名，tab-order oracle 与 D1 焦点断言全部失败。
+  根因：命名层级与既有 SpinBox 约定不一致（SpinBox 的内部编辑器无名）。
+  修复：内层 TextField 不具名（组件本身承载 identity）；断言未降低（仍断言焦点落在具名控件上）。
+RCA-2（合成按键缺字符文本）：typeText 仅发 keycode，Qt TextInput 从 KeyPress 的 `text` 字段取输入 ⇒ 文本始终为空。
+  根因：既有 sendKey 是给「按键命令」用的，不携带字符。
+  修复：D1 的 typeText 自行构造带 text 的 QKeyEvent（sendKey 未改动 ⇒ 30+ 既有 oracle 零影响）。
+RCA-3（oracle 前置条件）：prepare 路径按字段顺序报告**第一个**失败字段，导致 O5/O6/R1 观测到 address 错误而非 value。
+  根因：用例继承了上一用例留下的非法文本。
+  修复：每个用例前把另一字段置为合法/清空（并在 setup 阶段清空两个 raw 字段）——**修的是 oracle 前置条件，
+  不是产品语义**（字段顺序报告本身是正确行为）。
+RCA-4（契约变更，非缺陷）：tests/test_active_request.cpp 的 ac03 原断言「0x06 encode = UnsupportedFunction」，
+  D1 按设计让 0x06 可编码 ⇒ 该断言必然失败。处理：把该测试改名为 ac03_writeEncodeContract()，
+  改为断言 0x06 编码成功（frame/wire 与字段）**并且** 0x10 仍 UnsupportedFunction —— 负向覆盖未丢失，且是显式契约变更
+  （记录于本节，而非静默修改）。
+```
+
+### U11. Files / Commit（§46–§48）
+
+```text
+新增：src/ui/qml/components/DecimalField.qml、tests/test_write_encoder.cpp
+修改：src/core/active/WriteDraftParsing.{h,cpp}、src/core/protocol/Function06.{h,cpp}、
+      src/core/active/ActiveRequestIntent.cpp、src/ui/AnalysisController.{h,cpp}、
+      src/ui/qml/components/WriteFoundationSection.qml、src/main.cpp（harness 迁移 + D1 oracles）、
+      CMakeLists.txt（QML_FILES + write_encoder 目标）、tests/test_write_prepare.cpp、
+      tests/test_active_request.cpp、tests/test_ui_bridge.cpp
+docs：T022（本节 §U）+ PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES
+分类：**behavior-bearing**（core / QML / parser / encoder / tests 均为行为变化，即使 production Write 仍隐藏）
+commit：`M10-D1: add FC06 input and encoder foundation`（独立提交；不 amend 98dc310；不 rebase；不 push；不 tag）
+verified LKGC 继续 `fc86dcc`（不自行推进）。
 ```

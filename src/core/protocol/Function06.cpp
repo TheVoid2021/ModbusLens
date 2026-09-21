@@ -45,4 +45,27 @@ decodeWriteSingleRegisterResponse(const ModbusRtuFrame& frame)
     };
 }
 
+ModbusRtuFrame encodeWriteSingleRegisterRequest(std::uint8_t address,
+                                                std::uint16_t registerAddress,
+                                                std::uint16_t registerValue)
+{
+    // Symmetric to Function 0x03's encoder: field order and big-endian packing
+    // are the ONLY things this layer owns. A 0x06 payload is exactly register
+    // address + register value, so every uint16 pair is encodable — there is
+    // no fake error branch here, and no unit validation either (that belongs
+    // to the intent/session layer, which refuses broadcast before any
+    // transport call).
+    return ModbusRtuFrame{
+        .address = address,
+        .functionCode = kWriteSingleRegisterFunction,
+        .data =
+            {
+                static_cast<std::uint8_t>(registerAddress >> 8),
+                static_cast<std::uint8_t>(registerAddress & 0xFF),
+                static_cast<std::uint8_t>(registerValue >> 8),
+                static_cast<std::uint8_t>(registerValue & 0xFF),
+            },
+    };
+}
+
 } // namespace modbuslens::core

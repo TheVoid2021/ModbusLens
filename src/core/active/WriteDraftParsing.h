@@ -33,6 +33,11 @@ enum class ValuesParseErrorCode {
     InvalidCharacter, // non-digit content (see rules above)
     ValueOutOfRange,  // decimal value above 65535 (or an overflow-sized number)
     TooManyValues,    // more than 123 values
+    // M10-D1: the SINGLE-value fields (0x06 register address / value) accept
+    // exactly one value on one line. Two values ("1\n2", "1\r\n2") are not a
+    // value list for such a field — silently taking the first, the last or a
+    // concatenation would invent a number the user never wrote.
+    MultipleValuesInSingleField,
 };
 
 struct ValuesParseError {
@@ -58,5 +63,32 @@ using ValuesParseResult = std::variant<ParsedRegisterValues, ValuesParseError>;
 // an illegal digit character, and never dependent on a GUI widget to
 // normalize it).
 ValuesParseResult parseRegisterValues(std::string_view text);
+
+// ---------------------------------------------------------------------------
+// M10-D1: the SINGLE decimal field (0x06 register address / register value).
+//
+// This is the ONE decimal business authority for a one-value field: the
+// QML-side field is presentation only and hands over the RAW text the user
+// really typed ("00010", " 1234 ", "-1", "12x", "65536", ""), never a
+// pre-normalized string. The rules are deliberately the SAME rules as
+// parseRegisterValues — one acceptance table, not two:
+//   · leading/trailing whitespace (spaces, tabs, CR/LF) is trimmed;
+//   · empty after trimming           -> NoValues;
+//   · digits only, decimal accumulate, 0..65535;
+//   · any other character            -> InvalidCharacter;
+//   · above 65535 / overflow-sized   -> ValueOutOfRange (never a wrap);
+//   · more than one value (a newline separating two values, or a value list)
+//                                    -> MultipleValuesInSingleField.
+// ---------------------------------------------------------------------------
+
+struct SingleRegisterValue {
+    std::uint16_t value{};
+
+    bool operator==(const SingleRegisterValue&) const = default;
+};
+
+using SingleValueParseResult = std::variant<SingleRegisterValue, ValuesParseError>;
+
+SingleValueParseResult parseDecimalRegisterValue(std::string_view rawText);
 
 } // namespace modbuslens::core

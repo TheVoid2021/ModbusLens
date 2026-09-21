@@ -179,6 +179,9 @@ private slots:
     // RequestIssueObserved line (transaction-count based, deterministic
     // position after ExpectedNoResponse), never just its side-actions.
     void t05_baselineRequestIssueFindingVisible();
+    // ---- M10-D1 staging: product capability is still ABSENT ----
+    void d1_productWriteCapabilityNotExposedYet();
+    void d1_typedPrepareApiStillAuthoritative();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -1622,6 +1625,39 @@ void UiBridgeTest::t05_baselineRequestIssueFindingVisible()
 }
 
 } // namespace
+
+void UiBridgeTest::d1_productWriteCapabilityNotExposedYet()
+{
+    // M10-D1 ships an ENCODER, not a product capability. The product-level
+    // property must not exist yet: it may only appear once the whole path
+    // (encoder + response lifecycle + controller dispatch + evidence) really
+    // exists, and it must never be faked for a test.
+    AnalysisController controller;
+    QVERIFY(controller.metaObject()->indexOfProperty("write06Supported") < 0);
+    QVERIFY(controller.metaObject()->indexOfProperty("write06Available") < 0);
+}
+
+void UiBridgeTest::d1_typedPrepareApiStillAuthoritative()
+{
+    // The raw-text boundary is a WRAPPER: the typed prepare API keeps doing the
+    // authoritative range validation, so the two paths can never disagree.
+    AnalysisController controller;
+    // Not connected -> the boundary reports its own state, not a parse result.
+    QVERIFY(!controller.prepareWrite06Draft(1, QStringLiteral("1234"),
+                                            QStringLiteral("5"), 1000));
+    QCOMPARE(controller.writeDraftErrorField(), QStringLiteral(""));
+    // A parse failure is reported with the FIELD identity, before any
+    // connection/session concern is even considered.
+    QVERIFY(!controller.prepareWrite06Draft(1, QStringLiteral("-1"),
+                                            QStringLiteral("5"), 1000));
+    QCOMPARE(controller.writeDraftErrorField(), QStringLiteral("address"));
+    QVERIFY(!controller.prepareWrite06Draft(1, QStringLiteral("100"),
+                                            QStringLiteral("12x"), 1000));
+    QCOMPARE(controller.writeDraftErrorField(), QStringLiteral("value"));
+    QVERIFY(!controller.prepareWrite06Draft(1, QStringLiteral("100"),
+                                            QStringLiteral("65536"), 1000));
+    QCOMPARE(controller.writeDraftErrorField(), QStringLiteral("value"));
+}
 
 QTEST_GUILESS_MAIN(UiBridgeTest)
 #include "test_ui_bridge.moc"

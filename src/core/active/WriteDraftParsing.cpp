@@ -29,6 +29,27 @@ std::string_view trim(std::string_view text)
     return text.substr(begin, end - begin);
 }
 
+// Single-value fields also trim newlines away at the OUTER edges: a pasted
+// trailing "\n" is presentation noise, while a newline BETWEEN values is a
+// second value (see parseDecimalRegisterValue).
+bool isOuterSpace(char c)
+{
+    return isSpace(c) || c == '\r' || c == '\n';
+}
+
+std::string_view trimOuter(std::string_view text)
+{
+    std::size_t begin = 0;
+    std::size_t end = text.size();
+    while (begin < end && isOuterSpace(text[begin])) {
+        ++begin;
+    }
+    while (end > begin && isOuterSpace(text[end - 1])) {
+        --end;
+    }
+    return text.substr(begin, end - begin);
+}
+
 } // namespace
 
 ValuesParseResult parseRegisterValues(std::string_view text)
@@ -92,6 +113,27 @@ ValuesParseResult parseRegisterValues(std::string_view text)
         return ValuesParseError{ValuesParseErrorCode::NoValues, 0, 0};
     }
     return ParsedRegisterValues{std::move(values)};
+}
+
+SingleValueParseResult parseDecimalRegisterValue(std::string_view rawText)
+{
+    const std::string_view text = trimOuter(rawText);
+    // A newline left inside the trimmed text separates two values. This is a
+    // single-value field, so the input is rejected as such — never silently
+    // reduced to the first line, the last line, or a concatenation.
+    if (text.find_first_of("\r\n") != std::string_view::npos) {
+        return ValuesParseError{
+            ValuesParseErrorCode::MultipleValuesInSingleField, 0, 1};
+    }
+    // The remaining acceptance table (empty / digits / range) is the SAME one
+    // the multi-line parser uses: parseRegisterValues is the single decimal
+    // authority, and a single line can yield at most one value.
+    const auto parsed = parseRegisterValues(text);
+    if (const auto* error = std::get_if<ValuesParseError>(&parsed)) {
+        return *error;
+    }
+    const auto& values = std::get<ParsedRegisterValues>(parsed).values;
+    return SingleRegisterValue{values.front()};
 }
 
 } // namespace modbuslens::core

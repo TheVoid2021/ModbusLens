@@ -20,7 +20,12 @@ using modbuslens::core::WriteMultipleRegistersIntent;
 using modbuslens::core::WriteSingleRegisterIntent;
 using modbuslens::core::WriteValidationError;
 using modbuslens::core::WriteValidationErrorCode;
+using modbuslens::core::parseDecimalRegisterValue;
 using modbuslens::core::parseRegisterValues;
+using modbuslens::core::ParsedRegisterValues;
+using modbuslens::core::SingleRegisterValue;
+using modbuslens::core::ValuesParseError;
+using modbuslens::core::ValuesParseErrorCode;
 
 namespace {
 
@@ -89,6 +94,23 @@ private slots:
     void p10_124ValuesRejected();
     void p11_allBlankRejected();
     void p12_hugeIntegerDeterministicError();
+    // M10-D1: single-value decimal field (0x06 address / value)
+    void d1_emptyRejected();
+    void d2_zeroAccepted();
+    void d3_maxAccepted();
+    void d4_aboveMaxRejected();
+    void d5_negativeRejected();
+    void d6_plusSignRejected();
+    void d7_trailingGarbageRejected();
+    void d8_hexFormRejected();
+    void d9_decimalPointRejected();
+    void d10_leadingZerosAccepted();
+    void d11_outerWhitespaceTrimmed();
+    void d12_hugeIntegerDeterministicRangeError();
+    void d13_twoValuesLfRejected();
+    void d14_twoValuesCrlfRejected();
+    void d15_trailingNewlineTolerated();
+    void d16_sameAuthorityAsMultiLineList();
 
     // ---- numeric validation (V01–V12) ----
     void v01_unitBounds06();
@@ -469,6 +491,161 @@ void WritePrepareTest::s09_draftChangeCannotAlterSnapshot()
     QCOMPARE(kept->token, std::uint64_t{7});
     QCOMPARE(kept->intent.unitId, std::uint8_t{11});
     QCOMPARE(kept->connectionLabel, std::string{"COM_TEST @ 9600"});
+}
+
+// ---------------------------------------------------------------------------
+// M10-D1: parseDecimalRegisterValue — the single decimal authority for the
+// 0x06 address / value fields. The QML field is presentation only and hands
+// over the RAW text, so these cases are what the user can really type.
+// ---------------------------------------------------------------------------
+
+void WritePrepareTest::d1_emptyRejected()
+{
+    // Control characters are built from their codes so this file never depends
+    // on how an escape sequence survives an editor/shell layer.
+    const std::string lf(1, static_cast<char>(10));
+    const std::string crlf = std::string(1, static_cast<char>(13)) + lf;
+    const std::string inputs[] = {std::string{}, "   ", lf, crlf};
+    for (const std::string& raw : inputs) {
+        const auto error = as<ValuesParseError>(parseDecimalRegisterValue(raw));
+        QVERIFY2(error.has_value(), raw.c_str());
+        QCOMPARE(error->code, ValuesParseErrorCode::NoValues);
+    }
+}
+
+void WritePrepareTest::d2_zeroAccepted()
+{
+    const auto parsed = as<SingleRegisterValue>(parseDecimalRegisterValue("0"));
+    QVERIFY(parsed.has_value());
+    QCOMPARE(parsed->value, std::uint16_t{0});
+}
+
+void WritePrepareTest::d3_maxAccepted()
+{
+    const auto parsed = as<SingleRegisterValue>(parseDecimalRegisterValue("65535"));
+    QVERIFY(parsed.has_value());
+    QCOMPARE(parsed->value, std::uint16_t{65535});
+}
+
+void WritePrepareTest::d4_aboveMaxRejected()
+{
+    const auto error = as<ValuesParseError>(parseDecimalRegisterValue("65536"));
+    QVERIFY(error.has_value());
+    QCOMPARE(error->code, ValuesParseErrorCode::ValueOutOfRange);
+}
+
+void WritePrepareTest::d5_negativeRejected()
+{
+    const auto error = as<ValuesParseError>(parseDecimalRegisterValue("-1"));
+    QVERIFY(error.has_value());
+    QCOMPARE(error->code, ValuesParseErrorCode::InvalidCharacter);
+}
+
+void WritePrepareTest::d6_plusSignRejected()
+{
+    const auto error = as<ValuesParseError>(parseDecimalRegisterValue("+1"));
+    QVERIFY(error.has_value());
+    QCOMPARE(error->code, ValuesParseErrorCode::InvalidCharacter);
+}
+
+void WritePrepareTest::d7_trailingGarbageRejected()
+{
+    const auto error = as<ValuesParseError>(parseDecimalRegisterValue("12x"));
+    QVERIFY(error.has_value());
+    QCOMPARE(error->code, ValuesParseErrorCode::InvalidCharacter);
+}
+
+void WritePrepareTest::d8_hexFormRejected()
+{
+    const auto error = as<ValuesParseError>(parseDecimalRegisterValue("0x10"));
+    QVERIFY(error.has_value());
+    QCOMPARE(error->code, ValuesParseErrorCode::InvalidCharacter);
+}
+
+void WritePrepareTest::d9_decimalPointRejected()
+{
+    const auto error = as<ValuesParseError>(parseDecimalRegisterValue("1.5"));
+    QVERIFY(error.has_value());
+    QCOMPARE(error->code, ValuesParseErrorCode::InvalidCharacter);
+}
+
+void WritePrepareTest::d10_leadingZerosAccepted()
+{
+    const auto parsed = as<SingleRegisterValue>(parseDecimalRegisterValue("00010"));
+    QVERIFY(parsed.has_value());
+    QCOMPARE(parsed->value, std::uint16_t{10});
+}
+
+void WritePrepareTest::d11_outerWhitespaceTrimmed()
+{
+    const std::string lf(1, static_cast<char>(10));
+    const std::string cr(1, static_cast<char>(13));
+    const std::string raw = "  " + std::string(1, static_cast<char>(9))
+                            + " 1234 " + cr + lf;
+    const auto parsed = as<SingleRegisterValue>(parseDecimalRegisterValue(raw));
+    QVERIFY(parsed.has_value());
+    QCOMPARE(parsed->value, std::uint16_t{1234});
+    QVERIFY2(!raw.empty(), "the raw draft text itself is never rewritten");
+}
+
+void WritePrepareTest::d12_hugeIntegerDeterministicRangeError()
+{
+    const auto error = as<ValuesParseError>(
+        parseDecimalRegisterValue("999999999999999999999999"));
+    QVERIFY(error.has_value());
+    QCOMPARE(error->code, ValuesParseErrorCode::ValueOutOfRange);
+}
+
+void WritePrepareTest::d13_twoValuesLfRejected()
+{
+    const std::string lf(1, static_cast<char>(10));
+    const auto error =
+        as<ValuesParseError>(parseDecimalRegisterValue("1" + lf + "2"));
+    QVERIFY(error.has_value());
+    QCOMPARE(error->code, ValuesParseErrorCode::MultipleValuesInSingleField);
+}
+
+void WritePrepareTest::d14_twoValuesCrlfRejected()
+{
+    const std::string cr(1, static_cast<char>(13));
+    const std::string lf(1, static_cast<char>(10));
+    const auto error = as<ValuesParseError>(
+        parseDecimalRegisterValue("1" + cr + lf + "2"));
+    QVERIFY(error.has_value());
+    QCOMPARE(error->code, ValuesParseErrorCode::MultipleValuesInSingleField);
+}
+
+void WritePrepareTest::d15_trailingNewlineTolerated()
+{
+    // A pasted trailing newline is presentation noise, not a second value.
+    const std::string lf(1, static_cast<char>(10));
+    const auto parsed =
+        as<SingleRegisterValue>(parseDecimalRegisterValue("1234" + lf));
+    QVERIFY(parsed.has_value());
+    QCOMPARE(parsed->value, std::uint16_t{1234});
+}
+
+void WritePrepareTest::d16_sameAuthorityAsMultiLineList()
+{
+    // The single-value field must not grow a second acceptance table: for
+    // every single-line input the two parsers agree on acceptance, and the
+    // typed value is the one the multi-line parser produces for that line.
+    const std::string_view inputs[] = {"0", "65535", "00010", " 1234 ", "65536",
+                                       "-1", "12x", "0x10", "1.5", "+1", "   "};
+    for (const std::string_view raw : inputs) {
+        const auto single = parseDecimalRegisterValue(raw);
+        const auto list = parseRegisterValues(raw);
+        const bool singleOk = std::holds_alternative<SingleRegisterValue>(single);
+        const bool listOk = std::holds_alternative<ParsedRegisterValues>(list);
+        QCOMPARE(singleOk, listOk);
+        if (singleOk) {
+            QCOMPARE(std::get<SingleRegisterValue>(single).value,
+                     std::get<ParsedRegisterValues>(list).values.front());
+        } else {
+            QCOMPARE(std::get<ValuesParseError>(single).code,
+                     std::get<ValuesParseError>(list).code);
+        }
+    }
 }
 
 QTEST_GUILESS_MAIN(WritePrepareTest)

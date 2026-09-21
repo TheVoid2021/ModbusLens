@@ -1,6 +1,7 @@
 #include "core/active/ActiveRequestIntent.h"
 
 #include "core/protocol/Function03.h"
+#include "core/protocol/Function06.h"
 #include "core/protocol/ModbusRtuCodec.h"
 
 namespace modbuslens::core {
@@ -107,10 +108,24 @@ ActiveRequestEncodeResult encodeActiveRequest(const ActiveRequestIntent& intent)
             .wire = encodeRtuFrame(frame),
         };
     }
-    case ActiveFunction::WriteSingleRegister:
+    case ActiveFunction::WriteSingleRegister: {
+        // M10-D1: the 0x06 ENCODER exists (semantic frame from Function06,
+        // CRC/wire from the codec). An encoder is not a capability: the
+        // session still refuses to begin an active 0x06 transaction
+        // (activeFunctionSupported stays false until M10-D2 lands the response
+        // lifecycle), so nothing can send these bytes yet.
+        const auto& payload = std::get<WriteSingleRegisterIntent>(intent.payload);
+        const auto frame = encodeWriteSingleRegisterRequest(
+            intent.unitId, payload.registerAddress, payload.value);
+        return ActiveRequestDescriptor{
+            .intent = intent,
+            .frame = frame,
+            .wire = encodeRtuFrame(frame),
+        };
+    }
     case ActiveFunction::WriteMultipleRegisters:
-        // Active write encoding does not exist yet BY DESIGN (M10-A scope:
-        // no write-request encoder). Passive decoding of captured write
+        // Active write encoding for 0x10 does not exist yet BY DESIGN (0x06
+        // first, 0x10 is M10-E work). Passive decoding of captured 0x10
         // traffic is a different capability and stays untouched.
         return ActiveRequestEncodeError{
             ActiveRequestEncodeErrorCode::UnsupportedFunction};

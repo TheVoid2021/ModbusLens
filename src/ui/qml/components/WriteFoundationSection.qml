@@ -26,9 +26,13 @@ Item {
     required property var analysisController
 
     // ---- page-local drafts (two independent sets) ----
+    // 0x06 address/value are RAW TEXT drafts (M10-D1): the user's exact input
+    // is preserved here ("00010", " 1234 ", "-1", "12x", "65536", "") and the
+    // core parser decides what it means. unit/timeout stay numeric drafts (a
+    // small range where stepping is practical).
     property int unit06: 1
-    property int address06: 0
-    property int value06: 0
+    property string addressText06: ""
+    property string valueText06: ""
     property int timeout06: 1000
     property int unit10: 1
     property int start10: 0
@@ -54,7 +58,8 @@ Item {
             return true
         }
         const accepted = section.activeFunctionIndex === 0
-            ? section.analysisController.prepareWrite06(unit06, address06, value06, timeout06)
+            ? section.analysisController.prepareWrite06Draft(
+                  unit06, addressText06, valueText06, timeout06)
             : section.analysisController.prepareWrite10(unit10, start10, valuesText10, timeout10)
         if (accepted)
             confirmationDialog.open()
@@ -141,20 +146,28 @@ Item {
                         onValueModified: section.unit06 = value
                     }
                     Label { text: qsTr("寄存器地址") }
-                    SpinBox {
-                        objectName: "write06AddressSpin"
-                        Accessible.name: qsTr("0x06 寄存器地址")
-                        from: 0; to: 65535; value: section.address06
+                    DecimalField {
+                        objectName: "write06AddressField"
+                        fieldLabel: qsTr("寄存器地址")
+                        accessibleName: qsTr("0x06 寄存器地址（十进制）")
+                        text: section.addressText06
                         enabled: !section.analysisController.serialBusy
-                        onValueModified: section.address06 = value
+                        // Presentation identity only: the controller says
+                        // WHICH field its typed error belongs to.
+                        hasError: section.analysisController.writeDraftErrorField
+                                  === "address"
+                        onTextChanged: section.addressText06 = text
                     }
                     Label { text: qsTr("写入值") }
-                    SpinBox {
-                        objectName: "write06ValueSpin"
-                        Accessible.name: qsTr("0x06 写入值")
-                        from: 0; to: 65535; value: section.value06
+                    DecimalField {
+                        objectName: "write06ValueField"
+                        fieldLabel: qsTr("写入值")
+                        accessibleName: qsTr("0x06 写入值（十进制）")
+                        text: section.valueText06
                         enabled: !section.analysisController.serialBusy
-                        onValueModified: section.value06 = value
+                        hasError: section.analysisController.writeDraftErrorField
+                                  === "value"
+                        onTextChanged: section.valueText06 = text
                     }
                     Label { text: qsTr("超时 (ms)") }
                     SpinBox {

@@ -1,6 +1,7 @@
 #include "ui/AnalysisController.h"
 
 #include "core/analysis/TransactionStatistics.h"
+#include "core/active/WriteDraftParsing.h"
 #include "core/protocol/Function03.h"
 #include "core/protocol/ModbusRtuCodec.h"
 #include "core/replay/ReplayAnalysis.h"
@@ -1145,20 +1146,43 @@ void AnalysisController::announcePreparedWriteChanged()
     emit preparedWriteChanged();
 }
 
-void AnalysisController::setWriteDraftError(const QString& message)
+void AnalysisController::setWriteDraftError(const QString& message,
+                                            const QString& fieldToken)
 {
     hasWriteDraftError_ = true;
     writeDraftError_ = message;
+    writeDraftErrorField_ = fieldToken;
     emit writeDraftErrorChanged();
+}
+
+void AnalysisController::setWriteDraftParseError(
+    const QString& fieldToken, const QString& fieldLabel,
+    const modbuslens::core::ValuesParseError& error)
+{
+    using modbuslens::core::ValuesParseErrorCode;
+    // One shared reason phrase per typed code (the parser taxonomy stays the
+    // single source); the FIELD identity is added by this boundary, so an
+    // address error and a value error never collapse into "输入错误".
+    const QString reason =
+        error.code == ValuesParseErrorCode::NoValues
+            ? QStringLiteral("请输入一个十进制数值")
+        : error.code == ValuesParseErrorCode::MultipleValuesInSingleField
+            ? QStringLiteral("只能输入一个数值（不能包含换行）")
+        : error.code == ValuesParseErrorCode::InvalidCharacter
+            ? QStringLiteral("只能输入十进制数字（0-9）")
+            : QStringLiteral("数值须在 0..65535 之间");
+    setWriteDraftError(QStringLiteral("%1：%2").arg(fieldLabel, reason), fieldToken);
 }
 
 void AnalysisController::clearWriteDraftError()
 {
-    if (!hasWriteDraftError_ && writeDraftError_.isEmpty()) {
+    if (!hasWriteDraftError_ && writeDraftError_.isEmpty()
+        && writeDraftErrorField_.isEmpty()) {
         return;
     }
     hasWriteDraftError_ = false;
     writeDraftError_.clear();
+    writeDraftErrorField_.clear();
     emit writeDraftErrorChanged();
 }
 
@@ -1183,25 +1207,31 @@ void AnalysisController::setWriteDraftErrorFrom(
     const auto& error = *rejected.validationError;
     switch (error.code) {
     case WriteValidationErrorCode::UnitIdOutOfRange:
-        setWriteDraftError(QStringLiteral("从站地址须在 1..247 之间（当前不支持广播）"));
+        setWriteDraftError(QStringLiteral("从站地址须在 1..247 之间（当前不支持广播）"),
+                           QStringLiteral("unit"));
         return;
     case WriteValidationErrorCode::AddressOutOfRange:
-        setWriteDraftError(QStringLiteral("寄存器地址须在 0..65535 之间"));
+        setWriteDraftError(QStringLiteral("寄存器地址须在 0..65535 之间"),
+                           QStringLiteral("address"));
         return;
     case WriteValidationErrorCode::ValueOutOfRange:
-        setWriteDraftError(QStringLiteral("寄存器值须在 0..65535 之间"));
+        setWriteDraftError(QStringLiteral("寄存器值须在 0..65535 之间"),
+                           QStringLiteral("value"));
         return;
     case WriteValidationErrorCode::TimeoutOutOfRange:
         setWriteDraftError(QStringLiteral("超时须在 %1..%2 ms 之间")
                                .arg(kWriteUiMinTimeoutMs)
-                               .arg(kWriteUiMaxTimeoutMs));
+                               .arg(kWriteUiMaxTimeoutMs),
+                           QStringLiteral("timeout"));
         return;
     case WriteValidationErrorCode::QuantityOutOfRange:
-        setWriteDraftError(QStringLiteral("寄存器数量须在 1..123 之间"));
+        setWriteDraftError(QStringLiteral("寄存器数量须在 1..123 之间"),
+                           QStringLiteral("quantity"));
         return;
     case WriteValidationErrorCode::AddressSpanOutOfRange:
         setWriteDraftError(
-            QStringLiteral("起始地址与数量超出 16 位寄存器地址空间"));
+            QStringLiteral("起始地址与数量超出 16 位寄存器地址空间"),
+            QStringLiteral("span"));
         return;
     case WriteValidationErrorCode::ValuesParseError:
         break;
@@ -1215,25 +1245,37 @@ void AnalysisController::setWriteDraftErrorFrom(
     const auto line = static_cast<int>(parse.lineIndex) + 1; // one-based for users
     switch (parse.code) {
     case ValuesParseErrorCode::NoValues:
-        setWriteDraftError(QStringLiteral("请输入至少一个寄存器值（每行一个）"));
+        setWriteDraftError(QStringLiteral("请输入至少一个寄存器值（每行一个）"),
+                           QStringLiteral("values"));
         return;
     case ValuesParseErrorCode::BlankLineInside:
         setWriteDraftError(QStringLiteral("第 %1 行为空行：中间不能有空行")
-                               .arg(line));
+                               .arg(line),
+                           QStringLiteral("values"));
         return;
     case ValuesParseErrorCode::InvalidCharacter:
         setWriteDraftError(QStringLiteral("第 %1 行不是合法的十进制数值")
-                               .arg(line));
+                               .arg(line),
+                           QStringLiteral("values"));
         return;
     case ValuesParseErrorCode::ValueOutOfRange:
         setWriteDraftError(QStringLiteral("第 %1 行的数值超出 0..65535")
-                               .arg(line));
+                               .arg(line),
+                           QStringLiteral("values"));
         return;
     case ValuesParseErrorCode::TooManyValues:
-        setWriteDraftError(QStringLiteral("寄存器数量须在 1..123 之间"));
+        setWriteDraftError(QStringLiteral("寄存器数量须在 1..123 之间"),
+                           QStringLiteral("values"));
+        return;
+    case ValuesParseErrorCode::MultipleValuesInSingleField:
+        // Not reachable from the multi-line 0x10 list (it EXPECTS many lines);
+        // kept deterministic so a future single-value reuse stays exhaustive.
+        setWriteDraftError(QStringLiteral("只能输入一个数值（不能包含换行）"),
+                           QStringLiteral("values"));
         return;
     }
-    setWriteDraftError(QStringLiteral("寄存器值列表无法解析"));
+    setWriteDraftError(QStringLiteral("寄存器值列表无法解析"),
+                       QStringLiteral("values"));
 }
 
 bool AnalysisController::prepareWrite06(int unitId, int registerAddress, int value,
@@ -1250,6 +1292,38 @@ bool AnalysisController::prepareWrite06(int unitId, int registerAddress, int val
     clearWriteDraftError();
     announcePreparedWriteChanged();
     return true;
+}
+
+bool AnalysisController::prepareWrite06Draft(int unitId, const QString& addressRaw,
+                                             const QString& valueRaw, int timeoutMs)
+{
+    using modbuslens::core::parseDecimalRegisterValue;
+    using modbuslens::core::SingleRegisterValue;
+    using modbuslens::core::ValuesParseError;
+
+    // The QML side hands over the RAW text (it never normalizes). Parsing is
+    // the core decimal authority; a failure keeps the raw draft untouched and
+    // reports WHICH field failed. On success the typed helper below stays the
+    // single range-validation / snapshot path (no duplicated validation).
+    const auto addressParse =
+        parseDecimalRegisterValue(addressRaw.toStdString());
+    if (const auto* error = std::get_if<ValuesParseError>(&addressParse)) {
+        setWriteDraftParseError(QStringLiteral("address"),
+                                QStringLiteral("寄存器地址"), *error);
+        announcePreparedWriteChanged();
+        return false;
+    }
+    const auto valueParse = parseDecimalRegisterValue(valueRaw.toStdString());
+    if (const auto* error = std::get_if<ValuesParseError>(&valueParse)) {
+        setWriteDraftParseError(QStringLiteral("value"), QStringLiteral("写入值"),
+                                *error);
+        announcePreparedWriteChanged();
+        return false;
+    }
+    return prepareWrite06(unitId,
+                          std::get<SingleRegisterValue>(addressParse).value,
+                          std::get<SingleRegisterValue>(valueParse).value,
+                          timeoutMs);
 }
 
 bool AnalysisController::prepareWrite10(int unitId, int startAddress,
@@ -1433,6 +1507,11 @@ bool AnalysisController::hasWriteDraftError() const
 QString AnalysisController::writeDraftError() const
 {
     return writeDraftError_;
+}
+
+QString AnalysisController::writeDraftErrorField() const
+{
+    return writeDraftErrorField_;
 }
 
 modbuslens::core::WritePrepareOutcome AnalysisController::prepareWriteIntent(

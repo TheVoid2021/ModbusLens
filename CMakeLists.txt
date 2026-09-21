@@ -100,6 +100,7 @@ qt_add_qml_module(modbuslens
         src/ui/qml/Main.qml
         src/ui/qml/DS/DesignSystem.qml
         src/ui/qml/components/AppButton.qml
+        src/ui/qml/components/DecimalField.qml
         src/ui/qml/components/NavigationRail.qml
         src/ui/qml/components/PanelCard.qml
         src/ui/qml/components/SectionHeader.qml
@@ -399,6 +400,19 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME write_prepare COMMAND modbuslens_write_prepare_tests)
+
+    # M10-D1: the FC06 encoder + its INDEPENDENT golden-vector oracle (the
+    # test file carries its own bitwise CRC, so the encoder can never prove
+    # itself from a shared helper).
+    add_executable(modbuslens_write_encoder_tests tests/test_write_encoder.cpp)
+    target_link_libraries(modbuslens_write_encoder_tests PRIVATE
+        modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_write_encoder_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME write_encoder COMMAND modbuslens_write_encoder_tests)
 
     # M10-A: Active Master contract foundation over the REAL controller with a
     # deterministic RECORDING transport (TA1-TA9): send counts, exact ADU

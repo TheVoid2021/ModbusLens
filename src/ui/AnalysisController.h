@@ -91,6 +91,11 @@ class AnalysisController : public QObject
     Q_PROPERTY(QString preparedWriteInvalidReason READ preparedWriteInvalidReasonToken NOTIFY preparedWriteChanged)
     Q_PROPERTY(bool hasWriteDraftError READ hasWriteDraftError NOTIFY writeDraftErrorChanged)
     Q_PROPERTY(QString writeDraftError READ writeDraftError NOTIFY writeDraftErrorChanged)
+    // M10-D1: WHICH draft field the current error belongs to (machine token:
+    // "unit" / "address" / "value" / "timeout" / "values" / "quantity" /
+    // "span" / empty when the message is not field-specific). It is a
+    // presentation identity — never a second validation authority.
+    Q_PROPERTY(QString writeDraftErrorField READ writeDraftErrorField NOTIFY writeDraftErrorChanged)
 
 public:
     explicit AnalysisController(QObject* parent = nullptr);
@@ -278,6 +283,13 @@ public:
     // writeDraftError (never a raw enum token in the UI).
     Q_INVOKABLE bool prepareWrite06(int unitId, int registerAddress, int value,
                                     int timeoutMs);
+    // M10-D1: the RAW-TEXT boundary for 0x06. The QML field is presentation
+    // only and hands over exactly what the user typed ("00010", " 1234 ",
+    // "-1", "12x", "65536", ""), never a pre-normalized string: the core
+    // decimal parser is the authority and the typed helper above stays the
+    // single validation/snapshot path (this wrapper parses, then delegates).
+    Q_INVOKABLE bool prepareWrite06Draft(int unitId, const QString& addressRaw,
+                                         const QString& valueRaw, int timeoutMs);
     Q_INVOKABLE bool prepareWrite10(int unitId, int startAddress,
                                     const QString& valuesText, int timeoutMs);
     // Confirmation / cancellation by OPAQUE TOKEN only: QML hands back exactly
@@ -301,6 +313,7 @@ public:
     [[nodiscard]] QString preparedWriteInvalidReasonToken() const;
     [[nodiscard]] bool hasWriteDraftError() const;
     [[nodiscard]] QString writeDraftError() const;
+    [[nodiscard]] QString writeDraftErrorField() const;
 
     // Read-only projection of the prepared snapshot (C1 C++ accessors).
     [[nodiscard]] modbuslens::core::PreparedWriteState preparedWriteState() const;
@@ -389,7 +402,16 @@ private:
     // line numbers). Presentation belongs to this Qt adapter layer; the typed
     // authority stays in core.
     void setWriteDraftErrorFrom(const modbuslens::core::PrepareRejected& rejected);
-    void setWriteDraftError(const QString& message);
+    // fieldToken is the machine identity of the draft field the message
+    // belongs to (empty = not field-specific). The message stays a single
+    // presentation string; the token only lets the UI mark the right field.
+    void setWriteDraftError(const QString& message,
+                            const QString& fieldToken = QString());
+    // Raw-field parse failure (0x06 address / value): shared reason phrase
+    // from the typed parser error + the field identity of THIS boundary.
+    void setWriteDraftParseError(const QString& fieldToken,
+                                 const QString& fieldLabel,
+                                 const modbuslens::core::ValuesParseError& error);
     void clearWriteDraftError();
     // Emitted after every prepared-state transition (prepare/confirm/cancel/
     // invalidate) so the projection stays consistent in one step.
@@ -443,6 +465,7 @@ private:
     std::uint64_t preparedWriteGeneration_ = 0;
     bool hasWriteDraftError_ = false;
     QString writeDraftError_;
+    QString writeDraftErrorField_;
 
     // T011 Part A: the STRUCTURED active batch for diagnosis — same source
     // as rows + statistics on every successful publish (never reconstructed

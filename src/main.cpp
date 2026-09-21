@@ -1,5 +1,6 @@
 #include <QAbstractItemModel>
 #include <algorithm>
+#include <QClipboard>
 #include <QAccessible>
 #include <QGuiApplication>
 #include <QDir>
@@ -5035,8 +5036,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // ---- C01: unit 0 is rejected with presentation, no dialog ----
     push([&]() {
         setDraft("unit06", 0);
-        setDraft("address06", 100);
-        setDraft("value06", 5);
+        setDraft("addressText06", QString::number(100));
+        setDraft("valueText06", QString::number(5));
         const bool accepted = activateWrite();
         if (accepted)
             fail(QStringLiteral("WRITEFAIL C01: unit 0 was accepted"));
@@ -5080,8 +5081,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() {
         setDraft("activeFunctionIndex", 0);
         setDraft("unit06", 11);
-        setDraft("address06", 0x0064);
-        setDraft("value06", 1234);
+        setDraft("addressText06", QString::number(0x0064));
+        setDraft("valueText06", QString::number(1234));
         setDraft("timeout06", 1000);
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL C03: a valid 0x06 draft was rejected"));
@@ -5134,8 +5135,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // ---- C20: editing the draft after prepare changes nothing ----
     push([&]() {
         const auto tokenBefore = tokenOf();
-        setDraft("value06", 4321);
-        setDraft("address06", 7);
+        setDraft("valueText06", QString::number(4321));
+        setDraft("addressText06", QString::number(7));
         if (tokenOf() != tokenBefore)
             fail(QStringLiteral("WRITEFAIL C20: editing the draft changed the token"));
         if (controller->preparedWriteValue() != 1234
@@ -5182,9 +5183,9 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                      .arg(controller->preparedWriteInvalidReasonToken()));
         if (transport->writeAttempts() != 0)
             fail(QStringLiteral("WRITEFAIL C04: the transport was touched"));
-        if (itemOf(QStringLiteral("write06ValueSpin"))
-            && itemOf(QStringLiteral("write06ValueSpin"))->property("value").toInt() == 0)
-            fail(QStringLiteral("WRITEFAIL C04: the draft was cleared"));
+        auto *valueField = itemOf(QStringLiteral("write06ValueField"));
+        if (!valueField || valueField->property("text").toString().isEmpty())
+            fail(QStringLiteral("WRITEFAIL C04: the raw draft was cleared"));
         note(QStringLiteral("WRITE [C04]: Cancel -> invalidated(user_cancelled), "
                             "draft preserved, zero send"));
     });
@@ -5192,7 +5193,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // ---- C16: independent drafts across tab switches ----
     push([&]() {
         setDraft("unit06", 21);
-        setDraft("value06", 222);
+        setDraft("valueText06", QString::number(222));
         setDraft("activeFunctionIndex", 1);
         setDraft("unit10", 31);
         setDraft("start10", 400);
@@ -5202,14 +5203,15 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() {
         auto *item = section();
         const int unit06 = item ? item->property("unit06").toInt() : -1;
-        const int value06 = item ? item->property("value06").toInt() : -1;
+        const QString valueText06 = item ? item->property("valueText06").toString()
+                                        : QString();
         const int unit10 = item ? item->property("unit10").toInt() : -1;
         const int start10 = item ? item->property("start10").toInt() : -1;
         const QString text10 = item ? item->property("valuesText10").toString()
                                     : QString();
-        if (unit06 != 21 || value06 != 222)
+        if (unit06 != 21 || valueText06 != QStringLiteral("222"))
             fail(QStringLiteral("WRITEFAIL C16: 0x06 draft was altered (%1/%2)")
-                     .arg(unit06).arg(value06));
+                     .arg(unit06).arg(valueText06));
         if (unit10 != 31 || start10 != 400 || text10 != QStringLiteral("7"))
             fail(QStringLiteral("WRITEFAIL C16: 0x10 draft was altered (%1/%2/%3)")
                      .arg(unit10).arg(start10).arg(text10));
@@ -5318,8 +5320,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() {
         setDraft("activeFunctionIndex", 0);
         setDraft("unit06", 11);
-        setDraft("address06", 100);
-        setDraft("value06", 1234);
+        setDraft("addressText06", QString::number(100));
+        setDraft("valueText06", QString::number(1234));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL C06: valid 0x06 draft rejected"));
         if (!dialogVisible())
@@ -5352,7 +5354,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // non-destructive Cancel is allowed; consumption is not.
     push([&]() {
         if (stateToken() != QStringLiteral("prepared")) {
-            setDraft("value06", 1234);
+            setDraft("valueText06", QString::number(1234));
             if (!activateWrite())
                 fail(QStringLiteral("WRITEFAIL C05b: could not re-prepare"));
         }
@@ -5371,7 +5373,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // C08: real Tab moves focus to Confirm; Space then accepts exactly once.
     push([&]() {
         if (stateToken() != QStringLiteral("prepared")) {
-            setDraft("value06", 1234);
+            setDraft("valueText06", QString::number(1234));
             if (!activateWrite())
                 fail(QStringLiteral("WRITEFAIL C08: could not re-prepare"));
         }
@@ -5403,7 +5405,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     // C08b: Enter works the same way while Confirm holds active focus.
     push([&]() {
-        setDraft("value06", 4321);
+        setDraft("valueText06", QString::number(4321));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL C08b: could not prepare"));
         for (int i = 0; i < 5
@@ -5425,7 +5427,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     // Double activation: two rapid Space presses on Confirm consume at most once.
     push([&]() {
-        setDraft("value06", 777);
+        setDraft("valueText06", QString::number(777));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL double: could not prepare"));
         for (int i = 0; i < 5
@@ -5457,8 +5459,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() {
         setDraft("activeFunctionIndex", 0);
         setDraft("unit06", 11);
-        setDraft("address06", 100);
-        setDraft("value06", 1234);
+        setDraft("addressText06", QString::number(100));
+        setDraft("valueText06", QString::number(1234));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL E1: could not prepare"));
         for (int i = 0; i < 5
@@ -5530,7 +5532,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // E2: the second Enter arrives on a LATER turn, after the dialog close has
     // fully settled (this is the "focus restored to the background" case).
     push([&]() {
-        setDraft("value06", 2222);
+        setDraft("valueText06", QString::number(2222));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL E2: could not prepare"));
         for (int i = 0; i < 5
@@ -5585,7 +5587,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     // Escape: real key -> Invalidated(UserCancelled), dialog closed, draft kept.
     push([&]() {
-        setDraft("value06", 5555);
+        setDraft("valueText06", QString::number(5555));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL C05: could not prepare"));
     });
@@ -5602,7 +5604,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (dialogVisible())
             fail(QStringLiteral("WRITEFAIL C05: the dialog stayed visible"));
         auto *item = section();
-        if (!item || item->property("value06").toInt() != 5555)
+        if (!item || item->property("valueText06").toString() != QString::number(5555))
             fail(QStringLiteral("WRITEFAIL C05: the draft was not preserved"));
         if (transport->writeAttempts() != 0)
             fail(QStringLiteral("WRITEFAIL C05: write dispatch was attempted"));
@@ -5613,7 +5615,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // Outside click: closePolicy excludes outside-press, so the dialog and the
     // snapshot must survive a click on the page background.
     push([&]() {
-        setDraft("value06", 1234);
+        setDraft("valueText06", QString::number(1234));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL outside-click: could not prepare"));
     });
@@ -5653,7 +5655,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() {
         clickItemAt(QStringLiteral("navItem_2"));
         if (stateToken() != QStringLiteral("prepared")) {
-            setDraft("value06", 1234);
+            setDraft("valueText06", QString::number(1234));
             if (!activateWrite())
                 fail(QStringLiteral("WRITEFAIL C11: could not prepare"));
         }
@@ -5692,7 +5694,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // C13/C14: a REAL FC03 read makes busy true (permanent invalidation);
     // busy returning to false must not revive the token.
     push([&]() {
-        setDraft("value06", 999);
+        setDraft("valueText06", QString::number(999));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL C13: could not prepare"));
         transport->setCompleteReadImmediately(false);
@@ -5725,7 +5727,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     // C35: a later disconnect must not overwrite the busy reason.
     push([&]() {
-        setDraft("value06", 1234);
+        setDraft("valueText06", QString::number(1234));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL C35: could not prepare"));
         transport->setCompleteReadImmediately(false);
@@ -5748,7 +5750,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // snapshot.
     push([&]() {
         setDraft("unit06", 33);
-        setDraft("value06", 321);
+        setDraft("valueText06", QString::number(321));
         setDraft("activeFunctionIndex", 1);
         setDraft("unit10", 44);
         setDraft("valuesText10", QStringLiteral("5"));
@@ -5758,7 +5760,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() {
         auto *item = section();
         if (!item || item->property("unit06").toInt() != 33
-            || item->property("value06").toInt() != 321
+            || item->property("valueText06").toString() != QString::number(321)
             || item->property("unit10").toInt() != 44
             || item->property("valuesText10").toString() != QStringLiteral("5"))
             fail(QStringLiteral("WRITEFAIL C15: Clear Results cleared a draft"));
@@ -5805,7 +5807,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() {
         clickItemAt(QStringLiteral("navItem_2"));
         controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
-        setDraft("value06", 4242);
+        setDraft("valueText06", QString::number(4242));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL C31: could not prepare"));
         controller->loadReplayFile(QUrl::fromLocalFile(
@@ -5821,7 +5823,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("WRITEFAIL C31: the dialog was closed by a failed "
                                 "load"));
         auto *item = section();
-        if (!item || item->property("value06").toInt() != 4242)
+        if (!item || item->property("valueText06").toString() != QString::number(4242))
             fail(QStringLiteral("WRITEFAIL C31: the draft was lost"));
         note(QStringLiteral("WRITE [C31]: failed Replay load -> snapshot and draft "
                             "preserved"));
@@ -5830,7 +5832,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     // C32: disconnect/reconnect preserves drafts but kills the old snapshot.
     push([&]() {
-        setDraft("value06", 8888);
+        setDraft("valueText06", QString::number(8888));
         setDraft("unit10", 66);
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL C32: could not prepare"));
@@ -5839,7 +5841,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     });
     push([&]() {
         auto *item = section();
-        if (!item || item->property("value06").toInt() != 8888
+        if (!item || item->property("valueText06").toString() != QString::number(8888)
             || item->property("unit10").toInt() != 66)
             fail(QStringLiteral("WRITEFAIL C32: drafts did not survive the "
                                 "disconnect/reconnect"));
@@ -5853,7 +5855,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // C14 (hidden page): with the foundation loaded, leave Communication and
     // prove no write control can be activated from the hidden page.
     push([&]() {
-        setDraft("value06", 1234);
+        setDraft("valueText06", QString::number(1234));
         clickItemAt(QStringLiteral("navItem_0"));
     });
     push([&]() {
@@ -5880,7 +5882,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() {
         clickItemAt(QStringLiteral("navItem_2"));
         auto *item = section();
-        if (!item || item->property("value06").toInt() != 1234)
+        if (!item || item->property("valueText06").toString() != QString::number(1234))
             fail(QStringLiteral("WRITEFAIL C14: navigation lost the draft"));
         if (tokenOf() != 0)
             fail(QStringLiteral("WRITEFAIL C14: a snapshot appeared after "
@@ -5893,7 +5895,7 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // only in the item tree while the popup is shown, so a dialog is opened
     // for this stage (and cancelled again afterwards).
     push([&]() {
-        setDraft("value06", 1234);
+        setDraft("valueText06", QString::number(1234));
         if (!activateWrite())
             fail(QStringLiteral("WRITEFAIL a11y: could not prepare for the "
                                 "dialog name checks"));
@@ -5961,8 +5963,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         const QString joined = owners.join(QStringLiteral(","));
         for (const QString &expected : {QStringLiteral("write06UnitSpin"),
-                                        QStringLiteral("write06AddressSpin"),
-                                        QStringLiteral("write06ValueSpin"),
+                                        QStringLiteral("write06AddressField"),
+                                        QStringLiteral("write06ValueField"),
                                         QStringLiteral("write06TimeoutSpin"),
                                         QStringLiteral("writeActivateButton")}) {
             if (!owners.contains(expected))
@@ -6141,8 +6143,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             intOf(QStringLiteral("writeFoundationSection"), "activeFunctionIndex");
         if (active == 0) {
             for (const QString &n : {QStringLiteral("write06UnitSpin"),
-                                     QStringLiteral("write06AddressSpin"),
-                                     QStringLiteral("write06ValueSpin"),
+                                     QStringLiteral("write06AddressField"),
+                                     QStringLiteral("write06ValueField"),
                                      QStringLiteral("write06TimeoutSpin")})
                 assertReachable(label, n);
         } else {
@@ -6331,8 +6333,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         // Force a rejection so the validation presentation is really on screen
         // for the "must not cover a control" measurement.
         setDraft("unit06", 0);
-        setDraft("address06", 100);
-        setDraft("value06", 5);
+        setDraft("addressText06", QString::number(100));
+        setDraft("valueText06", QString::number(5));
         if (activateWrite())
             fail(QStringLiteral("WRITEFAIL C4 geometry 1024x720: unit 0 was "
                                 "accepted"));
@@ -6710,8 +6712,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() { setDraft("activeFunctionIndex", 0); });
     push([&]() {
         setDraft("unit06", 1);
-        setDraft("address06", 100);
-        setDraft("value06", 7);
+        setDraft("addressText06", QString::number(100));
+        setDraft("valueText06", QString::number(7));
     });
     push([&]() { assertWriteGeometry(QStringLiteral("1000x700 0x06")); });
 
@@ -6773,67 +6775,353 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         assertWriteGeometry(QStringLiteral("restored 1024x720 0x10"));
     });
 
-    // ---- C4 0x06 input-efficiency probe (drives the M10-D decision) ----
-    // The basic-style SpinBox uses a READ-ONLY TextInput as its contentItem
-    // when `editable` is false, so typing has no effect; the only input paths
-    // are the up/down indicators (measured through a real mouse press at the
-    // up indicator's position) and the arrow keys. This stage MEASURES those
-    // paths and records them — the decision itself is a documentation artifact
-    // (T022), not a product change in C4.
+    // =====================================================================
+    // M10-D1 — RAW-TEXT field oracles (O1-O7 / R0-R3) + keyboard + field
+    // identity + accessibility.
+    //
+    // Every case observes TWO things, exactly as the design demands: the
+    // widget's real text (`TextField.text`) and the page-local raw draft the
+    // controller boundary receives. A case that typed real keys or pasted real
+    // clipboard content can never be satisfied by a QML-side normalization —
+    // and if the control HAD normalized the input, the assert below would fail
+    // rather than be silently reinterpreted.
+    // =====================================================================
+    auto fieldText = [&itemOf](const QString &name) {
+        auto *item = itemOf(name);
+        return item ? item->property("text").toString() : QStringLiteral("<none>");
+    };
+    auto rawDraft = [&section](const char *prop) {
+        auto *item = section();
+        return item ? item->property(prop).toString() : QStringLiteral("<none>");
+    };
+    auto errorField = [&controller]() { return controller->writeDraftErrorField(); };
+    // Real character input: a TextInput inserts text from the KeyPress event's
+    // `text` field, so the events below carry the character itself (the shared
+    // sendKey helper deliberately sends key codes only, for the existing
+    // key-command oracles). Nothing here normalizes the input — the widget
+    // receives exactly the characters typed.
+    auto typeText = [window](const QString &keys) {
+        for (const QChar c : keys) {
+            QObject *target = window->activeFocusItem();
+            if (!target)
+                return;
+            const Qt::Key key = c == QLatin1Char(' ')
+                                    ? Qt::Key_Space
+                                    : static_cast<Qt::Key>(c.toUpper().unicode());
+            const QString text(c);
+            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+            QCoreApplication::sendEvent(target, &press);
+            QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier, text);
+            QCoreApplication::sendEvent(target, &release);
+        }
+    };
+    auto selectAll = [&sendKey]() {
+        sendKey(Qt::Key_A, Qt::ControlModifier, false);
+    };
+    auto pasteText = [&sendKey](const QString &text) {
+        QGuiApplication::clipboard()->setText(text);
+        sendKey(Qt::Key_V, Qt::ControlModifier, false);
+    };
+    auto focusField = [&](const QString &name) {
+        clickItemAt(name);
+        return focusOwnerName() == name;
+    };
+    // Reset both raw fields to empty through the widget (the same path a user
+    // clearing the box takes), then wait a turn before typing.
     push([&]() {
+        clearIt();
         setDraft("activeFunctionIndex", 0);
         setDraft("unit06", 1);
-        setDraft("address06", 0);
-        setDraft("value06", 0);
+        setDraft("timeout06", 1000);
+        // Start every case from empty raw fields: the prepare path reports the
+        // FIRST failing field, so a case must not inherit the previous one's
+        // invalid text.
+        setDraft("addressText06", QString());
+        setDraft("valueText06", QString());
     });
     push([&]() {
-        auto *address = itemOf(QStringLiteral("write06AddressSpin"));
-        if (!address) {
-            fail(QStringLiteral("WRITEFAIL C4 probe: write06AddressSpin missing"));
-            return;
-        }
-        address->forceActiveFocus(Qt::TabFocusReason);
-        const int before = address->property("value").toInt();
-        for (const Qt::Key k : {Qt::Key_1, Qt::Key_2, Qt::Key_3, Qt::Key_4})
-            sendKey(k, Qt::NoModifier, false);
-        const int afterTyping = address->property("value").toInt();
-        sendKey(Qt::Key_Up, Qt::NoModifier, false);
-        const int afterUp = address->property("value").toInt();
-        // Real mouse press on the UP indicator. Measured layout (Fusion style,
-        // the style this app selects): the up indicator is the top-right
-        // rectangle (implicit 16 x height/2-1, x = width - w - 1, y = 1), so
-        // the point tested sits inside it — never on the up/down seam, and
-        // never on the down indicator (which cannot move a value that is
-        // already at its lower bound).
-        const QPointF local(address->width() - 8.0,
-                            qMax(2.0, address->height() / 4.0));
-        const QPointF scene = address->mapToScene(local);
-        const QPointF global = window->mapToGlobal(scene);
-        QMouseEvent press(QEvent::MouseButtonPress, scene, global, Qt::LeftButton,
-                          Qt::LeftButton, Qt::NoModifier);
-        QCoreApplication::sendEvent(window, &press);
-        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
-                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
-        QCoreApplication::sendEvent(window, &release);
-        const int afterClick = address->property("value").toInt();
-        note(QStringLiteral("WRITE [C4 probe]: 0x06 address SpinBox editable=%1 "
-                            "stepSize=%2 range=%3..%4 | typing 1234: %5 -> %6 | "
-                            "Up key: %6 -> %7 | click on the up indicator: "
-                            "%7 -> %8")
-                 .arg(address->property("editable").toBool() ? 1 : 0)
-                 .arg(address->property("stepSize").toInt())
-                 .arg(address->property("from").toInt())
-                 .arg(address->property("to").toInt())
-                 .arg(before)
-                 .arg(afterTyping)
-                 .arg(afterUp)
-                 .arg(afterClick));
-        if (afterTyping < 0 || afterTyping > 65535 || afterClick < 0
-            || afterClick > 65535)
-            fail(QStringLiteral("WRITEFAIL C4 probe: the value left its declared "
-                                "range (typing=%1 click=%2)")
-                     .arg(afterTyping)
-                     .arg(afterClick));
+        if (!focusField(QStringLiteral("write06AddressField")))
+            fail(QStringLiteral("WRITEFAIL D1: the address field did not take "
+                                "focus (focus=%1)").arg(focusOwnerName()));
+        selectAll();
+        sendKey(Qt::Key_Delete, Qt::NoModifier, false);
+    });
+    push([&]() {
+        // O1: typed digits become the widget text AND the raw draft verbatim.
+        typeText(QStringLiteral("1234"));
+    });
+    push([&]() {
+        if (fieldText(QStringLiteral("write06AddressField")) != QStringLiteral("1234"))
+            fail(QStringLiteral("WRITEFAIL D1/O1: TextField.text=[%1], expected "
+                                "[1234]").arg(fieldText(QStringLiteral("write06AddressField"))));
+        if (rawDraft("addressText06") != QStringLiteral("1234"))
+            fail(QStringLiteral("WRITEFAIL D1/O1: the page-local raw draft is "
+                                "[%1]").arg(rawDraft("addressText06")));
+        if (!focusField(QStringLiteral("write06ValueField")))
+            fail(QStringLiteral("WRITEFAIL D1: the value field did not take focus"));
+        selectAll();
+        sendKey(Qt::Key_Delete, Qt::NoModifier, false);
+        typeText(QStringLiteral("5"));
+    });
+    push([&]() {
+        clickItemAt(QStringLiteral("writeActivateButton"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL D1/O1: the dialog did not open for a "
+                                "valid typed draft"));
+        if (controller->preparedWriteAddress() != 1234
+            || controller->preparedWriteValue() != 5)
+            fail(QStringLiteral("WRITEFAIL D1/O1: typed=%1/%2, expected 1234/5")
+                     .arg(controller->preparedWriteAddress())
+                     .arg(controller->preparedWriteValue()));
+        note(QStringLiteral("WRITE [D1/O1]: typed \"1234\" -> TextField.text=[%1], "
+                            "raw draft=[%2], typed address=%3")
+                 .arg(fieldText(QStringLiteral("write06AddressField")))
+                 .arg(rawDraft("addressText06"))
+                 .arg(controller->preparedWriteAddress()));
+        clearIt();
+    });
+    // ---- O2: leading zeros stay in the draft, the snapshot is canonical ----
+    push([&]() {
+        if (!focusField(QStringLiteral("write06AddressField")))
+            fail(QStringLiteral("WRITEFAIL D1/O2: address field focus"));
+        selectAll();
+        sendKey(Qt::Key_Delete, Qt::NoModifier, false);
+        typeText(QStringLiteral("00010"));
+    });
+    push([&]() {
+        if (fieldText(QStringLiteral("write06AddressField")) != QStringLiteral("00010")
+            || rawDraft("addressText06") != QStringLiteral("00010"))
+            fail(QStringLiteral("WRITEFAIL D1/O2: the raw text was rewritten "
+                                "(widget=[%1] draft=[%2])")
+                     .arg(fieldText(QStringLiteral("write06AddressField")))
+                     .arg(rawDraft("addressText06")));
+        clickItemAt(QStringLiteral("writeActivateButton"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL D1/O2: the dialog did not open"));
+        if (controller->preparedWriteAddress() != 10)
+            fail(QStringLiteral("WRITEFAIL D1/O2: typed=%1, expected 10")
+                     .arg(controller->preparedWriteAddress()));
+        if (textOf(QStringLiteral("writeSummaryAddress")) != QStringLiteral("10"))
+            fail(QStringLiteral("WRITEFAIL D1/O2: the summary shows [%1], expected "
+                                "the canonical 10").arg(textOf(QStringLiteral("writeSummaryAddress"))));
+        note(QStringLiteral("WRITE [D1/O2]: raw [%1] preserved; summary=%2")
+                 .arg(rawDraft("addressText06"))
+                 .arg(textOf(QStringLiteral("writeSummaryAddress"))));
+        clearIt();
+    });
+    // ---- O3: outer whitespace is preserved raw and trimmed by the core ----
+    push([&]() {
+        if (!focusField(QStringLiteral("write06AddressField")))
+            fail(QStringLiteral("WRITEFAIL D1/O3: address field focus"));
+        selectAll();
+        sendKey(Qt::Key_Delete, Qt::NoModifier, false);
+        typeText(QStringLiteral(" 1234 "));
+    });
+    push([&]() {
+        if (fieldText(QStringLiteral("write06AddressField")) != QStringLiteral(" 1234 ")
+            || rawDraft("addressText06") != QStringLiteral(" 1234 "))
+            fail(QStringLiteral("WRITEFAIL D1/O3: the raw text was trimmed by QML "
+                                "(widget=[%1] draft=[%2])")
+                     .arg(fieldText(QStringLiteral("write06AddressField")))
+                     .arg(rawDraft("addressText06")));
+        clickItemAt(QStringLiteral("writeActivateButton"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL D1/O3: the dialog did not open"));
+        if (controller->preparedWriteAddress() != 1234)
+            fail(QStringLiteral("WRITEFAIL D1/O3: typed=%1, expected 1234")
+                     .arg(controller->preparedWriteAddress()));
+        note(QStringLiteral("WRITE [D1/O3]: raw [%1] preserved; typed=%2")
+                 .arg(rawDraft("addressText06"))
+                 .arg(controller->preparedWriteAddress()));
+        clearIt();
+    });
+    // ---- O4 / O5 / O6: invalid raw text stays raw, the field is identified ----
+    push([&]() {
+        if (!focusField(QStringLiteral("write06AddressField")))
+            fail(QStringLiteral("WRITEFAIL D1/O4: address field focus"));
+        selectAll();
+        sendKey(Qt::Key_Delete, Qt::NoModifier, false);
+        typeText(QStringLiteral("-1"));
+    });
+    push([&]() {
+        if (rawDraft("addressText06") != QStringLiteral("-1"))
+            fail(QStringLiteral("WRITEFAIL D1/O4: the raw draft was rewritten to "
+                                "[%1]").arg(rawDraft("addressText06")));
+        clickItemAt(QStringLiteral("writeActivateButton"));
+        if (dialogVisible() || tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL D1/O4: an invalid raw address produced a "
+                                "snapshot/dialog"));
+        if (errorField() != QStringLiteral("address"))
+            fail(QStringLiteral("WRITEFAIL D1/O4: error field=[%1], expected address")
+                     .arg(errorField()));
+        if (!textOf(QStringLiteral("writeValidationError")).contains(
+                QStringLiteral("寄存器地址")))
+            fail(QStringLiteral("WRITEFAIL D1/O4: the message does not name the field "
+                                "([%1])").arg(textOf(QStringLiteral("writeValidationError"))));
+        note(QStringLiteral("WRITE [D1/O4]: raw [%1] kept; error field=%2; [%3]")
+                 .arg(rawDraft("addressText06"))
+                 .arg(errorField())
+                 .arg(textOf(QStringLiteral("writeValidationError"))));
+    });
+    push([&]() {
+        // O5: the VALUE field, so the field identity must switch. The address
+        // is made valid first (the boundary reports the first failing field).
+        setDraft("addressText06", QStringLiteral("100"));
+        if (!focusField(QStringLiteral("write06ValueField")))
+            fail(QStringLiteral("WRITEFAIL D1/O5: value field focus"));
+        selectAll();
+        sendKey(Qt::Key_Delete, Qt::NoModifier, false);
+        typeText(QStringLiteral("12x"));
+    });
+    push([&]() {
+        if (rawDraft("valueText06") != QStringLiteral("12x"))
+            fail(QStringLiteral("WRITEFAIL D1/O5: raw value draft=[%1]")
+                     .arg(rawDraft("valueText06")));
+        clickItemAt(QStringLiteral("writeActivateButton"));
+        if (dialogVisible() || tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL D1/O5: an invalid raw value produced a "
+                                "snapshot/dialog"));
+        if (errorField() != QStringLiteral("value"))
+            fail(QStringLiteral("WRITEFAIL D1/O5: error field=[%1], expected value")
+                     .arg(errorField()));
+        if (!textOf(QStringLiteral("writeValidationError")).contains(
+                QStringLiteral("写入值")))
+            fail(QStringLiteral("WRITEFAIL D1/O5: the message does not name the field "
+                                "([%1])").arg(textOf(QStringLiteral("writeValidationError"))));
+        note(QStringLiteral("WRITE [D1/O5]: raw [%1] kept; error field=%2; [%3]")
+                 .arg(rawDraft("valueText06"))
+                 .arg(errorField())
+                 .arg(textOf(QStringLiteral("writeValidationError"))));
+    });
+    push([&]() {
+        // O6: above range, typed digit by digit (no clamping anywhere).
+        setDraft("addressText06", QStringLiteral("100"));
+        if (!focusField(QStringLiteral("write06ValueField")))
+            fail(QStringLiteral("WRITEFAIL D1/O6: value field focus"));
+        selectAll();
+        sendKey(Qt::Key_Delete, Qt::NoModifier, false);
+        typeText(QStringLiteral("65536"));
+    });
+    push([&]() {
+        if (fieldText(QStringLiteral("write06ValueField")) != QStringLiteral("65536")
+            || rawDraft("valueText06") != QStringLiteral("65536"))
+            fail(QStringLiteral("WRITEFAIL D1/O6: the raw text was clamped "
+                                "(widget=[%1] draft=[%2])")
+                     .arg(fieldText(QStringLiteral("write06ValueField")))
+                     .arg(rawDraft("valueText06")));
+        clickItemAt(QStringLiteral("writeActivateButton"));
+        if (dialogVisible() || tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL D1/O6: 65536 produced a snapshot/dialog"));
+        if (errorField() != QStringLiteral("value"))
+            fail(QStringLiteral("WRITEFAIL D1/O6: error field=[%1]").arg(errorField()));
+        note(QStringLiteral("WRITE [D1/O6]: raw [%1] kept (no clamp); error field=%2")
+                 .arg(rawDraft("valueText06"))
+                 .arg(errorField()));
+    });
+    // ---- O7 / R2: a REAL clipboard paste of an invalid string ----
+    push([&]() {
+        setDraft("valueText06", QStringLiteral("5"));
+        if (!focusField(QStringLiteral("write06AddressField")))
+            fail(QStringLiteral("WRITEFAIL D1/O7: address field focus"));
+        selectAll();
+        sendKey(Qt::Key_Delete, Qt::NoModifier, false);
+        pasteText(QStringLiteral("12x"));
+    });
+    push([&]() {
+        if (fieldText(QStringLiteral("write06AddressField")) != QStringLiteral("12x")
+            || rawDraft("addressText06") != QStringLiteral("12x"))
+            fail(QStringLiteral("WRITEFAIL D1/O7: the pasted text was altered "
+                                "(widget=[%1] draft=[%2])")
+                     .arg(fieldText(QStringLiteral("write06AddressField")))
+                     .arg(rawDraft("addressText06")));
+        clickItemAt(QStringLiteral("writeActivateButton"));
+        if (dialogVisible() || tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL D1/O7: a pasted invalid string produced a "
+                                "snapshot/dialog"));
+        if (errorField() != QStringLiteral("address"))
+            fail(QStringLiteral("WRITEFAIL D1/O7: error field=[%1]").arg(errorField()));
+        note(QStringLiteral("WRITE [D1/O7]: pasted [%1] kept raw; validation error "
+                            "field=%2").arg(rawDraft("addressText06")).arg(errorField()));
+    });
+    // ---- R0: empty input never becomes 0 ----
+    push([&]() {
+        if (!focusField(QStringLiteral("write06AddressField")))
+            fail(QStringLiteral("WRITEFAIL D1/R0: address field focus"));
+        selectAll();
+        sendKey(Qt::Key_Delete, Qt::NoModifier, false);
+    });
+    push([&]() {
+        if (!fieldText(QStringLiteral("write06AddressField")).isEmpty()
+            || !rawDraft("addressText06").isEmpty())
+            fail(QStringLiteral("WRITEFAIL D1/R0: an empty field is not empty "
+                                "(widget=[%1] draft=[%2])")
+                     .arg(fieldText(QStringLiteral("write06AddressField")))
+                     .arg(rawDraft("addressText06")));
+        clickItemAt(QStringLiteral("writeActivateButton"));
+        if (dialogVisible() || tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL D1/R0: an empty draft produced a "
+                                "snapshot/dialog"));
+        if (errorField() != QStringLiteral("address"))
+            fail(QStringLiteral("WRITEFAIL D1/R0: error field=[%1]").arg(errorField()));
+        note(QStringLiteral("WRITE [D1/R0]: empty stays empty (never auto-0); "
+                            "validation error field=%1").arg(errorField()));
+    });
+    // ---- R1: select-all + retype yields the exact raw text ----
+    push([&]() {
+        setDraft("valueText06", QStringLiteral("5"));
+        if (!focusField(QStringLiteral("write06AddressField")))
+            fail(QStringLiteral("WRITEFAIL D1/R1: address field focus"));
+        typeText(QStringLiteral("123"));
+        selectAll();
+        typeText(QStringLiteral("65535"));
+    });
+    push([&]() {
+        if (fieldText(QStringLiteral("write06AddressField")) != QStringLiteral("65535")
+            || rawDraft("addressText06") != QStringLiteral("65535"))
+            fail(QStringLiteral("WRITEFAIL D1/R1: select-all+retype gave [%1]/[%2]")
+                     .arg(fieldText(QStringLiteral("write06AddressField")))
+                     .arg(rawDraft("addressText06")));
+        clickItemAt(QStringLiteral("writeActivateButton"));
+        if (!dialogVisible() || controller->preparedWriteAddress() != 65535)
+            fail(QStringLiteral("WRITEFAIL D1/R1: typed=%1 (dialog=%2), expected 65535")
+                     .arg(controller->preparedWriteAddress())
+                     .arg(dialogVisible() ? 1 : 0));
+        note(QStringLiteral("WRITE [D1/R1]: select-all + retype -> raw [%1], typed %2")
+                 .arg(rawDraft("addressText06"))
+                 .arg(controller->preparedWriteAddress()));
+        clearIt();
+    });
+    // ---- R3: Tab leaves the field, Shift+Tab returns ----
+    push([&]() {
+        setDraft("unit06", 1);
+        if (!focusField(QStringLiteral("write06AddressField")))
+            fail(QStringLiteral("WRITEFAIL D1/R3: address field focus"));
+        tab(true);
+    });
+    push([&]() {
+        if (focusOwnerName() == QStringLiteral("write06AddressField"))
+            fail(QStringLiteral("WRITEFAIL D1/R3: Tab did not leave the field"));
+        const QString afterTab = focusOwnerName();
+        tab(false);
+        if (focusOwnerName() != QStringLiteral("write06AddressField"))
+            fail(QStringLiteral("WRITEFAIL D1/R3: Shift+Tab did not return to the "
+                                "field (focus=%1)").arg(focusOwnerName()));
+        note(QStringLiteral("WRITE [D1/R3]: Tab -> [%1]; Shift+Tab -> [%2]")
+                 .arg(afterTab, focusOwnerName()));
+    });
+    // ---- D1: the new fields carry accessible names ----
+    push([&]() {
+        const QString addressName = accessibleNameOf(QStringLiteral("write06AddressField"));
+        const QString valueName = accessibleNameOf(QStringLiteral("write06ValueField"));
+        if (addressName.isEmpty() || valueName.isEmpty())
+            fail(QStringLiteral("WRITEFAIL D1/a11y: names missing (address=[%1] "
+                                "value=[%2])").arg(addressName, valueName));
+        if (!addressName.contains(QStringLiteral("地址"))
+            || !valueName.contains(QStringLiteral("写入值")))
+            fail(QStringLiteral("WRITEFAIL D1/a11y: unexpected names (address=[%1] "
+                                "value=[%2])").arg(addressName, valueName));
+        note(QStringLiteral("WRITE [D1/a11y]: address=[%1] value=[%2]")
+                 .arg(addressName, valueName));
     });
 
     auto step = std::make_shared<int>(0);
@@ -6888,8 +7176,8 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "E1/E2 rapid-Enter spillover; C4 geometry 1024x720 + "
                            "1000x700; C4 editor first/last line scroll; C4 "
                            "confirmation all-values scroll; C4 123/124 boundary; C4 "
-                           "long-summary keyboard; C4 SpinBox probe) — zero write "
-                           "dispatch, zero write transaction";
+                           "long-summary keyboard; D1 raw-text O1-O7/R0-R3 + keyboard "
+                           "+ a11y) — zero write dispatch, zero write transaction";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "WRITEFAIL:" << f;
@@ -7224,7 +7512,7 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                        QStringLiteral("writeActivateButton"),
                                        QStringLiteral("writeFunctionTabs"),
                                        QStringLiteral("write10ValuesArea"),
-                                       QStringLiteral("write06AddressSpin"),
+                                       QStringLiteral("write06AddressField"),
                                        QStringLiteral("writeSummaryValues"),
                                        QStringLiteral("writeConfirmAcceptButton")}) {
             if (findNamedItem(roots, missing) != nullptr)

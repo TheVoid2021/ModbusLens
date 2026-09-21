@@ -94,7 +94,7 @@ private slots:
     // ---- unified intent: validation + encoding (M10-A §6) ----
     void ac01_validationTable();
     void ac02_fc03DescriptorGoldenWire();
-    void ac03_writeEncodeUnsupported();
+    void ac03_writeEncodeContract();
 
     // ---- generic session lifecycle (M10-A §9) ----
     void ac04_beginAcceptsDescriptorAndSnapshots();
@@ -183,19 +183,24 @@ void ActiveRequestTest::ac02_fc03DescriptorGoldenWire()
     QCOMPARE(descriptor->intent, readIntent());
 }
 
-void ActiveRequestTest::ac03_writeEncodeUnsupported()
+void ActiveRequestTest::ac03_writeEncodeContract()
 {
-    // M10-A freezes: NO active write-request encoder exists. Passive write
-    // decoding is a different capability and stays untouched.
+    // M10-D1 changes the 0x06 half of this contract on purpose: the encoder
+    // now exists (its golden bytes and independent CRC oracle live in the
+    // write_encoder suite). 0x10 stays unsupported, and the session still
+    // refuses to BEGIN an active 0x06 transaction, so encoder != capability.
     const auto single = encodeActiveRequest(ActiveRequestIntent{
         .function = ActiveFunction::WriteSingleRegister,
         .unitId = 1,
         .timeout = ms{1000},
         .payload = WriteSingleRegisterIntent{.registerAddress = 0x000A,
                                              .value = 0x0064}});
-    const auto singleError = as<ActiveRequestEncodeError>(single);
-    QVERIFY(singleError.has_value());
-    QCOMPARE(singleError->code, ActiveRequestEncodeErrorCode::UnsupportedFunction);
+    const auto* singleDescriptor = std::get_if<ActiveRequestDescriptor>(&single);
+    QVERIFY(singleDescriptor != nullptr);
+    QCOMPARE(singleDescriptor->frame.functionCode, std::uint8_t{0x06});
+    QCOMPARE(singleDescriptor->wire.size(), std::size_t{8});
+    const std::vector<std::uint8_t> expectedData = {0x00, 0x0A, 0x00, 0x64};
+    QCOMPARE(singleDescriptor->frame.data, expectedData);
 
     const auto multiple = encodeActiveRequest(ActiveRequestIntent{
         .function = ActiveFunction::WriteMultipleRegisters,
