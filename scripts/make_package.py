@@ -77,6 +77,37 @@ def fail(message):
     sys.exit(1)
 
 
+def sha256_file(path):
+    """Content identity of a file (used for every freshness decision).
+
+    Deliberately NOT mtime and NOT existence: a file can be present and
+    "recent" while still carrying a different build's bytes, and a copy can
+    preserve its size while changing its content.
+    """
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def deploy_is_current(release_build_dir, deploy_dir):
+    """True only when the deployed exe is byte-identical to the build tree.
+
+    The deployed client must provably come from the build directory given on
+    the command line. "ModbusLens.exe exists in the deploy directory" does NOT
+    establish that: a previous run may have left a binary from an older build,
+    and reusing it would silently package the wrong product.
+    """
+    source = os.path.join(release_build_dir, "modbuslens.exe")
+    deployed = os.path.join(deploy_dir, "ModbusLens.exe")
+    if not os.path.isfile(source):
+        fail("Release build exe not found: %s" % source)
+    if not os.path.isfile(deployed):
+        return False
+    return sha256_file(source) == sha256_file(deployed)
+
+
 def read_authority_version(release_build_dir):
     """Derive the version from the Release build's configured authority."""
     header = os.path.join(release_build_dir, "generated",
@@ -358,8 +389,19 @@ def main():
         fail("Release CMakeCache.txt not found in %s" % release_build_dir)
     AUTHORITY_VERSION = read_authority_version(release_build_dir)
     exe = os.path.join(deploy_dir, "ModbusLens.exe")
-    if not os.path.isfile(exe):
+    # Freshness is a CONTENT property, not an existence property. A deploy
+    # directory left over from an earlier run can hold a different build's
+    # binary; reusing it would package the wrong product with no error at all.
+    if not deploy_is_current(release_build_dir, deploy_dir):
+        if os.path.isfile(exe):
+            print("make_package: deploy exe is STALE -> redeploying")
         run_deploy(release_build_dir, deploy_dir)
+    # Post-condition: whatever happened above, the deployed client must now be
+    # byte-identical to THIS build. Refuse to package anything else.
+    if not deploy_is_current(release_build_dir, deploy_dir):
+        fail("deployed exe still does not match %s after deploy"
+             % os.path.join(release_build_dir, "modbuslens.exe"))
+    print("make_package: deploy identity OK (sha256=%s)" % sha256_file(exe))
     arch_label, _ = pe_machine_and_version(exe)
     stem = "ModbusLens-%s-windows-%s" % (AUTHORITY_VERSION, arch_label)
     print("make_package: stem = %s" % stem)
@@ -371,6 +413,16 @@ def main():
     zip_path, size, digest = make_zip(staging, stem)
     verify_zip_entries(zip_path, staging, stem)
     extract_dir = extract_and_verify(zip_path, stem)
+    # Close the identity chain end to end: the exe a user would actually run
+    # after unzipping must be the same bytes as the build directory's exe.
+    extracted_exe = os.path.join(extract_dir, "ModbusLens.exe")
+    if not os.path.isfile(extracted_exe):
+        fail("extracted exe missing: %s" % extracted_exe)
+    build_exe = os.path.join(release_build_dir, "modbuslens.exe")
+    if sha256_file(extracted_exe) != sha256_file(build_exe):
+        fail("extracted exe does not match the build tree exe (%s)" % build_exe)
+    print("make_package: extract identity OK (sha256=%s)"
+          % sha256_file(extracted_exe))
     minimal_path_run(extract_dir)
     external_cwd_run(extract_dir)
     print("make_package PASS: %s (zip %d bytes, sha256 %s)"

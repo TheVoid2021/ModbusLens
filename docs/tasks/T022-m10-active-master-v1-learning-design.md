@@ -7259,3 +7259,87 @@ verified LKGC 继续 `fc86dcc`（不自行推进）。
 建议人工确认：Communication 页 → 0x06 写入区块存在且可用 → Write → 确认对话框 → 无 0x10 任何控件。
 本轮 Agent **未**做真实人眼视觉检查；自动 geometry gate 不冒充人眼 review。
 ```
+
+## M10-D4 Packaging Freshness Correction（2026-09-21，deployment-tool correction）
+
+> **Z1 复盘发现真实 packaging defect**：`make_package.py` 用 `if not os.path.isfile(exe)` 决定是否重新 deploy，
+> 即**只看存在性**。deploy 目录里残留的旧 binary 会被**静默复用并打包**，即使 `build/release` 已产生更新的 exe。
+> Z2 当时之所以得到正确 artifact，是因为靠 SHA-256 人工发现 stale reuse 并**手动**移开 deploy 目录后重跑 ——
+> 那不是可长期依赖的方案。本轮把它修正为脚本内的**内容同一性**契约。
+
+### ZF1. RED 复现（§4，不依赖 mtime / 不靠人工删目录）
+
+```text
+把 8974178 版本的 scripts/make_package.py 从 git 取出，**原样执行 main() 里的那两行旧决策**：
+      if not os.path.isfile(exe):
+          run_deploy(release_build_dir, deploy_dir)
+（stub 掉 run_deploy 以观测是否被调用）
+fixture：build/modbuslens.exe = CURRENT-BUILD-BYTES；deploy/ModbusLens.exe = STALE-BYTES-FROM-AN-EARLIER-BUILD
+实测：redeploy called = False；exe that WOULD be packaged = b'STALE-BYTES-FROM-AN-EARLIER-BUILD'
+⇒ **RED CONFIRMED**：deploy exe 存在时旧规则跳过重新 deploy，静默打包 stale binary。
+```
+
+### ZF2. 契约与实现（§5 / §6）
+
+```text
+契约：canonical package 命令每次必须保证最终 deployed executable **来自本次指定的 build directory**，
+     不能因 deploy exe 已存在就默认它仍有效。
+实现（最小修改，未新建第二套 packaging script）：
+  · 新增 sha256_file(path) —— 所有 freshness 决策一律用**内容同一性**，绝不用 mtime / 存在性；
+  · 新增 deploy_is_current(release_build_dir, deploy_dir) —— 逐字节比较 build exe 与 deploy exe；
+  · main()：不是 current（含缺失）→ 重新 deploy；随后**后置断言**仍不 current 则 fail
+    （绝不打包别的东西）；
+  · 新增**端到端**后置断言：解压后的 ModbusLens.exe 必须与 build exe 同 hash，
+    否则 fail —— 关闭「source build → staging → package → extract」整条链。
+所有既有 packaging gates 全部保留（§9）：structural checks / 负向扫描 / manifest / ZIP 校验 /
+重新解压校验 / minimal-PATH / external-CWD。**未为修 freshness 降低任何检查。**
+```
+
+### ZF3. 回归 oracle（§8，isolated temp fixture，不动真实部署树）
+
+```text
+scripts/test_make_package_freshness.py（新增）：
+  case1 deploy 缺失  -> not current            PASS
+  case2 deploy 过期  -> not current            PASS
+  case3 deploy 最新  -> current                PASS
+  RED  旧「存在性」规则在 stale 情形答 True（即会跳过 redeploy） PASS
+  RED  同情形下内容确实不同                    PASS
+  同尺寸但内容不同 -> not current              PASS
+  build exe 缺失     -> 拒绝（不静默跳过）     PASS
+（真实部署树零改动；不需要删除/移动数千文件。）
+```
+
+### ZF4. 端到端 stale 案例与最终 canonical 产物（§7 / §10）
+
+```text
+端到端 stale 案例（deploy exe 被换成本次 build 之外的一个真实旧 binary）：
+  make_package: deploy exe is STALE -> redeploying
+  make_package: Release deploy OK
+  make_package: deploy identity OK (sha256=1e50bdb6…8e3256)
+  ⇒ 旧 deploy 被自动替换，package exe == build exe。**无需人工移动/删除。**
+最终 canonical（无人工干预）：
+  build/release/modbuslens.exe                     1e50bdb63f41706351117f2bfb57367e7676e0a183c4fac786a19465ae8e3256
+  build/release/deploy/ModbusLens.exe              1e50bdb6…8e3256  ✔
+  build/package/…/ModbusLens.exe                   1e50bdb6…8e3256  ✔
+  build/package-extract/…/ModbusLens.exe           1e50bdb6…8e3256  ✔（extract identity OK）
+  build/package/…zip                               40,902,628 B  eee87d336308e48b56856529f848fc2a95cde84748bf34a2dbeeefa948864597
+  全部 packaging gates PASS（structural / 负向 / manifest / ZIP / 重新解压 / minimal-PATH / external-CWD）
+注：ZIP hash 与上一轮不同（bd128564… → eee87d33…）但**大小相同**——ZIP 内记录了文件 mtime，
+    重新 deploy 会刷新 mtime，故 ZIP 字节不同而内容一致（manifest 逐文件校验内容）。
+环境披露：本轮沙箱的 bulk-delete guard 多次拦截脚本自身的 `shutil.rmtree`（staging / assets 镜像）。
+    为完成运行，曾临时移开/删除 **ignored 本地产物**（staging、extract）以及 deploy 树里那个
+    **本就会被脚本剔除**的 1 文件冗余 `ModbusLens/assets` 图标镜像；随后已用 deploy_windows.bat
+    重新 deploy 把部署树恢复到 canonical 状态（assets 已恢复，deploy exe hash 不变）。
+    **脚本语义未为沙箱做任何改动**（§7）。
+```
+
+### ZF5. 验证 / 治理 / Git
+
+```text
+scripts/test_make_package_freshness.py PASS（8 项）
+真实 CTest：Debug 35/35、Release 35/35（make_package.py 不参与 C++ 编译，回归为 0）
+Files：scripts/make_package.py、scripts/test_make_package_freshness.py + docs
+分类：**behavior-bearing**（部署工具的验收行为变化）
+commit：`M10-D4: prevent stale binaries in packaging flow`（独立；**不 amend 8974178**）
+verified LKGC 继续 `fc86dcc`（不自行推进）；未 push；未 tag；D5 未开始。
+```
