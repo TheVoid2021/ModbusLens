@@ -153,4 +153,34 @@ TransactionAnalysis analyzeFunction03Transaction(
     std::chrono::milliseconds elapsed,
     std::chrono::milliseconds timeoutThreshold);
 
+// ---------------------------------------------------------------------------
+// M10-D2: Function 0x06 (Write Single Register) response semantics for a
+// TRUSTED request.
+//
+// "Trusted" means the request is already known-good — validated and encoded by
+// the active path, or decoded successfully by the passive path. That is why
+// this function produces no request-side issues: producing them belongs to the
+// passive analyzer's own layer, which keeps calling this for the response side.
+//
+// It is the SINGLE implementation of the 0x06 pairing contract, shared by the
+// passive analyzer and by analyzeActiveResponse, so a second address/value echo
+// comparison can never exist:
+//   · NoResponse            -> Pending / Timeout (elapsed vs threshold);
+//   · CrcMismatch           -> CrcError; FrameTooShort -> ProtocolError;
+//   · decoded frame, other device  -> ProtocolError + ResponseAddressMismatch;
+//   · (fn | 0x80) exception shape  -> Exception + code, or
+//                                     MalformedExceptionResponse;
+//   · 0x06 + 0x06           -> decode both sides, then require an EXACT echo of
+//                              registerAddress and value: mismatch is
+//                              ProtocolError + WriteSingleRegisterEchoMismatch
+//                              (carrying the expected/actual quad), match is
+//                              Success;
+//   · any other function    -> ProtocolError + UnexpectedResponseFunction.
+// ---------------------------------------------------------------------------
+TransactionAnalysis analyzeWriteSingleRegisterTransaction(
+    const ModbusRtuFrame& request,
+    const ResponseObservation& observation,
+    std::chrono::milliseconds elapsed,
+    std::chrono::milliseconds timeoutThreshold);
+
 } // namespace modbuslens::core

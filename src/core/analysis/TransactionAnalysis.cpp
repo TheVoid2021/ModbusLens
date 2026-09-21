@@ -1,5 +1,7 @@
 #include "core/analysis/TransactionAnalysis.h"
 
+#include "core/protocol/Function06.h"
+
 namespace modbuslens::core {
 
 std::string_view transactionIssueName(TransactionIssueCode code)
@@ -183,6 +185,104 @@ TransactionAnalysis analyzeFunction03Transaction(
     //    0x03 request — even exception-shaped ones like 0x84. The expected
     //    codes {0x03, 0x83} are derivable from the request, so only the
     //    actual code is carried.
+    auto issue = makeIssue(TransactionIssueCode::UnexpectedResponseFunction);
+    issue.actualFunctionCode = response.functionCode;
+    return makeProtocolError(elapsed, std::move(issue));
+}
+
+TransactionAnalysis analyzeWriteSingleRegisterTransaction(
+    const ModbusRtuFrame& request,
+    const ResponseObservation& observation,
+    std::chrono::milliseconds elapsed,
+    std::chrono::milliseconds timeoutThreshold)
+{
+    // 1. NoResponse: pending below the threshold, timeout at/above it — the
+    //    same timing rule every function uses.
+    if (std::holds_alternative<NoResponse>(observation)) {
+        if (elapsed < timeoutThreshold) {
+            return makeAnalysis(TransactionStatus::Pending, elapsed);
+        }
+        return makeAnalysis(TransactionStatus::Timeout, elapsed);
+    }
+
+    // 2. Wire-level failure (identical to the shared FC03 policy).
+    if (auto* decodeError = std::get_if<RtuDecodeError>(&observation)) {
+        switch (decodeError->code) {
+        case RtuDecodeErrorCode::CrcMismatch:
+            return makeAnalysis(TransactionStatus::CrcError, elapsed);
+        case RtuDecodeErrorCode::FrameTooShort:
+            return makeProtocolError(
+                elapsed, makeIssue(TransactionIssueCode::ResponseFrameTooShort));
+        }
+        return makeProtocolError(
+            elapsed, makeIssue(TransactionIssueCode::UnknownProtocolError));
+    }
+
+    // 3. A decoded frame: the pairing gates come before any interpretation.
+    const auto& response = std::get<ModbusRtuFrame>(observation);
+
+    if (response.address != request.address) {
+        // Another device's reply can never be this transaction's result. This
+        // is a UNIT (device address) fact and must never be confused with a
+        // register-address echo mismatch.
+        auto issue = makeIssue(TransactionIssueCode::ResponseAddressMismatch);
+        issue.expectedAddress = request.address;
+        issue.actualAddress = response.address;
+        return makeProtocolError(elapsed, std::move(issue));
+    }
+
+    // 4. Generic exception path — written once for every function code. 0x06's
+    //    exception form is 0x86, and only a request WITHOUT the exception bit
+    //    can be answered by (fn | 0x80).
+    const bool requestHasExceptionBit = (request.functionCode & 0x80) != 0;
+    if (!requestHasExceptionBit
+        && response.functionCode
+               == static_cast<std::uint8_t>(request.functionCode | 0x80)) {
+        if (response.data.size() != 1) {
+            return makeProtocolError(
+                elapsed,
+                makeIssue(TransactionIssueCode::MalformedExceptionResponse));
+        }
+        return makeAnalysis(TransactionStatus::Exception, elapsed,
+                            response.data[0]);
+    }
+
+    if (response.functionCode == request.functionCode) {
+        // 5. The 0x06 normal contract: decode both sides, then require an
+        //    EXACT echo of the register address AND the value. A mismatch is an
+        //    echo-contract violation (not a malformed reply), and the issue
+        //    carries the full expected/actual quad.
+        const auto responseDecode = decodeWriteSingleRegisterResponse(response);
+        if (std::holds_alternative<Function06DecodeError>(responseDecode)) {
+            return makeProtocolError(
+                elapsed,
+                makeIssue(TransactionIssueCode::MalformedNormalResponse));
+        }
+        const auto requestDecode = decodeWriteSingleRegisterRequest(request);
+        if (std::holds_alternative<Function06DecodeError>(requestDecode)) {
+            // The request contract says it is trustworthy; this branch is a
+            // defensive mapping with no finer deterministic fact.
+            return makeProtocolError(
+                elapsed, makeIssue(TransactionIssueCode::UnknownProtocolError));
+        }
+        const auto& requestModel = std::get<WriteSingleRegisterRequest>(requestDecode);
+        const auto& responseModel = std::get<WriteSingleRegisterResponse>(responseDecode);
+        if (requestModel.registerAddress != responseModel.registerAddress
+            || requestModel.registerValue != responseModel.registerValue) {
+            auto issue =
+                makeIssue(TransactionIssueCode::WriteSingleRegisterEchoMismatch);
+            issue.expectedRegisterAddress = requestModel.registerAddress;
+            issue.actualRegisterAddress = responseModel.registerAddress;
+            issue.expectedRegisterValue = requestModel.registerValue;
+            issue.actualRegisterValue = responseModel.registerValue;
+            return makeProtocolError(elapsed, std::move(issue));
+        }
+        return makeAnalysis(TransactionStatus::Success, elapsed);
+    }
+
+    // 6. Any other function code cannot answer this request. The expected
+    //    codes {0x06, 0x86} are derivable from the request, so only the actual
+    //    code is carried.
     auto issue = makeIssue(TransactionIssueCode::UnexpectedResponseFunction);
     issue.actualFunctionCode = response.functionCode;
     return makeProtocolError(elapsed, std::move(issue));

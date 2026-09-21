@@ -302,10 +302,10 @@ void WriteEncoderTest::d2_descriptorIsImmutableCopy()
 
 void WriteEncoderTest::s1_encoderSucceedsWhileSessionStillRefuses()
 {
-    // STAGING PROOF (M10-D Phase 1 §T): the encoder existing is NOT protocol
-    // support. A 0x06 request encodes fine while the session still refuses to
-    // begin an active 0x06 transaction — so nothing can send these bytes until
-    // M10-D2 lands the response lifecycle.
+    // D1 staged "encoder exists, protocol refuses it"; D2 lands the response
+    // lifecycle, so the session now ACCEPTS 0x06. The staging point that must
+    // survive is one level up: the PRODUCT capability (write06Supported) still
+    // does not exist, and 0x10 is still refused.
     const auto encoded = encodeActiveRequest(writeIntent(1, 10, 20));
     const auto* descriptor = std::get_if<ActiveRequestDescriptor>(&encoded);
     QVERIFY(descriptor != nullptr);
@@ -313,19 +313,17 @@ void WriteEncoderTest::s1_encoderSucceedsWhileSessionStillRefuses()
 
     modbuslens::core::SerialTransactionSession session;
     const auto begin = session.beginActiveRequest(*descriptor);
-    const auto* error =
-        std::get_if<modbuslens::core::SerialTransactionError>(&begin);
-    QVERIFY(error != nullptr);
-    QCOMPARE(error->code,
-             modbuslens::core::SerialTransactionErrorCode::UnsupportedFunction);
+    QVERIFY(std::get_if<ActiveRequestDescriptor>(&begin) != nullptr);
+    QCOMPARE(session.state(), modbuslens::core::SerialTransactionState::AwaitingResponse);
+    session.cancel();
     QCOMPARE(session.state(), modbuslens::core::SerialTransactionState::Idle);
-    QVERIFY(!session.pendingRequest().has_value());
 }
 
 void WriteEncoderTest::s6_sessionRefusesToBeginWriteSingleRegister()
 {
-    // The internal capability seam is still closed for 0x06 (D1 staging).
-    QVERIFY(!modbuslens::core::activeFunctionSupported(
+    // D2 support matrix: 0x03 and 0x06 have active analyzers; 0x10 still has
+    // no encoder and no active support (only a framing-recognition shape).
+    QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteSingleRegister));
     QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::ReadHoldingRegisters));

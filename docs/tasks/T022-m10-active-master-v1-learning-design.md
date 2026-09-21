@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A/B = ✅ COMPLETE；**M10-C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D Phase 1 = ✅ COMPLETE（§R/§S/§T）→ D1 = Decimal Input + FC06 Encoder Foundation 已实现（§U），AWAITING M10-D1 REVIEW；D2 = NOT STARTED**；**Active Write = NOT AVAILABLE；0x10 encoder ABSENT；write dispatch ABSENT；`write06Supported` 不存在（encoder ≠ capability）**。
+> **状态：M10-A/B/C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D：Phase 1 ✅ COMPLETE → D1 ✅ COMPLETE（`6ab97e1`）→ D2 = FC06 Protocol/Session Response Support 已实现（§V），AWAITING M10-D2 REVIEW；D3 = NOT STARTED**；**Active Write = 仍不可由产品发起：`write06Supported` 不存在、无 Controller dispatch、production Write UI 不可见；0x10 encoder/dispatch ABSENT（仅 framing 识别）**。
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -6338,4 +6338,213 @@ docs：T022（本节 §U）+ PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES
 分类：**behavior-bearing**（core / QML / parser / encoder / tests 均为行为变化，即使 production Write 仍隐藏）
 commit：`M10-D1: add FC06 input and encoder foundation`（独立提交；不 amend 98dc310；不 rebase；不 push；不 tag）
 verified LKGC 继续 `fc86dcc`（不自行推进）。
+```
+## M10-D2 — FC06 Protocol / Session Response Support（2026-09-20，behavior-bearing）
+
+> **M10-D1 Review = PASS ⇒ M10-D1 = COMPLETE ⇒ M10-D2 = GO。** 本轮让底层 active protocol/session
+> **真正理解 0x06 response**：0x06 candidate framing、0x10 response-shape recognition（仅识别）、共享 FC06 分析器、
+> active 0x06 normal/exception/CRC/wrong-unit/wrong-function/echo 语义、分片与超时语义、lower-level 测试，
+> **最后**才打开 `activeFunctionSupported(0x06)`。
+> **未做**：Controller confirm+dispatch、production write transport 调用、`write06Supported`、production-visible Write UI、
+> DecimalField 行为改动、0x10 encoder/analyzer/dispatch、Agent write authority。**D3 未开始。**
+
+### V0. Preflight 与 D1 PASS / D2 Start 归档（§0 / §1）
+
+```text
+HEAD = 6ab97e1（branch = main，working tree clean）
+verified LKGC = fc86dcc（继续；不因 D2 推进）
+M10-C = COMPLETE；M10-D Phase 1 = COMPLETE；M10-D1 = COMPLETE（accepted behavior commit = 6ab97e1，不做独立 D1 closure commit）
+CMake VERSION = 2.0.0；v2.0.0 = ABSENT；origin/main = a40d935；ahead = 117；behind = 0
+开工前状态：0x06 encoder = PRESENT；activeFunctionSupported(0x06) = false；write06Supported = absent；0x06 dispatch = absent
+git diff --check = PASS
+```
+
+### V1. Mandatory Source Re-read（§2）
+
+实读：`SerialTransactionSession.{h,cpp}`（`candidateFrameLength` / `feedResponseBytes` / `onResponseTimeout` /
+`beginActiveRequest` / `activeFunctionSupported` / `analyzeActiveResponse`）、`ActiveTransactionEvidence.h`
+（`ActiveTransactionResult` / `ActiveTransportTerminal` / `TransportDisposition`）、`PassiveTransactionAnalysis.cpp`
+（步骤 1–7 的顺序与 `analyzed()` / `makeIssue()` / request-issue 层）、`TransactionAnalysis.{h,cpp}`（七 outcome、
+issue 稀疏 payload、`makeAnalysis` / `makeProtocolError`）、`Function06.{h,cpp}`（decode + D1 encoder）、
+`ModbusRtuCodec`（`decodeRtuFrame` 的「末两字节即 CRC、payload = 其余」规则）、`ActiveRequestIntent` /
+`ActiveRequestDescriptor`、以及 `test_serial_session` / `test_passive_analysis` / `test_active_request` /
+`test_transaction_analysis` 里既有 FC03 的 normal / wrong function / wrong unit / exception / CRC / partial / timeout /
+fragmentation 覆盖。
+
+**关键既有事实（决定实现方式）**：
+
+```text
+· candidateFrameLength 只读 buffer_[1]（响应 function）；除 0x03 与异常位外一律 nullopt；
+· feedResponseBytes 只在 buffer_.size() == candidate 时成帧；超长**永不截断**；
+· onResponseTimeout：空 buffer → NoResponse（Pending/Timeout）；非空 → 解码**整段** buffer 交给 analyzer；
+· beginActiveRequest：validate intent → activeFunctionSupported 门 → descriptor 自洽 → 单点提交；
+· analyzeActiveResponse：唯一 dispatch 点；0x03 分支复用 T007 分析器；0x06/0x10 曾是防御分支；
+· 被动 FC06 分支包含 decode + echo 比较 + ProtocolError/WriteSingleRegisterEchoMismatch（本轮改为委托共享函数）。
+```
+
+### V2. D1 Staging Reconfirm 与 RED Evidence（§3 / §50）
+
+```text
+开工前实证（全部符合预期，未触发 STOP）：
+  encodeActiveRequest(0x06) 成功；beginActiveRequest(0x06) → UnsupportedFunction；
+  candidateFrameLength 无 0x06；analyzeActiveResponse 无 0x06；write06Supported 不存在；Controller 无 confirm+dispatch。
+
+RED（先写 oracle 套件，再实现，实测）：
+  R1  beginActiveRequest(0x06) = UnsupportedFunction（测试断言该事实）
+  R2  matching 8-byte echo 无法成帧（无 0x06 framing 规则；根本无法 feed）
+  R3  WF2 的 0x10 response 形状无法成帧
+  R4  **编译期 RED**：`analyzeWriteSingleRegisterTransaction` 未声明 —— 共享 FC06 分析器在实现前不存在
+      （这是最强形式的 RED：oracle 连编译都过不去，而不是「行为恰好像通过」）
+实现后三条 R1/R2/R3 断言被翻转为 post-D2 形态（begin 接受 / echo 到达即成帧 / 0x10 形状到达即成帧），
+RED 事实保留在本节。
+```
+
+### V3. Shared FC06 Analyzer 与被动分层保持（§5 / §6）
+
+```text
+新增（core/analysis/TransactionAnalysis）：TransactionAnalysis analyzeWriteSingleRegisterTransaction(
+    request, observation, elapsed, timeoutThreshold)
+—— **0x06 响应配对的唯一实现**：被动路径与 active 路径都调用它，因此**不存在第二份 address/value echo 比较**。
+它包含：NoResponse→Pending/Timeout；CrcMismatch→CrcError；FrameTooShort→ProtocolError；
+decoded frame 的 unit 门（ResponseAddressMismatch）；通用异常路径（(fn|0x80)、data.size()==1）；
+0x06+0x06 → 双方解码 + **精确 echo（地址与值同时相等）**→ Success 或 ProtocolError +
+WriteSingleRegisterEchoMismatch（携带 expected/actual 四元组）；其它 function → ProtocolError + UnexpectedResponseFunction。
+
+被动分层**保持不变**：`PassiveTransactionAnalysis` 的 FC06 分支改为
+`analyzed(analyzeWriteSingleRegisterTransaction(...), elapsed, requestIssues)`
+—— 新增一个 `analyzed(analysis, elapsed, requestIssues)` 重载把**被动特有的 request-issue 层**贴在共享结果上，
+状态/issue/elapsed 一律由共享分析器决定、**不重算**。被动 request semantic issues、broadcast 语义、
+UnsupportedObservedTransaction 等被动专属事实全部保留。
+```
+
+### V4. Framing 表与精确边界（§12–§16 / §34）
+
+```text
+最终 framing 表（依据**响应自身**的 function 字节）：
+  (fn & 0x80) != 0  → 5                     （协议通用异常格式，原有）
+  fn == 0x03        → 5 + byteCount          （响应自描述，原有）
+  fn == 0x06        → 8                      （新增；0x06 正常响应固定 8 字节）
+  fn == 0x10        → 8                      （新增；**仅 known-response-shape recognition**）
+  其它 function     → nullopt                （保持：累积到 timeout 后整段解码；**已知 limitation**，
+                                              不发明长度规则，也不声称所有 wrong-function 都会立即 ProtocolError）
+精确边界契约**未改**：仍只在 buffer_.size() == candidate 时成帧；超长永不截断（9 字节用例实测未成帧）。
+```
+
+- **unknown-shape 直接测试**（lim1）：0x06 请求 + 完整 0x04 形状响应 ⇒ 到达时**不**成帧（`AwaitingMoreData`），
+  超时后整段解码 → 因为整段恰是一个合法 RTU 帧，最终得到 `ProtocolError + UnexpectedResponseFunction`
+  —— 即 **classification 正确但只能等到 timeout**（测试名与档案都写明这是 limitation，而不是 coverage 声明）。
+
+### V5. Active 0x06 与信任边界（§17–§19）
+
+```text
+analyzeActiveResponse 新增 WriteSingleRegister 分支 → 调用**同一个**共享分析器（request 用 send-time frame）。
+信任边界：active 请求来自 validated intent + production encoder ⇒ 不重建被动 request semantic issue；
+但**响应侧校验完整**（unit / function / echo / CRC / exception / timeout 全部照做）。
+Raw evidence：session 完成后回到 Idle，send-time 证据随 descriptor / `ActiveTransactionResult` 传递
+（D2 不涉及 Controller 侧 append；descriptor 的 wire = 8 字节、function = 0x06 由测试断言）。
+```
+
+### V6. Oracle 实测结果（§20–§37）
+
+```text
+NR1 normal echo            ：一次 feed 即成帧 → Success、无 issue、无 exceptionCode；session 回 Idle
+F1  8 bytes 一次            ：Success
+F2  1 + 7                   ：Success
+F3  2 + 2 + 4               ：Success
+F4  逐字节 ×8               ：Success
+F5  CRC 两字节分开（6+1+1） ：Success
+EX1/EX2/EX3 0x86 exception  ：一次 / 1+4 / 逐字节 → Exception，exception code 一致（0x02 / 0x03 / 0x04）
+CRC1 完整 8 字节但 CRC 错    ：CrcError（数据字节被翻转；raw bytes 由 session/transport 保留）
+ECHO1 地址不一致            ：ProtocolError + WriteSingleRegisterEchoMismatch（四元组完整；值字段 same）
+ECHO2 值不一致              ：ProtocolError + WriteSingleRegisterEchoMismatch（值 expected/actual 正确）
+ECHO3 两者都不一致          ：**同一个** issue 携带完整 expected/actual 四元组（不是两个 issue）
+UNIT1 unit 不同（echo 形状一致）：ProtocolError + ResponseAddressMismatch（expected/actual **device** address），
+                                并显式断言 **不是** WriteSingleRegisterEchoMismatch
+WF1  0x06 请求 + 完整 0x03 响应：到达即成帧（0x03 规则）→ ProtocolError + UnexpectedResponseFunction(0x03)，**非 Timeout**
+WF2  0x06 请求 + 完整 0x10 响应：到达即成帧（新增 0x10 识别）→ ProtocolError + UnexpectedResponseFunction(0x10)，**非 Timeout**
+REG1 **0x03 请求 + 完整 0x10 响应**：成帧 → ProtocolError + UnexpectedResponseFunction(0x10)
+     —— 这是 0x10 识别规则带来的**共享 framing 行为变化**，显式归档（此前只能等 timeout）
+LIM1 0x06 请求 + 0x04 形状     ：到达不成帧；timeout 后整段解码 → ProtocolError + UnexpectedResponseFunction
+T1   空响应 + timeout          ：Timeout
+P1   1 字节 partial + timeout  ：ProtocolError + ResponseFrameTooShort（partial **不**被标成 Timeout）
+P2   3 字节 partial + timeout  ：ProtocolError + ResponseFrameTooShort
+P3   7 字节 partial + timeout  ：CrcError（长度已足以读出 CRC 字段，且不匹配）
+O1   9 字节（8 + 1 trailer）   ：到达不成帧（精确边界未变）；timeout 后整段解码 →
+                               **实测 ProtocolError + MalformedNormalResponse**（末两字节被当作 CRC、恰好通过，
+                               随后 0x06 数据长度检查失败）。**记录的契约是「绝不静默截断」**，而不是「任意垃圾必然 CrcError」。
+M1   6 字节 malformed + timeout：CrcError（未为测试补造 CRC）
+EQ1  被动 vs 共享（6 组用例）  ：status / exceptionCode / issue 有无 / issue code 与全部 payload 字段逐一相等
+                              （Success、地址不一致、值不一致、wrong unit、wrong function、exception）
+SUP1 支持矩阵                ：0x03 support ✅ / 0x06 support ✅（本轮）/ 0x10 support ❌ 且 encoder ❌（UnsupportedFunction）
+```
+
+**被动回归（§37）**：`passive` 套件 **55 passed、断言零修改** —— 共享重构未造成任何被动语义漂移。
+
+### V7. 既有测试的显式契约更新（不是静默改动）
+
+```text
+D2 让 0x06 的 session gate 打开，因此三条「0x06 在发送前被拒」的旧断言必须更新（负向覆盖**转移**到 0x10）：
+  · tests/test_active_request.cpp::ac06_writeDescriptorRejectedBeforeSend
+      → 现在断言 0x06 descriptor 被接受（AwaitingResponse）+ 0x10 descriptor 仍被拒（UnsupportedFunction）
+  · tests/test_write_encoder.cpp::s1_encoderSucceedsWhileSessionStillRefuses
+      → 现在断言 encoder 成功 **且** session 接受 0x06；「encoder ≠ 产品能力」的站位上移到 write06Supported 缺失
+  · tests/test_write_encoder.cpp::s6_sessionRefusesToBeginWriteSingleRegister
+      → 改为 D2 支持矩阵（0x03 ✅ / 0x06 ✅ / 0x10 ❌）
+以上三处均在本节显式记录；没有任何断言被删除或弱化。
+```
+
+### V8. 边界、门禁与产物（§39–§54）
+
+```text
+支持矩阵（§39）：0x03 = encoder ✅ + session support ✅；0x06 = encoder ✅ + session support ✅；
+                 0x10 = encoder ❌ + session active support ❌ + response-shape recognition only ✅。
+无 Controller dispatch（§40）：未新增 confirmAndDispatchPreparedWrite；UI confirmation 仍无法启动任何发送。
+write06Supported 仍 absent（§41）：ui_bridge 断言 indexOfProperty("write06Supported") < 0（D3 才可能引入）。
+production Write 仍隐藏（§42）：qml_focus_check prod-hidden 仍 PASS（675 对象无 write 控件 / tab stop /
+  startup 无 snapshot）—— **active support 变 true 没有泄漏成 production visibility**。
+harness 正交（§43）：hidden foundation 照常加载，Confirm 仍 zero dispatch。
+零产品写派发（§44）：write harness 跑完 `writeAttempts == 0`；会话历史 function codes = [3]（**没有任何
+  Controller 生成的 0x06 transaction**）。session 单测里出现的 0x06 result 属 lower-level 证据，**不等于**产品 UI 已发送。
+History / statistics / diagnosis（§45）：未改 appendActiveSerialTransaction / statistics / diagnosis（D3 范围）。
+Timeout 文案（§46）：D2 只冻结 `status = Timeout`；「响应超时，设备写入状态未知」的呈现留给 D3/D4，未新增假 UI。
+0x10 scope（§47）：唯一变化是 framing recognition（+其测试）；没有 0x10 encoder / intent support / analyzer success / dispatch。
+AI / Agent（§48）：write authority 继续 NONE。
+测试（§51 / §53）：fc06_active 31 passed（新）；write_encoder 19；active_request 17；serial 21；passive 55；
+  transaction 20；codec 9；crc 8；frame 6；write_prepare 48；active_master 54（Controller no-regression）；
+  ui_bridge 61；其余套件全绿。**Debug ctest 33/33 PASS；Release ctest 33/33 PASS**（新增 fc06_active 目标 ⇒ 32 → 33）。
+QML gates（§52）：qml_write_foundation_check / qml_focus / qml_smoke / qml_nav / qml_geometry 全部 PASS。
+Warnings（§54）：新增 C++ 零 warning；src/main.cpp 5 条 pre-existing 未动。
+ISSUE-014：继续 PRE-EXISTING NON-BLOCKING（write harness 10 条 TransactionsPage reset-window 告警，写 UI 0 条）。
+```
+
+### V9. Problems Encountered / RCA
+
+```text
+RCA-5（overlong 的真实契约）：9 字节用例最初按「必然 CrcError」写断言，实测是 **ProtocolError +
+  MalformedNormalResponse**。根因：codec 把**末两字节**当 CRC，于是 trailer 的取值决定线缆判决；本例恰好通过了 CRC，
+  随后被 0x06 的 4 字节数据长度检查拒掉。
+  处理：**按真实行为记录**（并保留「绝不静默截断」这一真正的契约断言），没有为了让测试好看去改产品行为。
+RCA-6（session 完成后无 pending）：NR1 最初断言完成后的 `pendingRequest()` 仍有值，实测为 nullopt —— 这是既有契约
+  （完成后 resetToIdle）。send-time 证据由 descriptor / `ActiveTransactionResult` 承载。
+  处理：断言改为「descriptor 的 wire 8 字节 + function 0x06 + session 回 Idle」，并注明 runtime 侧证据在 result 上。
+RCA-7（共享 framing 的 FC03 行为变化）：0x10 识别规则是共享 session 规则，因此「0x03 请求收到 0x10 响应」
+  从「等 timeout」变成「到达即成帧 → UnexpectedResponseFunction」。这是**有意**的行为变化，已按 §30 新增 REG1 归档
+  （不是回归）。
+RCA-8（三条 pre-D2 契约测试）：见 V7，属显式契约更新，负向覆盖转移到 0x10。
+环境观察（非本轮产物）：工作树出现未跟踪目录 `.workbuddy/`（内含另一个工具自己的 memory 文件）。
+  它不是本任务产生的内容，也不是仓库档案区的一部分 —— **未提交、未修改、未删除**，此处仅作记录。
+```
+
+### V10. Files / Commit（§57 / §58）
+
+```text
+新增：tests/test_fc06_active.cpp（+ CMake 目标 fc06_active）
+修改：src/core/analysis/TransactionAnalysis.{h,cpp}（共享 FC06 分析器）、
+      src/core/analysis/PassiveTransactionAnalysis.cpp（FC06 分支委托共享分析器 + request-issue 层重载）、
+      src/core/serial/SerialTransactionSession.cpp（framing 表 0x06/0x10、active 0x06 分支、support gate 最后打开）、
+      CMakeLists.txt、tests/test_active_request.cpp、tests/test_write_encoder.cpp
+docs：T022（本节 §V）+ PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES
+分类：**behavior-bearing**（protocol/session 行为已变，即使 Controller UI 仍不能写）
+commit：`M10-D2: add FC06 active response support`（独立提交；不 amend 6ab97e1；不 rebase；不 push；不 tag）
+verified LKGC 继续 `fc86dcc`。
 ```

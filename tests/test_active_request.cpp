@@ -258,24 +258,47 @@ void ActiveRequestTest::ac06_writeDescriptorRejectedBeforeSend()
 {
     SerialTransactionSession session;
 
-    // A hand-built 0x06 descriptor (test-only wire construction via the RTU
-    // codec — product code has no write encoder) must be refused at begin,
-    // BEFORE any send: M10-A has no active write analyzer yet.
-    const ModbusRtuFrame fc06Request{
-        .address = 0x01, .functionCode = 0x06, .data = {0x00, 0x0A, 0x00, 0x64}};
-    const ActiveRequestDescriptor descriptor{
+    // M10-D2 changes this contract on purpose: the 0x06 descriptor is now
+    // ACCEPTED (the framing rule, the shared echo analyzer and the session
+    // tests exist). The "unsupported function is refused before any send" rule
+    // is therefore asserted with 0x10, which is still refused, so the negative
+    // coverage moves instead of disappearing.
+    const ActiveRequestDescriptor writeDescriptor{
         .intent = ActiveRequestIntent{
             .function = ActiveFunction::WriteSingleRegister,
             .unitId = 0x01,
             .timeout = ms{1000},
             .payload = WriteSingleRegisterIntent{.registerAddress = 0x000A,
                                                  .value = 0x0064}},
-        .frame = fc06Request,
-        .wire = encodeRtuFrame(fc06Request),
+        .frame = ModbusRtuFrame{
+            .address = 0x01, .functionCode = 0x06,
+            .data = {0x00, 0x0A, 0x00, 0x64}},
+        .wire = std::vector<std::uint8_t>{},
     };
-    QCOMPARE(descriptor.wire.size(), std::size_t{8});
+    const auto accepted = session.beginActiveRequest(
+        ActiveRequestDescriptor{.intent = writeDescriptor.intent,
+                                .frame = writeDescriptor.frame,
+                                .wire = encodeRtuFrame(writeDescriptor.frame)});
+    QVERIFY(std::get_if<ActiveRequestDescriptor>(&accepted) != nullptr);
+    QCOMPARE(session.state(), SerialTransactionState::AwaitingResponse);
+    session.cancel();
+    QCOMPARE(session.state(), SerialTransactionState::Idle);
 
-    const auto start = session.beginActiveRequest(descriptor);
+    // 0x10: still refused at begin, before any send.
+    const ModbusRtuFrame fc10Request{
+        .address = 0x01, .functionCode = 0x10,
+        .data = {0x00, 0x0A, 0x00, 0x01, 0x02, 0x00, 0x64}};
+    const ActiveRequestDescriptor unsupported{
+        .intent = ActiveRequestIntent{
+            .function = ActiveFunction::WriteMultipleRegisters,
+            .unitId = 0x01,
+            .timeout = ms{1000},
+            .payload = WriteMultipleRegistersIntent{
+                .startAddress = 0x000A, .values = {0x0064}}},
+        .frame = fc10Request,
+        .wire = encodeRtuFrame(fc10Request),
+    };
+    const auto start = session.beginActiveRequest(unsupported);
     const auto error = as<SerialTransactionError>(start);
     QVERIFY(error.has_value());
     QCOMPARE(error->code, SerialTransactionErrorCode::UnsupportedFunction);

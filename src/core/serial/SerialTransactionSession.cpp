@@ -52,10 +52,12 @@ bool descriptorIsConsistent(const ActiveRequestDescriptor& request)
 
 bool activeFunctionSupported(ActiveFunction function)
 {
-    // M10-A wires exactly one active analyzer (Function 0x03). 0x06 / 0x10
-    // stay structurally representable but are refused before any send until
-    // M10-D/E add their encoders and validators.
-    return function == ActiveFunction::ReadHoldingRegisters;
+    // M10-D2: two active analyzers are wired — Function 0x03 and Function 0x06
+    // (its framing rule, shared echo analyzer and session tests all exist).
+    // 0x10 remains refused before any send: it has a response-shape
+    // RECOGNITION rule for framing, but no encoder and no active analyzer.
+    return function == ActiveFunction::ReadHoldingRegisters
+           || function == ActiveFunction::WriteSingleRegister;
 }
 
 SerialStartResult SerialTransactionSession::beginActiveRequest(
@@ -225,9 +227,24 @@ std::optional<std::size_t> SerialTransactionSession::candidateFrameLength() cons
         }
         return static_cast<std::size_t>(5) + buffer_[2];
     }
+    // Write Single Register (0x06) normal reply: Address | 06 | addr hi/lo |
+    // value hi/lo | CRC(2) = 8 bytes, a FIXED size (M10-D2). The rule keys on
+    // the RESPONSE function byte, never on what the request happened to be, so
+    // a wrong-function reply with a known shape can still be framed and judged.
+    if (function == 0x06) {
+        return 8;
+    }
+    // Function 0x10 normal reply: Address | 10 | addr hi/lo | qty hi/lo |
+    // CRC(2) = 8 bytes. This is KNOWN-RESPONSE-SHAPE RECOGNITION ONLY: it lets
+    // such a reply be framed for the analyzer to reject as an unexpected
+    // function. It grants 0x10 no encoder, no active analyzer and no dispatch.
+    if (function == 0x10) {
+        return 8;
+    }
     // Any other normal function code: v1 does not invent length parsers for
-    // them. Keep accumulating until the timeout closes the transaction over
-    // the whole buffer.
+    // them (a KNOWN LIMITATION: without a reliable rule the bytes accumulate
+    // until the timeout, which then decodes the whole buffer). Never guess a
+    // length just to produce a nicer status.
     return std::nullopt;
 }
 
@@ -264,6 +281,12 @@ TransactionAnalysis analyzeActiveResponse(
         return analyzeFunction03Transaction(
             request.frame, observation, elapsed, timeoutThreshold);
     case ActiveFunction::WriteSingleRegister:
+        // M10-D2: the active 0x06 path reuses the SAME core analyzer the
+        // passive path uses, with the send-time request frame as the trusted
+        // request. Response validation (unit, function, echo, CRC, exception,
+        // timeout) is therefore complete and identical on both paths.
+        return analyzeWriteSingleRegisterTransaction(
+            request.frame, observation, elapsed, timeoutThreshold);
     case ActiveFunction::WriteMultipleRegisters:
         // Unreachable: beginActiveRequest refuses unsupported functions
         // before any send. Kept as a deterministic defensive branch (the same

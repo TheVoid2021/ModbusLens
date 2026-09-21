@@ -27,6 +27,19 @@ constexpr std::uint16_t kFc16MinQuantity = 1;
 constexpr std::uint16_t kFc16MaxQuantity = 123;
 constexpr std::uint16_t kFc16HeaderBytes = 5;
 
+// M10-D2: attach the passive request-issue layer to an analysis that a shared
+// core analyzer already decided (its status/issue/elapsed are authoritative and
+// are never recomputed here).
+AnalyzedObservedTransaction analyzed(TransactionAnalysis analysis,
+                                     ms /*elapsed*/,
+                                     std::vector<TransactionRequestIssue> requestIssues)
+{
+    return AnalyzedObservedTransaction{
+        .analysis = std::move(analysis),
+        .requestIssues = std::move(requestIssues),
+    };
+}
+
 AnalyzedObservedTransaction analyzed(
     TransactionStatus status,
     ms elapsed,
@@ -288,34 +301,15 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
 
     if (request.functionCode == kWriteSingleRegisterFunction
         && response.functionCode == kWriteSingleRegisterFunction) {
-        const auto responseDecode = decodeWriteSingleRegisterResponse(response);
-        if (std::holds_alternative<Function06DecodeError>(responseDecode)) {
-            return analyzed(
-                TransactionStatus::ProtocolError, elapsed, std::nullopt,
-                makeIssue(TransactionIssueCode::MalformedNormalResponse),
-                requestIssues);
-        }
-        const auto requestDecode = decodeWriteSingleRegisterRequest(request);
-        if (std::holds_alternative<Function06DecodeError>(requestDecode)) {
-            return analyzed(
-                TransactionStatus::ProtocolError, elapsed, std::nullopt,
-                makeIssue(TransactionIssueCode::UnknownProtocolError),
-                requestIssues);
-        }
-        const auto& requestModel = std::get<WriteSingleRegisterRequest>(requestDecode);
-        const auto& responseModel = std::get<WriteSingleRegisterResponse>(responseDecode);
-        if (requestModel.registerAddress != responseModel.registerAddress
-            || requestModel.registerValue != responseModel.registerValue) {
-            auto issue = makeIssue(TransactionIssueCode::WriteSingleRegisterEchoMismatch);
-            issue.expectedRegisterAddress = requestModel.registerAddress;
-            issue.actualRegisterAddress = responseModel.registerAddress;
-            issue.expectedRegisterValue = requestModel.registerValue;
-            issue.actualRegisterValue = responseModel.registerValue;
-            return analyzed(TransactionStatus::ProtocolError, elapsed,
-                            std::nullopt, std::move(issue), requestIssues);
-        }
-        return analyzed(TransactionStatus::Success, elapsed, std::nullopt,
-                        std::nullopt, requestIssues);
+        // M10-D2: the whole 0x06 response contract (decode, exact echo of
+        // address AND value, issue payload quad) lives in ONE shared core
+        // function that the active path also calls, so a second comparison
+        // cannot exist. Only the passive-specific request-issue layer is added
+        // here — the response semantics are not duplicated.
+        return analyzed(
+            analyzeWriteSingleRegisterTransaction(request, observation, elapsed,
+                                                  timeoutThreshold),
+            elapsed, requestIssues);
     }
 
     if (request.functionCode == kWriteMultipleRegistersFunction
