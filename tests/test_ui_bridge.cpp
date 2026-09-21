@@ -1637,19 +1637,23 @@ void UiBridgeTest::d3_productWriteCapabilityExposedForFc06Only()
     // product-level property now EXISTS and is true. The old assertion is
     // therefore obsolete by design, not silenced.
     //
-    // Negative coverage is NOT dropped, it MOVES to 0x10: there is still no
-    // write10Supported, no 0x10 encoder and no 0x10 dispatch.
+    // M10-E3 INTENTIONAL TRANSITION: negative coverage used to "move to 0x10"
+    // (no write10Supported, no 0x10 encoder, no 0x10 dispatch). E1/E2/E3 each
+    // delivered one of those layers, so the 0x10 capability property now
+    // EXISTS and is true — with the same structural discipline as 0x06.
     AnalysisController controller;
     const int index = controller.metaObject()->indexOfProperty("write06Supported");
     QVERIFY(index >= 0);
     QVERIFY(controller.write06Supported());
+    const int index10 = controller.metaObject()->indexOfProperty("write10Supported");
+    QVERIFY(index10 >= 0);
+    QVERIFY(controller.write10Supported());
 
-    // The superseded name stays absent: "available" would suggest a runtime
+    // The superseded names stay absent: "available" would suggest a runtime
     // availability flag that moves with connection/busy state, which is a
     // different question from a structural product capability.
     QVERIFY(controller.metaObject()->indexOfProperty("write06Available") < 0);
-    // 0x10 remains a non-capability.
-    QVERIFY(controller.metaObject()->indexOfProperty("write10Supported") < 0);
+    QVERIFY(controller.metaObject()->indexOfProperty("write10Available") < 0);
 }
 
 void UiBridgeTest::d1_typedPrepareApiStillAuthoritative()

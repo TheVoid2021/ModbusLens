@@ -1550,6 +1550,13 @@ bool AnalysisController::write06Supported() const
     return modbuslens::core::kProductWrite06Supported;
 }
 
+// M10-E3: see the write10Supported Q_PROPERTY note in the header.
+bool AnalysisController::write10Supported() const
+{
+    return modbuslens::core::kProductWrite10Supported;
+}
+
+
 void AnalysisController::setWriteDispatchNotice(WriteDispatchNoticeKind kind)
 {
     if (writeDispatchNoticeKind_ == kind) {
@@ -1776,19 +1783,25 @@ AnalysisController::confirmAndDispatchPreparedWrite(std::uint64_t token)
     }
 
     // Capability guard: the prepared FUNCTION must have a real end-to-end
-    // dispatch path in this build. M10-E1 gave 0x10 a request encoder and
-    // M10-E2 gave it session support, but the dispatch path itself is still
-    // 0x06-only (M10-E3 owns the capability layer), so a prepared 0x10
-    // snapshot lands here and is invalidated with CapabilityUnavailable —
-    // zero consume, zero encode, zero transport call.
+    // dispatch path in this build. Each write function is admitted through its
+    // own structural product-capability constant — the same single source of
+    // truth the product properties expose, so the claim and the behaviour
+    // cannot drift apart (were one ever false, dispatch would be blocked
+    // rather than silently contradicting the property).
     //
-    // kProductWrite06Supported participates on purpose: it is the same single
-    // source of truth the product property exposes, so the claim and the
-    // behaviour cannot drift apart (were it ever false, dispatch would be
-    // blocked rather than silently contradicting the property).
-    if (snapshot->intent.function != ActiveFunction::WriteSingleRegister
-        || !activeFunctionSupported(ActiveFunction::WriteSingleRegister)
-        || !kProductWrite06Supported) {
+    // M10-E3 admits FC16/0x10 here: the request encoder (M10-E1), the shared
+    // response analyzer (M10-E2) and the session lifecycle all exist, so a
+    // prepared 0x10 snapshot now dispatches atomically through the SAME
+    // consume -> encode -> start path as 0x06. The production 0x10 UI stays
+    // hidden until M10-E4 (capability ready != presentation rollout), and
+    // Agent write authority remains NONE.
+    const bool functionHasProductCapability =
+        (snapshot->intent.function == ActiveFunction::WriteSingleRegister
+         && kProductWrite06Supported)
+        || (snapshot->intent.function == ActiveFunction::WriteMultipleRegisters
+            && kProductWrite10Supported);
+    if (!functionHasProductCapability
+        || !activeFunctionSupported(snapshot->intent.function)) {
         preparedWriteStore_.invalidate(
             PreparedWriteInvalidReason::CapabilityUnavailable);
         announcePreparedWriteChanged();

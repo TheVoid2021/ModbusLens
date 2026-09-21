@@ -1,8 +1,8 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E2 re-review correction 后）：M10-E1 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E2 = 已实现（上一轮 eq2 被 Re-review 判为未达冻结要求：共享纯分析器 ≠ active session；本轮已补 session-level raw-wire pair oracle eq3，见 §ZJ）= AWAITING FINAL RE-REVIEW；M10-E3+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
+> **状态（M10-E3 实现后）：M10-E1/E2 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E3 = 已实现（kProductWrite10Supported + write10Supported property + Controller atomic dispatch），AWAITING REVIEW；M10-E4（production 0x10 UI）= NOT STARTED；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
-> 能力终态：0x03 与 0x06 = encoder + session + dispatch + UI；**0x10 = encoder + 共享 analyzer + session lifecycle（M10-E2 新增）= YES；Controller dispatch / `write10Supported` / production UI 仍 ABSENT**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E2 Review → M10-E3（非 M11）。**
+> 能力终态：0x03 与 0x06 = 四件套全备；**0x10 = encoder + 共享 analyzer + session + capability 常量 + Controller atomic dispatch（M10-E3 新增）= YES；production 0x10 UI 仍 ABSENT（E4）**；Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E3 Review → M10-E4（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
@@ -8324,4 +8324,99 @@ commit：`M10-E2: prove FC16 CRC equivalence through active session`
   （独立；不 amend 05286f1；不 rebase；不 push；不 tag）
 状态：M10-E2 = **AWAITING FINAL RE-REVIEW**；M10-E3 = NOT STARTED；
   M10 overall = IN PROGRESS；M11 = HOLD。verified LKGC 保持 **9bdd99c**。
+```
+
+## M10-E3 — FC16/0x10 Product Capability Layer + Controller Dispatch（2026-09-21，behavior-bearing）
+
+> **M10-E2 Final Re-review = PASS ⇒ M10-E2 = COMPLETE ⇒ M10-E3 = GO。**
+> 范围（§ZE15）：**只做** 能力层（`kProductWrite10Supported` + `write10Supported` property）
+> 与 Controller atomic dispatch 接入；**不做** production 0x10 UI（E4）/ write confirmation UX 改动 / M11。
+
+### ZK1. 能力层（§18 / §23）
+
+```text
+· ProductWriteCapability.h 新增 kProductWrite10Supported = true —— 与 0x06 常量完全同构：
+  四件套（encoder M10-E1 / shared analyzer M10-E2 / Controller atomic dispatch M10-E3 /
+  evidence·outcome 集成）；结构性事实，绝不随 connection/busy/draft/source 变化；
+  capability ready != presentation rollout（production 0x10 UI 仍隐藏至 E4）。
+· AnalysisController 新增 Q_PROPERTY(bool write10Supported READ write10Supported CONSTANT)
+  + write10Supported() 访问器（返回 kProductWrite10Supported）——
+  与 write06Supported 同款：CONSTANT、无 setter、无 NOTIFY。
+· SerialTransactionSession 的 gate 注释同步（gate 与 product capability 已对齐三功能）。
+```
+
+### ZK2. Controller atomic dispatch 接入（§22 转换）
+
+```text
+AnalysisController::confirmAndDispatchPreparedWrite 的 capability guard 从
+  「function == WriteSingleRegister && kProductWrite06Supported」
+改为逐功能常量表：
+  (function == WriteSingleRegister && kProductWrite06Supported)
+  || (function == WriteMultipleRegisters && kProductWrite10Supported)
+  再叠加 activeFunctionSupported(intent.function)（双保险）。
+⇒ prepared 0x10 现在与 0x06 走**同一条** consume → encode（snapshot intent）→ start 原子路径；
+  evidence/outcome/统计/诊断全部经既有 generic 通道（无第二套 authority）。
+```
+
+### ZK3. Intentional transition（四层 oracle 同步，§27 纪律）
+
+```text
+1) test_write_dispatch r4_capabilityUnavailableForFc10（断言 prepared 0x10 被拒）
+   → 替换为正向 FC16 dispatch oracle 套件：
+     r4_fc10DispatchAcceptedAtomically（镜像 r1：accepted/attempted/1 attempt/1 send/
+       PossiblySent/Consumed/busy/pending）
+     r4_fc10ExactAduAndCompletionIntegration（独立 golden literal
+       11 10 00 01 00 01 02 00 07 2B 83；echo 应答 → 1 条 0x10 Success record，
+       evidence.requestAdu/responseAdu 精确断言）
+     r4_fc10NotSentMirror（0 accepted → NotSent；通用 transport 生命周期复用）
+     r4_fc10ShortSubmissionMirror（3 字节 → PossiblySent terminal + ShortSubmission，
+       不伪造 transaction）
+     fc10TimeoutEntersHistory（timeout → Timeout transaction，无 terminal，无 auto retry）
+     mixedFc03Fc06Fc10ShareOneStatisticsUniverse（03/06/10 三写读混排同一 session、
+       completion-order、successCount=3 —— 无第二套 write authority）
+     fc10_write10SupportedIsStructuralAndRuntimeInvariant（镜像 write06 不变量测试：
+       clear/diagnosis/disconnect/busy/timeout/Simulator 全不动能力）
+     fc10_write10SupportedDoesNotRevealProductionUi（CONSTANT/可读/不可写/无 NOTIFY）
+2) test_write_dispatch fc10CapabilityStaysFrozen → fc10_capabilityLayerOpenedUiStillAbsent
+   （能力层已开；presentation 层仍冻结 —— runtime UI 缺席由 qml_focus_check prod-hidden oracle 断言）
+3) src/main.cpp prod-write oracle：「write10Supported 属性不得存在」→「属性必须存在且为 true」；
+   0x10 UI 缺席检查（write10* 节点 / writeTab10 / writeSummaryQuantity / a11y / tab stops）逐项保留
+4) tests/test_ui_bridge.cpp：「0x10 remains a non-capability」→ 断言 write10Supported 存在且为 true，
+   write06Available/write10Available 仍缺席（"available" 运行时语义命名纪律不变）
+```
+
+### ZK4. production UI 不变证明（§24）
+
+```text
+--qml-production-write-check PASS：P1–P12 + M1–M6 全绿，
+  0x10 production nodes / named items / a11y names / tab stops 仍逐项缺席；
+  oracle 内 write10Supported 断言已按 ZK3(3) 转换为正向（属性存在且为 true）。
+QML：本轮 0 处 QML 改动 —— write10Supported 无任何 QML 绑定，
+  不会自动揭示 0x10 UI（E4 才做 presentation）。
+```
+
+### ZK5. 门禁 / warnings / Git（§28–§32）
+
+```text
+targeted：write_dispatch **51**（44 → 51，+7 FC16 oracles）/ write_encoder 30 / fc16_active 26 /
+  fc06_active 31 / ui_bridge 61 —— 全 PASS
+--qml-write-foundation-check：PASS —— DLG4 已按 intentional transition 从
+  「0x10 → CapabilityUnavailable」转换为「0x10 full accepted attempt=1 send=1 → consumed」
+  （hidden foundation 的 0x10 对话框走与 DLG1 相同的原子契约，11 字节 0x10 wire；
+   consumed token 不可复用）；DLG 总账由 3 attempts / 1 send / 1 terminal 更正为
+  **4 attempts / 2 sends / 1 terminal**（1 DLG1 + 1 DLG2 + 1 DLG3 + 1 DLG4 + 0 DLG5）
+真实 CTest：Debug **36/36**、Release **36/36**
+warnings：**0 NEW；5 PRE-EXISTING（main.cpp:2496/2498/4596/9902/10140）**——
+  warning-bearing TU 强制重编实证（Debug 与 Release 各 5 条，行号一致）
+RCA：两轮构建失败均为 QML 缓存生成器瞬时「拒绝访问」（既有已知问题，直接重跑成功），
+  非本轮改动引起；main.cpp oracle 首版误用 ctrl->write10Supported()（ctrl 为 QObject*），
+  改经 meta-object property 读取 —— 测试/工具作者错误，产品代码正确。
+Files：src/core/active/ProductWriteCapability.h · src/ui/AnalysisController.{h,cpp} ·
+  src/core/serial/SerialTransactionSession.cpp（仅注释）· src/main.cpp（oracle 转换）·
+  tests/test_write_dispatch.cpp · tests/test_ui_bridge.cpp
+commit：`M10-E3: add FC16 product capability and atomic dispatch`
+  （独立；不 amend；不 rebase；不 push；不 tag）
+状态：M10-E2 = COMPLETE；**M10-E3 = AWAITING REVIEW**；M10-E4 = NOT STARTED（production UI）；
+  M10-E5/M10-F = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD。
+verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
 ```

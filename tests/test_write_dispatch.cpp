@@ -67,6 +67,30 @@ constexpr std::int64_t kTimeoutMs = 1000;
 const std::vector<std::uint8_t> kGoldenWrite06Adu = {0x11, 0x06, 0x00, 0x01,
                                                      0x00, 0x03, 0x9A, 0x9B};
 
+// M10-E3 golden literal for the FC16/0x10 request the harness prepares
+// (unit 0x11, start 0x0001, values [0x0007] -> quantity 1, byteCount 2).
+// Independent literal, exactly like kGoldenWrite06Adu above.
+const std::vector<std::uint8_t> kGoldenWrite16Adu = {0x11, 0x10, 0x00, 0x01,
+                                                     0x00, 0x01, 0x02, 0x00,
+                                                     0x07, 0x2B, 0x83};
+
+// The exact echo a conforming device returns for a 0x10 request: starting
+// address + written quantity (values are NOT echoed). Built with the
+// production codec on purpose: a DEVICE reply is not the thing under test.
+std::vector<std::uint8_t> fc16EchoWire(std::uint8_t unit = kUnit,
+                                       std::uint16_t address = kAddress,
+                                       std::uint16_t quantity = 1)
+{
+    return encodeRtuFrame(ModbusRtuFrame{
+        .address = unit,
+        .functionCode = 0x10,
+        .data = {static_cast<std::uint8_t>(address >> 8),
+                 static_cast<std::uint8_t>(address & 0xFF),
+                 static_cast<std::uint8_t>(quantity >> 8),
+                 static_cast<std::uint8_t>(quantity & 0xFF)},
+    });
+}
+
 // The exact echo a conforming device returns for the request above. Built with
 // the production codec on purpose: a DEVICE reply is not the thing under test
 // here (the request encoder is).
@@ -137,8 +161,8 @@ struct Session {
         return token.value_or(0);
     }
 
-    // Prepares a valid 0x10 snapshot (no encoder / no dispatch capability
-    // exists for it) and returns its token.
+    // Prepares a valid 0x10 snapshot (encoder M10-E1, session support M10-E2,
+    // product capability M10-E3) and returns its token.
     std::uint64_t prepare10()
     {
         (void)controller.prepareWriteMultipleRegisters(kUnit, kAddress,
@@ -177,7 +201,19 @@ private slots:
     void r4_busyGuard();
     void r4_staleSessionGuard();
     void r4_sourceChangedGuard();
-    void r4_capabilityUnavailableForFc10();
+    // M10-E3 INTENTIONAL TRANSITION: r4_capabilityUnavailableForFc10 asserted
+    // that a prepared 0x10 was refused. The capability layer now exists, so
+    // the same harness proves the POSITIVE dispatch path instead (and its
+    // evidence integration), while the guard matrix itself is unchanged for
+    // every other rejection reason.
+    void r4_fc10DispatchAcceptedAtomically();
+    void r4_fc10ExactAduAndCompletionIntegration();
+    void r4_fc10NotSentMirror();
+    void r4_fc10ShortSubmissionMirror();
+    void fc10TimeoutEntersHistory();
+    void mixedFc03Fc06Fc10ShareOneStatisticsUniverse();
+    void fc10_write10SupportedIsStructuralAndRuntimeInvariant();
+    void fc10_write10SupportedDoesNotRevealProductionUi();
     void r4_guardFailureIsNeverTransportNotSent();
 
     // ---- R5: token reuse ----
@@ -216,7 +252,7 @@ private slots:
     void write06SupportedIsStructuralAndRuntimeInvariant();
     void write06SupportedDoesNotRevealProductionUi();
     void hiddenConfirmSeamStillDispatchesNothing();
-    void fc10CapabilityStaysFrozen();
+    void fc10_capabilityLayerOpenedUiStillAbsent();
 
     // ---- M10-D4: production dispatch entry + outcome presentation lane ----
     void d4_requestDispatchIsTheAtomicOperation();
@@ -481,24 +517,230 @@ void WriteDispatchTest::r4_sourceChangedGuard()
     QCOMPARE(s.transport.sendCount(), 0);
 }
 
-void WriteDispatchTest::r4_capabilityUnavailableForFc10()
+void WriteDispatchTest::r4_fc10DispatchAcceptedAtomically()
 {
+    // M10-E3 INTENTIONAL TRANSITION: this oracle used to assert that a
+    // prepared 0x10 was refused with CapabilityUnavailable. The capability
+    // layer now exists, so it proves the POSITIVE path instead — the exact
+    // atomic contract r1_fullAcceptedAtomicDispatch locks for 0x06.
     Session s;
     const auto token = s.prepare10();
     QVERIFY(token != 0);
+    QCOMPARE(s.controller.preparedWriteState(), PreparedWriteState::Prepared);
     QCOMPARE(s.controller.preparedWriteFunction(), 0x10);
 
     const auto result = s.controller.confirmAndDispatchPreparedWrite(token);
 
-    // Zero consume, zero encode, zero transport attempt — but the snapshot is
-    // honestly marked as having no capability rather than silently ignored.
-    QVERIFY(isGuardRejected(result, ConfirmRejectReason::CapabilityUnavailable));
-    QCOMPARE(s.controller.preparedWriteState(), PreparedWriteState::Invalidated);
-    QCOMPARE(s.controller.preparedWriteInvalidReason(),
-             std::optional{PreparedWriteInvalidReason::CapabilityUnavailable});
-    QCOMPARE(s.transport.startAttemptCount(), 0);
+    QVERIFY(result.confirmationAccepted);
+    QVERIFY(result.dispatchAttempted);
+    QVERIFY(!result.rejectedReason.has_value());
+    QVERIFY(!result.localError.has_value());
+    QVERIFY(result.startResult.has_value());
+    QVERIFY(result.startResult->accepted);
+    QCOMPARE(result.startResult->disposition, TransportDisposition::PossiblySent);
+    QVERIFY(!result.startResult->terminatedDuringSubmission.has_value());
+
+    // Exactly one attempt, exactly one accepted send, exactly one ADU.
+    QCOMPARE(s.transport.startAttemptCount(), 1);
+    QCOMPARE(s.transport.sendCount(), 1);
+    QCOMPARE(s.transport.sentAduLog().size(), std::size_t{1});
+
+    // The snapshot generation is terminal and the request is in flight.
+    QCOMPARE(s.controller.preparedWriteState(), PreparedWriteState::Consumed);
+    QVERIFY(!s.controller.hasPreparedWrite());
+    QVERIFY(s.controller.serialBusy());
+    QCOMPARE(s.transport.hasPendingTransaction(), true);
+}
+
+void WriteDispatchTest::r4_fc10ExactAduAndCompletionIntegration()
+{
+    Session s;
+    const auto token = s.prepare10();
+    (void)s.controller.confirmAndDispatchPreparedWrite(token);
+
+    // EXACT wire bytes — against the independent golden literal.
+    QCOMPARE(s.transport.sentAduLog().front(), kGoldenWrite16Adu);
+
+    // A conforming 0x10 echo: starting address + written quantity.
+    s.transport.setResponseBytes(fc16EchoWire());
+    s.transport.completeWithResponse();
+
+    // Exactly one 0x10 Success transaction, in the SAME Active Serial session.
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 1);
+    QCOMPARE(s.controller.observedCount(), 1);
+    QCOMPARE(s.controller.successCount(), 1);
+    QCOMPARE(s.controller.activeSerialRecordCount(), 1);
+    QVERIFY(!s.controller.serialBusy());
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+
+    const auto& record = s.controller.activeSerialRecords().front();
+    QCOMPARE(record.functionCode(), 0x10);
+    QCOMPARE(record.unitId(), kUnit);
+    QCOMPARE(record.analysis.status, TransactionStatus::Success);
+    QCOMPARE(record.sessionId, s.controller.activeSerialSessionId());
+    // Send-time evidence: the exact request ADU and the exact response ADU.
+    QCOMPARE(record.evidence.requestAdu, kGoldenWrite16Adu);
+    QCOMPARE(record.evidence.responseAdu, fc16EchoWire());
+    QCOMPARE(record.evidence.disposition, TransportDisposition::PossiblySent);
+}
+
+void WriteDispatchTest::r4_fc10NotSentMirror()
+{
+    // 0x10 reuses the generic transport lifecycle: a zero-byte acceptance is
+    // NotSent (NOT a guard failure), with the same user-visible lane as 0x06.
+    Session s;
+    const auto token = s.prepare10();
+    s.transport.setSubmissionAcceptedBytes(0);
+
+    const auto result = s.controller.confirmAndDispatchPreparedWrite(token);
+
+    QVERIFY(result.confirmationAccepted);
+    QVERIFY(result.dispatchAttempted);
+    QVERIFY(result.startResult.has_value());
+    QVERIFY(!result.startResult->accepted);
+    QCOMPARE(result.startResult->disposition, TransportDisposition::NotSent);
+    QCOMPARE(s.transport.startAttemptCount(), 1);
     QCOMPARE(s.transport.sendCount(), 0);
     QVERIFY(s.transport.sentAduLog().empty());
+    QVERIFY(!s.transport.hasPendingTransaction());
+    QVERIFY(!s.controller.serialBusy());
+    QCOMPARE(s.controller.observedCount(), 0);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+    QCOMPARE(s.controller.preparedWriteState(), PreparedWriteState::Consumed);
+}
+
+void WriteDispatchTest::r4_fc10ShortSubmissionMirror()
+{
+    // A short submission (0 < accepted < ADU) keeps the PossiblySent terminal
+    // with the intended request, and never fabricates a transaction.
+    Session s;
+    const auto token = s.prepare10();
+    s.transport.setSubmissionAcceptedBytes(3); // 0 < 3 < 11
+
+    const auto result = s.controller.confirmAndDispatchPreparedWrite(token);
+
+    QVERIFY(result.confirmationAccepted);
+    QVERIFY(result.dispatchAttempted);
+    QVERIFY(result.startResult.has_value());
+    QVERIFY(!result.startResult->accepted);
+    QCOMPARE(result.startResult->disposition, TransportDisposition::PossiblySent);
+    QVERIFY(result.startResult->terminatedDuringSubmission.has_value());
+    QCOMPARE(s.transport.startAttemptCount(), 1);
+    QCOMPARE(s.transport.sendCount(), 0);
+
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+    const auto& terminal = s.controller.activeSerialTerminations().front();
+    QCOMPARE(terminal.reason, TransportTerminalReason::ShortSubmission);
+    QCOMPARE(terminal.request.wire, kGoldenWrite16Adu);
+    QVERIFY(terminal.responseAdu.empty());
+    QCOMPARE(terminal.disposition, TransportDisposition::PossiblySent);
+    QCOMPARE(terminal.submissionAcceptedByteCount, std::optional<std::uint16_t>{3});
+
+    QCOMPARE(s.controller.observedCount(), 0);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+}
+
+void WriteDispatchTest::fc10TimeoutEntersHistory()
+{
+    // A 0x10 write timeout means the DEVICE WRITE STATE IS UNKNOWN — the same
+    // frozen wording/semantics as 0x06, with no auto retry and no terminal.
+    Session s;
+    const auto token = s.prepare10();
+    (void)s.controller.confirmAndDispatchPreparedWrite(token);
+    s.completeAtTimeout();
+
+    QCOMPARE(s.controller.observedCount(), 1);
+    QCOMPARE(s.controller.timeoutCount(), 1);
+    const auto& record = s.controller.activeSerialRecords().front();
+    QCOMPARE(record.functionCode(), 0x10);
+    QCOMPARE(record.analysis.status, TransactionStatus::Timeout);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+}
+
+void WriteDispatchTest::mixedFc03Fc06Fc10ShareOneStatisticsUniverse()
+{
+    // The 0x10 write joins the SAME transaction/statistics universe: one
+    // session, completion-order append, no second write authority.
+    Session s;
+    s.controller.readHoldingRegistersOnce(kUnit, 0, 2, kTimeoutMs);
+    s.transport.setResponseBytes(fc03AnswerWire());
+    s.transport.completeWithResponse();
+
+    const auto token06 = s.prepare06();
+    (void)s.controller.confirmAndDispatchPreparedWrite(token06);
+    s.transport.setResponseBytes(echoWire());
+    s.transport.completeWithResponse();
+
+    const auto token10 = s.prepare10();
+    (void)s.controller.confirmAndDispatchPreparedWrite(token10);
+    s.transport.setResponseBytes(fc16EchoWire());
+    s.transport.completeWithResponse();
+
+    QCOMPARE(s.controller.activeSerialRecordCount(), 3);
+    const auto& records = s.controller.activeSerialRecords();
+    QCOMPARE(records.at(0).functionCode(), 0x03);
+    QCOMPARE(records.at(1).functionCode(), 0x06);
+    QCOMPARE(records.at(2).functionCode(), 0x10);
+    QCOMPARE(records.at(0).analysis.status, TransactionStatus::Success);
+    QCOMPARE(records.at(1).analysis.status, TransactionStatus::Success);
+    QCOMPARE(records.at(2).analysis.status, TransactionStatus::Success);
+    QCOMPARE(records.at(0).sessionId, records.at(2).sessionId);
+    QCOMPARE(records.at(2).sessionId, s.controller.activeSerialSessionId());
+    QCOMPARE(s.controller.successCount(), 3);
+}
+
+void WriteDispatchTest::fc10_write10SupportedIsStructuralAndRuntimeInvariant()
+{
+    Session s;
+    QVERIFY(s.controller.write10Supported());
+
+    // The property is the SAME single source of truth the dispatch guard uses,
+    // cross-checked against the real runtime predicates.
+    QVERIFY(modbuslens::core::kProductWrite10Supported);
+    QVERIFY(modbuslens::core::activeFunctionSupported(
+        ActiveFunction::WriteMultipleRegisters));
+    // The encoder really exists for 0x10 (M10-E1).
+    const auto encoded = encodeActiveRequest(ActiveRequestIntent{
+        .function = ActiveFunction::WriteMultipleRegisters,
+        .unitId = kUnit,
+        .timeout = ms{kTimeoutMs},
+        .payload = modbuslens::core::WriteMultipleRegistersIntent{
+            .startAddress = kAddress, .values = {7}}});
+    QVERIFY(std::get_if<ActiveRequestDescriptor>(&encoded) != nullptr);
+
+    // NOT runtime availability: every ACTION-state transition leaves it alone.
+    s.controller.clearResults();
+    QVERIFY(s.controller.write10Supported());
+    s.controller.runBaselineDiagnosis();
+    QVERIFY(s.controller.write10Supported());
+    s.controller.disconnectSerial();
+    QVERIFY(s.controller.write10Supported());
+    s.controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+    s.controller.readHoldingRegistersOnce(kUnit, 0, 2, kTimeoutMs);
+    QVERIFY(s.controller.serialBusy());
+    QVERIFY(s.controller.write10Supported());
+    s.transport.completeWithTimeout();
+    QVERIFY(s.controller.write10Supported());
+    s.controller.runDemoBatch();
+    QVERIFY(s.controller.write10Supported());
+}
+
+void WriteDispatchTest::fc10_write10SupportedDoesNotRevealProductionUi()
+{
+    // Capability ready != presentation rollout (mirrors the 0x06 test): the
+    // property is a CONSTANT with no setter and no notify, so it exposes no
+    // runtime switch that could reveal a 0x10 UI before M10-E4. The QML
+    // runtime gate (qml_focus_check's prod-hidden oracle) is the other half.
+    Session s;
+    QVERIFY(s.controller.write10Supported());
+    const QMetaObject* meta = s.controller.metaObject();
+    const int index = meta->indexOfProperty("write10Supported");
+    QVERIFY(index >= 0);
+    const QMetaProperty property = meta->property(index);
+    QVERIFY(property.isConstant());
+    QVERIFY(property.isReadable());
+    QVERIFY(!property.isWritable());
+    QVERIFY(!property.hasNotifySignal());
 }
 
 void WriteDispatchTest::r4_guardFailureIsNeverTransportNotSent()
@@ -1039,29 +1281,20 @@ void WriteDispatchTest::hiddenConfirmSeamStillDispatchesNothing()
     QCOMPARE(s.controller.observedCount(), 0);
 }
 
-void WriteDispatchTest::fc10CapabilityStaysFrozen()
+void WriteDispatchTest::fc10_capabilityLayerOpenedUiStillAbsent()
 {
-    // M10-E2 opens the SESSION gate for 0x10 (the shared active analyzer now
-    // exists), so this oracle no longer asserts activeFunctionSupported ==
-    // false. What it protects is the LAYER BELOW the session: the Controller
-    // must still refuse to dispatch a prepared 0x10, and no product
-    // capability property may appear. Those are the E3 layers.
+    // M10-E3 INTENTIONAL TRANSITION: the capability layer for 0x10 is now
+    // OPEN (write10Supported exists and is true; a prepared 0x10 dispatches
+    // atomically — see the r4_fc10_* oracles). What stays frozen is the
+    // PRESENTATION layer: the production 0x10 Write UI remains absent until
+    // M10-E4, which the qml_focus_check prod-hidden oracle asserts at runtime.
     QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteMultipleRegisters));
+    QVERIFY(modbuslens::core::kProductWrite10Supported);
 
-    // No write10Supported property exists: 0x10 has no product capability to
-    // report.
+    // The superseded runtime-name shape stays absent (same discipline as 0x06).
     Session s;
-    QCOMPARE(s.controller.metaObject()->indexOfProperty("write10Supported"), -1);
-
-    // And a prepared 0x10 dispatch is still refused with zero transport work
-    // (the same frozen rejection r4_capabilityUnavailableForFc10 asserts).
-    const auto token = s.prepare10();
-    QVERIFY(token != 0);
-    const auto result = s.controller.confirmAndDispatchPreparedWrite(token);
-    QVERIFY(isGuardRejected(result, ConfirmRejectReason::CapabilityUnavailable));
-    QCOMPARE(s.transport.startAttemptCount(), 0);
-    QCOMPARE(s.transport.sendCount(), 0);
+    QCOMPARE(s.controller.metaObject()->indexOfProperty("write10Available"), -1);
 }
 
 // ---------------------------------------------------------------------------

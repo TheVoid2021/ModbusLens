@@ -35,4 +35,26 @@ namespace modbuslens::core {
 // ---------------------------------------------------------------------------
 inline constexpr bool kProductWrite06Supported = true;
 
+// ---------------------------------------------------------------------------
+// M10-E3: the PRODUCT-level 0x10 write capability, with the SAME four-piece
+// contract and the SAME structural (never runtime) discipline as the 0x06
+// constant above:
+//
+//   A. `activeFunctionSupported(0x10)` — core/serial: the protocol/session
+//      layer can run the 0x10 request/response lifecycle (M10-E2). It says
+//      NOTHING about the product and controls no UI.
+//
+//   B. `kProductWrite10Supported` (this constant) — the PRODUCT end-to-end
+//      owns all four pieces: the 0x10 request encoder (M10-E1), the shared
+//      protocol/session response support (M10-E2), the Controller's atomic
+//      confirm+dispatch operation (M10-E3), and the evidence/outcome
+//      integration through the same transaction/statistics/diagnosis universe.
+//
+// Capability ready != presentation rollout: the production 0x10 Write UI
+// stays hidden until M10-E4 no matter what this constant says. Accepting a
+// 0x10 dispatch through the Controller is therefore invisible in production
+// until E4 instantiates the UI — nothing else changes for the user.
+// ---------------------------------------------------------------------------
+inline constexpr bool kProductWrite10Supported = true;
+
 } // namespace modbuslens::core

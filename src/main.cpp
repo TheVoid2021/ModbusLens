@@ -7481,13 +7481,18 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         note(QStringLiteral("WRITE [DLG3]: dialog closed; token inert"));
     });
 
-    // ---- DLG4: prepared 0x10 -> CapabilityUnavailable -> closed ----
+    // ---- DLG4: prepared 0x10 -> full accepted -> Consumed -> closed ----
+    // M10-E3 INTENTIONAL TRANSITION: DLG4 used to assert that a prepared 0x10
+    // was refused with CapabilityUnavailable (the capability layer did not
+    // exist). E3 delivers that layer, so DLG4 now proves the positive mirror
+    // of DLG1 for the hidden foundation's 0x10 dialog: the SAME atomic
+    // consume -> encode -> start contract, with the 11-byte 0x10 wire. The
+    // production 0x10 UI stays absent (M10-E4); this dialog is the hidden
+    // test foundation.
     push([&]() {
         resetWriteContext();
         transport->setAcceptWrites(true);
         transport->setWriteShortAcceptedBytes(std::nullopt);
-        const int attemptsBefore = transport->writeAttempts();
-        const int sendsBefore = transport->writeSends();
 
         setDraft("activeFunctionIndex", 1);
         setDraft("unit10", 1);
@@ -7503,36 +7508,43 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
         const auto result = controller->confirmAndDispatchPreparedWrite(token);
 
-        // Zero consume, zero encode, zero transport call — but honestly marked.
-        if (result.confirmationAccepted || result.dispatchAttempted)
-            fail(QStringLiteral("WRITEFAIL DLG4: an unsupported capability was "
-                                "consumed or dispatched"));
-        if (result.startResult.has_value())
-            fail(QStringLiteral("WRITEFAIL DLG4: the transport was consulted"));
-        if (!result.rejectedReason.has_value()
-            || *result.rejectedReason
-                != modbuslens::core::ConfirmRejectReason::CapabilityUnavailable)
-            fail(QStringLiteral("WRITEFAIL DLG4: reject reason is not "
-                                "CapabilityUnavailable"));
-        if (stateToken() != QStringLiteral("invalidated"))
-            fail(QStringLiteral("WRITEFAIL DLG4: state=%1, expected invalidated")
+        if (!result.confirmationAccepted)
+            fail(QStringLiteral("WRITEFAIL DLG4: confirmationAccepted=false"));
+        if (!result.dispatchAttempted)
+            fail(QStringLiteral("WRITEFAIL DLG4: dispatchAttempted=false"));
+        if (!result.startResult.has_value() || !result.startResult->accepted)
+            fail(QStringLiteral("WRITEFAIL DLG4: the transport did not accept"));
+        else if (result.startResult->disposition
+                 != modbuslens::core::TransportDisposition::PossiblySent)
+            fail(QStringLiteral("WRITEFAIL DLG4: disposition is not PossiblySent"));
+        if (stateToken() != QStringLiteral("consumed"))
+            fail(QStringLiteral("WRITEFAIL DLG4: state=%1, expected consumed")
                      .arg(stateToken()));
-        if (controller->preparedWriteInvalidReason()
-            != std::optional{modbuslens::core::PreparedWriteInvalidReason::
-                                 CapabilityUnavailable})
-            fail(QStringLiteral("WRITEFAIL DLG4: invalidation reason is not "
-                                "CapabilityUnavailable"));
-        if (transport->writeAttempts() != attemptsBefore
-            || transport->writeSends() != sendsBefore)
-            fail(QStringLiteral("WRITEFAIL DLG4: the transport was touched"));
-        note(QStringLiteral("WRITE [DLG4]: 0x10 -> CapabilityUnavailable, "
-                            "zero consume/encode/transport"));
+        // The 0x10 wire for this snapshot is 9 + 2*1 = 11 bytes.
+        if (!transport->writtenDescriptor().has_value()
+            || transport->writtenDescriptor()->wire.size() != 11)
+            fail(QStringLiteral("WRITEFAIL DLG4: the dispatched ADU is not the "
+                                "11-byte 0x10 wire"));
+        note(QStringLiteral("WRITE [DLG4]: 0x10 full accepted attempt=1 send=1 "
+                            "-> state=consumed"));
     });
     push([&]() {
         if (dialogVisible())
             fail(QStringLiteral("WRITEFAIL DLG4: the dialog is still visible after "
-                                "an Invalidated(CapabilityUnavailable) snapshot"));
-        note(QStringLiteral("WRITE [DLG4]: dialog closed"));
+                                "a Consumed snapshot"));
+        // A consumed token can never dispatch again — for 0x10 exactly as for
+        // 0x06 (same one-shot store, same token discipline).
+        const int attempts = transport->writeAttempts();
+        const int sends = transport->writeSends();
+        const auto again = controller->confirmAndDispatchPreparedWrite(tokenOf());
+        if (again.confirmationAccepted || again.dispatchAttempted)
+            fail(QStringLiteral("WRITEFAIL DLG4: a consumed token dispatched "
+                                "again"));
+        if (transport->writeAttempts() != attempts
+            || transport->writeSends() != sends)
+            fail(QStringLiteral("WRITEFAIL DLG4: a consumed token produced extra "
+                                "attempts/sends"));
+        note(QStringLiteral("WRITE [DLG4]: dialog closed; consumed token inert"));
     });
 
     // ---- DLG5: EXTERNAL invalidation (disconnect / busy) + old-token API ----
@@ -7632,16 +7644,16 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                          .arg(*writeSendsBeforeDlg));
             // The DLG oracles must have produced exactly the attempts they
             // claim: 1 (DLG1 full) + 1 (DLG2 zero-accept) + 1 (DLG3 short)
-            // + 0 (DLG4 capability) + 0 (DLG5 external) = 3 attempts, exactly
-            // one accepted send, exactly one ShortSubmission terminal.
+            // + 1 (DLG4 full 0x10, M10-E3) + 0 (DLG5 external) = 4 attempts,
+            // exactly two accepted sends, exactly one ShortSubmission terminal.
             if (!*dlgSectionRan)
                 fail(QStringLiteral("WRITEFAIL final: the DLG oracle section never "
                                     "ran"));
-            else if (dlgAttempts != 3 || dlgSends != 1
+            else if (dlgAttempts != 4 || dlgSends != 2
                      || transport->writeTerminals() != 1)
                 fail(QStringLiteral("WRITEFAIL final: DLG accounting mismatch "
                                     "(attempts=%1 sends=%2 terminals=%3; expected "
-                                    "3 / 1 / 1)")
+                                    "4 / 2 / 1)")
                          .arg(dlgAttempts)
                          .arg(dlgSends)
                          .arg(transport->writeTerminals()));
@@ -8837,9 +8849,25 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 fail(QStringLiteral("FOCUSFAIL prod-write: %1 exists in production")
                          .arg(absent));
         }
-        if (ctrl->metaObject()->indexOfProperty("write10Supported") >= 0)
-            fail(QStringLiteral("FOCUSFAIL prod-write: a write10Supported property "
-                                "exists"));
+        // M10-E3 INTENTIONAL TRANSITION: the write10Supported product
+        // capability property now EXISTS (the capability layer is E3's
+        // deliverable). What production must NOT have is the 0x10 UI — which
+        // the checks above and below still assert item by item (nodes, named
+        // items, accessible names, tab stops). The capability/UI separation
+        // is the frozen contract here.
+        const int write10PropertyIndex =
+            ctrl->metaObject()->indexOfProperty("write10Supported");
+        if (write10PropertyIndex < 0)
+            fail(QStringLiteral("FOCUSFAIL prod-write: the write10Supported "
+                                "product capability property is missing"));
+        {
+            const QVariant write10Value = ctrl->metaObject()
+                                              ->property(write10PropertyIndex)
+                                              .read(ctrl);
+            if (!write10Value.toBool())
+                fail(QStringLiteral("FOCUSFAIL prod-write: write10Supported is "
+                                    "false"));
+        }
         // (4) …including in the ACCESSIBILITY tree of the write section (a name
         // scan alone cannot catch "instantiated but unnamed").
         if (section) {

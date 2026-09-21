@@ -124,6 +124,12 @@ class AnalysisController : public QObject
     // which stays hidden until M10-D4.
     Q_PROPERTY(bool write06Supported READ write06Supported CONSTANT)
 
+    // M10-E3: STRUCTURAL product write capability for FC16/0x10 — the same
+    // four-piece contract and the same "never runtime" discipline as
+    // write06Supported above. Capability ready != presentation rollout: the
+    // production 0x10 Write UI stays hidden until M10-E4.
+    Q_PROPERTY(bool write10Supported READ write10Supported CONSTANT)
+
 public:
     explicit AnalysisController(QObject* parent = nullptr);
 
@@ -382,6 +388,9 @@ public:
     // Derived from the core's compile-time product-capability constant, never
     // from runtime state.
     [[nodiscard]] bool write06Supported() const;
+
+    // M10-E3: see the write10Supported Q_PROPERTY note.
+    [[nodiscard]] bool write10Supported() const;
 
     // Read-only projection of the prepared snapshot (C1 C++ accessors).
     [[nodiscard]] modbuslens::core::PreparedWriteState preparedWriteState() const;

@@ -60,10 +60,10 @@ bool activeFunctionSupported(ActiveFunction function)
     // session lifecycle covered by test_fc16_active. That is why the gate
     // opens HERE — and only here.
     //
-    // This is still not a product capability: the Controller's atomic
-    // dispatch path admits WriteSingleRegister only, write10Supported does
-    // not exist, and no 0x10 production UI is instantiated. Those are the
-    // M10-E3/E4 layers.
+    // M10-E3 opened the product capability layer above this gate
+    // (kProductWrite10Supported + the Controller's atomic dispatch), so the
+    // gate and the product capability are now aligned for all three
+    // functions. The production 0x10 Write UI is still hidden (M10-E4).
     return function == ActiveFunction::ReadHoldingRegisters
            || function == ActiveFunction::WriteSingleRegister
            || function == ActiveFunction::WriteMultipleRegisters;

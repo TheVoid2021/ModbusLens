@@ -994,3 +994,12 @@
 - **Q：0x10 的回显契约和 0x06 有什么本质区别？** A：0x06 回显地址**和值**，所以 mismatch 四元组是 address+value；0x10 只回显起始地址和写入数量，**不回显 values**——所以 mismatch 四元组是 address+quantity。这意味着 0x10 的响应永远无法证明「设备收到的值与发送的值一致」，只能证明「它确认了同样的地址范围」——这是协议本身的限制，不是实现的偷工。
 - **Q：门（activeFunctionSupported）打开后，为什么 Controller 不会自动开始发 0x10？** A：因为 Controller 的能力守卫是显式的：它要求 intent.function == WriteSingleRegister 且 kProductWrite06Supported，与 session gate 是两个独立层次。E2 只打开了下面那层（session），上面的 Controller 层仍只认 0x06——这由 r4 与 fc10CapabilityStaysFrozen 两个 oracle 在本轮实测锁定（attempt=0/send=0）。分层打开、逐层验证，正是分阶段评审的意义。
 - **Q：partial response 的分类为什么不用设计文档硬编码？** A：因为「几字节算 FrameTooShort、几字节算 CRC 失败」是由 codec 对候选帧的判定规则决定的（7 字节已足以承载 CRC 字段，只是值不匹配；6 字节则连 CRC 都凑不齐）。FC06 套件已经记录了这套真实规则（p1→FrameTooShort、m1→CrcError、p3→CrcError），0x10 的正常响应同为 8 字节 ADU，规则应完全一致——测试照抄 FC06 的形状后全数通过，证明共享分帧逻辑确实被复用了。
+
+
+## 103. M10-E3（FC16/0x10 能力层 + Controller dispatch）条目（2026-09-21 追加）
+
+- **Q：能力常量为什么是编译期 true，而不是「测试通过了就翻成 true」？** A：因为一个能被测试运行切换的能力，陈述的是测试的状态，不是产品的状态。kProductWrite10Supported 与 0x06 常量同构：它是当前构建的四件套结构性事实（encoder/共享分析器/Controller dispatch/证据集成），编译期固定；测试的角色是**交叉核对**它没和真实运行时谓词漂移，而不是定义它。
+- **Q：write10Supported 属性加了，0x10 的 UI 会自动出现吗？** A：不会，这由两个机制保证。①属性是 CONSTANT、无 setter、无 NOTIFY——它暴露不出任何能让 UI 提前出现的运行时开关；②没有任何 QML 绑定它（本轮 0 处 QML 改动），production 的 0x10 编辑器要等 E4 显式实例化。capability ready ≠ presentation rollout 是 M10-D Phase 1 就冻结的纪律，E3 只是第三次执行它。
+- **Q：capability guard 改成「逐功能常量表」有什么好处？** A：原来是一个针对 0x06 的特判；现在每个写功能通过自己的结构常量进入同一条 consume→encode→start 原子路径，并且仍叠加 activeFunctionSupported 双保险。将来加新功能码时，规则是「常量 + 会话支持 + 共享分析器」三件齐备才放行——声明式，不再每次改 if。
+- **Q：main.cpp 的 prod-write oracle 为什么要从「属性不得存在」翻转成「属性必须存在且为 true」？** A：因为 oracle 原来保护的负向事实（0x10 没有能力）在 E3 变成了正向事实。转换纪律是：**负向覆盖上移一层而不是删除**——属性存在且为 true 被正向断言，而 0x10 production UI 的缺席（节点/命名项/a11y/tab stops）由紧邻的既有检查逐项继续断言。能力和 UI 是两个不同的冻结契约，E3 只翻开了前一个。
+- **Q：DLG4 的总账为什么从 3/1/1 变成 4/2/1？** A：DLG4 原来断言「0x10 → CapabilityUnavailable，零消耗零发送」，所以不计入 attempts/sends。E3 之后它镜像 DLG1：0x10 对话框确认 → 原子派发 → 恰好 1 attempt + 1 send + Consumed。总账是 DLG 节对自身派发行为的自洽校验（4 = 1+1+1+1+0），它变更是被转换**推导**出来的，不是为了让测试变绿而凑的数。
