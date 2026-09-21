@@ -193,7 +193,7 @@ private slots:
     // encodeActiveRequest(0x10) == UnsupportedFunction. The 0x10 encoder now
     // exists, so the frozen negative moved one level up (session still
     // refuses, capability still absent) — see f16_* below and RCA in T022.
-    void e12_writeMultipleRegistersEncodesButIsNotActive();
+    void e12_writeMultipleRegistersEncodesAndSessionAccepts();
 
     // ---- M10-E1: FC16 / 0x10 request encoder ----
     void f16_goldenVectorsAreByteExact();
@@ -206,7 +206,7 @@ private slots:
     void f16_emptyValuesRejected();
     void f16_124ValuesRejected();
     void f16_spanOverflowRejectedAtPrepareLayer();
-    void f16_sessionStillRefuses();
+    void f16_sessionSupportsButCapabilityStaysClosed();
 
     // ---- descriptor contract ----
     void d1_descriptorKeepsIntentFrameAndWire();
@@ -344,16 +344,17 @@ void WriteEncoderTest::e10_wireSizeIsEight()
     QCOMPARE(descriptor->frame.data.size(), std::size_t{4});
 }
 
-void WriteEncoderTest::e12_writeMultipleRegistersEncodesButIsNotActive()
+void WriteEncoderTest::e12_writeMultipleRegistersEncodesAndSessionAccepts()
 {
-    // INTENTIONAL CONTRACT TRANSITION (M10-E1, recorded in T022 §ZE):
-    // the old e12 asserted encodeActiveRequest(0x10) == UnsupportedFunction.
-    // E1 adds the 0x10 request encoder, so "encoder exists" is now YES — but
-    // it is deliberately still NOT a product capability, so the frozen
-    // negatives move up one level and must all stay true:
+    // INTENTIONAL CONTRACT TRANSITION (M10-E2, recorded in T022 §ZG):
+    // e12 has moved twice. It started as "encodeActiveRequest(0x10) ==
+    // UnsupportedFunction"; M10-E1 made the encoder exist while the session
+    // still refused; M10-E2 wires the shared active analyzer, so the SESSION
+    // now accepts 0x10. The frozen negatives moved up again and must all stay
+    // true (asserted in their own suites):
     //   encode 0x10        = YES  (this test)
-    //   session 0x10       = NO   (f16_sessionStillRefuses)
-    //   dispatch 0x10      = NO   (Controller capability check, unchanged)
+    //   session 0x10       = YES  (this test)
+    //   dispatch 0x10      = NO   (write_dispatch r4 / fc10CapabilityStaysFrozen)
     //   product capability = ABSENT (write10Supported has no property)
     //   production UI      = ABSENT (no 0x10 node is ever created)
     const auto encoded =
@@ -363,13 +364,12 @@ void WriteEncoderTest::e12_writeMultipleRegistersEncodesButIsNotActive()
     QCOMPARE(descriptor->frame.functionCode, std::uint8_t{0x10});
     QCOMPARE(descriptor->wire.size(), std::size_t{13}); // 9 + 2*2
 
-    // Session gate unchanged: the request cannot even begin.
-    QVERIFY(!modbuslens::core::activeFunctionSupported(
-        ActiveFunction::WriteMultipleRegisters));
     modbuslens::core::SerialTransactionSession session;
     const auto begin = session.beginActiveRequest(*descriptor);
-    QVERIFY(std::get_if<modbuslens::core::SerialTransactionError>(&begin)
-            != nullptr);
+    QVERIFY(std::get_if<ActiveRequestDescriptor>(&begin) != nullptr);
+    QCOMPARE(session.state(),
+             modbuslens::core::SerialTransactionState::AwaitingResponse);
+    session.cancel();
 }
 
 void WriteEncoderTest::d1_descriptorKeepsIntentFrameAndWire()
@@ -424,13 +424,15 @@ void WriteEncoderTest::s1_encoderSucceedsWhileSessionStillRefuses()
 
 void WriteEncoderTest::s6_sessionRefusesToBeginWriteSingleRegister()
 {
-    // D2 support matrix: 0x03 and 0x06 have active analyzers; 0x10 still has
-    // no encoder and no active support (only a framing-recognition shape).
+    // M10-E2 support matrix: all three functions now have an encoder, an
+    // active analyzer and session support. The negatives this matrix used to
+    // carry for 0x10 moved up a layer (Controller dispatch / write10Supported
+    // in test_write_dispatch, production UI in the main.cpp oracle).
     QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteSingleRegister));
     QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::ReadHoldingRegisters));
-    QVERIFY(!modbuslens::core::activeFunctionSupported(
+    QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteMultipleRegisters));
 }
 
@@ -616,25 +618,37 @@ void WriteEncoderTest::f16_spanOverflowRejectedAtPrepareLayer()
              modbuslens::core::WriteValidationErrorCode::AddressSpanOutOfRange);
 }
 
-void WriteEncoderTest::f16_sessionStillRefuses()
+void WriteEncoderTest::f16_sessionSupportsButCapabilityStaysClosed()
 {
-    // The E1 staging point: an encoder exists, but active support does NOT.
-    // The session must still refuse 0x10 before any send (M10-E2 lands the
-    // active analyzer and opens the gate).
-    QVERIFY(!modbuslens::core::activeFunctionSupported(
+    // INTENTIONAL CONTRACT TRANSITION (M10-E2): the E1 form of this test
+    // asserted the session REFUSED 0x10. The shared analyzer now exists, so
+    // the gate is open and a full 0x10 lifecycle succeeds at the session
+    // layer. The negatives this oracle used to carry moved up a layer and are
+    // asserted in their own suites:
+    //   Controller dispatch 0x10 -> CapabilityUnavailable
+    //       (test_write_dispatch r4_capabilityUnavailableForFc10)
+    //   write10Supported property absent
+    //       (test_write_dispatch fc10CapabilityStaysFrozen)
+    //   no 0x10 production UI  (main.cpp --qml-production-write-check)
+    QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteMultipleRegisters));
 
-    const auto encoded =
-        encodeActiveRequest(writeMultipleIntent(1, 10, {1, 2}));
+    modbuslens::core::SerialTransactionSession session;
+    const auto encoded = encodeActiveRequest(writeMultipleIntent(1, 10, {1, 2}));
     const auto* descriptor = std::get_if<ActiveRequestDescriptor>(&encoded);
     QVERIFY(descriptor != nullptr);
-    modbuslens::core::SerialTransactionSession session;
     const auto begin = session.beginActiveRequest(*descriptor);
-    const auto* error = std::get_if<modbuslens::core::SerialTransactionError>(
-        &begin);
-    QVERIFY(error != nullptr);
-    QCOMPARE(error->code,
-             modbuslens::core::SerialTransactionErrorCode::UnsupportedFunction);
+    QVERIFY(std::get_if<ActiveRequestDescriptor>(&begin) != nullptr);
+    // Hand-built echo for start=0x000A, quantity=2: start(2)+quantity(2)+CRC.
+    // CRC (61 CA) computed independently for the stimulus bytes 01 10 00 0A 00 02.
+    const std::vector<std::uint8_t> echo = {
+        0x01, 0x10, 0x00, 0x0A, 0x00, 0x02, 0x61, 0xCA};
+    const auto result = session.feedResponseBytes(
+        echo, std::chrono::milliseconds{25});
+    const auto* analysis =
+        std::get_if<modbuslens::core::TransactionAnalysis>(&result);
+    QVERIFY(analysis != nullptr);
+    QCOMPARE(analysis->status, modbuslens::core::TransactionStatus::Success);
     QCOMPARE(session.state(), modbuslens::core::SerialTransactionState::Idle);
 }
 

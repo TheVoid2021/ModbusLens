@@ -39,6 +39,7 @@ using modbuslens::core::WriteSingleRegisterIntent;
 using modbuslens::core::activeFunctionCode;
 using modbuslens::core::activeFunctionName;
 using modbuslens::core::encodeActiveRequest;
+using modbuslens::core::encodeWriteMultipleRegistersRequest;
 using modbuslens::core::encodeRtuFrame;
 using modbuslens::core::validateActiveRequestIntent;
 
@@ -269,11 +270,13 @@ void ActiveRequestTest::ac06_writeDescriptorRejectedBeforeSend()
 {
     SerialTransactionSession session;
 
-    // M10-D2 changes this contract on purpose: the 0x06 descriptor is now
+    // M10-D2 changed this contract on purpose: the 0x06 descriptor is now
     // ACCEPTED (the framing rule, the shared echo analyzer and the session
-    // tests exist). The "unsupported function is refused before any send" rule
-    // is therefore asserted with 0x10, which is still refused, so the negative
-    // coverage moves instead of disappearing.
+    // tests exist). M10-E2 extended the same change to 0x10: both write
+    // functions are now accepted by the session, and the "refused before any
+    // send" negative has no session-level carrier left — the remaining
+    // negatives live above the session (Controller capability guard,
+    // write10Supported absence, production UI absence).
     const ActiveRequestDescriptor writeDescriptor{
         .intent = ActiveRequestIntent{
             .function = ActiveFunction::WriteSingleRegister,
@@ -295,26 +298,30 @@ void ActiveRequestTest::ac06_writeDescriptorRejectedBeforeSend()
     session.cancel();
     QCOMPARE(session.state(), SerialTransactionState::Idle);
 
-    // 0x10: still refused at begin, before any send.
-    const ModbusRtuFrame fc10Request{
-        .address = 0x01, .functionCode = 0x10,
-        .data = {0x00, 0x0A, 0x00, 0x01, 0x02, 0x00, 0x64}};
-    const ActiveRequestDescriptor unsupported{
+    // 0x10: M10-E2 wired the shared active analyzer, so the session now
+    // ACCEPTS a 0x10 descriptor too. The "refused before any send" negative
+    // has no session-level carrier left (every ActiveFunction is supported);
+    // the remaining negatives live above the session — the Controller
+    // capability guard and the production oracle. The descriptor is built the
+    // canonical way (production encoder + codec), because the session refuses
+    // a descriptor whose wire does not decode back to its frame.
+    const auto multipleFrame =
+        encodeWriteMultipleRegistersRequest(0x01, 0x000A, {0x0064});
+    const ActiveRequestDescriptor multipleDescriptor{
         .intent = ActiveRequestIntent{
             .function = ActiveFunction::WriteMultipleRegisters,
             .unitId = 0x01,
             .timeout = ms{1000},
             .payload = WriteMultipleRegistersIntent{
                 .startAddress = 0x000A, .values = {0x0064}}},
-        .frame = fc10Request,
-        .wire = encodeRtuFrame(fc10Request),
+        .frame = multipleFrame,
+        .wire = encodeRtuFrame(multipleFrame),
     };
-    const auto start = session.beginActiveRequest(unsupported);
-    const auto error = as<SerialTransactionError>(start);
-    QVERIFY(error.has_value());
-    QCOMPARE(error->code, SerialTransactionErrorCode::UnsupportedFunction);
+    const auto started = session.beginActiveRequest(multipleDescriptor);
+    QVERIFY(std::get_if<ActiveRequestDescriptor>(&started) != nullptr);
+    QCOMPARE(session.state(), SerialTransactionState::AwaitingResponse);
+    session.cancel();
     QCOMPARE(session.state(), SerialTransactionState::Idle);
-    QVERIFY(!session.pendingRequest().has_value());
     QVERIFY(!session.pendingRequest().has_value()); // nothing snapshotted
 }
 

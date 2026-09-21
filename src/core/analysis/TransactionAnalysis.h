@@ -183,4 +183,31 @@ TransactionAnalysis analyzeWriteSingleRegisterTransaction(
     std::chrono::milliseconds elapsed,
     std::chrono::milliseconds timeoutThreshold);
 
+// ---------------------------------------------------------------------------
+// M10-E2: Function 0x10 (Write Multiple Registers) response semantics for a
+// TRUSTED request — the SINGLE implementation of the 0x10 pairing contract,
+// shared by the passive analyzer and by analyzeActiveResponse (mirrors the
+// 0x06 function above; extracted from the passive-only inline block).
+//
+//   · NoResponse            -> Pending / Timeout (elapsed vs threshold);
+//   · CrcMismatch           -> CrcError; FrameTooShort -> ProtocolError;
+//   · decoded frame, other device  -> ProtocolError + ResponseAddressMismatch;
+//   · (fn | 0x80) exception shape  -> Exception + code, or
+//                                     MalformedExceptionResponse;
+//   · 0x10 + 0x10           -> decode both sides, then require an EXACT echo of
+//                              startingAddress and quantity: mismatch is
+//                              ProtocolError + WriteMultipleRegistersEchoMismatch
+//                              (carrying the expected/actual quad), match is
+//                              Success (values are NOT echoed by 0x10);
+//   · any other function    -> ProtocolError + UnexpectedResponseFunction.
+//
+// Passive-only request issues stay in the passive layer, which wraps this —
+// exactly as it does for 0x03/0x06.
+// ---------------------------------------------------------------------------
+TransactionAnalysis analyzeWriteMultipleRegistersTransaction(
+    const ModbusRtuFrame& request,
+    const ResponseObservation& observation,
+    std::chrono::milliseconds elapsed,
+    std::chrono::milliseconds timeoutThreshold);
+
 } // namespace modbuslens::core

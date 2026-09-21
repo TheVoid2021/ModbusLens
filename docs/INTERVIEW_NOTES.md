@@ -985,3 +985,12 @@
 - **Q：quantity 和 byteCount 为什么坚持派生？** A：因为调用方同时提供 values 和 counts 时，两者可能不一致——而 wire 上只能有一种 truth。在 encoder 内部由 values.size() 派生，第二个 count 就根本不存在了。解码侧同理：Function16 的 decoder 要求 byteCount == 2*quantity 且等于实际到达的字节数，三重一致才接受。
 - **Q：golden vector 里为什么专门放一条规范公开示例？** A：F16-G6（11 10 00 01 00 02 04 00 0A 01 02 C6 F0）就是 MODBUS Application Protocol 里 Write Multiple Registers 的示例请求。它让字段布局由**外部文档**佐证，而不是只由我们自己的 decoder 证明我们自己的 encoder——再配上测试侧独立的 bitwise CRC，形成三层互证。
 - **Q：这轮你自己的 bug 是什么？** A：我把 **ADU 偏移**当成了 **frame.data 偏移**来断言。ADU = unit(1)+function(1)+data(5+2N)+CRC(2)，而 frame.data 从 start 开始，所以 values 在 data 里从 offset 5 起。123 寄存器时 data.size()=251、ADU=255。golden 向量（只比较 wire）首轮就全过，错的只是我新测试里的三个偏移常量——产品 encoder 是对的。教训：**语义帧与 ADU 是两个不同的坐标系**，写断言前先明确自己站在哪个坐标系里。
+
+
+## 102. M10-E2（FC16/0x10 共享分析器 + 会话支持）条目（2026-09-21 追加）
+
+- **Q：为什么提取共享分析器是 E2 的核心，而不是直接在 session 里写个 0x10 分支？** A：0x10 的回显比对逻辑在 passive 路径里已经存在（T015 Part C 引入的内联块），如果 active 路径再写一份，仓库里就有两处各自演化——这正是项目纪律 10（三种模式共享核心）在协议层的体现。0x06 早已示范了正确形状：语义比对住在共享核心函数里，passive 只叠加 request-side issues。所以 E2 的实际动作是「提取并复用」，而不是「新增」。
+- **Q：passive 提取后怎么证明行为没变？** A：两层证据。①passive 套件 55 用例全 PASS——这些用例都是提取前写下的，逐字未改；②等价测试（eq1）把同一 request/response pair 分别喂给共享分析器和被动分析器，覆盖 Success/echo 三态/wrong unit/wrong function/exception 七组，断言 status、issue code、payload 四元组完全一致。理论上 passive 包装层在到达 normal 块之前已经处理了 NoResponse/broadcast/wire/unit/exception，所以共享函数里的这些分支对 passive 是冗余但无害的。
+- **Q：0x10 的回显契约和 0x06 有什么本质区别？** A：0x06 回显地址**和值**，所以 mismatch 四元组是 address+value；0x10 只回显起始地址和写入数量，**不回显 values**——所以 mismatch 四元组是 address+quantity。这意味着 0x10 的响应永远无法证明「设备收到的值与发送的值一致」，只能证明「它确认了同样的地址范围」——这是协议本身的限制，不是实现的偷工。
+- **Q：门（activeFunctionSupported）打开后，为什么 Controller 不会自动开始发 0x10？** A：因为 Controller 的能力守卫是显式的：它要求 intent.function == WriteSingleRegister 且 kProductWrite06Supported，与 session gate 是两个独立层次。E2 只打开了下面那层（session），上面的 Controller 层仍只认 0x06——这由 r4 与 fc10CapabilityStaysFrozen 两个 oracle 在本轮实测锁定（attempt=0/send=0）。分层打开、逐层验证，正是分阶段评审的意义。
+- **Q：partial response 的分类为什么不用设计文档硬编码？** A：因为「几字节算 FrameTooShort、几字节算 CRC 失败」是由 codec 对候选帧的判定规则决定的（7 字节已足以承载 CRC 字段，只是值不匹配；6 字节则连 CRC 都凑不齐）。FC06 套件已经记录了这套真实规则（p1→FrameTooShort、m1→CrcError、p3→CrcError），0x10 的正常响应同为 8 字节 ADU，规则应完全一致——测试照抄 FC06 的形状后全数通过，证明共享分帧逻辑确实被复用了。

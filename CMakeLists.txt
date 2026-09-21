@@ -427,6 +427,19 @@ if(BUILD_TESTING)
 
     add_test(NAME fc06_active COMMAND modbuslens_fc06_active_tests)
 
+    # M10-E2: the FC16/0x10 ACTIVE response suite (shared analyzer, framing,
+    # error classes, single in-flight, support matrix). Kept as its own target
+    # so the FC06 suite stays readable.
+    add_executable(modbuslens_fc16_active_tests tests/test_fc16_active.cpp)
+    target_link_libraries(modbuslens_fc16_active_tests PRIVATE
+        modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_fc16_active_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME fc16_active COMMAND modbuslens_fc16_active_tests)
+
     # M10-A: Active Master contract foundation over the REAL controller with a
     # deterministic RECORDING transport (TA1-TA9): send counts, exact ADU
     # oracle, controlled completion timing, transmission disposition, wire

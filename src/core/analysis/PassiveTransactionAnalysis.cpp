@@ -1,5 +1,7 @@
 #include "core/analysis/PassiveTransactionAnalysis.h"
 
+#include "core/analysis/TransactionAnalysis.h"
+
 #include "core/protocol/Function03.h"
 #include "core/protocol/Function06.h"
 #include "core/protocol/Function16.h"
@@ -314,43 +316,17 @@ PassiveObservedTransactionResult analyzeObservedTransaction(
 
     if (request.functionCode == kWriteMultipleRegistersFunction
         && response.functionCode == kWriteMultipleRegistersFunction) {
-        // Function 0x10 normal semantics (T015 Part C). Format errors stay
-        // MalformedNormalResponse; a well-formed reply whose start address or
-        // written quantity disagrees with the request is an ECHO-CONTRACT
-        // mismatch, never a malformed reply.
-        const auto responseDecode = decodeWriteMultipleRegistersResponse(response);
-        if (std::holds_alternative<Function16DecodeError>(responseDecode)) {
-            return analyzed(
-                TransactionStatus::ProtocolError, elapsed, std::nullopt,
-                makeIssue(TransactionIssueCode::MalformedNormalResponse),
-                requestIssues);
-        }
-        const auto requestFields = readWriteMultipleRegistersFields(request);
-        if (!requestFields.has_value()) {
-            // Request header not readable: no echo comparison possible.
-            return analyzed(
-                TransactionStatus::ProtocolError, elapsed, std::nullopt,
-                makeIssue(TransactionIssueCode::UnknownProtocolError),
-                requestIssues);
-        }
-        const auto& responseModel =
-            std::get<WriteMultipleRegistersResponse>(responseDecode);
-        if (requestFields->startingAddress != responseModel.startingAddress
-            || requestFields->quantity != responseModel.quantityWritten) {
-            auto issue = makeIssue(
-                TransactionIssueCode::WriteMultipleRegistersEchoMismatch);
-            issue.expectedRegisterAddress = requestFields->startingAddress;
-            issue.actualRegisterAddress = responseModel.startingAddress;
-            issue.expectedQuantity = requestFields->quantity;
-            issue.actualQuantity = responseModel.quantityWritten;
-            return analyzed(TransactionStatus::ProtocolError, elapsed,
-                            std::nullopt, std::move(issue), requestIssues);
-        }
-        // Orthogonality: a matching normal reply is Success even when the
-        // request carried invalid semantics — those facts ride in
-        // requestIssues, never in the response-side status.
-        return analyzed(TransactionStatus::Success, elapsed, std::nullopt,
-                        std::nullopt, requestIssues);
+        // M10-E2: the whole 0x10 response contract (decode, exact echo of
+        // starting address AND written quantity, issue payload quad) now lives
+        // in ONE shared core function that the active path also calls, so a
+        // second comparison cannot exist. Only the passive-specific
+        // request-issue layer is added here — the response semantics are not
+        // duplicated. (Extracted from the inline block that T015 Part C
+        // introduced; behaviour is preserved byte-for-byte / issue-for-issue.)
+        return analyzed(
+            analyzeWriteMultipleRegistersTransaction(request, observation,
+                                                     elapsed, timeoutThreshold),
+            elapsed, requestIssues);
     }
 
     // 6. The response answers the request function, but ModbusLens has no

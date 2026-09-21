@@ -1776,9 +1776,11 @@ AnalysisController::confirmAndDispatchPreparedWrite(std::uint64_t token)
     }
 
     // Capability guard: the prepared FUNCTION must have a real end-to-end
-    // dispatch path in this build. A prepared 0x10 snapshot never does (no
-    // encoder, no session support), so it lands here and is invalidated with
-    // CapabilityUnavailable — zero consume, zero encode, zero transport call.
+    // dispatch path in this build. M10-E1 gave 0x10 a request encoder and
+    // M10-E2 gave it session support, but the dispatch path itself is still
+    // 0x06-only (M10-E3 owns the capability layer), so a prepared 0x10
+    // snapshot lands here and is invalidated with CapabilityUnavailable —
+    // zero consume, zero encode, zero transport call.
     //
     // kProductWrite06Supported participates on purpose: it is the same single
     // source of truth the product property exposes, so the claim and the

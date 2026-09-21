@@ -673,25 +673,12 @@ void Fc06ActiveTest::sup1_supportMatrix()
     // 0x06: encoder + session support (D2), but NO product capability.
     QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteSingleRegister));
-    // 0x10: recognition only — no active support (M10-E1 added the request
-    // ENCODER, but the session gate still refuses it, so nothing can be sent).
-    QVERIFY(!modbuslens::core::activeFunctionSupported(
+    // 0x10: M10-E2 wired the shared active analyzer, so the session gate is
+    // open. The negatives this matrix used to carry moved up a layer and are
+    // asserted in their own suites (Controller dispatch / write10Supported in
+    // test_write_dispatch, production UI in the main.cpp oracle).
+    QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteMultipleRegisters));
-    const auto encoded = encodeActiveRequest(ActiveRequestIntent{
-        .function = ActiveFunction::WriteMultipleRegisters,
-        .unitId = kUnit,
-        .timeout = kTimeout,
-        .payload = modbuslens::core::WriteMultipleRegistersIntent{
-            .startAddress = 0, .values = {1}}});
-    // M10-E1 INTENTIONAL TRANSITION: the encoder now yields a descriptor; the
-    // frozen negative is the SESSION gate below, not the encoder.
-    const auto* descriptor =
-        std::get_if<modbuslens::core::ActiveRequestDescriptor>(&encoded);
-    QVERIFY(descriptor != nullptr);
-    QCOMPARE(descriptor->frame.functionCode, std::uint8_t{0x10});
-    SerialTransactionSession session;
-    const auto begin = session.beginActiveRequest(*descriptor);
-    QVERIFY(std::get_if<SerialTransactionError>(&begin) != nullptr);
 }
 
 QTEST_GUILESS_MAIN(Fc06ActiveTest)

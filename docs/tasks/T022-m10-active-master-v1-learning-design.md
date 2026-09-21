@@ -1,8 +1,8 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E1 review correction 后）：M10-D = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E Phase 1 design = PASS；M10-E1 = 已实现（Review 曾 HOLD：golden vector ID / provenance 不一致，已按 §ZH 更正）= AWAITING RE-REVIEW；M10-E2+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
+> **状态（M10-E2 实现后）：M10-E1 = ✅ COMPLETE（Re-review PASS）；M10 overall = IN PROGRESS；**M10-E2 = 已实现（shared FC16 analyzer + active session response support），AWAITING REVIEW；M10-E3+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
-> 能力终态：0x03 与 0x06 = encoder + session + Controller dispatch + production UI；**0x10 = passive decode + validation + framing + request encoder（M10-E1 新增）= YES；active analyzer / session gate / Controller dispatch / `write10Supported` / production UI 仍 ABSENT**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E1 Review → M10-E2（非 M11）。**
+> 能力终态：0x03 与 0x06 = encoder + session + dispatch + UI；**0x10 = encoder + 共享 analyzer + session lifecycle（M10-E2 新增）= YES；Controller dispatch / `write10Supported` / production UI 仍 ABSENT**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E2 Review → M10-E3（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
@@ -7998,4 +7998,153 @@ commit：`M10-E1: correct FC16 golden vector identity and provenance`
   （独立；不 amend 1514291；不 rebase；不 push；不 tag）
 状态：M10-E1 = **AWAITING RE-REVIEW**；M10-E2+ = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD
 verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）
+```
+
+## M10-E2 — FC16/0x10 Shared Transaction Analyzer / Active Session Response Support（2026-09-21，behavior-bearing）
+
+> **M10-E1 Re-review = PASS ⇒ M10-E1 = COMPLETE ⇒ M10-E2 = GO。**
+> 范围（§0）：**只做** ①提取共享 FC16/0x10 transaction analyzer ②passive/active 复用同一语义核心
+> ③0x10 纳入 SerialTransactionSession active response lifecycle ④完成后 `activeFunctionSupported(0x10)=true`。
+> **未做**（并已实测证明）：Controller dispatch / `write10Supported` / production 0x10 UI /
+> write confirmation UX 改动 / M10-E3/E4 / M11。
+
+### ZG0. E1 归档与 RED fingerprint（§1 / §3 / §4）
+
+```text
+E1 Re-review = PASS（golden vector identity / provenance 更正已确认）；E1 = COMPLETE。
+实现前基线（实测）：
+  R1 analyzeWriteMultipleRegistersTransaction 在 src/ 内 = ABSENT（grep 实证）
+  R2 activeFunctionSupported(0x10) = false（write_encoder f16_sessionStillRefuses / fc06_active sup1 PASS）
+  R3 合法 0x10 request 无法经 session 完成 Success lifecycle（session refused）
+  R4 Controller 拒绝 prepared 0x10（write_dispatch r4 / fc10CapabilityStaysFrozen PASS）
+  R5 production 0x10 absent（--qml-production-write-check exit 0）
+```
+
+### ZG1. 共享 analyzer 提取（§5 / §6）
+
+```text
+提取前：0x10 的回显比对（start + quantity）内联在
+  PassiveTransactionAnalysis.cpp::analyzeObservedTransaction 的 normal-semantics 区块（T015 Part C 引入）；
+  而 0x06 的等价逻辑早已在共享核心 analyzeWriteSingleRegisterTransaction（passive/active 共用）。
+提取后：TransactionAnalysis.{h,cpp} 新增
+  TransactionAnalysis analyzeWriteMultipleRegistersTransaction(
+      const ModbusRtuFrame& request, const ResponseObservation& observation,
+      ms elapsed, ms timeoutThreshold);
+  结构与 0x06 镜像：NoResponse → Pending/Timeout；CrcMismatch → CrcError；
+  FrameTooShort → ProtocolError+ResponseFrameTooShort；other device → ResponseAddressMismatch；
+  (fn|0x80) → Exception/MalformedExceptionResponse；
+  0x10+0x10 → 双方解码 + EXACT echo（startingAddress AND quantity）→
+     mismatch = ProtocolError+WriteMultipleRegistersEchoMismatch（expected/actual 四元组），
+     match = Success（0x10 不回显 values）；
+  other function → ProtocolError+UnexpectedResponseFunction。
+passive 侧：原内联块替换为「调共享函数 + 叠加 passive-only requestIssues」——
+  与 0x06 的包装方式完全一致。**不存在第二套 0x10 协议事实 authority。**
+```
+
+### ZG2. Passive 语义保持（§6）
+
+```text
+passive 包装层（NoResponse/broadcast/wire/unit/exception 的通用前置）不变；
+normal 块改调共享函数后，0x10 的四种 normal 结果
+  （MalformedNormalResponse / UnknownProtocolError / EchoMismatch / Success）
+与 requestIssues 的叠加方式逐字保持 —— passive 全量 55 用例 PASS，无行为漂移。
+```
+
+### ZG3. Session 接线与支持矩阵（§15 / §16 / §21）
+
+```text
+SerialTransactionSession.cpp：
+  · activeFunctionSupported 增加 WriteMultipleRegisters（注释写明开放依据：
+    M10-E1 encoder + M10-E2 shared analyzer + lifecycle tests；并写明仍非 product capability）
+  · analyzeActiveResponse 的 0x10 case 由「defensive break」改为调用共享 analyzer；
+    尾部 defensive UnknownProtocolError 分支保留（枚举未来新增时的纪律）。
+single in-flight：mixed function 亦适用 —— fc16_active::if1（0x10 pending 时第二个 0x10 被
+  拒）/ if2（0x06 pending 时 0x10 被拒且 pending 不被取代）。
+```
+
+### ZG4. 活跃响应矩阵实测（§17）
+
+```text
+（test_fc16_active，23 用例，真实会话驱动：begin → feedResponseBytes / onResponseTimeout）
+matching echo            → Success（start+quantity 精确回显；values 不参与比较）
+exception 0x90           → Exception + code，且**无** echo mismatch issue（正交）
+bad CRC                  → CrcError（payload 看似正确 echo 也不进入 Success）
+wrong unit (0x22)        → ProtocolError + ResponseAddressMismatch（expected/actual address）
+start mismatch           → ProtocolError + WriteMultipleRegistersEchoMismatch
+quantity mismatch        → ProtocolError + WriteMultipleRegistersEchoMismatch
+both mismatch            → ProtocolError + WriteMultipleRegistersEchoMismatch
+wrong function 0x06/0x03 → ProtocolError + UnexpectedResponseFunction（携带 actualFunctionCode）
+no bytes → timeout       → Timeout
+partial 1B → timeout     → ProtocolError + ResponseFrameTooShort
+partial 7B → timeout     → CrcError（足以承载 CRC 字段但不匹配）
+overlong 9B              → 永不静默截断；exact-boundary 规则保持；MalformedNormalResponse
+malformed 6B             → CrcError
+fragmentation byte-by-byte → Success
+```
+
+### ZG5. 活跃/被动等价（§18）
+
+```text
+eq1：同一 request/response pair 分别经
+  analyzeWriteMultipleRegistersTransaction（共享）与 analyzeObservedTransaction（passive）
+  覆盖 7 组：Success / start mismatch / quantity mismatch / both mismatch /
+  wrong unit / wrong function / exception —— status、issue code、payload 全一致。
+（允许差异仅为 source kind / session metadata / passive-only requestIssues —— 本轮无差异。）
+```
+
+### ZG6. 下层 negative 全部保持（§22–§26）
+
+```text
+· Controller dispatch：analysisController.cpp 的 capability guard 仍只接受
+  WriteSingleRegister（且要求 kProductWrite06Supported）⇒ prepared 0x10 dispatch 仍
+  CapabilityUnavailable、attempt=0、send=0（r4 + fc10CapabilityStaysFrozen 双 oracle，均 PASS）。
+  fc10CapabilityStaysFrozen 已按 intentional transition 更新：gate=true 断言 + property 缺席 +
+  dispatch 拒绝三合一。
+· write10Supported：仍 ABSENT（全仓 4 处出现，全为断言缺席）。
+· production UI：--qml-production-write-check PASS（0x10 从不创建）。
+· transport taxonomy：TransportDisposition / NotSent / PossiblySent / ShortSubmission /
+  TransportError / DisconnectedAfterSubmission 未改 —— 0x10 自动复用 generic lifecycle。
+· issue taxonomy：14 个 public issue code 不变；无新增。
+· simulator：未改；writable 0x10 语义仅回归。
+```
+
+### ZG7. Intentional support-matrix transition（§27）
+
+```text
+旧断言 activeFunctionSupported(0x10) = false 存在于 4 处，全部按 transition 改写（无删除）：
+  1) test_write_encoder.cpp f16_sessionStillRefuses → f16_sessionSupportsButCapabilityStaysClosed
+     （gate true + 0x10 Success lifecycle；negative 指向 dispatch/capability/UI 三处）
+  2) test_write_encoder.cpp e12 → e12_writeMultipleRegistersEncodesAndSessionAccepts
+  3) test_fc06_active.cpp sup1_supportMatrix（0x10 行改为 true）
+  4) test_write_dispatch.cpp fc10CapabilityStaysFrozen（gate true + property 缺席 + dispatch 拒绝）
+转移后的下一层 negative：
+  Controller dispatch = closed（write_dispatch r4 + fc10）/ write10Supported = absent（同前）/
+  production UI = absent（main.cpp oracle）。
+```
+
+### ZG8. 门禁 / warnings 口径 / Git（§28–§32）
+
+```text
+targeted（真实 Totals）：fc16_active 23（新增套件）/ write_encoder 30 / write_prepare 48 /
+  write_dispatch 44 / active_request 17 / fc06_active 31 / passive 55 —— 全 PASS
+真实 CTest：Debug **36/36**、Release **36/36**（35 + 新增 fc16_active 目标 = 36；未预写数量）
+QML 负向回归：本轮 0 QML 改动；production 0x10 absence oracle 在全量内保持 PASS
+warnings：**0 NEW；5 PRE-EXISTING（main.cpp:2496/2498/4596/9902/10140）**。
+  说明：本轮刻意刷新 main.cpp mtime 强制重编 warning-bearing TU，Debug 与 Release 均
+  实测同 5 条；Release 构建日志中另有 7 条 CMake/Qt6 基础设施 notice
+  （find_dependency / Qt6CoreMacros dev policy），非本项目代码的编译诊断，不计入。
+ISSUE-014：PRE-EXISTING NON-BLOCKING（未顺手修）
+Files：CMakeLists.txt（新增 fc16_active 目标）· src/core/analysis/TransactionAnalysis.{h,cpp} ·
+  src/core/analysis/PassiveTransactionAnalysis.cpp · src/core/serial/SerialTransactionSession.cpp ·
+  src/ui/AnalysisController.cpp（仅注释）· tests/test_fc16_active.cpp（新）·
+  tests/test_write_encoder.cpp · tests/test_fc06_active.cpp · tests/test_write_dispatch.cpp ·
+  tests/test_active_request.cpp + docs
+RCA（本轮踩坑）：测试初次编写时 3 处「对 beginActiveRequest 返回的临时值取地址」
+  （rvalue-address，与 D3 同款）与 1 处把语义 frame 与 ADU wire 混用 —— 均为测试作者错误，
+  产品代码正确；另 ac06 的手写 descriptor 因 wire 为空被 descriptorIsConsistent 正确拒绝，
+  改为以 production encoder + codec 构建标准 descriptor（这本身验证了该防漂移守卫有效）。
+commit：`M10-E2: add shared FC16 active response support`（独立；不 amend；不 rebase；不 push；不 tag）
+状态：M10-E1 = COMPLETE；**M10-E2 = AWAITING REVIEW**；M10-E3 = NOT STARTED；
+  M10 overall = IN PROGRESS；M11 = HOLD。
+verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
 ```

@@ -1,6 +1,7 @@
 #include "core/analysis/TransactionAnalysis.h"
 
 #include "core/protocol/Function06.h"
+#include "core/protocol/Function16.h"
 
 namespace modbuslens::core {
 
@@ -283,6 +284,106 @@ TransactionAnalysis analyzeWriteSingleRegisterTransaction(
     // 6. Any other function code cannot answer this request. The expected
     //    codes {0x06, 0x86} are derivable from the request, so only the actual
     //    code is carried.
+    auto issue = makeIssue(TransactionIssueCode::UnexpectedResponseFunction);
+    issue.actualFunctionCode = response.functionCode;
+    return makeProtocolError(elapsed, std::move(issue));
+}
+
+// ---------------------------------------------------------------------------
+// M10-E2: Function 0x10 pairing contract — the single implementation shared by
+// the passive analyzer and analyzeActiveResponse. Structure mirrors the 0x06
+// function above; the echo contract differs (0x10 echoes starting address and
+// quantity, never the values).
+// ---------------------------------------------------------------------------
+TransactionAnalysis analyzeWriteMultipleRegistersTransaction(
+    const ModbusRtuFrame& request,
+    const ResponseObservation& observation,
+    std::chrono::milliseconds elapsed,
+    std::chrono::milliseconds timeoutThreshold)
+{
+    // 1. NoResponse: pending below the threshold, timeout at/above it.
+    if (std::holds_alternative<NoResponse>(observation)) {
+        if (elapsed < timeoutThreshold) {
+            return makeAnalysis(TransactionStatus::Pending, elapsed);
+        }
+        return makeAnalysis(TransactionStatus::Timeout, elapsed);
+    }
+
+    // 2. Wire-level failure (identical to the shared FC03/FC06 policy).
+    if (auto* decodeError = std::get_if<RtuDecodeError>(&observation)) {
+        switch (decodeError->code) {
+        case RtuDecodeErrorCode::CrcMismatch:
+            return makeAnalysis(TransactionStatus::CrcError, elapsed);
+        case RtuDecodeErrorCode::FrameTooShort:
+            return makeProtocolError(
+                elapsed, makeIssue(TransactionIssueCode::ResponseFrameTooShort));
+        }
+        return makeProtocolError(
+            elapsed, makeIssue(TransactionIssueCode::UnknownProtocolError));
+    }
+
+    // 3. A decoded frame: the pairing gates come before any interpretation.
+    const auto& response = std::get<ModbusRtuFrame>(observation);
+
+    if (response.address != request.address) {
+        // Another device's reply can never be this transaction's result. A
+        // UNIT fact must never be confused with a start/quantity echo mismatch.
+        auto issue = makeIssue(TransactionIssueCode::ResponseAddressMismatch);
+        issue.expectedAddress = request.address;
+        issue.actualAddress = response.address;
+        return makeProtocolError(elapsed, std::move(issue));
+    }
+
+    // 4. Generic exception path — 0x10's exception form is 0x90.
+    const bool requestHasExceptionBit = (request.functionCode & 0x80) != 0;
+    if (!requestHasExceptionBit
+        && response.functionCode
+               == static_cast<std::uint8_t>(request.functionCode | 0x80)) {
+        if (response.data.size() != 1) {
+            return makeProtocolError(
+                elapsed,
+                makeIssue(TransactionIssueCode::MalformedExceptionResponse));
+        }
+        return makeAnalysis(TransactionStatus::Exception, elapsed,
+                            response.data[0]);
+    }
+
+    if (response.functionCode == request.functionCode) {
+        // 5. The 0x10 normal contract: decode both sides, then require an
+        //    EXACT echo of the starting address AND the written quantity. The
+        //    VALUES are not echoed by 0x10, so they cannot take part in the
+        //    comparison. A mismatch is an echo-contract violation (not a
+        //    malformed reply) and carries the expected/actual quad.
+        const auto responseDecode = decodeWriteMultipleRegistersResponse(response);
+        if (std::holds_alternative<Function16DecodeError>(responseDecode)) {
+            return makeProtocolError(
+                elapsed,
+                makeIssue(TransactionIssueCode::MalformedNormalResponse));
+        }
+        const auto requestFields = readWriteMultipleRegistersFields(request);
+        if (!requestFields.has_value()) {
+            // The request contract says it is trustworthy; a header that does
+            // not even read is a defensive mapping with no finer fact.
+            return makeProtocolError(
+                elapsed, makeIssue(TransactionIssueCode::UnknownProtocolError));
+        }
+        const auto& responseModel =
+            std::get<WriteMultipleRegistersResponse>(responseDecode);
+        if (requestFields->startingAddress != responseModel.startingAddress
+            || requestFields->quantity != responseModel.quantityWritten) {
+            auto issue = makeIssue(
+                TransactionIssueCode::WriteMultipleRegistersEchoMismatch);
+            issue.expectedRegisterAddress = requestFields->startingAddress;
+            issue.actualRegisterAddress = responseModel.startingAddress;
+            issue.expectedQuantity = requestFields->quantity;
+            issue.actualQuantity = responseModel.quantityWritten;
+            return makeProtocolError(elapsed, std::move(issue));
+        }
+        return makeAnalysis(TransactionStatus::Success, elapsed);
+    }
+
+    // 6. Any other function code cannot answer this request. The expected
+    //    codes {0x10, 0x90} are derivable from the request.
     auto issue = makeIssue(TransactionIssueCode::UnexpectedResponseFunction);
     issue.actualFunctionCode = response.functionCode;
     return makeProtocolError(elapsed, std::move(issue));

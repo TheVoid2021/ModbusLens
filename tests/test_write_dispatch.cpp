@@ -1041,31 +1041,27 @@ void WriteDispatchTest::hiddenConfirmSeamStillDispatchesNothing()
 
 void WriteDispatchTest::fc10CapabilityStaysFrozen()
 {
-    // M10-E1 changes ONE thing about 0x10: the request ENCODER now exists, so
-    // this test no longer asserts UnsupportedFunction at the encode step.
-    // Everything that actually gates dispatch stays frozen: no active
-    // session support, no Controller dispatch, no product capability, no
-    // production UI. Only the response-shape recognition rule existed before.
-    QVERIFY(!modbuslens::core::activeFunctionSupported(
+    // M10-E2 opens the SESSION gate for 0x10 (the shared active analyzer now
+    // exists), so this oracle no longer asserts activeFunctionSupported ==
+    // false. What it protects is the LAYER BELOW the session: the Controller
+    // must still refuse to dispatch a prepared 0x10, and no product
+    // capability property may appear. Those are the E3 layers.
+    QVERIFY(modbuslens::core::activeFunctionSupported(
         ActiveFunction::WriteMultipleRegisters));
-    const auto encoded = encodeActiveRequest(ActiveRequestIntent{
-        .function = ActiveFunction::WriteMultipleRegisters,
-        .unitId = kUnit,
-        .timeout = ms{kTimeoutMs},
-        .payload = modbuslens::core::WriteMultipleRegistersIntent{
-            .startAddress = kAddress, .values = {1, 2}}});
-    // M10-E1 INTENTIONAL TRANSITION: a descriptor is produced now; the frozen
-    // negatives are the session gate above and the Controller capability check
-    // below (r4_capabilityUnavailableForFc10 still covers the dispatch path).
-    const auto* descriptor =
-        std::get_if<ActiveRequestDescriptor>(&encoded);
-    QVERIFY(descriptor != nullptr);
-    QCOMPARE(descriptor->frame.functionCode, std::uint8_t{0x10});
 
-    // No write10Supported property exists either: 0x10 has no product
-    // capability to report.
+    // No write10Supported property exists: 0x10 has no product capability to
+    // report.
     Session s;
     QCOMPARE(s.controller.metaObject()->indexOfProperty("write10Supported"), -1);
+
+    // And a prepared 0x10 dispatch is still refused with zero transport work
+    // (the same frozen rejection r4_capabilityUnavailableForFc10 asserts).
+    const auto token = s.prepare10();
+    QVERIFY(token != 0);
+    const auto result = s.controller.confirmAndDispatchPreparedWrite(token);
+    QVERIFY(isGuardRejected(result, ConfirmRejectReason::CapabilityUnavailable));
+    QCOMPARE(s.transport.startAttemptCount(), 0);
+    QCOMPARE(s.transport.sendCount(), 0);
 }
 
 // ---------------------------------------------------------------------------

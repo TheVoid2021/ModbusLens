@@ -52,12 +52,21 @@ bool descriptorIsConsistent(const ActiveRequestDescriptor& request)
 
 bool activeFunctionSupported(ActiveFunction function)
 {
-    // M10-D2: two active analyzers are wired — Function 0x03 and Function 0x06
-    // (its framing rule, shared echo analyzer and session tests all exist).
-    // 0x10 remains refused before any send: it has a response-shape
-    // RECOGNITION rule for framing, but no encoder and no active analyzer.
+    // M10-A wired 0x03; M10-D2 wired 0x06; M10-E2 wires 0x10.
+    //
+    // 0x10 now has a request encoder (M10-E1) AND a shared active response
+    // analyzer (analyzeWriteMultipleRegistersTransaction, extracted from the
+    // passive path so both paths share one pairing contract), with its
+    // session lifecycle covered by test_fc16_active. That is why the gate
+    // opens HERE — and only here.
+    //
+    // This is still not a product capability: the Controller's atomic
+    // dispatch path admits WriteSingleRegister only, write10Supported does
+    // not exist, and no 0x10 production UI is instantiated. Those are the
+    // M10-E3/E4 layers.
     return function == ActiveFunction::ReadHoldingRegisters
-           || function == ActiveFunction::WriteSingleRegister;
+           || function == ActiveFunction::WriteSingleRegister
+           || function == ActiveFunction::WriteMultipleRegisters;
 }
 
 SerialStartResult SerialTransactionSession::beginActiveRequest(
@@ -288,13 +297,21 @@ TransactionAnalysis analyzeActiveResponse(
         return analyzeWriteSingleRegisterTransaction(
             request.frame, observation, elapsed, timeoutThreshold);
     case ActiveFunction::WriteMultipleRegisters:
-        // Unreachable: beginActiveRequest refuses unsupported functions
-        // before any send. Kept as a deterministic defensive branch (the same
-        // discipline as TransactionIssueCode::UnknownProtocolError) instead
-        // of inventing a verdict for a function nobody can send yet.
-        break;
+        // M10-E2: the active 0x10 path reuses the SAME core analyzer the
+        // passive path uses (analyzeWriteMultipleRegistersTransaction,
+        // extracted from the passive-only inline block), with the send-time
+        // request frame as the trusted request. Response validation (unit,
+        // function, start/quantity echo, CRC, exception, timeout) is complete
+        // and identical on both paths. This is still not a product
+        // capability: the Controller's dispatch guard admits 0x06 only.
+        return analyzeWriteMultipleRegistersTransaction(
+            request.frame, observation, elapsed, timeoutThreshold);
     }
 
+    // Defensive tail: unreachable while every ActiveFunction enumerator has a
+    // case above (kept deliberately, the same discipline as
+    // TransactionIssueCode::UnknownProtocolError, so a future function added
+    // to the enum without an analyzer can never invent a verdict).
     TransactionIssue defensiveIssue{};
     defensiveIssue.code = TransactionIssueCode::UnknownProtocolError;
     return TransactionAnalysis{
