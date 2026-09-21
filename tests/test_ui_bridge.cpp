@@ -180,7 +180,7 @@ private slots:
     // position after ExpectedNoResponse), never just its side-actions.
     void t05_baselineRequestIssueFindingVisible();
     // ---- M10-D1 staging: product capability is still ABSENT ----
-    void d1_productWriteCapabilityNotExposedYet();
+    void d3_productWriteCapabilityExposedForFc06Only();
     void d1_typedPrepareApiStillAuthoritative();
 };
 
@@ -1626,15 +1626,30 @@ void UiBridgeTest::t05_baselineRequestIssueFindingVisible()
 
 } // namespace
 
-void UiBridgeTest::d1_productWriteCapabilityNotExposedYet()
+void UiBridgeTest::d3_productWriteCapabilityExposedForFc06Only()
 {
-    // M10-D1 ships an ENCODER, not a product capability. The product-level
-    // property must not exist yet: it may only appear once the whole path
-    // (encoder + response lifecycle + controller dispatch + evidence) really
-    // exists, and it must never be faked for a test.
+    // EXPLICIT CONTRACT CHANGE (M10-D3, archived in T022 §W).
+    //
+    // M10-D1/D2 staged "no product capability yet": the encoder existed but the
+    // whole path did not, so `write06Supported` was deliberately absent and
+    // asserted absent here. M10-D3 delivers the remaining pieces — the atomic
+    // Controller confirm+dispatch, the evidence integration — so the
+    // product-level property now EXISTS and is true. The old assertion is
+    // therefore obsolete by design, not silenced.
+    //
+    // Negative coverage is NOT dropped, it MOVES to 0x10: there is still no
+    // write10Supported, no 0x10 encoder and no 0x10 dispatch.
     AnalysisController controller;
-    QVERIFY(controller.metaObject()->indexOfProperty("write06Supported") < 0);
+    const int index = controller.metaObject()->indexOfProperty("write06Supported");
+    QVERIFY(index >= 0);
+    QVERIFY(controller.write06Supported());
+
+    // The superseded name stays absent: "available" would suggest a runtime
+    // availability flag that moves with connection/busy state, which is a
+    // different question from a structural product capability.
     QVERIFY(controller.metaObject()->indexOfProperty("write06Available") < 0);
+    // 0x10 remains a non-capability.
+    QVERIFY(controller.metaObject()->indexOfProperty("write10Supported") < 0);
 }
 
 void UiBridgeTest::d1_typedPrepareApiStillAuthoritative()

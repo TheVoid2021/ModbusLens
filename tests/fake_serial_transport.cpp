@@ -96,6 +96,19 @@ modbuslens::core::ActiveStartResult RecordingSerialTransport::startActiveRequest
         return lastStart_;
     }
 
+    // Explicit ZERO-ACCEPT (M10-D3): the attempt really happened, but the
+    // transport API accepted none of the ADU. No pending request, no send
+    // count, no ADU log entry and NO terminal — a terminal is the evidence of
+    // a PARTIAL handover, while zero accepted bytes is provably clean, so the
+    // honest disposition is NotSent. This is the deterministic counterpart of
+    // "guards PASS, confirmation consumed, transport called, yet nothing
+    // entered the transmission lifecycle".
+    if (submissionAcceptedBytes_.has_value() && *submissionAcceptedBytes_ == 0) {
+        lastStart_ = ActiveStartResult{false, TransportDisposition::NotSent, std::nullopt};
+        emit transportError(QStringLiteral("串口请求未被接受：0 字节"));
+        return lastStart_;
+    }
+
     // Configurable short submission: mirrors the production adapter's
     // short-write branch — the transport API accepts only PART of the ADU.
     if (submissionAcceptedBytes_.has_value()

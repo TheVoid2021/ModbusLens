@@ -110,10 +110,11 @@ ActiveRequestEncodeResult encodeActiveRequest(const ActiveRequestIntent& intent)
     }
     case ActiveFunction::WriteSingleRegister: {
         // M10-D1: the 0x06 ENCODER exists (semantic frame from Function06,
-        // CRC/wire from the codec). An encoder is not a capability: the
-        // session still refuses to begin an active 0x06 transaction
-        // (activeFunctionSupported stays false until M10-D2 lands the response
-        // lifecycle), so nothing can send these bytes yet.
+        // CRC/wire from the codec). An encoder is still not a product
+        // capability: the session gate opened in M10-D2, and whether a write
+        // may actually be dispatched is decided by the Controller's atomic
+        // confirmAndDispatchPreparedWrite (M10-D3) — encoding here decides
+        // nothing on its own.
         const auto& payload = std::get<WriteSingleRegisterIntent>(intent.payload);
         const auto frame = encodeWriteSingleRegisterRequest(
             intent.unitId, payload.registerAddress, payload.value);

@@ -9344,9 +9344,12 @@ int main(int argc, char *argv[])
     // M10-C2: the ONLY switch that decides whether the hidden write foundation
     // is instantiated. It answers exactly one question — "does this run load
     // the hidden UI foundation for testing?" — and it is NEVER a capability
-    // signal: 0x06 / 0x10 still have no encoder and no dispatch path, in every
-    // mode. Normal production leaves it false, so no write control exists at
-    // all; only the dedicated harness mode turns it on.
+    // signal. As of M10-D3 the 0x06 encoder and the Controller's atomic
+    // dispatch DO exist, yet the production Write UI stays hidden regardless:
+    // this flag is orthogonal to write06Supported, and the production Confirm
+    // button is still confirmation-only until M10-D4. 0x10 has no encoder and
+    // no dispatch path at all. Normal production leaves this false, so no write
+    // control exists at all; only the dedicated harness mode turns it on.
     engine.rootContext()->setContextProperty(
         QStringLiteral("writeFoundationVisible"),
         app.arguments().contains(QStringLiteral("--qml-write-foundation-check")));

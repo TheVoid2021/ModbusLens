@@ -2,12 +2,14 @@
 
 #include "core/analysis/TransactionStatistics.h"
 #include "core/active/WriteDraftParsing.h"
+#include "core/active/ProductWriteCapability.h"
 #include "core/protocol/Function03.h"
 #include "core/protocol/ModbusRtuCodec.h"
 #include "core/replay/ReplayAnalysis.h"
 #include "core/replay/ReplayLog.h"
 #include "core/diagnosis/DiagnosisContext.h"
 #include "core/diagnosis/RuleBasedDiagnosis.h"
+#include "core/serial/SerialTransactionSession.h"
 #include "core/simulator/SimulatedSlave.h"
 #include "core/simulator/SimulationFault.h"
 #include "ui/ai/DiagnosisPromptBuilder.h"
@@ -1026,8 +1028,22 @@ void AnalysisController::readHoldingRegistersOnce(
     const auto& descriptor =
         std::get<modbuslens::core::ActiveRequestDescriptor>(encoded);
 
-    // Accept only pending state AFTER the transport really accepted: a
-    // failure drops us back with no pending state at all.
+    // Shared active-dispatch core (M10-D3): the read path and the write path
+    // use the SAME helper, so busy/start-result/terminal bookkeeping cannot
+    // fork into a write-only lifecycle. A failure drops us back with no
+    // pending state at all.
+    (void)startActiveDescriptor(descriptor);
+    // The previous completed result stays visible until the new analysis
+    // replaces it (Reading... state).
+}
+
+modbuslens::core::ActiveStartResult AnalysisController::startActiveDescriptor(
+    const modbuslens::core::ActiveRequestDescriptor& descriptor)
+{
+    using modbuslens::core::ActiveStartResult;
+
+    // The transport is the only authority on whether the bytes entered the
+    // transmission lifecycle.
     const auto start = serialTransport_->startActiveRequest(descriptor);
     if (!start.accepted) {
         // A submission that terminated during the write itself (short count)
@@ -1039,21 +1055,28 @@ void AnalysisController::readHoldingRegistersOnce(
         if (start.terminatedDuringSubmission.has_value()) {
             activeSerialTerminations_.push_back(*start.terminatedDuringSubmission);
         }
-        return; // transport already reported the bounded transport error
+        // NOTHING entered flight: no pending request, no busy transition and
+        // (deliberately) no snapshot invalidation — an attempt that never left
+        // the process must not destroy a confirmation context. Pre-send
+        // rejections therefore stay exactly as bounded as they were before
+        // M10-D3.
+        return start;
     }
 
     pendingRequest_ = descriptor;
     serialBusy_ = true;
-    // M10-C1: another request entered flight => the prepared write snapshot is
-    // permanently invalidated (busy returning to false does not revive it).
+    // M10-C1: another request entered flight => a still-PREPARED write
+    // snapshot is permanently invalidated (busy returning to false does not
+    // revive it). A snapshot that was already Consumed is a terminal
+    // generation, so invalidate() is a no-op for it: entering flight can never
+    // rewrite a write's own confirmation outcome (M10-D3 §21).
     if (preparedWriteStore_.invalidate(
             modbuslens::core::PreparedWriteInvalidReason::BusyBecameTrue)) {
         announcePreparedWriteChanged();
     }
     clearSerialError();
     emit serialStatusChanged();
-    // The previous completed result stays visible until the new analysis
-    // replaces it (Reading... state).
+    return start;
 }
 
 void AnalysisController::setSerialTransport(SerialTransport* transport)
@@ -1499,6 +1522,18 @@ QString AnalysisController::preparedWriteInvalidReasonToken() const
     return QString();
 }
 
+bool AnalysisController::write06Supported() const
+{
+    // STRUCTURAL product capability, not runtime availability: it answers
+    // "does this build end-to-end own 0x06?" (encoder + protocol/session
+    // response support + this Controller's atomic confirm+dispatch + the
+    // evidence/outcome integration). It deliberately does NOT consult
+    // sourceKind_ / serialConnected_ / serialBusy_ / the draft: those decide
+    // whether the ACTION is currently enabled, and binding visibility to them
+    // would unload the write UI (and the user's draft) on every disconnect.
+    return modbuslens::core::kProductWrite06Supported;
+}
+
 bool AnalysisController::hasWriteDraftError() const
 {
     return hasWriteDraftError_;
@@ -1579,9 +1614,9 @@ modbuslens::core::ConfirmWriteOutcome AnalysisController::confirmPreparedWrite(
 {
     using namespace modbuslens::core;
 
-    // The runtime re-checks its authoritative state at confirmation time (the
-    // same guards the M10-D/E dispatch will re-use); a failing guard
-    // invalidates the now-meaningless snapshot.
+    // The runtime re-checks its authoritative state at confirmation time
+    // (the same guard family confirmAndDispatchPreparedWrite re-uses); a
+    // failing guard invalidates the now-meaningless snapshot.
     if (sourceKind_ != TransactionSourceKind::ActiveSerial) {
         preparedWriteStore_.invalidate(PreparedWriteInvalidReason::SourceChanged);
         return ConfirmRejected{ConfirmRejectReason::SourceNotActiveSerial};
@@ -1607,6 +1642,118 @@ modbuslens::core::ConfirmWriteOutcome AnalysisController::confirmPreparedWrite(
 bool AnalysisController::cancelPreparedWrite(std::uint64_t token)
 {
     return preparedWriteStore_.cancel(token);
+}
+
+modbuslens::core::PreparedDispatchResult
+AnalysisController::confirmAndDispatchPreparedWrite(std::uint64_t token)
+{
+    using namespace modbuslens::core;
+
+    // Fixed ordering, never split into two authority steps:
+    //     final guards -> consume -> encode -> start
+    //
+    // The token is the ONLY input: the request that travels is the Controller's
+    // own immutable snapshot, so QML can neither substitute fields nor point a
+    // stale token at a different request.
+    PreparedDispatchResult result{};
+
+    // ---- final guards (all BEFORE the consume) ----
+    const auto snapshot = preparedWriteStore_.snapshot();
+    const auto liveToken = preparedWriteStore_.token();
+    if (preparedWriteStore_.state() != PreparedWriteState::Prepared
+        || !snapshot.has_value() || !liveToken.has_value()) {
+        result.rejectedReason = ConfirmRejectReason::NotPrepared;
+        return result;
+    }
+    if (*liveToken != token) {
+        result.rejectedReason = ConfirmRejectReason::TokenMismatch;
+        return result;
+    }
+
+    // Authoritative context guards. A failing guard means the confirmation
+    // never happened: confirmationAccepted stays false, the transport is never
+    // called and there is NO ActiveStartResult — hence no TransportDisposition
+    // either. This must never be reported as "NotSent".
+    if (sourceKind_ != TransactionSourceKind::ActiveSerial) {
+        preparedWriteStore_.invalidate(PreparedWriteInvalidReason::SourceChanged);
+        announcePreparedWriteChanged();
+        result.rejectedReason = ConfirmRejectReason::SourceNotActiveSerial;
+        return result;
+    }
+    if (!serialConnected_) {
+        preparedWriteStore_.invalidate(PreparedWriteInvalidReason::Disconnected);
+        announcePreparedWriteChanged();
+        result.rejectedReason = ConfirmRejectReason::NotConnected;
+        return result;
+    }
+    // Identity is (sourceKind, sessionId): the same COM port and baud reconnected
+    // is still a NEW session, so an old confirmation can never write through it.
+    if (snapshot->sessionId != activeSerialSessionId_) {
+        preparedWriteStore_.invalidate(PreparedWriteInvalidReason::SessionChanged);
+        announcePreparedWriteChanged();
+        result.rejectedReason = ConfirmRejectReason::SessionChanged;
+        return result;
+    }
+    if (serialBusy_) {
+        preparedWriteStore_.invalidate(PreparedWriteInvalidReason::BusyBecameTrue);
+        announcePreparedWriteChanged();
+        result.rejectedReason = ConfirmRejectReason::Busy;
+        return result;
+    }
+
+    // Capability guard: the prepared FUNCTION must have a real end-to-end
+    // dispatch path in this build. A prepared 0x10 snapshot never does (no
+    // encoder, no session support), so it lands here and is invalidated with
+    // CapabilityUnavailable — zero consume, zero encode, zero transport call.
+    //
+    // kProductWrite06Supported participates on purpose: it is the same single
+    // source of truth the product property exposes, so the claim and the
+    // behaviour cannot drift apart (were it ever false, dispatch would be
+    // blocked rather than silently contradicting the property).
+    if (snapshot->intent.function != ActiveFunction::WriteSingleRegister
+        || !activeFunctionSupported(ActiveFunction::WriteSingleRegister)
+        || !kProductWrite06Supported) {
+        preparedWriteStore_.invalidate(
+            PreparedWriteInvalidReason::CapabilityUnavailable);
+        announcePreparedWriteChanged();
+        result.rejectedReason = ConfirmRejectReason::CapabilityUnavailable;
+        return result;
+    }
+
+    // ---- CONSUME (one-shot) ----
+    // Past this point the confirmation IS accepted and the generation is
+    // terminal: no later failure may revive this token or re-open the dialog.
+    // (The outcome is bound to a named object first: taking the address of the
+    // returned temporary would be an rvalue-address error.)
+    const auto confirmOutcome = preparedWriteStore_.confirm(token);
+    if (std::get_if<ConfirmAccepted>(&confirmOutcome) == nullptr) {
+        // Unreachable in practice (the state was just verified); handled as a
+        // plain rejection rather than as an attempt.
+        result.rejectedReason = ConfirmRejectReason::NotPrepared;
+        announcePreparedWriteChanged();
+        return result;
+    }
+    result.confirmationAccepted = true;
+    announcePreparedWriteChanged();
+
+    // ---- ENCODE ----
+    // Encoding uses the CAPTURED snapshot: consume clears the store, and
+    // re-reading a draft is forbidden — the wire must be exactly the bytes the
+    // user confirmed.
+    const auto encoded = encodeActiveRequest(snapshot->intent);
+    if (std::get_if<ActiveRequestEncodeError>(&encoded) != nullptr) {
+        // Internal invariant break: the snapshot was validated and the
+        // capability exists, so an encoder failure is OUR bug. It must not be
+        // dressed up as a ProtocolError / Timeout / Exception, and it produces
+        // no transaction, no terminal and no transport attempt.
+        result.localError = PreparedDispatchLocalError::EncodeFailed;
+        return result;
+    }
+
+    // ---- START (exactly one attempt for this confirmation) ----
+    result.dispatchAttempted = true;
+    result.startResult = startActiveDescriptor(std::get<ActiveRequestDescriptor>(encoded));
+    return result;
 }
 
 modbuslens::core::PreparedWriteState AnalysisController::preparedWriteState() const

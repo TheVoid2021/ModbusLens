@@ -97,6 +97,18 @@ class AnalysisController : public QObject
     // presentation identity — never a second validation authority.
     Q_PROPERTY(QString writeDraftErrorField READ writeDraftErrorField NOTIFY writeDraftErrorChanged)
 
+    // ---- M10-D3: product write capability (structural, NOT availability) ----
+    // True iff THIS build end-to-end owns 0x06: encoder + protocol/session
+    // response support + the Controller's atomic confirm+dispatch operation +
+    // evidence/outcome integration. It is a CONSTANT on purpose: it is a fact
+    // about the code, so it must not move with disconnected / busy / invalid
+    // draft / Simulator / Replay — those govern the ACTION enabled state.
+    // No NOTIFY: there is no runtime transition to announce.
+    //
+    // Readiness != rollout: this says nothing about production visibility,
+    // which stays hidden until M10-D4.
+    Q_PROPERTY(bool write06Supported READ write06Supported CONSTANT)
+
 public:
     explicit AnalysisController(QObject* parent = nullptr);
 
@@ -258,19 +270,33 @@ public:
     // Rejects when the source is not Active Serial / not connected / busy /
     // the draft fails validation; an existing Prepared snapshot is kept and
     // reported instead of being replaced. Nothing here encodes, starts or
-    // sends anything: 0x06 / 0x10 encoders do not exist yet.
+    // sends anything. (As of M10-D3 the 0x06 encoder DOES exist — see
+    // confirmAndDispatchPreparedWrite; a preparation still sends nothing and
+    // 0x10 has no encoder at all.)
     [[nodiscard]] modbuslens::core::WritePrepareOutcome prepareWriteSingleRegister(
         std::int64_t unitId, std::int64_t registerAddress, std::int64_t value,
         std::int64_t timeoutMs);
     [[nodiscard]] modbuslens::core::WritePrepareOutcome prepareWriteMultipleRegisters(
         std::int64_t unitId, std::int64_t startAddress, std::string_view valuesText,
         std::int64_t timeoutMs);
-    // Confirmation consumes the snapshot (Prepared -> Consumed) after the
+    // Confirmation ONLY: consumes the snapshot (Prepared -> Consumed) after the
     // runtime re-checks source / session / connection / busy. It does NOT
-    // dispatch: transport start/send counts stay untouched (dispatch is
-    // M10-D/E work).
+    // dispatch — transport start/send counts stay untouched here; the atomic
+    // consume+dispatch operation is confirmAndDispatchPreparedWrite below.
     [[nodiscard]] modbuslens::core::ConfirmWriteOutcome confirmPreparedWrite(
         std::uint64_t token);
+    // M10-D3: the ATOMIC confirm+dispatch operation (C++ seam; the production
+    // Confirm button is NOT wired to this until M10-D4).
+    //
+    // Fixed ordering, never split into two authority steps:
+    //     final guards -> consume -> encode -> start
+    //
+    // It takes an OPAQUE TOKEN only — never unit/address/value/timeout/raw
+    // draft. The request that travels is the Controller's own immutable
+    // snapshot, so nothing QML owns can change what gets sent, and a stale
+    // token can never be re-pointed at a different request.
+    [[nodiscard]] modbuslens::core::PreparedDispatchResult
+    confirmAndDispatchPreparedWrite(std::uint64_t token);
     // Explicit cancel: Prepared -> Invalidated(UserCancelled). Never a serial
     // error, never a transaction, never a send.
     bool cancelPreparedWrite(std::uint64_t token);
@@ -294,7 +320,9 @@ public:
                                     const QString& valuesText, int timeoutMs);
     // Confirmation / cancellation by OPAQUE TOKEN only: QML hands back exactly
     // the value it read from the projection, never the draft fields. Neither
-    // call encodes, dispatches or sends anything (dispatch is M10-D/E).
+    // call encodes, dispatches or sends anything — the QML-facing boundary
+    // deliberately stays confirmation-only (the production Confirm button is
+    // not wired to dispatch until M10-D4).
     Q_INVOKABLE bool confirmPreparedWriteToken(qulonglong token);
     Q_INVOKABLE bool cancelPreparedWriteToken(qulonglong token);
 
@@ -314,6 +342,11 @@ public:
     [[nodiscard]] bool hasWriteDraftError() const;
     [[nodiscard]] QString writeDraftError() const;
     [[nodiscard]] QString writeDraftErrorField() const;
+
+    // M10-D3: STRUCTURAL product write capability (see the Q_PROPERTY note).
+    // Derived from the core's compile-time product-capability constant, never
+    // from runtime state.
+    [[nodiscard]] bool write06Supported() const;
 
     // Read-only projection of the prepared snapshot (C1 C++ accessors).
     [[nodiscard]] modbuslens::core::PreparedWriteState preparedWriteState() const;
@@ -395,6 +428,18 @@ private:
     void refreshActiveSessionDerivedViews();
     // (Re)connects the completion/error doors of the active transport.
     void connectSerialTransportSignals(SerialTransport& transport);
+    // M10-D3: the SHARED active-dispatch core.
+    //
+    // Both the FC03 read path and the new atomic write dispatch go through
+    // this one helper, so the in-flight bookkeeping can never be forked into a
+    // write-only lifecycle: it hands the descriptor to the transport, archives
+    // a submission-time terminal, and enters the single in-flight state
+    // (pendingRequest_ + serialBusy_, which also permanently invalidates any
+    // still-Prepared write snapshot) — or reports the rejection and changes
+    // nothing. It returns the transport's own ActiveStartResult verbatim; it
+    // never invents a Modbus outcome.
+    [[nodiscard]] modbuslens::core::ActiveStartResult startActiveDescriptor(
+        const modbuslens::core::ActiveRequestDescriptor& descriptor);
     // Shared prepare plumbing: context guards, generation, store.
     [[nodiscard]] modbuslens::core::WritePrepareOutcome prepareWriteIntent(
         modbuslens::core::WriteIntentResult intentResult);

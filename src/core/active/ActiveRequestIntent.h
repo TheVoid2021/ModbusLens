@@ -23,10 +23,13 @@ namespace modbuslens::core {
 // Registers" and is decimal 16; the protocol module keeps the historical
 // class name Function16 and no "Function10" ever exists.
 //
-// This header is a REPRESENTATION + VALIDATION layer only. It deliberately
-// contains no write-request encoder: the active path can build 0x03 requests
-// today, while 0x06 / 0x10 stay impossible by construction until M10-D/E
-// (Passive decoding support is NOT an active write capability).
+// This header is a REPRESENTATION + VALIDATION layer only. It carries no
+// request bytes of its own: the active path builds 0x03 and — since M10-D1/D2 —
+// 0x06 requests, while 0x10 has no encoder and stays impossible by construction
+// until M10-E (Passive decoding support is NOT an active write capability).
+// Encoding a request is still not a product capability: whether a write can
+// actually be dispatched is a separate question answered by
+// ProductWriteCapability.h.
 // ---------------------------------------------------------------------------
 
 enum class ActiveFunction : std::uint8_t {
@@ -118,7 +121,7 @@ struct ActiveRequestDescriptor {
 };
 
 enum class ActiveRequestEncodeErrorCode {
-    UnsupportedFunction, // no active encoder exists yet (0x06 / 0x10 = M10-D/E)
+    UnsupportedFunction, // no active encoder exists for this function (0x10 = M10-E)
     InvalidQuantity,
     IntentInvalid, // validateActiveRequestIntent rejected it (see that result)
 };
@@ -132,9 +135,9 @@ struct ActiveRequestEncodeError {
 using ActiveRequestEncodeResult =
     std::variant<ActiveRequestDescriptor, ActiveRequestEncodeError>;
 
-// Build the descriptor for a validated intent. M10-A implements 0x03 only:
-// 0x06 / 0x10 return UnsupportedFunction (no write-request encoder exists —
-// that is M10-D/E work, gated behind review).
+// Build the descriptor for a validated intent. 0x03 (M10-A) and 0x06 (M10-D1)
+// are implemented; 0x10 returns UnsupportedFunction (no write-request encoder
+// exists for it — that is M10-E work, gated behind review).
 ActiveRequestEncodeResult encodeActiveRequest(const ActiveRequestIntent& intent);
 
 } // namespace modbuslens::core

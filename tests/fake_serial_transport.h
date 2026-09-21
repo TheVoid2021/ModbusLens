@@ -40,11 +40,18 @@ public:
     void setAcceptRequests(bool accept);   // pre-send rejection gate
     void setResponseBytes(std::vector<std::uint8_t> bytes);
     void setCompletionElapsed(std::chrono::milliseconds elapsed);
-    // Configurable SHORT SUBMISSION: the transport API reports accepting only
-    // this many bytes of the request ADU (0 < count < ADU size). The start
-    // then returns {accepted=false, PossiblySent} WITH durable terminal
-    // evidence, exactly like the production adapter's short-write branch.
-    // count >= ADU size (or nullopt) means a normal full acceptance.
+    // Configurable submission outcome for the NEXT start:
+    //   · 0 < count < ADU size -> SHORT SUBMISSION: the transport API reports
+    //     accepting only this many bytes. The start then returns
+    //     {accepted=false, PossiblySent} WITH durable terminal evidence,
+    //     exactly like the production adapter's short-write branch.
+    //   · count == 0 (M10-D3) -> ZERO-ACCEPT: the start is REALLY attempted,
+    //     but the transport API accepts none of the ADU. The start returns
+    //     {accepted=false, NotSent} with NO pending request and NO terminal —
+    //     the deterministic counterpart of a transport that provably put zero
+    //     bytes on the wire. This is what distinguishes "guards PASS but the
+    //     transport accepted nothing" from a Controller guard rejection.
+    //   · count >= ADU size (or nullopt) -> normal full acceptance.
     void setSubmissionAcceptedBytes(std::optional<std::uint16_t> count);
 
     // ---- observation (the recording oracle) ----

@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A/B/C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D：Phase 1 ✅ COMPLETE → D1 ✅ COMPLETE（`6ab97e1`）→ D2 = FC06 Protocol/Session Response Support 已实现（§V），AWAITING M10-D2 REVIEW；D3 = NOT STARTED**；**Active Write = 仍不可由产品发起：`write06Supported` 不存在、无 Controller dispatch、production Write UI 不可见；0x10 encoder/dispatch ABSENT（仅 framing 识别）**。
+> **状态：M10-A/B/C = ✅ COMPLETE**（verified LKGC = `fc86dcc`）；**M10-D：Phase 1 ✅ COMPLETE → D1 ✅ COMPLETE（`6ab97e1`）→ D2 ✅ COMPLETE（`ee3bc3e`，Review PASS）→ D3 = Atomic Dispatch / Evidence / Product Capability 已实现（§W），AWAITING M10-D3 REVIEW；D4–D5 = NOT STARTED**；**0x06 已具备产品级 dispatch 与 `write06Supported`，但 production Write UI 仍不可见（D4 才 rollout）；0x10 encoder/dispatch ABSENT（仅 framing 识别）。Active Write 仍不可由用户界面发起。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -6547,4 +6547,336 @@ docs：T022（本节 §V）+ PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES
 分类：**behavior-bearing**（protocol/session 行为已变，即使 Controller UI 仍不能写）
 commit：`M10-D2: add FC06 active response support`（独立提交；不 amend 6ab97e1；不 rebase；不 push；不 tag）
 verified LKGC 继续 `fc86dcc`。
+```
+
+## M10-D3 — FC06 Atomic Dispatch / Evidence / Product Capability（2026-09-21，behavior-bearing）
+
+> **M10-D2 Review = PASS ⇒ M10-D2 = COMPLETE ⇒ M10-D3 = GO**（Human Review，handoff 外部事实；本轮开工时 repo docs
+> 尚未记录该结论，因此本节第一件事就是把它 append-only 归档）。
+> 本轮交付：Controller **原子** `confirmAndDispatchPreparedWrite(token)`、final guards、one-shot consume、
+> `RecordingSerialTransport` 集成、`acceptedCount=0` 的**确定性 seam**、short submission、post-submit error/disconnect、
+> Active Serial history / statistics / diagnosis 集成、**`write06Supported`** 产品能力属性。
+> **未做**：production-visible Write UI、production Confirm 接 dispatch、0x10 任何能力、Agent write authority、automatic retry。
+> **D4 未开始。**
+
+### W0. Preflight 与 D2 PASS / COMPLETE / D3 GO 归档（§1 / §4）
+
+```text
+branch = main；HEAD = ee3bc3e（full ee3bc3eb46a110f4fdcb8f443d651cbcc98d7ee4）；working tree clean
+verified LKGC = fc86dcc；origin/main = a40d935；ahead 118 / behind 0
+CMake VERSION = 2.0.0；v1 tag object = 2cee626 → target ae067ab；v2.0.0 = ABSENT
+git diff --check = PASS；git status --porcelain = 空（见 §W14 私有状态卫生）
+M10-D1 = COMPLETE；M10-D2 = COMPLETE；M10-D3 = GO
+```
+
+**Agent-private 卫生（§1）**：`.workbuddy/` 确认为 agent private state（`git ls-files .workbuddy` 为空，
+仓库内无任何引用）。按规则**只**写入 `.git/info/exclude`（local only，**未**动项目 `.gitignore`、**未**提交），
+此后 `git status --porcelain` 为**空**。
+
+**归档 Human Review 既有结论（append-only）**：M10-D2 Review = PASS、M10-D2 = COMPLETE、
+accepted D2 behavior commit = `ee3bc3e`、M10-D3 = Atomic Dispatch / Evidence / Product Capability = IN PROGRESS →
+本节完成后 COMPLETE。**本节与本轮 behavior 变更同提交**（不产生单独 docs-only commit，§4）。
+
+### W1. Contract Fingerprint 复核（§3，全部源码实证，与预期一致）
+
+```text
+FC03_ENCODER = YES（encodeReadHoldingRegistersRequest）
+FC03_SESSION = YES（activeFunctionSupported(0x03)=true）
+FC03_CONTROLLER_DISPATCH = YES（readHoldingRegistersOnce → 唯一 startActiveRequest 调用点）
+FC06_ENCODER = YES（encodeWriteSingleRegisterRequest + encodeActiveRequest 0x06 分支）
+FC06_SESSION = YES（activeFunctionSupported(0x06)=true，D2）
+FC06_CONTROLLER_DISPATCH = NO → 本轮新增（confirmAndDispatchPreparedWrite）
+WRITE06_SUPPORTED = ABSENT → 本轮新增（write06Supported，CONSTANT）
+PRODUCTION_WRITE = HIDDEN（writeFoundationVisible 由 harness 参数单独控制）
+FC10_ENCODER = NO；FC10_ACTIVE_SUPPORT = NO；FC10_DISPATCH = NO；FC10_UI = NO
+FC10_RESPONSE_SHAPE_RECOGNITION = YES（framing 0x10 → 8，仅识别）
+AGENT_WRITE_AUTHORITY = NONE（仅 3 只读工具）
+ISSUE_CODE_COUNT = 14 observable/public（TransactionIssueCode 10 + TransactionRequestIssueCode 4）
+```
+
+**Issue 口径说明（§37）**：`UnknownProtocolError` 语义上仍是 defensive/sentinel fallback
+（P0 测试名即 `a13_defensiveUnknownProtocolError`，header 注释「deterministic defensive/fallback branch only」），
+但它**有 public enum member + 被测锁定的稳定 token `unknown_protocol_error` + UI projection
+（`TransactionListModel` → 「协议错误（未记录细节）」）+ 7 处 production construction path** ⇒
+**不能从 public count 扣掉**。本轮**确认并沿用 `14` 口径**（与 `11_PROJECT_FINAL_RETROSPECTIVE.md` §6.1
+「14 = 10 + 4」以及 `12_RESUME_INTERVIEW_QA.md` 一致）；**不引入也不恢复「13」**。
+
+### W2. Mandatory Source Re-read — A / B / C 三问（§6）
+
+**A. FC03 Controller 从 encode 到 transport start 的真实完整 lifecycle**（实读 `AnalysisController.cpp`）：
+
+```text
+readHoldingRegistersOnce(unit, start, qty, timeout)
+ 1 范围校验（unit 1..247 / start 0..65535 / qty 1..125 / timeout > 0）→ 失败 setSerialError + return
+ 2 !serialConnected_ → setSerialError + return
+ 3 serialBusy_ → setSerialError + return
+ 4 构造 ActiveRequestIntent（function=ReadHoldingRegisters）→ encodeActiveRequest
+ 5 编码失败 → setSerialError + return（defensive，当前 function 集下不可达）
+ 6 serialTransport_->startActiveRequest(descriptor)
+ 7 !accepted → 若 terminatedDuringSubmission 则 activeSerialTerminations_.push_back；return
+ 8 pendingRequest_ = descriptor；serialBusy_ = true
+ 9 preparedWriteStore_.invalidate(BusyBecameTrue)（仅影响 Prepared 代际）
+10 clearSerialError() + emit serialStatusChanged()
+```
+完成侧：`transactionCompleted` → `handleSerialTransactionCompleted`（pending 身份守卫）→
+`appendActiveSerialTransaction`（唯一写入点）→ `refreshActiveSessionDerivedViews`（statistics + diagnosis）。
+终止侧：`transactionTerminated` → `handleSerialTransactionTerminated`（no-double-terminal 守卫）→ terminals lane。
+
+**B. 是否已有可抽取的 generic Controller dispatch helper**：**没有**。步骤 6–10 是唯一的 active 派发核心，
+只被 FC03 使用。⇒ 本轮按 §6 要求**提取**出 `startActiveDescriptor(descriptor)`。
+
+**C. 直接新增第二个 `startActiveRequest` 调用点会复制哪些逻辑**：会复制 ①`accepted` 分支与
+short-submission terminal 归档；②`pendingRequest_`/`serialBusy_` 进入 flight；③`BusyBecameTrue` 失效；
+④`clearSerialError()` + `serialStatusChanged` 信号。⇒ 若不提取，将出现**write-only lifecycle**（§6 明令禁止）。
+
+**决定（§6 优先方案）**：提取最小 generic helper `startActiveDescriptor()`，FC03 与 0x06 写路径**共用**；
+helper 只做「交给 transport + 归档 submission terminal + 进入单一 in-flight 状态」，
+**不**发明任何 Modbus verdict，并把 transport 的 `ActiveStartResult` 原样回传。**不建立 write-only lifecycle。**
+
+### W3. Stale Comment Audit（§7）
+
+| 位置 | 旧描述 | 处理 |
+| --- | --- | --- |
+| `ActiveRequestIntent.h` §顶部契约（26–29 / 121 / 135–137） | 「0x06 / 0x10 stay impossible by construction」「0x06/0x10 return UnsupportedFunction」 | **确认 stale**（D1 起 0x06 可编码），本轮同步为「0x03/0x06 已实现，0x10 仍 ABSENT」 |
+| `ActiveRequestIntent.cpp` 0x06 分支注释 | 「the session still refuses to begin an active 0x06 transaction (activeFunctionSupported stays false until M10-D2)」 | **确认 stale**（D2 已打开），本轮同步 |
+| `AnalysisController.h` `prepareWriteSingleRegister` 注释 | 「0x06 / 0x10 encoders do not exist yet」 | **确认 stale**，本轮同步并指向 `confirmAndDispatchPreparedWrite` |
+| `AnalysisController.h` / `.cpp` confirm 注释 | 「dispatch is M10-D/E work」 | 同步为「dispatch 见 `confirmAndDispatchPreparedWrite`」 |
+| `AnalysisController.cpp` `writeFoundationVisible` 注入点 | 「0x06 / 0x10 still have no encoder」 | 同步（0x06 encoder 已存在；0x10 仍无） |
+
+**未做**：docs 中**当时正确**的历史 snapshot **不改写**（如 `11_PROJECT_FINAL_RETROSPECTIVE.md` §6.1 ③
+「FC06 与 0x10 只有被动分析」是 V1 时点的真实记录）；如易误读，只加 as-of 限定，不改造历史。
+**绝不**为了迎合旧注释而回退真实行为。
+
+### W4. RED Evidence（§8，实现前捕获）
+
+```text
+RED1 Controller atomic confirm+dispatch API 不存在
+     → `confirmAndDispatchPreparedWrite` 未声明（编译期红）；既有 `confirmPreparedWriteToken` 只消费不派发。
+RED2 Prepared 0x06 snapshot 无法经 Controller 触发 transport attempt
+     → M10-C/D2 状态下「prepare → confirm」后 transport.startAttemptCount() 恒为 0。
+RED3 没有明确的 transport-level acceptedCount=0 / NotSent oracle
+     → 见 W5：fake 的 `setSubmissionAcceptedBytes(0)` 当时会**穿透到完整接受**。
+RED4 write06Supported 不存在 → `ui_bridge` 原断言 `indexOfProperty("write06Supported") < 0`（D1/D2 staging 契约）。
+RED5 Controller 0x06 completion 尚无正式 dispatch path 进入 Active history
+     → 唯一 `startActiveRequest` 调用点在 FC03 读路径。
+附加确认 ConfirmRejectReason **缺** CapabilityUnavailable（原 6 值，见 W6）。
+```
+
+### W5. RecordingTransport zero-accept seam 审计与结果（§9）
+
+**审计全部 call sites**（`setSubmissionAcceptedBytes` / `setAcceptRequests`）：
+`tests/test_active_master.cpp` 使用 4 / 3 / nullopt；`setAcceptRequests(false)` 用于 pre-send 拒绝。
+**不存在任何 `0 = disable override` 依赖**（全仓无 `setSubmissionAcceptedBytes(0)`）⇒ 按 §9 首选方案直接定义 0 语义，
+**未**改变任何已冻结行为，**未**新增第二个 seam。
+
+**结果**：`setSubmissionAcceptedBytes(0)` ⇒
+`startAttemptCount += 1`、`sendCount += 0`、`accepted = false`、`Disposition = NotSent`、
+**no pending / no terminal / 不进 ADU log**；并发出既有 bounded `transportError`（可观察 non-success fact）。
+**明确不**用 Controller guard reject 冒充 transport NotSent（见 W9 的区分 oracle）。
+
+### W6. CapabilityUnavailable taxonomy（§10）
+
+`ConfirmRejectReason` 原为 6 值（NotPrepared / TokenMismatch / NotConnected / SourceNotActiveSerial /
+SessionChanged / Busy），**确实缺** capability 维度 ⇒ **最小扩展一个成员** `CapabilityUnavailable`
+（`PreparedWriteInvalidReason::CapabilityUnavailable` 早已存在并从 M10-C1 起 reserved）。
+**未**新建第二套 capability error taxonomy。
+
+### W7. Atomic API / Final Guards / Ordering / Typed Result（§11–§14）
+
+```text
+[[nodiscard]] PreparedDispatchResult confirmAndDispatchPreparedWrite(std::uint64_t token);
+输入 = opaque token ONLY（无 unit/address/value/timeout/raw draft）；
+请求体 = Controller 自身 immutable PreparedWriteSnapshot（编码用**consume 前捕获的副本**，
+        因为 consume 会清空 store —— 读值不是 chain 中的一步，chain 仍是
+        final guards → consume → encode → start）。
+```
+
+**final guards（全部在 consume 之前）**：
+
+```text
+state == Prepared ∧ snapshot/token 存在          → 否则 NotPrepared
+token 匹配                                       → 否则 TokenMismatch
+sourceKind == ActiveSerial                       → 否则 SourceNotActiveSerial  + invalidate(SourceChanged)
+serialConnected_                                 → 否则 NotConnected          + invalidate(Disconnected)
+snapshot->sessionId == activeSerialSessionId_    → 否则 SessionChanged        + invalidate(SessionChanged)
+!serialBusy_                                     → 否则 Busy                  + invalidate(BusyBecameTrue)
+function == 0x06 ∧ activeFunctionSupported(0x06) ∧ kProductWrite06Supported
+                                                 → 否则 CapabilityUnavailable + invalidate(CapabilityUnavailable)
+```
+
+最后一条刻意把 `kProductWrite06Supported` 纳入：它与产品属性是**同一个单一事实源**，
+因此「对外声称的能力」与「实际行为」不可能互相矛盾（若该常量为 false，派发会被拒绝而不是与属性说法冲突）。
+
+**Typed result（§14）**：`PreparedDispatchResult{ confirmationAccepted, dispatchAttempted,
+rejectedReason?, startResult?, localError? }`，**复用**既有 `ActiveStartResult` / `TransportDisposition` /
+`ActiveTransportTerminal`；**未新建** `WriteTransportStatus` / `WriteSendOutcome`。
+
+**Encode failure（§32）**：validated snapshot + capability 成立 ⇒ encoder 失败是**内部不变量异常**；
+处理为 `localError = EncodeFailed`、**zero transport attempt**、token 保持 Consumed、no transaction、no terminal、
+**不**伪装成 ProtocolError / Timeout / Exception。**未**为测试新增 corrupt-snapshot API。
+
+### W8. QML-facing boundary 与 Dialog authority（§15）
+
+**D3 有意不改变任何 QML**：`WriteFoundationSection.qml` 的 `confirmPreparedWriteToken(token)` 继续**只做确认**，
+`Connections.onPreparedWriteChanged { if (!hasPreparedWrite && opened) close() }` 继续让 Dialog 只服从 snapshot state。
+production Confirm **不接** dispatch（D4 才 rollout）。本轮用 **Controller focused tests** 验证 atomic dispatch。
+**Dialog authority = snapshot state**：R1/R2/R3/guard 之后 snapshot 都不再是 Prepared ⇒ Dialog 退出确认流程；
+transport success 在任何路径下都**不**决定 Dialog 关闭。
+
+### W9. Oracle 实测结果（§16–§21）
+
+```text
+R1 full accepted   ：confirmationAccepted=true；dispatchAttempted=true；attempt=1；send=1；sentAduLog.size()=1；
+                     exact ADU == G3 字面量 `11 06 00 01 00 03 9A 9B`；PossiblySent；snapshot=Consumed；
+                     busy=true；随后 matching echo → 恰好一条 0x06 Success，同 session，
+                     requestAdu/responseAdu 逐字节相等（evidence()）。          —— write_dispatch 37 passed
+R2 acceptedCount=0 ：confirmationAccepted=true；dispatchAttempted=true；attempt=1；send=0；NotSent；
+                     no pending；busy=false；zero transaction；zero terminal；token 不复活；
+                     可观察 non-success（hasSerialError）；无 Success/Timeout/ProtocolError 伪装。
+R3 short submission：0<3<8 ⇒ PossiblySent + **恰好一条** ShortSubmission terminal
+                     （request.wire == G3 字面量、responseAdu 空、submissionAcceptedByteCount=3）；
+                     zero transaction；busy=false。
+R4 guard matrix    ：disconnected → NotPrepared（snapshot 已被 disconnect 置 Invalidated(Disconnected)，
+                     NotConnected 分支为 defensive）；busy → NotPrepared（BusyBecameTrue）；
+                     stale session（同 COM/baud 重连 → sessionId 递增）→ 拒绝；source changed
+                     （runDemoBatch）→ 拒绝；prepared **0x10** → CapabilityUnavailable
+                     （invalidate(CapabilityUnavailable)，zero consume/encode/start）。
+                     五者共同断言：confirmationAccepted=false、attempt=0、send=0。
+R5 token reuse     ：Consumed 后同 token **连续 10 次**调用 —— 额外 attempt=0、额外 send=0、
+                     confirmationAccepted=false。**不依赖任何 debounce**。
+Guard vs NotSent   ：**专门 oracle** 证明 guard failure 的 result **没有** startResult（因而没有
+                     TransportDisposition），而 acceptedCount=0 的 result **有** startResult{NotSent}。
+                     两者不共用测试名、不共用报告口径。
+Busy 稳定性        ：full accepted 后 busy=false→true 不得把 Consumed 改写成 Invalidated(BusyBecameTrue)
+                     （store 只作用于 Prepared 代际，实测 Consumed 且 invalidReason 为空）；
+                     Success / Timeout / ShortSubmission / TransportError 四条路径 busy 均回落 false。
+Post-submit        ：TransportError / DisconnectedAfterSubmission ⇒ 恰好一条 terminal、保留 intended request
+                     evidence、PossiblySent、zero fabricated transaction、busy=false、device state UNKNOWN。
+```
+
+### W10. Response / History / Statistics / Diagnosis 集成（§22–§28）
+
+**复用而非新建**：0x06 的 completion/termination 全部走**既有** `handleSerialTransactionCompleted` /
+`handleSerialTransactionTerminated` / `appendActiveSerialTransaction` —— 这些路径本就 function-agnostic，
+因此 **0x06 自动加入同一 transaction universe**，**没有** Write History 第二套。
+
+```text
+Success / Exception(0x02) / CrcError（数据字节被翻转，raw bytes 保留）/ ProtocolError（FC06 echo mismatch，
+  issue code = WriteSingleRegisterEchoMismatch）/ Timeout 五类全部纳入实测。
+Timeout：恰好一条 0x06 Timeout 事务，**无** terminal；语义锁定「响应超时，设备写入状态未知」，
+  实现层不携带任何 device-mutation 声明，**禁止** implicit retry。
+History 顺序：FC03 在前、0x06 在后，两者 sessionId 相同且等于当前 activeSerialSessionId（未产生第二 universe）。
+Terminal 排除：ShortSubmission terminal ⇒ 不进 rows、不动任何统计计数器（observed/completed 均为 0）。
+Statistics（冻结公式，混合批次实测）：observed=3=pending(0)+completed(3)；
+  completed=Success(2)+Exception(0)+CrcError(0)+Timeout(1)+ProtocolError(0)+ExpectedNoResponse(0)；
+  successRate = Success / (completed − ExpectedNoResponse) = 2/3（实现与断言均按该式）；
+  latency 只取 Success（timeout 不稀释）；**未**新增 writeSuccessRate 之类第二套 authority。
+Diagnosis：同一 deterministic batch；baseline 文本同时覆盖 0x06 Success 与 0x06 Timeout（实测含「无响应超时」）。
+```
+
+### W11. Clear / Disconnect / Source replacement / Draft（§29–§31）
+
+```text
+Clear while pending：不清 pending、不断开、不清 draft；空视图后完成的 0x06 成为**第一条**新事务；
+  **不**触碰已 Consumed 的确认终态。
+Disconnect while pending：走既有 post-submission evidence ⇒ 一条 DisconnectedAfterSubmission terminal、
+  **不**造 Timeout 事务、**不**声称 device unchanged。
+Source replacement while pending：沿用 M10-A/B 冻结顺序（先 SourceChanged 后 teardown），本轮重定义 = 无；
+  已 Consumed 的代际保持终态。
+Draft preservation：七类终局（Success/Exception/CRC/Timeout/zero-accept/short/TransportError）逐一验证
+  token 不复活、必须重新 Write → prepare → confirmation；无 automatic retry。
+```
+
+### W12. write06Supported（§33 / §34）
+
+```text
+新增 core/active/ProductWriteCapability.h：inline constexpr bool kProductWrite06Supported = true;
+  —— 结构性事实（encoder + protocol/session + Controller atomic dispatch + evidence 集成四者齐备），
+     编译期常量，**不是** runtime availability。
+新增 Q_PROPERTY(bool write06Supported READ write06Supported CONSTANT)（read-only、无 setter、无 NOTIFY）。
+  CONSTANT 是有意选择：能力是「代码事实」，没有真实 runtime 变化需要广播；
+  若将来确需 NOTIFY，必须存在真实的 runtime 变化理由（本轮不存在）。
+运行时不变性实测：clearResults / runBaselineDiagnosis / disconnectSerial / connectSerial+busy /
+  Simulator source 切换之后，属性恒为 true。
+**capability ≠ rollout**：属性为 true 的**同时** production Write UI 仍不可见 ——
+  一半证据在本轮（属性 CONSTANT 且不可写，无任何 runtime 开关可提前揭示 UI），
+  另一半由 `qml_focus_check` 的 prod-hidden oracle 提供（34/34 全绿）。
+```
+
+### W13. 0x10 / Agent 冻结（§35 / §36）
+
+```text
+0x10 encoder = ABSENT（encodeActiveRequest → UnsupportedFunction，实测）
+activeFunctionSupported(0x10) = false；0x10 dispatch = ABSENT；write10Supported = ABSENT；
+0x10 production UI = ABSENT；仅 response-shape recognition = PRESENT。
+AI / Agent write authority = NONE：未新增 write / confirm / send / raw-ADU tool。
+```
+
+### W14. 测试与门禁（§39–§43）
+
+```text
+实际 CTest（不是直接跑 exe 代替）：
+  Debug   ctest **34/34 PASS**（33 → 34：新增 write_dispatch 目标）
+  Release ctest **34/34 PASS**
+关键套件（Debug 实测 Totals，Release 同绿）：
+  write_dispatch 37（新）/ write_prepare 48 / write_encoder 19 / fc06_active 31 / active_request 17 /
+  active_master 54 / ui_bridge 61 / serial 21 / serial_adapter 7 / passive 55 / transaction 20 /
+  statistics 12 / statistics_integration 3 / diagnosis 17 / replay_log 14 / replay_analysis 9 /
+  simulator 15 / fault 7 / codec 9 / crc 8 / frame 6 / f03 15 / agent_tools 15 / agent_runtime 28 /
+  agent_integration 24 / ai 23 / transaction_integration 5 / simulator_integration 3 / fault_integration 4
+  —— 29 套件合计 **587** 个测试函数 passed / 0 failed。
+QML gates（5）：qml_smoke / qml_geometry_check / qml_nav_check / qml_focus_check（含 prod-hidden）/
+  qml_write_foundation_check（C01–C37 + E1/E2 + C4 + D1 raw-text oracle）—— 全部在 ctest 内、Debug+Release 双绿。
+  **M10-C 安全断言未降低**：qml_write_foundation_check 与 qml_focus_check 本轮零修改、全绿。
+Warnings：新增 C++ / QML **零 warning**；`src/main.cpp` 5 条 pre-existing 未动。
+ISSUE-014：保持 PRE-EXISTING NON-BLOCKING，未顺手修。
+```
+
+**环境阻塞判定（§39）**：本轮已**成功定位并运行实际 CTest**
+（`D:/QT/Tools/CMake_64/bin/ctest.exe` + PATH 前置 `D:/QT/6.11.1/mingw_64/bin` 与 `D:/QT/Tools/mingw1310_64/bin`）。
+⇒ **不构成 ENVIRONMENT BLOCKER**；结论基于真实 ctest 输出，**未**把「直接运行 29 个 exe + 5 个 gate」写成 ctest PASS。
+
+### W15. Problems Encountered / RCA（§38 相关）
+
+```text
+RCA-9（既有测试契约变更，非缺陷）：tests/test_ui_bridge.cpp 的
+  `d1_productWriteCapabilityNotExposedYet` 断言 `indexOfProperty("write06Supported") < 0` —— 这是 D1/D2 的
+  staging 契约，D3 交付完整路径后**必然**失效。处理：改名为
+  `d3_productWriteCapabilityExposedForFc06Only`，改为断言属性存在且为 true，并把**负向覆盖转移**到 0x10
+  （断言 write06Available 与 write10Supported 仍 ABSENT）。**未删除任何断言、未降低强度**，
+  且变更显式记录于本节（与 D1 的 ac03、D2 的 ac06/s1/s6 同一处理范式）。
+RCA-10（rvalue 地址，编译期红）：confirmAndDispatchPreparedWrite 最初把
+  `std::get_if<ConfirmAccepted>(&preparedWriteStore_.confirm(token))` 写成对**临时 variant** 取地址
+  ⇒ `error: taking address of rvalue`。修复：先绑定具名对象再取地址（与既有测试中已记录的同一模式）。
+RCA-11（oracle 前置条件：Timeout vs Pending）：RecordingSerialTransport 的 completionElapsed 默认 25ms
+  低于请求阈值 1000ms，因此 `completeWithTimeout()` 被分析器**正确**判为 Pending，四条依赖 Timeout 的
+  oracle 失败。根因是**测试前置条件**而非产品语义（NoResponse ∧ elapsed<threshold ⇒ Pending 是冻结契约）。
+  修复：新增 `completeAtTimeout()` 显式把 elapsed 设为阈值，不改产品。
+RCA-12（oracle fixture 缺陷）：自建 `fc03AnswerWire()` 最初给出 byteCount=2（1 个寄存器），
+  而读请求 quantity=2 ⇒ 真实结果是 QuantityMismatch ProtocolError，导致混合统计用例的成功数不符。
+  **修的是 fixture，不是断言强度**；并顺带加固 history 用例，使其显式断言两条记录都是 Success
+  （原断言只查 functionCode，一个坏 fixture 也能「通过」，属被动弱点）。
+RCA-13（环境瞬时失败，非代码缺陷）：Release 构建首次出现
+  「Error compiling qml file」于 `.rcc/qmlcache/.../DesignSystem_qml.cpp`，本轮**未改动任何 QML**；
+  直接重跑同一构建即成功，随后 Release ctest 34/34 全绿。判定为 qmlcachegen 瞬时失败（flaky），
+  **未**修改任何 QML 或构建配置来「绕过」。留档以便将来复现时优先怀疑缓存/环境而非源码。
+```
+
+### W16. Files / Commit（§44–§46）
+
+```text
+新增：src/core/active/ProductWriteCapability.h、tests/test_write_dispatch.cpp（+ CMake 目标 write_dispatch）
+修改：src/core/active/PreparedWriteSnapshot.h（ConfirmRejectReason += CapabilityUnavailable；
+        PreparedDispatchLocalError + PreparedDispatchResult；include ActiveTransactionEvidence.h）、
+      src/ui/AnalysisController.h（write06Supported Q_PROPERTY/getter；confirmAndDispatchPreparedWrite；
+        startActiveDescriptor 私有 helper；stale 注释同步）、
+      src/ui/AnalysisController.cpp（原子 confirm+dispatch；共享 dispatch helper 提取并回接 FC03；
+        write06Supported 实现；stale 注释同步；include ProductWriteCapability/SerialTransactionSession）、
+      tests/fake_serial_transport.{h,cpp}（explicit 0 = zero-accept NotSent seam）、
+      tests/test_ui_bridge.cpp（staging 契约显式更新为 D3 契约，负向覆盖转 0x10）、
+      CMakeLists.txt（write_dispatch 目标 + offscreen 属性）
+docs：T022（本节 §W）+ PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES
+分类：**behavior-bearing**（core / Controller / tests / harness / CMake 行为与验收行为均变化）
+commit：`M10-D3: add atomic FC06 dispatch and evidence integration`（独立提交；不 amend ee3bc3e；不 rebase；不 push；不 tag）
+verified LKGC 继续 `fc86dcc`（**不自行推进**；等 Human Review）。
 ```
