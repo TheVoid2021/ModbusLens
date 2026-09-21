@@ -843,3 +843,12 @@
 - **Q：怎么证明背景真的没被激活？** A：断言面刻意覆盖了每一种可能的背景动作后果：prepared token / snapshot 状态（写按钮被触发会重新 Prepared）、rail index（导航被触发会变）、transaction rows 与 observedCount（清空结果被触发会掉）、readStarts（读按钮被触发会增加一次 FC03）、session id（来源/会话变化）、以及 writeAttempts（写派发）——全部不变。
 - **Q：为什么这轮产品代码一行没改？** A：因为 E1/E2 一次就 PASS。规约写得很清楚：真实 runtime 通过就**不得**改产品 QML。所以本轮唯一改动是 harness（新增两组 stage + 编号更正），也就顺带证明了「现有确认流程在这些极端连按场景下本来就是安全的」。
 - **Q：编号更正为什么也要写进文档？** A：因为早先的 harness 输出把「立即按 Space」标成了 C05，而冻结矩阵里 **C05 是 Escape**。标签错位会让后续评审对着错误的编号讨论。按档案区规则，更正方式是**追加声明**（C05 = Escape；immediate Space = C05b），并在文档里明确承认发生过编号漂移，而不是悄悄改掉旧记录。
+
+## 89. Post-T022 M10-C4（Write Foundation Final Acceptance）条目（2026-09-20 追加）
+
+- **Q：为什么「最终验收」还要单独做一轮？** A：因为 C1/C2/C3 是分别验收的，各自只覆盖一层：C1 是纯 C++ 契约、C2 是隐藏 UI 与确认对话框、C3 是运行时交互安全。分别通过不等于**组合**通过——真实缺陷常常出现在层与层的接缝（例如「authority 失效」与「Dialog 关闭」的先后顺序、draft 与 snapshot 的生命周期差异）。C4 就是专门做接缝验收：产品代码一行不改，只把三层契约放在同一份真实 QML runtime 里重新断言。
+- **Q：C4 最关键的三个新证是什么？** A：第一，**几何**：1024×720 与 1000×700 下写控件的 scene rect 必须完全落在窗口内，Dialog 在最低尺寸下 title/summary/values/Cancel/Confirm 全部可达——证明「不需要靠窗口自动变大」；第二，**滚动可达**：0x10 编辑器能把第一行和最后一行都滚进可见带（读真实 `contentY` 与光标矩形，而不是 `contentHeight > height` 这种弱断言），确认对话框的 values 列表 123 项时 #1 与 #123 都能滚到并读出；第三，**production-hidden 的深度证明**：扫描 675 个对象确认没有任何写控件、写无障碍节点、写 Tab 停靠点，并且启动不产生 prepared snapshot。
+- **Q：为什么说「全部可滚动访问」而不是「全部可见」？** A：因为 0x10 确认列表**故意**有 120px 上限：123 个值不可能同时可见。验收要证明的是「没有截断、顺序正确、每一项都能通过滚动读到」，这用的是真实渲染出来的 delegate 文本 + 视口带过滤（ListView 的 cacheBuffer 会保留视口外的 delegate，不过滤就会把「已实例化」误判成「在屏幕上」——这是本轮实际踩到并修掉的 oracle 缺陷）。
+- **Q：这轮发现的「Design Blocker」是什么？** A：0x06 的地址/数值 SpinBox 是**非编辑**的（`editable=0`，内部是只读 TextInput）。实测：键盘输入 1234 无效、Up 键不改变数值，唯一输入路径是用鼠标点增减指示器，每次只 ±1。16 位范围下最坏要 65535 次点击——这在生产版本里不可接受。所以 C4 把它**正式记为 M10-D 的 Design Blocker**，而不是顺手改产品：写 UI 首次对用户可见之前，M10-D 的 Learning/Design 必须先决定输入方案（可编辑输入 + 校验、高低字节分段、或十进制直接输入）。
+- **Q：为什么 C4 的 C21/C22 不算「测过」？** A：C21 是写超时的措辞契约，C22 是 `PossiblySent` 的不确定性语义。M10-C 里**根本没有生产可见的写结果 UI**（没有 encoder、没有派发），所以没有真实场景可测。诚实的做法是把它标成 design/future-dispatch contract：用文档与 M10-A 的 typed 语义锁定口径（超时 = 「响应超时，设备写入状态未知」，绝不说「设备未写入」），而不是造一个假的运行时用例来让矩阵看起来满格。
+- **Q：三层证据为什么要分开写？** A：因为「A 测过 X，B 测过 Y」不能写成「X→Y 这个组合被直接测过」。C4 报告里区分 direct runtime / pure C++ / controller / composed：例如「Replay 失败不清 snapshot」是 runtime 直接证；「busy 使确认失效」是 controller 单测 + 真实 FC03 产生 busy 的 runtime 断言合成；把这些混成一类会高估覆盖度，面试时被追问细节就会崩。

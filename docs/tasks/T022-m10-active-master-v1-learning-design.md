@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（accepted behavior tree `ef71244`，verified LKGC）；**M10-C = Write Safety UI Foundation：Phase 1（§I）→ §J → §K → C1（§L）→ C2（§M）→ C3（§N：context / keyboard / accessibility safety）→ Review = HOLD → **Correction 已落库（§O0–O10：E1/E2 rapid-Enter spillover oracle；产品 QML 零变化），等待 M10-C3 Final Re-review；C4 = NOT STARTED**（无 encoder、无 confirm→dispatch）。**
+> **状态：M10-A = ✅ COMPLETE；M10-B = ✅ COMPLETE（verified LKGC `ef71244`）；**M10-C = Write Safety UI Foundation：Phase 1（§I）→ §J → §K → C1（§L）→ C2（§M）→ C3（§N + §O：context / keyboard / accessibility safety + rapid-Enter oracle）→ **C3 Final Re-review = PASS，C3 = COMPLETE**；C4 = Final Acceptance 已执行（§P：C01–C37 矩阵 / geometry 1024×720 + 1000×700 / 滚动可达 / 123·124 边界 / 键盘与 modal 矩阵 / production-hidden 终证 / **产品代码零变化**），AWAITING M10-C4 REVIEW**（无 encoder、无 confirm→dispatch；Write UI production 不可见）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
@@ -4514,3 +4514,441 @@ harness/test 行为变化 ⇒ **behavior-bearing**（产品 QML 零变化也不�
 commit：`M10-C3: prove rapid Enter cannot escape confirmation`（独立提交；不 amend `0d5c219`；不 rebase；不 push；未 tag）。
 verified LKGC 保持 `ef71244`；M10-C3 = 等待 Final Re-review。
 ```
+## M10-C4 — Write Safety Foundation Final Acceptance（2026-09-20，harness + docs）
+
+> **M10-C3 Final Re-review = PASS。M10-C3 = COMPLETE。M10-C4 = GO。**
+> C4 是 **Final Acceptance**，不是 feature implementation：只证明 C1（pure/core）· C2（hidden UI/dialog）·
+> C3（runtime interaction）三层契约组合后仍然一致。**产品代码 / QML：零变化**；新增全部在 harness（`src/main.cpp`）
+> 与文档。本节为 append-only 归档，原 §N / §O 不改写。
+
+### P0. Preflight（真实输出）
+
+```text
+HEAD = c50dbfe（branch = main，working tree clean）
+verified LKGC = ef71244
+v1 tag object = 2cee626；v1 target = ae067ab；v2.0.0 = ABSENT
+origin/main = a40d935；ahead = 111；behind = 0
+CMake VERSION = 2.0.0
+git diff --check = PASS
+M9 / M10 Phase 1 / M10-A / M10-B / M10-C Phase 1 / C1 / C2 / C3 全部 COMPLETE
+```
+
+### P1. M10-C Behavior Chain Audit（真实 `git show --stat --name-only`）
+
+```text
+7562678 M10-C1  CMakeLists.txt, docs/*, src/core/active/{PreparedWriteSnapshot,WriteDraftParsing,
+                WritePrepareValidation}.{h,cpp}, src/ui/AnalysisController.{h,cpp},
+                tests/{test_active_master,test_write_prepare}.cpp          ⇒ behavior-bearing
+447e346 M10-C2  CMakeLists.txt, docs/*, src/main.cpp, src/ui/AnalysisController.{h,cpp},
+                src/ui/qml/components/WriteFoundationSection.qml,
+                src/ui/qml/pages/CommunicationPage.qml                     ⇒ behavior-bearing
+0d5c219 M10-C3  docs/*（含 ISSUE-014）, src/main.cpp,
+                src/ui/qml/components/WriteFoundationSection.qml           ⇒ behavior-bearing
+c50dbfe M10-C3  docs/*, src/main.cpp                                       ⇒ behavior-bearing
+        correction
+C4（本节）      src/main.cpp（harness 新增 oracle）+ docs/*                ⇒ behavior-bearing
+```
+
+⇒ **最终 accepted M10-C behavior-bearing tree = C4 commit**（按 §44 规则，以真实 diff 为准；
+docs-only closure commit 不作 LKGC）。
+
+### P2. Final Source Audit 与 Authority Map（§3）
+
+```text
+QML draft（WriteFoundationSection 的 page-local property）
+  → Controller prepareWrite06 / prepareWrite10（Q_INVOKABLE，int 入参）
+     → core::prepareWriteSingleRegisterIntent / prepareWriteMultipleRegistersIntent
+        （全部 int64 入参，先验证再窄化）
+        → AnalysisController::prepareWriteIntent（PRIVATE；context guard：source / connected / busy）
+           → PreparedWriteStore::prepare(PreparedWriteSnapshot)   ← 唯一创建点
+              → Dialog projection（14 个只读 Q_PROPERTY，单一 preparedWriteChanged 通知）
+                 → confirmation token（opaque qulonglong，QML 只回传该值）
+                    → Consumed | Invalidated（terminal，原因保留）
+```
+
+- 实读文件：`src/core/active/{PreparedWriteSnapshot,WriteDraftParsing,WritePrepareValidation}.{h,cpp}`、
+  `ActiveRequestIntent.{h,cpp}`、`src/ui/AnalysisController.{h,cpp}`、
+  `src/ui/qml/components/WriteFoundationSection.qml`、`src/ui/qml/pages/CommunicationPage.qml`、
+  `src/ui/qml/Main.qml`（page gating）、`src/main.cpp`（write harness + focus harness）、CMake tests。
+- 唯一 `preparedWriteStore_.prepare(...)` 调用点 = `AnalysisController.cpp:1464`（其余出现在
+  `tests/test_write_prepare.cpp` 的纯 store 测试中）。
+
+### P3. Bypass Audit（§3 逐项）
+
+| 可能的旁路 | 结论 | 证据 |
+| --- | --- | --- |
+| QML → transport 直接发送 | **不存在** | 写 UI 只调用 Controller 的 prepare/confirm/cancel；`WriteFoundationSection.qml` 无 transport 引用 |
+| draft → confirm 重新读取 | **不存在** | confirm 只回传 token；summary 绑定只读 Controller projection |
+| QML 自己持有 consumed 状态 | **不存在** | `activeFunctionIndex` 之外的 UI 状态都是 draft；`hasPreparedWrite` 等全部来自 Controller |
+| fake capability（伪功能可用） | **不存在** | 无 encoder、无 dispatch；`writeFoundationVisible` 明确不是 capability 信号 |
+| write encoder | **ABSENT** | `encodeActiveRequest` 对 0x06/0x10 返回 `UnsupportedFunction` |
+| write dispatch | **ABSENT** | 无 encode→transport 路径；harness transport `writeAttempts == 0` |
+
+### P4. C01–C37 Coverage Matrix（§5）
+
+> Layer：**P** = pure C++（`write_prepare` / `active_master` / `active_request`），**C** = Controller（`ui_bridge` /
+> harness），**Q** = QML runtime（write-foundation / focus harness）。每条都给出**直接断言**（不是「grep 过」）。
+
+| Oracle | 内容 | Layer | 断言位置 | 真实证据（节选） |
+| --- | --- | --- | --- | --- |
+| C01 | invalid unit | Q+C | `--qml-write-foundation-check` | `WRITE [C01]: unit 0 -> [... 1..247 ...], no dialog, no token` |
+| C02 | invalid address/value | Q | 同上（parser presentation） | `WRITE [C02]: 65536 -> [第 1 行的数值必须 0..65535]` |
+| C03 | valid prepare/dialog zero-send | Q | 同上 | `prepared token=1, dialog open, startAttempts=0` |
+| C04 | Cancel | Q | 同上 | `Cancel -> invalidated(user_cancelled), draft preserved, zero send` |
+| C05 | Escape → Cancel 语义 | Q | 同上 | `[C05/Escape]: invalidated(user_cancelled), dialog closed, draft preserved` |
+| C05b | immediate Space（additional oracle） | Q | 同上 | `[C05b]: immediate Space -> state=invalidated reason=user_cancelled` |
+| C06 | initial focus | Q | 同上 | `[C06]: initial focus = writeConfirmCancelButton` |
+| C07 | immediate Enter | Q | 同上 | `[C07]: immediate Enter -> state=prepared reason=`（zero confirmation） |
+| C08 | Confirm + Space | Q | 同上 | `[C08]: Confirm+Space -> consumed once (token=5), dialog closed, zero write dispatch` |
+| C08b | Confirm + Enter | Q | 同上 | `[C08b]: Confirm+Enter -> consumed` |
+| C09 | double Write | Q | 同上 | `[C09]: repeated Write kept token=1 and one dialog` |
+| C10-C | one-shot confirmation | Q+P | 同上 + `write_prepare` S04–S08 | `[C10-C]: one consumption for token=2; second confirm rejected` |
+| C11 | disconnect invalidation | Q | 同上 | `[C11]: disconnect -> invalidated(disconnected), dialog closed by the authority` |
+| C12 | new-session stale token | Q | 同上 | `[C12]: reconnect -> old token 0 unusable (session=2)` |
+| C13 | busy invalidation | Q | 同上（真实 FC03 读） | `[C13/C14]: busy false->true invalidated; busy->false did not revive` |
+| C14 | hidden-page safety | Q | 同上 | `[C14]: hidden page disabled; Tab/Space/Enter prepared nothing, dispatched nothing` |
+| C15 | Clear Results 正交 | Q | 同上 | `[C15]: Clear Results preserved drafts and the prepared snapshot` |
+| C16 | 独立 drafts | Q | 同上 | `[C16]: both drafts survived the tab switches` |
+| C17 | derived quantity | Q+P | 同上 + `write_prepare` | `[C17]: 0x10 prepared, quantity 3, all three values listed` |
+| C18 | address-span | Q+P | 同上 + `write_prepare` V09 | `[C18]: 65535+2 -> [起始地址超出 16 位寄存器地址空间]` |
+| C19 | summary == snapshot | Q | 同上 | `[C19]: summary fields equal the snapshot projection (unit 11 / addr 100 / value 1234 / COM_HARNESS @ 9600)` |
+| C20 | draft 变更不改变 snapshot | Q+P | 同上 + `write_prepare` S09 | `[C20]: draft edited to 7/4321, snapshot and summary still 100/1234` |
+| C21 | timeout state-unknown wording | **contract/future-dispatch** | 文档 + M10-A typed 语义 | 见 §P19：M10-C 无 production write outcome UI，**不制造假 runtime case**；写超时的用户语义被锁定为「响应超时，设备写入状态未知」（`ActiveTransportTerminal` + M10-D/E 口径） |
+| C22 | PossiblySent 不确定性 wording | **contract/future-dispatch** | 文档 + M10-A 证据语义 | 见 §P19：short submission / post-submission error / post-submission disconnect 都**不能**证明「设备未改变」，继承 M10-A，不由 C 层削弱 |
+| C23–C29 | parser contracts | P | `write_prepare` P01–P12 / V01–V08 | 32 passed（LF / CRLF / 空行规则 / 65535 上限 / 非十进制形式 / 123 / 124 / 巨大整数 / 边界与跨度） |
+| C30 | source replacement | Q | write-foundation harness | `[C30]: Simulator replacement -> invalidated(source_changed), drafts preserved` |
+| C31 | failed Replay preservation | Q | 同上 | `[C31]: failed Replay load -> snapshot and draft preserved` |
+| C32 | draft persistence across reconnect | Q | 同上 | `[C32]: drafts preserved; old snapshot invalidated` |
+| C33 | authority-first invalidation | C+Q | `ui_bridge` + write harness | 失效点由 authority 触发后再关 Dialog（`onPreparedWriteChanged`），从不反过来 |
+| C34 | authority-first consumption | C+Q | `write_prepare` S04/S05 + harness C10-C | consumption 先发生，UI 才关闭 |
+| C35 | terminal reason preservation | Q+P | 同上 | `[C35]: reason stays busy_became_true after a later disconnect` |
+| C36 | TextArea Tab escape | Q | 同上 | `[C36]: Tab escaped to [writeActivateButton]; Backtab returned to [write10ValuesArea]` |
+| C37 | production-hidden exclusion | Q | `--qml-focus-check`（Debug + Release） | `FOCUS [prod-hidden] PASS: loader inactive/item null; 675 objects scanned — no write control, no write accessible node, no write tab stop, no prepared snapshot` |
+
+### P5. Direct vs Composed Evidence（§6 口径，不得混淆）
+
+- **Direct runtime（真实 QML runtime 直接断言）**：C01–C20、C30–C32、C36、C37、C4 的 geometry / scroll /
+  boundary / keyboard / modal 全部条目。
+- **Pure C++ evidence**：C23–C29（parser）、C10-C / C17 / C18 / C20 的 store 与 validation 半边。
+- **Controller evidence**：C33 / C34（authority-first）、C13/C14 的 busy 语义、C11 的 disconnected 失效原因。
+- **Composed（组合证据，**不**声称单测直接跑过 QML）**：
+  · 「Replay 失败 → 不清 snapshot」由 C31（runtime）+ source/session 语义（pure/controller）**合成**；
+  · 「busy 失效」由 Controller 单测（原因与状态机）+ C13（真实 FC03 读产生 busy 后 Dialog 关闭）**合成**；
+  · C21 / C22 是 **design/future-dispatch contract**，M10-C 不伪造 runtime 场景。
+
+### P6. Geometry — 1024×720（harness-visible，§7）
+
+```text
+WRITE [C4 geometry 1024x720 0x06]: window=1024x720 writeFoundationPanel=(73,285 935x139)
+    writeFunctionTabs=(85,297 911x21) write06DraftRow=(85,326 911x24)
+    writeActivateButton=(85,358 50x34) writeValidationError=(85,400 911x12)
+WRITE [C4 geometry 1024x720 0x10]: window=1024x720 writeFoundationPanel=(73,285 935x262)
+    write10DraftColumn=(85,326 911x147) write10ValuesScroll=(85,377 911x96)
+    writeActivateButton=(85,481 50x34) writeValidationError=(85,523 911x12)
+```
+
+断言：tabs / 0x06 四个 SpinBox / 0x10 三个 SpinBox + editor / Write action / 0x10 editor（与其 viewport 相交）
+全部 `isVisible` 且 scene rect **完全落在窗口内**（无裁切）；validation message 可见时：在窗口内，且
+**与 tabs / 0x06 行 / editor / Write action 均不相交**。窗口尺寸断言为 **1024×720**（不依赖窗口自动扩大）。
+
+### P7. Geometry — 1000×700（最低验收几何，§8）
+
+```text
+WRITE [C4 geometry 1000x700 0x10]: window=1000x700 writeFoundationPanel=(73,285 911x262)
+    writeFunctionTabs=(85,297 887x21) write10ValuesScroll=(85,377 887x96)
+    writeActivateButton=(85,481 50x34) writeValidationError=(85,523 887x12)
+WRITE [C4 geometry 1000x700 0x06]: window=1000x700 writeFoundationPanel=(73,285 911x119) ...
+WRITE [C4 geometry restored 1024x720 0x10]: window=1024x720 ...
+```
+
+- harness 主动 `resize(1000, 700)`，并在断言里**先验证窗口确实是 1000×700**：
+  `the harness must not rely on the window growing itself` 这一失败路径存在且未触发。
+- **Dialog 在最低尺寸下同样可达**（新增 oracle）：`writeSummaryFunction / writeSummaryUnit /
+  writeSummaryAddress / writeSummaryQuantity(Label) / writeSummaryValues / writeConfirmCancelButton /
+  writeConfirmAcceptButton` 全部可见且在窗口内 —— 「Dialog 未越界、Cancel/Confirm 不需要 resize 就能按到」。
+- 现有 `qml_geometry_check` 不加载 hidden foundation，因此该几何验收由**本 harness 的窄 runtime 场景**承担，
+  并已纳入 ctest（`qml_write_foundation_check`），不是一次性手工执行。
+
+### P8. 0x10 Editor 首尾滚动可达（§9）
+
+```text
+WRITE [C4 scroll]: scroller=write10ValuesScroll content=432 viewport=96
+WRITE [C4 scroll]: last line y=412 visible in band [336,432) at contentY=336 of max 336
+WRITE [C4 scroll 1000x700]: last line y=272 in band [196,292) at contentY=196
+```
+
+- 30 行（1024×720）与 20 行（1000×700）时，editor 的真实可滚动 flickable 为 **ScrollView**（`ScrollView`
+  content=432 / viewport=96），harness **实测**该结构而非假设。
+- 可见带用几何映射计算（`mapRectFromItem` 把 viewport 映射进 editor 坐标系），不是 `contentHeight > height`
+  这种弱断言：**第一行**在 `contentY=0` 时位于可见带内；**最后一行**在 `contentY = max` 时位于可见带内
+  （y=412 ∈ [336,432)）。
+- 断言同时要求真实位移发生（`contentY > 0`），即「末行可达」是**滚动**的结果。
+
+### P9. Confirmation 全量 values 可滚动访问（§10）
+
+```text
+WRITE [C4 confirm-scroll]: readable top rows = [1000..1009]
+WRITE [C4 confirm-scroll]: readable bottom rows = [1031..1039] — all 40 values reachable by scrolling
+                           (not all visible at once)
+```
+
+- 40 个 values：`list count == 40 == snapshot values.size()`；quantity 显示 `40`；list viewport = 120px 上限
+  （断言 `height <= 121`），`contentHeight > height`。
+- 「可读」用**真实渲染的 delegate 文本 + viewport 带过滤**判定（cacheBuffer 会保留视口外的 delegate，
+  不过滤就会把「已实例化」误当成「在屏幕上」）；顺序用 trailing number 连续递增校验。
+- 结论口径：**「全部 snapshot values 都可通过滚动访问」** —— **不写**「全部同时可见」。
+
+### P10. 123-value 边界与 124 拒绝（§11）
+
+```text
+WRITE [C4 boundary]: value #1 readable at the top ([1..10])
+WRITE [C4 boundary]: value #123 readable at the bottom ([115..123])
+WRITE [C4 boundary]: 124 values -> [寄存器数量必须在 1..123 之间]
+```
+
+- 123：prepare **PASS**、Dialog `quantity = 123`、`list count = 123`、`#1` 与 `#123` 都能滚到并读出。
+- 124：**validation reject**、Dialog **不开**、无 snapshot token、validation presentation 可见。
+- 不要求 123 项同时显示（与 §11 一致）。
+
+### P11. 长 values list 的键盘可达性（§12）
+
+```text
+WRITE [C4 keyboard]: Tab chain = [writeConfirmCancelButton,writeConfirmAcceptButton]
+WRITE [C4 keyboard]: Shift+Tab returns to Cancel; list keys neither confirmed nor trapped
+```
+
+- Cancel 持初始焦点；**Tab 一次即到 Confirm**（有界 walk ≤ 8 次，实际 1 次）；**Shift+Tab 回到 Cancel**。
+- **ListView 本身不进入 Tab 链**——这是真实行为，按 §12 记录为事实（destructive action 只能显式聚焦后触发）。
+- 把焦点移到长 list 上按 Down / PageDown / **Return**：token 不变、state 仍 `prepared`、Dialog 不关、
+  `writeAttempts == 0` —— 列表键盘导航**不会**误确认。
+
+### P12. Production-hidden 最终证明（§13 / §15，Debug + Release）
+
+```text
+FOCUS [prod-hidden] PASS: loader inactive/item null; 675 objects scanned — no write control,
+      no write accessible node, no write tab stop, no prepared snapshot
+FOCUS [prod-hidden] PASS: Communication Tab chain has no write stop
+      ([navItem_0..navItem_4, commPortCombo, , commBaudCombo, ...])
+```
+
+- 深度证明（相对 C2 的「loader 未激活」）：
+  (1) **全场景 objectName 扫描** 675 个对象，除 `writeFoundationLoader` 外**无任何 `write*` 控件**；
+  (2) 具名写控件（section / Write 按钮 / tabs / editor / SpinBox / 列表 / Confirm）逐个断言**不存在**；
+  (3) **startup 不产生 snapshot**（authority 断言：`hasPreparedWrite == false`、token == 0、state == `none`）；
+  (4) **Communication 的 Tab 链里没有任何 write 停靠点**（不是「看不见」而是「不在键盘顺序里」）。
+- **Release 也执行**：`qml_focus_check` 与 `qml_write_foundation_check` 均属 ctest 31 项，Debug/Release
+  各自 31/31 PASS；Release 另外手工重跑两者，输出同上。
+- 不是 grep QML：全部是 runtime 断言。
+
+### P13. Harness-only Seam Audit（§14）
+
+```text
+engine.rootContext()->setContextProperty(
+    QStringLiteral("writeFoundationVisible"),
+    app.arguments().contains(QStringLiteral("--qml-write-foundation-check")));
+```
+
+- 唯一开关 = **精确的 CLI flag**；`CommunicationPage.qml` 只以 `active: writeFoundationVisible` 使用它。
+- 未发现任何环境变量、source selection、debug/release、配置文件路径能启用它（`qreal` 之外无
+  `qEnvironmentVariable` 出现于该路径）；normal main path 默认为 **false**。
+- 语义声明（代码注释与文档同口径）：**它不是 capability 信号**——即使打开，0x06 / 0x10 仍无 encoder、无 dispatch。
+
+### P14. Snapshot Domain Invariant（§16）
+
+- `PreparedWriteSnapshot` 只能由 `prepareWrite06` / `prepareWrite10` 经
+  `prepareWriteSingleRegisterIntent` / `prepareWriteMultipleRegistersIntent` 创建；
+  `prepareWriteIntent` 是 **private**，无 generic `prepareActiveRequest(intent)` 可用。
+- 0x03 **不能**进入该 domain：两个 builder 构造的 intent function 固定为 0x06 / 0x10。
+- 生产代码里 `preparedWriteStore_.prepare(...)` 只有**一处**调用（`AnalysisController.cpp:1464`）。
+
+### P15. Validate-before-narrowing 与 CRLF（§17 / §18）
+
+- 全部输入以 `int64_t` 进入 validation，**先验证再窄化**：`-1` / `65536` / 巨大整数（`p12`）都被拒绝，
+  不 wrap、不抛异常、不受 locale 影响（`write_prepare` 32 passed，含 `v04/v06 …BeforeNarrowing`、`v09` 跨度边界）。
+- QML 适配层**没有**把用户输入先转成 uint16：`Q_INVOKABLE prepareWrite06(int, int, int, int)` /
+  `prepareWrite10(int, int, QString, int)`；QML 直接传 SpinBox 的 `int`。SpinBox 的 `0..65535` 只是
+  **控件层边界**，C++ API 仍是宽类型 authoritative validation。
+- CRLF：`"1\r\n2\r\n3"` 在 pure parser 继续 PASS（`p02_crlfSeparated`）；本轮未新增 QML CRLF case
+  （§18 明示 pure test 足够）。
+
+### P16. Replay 失败保留 / Clear 正交 / 共享 busy（§19 / §20 / §21）
+
+- **failed Replay**：`[C31]: failed Replay load -> snapshot and draft preserved` —— 不 invalidate、不清 draft、
+  不换 session、不断 serial、不切 authoritative source（Direct runtime）。
+- **Clear Results**：`[C15]: Clear Results preserved drafts and the prepared snapshot` —— 清 transactions /
+  terminals / stats / diagnosis，但不清 draft、不 consume/invalidate snapshot、不发送、不断开。
+  pending FC03 的 clear 语义继续继承 M10-B，未在 M10-C 重新定义。
+- **共享 busy**：只有**一套** `serialBusy`（Read 与未来 Write 共用），
+  `[C13/C14]: busy false->true invalidated; busy->false did not revive (reads=1, write attempts=0)`
+  —— 真实 FC03 读产生 busy 即足以 invalidate Prepared confirmation；未新增 `writeBusy` 或第二套并行 authority。
+
+### P17. Confirmation Is Not Outcome / Timeout / PossiblySent（§22 / §23 / §24）
+
+- 全量 grep：写 UI 的**唯一**含「发送」的用户可见字符串是 Cancel 的无障碍名
+  **「取消写入（不发送任何请求）」**；不存在「写入成功 / 发送成功 / 设备已写入」这类文案。
+  `Consumed` 只表示 **user confirmation accepted**；写 outcome 要到 M10-D 有真实 response 才存在。
+- **Timeout contract（归档给 M10-D/E）**：写请求等待响应超时 ⇒ transaction outcome = `Timeout`，
+  用户语义 = **「响应超时，设备写入状态未知」**，**不得**表述为「设备未写入 / 写操作未发生」。
+  M10-C 不伪造该 runtime 场景。
+- **PossiblySent contract（继承 M10-A）**：short submission / submission 之后的 transport error /
+  submission 之后的 disconnect 都**不能**证明 device unchanged；M10-C 的 confirmation 层不覆盖、不弱化该语义。
+
+### P18. No Encoder / Zero Write Dispatch / Zero Write Transaction（§25 / §26 / §27）
+
+```text
+encodeActiveRequest: 0x06 / 0x10 → ActiveRequestEncodeError{UnsupportedFunction}
+（无 test-only encoder：tests 只验证「拒绝」与被动分析既有捕获报文）
+WRITE [C4 final]: session history function codes = [3]; zero 0x06/0x10 transactions,
+                  zero write dispatch (FC03 reads=3)
+```
+
+- 完整 C01–C37 + E1/E2 + C4 全矩阵执行结束后：`transport->writeAttempts() == 0`。
+- 会话历史（用户可见记录）里 **function code 只有 3（FC03）**，没有 0x06 / 0x10 transaction，
+  也没有任何 write transport terminal；为制造 busy 的 FC03 读**单独计数**（reads=3），与写活动严格分开。
+
+### P19. Accessibility 终检（§28）
+
+- 具名控件（写 tabs / draft inputs / values editor / Write action / Dialog 标题 / summary / Cancel / Confirm）
+  均有 accessible name（真实读取 `QAccessibleInterface::text(Name)`），
+  `[a11y]: names present (写入（打开确认对话框） / 取消写入（不发送任何请求） / 确认写入意图)`。
+- 状态同步：busy 时 `[a11y]: busy runtime -> Write action disabled=1`（disabled control 与 enabled 一致）。
+- 口径：**不做** WCAG / screen-reader certification。
+
+### P20. Keyboard Matrix 与 Modal Matrix（§29 / §30）
+
+| Context | Key | 期望动作 | 实测 |
+| --- | --- | --- | --- |
+| Dialog 刚打开 | Enter | zero confirm | `state=prepared reason=` ✅ |
+| Cancel focus | Space | Cancel | `invalidated(user_cancelled)` ✅ |
+| Confirm focus | Space | one consume | `consumed once (token=5)` ✅ |
+| Confirm focus | Enter | one consume | `[C08b]: consumed` ✅ |
+| Confirm focus | rapid Enter×2 | one consume / no spill | `[E1]/[E2]` ✅ |
+| Dialog | Escape | Cancel | `[C05/Escape]` ✅ |
+| values TextArea | Tab | escape | `[C36]` ✅ |
+| values TextArea | Shift+Tab | back escape | `[C36]` ✅ |
+| hidden page | Enter/Space | zero action | `[C14]` ✅ |
+| 长 values list | Down / PageDown / Return | 不确认、不逃逸 | `[C4 keyboard]` ✅ |
+
+| Modal 场景 | 实测 |
+| --- | --- |
+| outside click | `[outside-click]: dialog stayed open, snapshot stayed prepared` ✅ |
+| rail click | `[modal-nav]: rail 2 -> 2 (modal blocked the click); state=prepared` ✅ |
+| 背景 tab / Write activation | 被 modal 阻断（同一 blocked-click 机制），无新 snapshot、无发送 ✅ |
+
+### P21. 0x06 SpinBox Usability Decision（§31，M10-D 前置）
+
+真实测量（Fusion 风格，应用实际使用的 style）：
+
+```text
+WRITE [C4 probe]: 0x06 address SpinBox editable=0 stepSize=1 range=0..65535
+      | typing 1234: 0 -> 0 | Up key: 0 -> 0 | click on the up indicator: 0 -> 1
+```
+
+- `editable=0` ⇒ contentItem 是 **read-only TextInput**：**键盘无法直接输入数值**（输入 1234 无效）。
+- `Up/Down` 键**不改变数值**（0 → 0）：非编辑型 SpinBox 在本 style 下没有键盘步进路径。
+- 唯一可用的输入路径是 **鼠标点击 up/down 指示器**，每次 `stepSize = 1`。
+- **正式判定：现状不可接受作为 M10-D v1 的 production 输入**——16 位地址/数值范围下，
+  到达任意地址最坏需要 **65535 次点击**，键盘用户完全无法完成该操作。
+- **处理方式（遵守 §31）**：**不在 C4 重做产品**。记录为 **M10-D Design Blocker**：
+  M10-D 的 Learning/Design 必须先在下列方案中作出决定并留档（例如 editable 输入 + 校验、
+  分位输入（高/低字节）、或 address/value 的十进制直接输入框），再让 0x06 Write section 进入 production。
+
+### P22. Write Production Visibility Readiness Freeze（§32）
+
+M10-C 完成**不代表** Write UI 可以显示。冻结条件：0x06 Write section **首次 production-visible**
+必须同时满足 **0x06 encoder / dispatch / response matching / write timeout semantics / exactly-one-send /
+production UI enablement** 六项（全部属 M10-D），且需先解决 §P21 的 Design Blocker。
+
+### P23. AI / Agent Boundary（§33）
+
+- `AI / Agent write authority = NONE`：`src/core/ai`、`src/core/agent`、`src/ui/agent`、`src/ui/ai` 中
+  **不存在** `prepareWrite` / `confirmWrite` / serial send / raw ADU / transport 访问（grep 结果为空）。
+- C4 未新增任何写工具或权限，只读诊断边界不变。
+
+### P24. ISSUE-014 状态（§34）
+
+- **仍然可复现**（未修，且未顺手修）：write-foundation harness 中模型 reset 窗口内产生
+  **10 条** TransactionsPage 告警，分布在 10 行（271–277 / 344 / 349 / 379）；`--qml-focus-check` 同类告警 **0 条**。
+- append-only 澄清：ISSUE-014 正文写「9 条」，本轮实测为 **10 条**（同一组源行，计数差异而已，结论不变）；
+  ISSUE-014 原文不改写。
+- **写 UI 自身告警为 0 条**；该 issue 保持 **PRE-EXISTING NON-BLOCKING**，
+  **不作为 M10-C PASS 的必要条件**（QML warning count = 0 不是验收口径）。
+
+### P25. Full Regressions 与 Warnings（§35–§39）
+
+```text
+Debug  ctest: 100% tests passed, 0 tests failed out of 31
+Release ctest: 100% tests passed, 0 tests failed out of 31
+（31 项含 qml_smoke / qml_geometry_check / qml_nav_check / qml_focus_check / qml_write_foundation_check）
+```
+
+targeted suites（Release，真实 Totals）：
+
+```text
+write_prepare 32 · active_request 17 · active_master 54 · ui_bridge 59
+statistics 12 · statistics_integration 3 · diagnosis 17 · serial 21 · serial_adapter 7
+replay_log 14 · replay_analysis 9 · transaction 20 · transaction_integration 5 · function03 15
+fault 7 · fault_integration 4 · passive 55 · codec 9 · crc 8 · frame 6
+simulator 15 · simulator_integration 3 · ai 23 · agent_tools 15 · agent_runtime 28 · agent_integration 24
+→ 全部 0 failed / 0 skipped
+```
+
+- 编译告警：新增 harness 代码 **零新增 warning**；`src/main.cpp` 5 条 **pre-existing** 未动
+  （插入后行号：`dashboardIndex` 2495、`communicationIndex` 2497、`lst` 4595、`dir` 冗余捕获 8208、`isUnder` 8446）。
+- ISSUE-014 的 QML reset-window 告警**单独报告**（§P24），不与「new warning」混同。
+
+### P26. Manual Visual Sanity（§40）
+
+- 截图（`--qml-write-dump <dir>`，仅 harness 可见时产生，不是 oracle 的替代）：
+
+```text
+build/_c4_shots/c4-1024x720-0x10.png          1024x720
+build/_c4_shots/c4-confirmation-1024x720.png  1024x720
+build/_c4_shots/c4-1000x700-0x10.png          1000x700
+build/_c4_shots/c4-confirmation-1000x700.png  1000x700
+```
+
+- 人工查看结论：两个尺寸下 Write section 完整落在窗口内、validation 文案在 Write action 下方且不覆盖控件；
+  Dialog 居中且不越界，summary 与 values 列表在 120px 上限内滚动，Cancel / Confirm 完整可见可点。
+  （离屏平台无 CJK 字体，文字渲染为方框，属既有截图约定，与本轮无关。）
+- **REAL HARDWARE NOT VERIFIED**（未连接任何真实串口设备）。
+
+### P27. Problems Encountered / RCA（§41）
+
+C4 期间发现并修复 **3 个 harness oracle 缺陷**（分类：harness oracle defect，非产品缺陷；已按
+Observed / Expected / Evidence / Root Cause / Fix / Verification / Regression Protection 留痕）：
+
+1. **编辑器可见带模型错误** — Observed：`last line y=412 not in band [672,768)`；
+   Root Cause：把 viewport 通过 `contentItem` + `contentY` 二次映射，等于把滚动量算了两次；
+   Fix：改为 `mapRectFromItem` 几何映射（+ editor 自身 `contentY` 修正），兼容两种滚动结构；
+   Verification：`last line y=412 visible in band [336,432) at contentY=336 of max 336`；
+   Regression Protection：两个尺寸都断言首/末行，且要求真实位移发生。
+2. **ListView cacheBuffer 让视口外 delegate 被当成「在屏幕上」** — Observed：bottom rows 仍含首值 `1`；
+   Root Cause：只按「实例化」判定可读行；
+   Fix：按 viewport 带过滤并按 y 排序；Verification：`readable bottom rows = [1031..1039]`、
+   `#123 readable at the bottom ([115..123])`；Regression Protection：contiguity + 首/末值双向断言。
+3. **SpinBox 探针用错了输入路径** — Observed：`increase()` invoke 返回 false、点击 (width-12, height/2) 无效果；
+   Root Cause：Fusion style 的 up 指示器是**右上角**矩形（implicit 16 × height/2-1），且值为下界时点 down 必然无变化；
+   Fix：改点 up 指示器内部坐标 (width-8, height/4) 并同时测量 typing / Up 键；
+   Verification：`click on the up indicator: 0 -> 1`；Regression Protection：值域断言（不得越出 0..65535）。
+
+产品侧**未发现**任何 defect：全部 C01–C37 / geometry / scroll / boundary / keyboard / modal oracle
+在第一次以正确模型断言后即 PASS，因此按 §42 **产品代码与 QML 零变化**。
+
+### P28. Diff / Contract Freeze / Git（§42–§47）
+
+- **产品 diff：零**（`src/core`、`src/ui/*.cpp`、`src/ui/qml/**` 均未改）。
+- **harness diff**：仅 `src/main.cpp`（C4 geometry / scroll / boundary / keyboard / dialog-reachability /
+  usability probe / zero-write-transaction oracle / prod-hidden 深度化 / `--qml-write-dump`）。
+- **docs diff**：T022 本节 + PROJECT_STATUS / BACKLOG / devlog / INTERVIEW_NOTES 同步。
+- **M10-C 契约冻结（A–O）**：A draft = QML page-local；B prepare = C++ authoritative validation；
+  C `PreparedWriteSnapshot` = Controller immutable authority；D token one-shot；E summary = snapshot projection；
+  F Cancel/Escape = invalidate / zero send；G confirmation = Consumed only（**不是** write outcome）；
+  H disconnect/session/source/busy 使旧 confirmation 失效；I busy false→true **永久** invalidate；
+  J failed Replay 保持 source/session ⇒ 不 invalidate；K draft 跨导航/Clear/disconnect/reconnect/source replacement 存活；
+  L production Write hidden；M 0x06/0x10 encoder absent；N write dispatch absent；O AI/Agent write authority NONE。
+- **Git**：C4 为 behavior-bearing（harness 变化），独立提交
+  `M10-C4: complete write safety foundation acceptance`；未 amend `c50dbfe`、未 rebase、未 push、未 tag。
+- **LKGC 规则**：C4 自动测试 PASS **不**推进 LKGC；先 M10-C4 Review，Review PASS 后再用
+  docs-only closure 推进 `ef71244` → 最终 accepted M10-C behavior-bearing tree（C4 commit），
+  closure commit 本身不作 LKGC。

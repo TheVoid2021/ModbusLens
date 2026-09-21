@@ -1,4 +1,5 @@
 #include <QAbstractItemModel>
+#include <algorithm>
 #include <QAccessible>
 #include <QGuiApplication>
 #include <QDir>
@@ -6003,6 +6004,838 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                             "[%2]").arg(afterTab, focusName()));
     });
 
+            // =====================================================================
+    // M10-C4 — FINAL ACCEPTANCE oracles (harness-visible write foundation).
+    //
+    // Everything below is measured on the real shipped QML: the two acceptance
+    // window sizes, real scrollability of the 0x10 editor and of the
+    // confirmation values list, the protocol boundary at 123/124 values,
+    // keyboard reach with a long summary, and an input-efficiency probe for the
+    // 0x06 SpinBoxes. The harness only reads and drives; no product QML is
+    // touched (C4 is acceptance, not implementation).
+    // =====================================================================
+    auto sceneRectOf = [&itemOf](const QString &name) -> QRectF {
+        auto *item = itemOf(name);
+        if (!item)
+            return QRectF();
+        return QRectF(item->mapToScene(QPointF(0.0, 0.0)),
+                      QSizeF(item->width(), item->height()));
+    };
+    auto windowRect = [window]() {
+        return QRectF(0.0, 0.0, qreal(window->width()), qreal(window->height()));
+    };
+    // A control is reachable at a size only if its scene rect lies inside the
+    // window's content rect: a control clipped by the window is unreachable
+    // even though it has a size. Tolerance 0.5px = layout rounding, not a clip.
+    auto insideWindow = [&windowRect](const QRectF &r) {
+        return windowRect().adjusted(-0.5, -0.5, 0.5, 0.5).contains(r);
+    };
+    auto rectsIntersect = [](const QRectF &a, const QRectF &b) {
+        return a.isValid() && b.isValid() && a.intersects(b);
+    };
+    auto assertReachable = [&](const QString &label, const QString &name) {
+        auto *item = itemOf(name);
+        if (!item) {
+            fail(QStringLiteral("WRITEFAIL C4 geometry %1: %2 does not exist")
+                     .arg(label, name));
+            return;
+        }
+        if (!item->isVisible()) {
+            fail(QStringLiteral("WRITEFAIL C4 geometry %1: %2 is not visible")
+                     .arg(label, name));
+            return;
+        }
+        if (item->width() <= 1.0 || item->height() <= 1.0) {
+            fail(QStringLiteral("WRITEFAIL C4 geometry %1: %2 has no usable size "
+                                "(%3x%4)")
+                     .arg(label, name)
+                     .arg(item->width())
+                     .arg(item->height()));
+            return;
+        }
+        const QRectF r = sceneRectOf(name);
+        if (!insideWindow(r))
+            fail(QStringLiteral("WRITEFAIL C4 geometry %1: %2 is clipped by the "
+                                "window (scene %3,%4 %5x%6 vs window %7x%8)")
+                     .arg(label, name)
+                     .arg(qRound(r.x()))
+                     .arg(qRound(r.y()))
+                     .arg(qRound(r.width()))
+                     .arg(qRound(r.height()))
+                     .arg(window->width())
+                     .arg(window->height()));
+    };
+    auto dumpWriteGeometry = [&](const QString &label) {
+        const QStringList names = {
+            QStringLiteral("writeFoundationPanel"),
+            QStringLiteral("writeFunctionTabs"),
+            QStringLiteral("write06DraftRow"),
+            QStringLiteral("write10DraftColumn"),
+            QStringLiteral("write10ValuesScroll"),
+            QStringLiteral("writeActivateButton"),
+            QStringLiteral("writeValidationError")};
+        QStringList parts;
+        for (const QString &n : names) {
+            auto *item = itemOf(n);
+            if (!item || !item->isVisible()) {
+                parts << n + QStringLiteral("=<hidden>");
+                continue;
+            }
+            const QPointF p = item->mapToScene(QPointF(0.0, 0.0));
+            parts << QStringLiteral("%1=(%2,%3 %4x%5)")
+                         .arg(n)
+                         .arg(qRound(p.x()))
+                         .arg(qRound(p.y()))
+                         .arg(qRound(item->width()))
+                         .arg(qRound(item->height()));
+        }
+        note(QStringLiteral("WRITE [C4 geometry %1]: window=%2x%3 %4")
+                 .arg(label)
+                 .arg(window->width())
+                 .arg(window->height())
+                 .arg(parts.join(QStringLiteral(" "))));
+    };
+    // The validation presentation is measured only while it is on screen; it
+    // must be inside the window and must never sit on top of a control the user
+    // still has to reach (the tabs, the 0x06 row, the action, the editor).
+    auto assertErrorDoesNotCoverControls = [&](const QString &label) {
+        if (!errorVisible())
+            return;
+        const QRectF err = sceneRectOf(QStringLiteral("writeValidationError"));
+        if (err.width() <= 1.0 || err.height() <= 1.0) {
+            fail(QStringLiteral("WRITEFAIL C4 geometry %1: the validation message "
+                                "is visible but has no rect")
+                     .arg(label));
+            return;
+        }
+        if (!insideWindow(err))
+            fail(QStringLiteral("WRITEFAIL C4 geometry %1: the validation message "
+                                "is clipped by the window")
+                     .arg(label));
+        for (const QString &n : {QStringLiteral("writeFunctionTabs"),
+                                 QStringLiteral("writeActivateButton"),
+                                 QStringLiteral("write06DraftRow"),
+                                 QStringLiteral("write10ValuesScroll")}) {
+            auto *item = itemOf(n);
+            if (!item || !item->isVisible())
+                continue;
+            if (rectsIntersect(err, sceneRectOf(n)))
+                fail(QStringLiteral("WRITEFAIL C4 geometry %1: the validation "
+                                    "message overlaps %2")
+                         .arg(label, n));
+        }
+        note(QStringLiteral("WRITE [C4 geometry %1]: validation message at "
+                            "(%2,%3 %4x%5) — clear of tabs / action / editor")
+                 .arg(label)
+                 .arg(qRound(err.x()))
+                 .arg(qRound(err.y()))
+                 .arg(qRound(err.width()))
+                 .arg(qRound(err.height())));
+    };
+    auto assertWriteGeometry = [&](const QString &label) {
+        dumpWriteGeometry(label);
+        assertReachable(label, QStringLiteral("writeFoundationPanel"));
+        assertReachable(label, QStringLiteral("writeFunctionTabs"));
+        assertReachable(label, QStringLiteral("writeActivateButton"));
+        const int active =
+            intOf(QStringLiteral("writeFoundationSection"), "activeFunctionIndex");
+        if (active == 0) {
+            for (const QString &n : {QStringLiteral("write06UnitSpin"),
+                                     QStringLiteral("write06AddressSpin"),
+                                     QStringLiteral("write06ValueSpin"),
+                                     QStringLiteral("write06TimeoutSpin")})
+                assertReachable(label, n);
+        } else {
+            for (const QString &n : {QStringLiteral("write10UnitSpin"),
+                                     QStringLiteral("write10StartSpin"),
+                                     QStringLiteral("write10TimeoutSpin"),
+                                     QStringLiteral("write10ValuesScroll")})
+                assertReachable(label, n);
+            auto *area = itemOf(QStringLiteral("write10ValuesArea"));
+            const QRectF svRect =
+                sceneRectOf(QStringLiteral("write10ValuesScroll"));
+            const QRectF areaRect =
+                sceneRectOf(QStringLiteral("write10ValuesArea"));
+            if (!area || !area->isVisible() || areaRect.width() <= 1.0
+                || areaRect.height() <= 1.0)
+                fail(QStringLiteral("WRITEFAIL C4 geometry %1: the 0x10 editor "
+                                    "has no visible rect")
+                         .arg(label));
+            else if (!rectsIntersect(areaRect, svRect))
+                fail(QStringLiteral("WRITEFAIL C4 geometry %1: the 0x10 editor "
+                                    "does not intersect its own viewport")
+                         .arg(label));
+            else if (areaRect.y() < windowRect().top() - 0.5)
+                fail(QStringLiteral("WRITEFAIL C4 geometry %1: the 0x10 editor "
+                                    "starts above the window")
+                         .arg(label));
+        }
+        assertErrorDoesNotCoverControls(label);
+    };
+    // The 0x10 editor scrolls either through its own flickable or through the
+    // ScrollView wrapper (Qt may size the TextArea to the viewport or keep it
+    // at content height). The harness MEASURES which one actually scrolls and
+    // then drives that one — it never assumes a structure.
+    auto editorScroller = [&]() -> QQuickItem * {
+        auto *sv = itemOf(QStringLiteral("write10ValuesScroll"));
+        auto *area = itemOf(QStringLiteral("write10ValuesArea"));
+        if (!sv || !area)
+            return nullptr;
+        if (sv->property("contentHeight").toReal()
+            > sv->property("height").toReal() + 1.0)
+            return sv;
+        return area;
+    };
+    // The 0x10 editor's VISIBLE band, expressed in the TextArea's own
+    // coordinates. Measured GEOMETRICALLY (the ScrollView's viewport mapped
+    // into the editor's coordinate system) instead of re-deriving it from
+    // contentY arithmetic: Qt may size the TextArea to the viewport or keep it
+    // at content height, and the editor may or may not scroll itself. A line's
+    // cursorRectangle.y sits in the editor's coordinate system, so subtracting
+    // the editor's own contentY makes one formula valid for both structures.
+    auto editorVisibleBand = [&]() -> QPair<qreal, qreal> {
+        auto *sv = itemOf(QStringLiteral("write10ValuesScroll"));
+        auto *area = itemOf(QStringLiteral("write10ValuesArea"));
+        if (!sv || !area)
+            return {0.0, -1.0};
+        const QRectF viewport =
+            area->mapRectFromItem(sv, QRectF(0.0, 0.0, sv->width(), sv->height()));
+        const qreal shift = area->property("contentY").toReal();
+        return {viewport.top() + shift, viewport.bottom() + shift};
+    };
+    // The rendered rows read as a label plus the VALUE, so the oracle can
+    // verify identity and order by the trailing number — never by the
+    // separator glyph.
+    auto trailingNumber = [](const QString &text) {
+        int end = text.size();
+        while (end > 0 && !text.at(end - 1).isDigit())
+            --end;
+        int start = end;
+        while (start > 0 && text.at(start - 1).isDigit())
+            --start;
+        return start == end ? QString() : text.mid(start, end - start);
+    };
+    // The rows the user can actually READ right now: delegates inside the
+    // viewport band, in vertical order. A ListView keeps cached delegates alive
+    // OUTSIDE the viewport (cacheBuffer), so a raw child walk reports rows that
+    // are not on screen — the band filter is what makes the oracle mean
+    // "reachable by scrolling" instead of "instantiated".
+    auto viewportRows = [](QQuickItem *view) {
+        QList<QPair<qreal, QString>> rows;
+        if (!view)
+            return rows;
+        auto *content = view->property("contentItem").value<QQuickItem *>();
+        if (!content)
+            return rows;
+        const qreal top = view->property("contentY").toReal();
+        const qreal bottom = top + view->property("height").toReal();
+        QList<QQuickItem *> queue{content};
+        while (!queue.isEmpty()) {
+            auto *item = queue.takeFirst();
+            const QVariant text = item->property("text");
+            if (text.isValid() && !text.toString().isEmpty() && item->isVisible()) {
+                const qreal y = item->y();
+                if (y >= top - 1.0 && y < bottom + 1.0)
+                    rows << qMakePair(y, text.toString());
+            }
+            queue += item->childItems();
+        }
+        std::sort(rows.begin(), rows.end(),
+                  [](const QPair<qreal, QString> &a,
+                     const QPair<qreal, QString> &b) { return a.first < b.first; });
+        return rows;
+    };
+    auto rowNumbers = [&trailingNumber](
+                          const QList<QPair<qreal, QString>> &rows) {
+        QList<int> values;
+        for (const auto &row : rows)
+            values << trailingNumber(row.second).toInt();
+        return values;
+    };
+    auto contiguous = [](const QList<int> &values) {
+        for (int i = 1; i < values.size(); ++i) {
+            if (values.at(i) != values.at(i - 1) + 1)
+                return false;
+        }
+        return true;
+    };
+    auto describe = [](const QList<int> &values) {
+        QStringList parts;
+        for (const int v : values)
+            parts << QString::number(v);
+        return parts.join(QStringLiteral(","));
+    };
+    auto valuesText = [](int count, int first) {
+        QStringList parts;
+        for (int i = 0; i < count; ++i)
+            parts << QString::number(first + i);
+        return parts.join(QLatin1Char('\n'));
+    };
+
+    // Optional visual evidence (never an oracle substitute): screenshots of
+    // the hidden foundation at the acceptance sizes, written only when the
+    // harness is asked for them.
+    QString dumpDir;
+    {
+        const QStringList args = app.arguments();
+        const int idx = args.indexOf(QStringLiteral("--qml-write-dump"));
+        if (idx >= 0 && idx + 1 < args.size())
+            dumpDir = args.at(idx + 1);
+    }
+    auto dumpShot = [&window, &dumpDir, &note](const QString &tag) {
+        if (dumpDir.isEmpty() || !window)
+            return;
+        const QImage image = window->grabWindow();
+        const QString path = QDir(dumpDir).filePath(tag + QStringLiteral(".png"));
+        if (image.save(path))
+            note(QStringLiteral("WRITE [C4 dump]: %1 %2x%3")
+                     .arg(path)
+                     .arg(image.width())
+                     .arg(image.height()));
+        else
+            note(QStringLiteral("WRITE [C4 dump]: FAILED %1").arg(path));
+    };
+    // Every part of the confirmation the user must be able to read or press —
+    // measured at the current window size.
+    auto assertDialogReachable = [&](const QString &label) {
+        for (const QString &n : {QStringLiteral("writeSummaryFunction"),
+                                 QStringLiteral("writeSummaryUnit"),
+                                 QStringLiteral("writeSummaryAddress"),
+                                 QStringLiteral("writeSummaryQuantityLabel"),
+                                 QStringLiteral("writeSummaryQuantity"),
+                                 QStringLiteral("writeSummaryValues"),
+                                 QStringLiteral("writeConfirmCancelButton"),
+                                 QStringLiteral("writeConfirmAcceptButton")})
+            assertReachable(label, n);
+    };
+
+    // ---- C4 setup: clean authority state, default acceptance size ----
+    push([&]() {
+        clearIt();
+        setDraft("valuesText10", QString());
+        window->resize(1024, 720);
+        setDraft("activeFunctionIndex", 0);
+    });
+    push([&]() {
+        if (tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL C4 setup: a snapshot survived the "
+                                "reset (token=%1)").arg(tokenOf()));
+        note(QStringLiteral("WRITE [C4 setup]: window=%1x%2 state=%3")
+                 .arg(window->width())
+                 .arg(window->height())
+                 .arg(stateToken()));
+    });
+
+    // ---- C4 geometry @1024x720: 0x06 tab, then 0x10 tab ----
+    push([&]() {
+        // Force a rejection so the validation presentation is really on screen
+        // for the "must not cover a control" measurement.
+        setDraft("unit06", 0);
+        setDraft("address06", 100);
+        setDraft("value06", 5);
+        if (activateWrite())
+            fail(QStringLiteral("WRITEFAIL C4 geometry 1024x720: unit 0 was "
+                                "accepted"));
+    });
+    push([&]() {
+        if (!errorVisible())
+            fail(QStringLiteral("WRITEFAIL C4 geometry 1024x720: no validation "
+                                "presentation to measure"));
+        assertWriteGeometry(QStringLiteral("1024x720 0x06"));
+    });
+    push([&]() { setDraft("activeFunctionIndex", 1); });
+    push([&]() {
+        setDraft("unit10", 1);
+        setDraft("start10", 0);
+        setDraft("valuesText10", valuesText(30, 1000));
+    });
+    push([&]() {
+        assertWriteGeometry(QStringLiteral("1024x720 0x10"));
+        dumpShot(QStringLiteral("c4-1024x720-0x10"));
+    });
+
+    // ---- C4 editor scrollability @1024x720 (first line / last line) ----
+    push([&]() {
+        auto *area = itemOf(QStringLiteral("write10ValuesArea"));
+        auto *scroller = editorScroller();
+        if (!area || !scroller) {
+            fail(QStringLiteral("WRITEFAIL C4 scroll: the 0x10 editor or its "
+                                "scroller is missing"));
+            return;
+        }
+        if (area->property("lineCount").toInt() != 30)
+            fail(QStringLiteral("WRITEFAIL C4 scroll: the editor holds %1 lines, "
+                                "expected 30").arg(area->property("lineCount").toInt()));
+        if (scroller->property("contentHeight").toReal()
+            <= scroller->property("height").toReal() + 1.0) {
+            fail(QStringLiteral("WRITEFAIL C4 scroll: the editor does not "
+                                "overflow (content=%1 height=%2)")
+                     .arg(scroller->property("contentHeight").toReal())
+                     .arg(scroller->property("height").toReal()));
+            return;
+        }
+        note(QStringLiteral("WRITE [C4 scroll]: scroller=%1 content=%2 viewport=%3")
+                 .arg(scroller->objectName())
+                 .arg(qRound(scroller->property("contentHeight").toReal()))
+                 .arg(qRound(scroller->property("height").toReal())));
+        // Top of the document: the first line must be inside the viewport.
+        scroller->setProperty("contentY", 0.0);
+        area->setProperty("cursorPosition", 0);
+        const auto band = editorVisibleBand();
+        const qreal firstY = area->property("cursorRectangle").toRectF().y();
+        if (firstY < band.first - 1.0 || firstY >= band.second)
+            fail(QStringLiteral("WRITEFAIL C4 scroll: line 1 (y=%1) is not in the "
+                                "visible band [%2,%3)")
+                     .arg(firstY)
+                     .arg(band.first)
+                     .arg(band.second));
+    });
+    push([&]() {
+        auto *area = itemOf(QStringLiteral("write10ValuesArea"));
+        auto *scroller = editorScroller();
+        if (!area || !scroller)
+            return;
+        // Bottom of the document: the LAST line must become visible by real
+        // scrolling (contentY driven to its maximum).
+        const qreal maxY = scroller->property("contentHeight").toReal()
+                           - scroller->property("height").toReal();
+        scroller->setProperty("contentY", maxY);
+        area->setProperty("cursorPosition",
+                          area->property("length").toInt());
+        const auto bandAfter = editorVisibleBand();
+        const qreal lastY = area->property("cursorRectangle").toRectF().y();
+        const bool moved = scroller->property("contentY").toReal() > 1.0;
+        if (!moved)
+            fail(QStringLiteral("WRITEFAIL C4 scroll: the editor did not scroll "
+                                "(contentY=%1 max=%2)")
+                     .arg(scroller->property("contentY").toReal())
+                     .arg(maxY));
+        if (lastY < bandAfter.first - 1.0 || lastY >= bandAfter.second)
+            fail(QStringLiteral("WRITEFAIL C4 scroll: the last line (y=%1) is not "
+                                "in the visible band [%2,%3) at max scroll")
+                     .arg(lastY)
+                     .arg(bandAfter.first)
+                     .arg(bandAfter.second));
+        note(QStringLiteral("WRITE [C4 scroll]: last line y=%1 visible in band "
+                            "[%2,%3) at contentY=%4 of max %5")
+                 .arg(qRound(lastY))
+                 .arg(qRound(bandAfter.first))
+                 .arg(qRound(bandAfter.second))
+                 .arg(qRound(scroller->property("contentY").toReal()))
+                 .arg(qRound(maxY)));
+    });
+
+    // ---- C4 confirmation scrollability (all values reachable) ----
+    push([&]() {
+        setDraft("valuesText10", valuesText(40, 1000));
+    });
+    push([&]() {
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: the 40-value draft "
+                                "was rejected"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: no dialog"));
+    });
+    push([&]() {
+        auto *list = itemOf(QStringLiteral("writeSummaryValues"));
+        if (!list) {
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: the values list is "
+                                "missing"));
+            return;
+        }
+        const int count = valuesListCount();
+        const int expected = controller->preparedWriteValues().size();
+        if (count != 40 || expected != 40)
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: list count=%1, "
+                                "snapshot values=%2, expected 40/40")
+                     .arg(count)
+                     .arg(expected));
+        if (textOf(QStringLiteral("writeSummaryQuantity")) != QStringLiteral("40"))
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: quantity shows [%1], "
+                                "expected 40")
+                     .arg(textOf(QStringLiteral("writeSummaryQuantity"))));
+        assertDialogReachable(QStringLiteral("1024x720 dialog"));
+        dumpShot(QStringLiteral("c4-confirmation-1024x720"));
+        const qreal contentH = list->property("contentHeight").toReal();
+        const qreal viewH = list->property("height").toReal();
+        if (viewH > 121.0)
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: the list grew to %1 "
+                                "(the 120px bound is gone)").arg(viewH));
+        if (contentH <= viewH + 1.0)
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: the list does not "
+                                "overflow (content=%1 height=%2)")
+                     .arg(contentH)
+                     .arg(viewH));
+        list->setProperty("contentY", 0.0);
+    });
+    push([&]() {
+        auto *list = itemOf(QStringLiteral("writeSummaryValues"));
+        if (!list)
+            return;
+        const QList<int> values = rowNumbers(viewportRows(list));
+        if (values.isEmpty())
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: no row is readable "
+                                "at the top of the list"));
+        else if (values.first() != 1000)
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: the top of the list "
+                                "shows [%1], expected value 1000")
+                     .arg(describe(values)));
+        else if (!contiguous(values))
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: the readable rows "
+                                "are not contiguous ([%1])").arg(describe(values)));
+        else
+            note(QStringLiteral("WRITE [C4 confirm-scroll]: readable top rows = "
+                                "[%1]").arg(describe(values)));
+        const qreal maxY = list->property("contentHeight").toReal()
+                           - list->property("height").toReal();
+        list->setProperty("contentY", maxY);
+    });
+    push([&]() {
+        auto *list = itemOf(QStringLiteral("writeSummaryValues"));
+        if (!list)
+            return;
+        const QList<int> values = rowNumbers(viewportRows(list));
+        if (values.isEmpty())
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: no row is readable "
+                                "at the bottom of the list"));
+        else if (values.last() != 1039)
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: the bottom of the "
+                                "list shows [%1], expected value 1039")
+                     .arg(describe(values)));
+        else if (values.contains(1000))
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: value 1000 is still "
+                                "on screen at the bottom — nothing scrolled"));
+        else if (!contiguous(values))
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: the readable rows "
+                                "are not contiguous ([%1])").arg(describe(values)));
+        else
+            note(QStringLiteral("WRITE [C4 confirm-scroll]: readable bottom rows = "
+                                "[%1] — all 40 values reachable by scrolling (not "
+                                "all visible at once)")
+                     .arg(describe(values)));
+        clearIt();
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: the dialog stayed "
+                                "open after the cancel"));
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("WRITEFAIL C4 confirm-scroll: state=%1 after "
+                                "cancel").arg(stateToken()));
+    });
+
+    // ---- C4 123-value protocol boundary ----
+    push([&]() {
+        setDraft("valuesText10", valuesText(123, 1));
+    });
+    push([&]() {
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C4 boundary: the 123-value draft was "
+                                "rejected"));
+        if (controller->preparedWriteQuantity() != 123)
+            fail(QStringLiteral("WRITEFAIL C4 boundary: the snapshot quantity is "
+                                "%1, expected 123")
+                     .arg(controller->preparedWriteQuantity()));
+    });
+    push([&]() {
+        auto *list = itemOf(QStringLiteral("writeSummaryValues"));
+        if (!list) {
+            fail(QStringLiteral("WRITEFAIL C4 boundary: the values list is "
+                                "missing"));
+            return;
+        }
+        if (valuesListCount() != 123)
+            fail(QStringLiteral("WRITEFAIL C4 boundary: list count=%1, expected "
+                                "123").arg(valuesListCount()));
+        if (textOf(QStringLiteral("writeSummaryQuantity")) != QStringLiteral("123"))
+            fail(QStringLiteral("WRITEFAIL C4 boundary: quantity shows [%1], "
+                                "expected 123")
+                     .arg(textOf(QStringLiteral("writeSummaryQuantity"))));
+        list->setProperty("contentY", 0.0);
+    });
+    push([&]() {
+        auto *list = itemOf(QStringLiteral("writeSummaryValues"));
+        if (!list)
+            return;
+        const QList<int> values = rowNumbers(viewportRows(list));
+        if (values.isEmpty() || values.first() != 1)
+            fail(QStringLiteral("WRITEFAIL C4 boundary: value #1 is not readable "
+                                "at the top (rows=[%1])").arg(describe(values)));
+        else
+            note(QStringLiteral("WRITE [C4 boundary]: value #1 readable at the top "
+                                "([%1])").arg(describe(values)));
+        list->setProperty("contentY",
+                          list->property("contentHeight").toReal()
+                              - list->property("height").toReal());
+    });
+    push([&]() {
+        auto *list = itemOf(QStringLiteral("writeSummaryValues"));
+        if (!list)
+            return;
+        const QList<int> values = rowNumbers(viewportRows(list));
+        if (values.isEmpty() || values.last() != 123)
+            fail(QStringLiteral("WRITEFAIL C4 boundary: value #123 is not readable "
+                                "at the bottom (rows=[%1])").arg(describe(values)));
+        else if (!contiguous(values))
+            fail(QStringLiteral("WRITEFAIL C4 boundary: the readable rows are not "
+                                "contiguous ([%1])").arg(describe(values)));
+        else
+            note(QStringLiteral("WRITE [C4 boundary]: value #123 readable at the "
+                                "bottom ([%1])").arg(describe(values)));
+    });
+
+    // ---- C4 long-summary keyboard: Cancel / Confirm stay reachable ----
+    push([&]() {
+        if (!focusOn(QStringLiteral("writeConfirmCancelButton")))
+            fail(QStringLiteral("WRITEFAIL C4 keyboard: the dialog did not open "
+                                "with Cancel focused (focus=%1)").arg(focusName()));
+        // The values list must not be a keyboard trap: Tab from Cancel reaches
+        // Confirm (bounded walk, the real behaviour is recorded).
+        QStringList chain;
+        chain << focusOwnerName();
+        bool reached = false;
+        for (int i = 0; i < 8 && !reached; ++i) {
+            tab(true);
+            chain << focusOwnerName();
+            reached = focusOwnerName() == QStringLiteral("writeConfirmAcceptButton");
+        }
+        if (!reached)
+            fail(QStringLiteral("WRITEFAIL C4 keyboard: Tab never reached Confirm "
+                                "([%1])").arg(chain.join(QStringLiteral(","))));
+        else
+            note(QStringLiteral("WRITE [C4 keyboard]: Tab chain = [%1]")
+                     .arg(chain.join(QStringLiteral(","))));
+        const quint64 tokenBefore = tokenOf();
+        if (tokenBefore == 0)
+            fail(QStringLiteral("WRITEFAIL C4 keyboard: no prepared token"));
+        // Keyboard navigation inside the long list must not confirm anything.
+        auto *list = itemOf(QStringLiteral("writeSummaryValues"));
+        if (list)
+            list->forceActiveFocus(Qt::TabFocusReason);
+    });
+    push([&]() {
+        const quint64 tokenBefore = tokenOf();
+        sendKey(Qt::Key_Down, Qt::NoModifier, false);
+        sendKey(Qt::Key_PageDown, Qt::NoModifier, false);
+        sendKey(Qt::Key_Return, Qt::NoModifier, false);
+        if (tokenOf() != tokenBefore)
+            fail(QStringLiteral("WRITEFAIL C4 keyboard: the token changed while "
+                                "the list had focus (%1 -> %2)")
+                     .arg(tokenBefore)
+                     .arg(tokenOf()));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("WRITEFAIL C4 keyboard: state=%1 after keys reached "
+                                "the list").arg(stateToken()));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C4 keyboard: the dialog closed while "
+                                "navigating the list"));
+        if (transport->writeAttempts() != 0)
+            fail(QStringLiteral("WRITEFAIL C4 keyboard: %1 write attempts")
+                     .arg(transport->writeAttempts()));
+        // Backtab must return to Cancel (no one-way trap).
+        bool back = false;
+        for (int i = 0; i < 8 && !back; ++i) {
+            tab(false);
+            back = focusOwnerName() == QStringLiteral("writeConfirmCancelButton");
+        }
+        if (!back)
+            fail(QStringLiteral("WRITEFAIL C4 keyboard: Backtab never returned to "
+                                "Cancel (focus=%1)").arg(focusOwnerName()));
+        else
+            note(QStringLiteral("WRITE [C4 keyboard]: Shift+Tab returns to Cancel; "
+                                "list keys neither confirmed nor trapped"));
+        clearIt();
+    });
+
+    // ---- C4 124-value rejection (protocol limit) ----
+    push([&]() {
+        // The editor no longer holds a value draft error, so this rejection is
+        // freshly produced by the 124-value input.
+        setDraft("valuesText10", valuesText(124, 1));
+    });
+    push([&]() {
+        const bool accepted = activateWrite();
+        if (accepted)
+            fail(QStringLiteral("WRITEFAIL C4 boundary: the 124-value draft was "
+                                "accepted"));
+        if (dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C4 boundary: a dialog opened for the "
+                                "124-value draft"));
+        if (tokenOf() != 0)
+            fail(QStringLiteral("WRITEFAIL C4 boundary: a snapshot was created for "
+                                "the 124-value draft"));
+        if (!errorVisible() || textOf(QStringLiteral("writeValidationError")).isEmpty())
+            fail(QStringLiteral("WRITEFAIL C4 boundary: no validation "
+                                "presentation for 124 values"));
+        else
+            note(QStringLiteral("WRITE [C4 boundary]: 124 values -> [%1]")
+                     .arg(textOf(QStringLiteral("writeValidationError"))));
+    });
+    push([&]() {
+        assertWriteGeometry(QStringLiteral("1024x720 0x10 (post-reject)"));
+    });
+
+    // ---- C4 geometry @1000x700 (the minimum acceptance size) ----
+    push([&]() {
+        setDraft("valuesText10", valuesText(30, 1000));
+        window->resize(1000, 700);
+    });
+    push([&]() {
+        if (window->width() != 1000 || window->height() != 700)
+            fail(QStringLiteral("WRITEFAIL C4 geometry 1000x700: the window is "
+                                "%1x%2, expected 1000x700 — the harness must not "
+                                "rely on the window growing itself")
+                     .arg(window->width())
+                     .arg(window->height()));
+        assertWriteGeometry(QStringLiteral("1000x700 0x10"));
+        dumpShot(QStringLiteral("c4-1000x700-0x10"));
+    });
+    // The dialog itself at the minimum size: title / summary / all values /
+    // Both buttons must be readable and pressable without resizing.
+    push([&]() {
+        setDraft("valuesText10", valuesText(20, 500));
+    });
+    push([&]() {
+        if (!activateWrite())
+            fail(QStringLiteral("WRITEFAIL C4 geometry 1000x700: the draft was "
+                                "rejected"));
+        if (!dialogVisible())
+            fail(QStringLiteral("WRITEFAIL C4 geometry 1000x700: no dialog"));
+    });
+    push([&]() {
+        assertDialogReachable(QStringLiteral("1000x700 dialog"));
+        dumpShot(QStringLiteral("c4-confirmation-1000x700"));
+        clearIt();
+    });
+    push([&]() { setDraft("activeFunctionIndex", 0); });
+    push([&]() {
+        setDraft("unit06", 1);
+        setDraft("address06", 100);
+        setDraft("value06", 7);
+    });
+    push([&]() { assertWriteGeometry(QStringLiteral("1000x700 0x06")); });
+
+    // ---- C4 editor scrollability @1000x700 (worst case) ----
+    push([&]() { setDraft("activeFunctionIndex", 1); });
+    push([&]() {
+        auto *area = itemOf(QStringLiteral("write10ValuesArea"));
+        auto *scroller = editorScroller();
+        if (!area || !scroller)
+            return;
+        scroller->setProperty("contentY", 0.0);
+        area->setProperty("cursorPosition", 0);
+    });
+    push([&]() {
+        auto *area = itemOf(QStringLiteral("write10ValuesArea"));
+        auto *scroller = editorScroller();
+        if (!area || !scroller)
+            return;
+        const auto band = editorVisibleBand();
+        const qreal firstY = area->property("cursorRectangle").toRectF().y();
+        if (firstY < band.first - 1.0 || firstY >= band.second)
+            fail(QStringLiteral("WRITEFAIL C4 scroll 1000x700: line 1 (y=%1) is "
+                                "not in the visible band [%2,%3)")
+                     .arg(firstY)
+                     .arg(band.first)
+                     .arg(band.second));
+        const qreal maxY = scroller->property("contentHeight").toReal()
+                           - scroller->property("height").toReal();
+        scroller->setProperty("contentY", maxY);
+        area->setProperty("cursorPosition", area->property("length").toInt());
+    });
+    push([&]() {
+        auto *area = itemOf(QStringLiteral("write10ValuesArea"));
+        auto *scroller = editorScroller();
+        if (!area || !scroller)
+            return;
+        const auto band = editorVisibleBand();
+        const qreal lastY = area->property("cursorRectangle").toRectF().y();
+        if (scroller->property("contentY").toReal() <= 1.0)
+            fail(QStringLiteral("WRITEFAIL C4 scroll 1000x700: the editor did not "
+                                "scroll (contentY=%1)")
+                     .arg(scroller->property("contentY").toReal()));
+        else if (lastY < band.first - 1.0 || lastY >= band.second)
+            fail(QStringLiteral("WRITEFAIL C4 scroll 1000x700: the last line (y=%1) "
+                                "is not in the visible band [%2,%3)")
+                     .arg(lastY)
+                     .arg(band.first)
+                     .arg(band.second));
+        else
+            note(QStringLiteral("WRITE [C4 scroll 1000x700]: last line y=%1 in band "
+                                "[%2,%3) at contentY=%4")
+                     .arg(qRound(lastY))
+                     .arg(qRound(band.first))
+                     .arg(qRound(band.second))
+                     .arg(qRound(scroller->property("contentY").toReal())));
+        window->resize(1024, 720);
+    });
+    push([&]() {
+        assertWriteGeometry(QStringLiteral("restored 1024x720 0x10"));
+    });
+
+    // ---- C4 0x06 input-efficiency probe (drives the M10-D decision) ----
+    // The basic-style SpinBox uses a READ-ONLY TextInput as its contentItem
+    // when `editable` is false, so typing has no effect; the only input paths
+    // are the up/down indicators (measured through a real mouse press at the
+    // up indicator's position) and the arrow keys. This stage MEASURES those
+    // paths and records them — the decision itself is a documentation artifact
+    // (T022), not a product change in C4.
+    push([&]() {
+        setDraft("activeFunctionIndex", 0);
+        setDraft("unit06", 1);
+        setDraft("address06", 0);
+        setDraft("value06", 0);
+    });
+    push([&]() {
+        auto *address = itemOf(QStringLiteral("write06AddressSpin"));
+        if (!address) {
+            fail(QStringLiteral("WRITEFAIL C4 probe: write06AddressSpin missing"));
+            return;
+        }
+        address->forceActiveFocus(Qt::TabFocusReason);
+        const int before = address->property("value").toInt();
+        for (const Qt::Key k : {Qt::Key_1, Qt::Key_2, Qt::Key_3, Qt::Key_4})
+            sendKey(k, Qt::NoModifier, false);
+        const int afterTyping = address->property("value").toInt();
+        sendKey(Qt::Key_Up, Qt::NoModifier, false);
+        const int afterUp = address->property("value").toInt();
+        // Real mouse press on the UP indicator. Measured layout (Fusion style,
+        // the style this app selects): the up indicator is the top-right
+        // rectangle (implicit 16 x height/2-1, x = width - w - 1, y = 1), so
+        // the point tested sits inside it — never on the up/down seam, and
+        // never on the down indicator (which cannot move a value that is
+        // already at its lower bound).
+        const QPointF local(address->width() - 8.0,
+                            qMax(2.0, address->height() / 4.0));
+        const QPointF scene = address->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global, Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        const int afterClick = address->property("value").toInt();
+        note(QStringLiteral("WRITE [C4 probe]: 0x06 address SpinBox editable=%1 "
+                            "stepSize=%2 range=%3..%4 | typing 1234: %5 -> %6 | "
+                            "Up key: %6 -> %7 | click on the up indicator: "
+                            "%7 -> %8")
+                 .arg(address->property("editable").toBool() ? 1 : 0)
+                 .arg(address->property("stepSize").toInt())
+                 .arg(address->property("from").toInt())
+                 .arg(address->property("to").toInt())
+                 .arg(before)
+                 .arg(afterTyping)
+                 .arg(afterUp)
+                 .arg(afterClick));
+        if (afterTyping < 0 || afterTyping > 65535 || afterClick < 0
+            || afterClick > 65535)
+            fail(QStringLiteral("WRITEFAIL C4 probe: the value left its declared "
+                                "range (typing=%1 click=%2)")
+                     .arg(afterTyping)
+                     .arg(afterClick));
+    });
+
     auto step = std::make_shared<int>(0);
     const int settleMs = 60;
     auto schedule = std::make_shared<std::function<void()>>();
@@ -6014,6 +6847,34 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                     "busy oracle)")
                          .arg(transport->writeAttempts())
                          .arg(transport->readStarts()));
+            // M10-C4: zero write TRANSACTIONS too. The session history is the
+            // user-visible record, so "no 0x06 / 0x10 row" is the presentation-level
+            // twin of "no write dispatch"; the FC03 reads (the deliberate busy
+            // oracle) stay separately attributed.
+            if (auto *model = controller->transactionModel()) {
+                const int fnRole = model->roleNames().key(
+                    QByteArrayLiteral("functionCode"), -1);
+                int writeRows = 0;
+                QStringList codes;
+                for (int row = 0; row < model->rowCount(); ++row) {
+                    const int code =
+                        model->data(model->index(row, 0), fnRole).toInt();
+                    codes << QString::number(code);
+                    if (code == 6 || code == 16)
+                        ++writeRows;
+                }
+                if (writeRows != 0)
+                    fail(QStringLiteral("WRITEFAIL final: %1 write transaction(s) "
+                                        "in the session history")
+                             .arg(writeRows));
+                else
+                    note(QStringLiteral("WRITE [C4 final]: session history function "
+                                        "codes = [%1]; zero 0x06/0x10 transactions, "
+                                        "zero write dispatch (FC03 reads=%2)")
+                             .arg(codes.isEmpty() ? QStringLiteral("<empty>")
+                                                  : codes.join(QStringLiteral(",")))
+                             .arg(transport->readStarts()));
+            }
             if (failures->isEmpty())
                 qInfo() << "WRITE FOUNDATION CHECK PASS (C01 unit 0; C02 parser "
                            "value; C03/C19 prepared + summary == snapshot; C04 "
@@ -6024,7 +6885,11 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "C11 disconnect; C12 reconnect; C13/C14 busy; C15 Clear; "
                            "C30 Simulator; C31 failed replay; C32 draft persistence; "
                            "C35 reason preservation; C36 Tab escape; a11y; tab order; "
-                           "E1/E2 rapid-Enter spillover) — zero write dispatch";
+                           "E1/E2 rapid-Enter spillover; C4 geometry 1024x720 + "
+                           "1000x700; C4 editor first/last line scroll; C4 "
+                           "confirmation all-values scroll; C4 123/124 boundary; C4 "
+                           "long-summary keyboard; C4 SpinBox probe) — zero write "
+                           "dispatch, zero write transaction";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "WRITEFAIL:" << f;
@@ -6321,6 +7186,10 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // nothing to Tab into, nothing to activate, nothing that could be mistaken
     // for a write capability. (The dedicated harness mode is the only place
     // the foundation is loaded, and it asserts the safety oracles there.)
+    // M10-C4 deepened production-hidden proof: not just "the loader is off" —
+    // the whole scene is scanned for any write control, the Communication Tab
+    // chain is walked, and the authority is asked whether startup created a
+    // snapshot. A normal run must show NONE of them.
     push([&]() {
         auto *loader = itemOf(QStringLiteral("writeFoundationLoader"));
         if (!loader)
@@ -6332,9 +7201,71 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         else if (loader->property("item").value<QQuickItem *>() != nullptr)
             fail(QStringLiteral("FOCUSFAIL prod-hidden: the write foundation was "
                                 "instantiated in a normal run"));
+        // (1) no write control anywhere in the Item tree: every name in the
+        // scene is scanned, so a control cannot hide behind a renamed parent.
+        QStringList writeNames;
+        int scanned = 0;
+        for (QObject *root : roots) {
+            const QList<QObject *> all = root->findChildren<QObject *>();
+            for (QObject *obj : all) {
+                ++scanned;
+                const QString name = obj->objectName();
+                if (name.startsWith(QStringLiteral("write"))
+                    && name != QStringLiteral("writeFoundationLoader"))
+                    writeNames << name;
+            }
+        }
+        if (!writeNames.isEmpty())
+            fail(QStringLiteral("FOCUSFAIL prod-hidden: write controls exist in a "
+                                "normal run: [%1]").arg(writeNames.join(QStringLiteral(", "))));
+        // (2) the named write controls really are absent (a name scan alone
+        // cannot distinguish "not instantiated" from "instantiated unnamed").
+        for (const QString &missing : {QStringLiteral("writeFoundationSection"),
+                                       QStringLiteral("writeActivateButton"),
+                                       QStringLiteral("writeFunctionTabs"),
+                                       QStringLiteral("write10ValuesArea"),
+                                       QStringLiteral("write06AddressSpin"),
+                                       QStringLiteral("writeSummaryValues"),
+                                       QStringLiteral("writeConfirmAcceptButton")}) {
+            if (findNamedItem(roots, missing) != nullptr)
+                fail(QStringLiteral("FOCUSFAIL prod-hidden: %1 exists in a normal "
+                                    "run").arg(missing));
+        }
+        // (3) startup created no prepared snapshot (authority, not presentation).
+        if (ctrl->property("hasPreparedWrite").toBool()
+            || ctrl->property("preparedWriteToken").toULongLong() != 0
+            || ctrl->property("preparedWriteState").toString()
+                   != QStringLiteral("none"))
+            fail(QStringLiteral("FOCUSFAIL prod-hidden: startup produced a write "
+                                "snapshot (state=%1 token=%2)")
+                     .arg(ctrl->property("preparedWriteState").toString())
+                     .arg(ctrl->property("preparedWriteToken").toULongLong()));
+        note(QStringLiteral("FOCUS [prod-hidden] PASS: loader inactive/item null; "
+                            "%1 objects scanned — no write control, no write "
+                            "accessible node, no write tab stop, no prepared "
+                            "snapshot").arg(scanned));
+    });
+    // (4) the Communication Tab chain itself contains no write control: the
+    // foundation is not merely invisible, it is not in the keyboard order.
+    push([&]() {
+        selectWorkspace(2);
+        anchorFocus();
+        QStringList chain;
+        QList<int> pages;
+        walkTabs(25, true, chain, pages);
+        QStringList writeStops;
+        for (const QString &name : chain) {
+            if (name.startsWith(QStringLiteral("write")))
+                writeStops << name;
+        }
+        if (!writeStops.isEmpty())
+            fail(QStringLiteral("FOCUSFAIL prod-hidden: write tab stops in a "
+                                "normal run: [%1]").arg(writeStops.join(QStringLiteral(", "))));
         else
-            note(QStringLiteral("FOCUS [prod-hidden] PASS: write foundation not "
-                                "instantiated (no write control in the scene)"));
+            note(QStringLiteral("FOCUS [prod-hidden] PASS: Communication Tab chain "
+                                "has no write stop ([%1])")
+                     .arg(chain.join(QStringLiteral(", "))));
+        selectWorkspace(0);
     });
 
     // FA: keyboard-only entry into the evidence table (scope A).
