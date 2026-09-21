@@ -160,7 +160,18 @@ private slots:
 
     // ---- shared analyzer equivalence + support matrix ----
     void eq1_passiveAndSharedAgree();
-    void eq2_crcEquivalence();
+    // M10-E2 RE-REVIEW CORRECTION: renamed from eq2_crcEquivalence. This test
+    // exercises the SHARED ANALYZER's CRC semantics in isolation — it is NOT
+    // the active/passive end-to-end equivalence. That role belongs to
+    // eq3_sessionLevelCrcEquivalence, which drives the real
+    // SerialTransactionSession lifecycle.
+    void eq2_sharedAnalyzerCrcSemantics();
+    // Shared analyzer vs passive wrapper on the SAME CrcMismatch observation.
+    void eq2b_sharedVsPassiveCrcObservation();
+    // M10-E2 RE-REVIEW CORRECTION: the session-level CRC pair oracle — the
+    // SAME corrupted response wire through the real passive transaction path
+    // AND the real SerialTransactionSession active response lifecycle.
+    void eq3_sessionLevelCrcEquivalence();
     void sup1_supportMatrix();
 };
 
@@ -525,25 +536,135 @@ void Fc16ActiveTest::eq1_passiveAndSharedAgree()
     }
 }
 
-void Fc16ActiveTest::sup1_supportMatrix()
+void Fc16ActiveTest::eq2_sharedAnalyzerCrcSemantics()
 {
-    // M10-E2 support matrix: all three functions now have an active analyzer
-    // and session support. The layers that stay CLOSED are asserted in
-    // test_write_dispatch (Controller dispatch, write10Supported) and by the
-    // production oracle (no 0x10 UI).
-    QVERIFY(modbuslens::core::activeFunctionSupported(
-        ActiveFunction::ReadHoldingRegisters));
-    QVERIFY(modbuslens::core::activeFunctionSupported(
-        ActiveFunction::WriteSingleRegister));
-    QVERIFY(modbuslens::core::activeFunctionSupported(
-        ActiveFunction::WriteMultipleRegisters));
+    // M10-E2 RE-REVIEW CORRECTION (renamed from eq2_crcEquivalence): this test
+    // pins the SHARED ANALYZER's CRC semantics in isolation. It does NOT stand
+    // for active/passive end-to-end equivalence — it never touches
+    // SerialTransactionSession. That role belongs to
+    // eq3_sessionLevelCrcEquivalence.
+    //
+    // Construction (no self-certification): start from a clearly LEGAL 0x10
+    // response ADU, then deterministically flip the LOW BIT OF THE CRC LOW
+    // BYTE (last-2). The candidate framing still holds (8 bytes) and the CRC
+    // is necessarily wrong; the production codec is used ONLY to classify the
+    // stimulus as CrcMismatch.
+    const ModbusRtuFrame request =
+        encodeWriteMultipleRegistersRequest(kUnit, kAddress, kValues);
+
+    std::vector<std::uint8_t> wire = echoWire();
+    wire[wire.size() - 2] ^= 0x01;
+
+    const ResponseObservation observation = RtuDecodeError{
+        RtuDecodeErrorCode::CrcMismatch};
+    const auto shared = analyzeWriteMultipleRegistersTransaction(
+        request, observation, ms{25}, kTimeout);
+
+    QCOMPARE(shared.status, TransactionStatus::CrcError);
+    QVERIFY(!shared.issue.has_value());
+    QVERIFY(!shared.exceptionCode.has_value());
 }
 
-void Fc16ActiveTest::eq2_crcEquivalence()
+void Fc16ActiveTest::eq3_sessionLevelCrcEquivalence()
+{
+    // M10-E2 RE-REVIEW CORRECTION: the previous "equivalence" evidence fed an
+    // analytically constructed observation to the SHARED pure analyzer and
+    // called that the active path. It was not — the shared pure analyzer is
+    // also what the passive path wraps, so both sides of that comparison were
+    // one layer below the real active lifecycle. THIS test is the pair oracle
+    // the review demanded: ONE shared corrupted response wire, then the REAL
+    // passive transaction path and the REAL SerialTransactionSession active
+    // response lifecycle, compared directly.
+    //
+    // ---- ONE shared raw-wire fixture (§3) ----
+    // Request evidence: the canonical descriptor (production encoder + codec).
+    const auto descriptor = writeDescriptor();
+    const ModbusRtuFrame requestFrame = descriptor.frame;
+    // Response evidence: a legal 8-byte FC16 normal response, corrupted ONCE.
+    std::vector<std::uint8_t> legalResponseWire = echoWire();
+    std::vector<std::uint8_t> corruptedResponseWire = legalResponseWire;
+    const std::size_t mutationIndex = corruptedResponseWire.size() - 2;
+    const auto legalCrcLowByte = corruptedResponseWire[mutationIndex];
+    corruptedResponseWire[mutationIndex] ^= 0x01; // flip CRC low byte bit 0
+    const auto corruptedCrcLowByte = corruptedResponseWire[mutationIndex];
+
+    // Raw evidence identity (§7): exactly ONE byte differs, at exactly the
+    // mutation position, in exactly one bit.
+    QCOMPARE(corruptedResponseWire.size(), legalResponseWire.size());
+    QCOMPARE(corruptedResponseWire.size(), std::size_t{8});
+    int differingBytes = 0;
+    for (std::size_t index = 0; index < legalResponseWire.size(); ++index) {
+        if (legalResponseWire[index] != corruptedResponseWire[index]) {
+            ++differingBytes;
+        }
+    }
+    QCOMPARE(differingBytes, 1);
+    QVERIFY(corruptedCrcLowByte != legalCrcLowByte);
+    QVERIFY((corruptedCrcLowByte ^ legalCrcLowByte) == 0x01);
+    // The payload still LOOKS like a correct echo: only the CRC byte changed.
+    for (std::size_t index = 0; index < 6; ++index) {
+        QCOMPARE(corruptedResponseWire[index], legalResponseWire[index]);
+    }
+
+    // Stimulus classification: the production codec really calls this a CRC
+    // failure (the codec classifies the stimulus; the equivalence of the two
+    // analyzers' answers is what the rest of the test proves).
+    const auto decoded = modbuslens::core::decodeRtuFrame(corruptedResponseWire);
+    const auto* decodeError = std::get_if<RtuDecodeError>(&decoded);
+    QVERIFY(decodeError != nullptr);
+    QCOMPARE(decodeError->code, RtuDecodeErrorCode::CrcMismatch);
+
+    // ---- PASSIVE PATH (§4): raw wire -> production decoder -> transaction ----
+    // analyzeObservedTransaction's public entry takes an already-decoded
+    // observation, so the production decoder converts the SAME wire into the
+    // observation. No hand-built RtuDecodeError is substituted: the variant
+    // arm recorded here is whatever decodeRtuFrame produced for these bytes.
+    const ResponseObservation passiveObservation = *decodeError;
+    const auto passive = analyzeObservedTransaction(
+        requestFrame, passiveObservation, ms{25}, kTimeout);
+    const auto* passiveAnalyzed =
+        std::get_if<AnalyzedObservedTransaction>(&passive);
+    QVERIFY(passiveAnalyzed != nullptr);
+    QCOMPARE(passiveAnalyzed->analysis.status, TransactionStatus::CrcError);
+    QVERIFY(!passiveAnalyzed->analysis.issue.has_value());
+    QVERIFY(!passiveAnalyzed->analysis.exceptionCode.has_value());
+
+    // ---- ACTIVE SESSION PATH (§5): the real lifecycle, not the pure helper ----
+    // ActiveRequestIntent -> encodeActiveRequest -> descriptor (built above)
+    // -> SerialTransactionSession::beginActiveRequest -> feed the SAME
+    // corruptedResponseWire -> the session performs candidate framing, wire
+    // decoding, the CrcMismatch mapping and the terminal result itself.
+    SerialTransactionSession session;
+    const auto begin = session.beginActiveRequest(descriptor);
+    QVERIFY(std::get_if<ActiveRequestDescriptor>(&begin) != nullptr);
+    QCOMPARE(session.state(), SerialTransactionState::AwaitingResponse);
+
+    // Feed the shared corrupted wire; assert the session was fed exactly it.
+    const auto fed = session.feedResponseBytes(corruptedResponseWire, ms{25});
+    const auto* activeAnalysis = std::get_if<TransactionAnalysis>(&fed);
+    QVERIFY(activeAnalysis != nullptr); // completed in this chunk
+
+    // ---- DIRECT EQUIVALENCE (§6) ----
+    QCOMPARE(activeAnalysis->status, TransactionStatus::CrcError);
+    QCOMPARE(activeAnalysis->status, passiveAnalyzed->analysis.status);
+    QCOMPARE(activeAnalysis->issue.has_value(),
+             passiveAnalyzed->analysis.issue.has_value());
+    QCOMPARE(activeAnalysis->exceptionCode,
+             passiveAnalyzed->analysis.exceptionCode);
+
+    // ---- SESSION LIFECYCLE (§5) ----
+    QCOMPARE(session.state(), SerialTransactionState::Idle);
+    QVERIFY(!session.pendingRequest().has_value());
+}
+
+void Fc16ActiveTest::eq2b_sharedVsPassiveCrcObservation()
 {
     // M10-E2 REVIEW CORRECTION (T022 §ZI): eq1 compares DECODED-frame pairs
     // only, so a CRC failure — which is a WIRE-level decode failure, never a
-    // semantic frame — had no direct pair oracle. This test closes that gap.
+    // semantic frame — had no direct pair oracle at the analyzer level. This
+    // test proves the SHARED analyzer and the PASSIVE wrapper agree on the
+    // same CrcMismatch observation. (It does not drive
+    // SerialTransactionSession — that is eq3_sessionLevelCrcEquivalence.)
     //
     // Construction (no self-certification): start from a clearly LEGAL 0x10
     // response ADU, then deterministically flip the LOW BIT OF THE CRC LOW
@@ -582,6 +703,20 @@ void Fc16ActiveTest::eq2_crcEquivalence()
     QVERIFY(!analyzed->analysis.exceptionCode.has_value());
     // A corrupted wire is judged by wire truth even though the payload LOOKS
     // like a correct echo (the mutated CRC byte is the only difference).
+}
+
+void Fc16ActiveTest::sup1_supportMatrix()
+{
+    // M10-E2 support matrix: all three functions now have an active analyzer
+    // and session support. The layers that stay CLOSED are asserted in
+    // test_write_dispatch (Controller dispatch, write10Supported) and by the
+    // production oracle (no 0x10 UI).
+    QVERIFY(modbuslens::core::activeFunctionSupported(
+        ActiveFunction::ReadHoldingRegisters));
+    QVERIFY(modbuslens::core::activeFunctionSupported(
+        ActiveFunction::WriteSingleRegister));
+    QVERIFY(modbuslens::core::activeFunctionSupported(
+        ActiveFunction::WriteMultipleRegisters));
 }
 
 QTEST_GUILESS_MAIN(Fc16ActiveTest)

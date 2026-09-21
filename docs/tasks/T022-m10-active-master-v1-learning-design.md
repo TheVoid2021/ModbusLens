@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E2 review correction 后）：M10-E1 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E2 = 已实现（Review 曾 HOLD：CRC active/passive 直接等价 pair 缺失，已按 §ZI 补齐 eq2）= AWAITING RE-REVIEW；M10-E3+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
+> **状态（M10-E2 re-review correction 后）：M10-E1 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E2 = 已实现（上一轮 eq2 被 Re-review 判为未达冻结要求：共享纯分析器 ≠ active session；本轮已补 session-level raw-wire pair oracle eq3，见 §ZJ）= AWAITING FINAL RE-REVIEW；M10-E3+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
 > 能力终态：0x03 与 0x06 = encoder + session + dispatch + UI；**0x10 = encoder + 共享 analyzer + session lifecycle（M10-E2 新增）= YES；Controller dispatch / `write10Supported` / production UI 仍 ABSENT**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E2 Review → M10-E3（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
@@ -8213,4 +8213,115 @@ ISSUE-014：PRE-EXISTING NON-BLOCKING
 commit：`M10-E2: prove FC16 CRC path equivalence`（独立；不 amend；不 rebase；不 push；不 tag）
 状态：M10-E2 = **AWAITING RE-REVIEW**；M10-E3 = NOT STARTED；M10 overall = IN PROGRESS；
   M11 = HOLD。verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
+```
+
+## M10-E2 Re-review Correction — True Session-Level FC16 CRC Equivalence（2026-09-21）
+
+> **M10-E2 Re-review 仍 HOLD**，原因：上一轮的 eq2（commit `05286f1`）把
+> `RtuDecodeError{CrcMismatch}` 观察喂给 **共享纯分析器** 并称之为 "active path" ——
+> 但共享纯分析器同时也是 **passive 路径的包装对象**，因此那次比较的两侧其实都位于
+> 真实 active lifecycle 的**下一层**。SerialTransactionSession 自身的
+> candidate framing → decode → CrcMismatch 映射 → 终态 **完全未被行使**。
+> 本轮补上 **session-level** 的直接 pair oracle。**NO PRODUCT CHANGE**（session path 直接 PASS，
+> 证明这是 evidence gap 而非行为 defect）。
+
+### ZJ1. 旧 eq2 的确切局限（§2，实读源码）
+
+```text
+05286f1 的 eq2_crcEquivalence：
+  输入  = 手工构造的 ResponseObservation（RtuDecodeError{CrcMismatch}）
+  路径A = analyzeObservedTransaction（passive 包装）
+  路径B = analyzeWriteMultipleRegistersTransaction（共享纯分析器）
+  ⇒ 路径B 不是 SerialTransactionSession：没有 beginActiveRequest、没有
+     candidate framing、没有 wire→decode、没有终态写入 —— active lifecycle 未被行使。
+```
+
+### ZJ2. ONE 共享 raw-wire fixture（§3 / §7 —— 唯一证据字节）
+
+```text
+只构造一次，两条路径共用：
+  request evidence : writeDescriptor()（encodeActiveRequest 的规范 descriptor，
+                     encodeWriteMultipleRegistersRequest + encodeRtuFrame）
+  response evidence: legalResponseWire = echoWire()（合法 8B FC16 normal response）
+                     corruptedResponseWire = legalResponseWire（同一 vector 拷贝）
+                     mutation = wire[size-2] ^= 0x01（翻转 CRC 低字节 bit0）
+raw evidence identity（逐项断言）：
+  size identical（8 == 8）；differingBytes == 1；mutation position = size-2；
+  mutated 与 legal 的 CRC 低字节相差恰为 0x01；payload 前 6 字节逐字节相同
+  （回显 start/quantity 未被动过 ⇒ 「看似正确的 echo」不能绕过 wire truth）。
+stimulus 分类：decodeRtuFrame(corruptedResponseWire) → RtuDecodeError{CrcMismatch}
+  （production codec 只分类 stimulus；等价结论由两条路径的回答互证）。
+**不得分别生成 passiveBadResponse / activeBadResponse —— 本轮只有这一份。**
+```
+
+### ZJ3. PASSIVE PATH（§4 —— 真实 passive wire→decode→transaction 链）
+
+```text
+analyzeObservedTransaction 的公开入口要求已解码 observation，
+故用 **production decoder** 把同一 corruptedResponseWire 转成 observation
+（记录 raw wire identity 与 decode result：RtuDecodeError{CrcMismatch}，非手工伪造）：
+  analyzeObservedTransaction(requestFrame, observation, 25ms, 1000ms)
+  → AnalyzedObservedTransaction：status = CrcError；issue = nullopt；exceptionCode = nullopt
+```
+
+### ZJ4. ACTIVE SESSION PATH（§5 —— 本轮 blocker 的正面证明）
+
+```text
+真实链路全行使：ActiveRequestIntent → encodeActiveRequest → descriptor
+  → SerialTransactionSession::beginActiveRequest（Accepted，AwaitingResponse）
+  → session.feedResponseBytes(corruptedResponseWire)（**同一份字节**，一次性完成）
+session 自行完成：candidate framing（8B exact）→ decodeRtuFrame → CrcMismatch 映射 → 终态
+  → TransactionAnalysis：status = CrcError
+  → session.state() = Idle；pendingRequest() = nullopt（lifecycle 终态回 Idle）
+**未调用 analyzeWriteMultipleRegistersTransaction 来冒充 active path。**
+```
+
+### ZJ5. 直接等价断言（§6）与结果（§9 —— session path 直接 PASS ⇒ evidence gap）
+
+```text
+Outcome 相同        ：CrcError == CrcError
+issue 相同          ：两侧均 nullopt
+exception code 相同  ：两侧均 nullopt
+request identity    ：同一 descriptor.frame（两条路径共用同一 request 证据）
+evidence bytes      ：同一 corruptedResponseWire（§ZJ2 identity 断言）
+⇒ passive 与 active session 对同一 wire 证据给出同一协议事实。
+**产品源码零改动 —— 无 E2 behavior defect。**
+```
+
+### ZJ6. 旧 eq2 的处置（§8 —— 保留但更名，不弱化 oracle）
+
+```text
+05286f1 的 eq2_crcEquivalence 保留为共享分析器语义测试（其价值仍在：锁定
+  共享函数对 CrcMismatch 观察的 CrcError 语义），但**不再命名/描述为
+  active/passive end-to-end equivalence**：
+  · eq2_crcEquivalence → **eq2_sharedAnalyzerCrcSemantics**（隔离语义测试）
+  · 原 eq2 的「shared vs passive wrapper 在同一 CrcMismatch 观察」部分
+    保留为 **eq2b_sharedVsPassiveCrcObservation**（分析器层级等价）
+  · **新增 eq3_sessionLevelCrcEquivalence**（会话层级 pair oracle，本轮核心）
+oracle 强度：总覆盖提升（新增 wire→session 终态链路），无任何弱化。
+```
+
+### ZJ7. 冻结下一层 negative 复核（§10）
+
+```text
+activeFunctionSupported(0x10) = true（sup1）
+Controller 0x10 dispatch = closed（r4 + fc10CapabilityStaysFrozen，attempt=0/send=0）
+write10Supported = ABSENT（property 缺席断言保持）
+production 0x10 UI = ABSENT（--qml-production-write-check 不变量保持）
+issue count = 14（无新增）
+```
+
+### ZJ8. 门禁 / Git（§11–§13）
+
+```text
+targeted：fc16_active **26**（24 → 26：+eq2b +eq3）/ passive 55 / active_request 17 /
+  write_dispatch 44 / write_encoder 30 —— 全 PASS
+真实 CTest：Debug **36/36**、Release **36/36**
+warnings：**0 NEW / 5 PRE-EXISTING（main.cpp）**（warning-bearing TU 强制重编实证）
+ISSUE-014：PRE-EXISTING NON-BLOCKING
+分类：**behavior-bearing**（test/harness 变更；产品源码零改动）
+commit：`M10-E2: prove FC16 CRC equivalence through active session`
+  （独立；不 amend 05286f1；不 rebase；不 push；不 tag）
+状态：M10-E2 = **AWAITING FINAL RE-REVIEW**；M10-E3 = NOT STARTED；
+  M10 overall = IN PROGRESS；M11 = HOLD。verified LKGC 保持 **9bdd99c**。
 ```
