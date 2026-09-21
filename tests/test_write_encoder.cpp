@@ -58,6 +58,15 @@ std::uint16_t independentCrc(std::span<const std::uint8_t> bytes)
 // The golden vector table: unit / address / value + the EXACT expected ADU.
 // The ADU literals are fixed in the source on purpose (a long-lived golden
 // vector), not recomputed by the production encoder.
+//
+// PROVENANCE NOTE (M10-E1 review correction): F16-G6 is a FIXED FC16/0x10
+// RTU reference vector. An earlier comment called it "the published MODBUS
+// Application Protocol example"; that specific attribution is NOT verifiable
+// from this repository (docs/03_MODBUS_LEARNING.md §4.5 records the FC16
+// field-layout RULES but not this concrete byte sequence), so it has been
+// withdrawn. F16-G6's correctness rests on the hardcoded bytes plus the
+// independent CRC oracle below, and on round-tripping through the strict
+// request decoder — not on any unverifiable external citation.
 struct GoldenVector {
     const char* name;
     std::uint8_t unit;
@@ -146,7 +155,7 @@ std::vector<GoldenVector16> goldenVectors16()
          {0xF7, 0x10, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x01, 0x48, 0x34}},
         {"F16-G5 upper span (1 / 65535 / [0xFFFF])", 1, 65535, {0xFFFF},
          {0x01, 0x10, 0xFF, 0xFF, 0x00, 0x01, 0x02, 0xFF, 0xFF, 0xBC, 0xE0}},
-        {"F16-G6 protocol example (0x11 / 1 / [0x000A, 0x0102])", 0x11, 1,
+        {"F16-G6 reference vector (0x11 / 1 / [0x000A, 0x0102])", 0x11, 1,
          {0x000A, 0x0102},
          {0x11, 0x10, 0x00, 0x01, 0x00, 0x02, 0x04, 0x00, 0x0A, 0x01, 0x02,
           0xC6, 0xF0}},
@@ -188,7 +197,7 @@ private slots:
 
     // ---- M10-E1: FC16 / 0x10 request encoder ----
     void f16_goldenVectorsAreByteExact();
-    void f16_maxQuantityHeaderPayloadLengthAndCrc();
+    void f16_g8_maxQuantityHeaderPayloadLengthAndCrc();
     void f16_byteCountIsDerived();
     void f16_wireLengthIs9Plus2N();
     void f16_orderIsPreserved();
@@ -453,12 +462,14 @@ void WriteEncoderTest::f16_goldenVectorsAreByteExact()
     }
 }
 
-void WriteEncoderTest::f16_maxQuantityHeaderPayloadLengthAndCrc()
+void WriteEncoderTest::f16_g8_maxQuantityHeaderPayloadLengthAndCrc()
 {
-    // 123 registers is the protocol maximum: quantity=123 (0x007B),
+    // F16-G8 — max quantity boundary (123 registers): quantity=123 (0x007B),
     // byteCount=246 (0xF6), ADU = 9 + 2*123 = 255 bytes. Writing out 246 value
     // bytes by hand adds no information, so this row pins the header, the
     // length, selected payload positions and the independent CRC instead.
+    // IDENTITY: this is NOT F16-G6 — F16-G6 is the 2-register reference
+    // vector above; the two must never share an ID.
     std::vector<std::uint16_t> values(123);
     for (std::size_t index = 0; index < values.size(); ++index) {
         values[index] = static_cast<std::uint16_t>(index & 0xFFFF);

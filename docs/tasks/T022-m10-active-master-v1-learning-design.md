@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E1 实现后）：M10-D = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E Phase 1 design = PASS；M10-E1 = 已实现（FC16/0x10 request encoder + core validation + golden wire vectors），AWAITING REVIEW；M10-E2+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
+> **状态（M10-E1 review correction 后）：M10-D = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E Phase 1 design = PASS；M10-E1 = 已实现（Review 曾 HOLD：golden vector ID / provenance 不一致，已按 §ZH 更正）= AWAITING RE-REVIEW；M10-E2+ = NOT STARTED；M10-F = AFTER M10-E；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
 > 能力终态：0x03 与 0x06 = encoder + session + Controller dispatch + production UI；**0x10 = passive decode + validation + framing + request encoder（M10-E1 新增）= YES；active analyzer / session gate / Controller dispatch / `write10Supported` / production UI 仍 ABSENT**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E1 Review → M10-E2（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
@@ -7912,4 +7912,90 @@ commit：`M10-E1: add FC16 active request encoding`（独立；不 amend；不 r
 状态：M10-D = COMPLETE；**M10-E1 = AWAITING REVIEW**；M10-E2+ = NOT STARTED；
   M10 overall = IN PROGRESS；M11 = HOLD。
 verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
+```
+
+## M10-E1 Review Correction — Golden Vector Identity / Evidence Provenance（2026-09-21）
+
+> **M10-E1 Review = HOLD**（本轮更正后解除 HOLD 交由 Re-review）。HOLD 原因有二：
+> ① **golden vector ID inconsistency** —— E1 Completion Report 把 max-123 向量记作「G6」，
+>    而测试里的 F16-G6 实际是 **2-register reference vector**，两者一度共用「G6」这个 ID；
+> ② **provenance evidence inconsistency** —— 测试注释与 docs 把 `11 10 00 01 00 02 04 00 0A 01 02 C6 F0`
+>    归属为 "the published MODBUS Application Protocol example"，但该具体来源在 repo 内**不可证明**。
+> 本轮更正两者。**NO PRODUCT CHANGE**（无任何证据表明 FC16 encoder 有 bug）。
+
+### ZH1. 实际 golden vector 清单（§3，以测试源码为准）
+
+```text
+测试文件：tests/test_write_encoder.cpp，表 goldenVectors16() 共 **7 条带标签向量**（F16-G1..F16-G7），
+另有 **1 条无标签的 max-quantity 边界向量**（独立测试函数）→ 本轮补上唯一 ID **F16-G8**。
+（E1 Completion Report 只报了 6 条且把 max-123 误标为 G6，漏了 G7 —— 该报告为会话产物，
+  不在 repo 内，故以本节 append-only 更正为准，不回写历史。）
+```
+
+### ZH2. 更正后的唯一映射（§3 / §10 / §11）
+
+```text
+F16-G1 = minimum             1 / 0      / [0]      → 01 10 00 00 00 01 02 00 00 A6 50  (11B, 整帧 literal)
+F16-G2 = smallest non-zero   1 / 0      / [1]      → 01 10 00 00 00 01 02 00 01 67 90  (11B, 整帧 literal)
+F16-G3 = mixed values        1 / 0      / [1, 0x1234, 0xABCD]                          (15B, 整帧 literal)
+F16-G4 = upper unit          247 / 0    / [1]      → F7 10 00 00 00 01 02 00 01 48 34  (11B, 整帧 literal)
+F16-G5 = upper span          1 / 65535  / [0xFFFF] → 01 10 FF FF 00 01 02 FF FF BC E0  (11B, 整帧 literal)
+F16-G6 = **2-register reference vector** 0x11 / 1 / [0x000A, 0x0102]
+                          → 11 10 00 01 00 02 04 00 0A 01 02 C6 F0          (13B, 整帧 literal)
+F16-G7 = high/low asymmetry  1 / 0x1234 / [0x00FF, 0xFF00, 0x8000, 0x0001]              (17B, 整帧 literal)
+F16-G8 = **max quantity boundary（123 registers）** —— quantity=0x007B, byteCount=0xF6,
+         ADU=255B；断言 header / 长度 / 首·第二·末寄存器位置 / 独立 CRC（无 246 字节 literal）
+⇒ A（max-123）= **F16-G8**；B（2-register reference）= **F16-G6**；两者 ID 唯一，不再共用「G6」。
+```
+
+### ZH3. Provenance 更正（§4 —— 撤回不可证明的归属）
+
+```text
+实读 docs/03_MODBUS_LEARNING.md §4.5（Function 0x10 小节）：
+  ✅ 记录了 FC16 的**字段规则**：quantity 1..123；byteCount = 2N；response = starting address +
+     written quantity（不回显数据）；exception function = 0x90。
+  ❌ **未记录** `11 10 00 01 00 02 04 00 0A 01 02 C6 F0` 这一具体字节序列，
+     也**没有**任何官方文档 title / revision / section / page 的 canonical citation。
+⇒ 撤回「F16-G6 是 published MODBUS Application Protocol example」这一具体归属。
+更正后措辞（测试注释与 docs 统一）：
+  F16-G6 = **fixed FC16/0x10 RTU reference vector**；
+  其正确性由 ① hardcoded bytes（整帧逐字节 literal）＋ ② independent CRC oracle ＋
+  ③ 经严格 request decoder 的 round-trip 结构一致性 共同验证 ——
+  **不**依赖任何不可证明的外部 citation。
+（注：③ 是结构一致性检查，不替代 ①②；本项目对外部来源的立场与 T003 的
+   pymodbus/libmodbus 双确认纪律一致 —— 无外部对拍时，不得宣称外部权威背书。）
+```
+
+### ZH4. 测试标签更正（§9 —— 最小 label correction）
+
+```text
+改动仅限 tests/test_write_encoder.cpp 的**注释与测试名**：
+  · 表注释新增 PROVENANCE NOTE（撤回归属，说明依据来源与验证方式）
+  · F16-G6 label：protocol example → **reference vector**
+  · max-123 测试：f16_maxQuantityHeaderPayloadLengthAndCrc →
+    **f16_g8_maxQuantityHeaderPayloadLengthAndCrc**，注释补上 F16-G8 身份
+    与「NOT F16-G6」的唯一性说明
+**未改动**：expected bytes（7 条 literal 与 F16-G8 的 header/长度/位置断言逐字节不变）、
+  independent CRC oracle、oracle 强度、production 行为。
+```
+
+### ZH5. 验证与 warnings 口径（§8 / §10）
+
+```text
+targeted（真实 Totals，label 更正后）：write_encoder 30 / active_request 17 / fc06_active 31 /
+  write_dispatch 44 —— 全 PASS
+真实 CTest：Debug **35/35**、Release **35/35**
+warnings 口径（更正）：**0 NEW warnings；5 PRE-EXISTING warnings（src/main.cpp:2496/2498/4596/
+  9902/10140）**。本轮通过刷新 src/main.cpp 的 mtime **强制重编该 warning-bearing TU** 取得真实输出
+  （Debug 与 Release 各 5 条，行号一致），而不是把增量构建的「无输出」解释为 repo total 0 warnings。
+```
+
+### ZH6. Git / 状态
+
+```text
+分类：**behavior-bearing**（test/harness 文件有变更；仅 label/comment，不改 expected bytes 与 oracle 强度）
+commit：`M10-E1: correct FC16 golden vector identity and provenance`
+  （独立；不 amend 1514291；不 rebase；不 push；不 tag）
+状态：M10-E1 = **AWAITING RE-REVIEW**；M10-E2+ = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD
+verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）
 ```
