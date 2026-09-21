@@ -7795,6 +7795,28 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         QCoreApplication::sendEvent(window, &release);
         return true;
     };
+    // A raw click at a scene position (used for "press somewhere outside the
+    // dialog"), delivered through the window like every other production click.
+    auto clickAtScene = [window](const QPointF &scene) {
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global, Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global, Qt::LeftButton,
+                            Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+    };
+    auto railIndex = [&itemOf]() {
+        auto *r = itemOf(QStringLiteral("navigationRail"));
+        return r ? r->property("currentWorkspaceIndex").toInt() : -1;
+    };
+    auto accessibleNameOf = [&roots](const QString &name) {
+        auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+        if (!item)
+            return QString();
+        QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item);
+        return iface ? iface->text(QAccessible::Name) : QString();
+    };
     // Open the dialog through the SHIPPED path: set the production draft and
     // press the real Write button.
     auto openDialog = [&](int address, int value) {
@@ -8269,6 +8291,146 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() { activateWriteAtSize(QSize(1000, 700)); });
     push([&]() { assertDialogGeometry(QSize(1000, 700)); });
 
+    // ================= M: PRODUCTION-MODE MODAL SAFETY =================
+    //
+    // M10-D4 review gap 2: the D3 DLG oracles proved the modal contract on the
+    // TEST FOUNDATION. These drive the SHIPPED production section instead —
+    // real production draft, real Write button, real Confirm.
+    // Every step here must produce ZERO dispatch: modal safety is exactly the
+    // claim that a dialog cannot be bypassed.
+
+    push([&]() {
+        resetWrite();
+        if (!openDialog(200, 20))
+            fail(QStringLiteral("PRODWRITEFAIL M1: the Write button was not clickable"));
+        if (!dialogVisible() || stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL M1: no open dialog over a Prepared "
+                                "snapshot (state=%1)").arg(stateToken()));
+        note(QStringLiteral("MODAL [M1]: production dialog open over a Prepared "
+                            "snapshot (token=%1, workspace=%2)")
+                 .arg(tokenOf())
+                 .arg(railIndex()));
+    });
+
+    // ---- M2: press OUTSIDE the dialog ----
+    push([&]() {
+        const auto tokenBefore = tokenOf();
+        const int wsBefore = railIndex();
+        const int attemptsBefore = transport->writeAttempts();
+        const int sendsBefore = transport->writeSends();
+        // Bottom-left of the window: unambiguously outside the centred dialog.
+        clickAtScene(QPointF(40, window->height() - 40));
+        if (!dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL M2: an outside press closed the "
+                                "dialog (closePolicy is CloseOnEscape)"));
+        if (stateToken() != QStringLiteral("prepared") || tokenOf() != tokenBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M2: the outside press changed the "
+                                "snapshot (state=%1 token=%2)")
+                     .arg(stateToken())
+                     .arg(tokenOf()));
+        if (railIndex() != wsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M2: the outside press switched the "
+                                "workspace (%1 -> %2)").arg(wsBefore).arg(railIndex()));
+        if (transport->writeAttempts() != attemptsBefore
+            || transport->writeSends() != sendsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M2: the outside press dispatched"));
+        note(QStringLiteral("MODAL [M2]: outside press ignored — dialog open, "
+                            "snapshot Prepared, workspace %1, 0 dispatch")
+                 .arg(wsBefore));
+    });
+
+    // ---- M3: click the navigation rail ----
+    push([&]() {
+        const auto tokenBefore = tokenOf();
+        const int wsBefore = railIndex();
+        const int attemptsBefore = transport->writeAttempts();
+        clickNamed(QStringLiteral("navItem_0")); // a DIFFERENT workspace
+        if (railIndex() != wsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M3: the rail click switched the "
+                                "workspace while the dialog was modal (%1 -> %2)")
+                     .arg(wsBefore)
+                     .arg(railIndex()));
+        if (!dialogVisible() || tokenOf() != tokenBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M3: the rail click bypassed the "
+                                "dialog (visible=%1 token=%2)")
+                     .arg(dialogVisible() ? 1 : 0)
+                     .arg(tokenOf()));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL M3: state=%1").arg(stateToken()));
+        if (transport->writeAttempts() != attemptsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M3: the rail click dispatched"));
+        note(QStringLiteral("MODAL [M3]: rail blocked — workspace stays %1, dialog "
+                            "intact, 0 dispatch")
+                 .arg(wsBefore));
+    });
+
+    // ---- M4: try to activate the BACKGROUND Write button ----
+    push([&]() {
+        const auto tokenBefore = tokenOf();
+        const int attemptsBefore = transport->writeAttempts();
+        // The button is behind the modal overlay: the press must not reach it.
+        clickNamed(QStringLiteral("writeActivateButton"));
+        if (tokenOf() != tokenBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M4: a background Write created a "
+                                "second flow (token %1 -> %2)")
+                     .arg(tokenBefore)
+                     .arg(tokenOf()));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL M4: state=%1").arg(stateToken()));
+        if (!controller->hasPreparedWrite() || controller->preparedWriteTokenValue()
+                                                  != tokenBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M4: the prepared generation changed"));
+        if (transport->writeAttempts() != attemptsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M4: a background Write dispatched"));
+        note(QStringLiteral("MODAL [M4]: background Write blocked — one flow, same "
+                            "token, 0 dispatch"));
+    });
+
+    // ---- M5: keyboard must not escape the modal scope ----
+    push([&]() {
+        QStringList seen;
+        const int attemptsBefore = transport->writeAttempts();
+        for (int i = 0; i < 8; ++i) {
+            tab();
+            const QString owner = focusOwnerName();
+            if (!seen.contains(owner))
+                seen << owner;
+            if (owner != QStringLiteral("writeConfirmCancelButton")
+                && owner != QStringLiteral("writeConfirmAcceptButton"))
+                fail(QStringLiteral("PRODWRITEFAIL M5: keyboard focus escaped the "
+                                    "modal dialog to [%1]").arg(owner));
+        }
+        if (!dialogVisible() || stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL M5: the tab walk disturbed the "
+                                "dialog (visible=%1 state=%2)")
+                     .arg(dialogVisible() ? 1 : 0)
+                     .arg(stateToken()));
+        if (transport->writeAttempts() != attemptsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL M5: the tab walk dispatched "
+                                "(attempts %1 -> %2)")
+                     .arg(attemptsBefore)
+                     .arg(transport->writeAttempts()));
+        note(QStringLiteral("MODAL [M5]: 8 Tabs stayed inside the modal scope "
+                            "[%1]; 0 dispatch").arg(seen.join(QStringLiteral(", "))));
+    });
+
+    // ---- M6: Cancel / Confirm accessibility sanity (NOT a WCAG claim) ----
+    push([&]() {
+        const QString cancelName =
+            accessibleNameOf(QStringLiteral("writeConfirmCancelButton"));
+        const QString valueName =
+            accessibleNameOf(QStringLiteral("writeConfirmAcceptButton"));
+        if (cancelName.isEmpty() || valueName.isEmpty())
+            fail(QStringLiteral("PRODWRITEFAIL M6: a dialog button has no accessible "
+                                "name (cancel=[%1] confirm=[%2])")
+                     .arg(cancelName, valueName));
+        else
+            note(QStringLiteral("MODAL [M6]: cancel=[%1] confirm=[%2]")
+                     .arg(cancelName, valueName));
+        // Leave a clean state.
+        clickNamed(QStringLiteral("writeConfirmCancelButton"));
+    });
+
     auto step = std::make_shared<int>(0);
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, step, schedule]() {
@@ -8291,7 +8453,10 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "P5 rapid Space x2 -> one; P6 immediate Enter -> zero; "
                            "P7 Cancel; P8 Escape; P9 NotSent notice; P10 short "
                            "submission notice; P11 write timeout notice; P12 "
-                           "1024x720 + 1000x700 geometry)";
+                           "1024x720 + 1000x700 geometry; M1-M6 PRODUCTION modal "
+                           "safety: outside press ignored, rail blocked, "
+                           "background Write blocked, 8 Tabs stay in the modal "
+                           "scope, Cancel/Confirm accessible names)";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "PRODWRITEFAIL:" << f;

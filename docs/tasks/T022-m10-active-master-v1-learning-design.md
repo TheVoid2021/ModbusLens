@@ -7130,3 +7130,132 @@ Files：src/ui/AnalysisController.{h,cpp}、src/ui/qml/components/WriteFoundatio
 commit：`M10-D4: expose safe FC06 production write UI`（独立提交；不 amend；不 rebase；不 push；不 tag）
 verified LKGC 继续 `fc86dcc`（不自行推进）。
 ```
+
+## M10-D4 Review Correction — Deployment Refresh / Production Modal Evidence / Human Visual Handoff（2026-09-21）
+
+> **M10-D4 Review = HOLD。** **D4 implementation 主体接受**（FC06 protocol / Controller dispatch /
+> statistics / evidence semantics / 0x10 freeze 全部**不重开**）。剩余两项 blocker：
+> ① production-visible FC06 UI 尚未刷新到 deploy/package client；
+> ② production-mode modal outside-click / rail / background safety 缺少直接 runtime evidence。
+> 本轮两项都关闭。**剩余：MANUAL VISUAL**（只能由人完成，见 Z10）。
+
+### Z0. Preflight（§1）
+
+```text
+HEAD = d20c07b（branch = main，普通 git status --porcelain = 空）
+verified LKGC = fc86dcc；origin/main = a40d935；ahead 121 / behind 0；VERSION = 2.0.0
+M10-D4 Review = HOLD；production FC06 Write = visible in current source/build ✔
+```
+
+### Z1. Deploy / Package 架构实读（§3，未发明新流程）
+
+```text
+A. canonical deploy directory  = build/deploy      （deploy_windows.bat 默认 DEPLOY_DIR，来自 build/debug）
+B. canonical deployed client   = build/deploy/ModbusLens.exe（debug 部署，历史上人工双击验证的目标）
+   Release 侧另有 build/release/deploy（M9-E E3 引入的独立 staging，由 make_package.py 使用）
+C. 职责：deploy/ = windeployqt 后的可运行目录（exe + Qt DLL + plugins + QML module + samples）；
+         package/ = 便携 ZIP 与 staging（make_package.py：structural checks / 负向扫描 / manifest /
+                    ZIP / 重新解压校验 / minimal-PATH 与 external-CWD 运行）
+D. 刷新前 artifact（见 Z2）
+E. build/deploy、build/package、build/package-extract 均在 .gitignore 的 build* 之下 ⇒ **ignored 本地产物，未 tracked**
+F. canonical 命令：
+     scripts\deploy_windows.bat                                    （默认：build/debug → build/deploy）
+     python scripts/make_package.py build/release build/release/deploy  （Release deploy + package，含自身校验与冒烟）
+   make_package.py **无 publish / sign / upload 阶段**（源码明示 "not code-signed and has not been published"）
+```
+
+### Z2. 刷新前 staleness 证明（§4）
+
+```text
+build/release/modbuslens.exe  2026-09-21 16:52:34  3,801,977  3cb9da5f…552862（D4 提交后首次 Release 构建）
+build/deploy/ModbusLens.exe   2026-09-19 12:27:25 35,066,016  ac303e3e…486c7e ← 落后（M9-F 时期、且是 debug 尺寸）
+build/package/…/ModbusLens.exe 2026-09-19 23:48:44 2,803,304  53d2f596…09ff4 ← 落后（M9-E E3 accepted 包）
+build/package/…zip            2026-09-19 23:55:32 40,633,612 2adfe71f…9336d ← 落后（M9-F 记录中的 hash）
+verdict：**deploy/ 与 package/ 确实落后**，且均不含 D4 的 production 0x06 UI。
+（被取代的 M9-F 包产物已移到 build/package/_superseded-m9f/ 与 build/package-extract/_superseded-m9f/ 保留，未删除。）
+```
+
+### Z3–Z6. Release 重建 / CTest / 刷新 / 身份链 / 版本 / 部署冒烟
+
+```text
+从 d20c07b + 本轮 harness 变更重新完成 Release 构建：
+  build/release/modbuslens.exe  2026-09-21 17:41:57  3,825,797  1e50bdb6…8e3256
+  （构建 0 error；warning 仅 main.cpp 5 条 pre-existing）
+Release full CTest（真实 ctest.exe）：35/35 PASS
+Debug  full CTest：35/35 PASS
+
+刷新（canonical flow，未发明新流程）：
+  scripts\deploy_windows.bat                     → build/deploy 重建（来自当前 build/debug）
+  make_package.py build/release build/release/deploy → Release deploy + package 全流程 PASS
+     · structural checks PASS / credential·path 负向扫描 PASS / manifest 1498 payload
+     · ZIP 40,902,628 bytes sha256 bd128564…1258d
+     · 重新解压比对 manifest PASS；minimal-PATH smoke/nav/geometry PASS；external-CWD 启动 PASS
+
+身份链（§8）—— 部署流程只是复制 exe，hash 必须一致：
+  build/release/modbuslens.exe                                  1e50bdb6…8e3256
+  build/release/deploy/ModbusLens.exe                           1e50bdb6…8e3256  ✔ 一致
+  build/package/…/ModbusLens.exe                                1e50bdb6…8e3256  ✔ 一致
+  build/package-extract/…/ModbusLens.exe                        1e50bdb6…8e3256  ✔ 一致
+  build/deploy/ModbusLens.exe                                   4c953790…366fd62  ✔ 与 build/debug/modbuslens.exe 一致
+  ⇒ 不是「时间变新了」，而是 hash 逐字节相同。
+
+⚠️ 过程中发现一个真实陷阱（已修正，未将就）：
+  make_package.py 只在 `<deploy>/ModbusLens.exe` **不存在**时才重新 deploy。
+  因此第一次重跑复用了 16:52 的旧 deploy，产出与 17:41 的最终 Release 不一致。
+  修正：把 release/deploy 移开后重跑 ⇒ 真正重新 deploy ⇒ hash 链一致。
+
+版本（§9）—— 不从目录名推断，用运行时投影：
+  部署 exe --qml-smoke-test → "SMOKE IDENTITY PASS: … version=2.0.0 …"（applicationVersion 来自 CMake VERSION authority）
+
+部署冒烟（§10）—— 直接运行**部署目录**里的 exe（不是 build/release）：
+  build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe --qml-smoke-test            → exit 0
+  同上 --qml-production-write-check → exit 0（含 startup / QML 加载 / Communication 可达 /
+      production FC06 section 存在 / production 0x10 controls 缺席 / P1–P12 / M1–M6）
+  注：便携包只带 windows 平台插件（无 offscreen），故按 packaging 脚本的方式运行，不强制 offscreen。
+```
+
+### Z7. Production-mode modal oracle（§11–§16）+ 是否需要产品修改
+
+```text
+扩展的是**同一个** qml_production_write_check（真实 production 区块、真实 Write 按钮、真实 Confirm），
+M1–M6 全部为「0 dispatch」断言：
+  M1 production Dialog 打开于 Prepared snapshot 之上（真实 production draft → Write）
+  M2 点击 Dialog 外 production 页面背景 → Dialog 仍开（closePolicy = CloseOnEscape 本就排除 outside press）、
+     snapshot 仍 Prepared、token 不变、workspace 不变、0 dispatch
+  M3 点击 navigation rail（navItem_0）→ workspace **不切换**、Dialog 不被绕过、token 不变、0 dispatch
+  M4 尝试激活背景 Write → 未建立第二 flow、未 dispatch、token 不变、0 dispatch
+  M5 Dialog 打开时连按 8 次 Tab → 焦点始终停留在 [Cancel, Confirm] 两个 dialog 按钮内，
+     未逃逸到 production 背景、snapshot 未变、0 dispatch
+  M6 Cancel / Confirm 的 accessible name 均存在（**不宣称** WCAG certification）
+**是否需要产品修改：NO。** 直接 PASS ⇒ 与 D3 的 DLG 一样属 **evidence gap，不是 product defect**；
+产品代码零改动（§19）。modal 语义本身（modal:true + CloseOnEscape + 自定义 footer）早已正确。
+```
+
+### Z8–Z11. 回归 / 治理 / 文档 / 提交
+
+```text
+回归（§17）：qml_production_write_check ✔ / qml_write_foundation_check ✔（C01–C37 / E1 / E2 未降低）/
+             qml_focus ✔ / qml_nav ✔ / qml_geometry ✔ / write_dispatch ✔ / ui_bridge ✔ / active_master ✔
+             + 实际 Debug CTest 35/35、Release CTest 35/35
+部署治理（§18）：build/deploy、build/package、build/package-extract 均为 **ignored 本地产物**；
+             **未** git add 任何 DLL/exe；仅在文档与报告中记录路径/hash/time。未改变 artifact tracking policy。
+人类视觉（§20）：本轮**不声称** HUMAN VISUAL PASS（见 Z10）。
+Files：src/main.cpp（harness：新增 M1–M6 + clickAtScene/railIndex/accessibleNameOf + PASS 文案）+ docs
+分类：**behavior-bearing**（harness 验收行为变化，与 M10-B/D3 correction 同例）
+commit：`M10-D4: close production deployment acceptance gaps`（独立提交；**不 amend d20c07b**）
+verified LKGC 继续 `fc86dcc`（不自行推进）。
+```
+
+### Z10. Human Visual Handoff（§20 —— 必须由人完成）
+
+```text
+请打开这个具体 exe（便携包解压目录，canonical deployed client）：
+    E:\desktop\ModbusLens\build\package-extract\ModbusLens-2.0.0-windows-x64\ModbusLens.exe
+  SHA-256 : 1e50bdb63f41706351117f2bfb57367e7676e0a183c4fac786a19465ae8e3256
+  来源     : build/release/modbuslens.exe（同一 hash），由 canonical make_package.py 全流程产出
+  source  : HEAD d20c07b（+ 本轮 harness commit）
+  VERSION : 2.0.0（运行时 applicationVersion 实测，非目录名推断）
+另：debug 部署客户端 build\deploy\ModbusLens.exe（sha256 4c953790…366fd62）也已同步刷新。
+建议人工确认：Communication 页 → 0x06 写入区块存在且可用 → Write → 确认对话框 → 无 0x10 任何控件。
+本轮 Agent **未**做真实人眼视觉检查；自动 geometry gate 不冒充人眼 review。
+```
