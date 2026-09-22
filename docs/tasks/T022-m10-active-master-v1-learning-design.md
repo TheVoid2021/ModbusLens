@@ -9221,3 +9221,94 @@ Read/Request 呈现未改（无稳定 fixture 构造 read 错误，故仅做结�
 与 build/package-extract/…（宿主 bulk-delete 门）。
 状态：M10-E4 = HOLD（UI 缺陷已修 + R14 已加；剩余：artifact refresh 与 Human Visual 复检）。
 ```
+
+## M10-E4 Final Artifact Refresh After Visual Correction（2026-09-22，docs-only）
+
+> Artifact-only acceptance closure。**零产品/测试改动**（本轮 porcelain 全程 empty；未改 protocol / encoder /
+> analyzer / session / taxonomy / QML 行为 / packaging 语义；未新增 CLI）。
+> NO AMEND / NO REBASE / NO PUSH / NO TAG / NO LKGC ADVANCE；未开始 E5 / M10-F / M11。
+
+### ZT1. Preflight 与 provenance
+
+```text
+branch main · repo HEAD = 72000586d51d08f29c61588a0ac824564135586e（**docs-only**，3 个 docs 文件）
+porcelain empty · origin/main a40d935…b42b63 · ahead/behind 142/0 · verified LKGC = 9bdd99c
+VERSION 2.0.0 · v2.0.0 ABSENT
+FINAL ARTIFACT SOURCE HEAD = **dd5e5a6a19900c34ec2767c7d6764830a3d06491**（视觉修正 behavior commit）
+陈旧目录 build/package/ModbusLens-2.0.0-windows-x64 与 build/package-extract/… **均 ABSENT**（用户已清理）
+freshness：scripts/test_make_package_freshness.py → **PASS**（missing / stale / current / RED old-rule /
+  same-size trap / missing-build-exe）
+```
+
+### ZT2. Canonical packaging（全部既有 gate 通过）
+
+```text
+<managed-venv-python> scripts/make_package.py build/release build/release/deploy → **make_package PASS**
+  deploy exe is STALE -> redeploying → deploy identity OK（sha256=3b61f26f…）
+  structural checks PASS · credential/config negative scan PASS · absolute-path audit PASS
+  manifest（1498 payload files）· ZIP creation PASS · ZIP entries == staging file set（1499）
+  fresh extraction verified against manifest · **extract identity OK（3b61f26f…）**
+  minimal-PATH extracted --qml-smoke-test PASS / --qml-nav-check PASS / --qml-geometry-check PASS
+  external-CWD launch PASS
+ZIP：build/package/ModbusLens-2.0.0-windows-x64.zip  40939705 B  sha256 c9ec46a9cc61c7a470879357fef162c25f75fd25fc94fdb4cf07eb3b45bcd2ac
+```
+
+### ZT3. 四路 executable identity —— **A == B == C == D PASS**
+
+```text
+A build/release/modbuslens.exe                                         3b61f26f41a2a048b6c1999e6a6a3576b7b07c310c4161b3e01b9874d54170f8  3933397 B  2026-09-22 21:52:39
+B build/release/deploy/ModbusLens.exe                                  同上  3933397 B  21:52:39
+C build/package/ModbusLens-2.0.0-windows-x64/ModbusLens.exe            同上  3933397 B  21:52:39
+D build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe    同上  3933397 B  22:03:05
+（四者 sha256 完全相同，content identity 由 SHA-256 证明，未用 mtime/size/文件名代替）
+```
+
+### ZT4. Portable runtime gates（windows 平台，**未设 offscreen**）—— 全部 exit 0
+
+```text
+--qml-smoke-test             exit 0
+    SMOKE IDENTITY PASS: applicationName=ModbusLens displayName=ModbusLens **version=2.0.0**
+      organizationName=ModbusLens organizationDomain=<unset> title=ModbusLens windowIconSizes=[16x16 24…
+--qml-production-write-check exit 0   PRODUCTION WRITE CHECK PASS（P1–P12 + M1–M6 + **R1–R14**）
+    · **R14（视觉修正的 oracle）在最终 portable 上通过**：
+      `PRODWRITE [R14]: open failure -> connection error visible inside the Connection section, above the Request section`
+    · R12（Replay）：sourceKind=Replay / write10Supported=true / tabs·tab10·editor 保留 / draft 保留 /
+      Write disabled（serialConnected=0）/ 激活 0 prepare·0 attempt·0 send·0 transaction·0 terminal
+    · R13：Active Serial restored -> Write re-enabled, capability unchanged, draft preserved
+--qml-focus-check            exit 0   FOCUS CHECK PASS
+--qml-nav-check              exit 0   NAV CHECK PASS
+--qml-geometry-check         exit 0   GEOMETRY CHECK PASS
+```
+
+### ZT5. Version 证据（runtime + PE，均为直接读取）
+
+```text
+runtime applicationVersion（来自 --qml-smoke-test 的 identity 行，非目录名推断）：**2.0.0**
+PE VS_VERSIONINFO（pefile 读取最终 extracted exe）：
+  FileVersion        = 2.0.0        ProductVersion     = 2.0.0
+  FileVersionRaw     = 2.0.0.0      ProductVersionRaw  = 2.0.0.0
+  ProductName        = ModbusLens   FileDescription    = ModbusLens
+  OriginalFilename   = ModbusLens.exe
+```
+
+### ZT6. 回归引用（本轮零 source/test 改动）
+
+```text
+已接受的 dd5e5a6 tree 证据：Debug full CTest **36/36 PASS** · Release full CTest **36/36 PASS**
+warnings **0 NEW / 5 PRE-EXISTING（src/main.cpp）**
+本轮 porcelain 全程 empty ⇒ 未重复 CTest（按 §12）。
+```
+
+### ZT7. Human Visual 交付
+
+```text
+**M10-E4 Human Visual = WAITING FOR USER**（Agent 无显示环境，不自标 PASS）。
+FINAL ARTIFACT SOURCE HEAD = dd5e5a6a19900c34ec2767c7d6764830a3d06491
+portable exe = build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe
+sha256 = 3b61f26f41a2a048b6c1999e6a6a3576b7b07c310c4161b3e01b9874d54170f8 · 3933397 B · 2026-09-22 22:03:05
+runtime version 2.0.0 · PE 2.0.0（raw 2.0.0.0）
+**注意**：运行 portable 时**不要**设置 QT_QPA_PLATFORM=offscreen（包内只有 qwindows.dll）；
+  用默认 windows 平台。
+状态：M10-E4 = HOLD（唯一剩余项 = 人工视觉门）；M10-E5/M10-F = NOT STARTED；M10 overall = IN PROGRESS；
+  M11 = HOLD；verified LKGC 保持 **9bdd99c**。
+```
