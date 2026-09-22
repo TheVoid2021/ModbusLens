@@ -4739,6 +4739,44 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 // No Q_OBJECT on purpose: this double only overrides base-class virtuals and
 // is always used through the SerialTransport interface, so it needs no
 // meta-object of its own (and main.cpp therefore stays AUTOMOC-free).
+// M10-E4 Human Visual correction: a transport whose PORT OPEN fails, so the
+// connection-error presentation can be driven deterministically from the
+// shipped connect path. Harness-only fixture - no product behaviour.
+class FailingOpenTransport : public SerialTransport
+{
+public:
+    explicit FailingOpenTransport(QObject* parent = nullptr)
+        : SerialTransport(parent)
+    {
+    }
+
+    bool openPort(const QString& portName, qint32 baudRate) override
+    {
+        Q_UNUSED(portName);
+        Q_UNUSED(baudRate);
+        // The interface contract: a failed open returns false AND emits a
+        // BOUNDED transportError(); the controller routes that to its serial
+        // error lane. (Echoing the production adapter's behaviour here is what
+        // makes the connection-error presentation reachable in the harness.)
+        emit transportError(QStringLiteral("串口打开失败：测试夹具（端口不可用）"));
+        return false;
+    }
+
+    modbuslens::core::ActiveStartResult startActiveRequest(
+        const modbuslens::core::ActiveRequestDescriptor& request) override
+    {
+        Q_UNUSED(request);
+        return modbuslens::core::ActiveStartResult{
+            false, modbuslens::core::TransportDisposition::NotSent, std::nullopt};
+    }
+
+    [[nodiscard]] bool hasActiveTransaction() const override { return false; }
+
+    [[nodiscard]] bool isPortOpen() const override { return false; }
+
+    void closePort() override {}
+};
+
 class HarnessWriteTransport : public SerialTransport
 {
 public:
@@ -9180,6 +9218,73 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             note(QStringLiteral("PRODWRITE [R11]: capability invariant across "
                                 "disconnect/connect/Clear/diagnosis/Simulator/nav; "
                                 "controls disabled (not removed) when disconnected"));
+        controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+    });
+
+    // ---- R14: a CONNECTION failure belongs to the Connection section ----
+    push([&]() {
+        resetWrite();
+        auto *errItem = itemOf(QStringLiteral("communicationSerialError"));
+        auto *connCard = itemOf(QStringLiteral("communicationConnectionSection"));
+        auto *reqCard = itemOf(QStringLiteral("communicationRequestSection"));
+        auto *writeSec = itemOf(QStringLiteral("writeFoundationSection"));
+        if (!errItem || !connCard || !reqCard || !writeSec)
+            fail(QStringLiteral("PRODWRITEFAIL R14: a presentation container is "
+                                "missing (err=%1 conn=%2 req=%3 write=%4)")
+                     .arg(errItem != nullptr ? 1 : 0)
+                     .arg(connCard != nullptr ? 1 : 0)
+                     .arg(reqCard != nullptr ? 1 : 0)
+                     .arg(writeSec != nullptr ? 1 : 0));
+        else {
+            // STRUCTURAL placement, proven at runtime by walking the real
+            // parentItem chains (no name/string inspection anywhere).
+            if (!underItem(errItem, connCard))
+                fail(QStringLiteral("PRODWRITEFAIL R14: the connection error is "
+                                    "not inside the Connection section"));
+            if (underItem(errItem, reqCard))
+                fail(QStringLiteral("PRODWRITEFAIL R14: the connection error sits "
+                                    "inside the Request section"));
+            if (underItem(errItem, writeSec))
+                fail(QStringLiteral("PRODWRITEFAIL R14: the connection error sits "
+                                    "inside the Write section"));
+            const qreal errY = errItem->mapToScene(QPointF(0, 0)).y();
+            const qreal reqY = reqCard->mapToScene(QPointF(0, 0)).y();
+            if (errY >= reqY)
+                fail(QStringLiteral("PRODWRITEFAIL R14: the connection error is "
+                                    "not presented above the Request section"));
+        }
+        // Drive a REAL open failure through the shipped connect path. The
+        // session must be DOWN first: connectSerial on an already-connected
+        // controller is a no-op, so the failing transport would never be asked.
+        if (controller->serialConnected())
+            controller->disconnectSerial();
+        auto *failing = new FailingOpenTransport(&app);
+        controller->setSerialTransport(failing);
+        const qreal heightBefore = window->height();
+        controller->connectSerial(QStringLiteral("COM_DOES_NOT_EXIST"), 9600);
+        if (!controller->hasSerialError())
+            fail(QStringLiteral("PRODWRITEFAIL R14: a failed open raised no serial "
+                                "error"));
+        else if (!errItem->isVisible())
+            fail(QStringLiteral("PRODWRITEFAIL R14: the connection error is not "
+                                "visible"));
+        else
+            note(QStringLiteral("PRODWRITE [R14]: open failure -> connection error "
+                                "visible inside the Connection section, above the "
+                                "Request section"));
+        if (window->height() != heightBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R14: showing the connection error "
+                                "resized the window (%1 -> %2)")
+                     .arg(heightBefore)
+                     .arg(window->height()));
+        // The write lane must stay clean: no dispatch notice was produced by a
+        // connection failure.
+        auto *notice = itemOf(QStringLiteral("writeDispatchNotice"));
+        if (notice && notice->property("visible").toBool())
+            fail(QStringLiteral("PRODWRITEFAIL R14: the connection failure leaked "
+                                "into the write outcome lane"));
+        // Restore the ordinary transport and state.
+        controller->setSerialTransport(transport);
         controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
     });
 

@@ -156,6 +156,20 @@ Item {
                     Layout.fillWidth: true
                 }
             }
+
+            // M10-E4 Human Visual correction: a CONNECTION/open failure belongs
+            // to the Connection section — it must never render between the
+            // Request and Write sections, where it reads as if the WRITE had
+            // failed. Same single authority (hasSerialError / serialErrorMessage),
+            // only the presentation placement moved; no string inspection.
+            Label {
+                objectName: "communicationSerialError"
+                Layout.fillWidth: true
+                visible: page.analysisController.hasSerialError
+                text: page.analysisController.serialErrorMessage
+                color: "#B03030"
+                wrapMode: Text.Wrap
+            }
         }
 
         // ---- Request section (B3.2): the existing FC03 read only ----
@@ -264,17 +278,6 @@ Item {
                 // for the test foundation; everyone else gets the shipped UI.
                 testFoundationMode: writeFoundationVisible
             }
-        }
-
-        // Serial transport error (separate lane from Replay error and from
-        // Transaction rows — a transport failure is never a Modbus status).
-        Label {
-            objectName: "communicationSerialError"
-            visible: page.analysisController.hasSerialError
-            text: page.analysisController.serialErrorMessage
-            color: "#B03030"
-            wrapMode: Text.Wrap
-            Layout.fillWidth: true
         }
 
         // Trailing flexible spacer: consumes the vertical slack so the
