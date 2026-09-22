@@ -9032,6 +9032,112 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                             "Invalidated, draft preserved"));
     });
 
+    // ---- R12: FC16 production behaviour under a REPLAY source ----
+    push([&]() {
+        resetWrite();
+        auto *s = section();
+        if (!s)
+            fail(QStringLiteral("PRODWRITEFAIL R12: no section"));
+        // A. a valid production FC16 draft exists first.
+        setDraft("activeFunctionIndex", 1);
+        setDraft("unit10", 17);
+        setDraft("start10", 1);
+        setDraft("timeout10", 1000);
+        setDraft("valuesText10", fc16ValuesText({10, 258}));
+        if (!controller->serialConnected())
+            fail(QStringLiteral("PRODWRITEFAIL R12: no Active Serial session to "
+                                "start from"));
+        // C. load a deterministic Replay fixture (the shipped demo mlog).
+        const QString mlog =
+            QStringLiteral(MODBUSLENS_DEMO_MLOG_PATH);
+        QFile probe(mlog);
+        if (!probe.exists())
+            fail(QStringLiteral("PRODWRITEFAIL R12: replay fixture missing [%1]")
+                     .arg(mlog));
+        else {
+            controller->loadReplayFile(QUrl::fromLocalFile(mlog));
+            // D. the frozen contract: source changes, capability does NOT.
+            if (controller->sourceKind()
+                != modbuslens::core::TransactionSourceKind::Replay)
+                fail(QStringLiteral("PRODWRITEFAIL R12: sourceKind is not Replay"));
+            if (!controller->property("write10Supported").toBool())
+                fail(QStringLiteral("PRODWRITEFAIL R12: write10Supported moved "
+                                    "under Replay (it is structural)"));
+            for (const auto &name : {QStringLiteral("writeFunctionTabs"),
+                                     QStringLiteral("writeTab10"),
+                                     QStringLiteral("write10ValuesArea"),
+                                     QStringLiteral("write10UnitSpin")}) {
+                if (itemOf(name) == nullptr)
+                    fail(QStringLiteral("PRODWRITEFAIL R12: %1 was unloaded by the "
+                                        "Replay switch").arg(name));
+            }
+            if (s->property("valuesText10").toString()
+                != fc16ValuesText({10, 258}))
+                fail(QStringLiteral("PRODWRITEFAIL R12: the Replay switch cleared "
+                                    "the FC16 draft"));
+            // E. the ACTION must be unavailable through the shared runtime
+            // predicate - reported with the mechanism that actually disables it.
+            auto *writeButton = itemOf(QStringLiteral("writeActivateButton"));
+            if (!writeButton)
+                fail(QStringLiteral("PRODWRITEFAIL R12: the Write action is "
+                                    "absent"));
+            else if (writeButton->property("enabled").toBool())
+                fail(QStringLiteral("PRODWRITEFAIL R12: Write is ENABLED under "
+                                    "Replay"));
+            note(QStringLiteral("PRODWRITE [R12]: sourceKind=Replay; "
+                                "write10Supported=true; tabs/tab10/editor present; "
+                                "draft preserved; Write disabled "
+                                "(serialConnected=%1, serialBusy=%2)")
+                     .arg(controller->serialConnected() ? 1 : 0)
+                     .arg(controller->serialBusy() ? 1 : 0));
+        }
+    });
+    push([&]() {
+        // F. an activation attempt through the UI must produce NOTHING.
+        const int attemptsBefore = transport->writeAttempts();
+        const int sendsBefore = transport->writeSends();
+        const int recordsBefore = controller->activeSerialRecordCount();
+        const int terminalsBefore = controller->activeSerialTerminalCount();
+        clickNamed(QStringLiteral("writeActivateButton"));
+        if (dialogVisible() || stateToken() == QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL R12: a Replay source opened a "
+                                "confirmation (state=%1)").arg(stateToken()));
+        if (transport->writeAttempts() != attemptsBefore
+            || transport->writeSends() != sendsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R12: the Replay attempt reached the "
+                                "transport"));
+        if (controller->activeSerialRecordCount() != recordsBefore
+            || controller->activeSerialTerminalCount() != terminalsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R12: a transaction/terminal was "
+                                "fabricated under Replay"));
+        note(QStringLiteral("PRODWRITE [R12]: activation under Replay produced 0 "
+                            "prepare / 0 attempt / 0 send / 0 transaction / 0 "
+                            "terminal"));
+    });
+
+    // ---- R13: restoring Active Serial restores the ACTION (not the capability) ----
+    push([&]() {
+        controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+        if (controller->sourceKind()
+            != modbuslens::core::TransactionSourceKind::ActiveSerial)
+            fail(QStringLiteral("PRODWRITEFAIL R13: sourceKind is not ActiveSerial "
+                                "after restore"));
+        if (!controller->property("write10Supported").toBool())
+            fail(QStringLiteral("PRODWRITEFAIL R13: capability moved on restore"));
+        auto *writeButton = itemOf(QStringLiteral("writeActivateButton"));
+        if (!writeButton || !writeButton->property("enabled").toBool())
+            fail(QStringLiteral("PRODWRITEFAIL R13: Write is still disabled after "
+                                "Active Serial was restored"));
+        auto *s = section();
+        if (!s
+            || s->property("valuesText10").toString()
+                   != fc16ValuesText({10, 258}))
+            fail(QStringLiteral("PRODWRITEFAIL R13: the draft did not survive the "
+                                "source round trip"));
+        note(QStringLiteral("PRODWRITE [R13]: Active Serial restored -> Write "
+                            "re-enabled, capability unchanged, draft preserved"));
+    });
+
     // ---- R11: capability invariance across runtime availability states ----
     push([&]() {
         auto cap10 = [&controller]() {
