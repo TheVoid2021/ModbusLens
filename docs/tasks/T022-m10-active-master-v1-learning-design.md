@@ -9159,3 +9159,65 @@ runtime identity line（直接证据，非目录名推断）：
 ✅ portable gates smoke / production-write(含 R1–R13) / focus / nav / geometry 全部 exit 0
 ⏳ **M10-E4 Human Visual = WAITING FOR USER**（唯一剩余项）
 ```
+
+## M10-E4 Human Visual Correction — Contextual Serial Error Placement（2026-09-22）
+
+> Human Visual 发现 production UI presentation defect：连接失败产生的「串口传输错误：串口打开失败…」
+> 被渲染在 **Request 与 Write 两段之间**，读起来像是 **Write** 失败了。本轮只改 presentation 位置，
+> 未改任何 serial/协议/session/transport/statistics/diagnosis/Replay/Simulator/Agent 语义。
+
+### ZS1. RCA 与既有 authority
+
+```text
+RCA（实读 CommunicationPage.qml）：communicationSerialError 这个 Label 原先是 page 级 ColumnLayout 的
+  一个**兄弟节点**，位置排在 writeFoundationLoader **之后** ⇒ 视觉上落在 Request 卡片与 Write 段之间。
+既有 authority（无需新增判别器、无需字符串匹配）：
+  · hasSerialError / serialErrorMessage（NOTIFY serialErrorChanged）—— 单一串口错误 authority；
+  · hasReplayError / replayErrorMessage —— Replay 独立 lane；
+  · hasWriteDispatchNotice / writeDispatchNotice —— write 结果 lane。
+因此本轮**只改 QML routing/placement**，不复制错误字符串、不做 contains("串口") 之类脆弱判断。
+```
+
+### ZS2. Routing before → after
+
+```text
+before: page ColumnLayout: [Connection card][Request section][Write section][**communicationSerialError**]
+after : page ColumnLayout: [Connection card **含** communicationSerialError（card 内底部）][Request section][Write section]
+（PanelCard 的 default property alias contentData 允许多子项，故错误行直接成为 Connection 卡片内的第二个子项。）
+```
+
+### ZS3. 生产 oracle R14（--qml-production-write-check）
+
+```text
+新增 R14，并新增 harness-only 夹具 FailingOpenTransport（openPort 返回 false 且按接口契约
+  **emit transportError()** —— 与生产 adapter 同一路径；产品行为零改动）：
+  · 结构断言（运行时走真实 parentItem 链，underItem）：错误行**在** communicationConnectionSection 内；
+    **不在** communicationRequestSection 内；**不在** writeFoundationSection 内；
+  · 顺序断言：错误行的 scene Y 在 Request 卡片 scene Y **之上**；
+  · 真实驱动：断开会话 → 注入 FailingOpenTransport → connectSerial("COM_DOES_NOT_EXIST") →
+    hasSerialError == true 且错误行 visible == true；
+  · 几何：错误行出现**不改变窗口高度**；
+  · 交叉污染：write 结果 lane（writeDispatchNotice）**不可见** ⇒ 连接失败未泄漏进 write 呈现。
+实测：PRODWRITE [R14]: open failure -> connection error visible inside the Connection section,
+  above the Request section；PRODUCTION WRITE CHECK PASS（P1–P12 + M1–M6 + R1–**R14**）。
+```
+
+### ZS4. 回归与门禁
+
+```text
+Debug full CTest **36/36 PASS**；Release full CTest **36/36 PASS**；Release 构建 0 error。
+warnings：**0 NEW / 5 PRE-EXISTING（src/main.cpp）**。
+Write lane 回归：P9 NotSent / P10 ShortSubmission / P11 Timeout 仍显示在 Write section（未移动）。
+Read/Request 呈现未改（无稳定 fixture 构造 read 错误，故仅做结构断言：错误行不在 Request 卡片内）。
+几何：1024x720 / 1000x700 的既有 geometry gate PASS；R14 另断言错误行不改变窗口高度。
+```
+
+### ZS5. Artifact 状态（未闭合，如实披露）
+
+```text
+本轮 QML 变化 ⇒ 旧 portable（a6f981a9…）**不再是有效的 Human Visual candidate**。
+需重跑：Release build（**已重建**）→ canonical make_package → 四路 SHA-256 → portable gates。
+**本轮预算耗尽，打包链未执行**；执行前需先删除 build/package/ModbusLens-2.0.0-windows-x64
+与 build/package-extract/…（宿主 bulk-delete 门）。
+状态：M10-E4 = HOLD（UI 缺陷已修 + R14 已加；剩余：artifact refresh 与 Human Visual 复检）。
+```
