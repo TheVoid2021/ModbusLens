@@ -11,6 +11,7 @@
 #include "core/active/ProductWriteCapability.h"
 #include "core/analysis/TransactionAnalysis.h"
 #include "core/protocol/ModbusRtuCodec.h"
+#include "core/protocol/Function16.h"
 #include "core/serial/SerialTransactionSession.h"
 #include "fake_serial_transport.h"
 #include "ui/AnalysisController.h"
@@ -66,6 +67,12 @@ constexpr std::int64_t kTimeoutMs = 1000;
 // so a broken encoder cannot make its own expectation come true.
 const std::vector<std::uint8_t> kGoldenWrite06Adu = {0x11, 0x06, 0x00, 0x01,
                                                      0x00, 0x03, 0x9A, 0x9B};
+
+// M10-E3 review correction: the CANONICAL TWO-register FC16 request
+// (values [0x000A, 0x0102] -> quantity 2, byteCount 4). Independent literal.
+const std::vector<std::uint8_t> kGoldenWrite16TwoRegAdu = {
+    0x11, 0x10, 0x00, 0x01, 0x00, 0x02, 0x04, 0x00,
+    0x0A, 0x01, 0x02, 0xC6, 0xF0};
 
 // M10-E3 golden literal for the FC16/0x10 request the harness prepares
 // (unit 0x11, start 0x0001, values [0x0007] -> quantity 1, byteCount 2).
@@ -161,6 +168,17 @@ struct Session {
         return token.value_or(0);
     }
 
+    // Prepares a valid 0x10 snapshot with an explicit multi-line decimal value
+    // list (N registers) and returns its token (0 = preparation failed).
+    std::uint64_t prepare10Values(const QString& valuesText)
+    {
+        const std::string text = valuesText.toStdString();
+        (void)controller.prepareWriteMultipleRegisters(kUnit, kAddress, text,
+                                                       kTimeoutMs);
+        const auto token = controller.preparedWriteToken();
+        return token.value_or(0);
+    }
+
     // Prepares a valid 0x10 snapshot (encoder M10-E1, session support M10-E2,
     // product capability M10-E3) and returns its token.
     std::uint64_t prepare10()
@@ -214,6 +232,17 @@ private slots:
     void mixedFc03Fc06Fc10ShareOneStatisticsUniverse();
     void fc10_write10SupportedIsStructuralAndRuntimeInvariant();
     void fc10_write10SupportedDoesNotRevealProductionUi();
+    // M10-E3 review correction: the canonical N=2 Controller oracle plus the
+    // remaining direct FC16 matrix rows the first E3 round did not cover.
+    void fc10_canonicalTwoRegisterDispatch();
+    void fc10_multiValueSnapshotIsImmutableThroughDispatch();
+    void fc10_echoMismatchEntersSharedUniverse();
+    void fc10_crcErrorEntersSharedUniverse();
+    void fc10_postSubmitTransportErrorAndDisconnectKeepEvidenceOnly();
+    void fc10_consumedTokenTenAttemptsProduceNoExtraWork();
+    void fc10_clearWhilePendingKeepsPendingThenCompletes();
+    void fc10_invalidDraftsAreRejectedBeforeDispatchNotNotSent();
+    void mixedUniverseStatisticsAndDiagnosisCoverFc10();
     void r4_guardFailureIsNeverTransportNotSent();
 
     // ---- R5: token reuse ----
@@ -1279,6 +1308,327 @@ void WriteDispatchTest::hiddenConfirmSeamStillDispatchesNothing()
     QVERIFY(s.transport.sentAduLog().empty());
     QVERIFY(!s.controller.serialBusy());
     QCOMPARE(s.controller.observedCount(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// M10-E3 review correction — FC16 (0x10) Controller-level evidence matrix
+// ---------------------------------------------------------------------------
+
+void WriteDispatchTest::fc10_canonicalTwoRegisterDispatch()
+{
+    // The CANONICAL multi-value case through the real Controller: two
+    // registers, the F16-G6 field sequence, proven end to end at dispatch
+    // level (the first E3 round only exercised a SINGLE-register snapshot, so
+    // this exact 13-byte ADU was never proven through the Controller).
+    Session s;
+    const auto token = s.prepare10Values(QStringLiteral("10\n258"));
+    QVERIFY(token != 0);
+    QCOMPARE(s.controller.preparedWriteFunction(), 0x10);
+    QCOMPARE(s.controller.preparedWriteState(), PreparedWriteState::Prepared);
+
+    const auto result = s.controller.confirmAndDispatchPreparedWrite(token);
+    QVERIFY(result.confirmationAccepted);
+    QVERIFY(result.dispatchAttempted);
+    QCOMPARE(s.transport.startAttemptCount(), 1);
+    QCOMPARE(s.transport.sendCount(), 1);
+    QCOMPARE(s.transport.sentAduLog().size(), std::size_t{1});
+
+    // EXACT wire bytes against the independent literal; 13 = 9 + 2*2.
+    const auto& adu = s.transport.sentAduLog().front();
+    QCOMPARE(adu, kGoldenWrite16TwoRegAdu);
+    QCOMPARE(adu.size(), std::size_t{13});
+
+    // quantity = values.size() = 2, byteCount = 2 * quantity = 4, and the
+    // value ORDER is the prepared order (no sorting, no word swap).
+    const auto decoded = modbuslens::core::decodeRtuFrame(adu);
+    const auto* frame = std::get_if<ModbusRtuFrame>(&decoded);
+    QVERIFY(frame != nullptr);
+    const auto fields = modbuslens::core::readWriteMultipleRegistersFields(*frame);
+    QVERIFY(fields.has_value());
+    QCOMPARE(fields->quantity, std::uint16_t{2});
+    QCOMPARE(fields->byteCount, std::uint8_t{4});
+    const auto request =
+        modbuslens::core::decodeWriteMultipleRegistersRequest(*frame);
+    const auto* model =
+        std::get_if<modbuslens::core::WriteMultipleRegistersRequest>(&request);
+    QVERIFY(model != nullptr);
+    QCOMPARE(model->startingAddress, kAddress);
+    QCOMPARE(model->values, (std::vector<std::uint16_t>{0x000A, 0x0102}));
+
+    // And the real lifecycle completes as one 0x10 Success record.
+    s.transport.setResponseBytes(fc16EchoWire(kUnit, kAddress, 2));
+    s.transport.completeWithResponse();
+    QCOMPARE(s.controller.activeSerialRecordCount(), 1);
+    const auto& record = s.controller.activeSerialRecords().front();
+    QCOMPARE(record.functionCode(), 0x10);
+    QCOMPARE(record.analysis.status, TransactionStatus::Success);
+    QCOMPARE(record.evidence.requestAdu, kGoldenWrite16TwoRegAdu);
+}
+
+void WriteDispatchTest::fc10_multiValueSnapshotIsImmutableThroughDispatch()
+{
+    // Multi-value snapshots are IMMUTABLE: after preparing [10, 258], a second
+    // preparation with different values must not replace the generation, and
+    // dispatch must send the PREPARED values - never a re-read draft.
+    Session s;
+    const auto token = s.prepare10Values(QStringLiteral("10\n258"));
+    QVERIFY(token != 0);
+
+    // Draft-side mutation attempt: a second prepare with a different value.
+    (void)s.controller.prepareWriteMultipleRegisters(kUnit, kAddress,
+                                                     std::string_view{"9"},
+                                                     kTimeoutMs);
+    QCOMPARE(s.controller.preparedWriteToken().value_or(0), token);
+    const auto snapshot = s.controller.preparedWriteSnapshot();
+    QVERIFY(snapshot.has_value());
+    const auto* preparedValues =
+        std::get_if<modbuslens::core::WriteMultipleRegistersIntent>(
+            &snapshot->intent.payload);
+    QVERIFY(preparedValues != nullptr);
+    QCOMPARE(preparedValues->values,
+             (std::vector<std::uint16_t>{0x000A, 0x0102}));
+
+    (void)s.controller.confirmAndDispatchPreparedWrite(token);
+    QCOMPARE(s.transport.sentAduLog().size(), std::size_t{1});
+    QCOMPARE(s.transport.sentAduLog().front(), kGoldenWrite16TwoRegAdu);
+}
+
+void WriteDispatchTest::fc10_echoMismatchEntersSharedUniverse()
+{
+    // How a Controller-dispatched 0x10 lifecycle reaches the E2 authority: the
+    // session completes the transaction through analyzeActiveResponse -> the
+    // shared analyzeWriteMultipleRegistersTransaction, and the resulting record
+    // carries the SHARED issue code into the common history.
+    Session s;
+    const auto token = s.prepare10Values(QStringLiteral("10\n258"));
+    (void)s.controller.confirmAndDispatchPreparedWrite(token);
+    // Well-formed 0x10 echo reporting a DIFFERENT quantity (3 != 2).
+    s.transport.setResponseBytes(fc16EchoWire(kUnit, kAddress, 3));
+    s.transport.completeWithResponse();
+
+    QCOMPARE(s.controller.observedCount(), 1);
+    QCOMPARE(s.controller.protocolErrorCount(), 1);
+    const auto& record = s.controller.activeSerialRecords().front();
+    QCOMPARE(record.functionCode(), 0x10);
+    QCOMPARE(record.analysis.status, TransactionStatus::ProtocolError);
+    QVERIFY(record.analysis.issue.has_value());
+    QCOMPARE(record.analysis.issue->code,
+             modbuslens::core::TransactionIssueCode::
+                 WriteMultipleRegistersEchoMismatch);
+    QCOMPARE(record.analysis.issue->expectedQuantity, std::uint16_t{2});
+    QCOMPARE(record.analysis.issue->actualQuantity, std::uint16_t{3});
+}
+
+void WriteDispatchTest::fc10_crcErrorEntersSharedUniverse()
+{
+    Session s;
+    const auto token = s.prepare10Values(QStringLiteral("10\n258"));
+    (void)s.controller.confirmAndDispatchPreparedWrite(token);
+    auto wire = fc16EchoWire(kUnit, kAddress, 2);
+    wire.back() = static_cast<std::uint8_t>(wire.back() ^ 0x01);
+    s.transport.setResponseBytes(wire);
+    s.transport.completeWithResponse();
+
+    QCOMPARE(s.controller.observedCount(), 1);
+    QCOMPARE(s.controller.crcErrorCount(), 1);
+    const auto& record = s.controller.activeSerialRecords().front();
+    QCOMPARE(record.functionCode(), 0x10);
+    QCOMPARE(record.analysis.status, TransactionStatus::CrcError);
+}
+
+void WriteDispatchTest::fc10_postSubmitTransportErrorAndDisconnectKeepEvidenceOnly()
+{
+    // Phase 1: a transport error after submission keeps ONE terminal with the
+    // intended 0x10 request and fabricates no Modbus result.
+    {
+        Session s;
+        const auto token = s.prepare10();
+        (void)s.controller.confirmAndDispatchPreparedWrite(token);
+        QCOMPARE(s.transport.sendCount(), 1);
+        s.transport.failTransport(QStringLiteral("端口失效"));
+
+        QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+        QCOMPARE(s.controller.activeSerialTerminations().front().reason,
+                 TransportTerminalReason::TransportError);
+        QCOMPARE(s.controller.activeSerialTerminations().front().request.wire,
+                 kGoldenWrite16Adu);
+        QCOMPARE(s.controller.observedCount(), 0);
+        QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+        QVERIFY(!s.controller.serialBusy());
+        QCOMPARE(s.controller.preparedWriteState(),
+                 PreparedWriteState::Consumed);
+    }
+    // Phase 2: a post-submission disconnect is DisconnectedAfterSubmission and
+    // likewise fabricates nothing.
+    {
+        Session s;
+        const auto token = s.prepare10();
+        (void)s.controller.confirmAndDispatchPreparedWrite(token);
+        QCOMPARE(s.transport.sendCount(), 1);
+        s.transport.disconnectAfterSubmission();
+
+        QCOMPARE(s.controller.activeSerialTerminalCount(), 1);
+        QCOMPARE(s.controller.activeSerialTerminations().front().reason,
+                 TransportTerminalReason::DisconnectedAfterSubmission);
+        QCOMPARE(s.controller.observedCount(), 0);
+        QVERIFY(!s.controller.serialBusy());
+    }
+}
+
+void WriteDispatchTest::fc10_consumedTokenTenAttemptsProduceNoExtraWork()
+{
+    // The one-shot generation holds for 0x10 exactly as for 0x06: ten further
+    // confirmations of the SAME consumed token produce no attempt, no send and
+    // no second transaction.
+    Session s;
+    const auto token = s.prepare10();
+    (void)s.controller.confirmAndDispatchPreparedWrite(token);
+    s.transport.setResponseBytes(fc16EchoWire());
+    s.transport.completeWithResponse();
+
+    const int attemptsAfterFirst = s.transport.startAttemptCount();
+    const int sendsAfterFirst = s.transport.sendCount();
+    for (int i = 0; i < 10; ++i) {
+        const auto repeated =
+            s.controller.confirmAndDispatchPreparedWrite(token);
+        QVERIFY(!repeated.confirmationAccepted);
+        QVERIFY(!repeated.dispatchAttempted);
+        QVERIFY(!repeated.startResult.has_value());
+        QVERIFY(repeated.rejectedReason.has_value());
+    }
+    QCOMPARE(s.transport.startAttemptCount(), attemptsAfterFirst);
+    QCOMPARE(s.transport.sendCount(), sendsAfterFirst);
+    QCOMPARE(s.transport.sentAduLog().size(), std::size_t{1});
+    QCOMPARE(s.controller.activeSerialRecordCount(), 1);
+}
+
+void WriteDispatchTest::fc10_clearWhilePendingKeepsPendingThenCompletes()
+{
+    // Clear is neither Cancel nor Disconnect: an in-flight 0x10 survives it and
+    // its completion lands as the FIRST transaction of the emptied view.
+    Session s;
+    const auto token = s.prepare10Values(QStringLiteral("10\n258"));
+    (void)s.controller.confirmAndDispatchPreparedWrite(token);
+    s.transport.setResponseBytes(fc16EchoWire(kUnit, kAddress, 2));
+    QVERIFY(s.controller.serialBusy());
+
+    s.controller.clearResults();
+
+    QVERIFY(s.controller.serialBusy());
+    QCOMPARE(s.controller.observedCount(), 0);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 0);
+    QCOMPARE(s.controller.preparedWriteState(), PreparedWriteState::Consumed);
+
+    s.transport.completeWithResponse();
+    QCOMPARE(s.controller.observedCount(), 1);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 1);
+    const auto& record = s.controller.activeSerialRecords().front();
+    QCOMPARE(record.functionCode(), 0x10);
+    QCOMPARE(record.analysis.status, TransactionStatus::Success);
+}
+
+void WriteDispatchTest::fc10_invalidDraftsAreRejectedBeforeDispatchNotNotSent()
+{
+    // Pre-send validation REJECTION is not a transport outcome: every invalid
+    // 0x10 draft must fail to prepare, leaving nothing to dispatch - and it
+    // must never be reported through the NotSent lane.
+    struct BadDraft {
+        const char* name;
+        int unitId;
+        int startAddress;
+        const char* valuesText; // nullptr => the 124-value payload
+    };
+    const BadDraft drafts[] = {
+        {"empty values", 1, 0, "   "},
+        {"124 values", 1, 0, nullptr},
+        {"span overflow", 1, 65535, "1\n2"},
+        {"invalid decimal", 1, 0, "0x1"},
+        {"unit 0 (broadcast)", 0, 0, "1"},
+    };
+    std::string many;
+    for (int i = 0; i < 124; ++i) {
+        if (i != 0) {
+            many.push_back('\n');
+        }
+        many += "1";
+    }
+
+    for (const BadDraft& draft : drafts) {
+        Session s;
+        const std::string text =
+            draft.valuesText != nullptr ? std::string{draft.valuesText} : many;
+        (void)s.controller.prepareWriteMultipleRegisters(
+            draft.unitId, draft.startAddress, text, kTimeoutMs);
+
+        // Nothing was prepared, so nothing can dispatch.
+        QVERIFY2(!s.controller.preparedWriteToken().has_value(), draft.name);
+        QCOMPARE(s.controller.preparedWriteState(), PreparedWriteState::None);
+        const auto rejected = s.controller.confirmAndDispatchPreparedWrite(1);
+        QVERIFY2(!rejected.confirmationAccepted, draft.name);
+        QVERIFY2(!rejected.dispatchAttempted, draft.name);
+        QVERIFY2(!rejected.startResult.has_value(), draft.name);
+        // A validation rejection is NEVER dressed up as a transport NotSent.
+        QVERIFY2(!s.controller.hasWriteDispatchNotice(), draft.name);
+        QCOMPARE(s.transport.startAttemptCount(), 0);
+        QCOMPARE(s.transport.sendCount(), 0);
+        QVERIFY(s.transport.sentAduLog().empty());
+        QCOMPARE(s.controller.observedCount(), 0);
+    }
+}
+
+void WriteDispatchTest::mixedUniverseStatisticsAndDiagnosisCoverFc10()
+{
+    // More than successCount: the 0x10 rows join the same history, in
+    // completion order, in one session, and the SAME statistics formulas and
+    // the SAME deterministic diagnosis batch cover them.
+    Session s;
+    s.controller.readHoldingRegistersOnce(kUnit, 0, 2, kTimeoutMs);
+    s.transport.setResponseBytes(fc03AnswerWire());
+    s.transport.completeWithResponse();
+
+    const auto token06 = s.prepare06();
+    (void)s.controller.confirmAndDispatchPreparedWrite(token06);
+    s.transport.setResponseBytes(echoWire());
+    s.transport.completeWithResponse();
+
+    const auto token10 = s.prepare10Values(QStringLiteral("10\n258"));
+    (void)s.controller.confirmAndDispatchPreparedWrite(token10);
+    s.transport.setResponseBytes(fc16EchoWire(kUnit, kAddress, 2));
+    s.transport.completeWithResponse();
+
+    // ...and one 0x10 timeout, so the batch also exercises the failure side.
+    const auto token10b = s.prepare10();
+    (void)s.controller.confirmAndDispatchPreparedWrite(token10b);
+    s.completeAtTimeout();
+
+    // History: four rows, completion order, ONE Active Serial session.
+    QCOMPARE(s.controller.activeSerialRecordCount(), 4);
+    QCOMPARE(s.controller.transactionModel()->rowCount(), 4);
+    const auto& records = s.controller.activeSerialRecords();
+    QCOMPARE(records.at(0).functionCode(), 0x03);
+    QCOMPARE(records.at(1).functionCode(), 0x06);
+    QCOMPARE(records.at(2).functionCode(), 0x10);
+    QCOMPARE(records.at(3).functionCode(), 0x10);
+    QCOMPARE(records.at(0).sessionId, records.at(3).sessionId);
+    QCOMPARE(records.at(3).sessionId, s.controller.activeSerialSessionId());
+
+    // Statistics: frozen formulas over the mixed batch.
+    QCOMPARE(s.controller.observedCount(), 4);
+    QCOMPARE(s.controller.completedCount(), 4);
+    QCOMPARE(s.controller.pendingCount(), 0);
+    QCOMPARE(s.controller.successCount(), 3);
+    QCOMPARE(s.controller.timeoutCount(), 1);
+    QVERIFY(s.controller.hasSuccessRate());
+    QCOMPARE(s.controller.successRate(), 3.0 / 4.0);
+    QVERIFY(s.controller.hasAverageSuccessLatency());
+    // A timeout is not a transport terminal.
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+
+    // Diagnosis: the same deterministic batch covers the 0x10 facts.
+    s.controller.runBaselineDiagnosis();
+    QVERIFY(s.controller.hasBaselineDiagnosis());
+    QVERIFY(s.controller.baselineDiagnosisText().contains(
+        QStringLiteral("无响应超时")));
 }
 
 void WriteDispatchTest::fc10_capabilityLayerOpenedUiStillAbsent()

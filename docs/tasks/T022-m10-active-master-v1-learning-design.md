@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E3 实现后）：M10-E1/E2 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E3 = 已实现（kProductWrite10Supported + write10Supported property + Controller atomic dispatch），AWAITING REVIEW；M10-E4（production 0x10 UI）= NOT STARTED；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
+> **状态（M10-E3 review correction 后）：M10-E1/E2 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E3 = 已实现（Review 要求补齐 Controller 层 FC16 证据矩阵，已按 §ZL 新增 9 个 oracle，产品源码零改动）= AWAITING RE-REVIEW；M10-E4（production 0x10 UI）= NOT STARTED；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
 > 能力终态：0x03 与 0x06 = 四件套全备；**0x10 = encoder + 共享 analyzer + session + capability 常量 + Controller atomic dispatch（M10-E3 新增）= YES；production 0x10 UI 仍 ABSENT（E4）**；Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E3 Review → M10-E4（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
@@ -8418,5 +8418,101 @@ commit：`M10-E3: add FC16 product capability and atomic dispatch`
   （独立；不 amend；不 rebase；不 push；不 tag）
 状态：M10-E2 = COMPLETE；**M10-E3 = AWAITING REVIEW**；M10-E4 = NOT STARTED（production UI）；
   M10-E5/M10-F = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD。
+verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
+```
+
+## M10-E3 Review Correction — FC16 Multi-Value Dispatch / Transport Evidence Matrix Closure（2026-09-22）
+
+> **M10-E3 Review 要求补齐 FC16 在 Controller 层的直接证据矩阵。** 本轮先做**证据审计**再做最小补齐。
+> 审计结论：**产品行为零缺陷**（所有新增 oracle 一次通过），缺的是**证据覆盖**，不是行为。
+> **NO PRODUCT CHANGE** —— 仅新增 test/harness oracle。
+
+### ZL1. 审计发现的真实缺口（§3–§8）
+
+```text
+审计方法：枚举 test_write_dispatch 的 FC16 oracles 与 FC06 同类 oracle，逐行对照 §3–§8 要求。
+关键发现：E3 第一轮的 harness `prepare10()` 只准备**单寄存器**（valuesText "7" → quantity 1，
+  ADU 11 10 00 01 00 01 02 00 07 2B 83），因此 **N=2 的规范 ADU**
+  `11 10 00 01 00 02 04 00 0A 01 02 C6 F0` 只在 encoder 层（fc16_active F16-G6）与
+  session 层（s1 descriptor.wire.size()==13）被证明，**从未经 Controller dispatch 证明**。
+缺口清单（本轮补齐）：
+  G1 §3/§4  N=2 规范 ADU 经 Controller + 多值 snapshot 不可变性   —— 缺失
+  G2 §6     Controller→session→共享 analyzer 的非 Success 落库路径 —— 缺失（FC06 有对应）
+  G3 §5     提交后 transport error / disconnect 的 FC16 直接证据    —— 缺失（FC06 有对应）
+  G4 §7     token ×10 重复确认 / Clear-while-pending 的 FC16 证据   —— 缺失（FC06 有对应）
+  G5 §7     预发送校验拒绝（空值/124/span/非法十进制/unit 0）在 Controller 层
+             的 attempt=0/send=0 且**不得记为 transport NotSent**      —— 缺失
+  G6 §8     混合宇宙的 statistics 公式 + diagnosis 批次权威          —— 部分（仅 successCount/顺序/session）
+已存在、无需新增：full accepted→pending→Success（r4_fc10*）、NotSent（r4_fc10NotSentMirror）、
+  short（r4_fc10ShortSubmissionMirror）、timeout（fc10TimeoutEntersHistory）、
+  write10Supported 不变量、production UI 缺席（prod-write oracle 运行期断言）。
+```
+
+### ZL2. 本轮新增的 9 个 Controller 层 oracle（§3–§8 最小补齐）
+
+```text
+1. fc10_canonicalTwoRegisterDispatch
+   prepare valuesText "10\n258"（→ [0x000A, 0x0102]）→ confirmAndDispatch：
+   confirmationAccepted / dispatchAttempted / startAttemptCount==1 / sendCount==1 / ADU log 1 条；
+   **ADU == 11 10 00 01 00 02 04 00 0A 01 02 C6 F0（独立 literal，13 == 9 + 2*2）**；
+   解码 dispatched ADU：quantity==2、byteCount==4、values==[0x000A,0x0102]（**顺序保持**）；
+   后续 echo → 1 条 0x10 Success，evidence.requestAdu 精确相等。
+2. fc10_multiValueSnapshotIsImmutableThroughDispatch（§4）
+   prepare [10,258] 后再以 "9" 二次 prepare → token 不变、snapshot 值仍 [0x000A,0x0102]、
+   实际发送的 ADU 仍是规范 13 字节 ⇒ dispatch **从不重读 draft**。
+3. fc10_echoMismatchEntersSharedUniverse（§6）
+   dispatched 0x10 + quantity=3 的合法 echo → 1 条 ProtocolError 记录，
+   issue == **WriteMultipleRegistersEchoMismatch**（E2 共享分析器的 code），
+   expected/actual quantity == 2/3 ⇒ Controller 生命周期确实抵达 E2 authority。
+4. fc10_crcErrorEntersSharedUniverse（§6）
+   dispatched 0x10 + 翻转 CRC 低位 → 1 条 **CrcError** 记录（crcErrorCount==1）。
+5. fc10_postSubmitTransportErrorAndDisconnectKeepEvidenceOnly（§5）
+   transport error → 1 terminal(TransportError) + request.wire == kGoldenWrite16Adu，
+     observed 0 / rowCount 0 / 无 fabricated transaction / snapshot 仍 Consumed；
+   disconnect → 1 terminal(DisconnectedAfterSubmission) + 无 fabricated transaction。
+6. fc10_consumedTokenTenAttemptsProduceNoExtraWork（§7）
+   same token ×10 → 全部 confirmationAccepted=false / dispatchAttempted=false / 无 startResult；
+   attempts/sends 不变、ADU log 仍 1 条、记录仍 1 条。
+7. fc10_clearWhilePendingKeepsPendingThenCompletes（§7）
+   Clear 后仍 busy、observed 0、snapshot Consumed；随后 echo 完成 →
+   成为清空视图的**第一条** 0x10 Success。
+8. fc10_invalidDraftsAreRejectedBeforeDispatchNotNotSent（§7）
+   空值 / 124 值 / span overflow(start=65535 + 2 值) / 非法十进制 "0x1" / unit 0：
+   五种全部 preparedWriteToken() 无值、state==None、confirm 被拒且 **startResult 无值**、
+   **hasWriteDispatchNotice()==false（绝不记成 transport NotSent）**、attempt==0、send==0。
+9. mixedUniverseStatisticsAndDiagnosisCoverFc10（§8）
+   FC03 Success + FC06 Success + FC16 Success + FC16 Timeout：
+   历史 4 行且按完成序（03/06/10/10）、同一 sessionId；
+   observed 4 / completed 4 / pending 0 / success 3 / timeout 1 / successRate 3/4 /
+   有平均成功延迟；**timeout 不计入 transport terminal**；
+   runBaselineDiagnosis → hasBaselineDiagnosis 且文本含「无响应超时」⇒ 同一诊断批次权威。
+```
+
+### ZL3. 未改动项（§9 / §10）
+
+```text
+· FC06 regression：success / accepted0 / short / timeout / token one-shot /
+  write06Supported invariance 全部原有 oracle 保持并 PASS（未改一字）。
+· E2 语义权威保持不变：fc16_active 26 项（Success/Exception/CRC/wrong unit/wrong function/
+  echo mismatch/Timeout/等价/passive 守卫）继续作为语义 authority；本轮新增的 Controller oracle
+  只证明「dispatch 生命周期抵达这些既有权威」，不复制其判定。
+· production FC16 UI 缺席：--qml-production-write-check 仍 PASS（QML 0 改动）——
+  本轮未触碰任何 QML 或产品源码。
+· readWriteMultipleRegistersFields / decodeWriteMultipleRegistersRequest 在测试中被用于
+  解码**我方已发送**的 ADU 以断言 quantity/byteCount/顺序 —— 这是对 wire 事实的复核，
+  与 golden literal 的独立断言互补（literal 是硬编码期望，decode 是结构复核）。
+```
+
+### ZL4. 门禁 / wording / Git（§11–§12）
+
+```text
+targeted：write_dispatch **60**（51 → 60，+9）/ fc16_active 26 / fc06_active 31 /
+  active_request 17 / write_encoder 30 / write_prepare 48 / passive 55 / ui_bridge 61 —— 全 PASS
+真实 CTest：Debug **36/36**、Release **36/36**
+warnings：**0 NEW / 5 PRE-EXISTING（main.cpp:2496/2498/4596/9902/10140）**（强制重编实证）
+ISSUE-014：PRE-EXISTING NON-BLOCKING
+分类：**behavior-bearing**（test/harness 新增 oracle；**产品源码零改动**）
+commit：`M10-E3: close FC16 controller-level evidence matrix`（独立；不 amend；不 rebase；不 push；不 tag）
+状态：M10-E3 = **AWAITING RE-REVIEW**；M10-E4 = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD。
 verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
 ```
