@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E4 实现后）：M10-E1/E2/E3 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E4 = 已实现（production FC16 write UI rollout + canonical N=2 production oracle），AWAITING REVIEW（MANUAL VISUAL 保留给 Human Review）；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
+> **状态（M10-E4 review correction 后）：M10-E1/E2/E3 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E4 = Review HOLD（implementation 主体接受；本轮新增 R7–R11 生产证据、外层 write loader 修正、release+deploy 已刷新；package/extract 未刷新 + Human Visual 待人工）= HOLD；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
 > 能力终态：0x03 / 0x06 / **0x10 = 四件套全备 + production UI（E4）**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED；MANUAL VISUAL NOT VERIFIED。** **Next = M10-E4 Review → M10-E5（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
@@ -8681,4 +8681,107 @@ REAL HARDWARE：NOT VERIFIED（本阶段无真实 PLC/device，未伪造）。
 commit：`M10-E4: expose safe FC16 production write UI`（独立；不 amend/rebase/push/tag）。
 状态：M10-E4 = **AWAITING REVIEW**；M10-E5 = NOT STARTED；M10-F = NOT STARTED；
   M10 overall = IN PROGRESS；M11 = HOLD。verified LKGC 保持 **9bdd99c**。
+```
+
+
+## M10-E4 Review Correction — Production UI Evidence / Deployment Refresh / Human Visual Handoff（2026-09-22）
+
+> **M10-E4 Review = HOLD**（implementation 主体**接受**）。本轮是 focused acceptance/evidence closure，
+> **不是重做 E4**。已接受：production FC16 tab/editor、shared confirmation flow、canonical N=2
+> production dispatch、exact 13-byte ADU、snapshot immutability、123/124 边界、a11y/focus 基础、
+> Debug/Release 36/36。剩余 blocker 的闭合状态见下（**含 1 项未闭合，如实披露**）。
+> NO AMEND / NO REBASE / NO PUSH / NO TAG / NO LKGC ADVANCE；未开始 E5 / M10-F / M11。
+
+### ZN1. outer Write loader 审计（真实修正）
+
+```text
+实读 src/ui/qml/pages/CommunicationPage.qml（修正前）：
+    active: page.analysisController.write06Supported || writeFoundationVisible
+⇒ 外层 Write section 存在性**只**由 0x06 能力门控。
+repo 内**不存在** write10Supported ⇒ write06Supported 的正式结构不变量
+（全仓无任何测试把两者联系起来）。
+修正后：
+    active: page.analysisController.write06Supported
+            || page.analysisController.write10Supported
+            || writeFoundationVisible
+语义：section 由「至少一种 production write capability」决定存在性。
+未把 connected / busy / source / draft-valid 加入 structural visibility gate。
+```
+
+### ZN2. 生产环境直接证据（新增 R7–R11 于 --qml-production-write-check）
+
+```text
+R7 production invalid-decimal：values "12x"（frozen parser 的 InvalidCharacter fixture，
+   test_write_prepare d7 与单值验收表）→ field-specific error 指向 **values**、
+   confirmation **不打开**、无 prepared token、attempt delta 0、send delta 0、
+   无 transaction、无 terminal、**无 writeDispatchNotice**（validation reject 未表现为 NotSent）。
+R8 production cross-tab draft preservation：FC06（unit 21 / address "00042" / value " 7 " /
+   timeout 2500）与 FC16（unit 19 / start 4096 / timeout 3200 / values 三行）双向切换，
+   **逐字段（含 values raw text）不变**；无 prepare / dispatch / connection / history / snapshot 副作用。
+R9 **完整 production 纯键盘链**（本轮核心证据，实测通过）：Tab ×11 到达 writeTab10（期间
+   inactive-tab 的 FC16 输入**从未**进入 Tab chain）→ Space 激活 FC16 tab →
+   Tab 到 Unit → Start → Values（多行编辑器**释放** Tab，无 trapping）→ 继续 Tab 到达 Write
+   （允许完整循环，“可达”而非“紧邻”）→ Space 打开 confirmation（Prepared，0 dispatch）→
+   初始焦点 = **Cancel** → Tab 到 Confirm → Space → **恰 1 dispatch / 1 send，ADU = 规范 13 字节
+   `11 10 00 01 00 02 04 00 0A 01 02 C6 F0`** → echo → +1 条 FC16 Success。
+   文本内容由 harness seam 预置（多行文本逐键输入非本 oracle 主题），所有**动作**均真实键盘激活。
+R10 键盘 Escape / 键盘 Cancel：Escape（投递到 window，popup CloseOnEscape 在窗口层）→
+   0 dispatch、dialog 关闭、state=invalidated、draft 保留；默认焦点即 Cancel，Space →
+   0 dispatch、Invalidated、draft 保留。
+R11 capability 不变性（runtime）：disconnect / connect / Clear / diagnosis / Simulator / navigation
+   六态下 write10Supported 恒 true；且 **disconnected 时 Write enabled=false 而控件仍存在**
+   ⇒ capability != availability 实测成立。
+```
+
+### ZN3. modal / presentation
+
+```text
+modal：M1–M6 运行在 normal production mode 的**同一个 dialog 实例**上（P 段与 R 段共用
+  writeConfirmationDialog），FC16 直接复用该 function-agnostic oracle。
+presentation：accepted0 / short / Timeout 的 Controller 层证据分别为 write_dispatch
+  r4_fc10NotSentMirror / r4_fc10ShortSubmissionMirror / fc10TimeoutEntersHistory；
+  UI 呈现为**同一个** writeDispatchNotice lane（QML 内无 function-specific 分支）。
+```
+
+### ZN4. Loader/findChildren RCA（加强）
+
+```text
+QObject::findChildren **无法**覆盖 Loader 创建的 QML visual subtree ⇒ E3 的 production-absence
+oracle 存在**扫描盲区**（空洞通过）。**但 E3 的产品事实成立**：E3 commit 时 0x10 Loader 的 active
+仍为 testFoundationMode-only（E4 才改为 capability-driven），故“E3 时 production 无 0x10”为真，
+只是旧 runtime oracle 的**证据机制**有缺陷。当前所有 production presence/absence 扫描统一使用
+visual-tree walk（findNamedItem），不再保留已知 blind scan 作为安全断言。
+```
+
+### ZN5. 部署刷新与 artifact 身份 —— **1 项未闭合，如实披露**
+
+```text
+scripts/test_make_package_freshness.py → **PASS（7/7）**
+scripts/deploy_windows.bat + make_package 的 deploy 阶段 → **已刷新**（deploy identity OK）
+
+SHA-256 实测：
+  build/release/modbuslens.exe                       d32ce503859793d5ba66cc3ef300d3ed0a6366f91a732d70514c4409cc399347  3911133  2026-09-22 20:24:09
+  build/release/deploy/ModbusLens.exe                d32ce503859793d5ba66cc3ef300d3ed0a6366f91a732d70514c4409cc399347  3911133  2026-09-22 20:24:09
+  build/package/ModbusLens-2.0.0-windows-x64/...     **1e50bdb6…（STALE，2026-09-21 17:41）**
+  build/package-extract/ModbusLens-2.0.0-windows-x64/... **1e50bdb6…（STALE，2026-09-21 18:58）**
+⇒ release/deploy **2/4 已刷新且内容身份一致**；package 与 package-extract **未刷新**。
+
+原因（环境 blocker，非产品/测试缺陷）：make_package 需先删除旧
+build/package/ModbusLens-2.0.0-windows-x64（1499 项），宿主沙箱要求 **bulk-delete 显式确认**
+（SAFE_DELETE_BULK_CONFIRM_REQUIRED），本会话未获批 ⇒ 打包未完成。
+另：make_package 依赖 `pefile`，已在隔离 venv 安装（2024.8.26）后重试。
+待办：获批后以最终 tree 重跑 make_package，再重算四处 SHA-256 并做 portable client 检查。
+```
+
+### ZN6. 门禁 / 状态
+
+```text
+targeted：qml_production_write_check（P1–P12 + M1–M6 + **R1–R11**）PASS · qml_focus_check PASS ·
+  qml_write_foundation_check PASS（隐藏 foundation 未改）
+真实 CTest：Debug **36/36**、Release **36/36**
+warnings：**0 NEW；5 PRE-EXISTING（main.cpp）**（两配置重编实证）
+ISSUE-014：PRE-EXISTING NON-BLOCKING；REAL HARDWARE：NOT VERIFIED；未 push/tag/publish。
+**M10-E4 Human Visual = WAITING FOR USER**（Agent 不自标 PASS）。
+状态：M10-E4 = **HOLD**（1 blocker 未闭合）；M10-E5/M10-F = NOT STARTED；M11 = HOLD；
+  verified LKGC 保持 **9bdd99c**。
 ```

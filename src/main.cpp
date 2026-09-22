@@ -8781,6 +8781,302 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                      .arg(controller->activeSerialRecordCount()));
     });
 
+    // ---- R7: production invalid-decimal rejection (frozen parser fixture) ----
+    push([&]() {
+        resetWrite();
+        const int attemptsBefore = transport->writeAttempts();
+        const int sendsBefore = transport->writeSends();
+        const int recordsBefore = controller->activeSerialRecordCount();
+        // "12x" is the frozen InvalidCharacter fixture (test_write_prepare d7 /
+        // the single-value acceptance table): the parser is decimal-only.
+        if (!openFc16Dialog(17, 1, QStringLiteral("12x")))
+            fail(QStringLiteral("PRODWRITEFAIL R7: the Write button was not "
+                                "clickable"));
+        if (dialogVisible() || stateToken() == QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL R7: an invalid decimal prepared "
+                                "(state=%1)").arg(stateToken()));
+        if (!controller->preparedWriteToken().has_value())
+            note(QStringLiteral("PRODWRITE [R7]: no prepared token, as required"));
+        else
+            fail(QStringLiteral("PRODWRITEFAIL R7: a token exists despite the "
+                                "parse failure"));
+        if (controller->writeDraftErrorField() != QStringLiteral("values")
+            || controller->writeDraftError().isEmpty())
+            fail(QStringLiteral("PRODWRITEFAIL R7: the field-specific error is not "
+                                "on 'values' (field=[%1])")
+                     .arg(controller->writeDraftErrorField()));
+        if (transport->writeAttempts() != attemptsBefore
+            || transport->writeSends() != sendsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R7: the rejection reached the "
+                                "transport"));
+        if (controller->activeSerialRecordCount() != recordsBefore
+            || controller->activeSerialTerminalCount() != 0)
+            fail(QStringLiteral("PRODWRITEFAIL R7: a transaction/terminal was "
+                                "fabricated"));
+        if (!noticeText().isEmpty())
+            fail(QStringLiteral("PRODWRITEFAIL R7: a validation rejection was "
+                                "presented as a transport outcome"));
+        note(QStringLiteral("PRODWRITE [R7]: values=\"12x\" -> InvalidCharacter on "
+                            "'values', no dialog, 0 attempt, 0 send, no notice"));
+    });
+
+    // ---- R8: production cross-tab draft preservation (both directions) ----
+    push([&]() {
+        resetWrite();
+        auto *s = section();
+        if (!s)
+            fail(QStringLiteral("PRODWRITEFAIL R8: no section"));
+        // A. non-default FC06 draft.
+        setDraft("unit06", 21);
+        setDraft("addressText06", QStringLiteral("00042"));
+        setDraft("valueText06", QStringLiteral(" 7 "));
+        setDraft("timeout06", 2500);
+        // B. non-default FC16 draft.
+        setDraft("unit10", 19);
+        setDraft("start10", 4096);
+        setDraft("timeout10", 3200);
+        setDraft("valuesText10", QStringLiteral("10\n258\n300"));
+        const int recordsBefore = controller->activeSerialRecordCount();
+        const bool connectedBefore = controller->serialConnected();
+
+        // C. switch to FC06 and assert it field by field.
+        setDraft("activeFunctionIndex", 0);
+        if (!s
+            || s->property("unit06").toInt() != 21
+            || s->property("addressText06").toString() != QStringLiteral("00042")
+            || s->property("valueText06").toString() != QStringLiteral(" 7 ")
+            || s->property("timeout06").toInt() != 2500)
+            fail(QStringLiteral("PRODWRITEFAIL R8: the FC06 draft changed across "
+                                "the tab switch"));
+        // D. back to FC16: the RAW values text must be byte-identical.
+        setDraft("activeFunctionIndex", 1);
+        if (s->property("unit10").toInt() != 19
+            || s->property("start10").toInt() != 4096
+            || s->property("timeout10").toInt() != 3200
+            || s->property("valuesText10").toString()
+                   != QStringLiteral("10\n258\n300"))
+            fail(QStringLiteral("PRODWRITEFAIL R8: the FC16 draft changed across "
+                                "the tab switch (values=[%1])")
+                     .arg(s->property("valuesText10").toString()));
+        // E. no side effects from switching.
+        if (controller->activeSerialRecordCount() != recordsBefore
+            || controller->serialConnected() != connectedBefore
+            || controller->hasPreparedWrite())
+            fail(QStringLiteral("PRODWRITEFAIL R8: switching tabs mutated "
+                                "connection / history / snapshot state"));
+        note(QStringLiteral("PRODWRITE [R8]: FC06 <-> FC16 drafts preserved field "
+                            "by field (incl. raw values text), no side effects"));
+    });
+
+    // ---- R9: the FULL production FC16 keyboard chain ----
+    push([&]() {
+        resetWrite();
+        // Text content is a harness seam (typing 3 lines through QKeyEvents is
+        // not the subject); every ACTION below is a real keyboard activation.
+        setDraft("unit10", 17);
+        setDraft("start10", 1);
+        setDraft("timeout10", 1000);
+        setDraft("valuesText10", fc16ValuesText({10, 258}));
+        setDraft("activeFunctionIndex", 0); // start on FC06
+        // Anchor focus at the app's first stop.
+        if (auto *anchor = qobject_cast<QQuickItem *>(
+                findNamedItem(roots, QStringLiteral("navItem_2")))) {
+            anchor->forceActiveFocus(Qt::TabFocusReason);
+        }
+        QStringList chain;
+        bool reachedTab10 = false;
+        for (int i = 0; i < 160 && !reachedTab10; ++i) {
+            tab();
+            const QString owner = focusOwnerName();
+            chain << owner;
+            if (owner.startsWith(QStringLiteral("write10"))
+                && owner != QStringLiteral("writeTab10"))
+                fail(QStringLiteral("PRODWRITEFAIL R9: an inactive-tab FC16 control "
+                                    "([%1]) entered the Tab chain").arg(owner));
+            if (owner == QStringLiteral("writeTab10"))
+                reachedTab10 = true;
+        }
+        if (!reachedTab10)
+            fail(QStringLiteral("PRODWRITEFAIL R9: the FC16 tab button was never "
+                                "reached by Tab (chain tail=[%1])")
+                     .arg(chain.mid(qMax(0, chain.size() - 5)).join(
+                         QStringLiteral(", "))));
+        else
+            note(QStringLiteral("PRODWRITE [R9]: FC16 tab reached by Tab after %1 "
+                                "press(es); no inactive-tab FC16 input appeared")
+                     .arg(chain.size()));
+    });
+    push([&]() {
+        // Activate the FC16 tab with the KEYBOARD (Space on the focused tab).
+        sendKey(Qt::Key_Space, false);
+        auto *s = section();
+        if (!s || s->property("activeFunctionIndex").toInt() != 1)
+            fail(QStringLiteral("PRODWRITEFAIL R9: Space did not activate the FC16 "
+                                "tab (index=%1)")
+                     .arg(s ? s->property("activeFunctionIndex").toInt() : -1));
+        else
+            note(QStringLiteral("PRODWRITE [R9]: Space activated the FC16 tab"));
+        // Unit -> Start -> Values by Tab, then Write by Tab.
+        if (tabToOwner(QStringLiteral("write10UnitSpin"), 12) < 0)
+            fail(QStringLiteral("PRODWRITEFAIL R9: the unit input is not "
+                                "Tab-reachable"));
+        if (tabToOwner(QStringLiteral("write10StartSpin"), 6) < 0)
+            fail(QStringLiteral("PRODWRITEFAIL R9: the start input is not "
+                                "Tab-reachable"));
+        if (tabToOwner(QStringLiteral("write10ValuesArea"), 6) < 0)
+            fail(QStringLiteral("PRODWRITEFAIL R9: the values editor is not "
+                                "Tab-reachable"));
+        note(QStringLiteral("PRODWRITE [R9]: Unit / Start / Values all reached by "
+                            "Tab"));
+        // The multi-line editor must LET GO of Tab (no focus trapping).
+        tab();
+        if (focusOwnerName() == QStringLiteral("write10ValuesArea"))
+            fail(QStringLiteral("PRODWRITEFAIL R9: the values editor trapped Tab"));
+        // The Write button is in the same focus scope but not necessarily the
+        // very next stop after the multi-line editor (the chain continues
+        // through the remaining page controls), so a full cycle is allowed —
+        // the assertion is "reachable by keyboard", not "immediately next".
+        const int writePresses = tabToOwner(QStringLiteral("writeActivateButton"), 80);
+        if (writePresses < 0)
+            fail(QStringLiteral("PRODWRITEFAIL R9: the Write button is not "
+                                "Tab-reachable from the values editor"));
+        note(QStringLiteral("PRODWRITE [R9]: values editor released Tab; Write "
+                            "button reached"));
+    });
+    push([&]() {
+        // Activate Write with the keyboard and prove the whole chain end to end.
+        const int attemptsBefore = transport->writeAttempts();
+        sendKey(Qt::Key_Space, false);
+        if (!dialogVisible() || stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL R9: keyboard Write did not open the "
+                                "confirmation (visible=%1 state=%2)")
+                     .arg(dialogVisible() ? 1 : 0)
+                     .arg(stateToken()));
+        if (transport->writeAttempts() != attemptsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R9: opening the dialog dispatched"));
+        note(QStringLiteral("PRODWRITE [R9]: keyboard Write -> confirmation "
+                            "Prepared, 0 dispatch"));
+    });
+    push([&]() {
+        // Initial focus must be Cancel; then Tab to Confirm; then Space.
+        if (focusOwnerName() != QStringLiteral("writeConfirmCancelButton"))
+            fail(QStringLiteral("PRODWRITEFAIL R9: initial focus is [%1], expected "
+                                "Cancel").arg(focusOwnerName()));
+        if (tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10) < 0)
+            fail(QStringLiteral("PRODWRITEFAIL R9: Confirm is not Tab-reachable from "
+                                "Cancel"));
+        const int attemptsBefore = transport->writeAttempts();
+        const int sendsBefore = transport->writeSends();
+        sendKey(Qt::Key_Space, false);
+        if (transport->writeAttempts() - attemptsBefore != 1
+            || transport->writeSends() - sendsBefore != 1)
+            fail(QStringLiteral("PRODWRITEFAIL R9: keyboard Confirm produced %1 "
+                                "attempts / %2 sends, expected 1/1")
+                     .arg(transport->writeAttempts() - attemptsBefore)
+                     .arg(transport->writeSends() - sendsBefore));
+        if (transport->writeAduLog().empty()
+            || transport->writeAduLog().back() != kFc16TwoReg)
+            fail(QStringLiteral("PRODWRITEFAIL R9: the keyboard-dispatched ADU is "
+                                "not the canonical 13-byte FC16 request"));
+        else
+            note(QStringLiteral("PRODWRITE [R9]: full keyboard chain -> exactly one "
+                                "dispatch of the canonical 13-byte ADU"));
+        const int recordsBefore = controller->activeSerialRecordCount();
+        transport->completeWriteWithEcho16();
+        if (controller->activeSerialRecordCount() != recordsBefore + 1
+            || controller->activeSerialRecords().back().functionCode() != 0x10)
+            fail(QStringLiteral("PRODWRITEFAIL R9: the keyboard flow's echo did not "
+                                "append one FC16 Success"));
+    });
+
+    // ---- R10: keyboard Escape and keyboard Cancel on the FC16 dialog ----
+    push([&]() {
+        resetWrite();
+        if (!openFc16Dialog(17, 1, fc16ValuesText({10, 258})))
+            fail(QStringLiteral("PRODWRITEFAIL R10: could not open the dialog"));
+        const int attemptsBefore = transport->writeAttempts();
+        // Escape is delivered to the WINDOW: the popup's CloseOnEscape handling
+        // lives at the window level (the same path the FC06 P8 oracle uses).
+        sendKey(Qt::Key_Escape, true);
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL R10: Escape did not close the FC16 "
+                                "dialog"));
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("PRODWRITEFAIL R10: Escape state=%1")
+                     .arg(stateToken()));
+        if (transport->writeAttempts() != attemptsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R10: Escape dispatched"));
+        if (auto *s = section();
+            s && s->property("valuesText10").toString()
+                     != fc16ValuesText({10, 258}))
+            fail(QStringLiteral("PRODWRITEFAIL R10: Escape cleared the FC16 draft"));
+        note(QStringLiteral("PRODWRITE [R10]: FC16 Escape -> no dispatch, dialog "
+                            "closed, draft preserved"));
+    });
+    push([&]() {
+        if (!openFc16Dialog(17, 1, fc16ValuesText({10, 258})))
+            fail(QStringLiteral("PRODWRITEFAIL R10: could not reopen the dialog"));
+        if (focusOwnerName() != QStringLiteral("writeConfirmCancelButton"))
+            fail(QStringLiteral("PRODWRITEFAIL R10: initial focus is [%1]")
+                     .arg(focusOwnerName()));
+        const int attemptsBefore = transport->writeAttempts();
+        sendKey(Qt::Key_Space, false); // default focus IS Cancel
+        if (dialogVisible() || stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("PRODWRITEFAIL R10: keyboard Cancel did not "
+                                "invalidate (visible=%1 state=%2)")
+                     .arg(dialogVisible() ? 1 : 0)
+                     .arg(stateToken()));
+        if (transport->writeAttempts() != attemptsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R10: keyboard Cancel dispatched"));
+        note(QStringLiteral("PRODWRITE [R10]: keyboard Cancel -> 0 dispatch, "
+                            "Invalidated, draft preserved"));
+    });
+
+    // ---- R11: capability invariance across runtime availability states ----
+    push([&]() {
+        auto cap10 = [&controller]() {
+            return controller->property("write10Supported").toBool();
+        };
+        if (!cap10())
+            fail(QStringLiteral("PRODWRITEFAIL R11: write10Supported is false at "
+                                "rest"));
+        controller->disconnectSerial();
+        if (!cap10())
+            fail(QStringLiteral("PRODWRITEFAIL R11: capability moved on disconnect"));
+        controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+        if (!cap10())
+            fail(QStringLiteral("PRODWRITEFAIL R11: capability moved on connect"));
+        controller->clearResults();
+        if (!cap10())
+            fail(QStringLiteral("PRODWRITEFAIL R11: capability moved on Clear"));
+        controller->runBaselineDiagnosis();
+        if (!cap10())
+            fail(QStringLiteral("PRODWRITEFAIL R11: capability moved on diagnosis"));
+        controller->runDemoBatch(); // Simulator source
+        if (!cap10())
+            fail(QStringLiteral("PRODWRITEFAIL R11: capability moved on Simulator"));
+        // Navigation away and back.
+        clickNamed(QStringLiteral("navItem_3"));
+        clickNamed(QStringLiteral("navItem_2"));
+        if (!cap10())
+            fail(QStringLiteral("PRODWRITEFAIL R11: capability moved on navigation"));
+        // The controls are DISABLED while disconnected, but still instantiated.
+        controller->disconnectSerial();
+        auto *spin = itemOf(QStringLiteral("write10UnitSpin"));
+        auto *writeButton = itemOf(QStringLiteral("writeActivateButton"));
+        if (!spin || !writeButton)
+            fail(QStringLiteral("PRODWRITEFAIL R11: the FC16 controls disappeared "
+                                "while disconnected"));
+        else if (writeButton->property("enabled").toBool())
+            fail(QStringLiteral("PRODWRITEFAIL R11: Write is ENABLED while "
+                                "disconnected (capability != availability)"));
+        else
+            note(QStringLiteral("PRODWRITE [R11]: capability invariant across "
+                                "disconnect/connect/Clear/diagnosis/Simulator/nav; "
+                                "controls disabled (not removed) when disconnected"));
+        controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+    });
+
     auto step = std::make_shared<int>(0);
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, step, schedule]() {
@@ -8788,11 +9084,11 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             // Accounting: exactly the accepted sends the oracles asked for —
             // P2, P4, P5, P11 (0x06) = 4 plus R1 (canonical FC16 N=2) and R6
             // (FC16 N=1 boundary) = 6; P9 adds an attempt only, P10 a terminal.
-            if (transport->writeSends() != 6)
+            if (transport->writeSends() != 7)
                 fail(QStringLiteral("PRODWRITEFAIL final: accepted sends=%1, "
-                                    "expected 6").arg(transport->writeSends()));
-            if (transport->sentAduLogSize() != 6)
-                fail(QStringLiteral("PRODWRITEFAIL final: ADU log=%1, expected 6")
+                                    "expected 7").arg(transport->writeSends()));
+            if (transport->sentAduLogSize() != 7)
+                fail(QStringLiteral("PRODWRITEFAIL final: ADU log=%1, expected 7")
                          .arg(transport->sentAduLogSize()));
             if (transport->writeTerminals() != 1)
                 fail(QStringLiteral("PRODWRITEFAIL final: terminals=%1, expected 1")

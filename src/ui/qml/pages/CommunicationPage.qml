@@ -243,7 +243,14 @@ Item {
             id: writeFoundationLoader
             objectName: "writeFoundationLoader"
             Layout.fillWidth: true
-            active: page.analysisController.write06Supported || writeFoundationVisible
+            // M10-E4 correction: the section exists when AT LEAST ONE write
+            // function has a structural product capability. Gating only on
+            // 0x06 would make the FC16 production surface unreachable in a
+            // hypothetical build where 0x10 is ready and 0x06 is not — the
+            // outer gate must not silently re-introduce a 0x06 dependency.
+            active: page.analysisController.write06Supported
+                    || page.analysisController.write10Supported
+                    || writeFoundationVisible
             // An inline Component (not a URL source) so the required
             // controller property is satisfied at creation time; while
             // `active` is false the component is never instantiated.
