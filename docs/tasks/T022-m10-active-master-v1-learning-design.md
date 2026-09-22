@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E4 final artifact closure 后）：M10-E1/E2/E3 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E4 = Review HOLD（artifact 链已闭合：FINAL ARTIFACT SOURCE HEAD = 26aa557、四路 SHA-256 一致 d32ce503…、make_package PASS、portable production-write/focus exit 0；未闭合：Replay direct oracle、artifact runtime version 投影、Human Visual）= HOLD；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
+> **状态（M10-E4 final Replay oracle 后）：M10-E1/E2/E3 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E4 = Review HOLD（Replay direct oracle R12/R13 已闭合；FINAL ARTIFACT SOURCE HEAD = 60b8724；Release/deploy 新 hash a6f981a9…；未闭合：package/extract 刷新受宿主 bulk-delete 门阻塞、runtime identity/PE 版本未捕获、Human Visual 待人工）= HOLD；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
 > 能力终态：0x03 / 0x06 / **0x10 = 四件套全备 + production UI（E4）**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED；MANUAL VISUAL NOT VERIFIED。** **Next = M10-E4 Review → M10-E5（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
@@ -8894,4 +8894,119 @@ version projection：**本仓库无 `--version` CLI 标志**（实读 main.cpp �
 状态：M10-E4 = **HOLD**（未闭合项：Replay direct oracle + artifact runtime version 投影 +
   Human Visual）；M10-E5 / M10-F = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD。
 verified LKGC 保持 **9bdd99c**。
+```
+
+
+## M10-E4 Final Replay Oracle / Artifact Refresh（2026-09-22）
+
+> 本轮为 minimal final evidence correction。**未修改** protocol / encoder / analyzer / session semantics /
+> transport taxonomy / production UX；未新增 retry / queue / Agent write；未开始 E5 / M10-F / M11。
+> NO AMEND / NO REBASE / NO PUSH / NO TAG / NO LKGC ADVANCE。
+> **人为行为改动**：仅 harness（`src/main.cpp` 的 `--qml-production-write-check` 新增 R12/R13）。
+
+### ZP1. Replay contract 实读与冻结（§3）
+
+```text
+· CommunicationPage.qml / WriteFoundationSection.qml：FC16 控件存在性只由 structural capability
+  （write10Supported = 编译期常量 kProductWrite10Supported）与 testFoundationMode 决定；
+  0x10 输入 enabled: !serialBusy；Write 动作 enabled: serialConnected && !serialBusy。
+  QML 内**没有** function-specific source 分支。
+· AnalysisController：loadReplayFile(QUrl) 是真实 Replay 激活入口，切源时 sourceKind_ = Replay；
+  真正的 active-write 约束由**单一、与功能无关**的 dispatch guard 执行
+  （`if (sourceKind_ != TransactionSourceKind::ActiveSerial)`，:1640 / :1701 / :1758）。
+⇒ 冻结契约：Replay **不得**使 write10Supported 变 false；但 production Write ACTION
+  只能在 Active Serial 上真正发出。
+```
+
+### ZP2. R12 / R13 —— Replay direct production oracle（已实现并 PASS）
+
+```text
+R12（normal production mode，非 testFoundationMode）：
+  A. 先建立 Active Serial 会话 + 有效 FC16 draft（unit 17 / start 1 / values 10,258）
+  C. 通过真实 loadReplayFile 载入 shipped deterministic fixture（MODBUSLENS_DEMO_MLOG_PATH）
+  D. 直接断言：
+     sourceKind == Replay ✓
+     write10Supported == true ✓（结构性，未被 Replay 移动）
+     writeFunctionTabs / writeTab10 / write10ValuesArea / write10UnitSpin 全部仍存在 ✓（未被卸载）
+     FC16 draft raw text 仍为 "10\n258" ✓（切换未清 draft）
+  E. writeActivateButton.enabled == false ✓
+     **实测禁用机制**：Replay 下 serialConnected == false（serialConnected=0, serialBusy=0），
+     即与 0x06 完全相同的 shared runtime predicate —— **不是** function-specific branch。
+  F. 通过真实按钮尝试激活：prepare delta 0 · dispatch attempt delta 0 · send delta 0 ·
+     transaction delta 0 · terminal delta 0 ✓（无确认框）
+R13（可选加分项，已实现）：恢复 Active Serial 后 sourceKind == ActiveSerial、
+  write10Supported 仍 true、Write 重新 enabled、draft 仍保留 ✓
+  ⇒ capability != availability 在两个方向均成立。
+```
+
+### ZP3. 回归与 warnings（§8）
+
+```text
+behavior commit：`60b8724`（M10-E4: add direct FC16 Replay production oracle，仅 src/main.cpp，+106）
+Debug full CTest **36/36 PASS**；Release full CTest **36/36 PASS**（Release build 0 error）
+warnings：**0 NEW；5 PRE-EXISTING（main.cpp）**（Release 重编实测 5 条）
+```
+
+### ZP4. FINAL ARTIFACT SOURCE HEAD 与新的 Release（§9 / §10）
+
+```text
+FINAL ARTIFACT SOURCE HEAD = **60b87245d096ea9ea35e1db78e35507a40c2a841**（clean tree，porcelain empty）
+  —— 不再是 26aa557（main.cpp 已有新的 behavior commit）。
+从该 tree 重新构建 Release（未复用旧二进制）：
+  A release  build/release/modbuslens.exe
+             sha256 a6f981a9ae994ccbd3c128175143e5cee770946eb916684e23fb75d7b6402eee  3924554 B  2026-09-22 20:56:09
+  B deploy   build/release/deploy/ModbusLens.exe
+             sha256 a6f981a9ae994ccbd3c128175143e5cee770946eb916684e23fb75d7b6402eee  3924554 B（与 A 一致）
+⇒ 新 hash **不等于**旧 d32ce503…（如实报告事实：新增 harness 代码改变了二进制）。
+```
+
+### ZP5. 打包：**BLOCKED（宿主安全门），未刷新，如实上报**（§11 / §12）
+
+```text
+freshness：scripts/test_make_package_freshness.py → **PASS 7/7**
+canonical 打包：`make_package.py build/release build/release/deploy`
+  · deploy 阶段 **成功**：deploy exe is STALE -> redeploying → deploy identity OK
+    （sha256 a6f981a9…）
+  · 进入 package 阶段时**再次被宿主 bulk-delete 门拦截**：
+    `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":1499,"threshold":50,
+      targets":["build\\package\\ModbusLens-2.0.0-windows-x64"]}`
+    （这是上一轮成功打包留下的 1499 项目录，需先删除）
+  ⇒ 按 §12「若再次出现宿主 bulk-delete blocker：STOP + report，不得绕过安全门」，
+    本轮**停止该项并未绕过**（未使用 rm -rf，未修改 packaging 语义，未禁用 freshness gate）。
+    因此 package / package-extract / ZIP **仍是上一轮的旧 artifact**：
+      C package  sha256 d32ce503859793d5ba66cc3ef300d3ed0a6366f91a732d70514c4409cc399347  3911133 B  2026-09-22 20:24:09
+      D extract  sha256 d32ce503859793d5ba66cc3ef300d3ed0a6366f91a732d70514c4409cc399347  3911133 B  2026-09-22 20:38:15
+      Z zip      sha256 59c6a64efebdf3f6d815f5b04b1b43013a4d36fa489adafc40817d5c1249efee  40933249 B
+**四路身份结论：A == B（新树）但 C == D（旧树）⇒ 本轮四路身份 NOT satisfied**，
+原因即上述宿主门，非产品/测试缺陷。待用户授权一次对
+`build/package/ModbusLens-2.0.0-windows-x64` 的批量删除后，重跑 make_package 即可闭合。
+```
+
+### ZP6. Version 证据（§6）—— **未捕获，如实披露**
+
+```text
+要求的 existing-oracle 证据本轮**未能捕获**（工具限制，非 artifact 缺陷）：
+  · `cmd //c "ModbusLens.exe --qml-smoke-test"` 在本会话的 Git Bash shim 环境中
+    多次只返回 cmd 横幅（未真正执行），输出无法可靠重定向到文件；
+  · PowerShell 调用返回 exit 0 但输出未回传到会话。
+⇒ 因此 **SMOKE IDENTITY PASS 行、runtime applicationVersion、PE FileVersion / ProductVersion
+  本轮均未取得**，不作为已验证事实报告。既有可用证据（不替代上述）：
+  · version contract 为 VERSION = 2.0.0，canonical stem = ModbusLens-2.0.0-windows-x64；
+  · 仓库**没有** `--version` CLI（已实读 flag 列表：仅 6 个 `--qml-*`）。
+  · 早前一轮（artifact d32ce503…）曾以 `cmd //c` 得到
+    `--qml-production-write-check` 与 `--qml-focus-check` 均 **exit 0**。
+建议下一轮在可用的交互终端内直接运行以捕获 identity 行与 PE 版本。
+```
+
+### ZP7. 状态
+
+```text
+M10-E4 = **HOLD**。未闭合项：
+  ① package / package-extract / ZIP 未刷新（宿主 bulk-delete 门，未绕过）；
+  ② runtime identity / PE version 证据未捕获（工具限制）；
+  ③ **M10-E4 Human Visual = WAITING FOR USER**。
+已闭合：Replay direct oracle（R12/R13）、full regression、FINAL ARTIFACT SOURCE HEAD、
+  Release/deploy 新 hash、freshness。
+M10-E5 / M10-F = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD；
+  verified LKGC 保持 **9bdd99c**（未推进）。
 ```
