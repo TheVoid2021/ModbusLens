@@ -9312,3 +9312,137 @@ runtime version 2.0.0 · PE 2.0.0（raw 2.0.0.0）
 状态：M10-E4 = HOLD（唯一剩余项 = 人工视觉门）；M10-E5/M10-F = NOT STARTED；M10 overall = IN PROGRESS；
   M11 = HOLD；verified LKGC 保持 **9bdd99c**。
 ```
+
+## M10-E4 Human Visual Correction — Serial Port State Semantics / Hot-Unplug Detection
+
+> Human Visual **FAIL**：AppBar 显示 `串口模式 · COM3 @ 9600 · 已连接` —— 用户理解为「设备已连接」。
+> 本轮是 **Focused communication-state correction**（product-visible state semantics），
+> 未改 protocol / encoder / analyzer / session / taxonomy / Replay / Simulator / Agent 语义。
+> NO AMEND / NO REBASE / NO PUSH / NO TAG / NO LKGC ADVANCE；未开始 E5 / M10-F / M11。
+
+### ZU1. Preflight
+
+```text
+branch main · repo HEAD = e5ba0216ff7422f2d2e4ab84f6035ab56856a56c · porcelain empty
+origin/main a40d935…b42b63 · ahead/behind 143/0 · verified LKGC = 9bdd99c
+VERSION 2.0.0 · v2.0.0 ABSENT · M10-E4 = HOLD · E5/M10-F = NOT STARTED · M11 = HOLD
+```
+
+### ZU2. 源码审计（改动前实读，回答问题 A–E）
+
+```text
+A. serialConnected 精确定义 = AnalysisController 的成员投影：**唯一置 true 的位置**是
+   connectSerial() 中 `openPort()` 成功之后（serialConnected_ = true）；唯一重新同步的位置是
+   transport error lane（handleSerialTransportError: serialConnected_ = serialTransport_->isPortOpen()）。
+   ⇒ 它是一个「本地串口已打开」的**事实快照**，不是设备在线状态。
+B. 是。它只表示 **LOCAL SERIAL TRANSPORT OPEN**（QSerialPort 成功打开），与远端 slave 无关。
+   Modbus RTU 无连接握手 ⇒ 打开端口不能证明任何从站存在。
+C. QSerialPort::errorOccurred **已接线**到 SerialTransactionAdapter::handlePortError（QueuedConnection，
+   见 PE-4 注释）；但该处理**只在有 pending 事务时才 emit 用户可见错误**：
+   无 pending 时它静默 `port_.close()`，**不发任何信号** ⇒ Controller 永远不会得知。
+D. 因此：adapter 热拔 **仅在请求在飞时**被传播；**空闲时完全不传播** —— 这是本轮的真实 product defect：
+   界面继续显示「已连接」、Read/Write 仍 enabled、且 prepared 确认快照可超出其 session 存活。
+E. 远端 slave 沉默（正确）只表现为 **Timeout**：由 session 自身阈值回调产生 TransactionAnalysis，
+   不触发端口错误、不 teardown、不产生 transport error。
+```
+
+### ZU3. 语义冻结（未改）
+
+```text
+serialConnected **保持**含义 = LOCAL SERIAL TRANSPORT OPEN；**未被重新定义**为远端设备在线。
+端口打开而 slave 不存在 / 拔掉 / 地址不存在 / 不响应 ⇒ serialConnected 仍可为 true（正确行为）。
+**未新增**任何 device-liveness 功能：无心跳线程、无后台轮询、无周期性 FC03、无自动重连、无自动重试、
+无第二套状态机。evidence taxonomy 未改：提交后端口失败仍为 TransportError；显式关闭仍为
+DisconnectedAfterSubmission；响应超时仍是 Timeout 事务（绝不变成 disconnect）。
+```
+
+### ZU4. 修正一 —— fatal local port failure（`SerialPortAdapter.*`）
+
+```text
+· 新增命名分类 isFatalLocalPortFailure()：
+    ResourceError / DeviceNotFoundError / PermissionError / ReadError / WriteError / OpenError /
+    UnsupportedOperationError / UnknownError ⇒ LOCAL 端口已消失或不可用；
+    NoError / **TimeoutError** / **NotOpenError** ⇒ **明确不是** removal。
+    （TimeoutError 只来自本 adapter 从不调用的阻塞 waitFor*()，且响应超时由 session 阈值判定，
+      把沉默呈现为「拔线」是伪造结论；NotOpenError 只描述「对已关闭句柄的操作」。）
+    非 removal 的错误现在**什么都不做**，不再被当作物理拔线而拆掉健康端口。
+· handlePortError() 现在**两种情况下都**走既有 bounded error lane：fatal 端口失败是**用户可见的连接事实**，
+  与是否有请求在飞无关。消息只声称 **本地** 设备（`串口设备不可用：<cause>`）——端口失败绝不替远端 slave 下结论。
+· cause 在 `port_.close()` **之前**捕获（close 会重置端口错误，否则会上报 "no error"）。
+· bounded 语义保持：openPort() 失败分支现在**主动置 PE-4 guard**，使随后排队的 errorOccurred（同一次失败的
+  回声）不会产生第二条用户可见错误 ⇒ 每次失败事件恰好一条（SERIAL-I02 不变）。
+· 新增 `deliverPortErrorForTest()` 测试缝：转发到**信号绑定的同一个 handler**（errorOccurred 无真实设备消失
+  无法制造）。它不是第二条路径，生产代码从不调用。
+```
+
+### ZU5. 修正二 —— 措辞（presentation only，单一 authority 不变）
+
+```text
+· Main.qml session chip：`· 已连接` → **`· 串口已打开`**。
+· CommunicationPage.qml：新增 `communicationSerialState` 标签，用文字陈述 LOCAL 事实
+  （`串口已打开` / `串口未打开`）；Read 动作加 `objectName: "commReadButton"` 使其 enabled 可直接观测。
+· WriteFoundationSection.qml：确认摘要字段标签 `连接` → **`串口`**；其**值**仍取自不可变 prepared snapshot
+  （connectionLabel），snapshot 语义未被重构。
+```
+
+### ZU6. Oracles
+
+```text
+· R15（--qml-production-write-check，四段）：
+  A. 端口已打开且**无远端 slave** ⇒ serialConnected=1、区块显示 串口已打开、Read/Write enabled，
+     且遍历**全窗口可见文本**断言**不存在**任何含「已连接」的文案（这正是上轮漏掉的检查方式）；
+  B. slave 沉默 ⇒ 恰好 +1 个 Timeout，端口**仍为 OPEN**、仍 串口已打开、Read/Write 仍 enabled、
+     **无** transport error；
+  C. adapter 移除 ⇒ serialConnected 1→0、区块 串口未打开、chip 消失、Read 与 Write 均 disabled、
+     prepared 确认 invalidated（reason=disconnected）、窗口高度不变；
+  D. 重连 ⇒ 恢复 串口已打开 与 Read/Write enabled，**移除前的确认未复活**。
+· tests/test_serial_adapter.cpp：i06 分类表；i07 空闲 fatal 端口错误恰好上报一次（且**不伪造** terminal /
+  Modbus outcome）；i08 TimeoutError/NotOpenError 不是 removal；i02 追加断言「发起的失败之后即使再有 fatal
+  端口事件也仍只有 1 条」。
+· tests/test_ui_bridge.cpp：s11 打开端口 ≠ 设备在线（沉默仍是 Timeout，无 transport error）；
+  s12 adapter 移除清空 LOCAL 连接状态且不伪造事务/terminal；s13 adapter 移除使 prepared 确认失效，
+  旧 token 重连后不复活。
+· tests/fake_serial_transport.*：新增 simulateAdapterRemoval()，顺序与生产一致
+  （先 terminal 证据、再关闭端口、再 bounded error lane）。
+· main.cpp：HarnessWriteTransport 新增 simulateAdapterRemoval() 与 completeReadWithTimeout()
+  （后者让**读**路径也能结束于真实 Timeout，且完全不触碰 write 计数）。
+```
+
+### ZU7. 门禁（真实执行）
+
+```text
+Debug full CTest **36/36 PASS**（94.18 s）；Release full CTest **36/36 PASS**（76.51 s）。
+Release 构建 0 error；warnings **0 NEW / 5 PRE-EXISTING（src/main.cpp：lst / dashboardIndex /
+  communicationIndex / dir 冗余捕获 / isUnder set-but-unused）**。
+QML 运行期门禁 Debug 与 Release **各 6/6 exit 0**（windows 平台，**从未**设 offscreen）：
+  smoke（`SMOKE IDENTITY PASS: … version=2.0.0`）、production-write（P1–P12 + M1–M6 + R1–**R15**）、
+  write-foundation（C 系列）、focus、nav、geometry。
+R15 实测四行证据（Debug 与 Release 均出现）：
+  A `open port without a remote slave -> serialConnected=1, UI says 串口已打开, no "已连接" claim anywhere, Read/Write enabled`
+  B `silent slave -> exactly one Timeout; local port still OPEN (串口已打开), Read/Write still enabled, no transport error`
+  C `adapter removal -> serialConnected 1->0, 串口未打开, chip gone, Read/Write disabled, prepared snapshot invalidated(disconnected)`
+  D `reconnect -> 串口已打开, Read/Write enabled again, and the pre-removal confirmation did NOT revive`
+```
+
+### ZU8. Artifact（**未闭合，如实披露**）
+
+```text
+behavior commit = **8812c22ee372d425566e52195ed3ced9b7edf762**（10 文件，+580/−15）。
+Release 已重建：build/release/modbuslens.exe sha256 = **bfdea328a03ad04b7989e0b1740e8793f54daaa8c312c55e827cf748fc7e01fe**
+  （3 971 431 B，2026-09-22 22:39:26）。
+freshness：scripts/test_make_package_freshness.py → **PASS**。
+canonical make_package：deploy 已识别为 STALE 并重新部署，**deploy identity OK（bfdea328…）**；
+  随后在 `stage_package()` 删除 staging 内 assets 镜像时被**宿主 bulk-delete 安全门**拦下：
+  `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":…,"threshold":50,"scope":"turn"}`。
+  该门是**每回合累计**的（本回合 1499 → 2999 → 4497，每次运行 +1498），因此**本回合内无法通过**；
+  按纪律**不得绕过**，未使用任何提权/旁路手段。
+⇒ **四路 identity 未达成；portable gates 未执行；无新的 Human Visual candidate。**
+  旧 portable（3b61f26f… / ZIP c9ec46a9…）**已失效**（对应 dd5e5a6 树，不含本轮语义修正）。
+  陈旧 staging 目录已清出 build/package 与 build/package-extract（移入回收站，可恢复），
+  下一回合 canonical 打包只需删除 deploy 侧 assets 镜像的 1 个文件（远低于阈值）。
+  `build/release/deploy/ModbusLens.exe` 与 `build/package/…zip` 仍为上一轮的旧内容。
+状态：M10-E4 = **HOLD**（人工视觉未过 + artifact 未刷新）；E5/M10-F = NOT STARTED；M10 overall = IN PROGRESS；
+  M11 = HOLD；verified LKGC 保持 **9bdd99c**。
+**REAL HARDWARE = NOT VERIFIED**（生产 adapter 的移除分支由「同一 handler」的单元测试 + seam 契约证明；
+真实的 COM 设备消失未被实际激发）。
+```
