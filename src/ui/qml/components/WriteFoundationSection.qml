@@ -3,19 +3,28 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import ModbusLens
 
-// M10-D4 — the WRITE section, now part of the PRODUCTION UI for 0x06.
+// M10-D4 / M10-E4 — the WRITE section, part of the PRODUCTION UI for both
+// 0x06 (Write Single Register) and 0x10 (Write Multiple Registers).
 //
 // This is the SAME component the hidden foundation used: production and the
 // harness differ only by `testFoundationMode`, never by a second copied file.
-// A parallel ProductionWrite06.qml would be a second draft/validation/dialog
+// A parallel ProductionWrite06/10.qml would be a second draft/validation/dialog
 // authority, which is exactly what this project forbids.
 //
 // Mode (chosen by WHO instantiated the section, never by runtime state):
-//   · production      — FC06 ONLY. Confirm performs the Controller's atomic
-//                       confirm+dispatch. This is the shipped UI.
+//   · production      — FC06 + FC16. The function sub-tabs are revealed by the
+//                       STRUCTURAL capability (write10Supported), and Confirm
+//                       performs the Controller's atomic confirm+dispatch.
+//                       This is the shipped UI.
 //   · test-foundation — the hidden M10-C/D1/D2 foundation (FC06 + FC10 drafts,
 //                       confirmation-only Confirm) kept so C01-C37 / E1 / E2
 //                       keep testing zero-dispatch safety.
+//
+// Capability != availability (M10-E4 §6): `write10Supported` is a structural
+// fact and only governs WHETHER the FC16 controls exist at all. The ACTION
+// enable rules below mirror the 0x06 ones exactly (connected && !busy), so a
+// disconnected / busy / Replay / Simulator context disables the CONTROLS
+// without ever unloading the section (which would drop the user's draft).
 //
 // Protocol truth still lives ONLY in the Controller/core: this file owns
 // presentation, page-local drafts and the opaque token hand-back.
@@ -70,9 +79,11 @@ Item {
             confirmationDialog.open()
             return true
         }
-        // 0x10 exists ONLY in the test foundation; production is 0x06-only, so
-        // a production instance can never prepare an unsupported function.
-        const wants10 = section.testFoundationMode && section.activeFunctionIndex === 1
+        // M10-E4: the FC16 draft is reachable in production because the
+        // structural capability is present (same predicate the Loaders use).
+        const fc16Exposed = section.testFoundationMode
+                            || section.analysisController.write10Supported
+        const wants10 = fc16Exposed && section.activeFunctionIndex === 1
         const accepted = wants10
             ? section.analysisController.prepareWrite10(unit10, start10, valuesText10, timeout10)
             : section.analysisController.prepareWrite06Draft(
@@ -152,10 +163,15 @@ Item {
                 // hidden item still exists in the object tree and still answers
                 // the accessibility interface, while D4's contract is that 0x10
                 // has no production node at all — not hidden, absent.
+                // M10-E4: revealed by the STRUCTURAL product capability in
+                // production (write10Supported), or by the hidden-foundation
+                // flag. It is never driven by connection/busy/source state —
+                // those govern each ACTION's enabled state, below.
                 Loader {
                     objectName: "writeFunctionTabsLoader"
                     Layout.fillWidth: true
                     active: section.testFoundationMode
+                            || section.analysisController.write10Supported
                     sourceComponent: writeFunctionTabsComponent
                 }
                 Component {
@@ -168,12 +184,14 @@ Item {
 
                         TabButton {
                             objectName: "writeTab06"
+                            Accessible.name: qsTr("0x06 写单寄存器（Write Single Register）")
                             text: qsTr("0x06 单寄存器")
                             width: implicitWidth
                             focusPolicy: Qt.TabFocus
                         }
                         TabButton {
                             objectName: "writeTab10"
+                            Accessible.name: qsTr("0x10 写多寄存器（Write Multiple Registers）")
                             text: qsTr("0x10 多寄存器")
                             width: implicitWidth
                             focusPolicy: Qt.TabFocus
@@ -235,7 +253,9 @@ Item {
                 Loader {
                     objectName: "writeMultiDraftLoader"
                     Layout.fillWidth: true
+                    // M10-E4: same structural capability as the tabs above.
                     active: section.testFoundationMode
+                            || section.analysisController.write10Supported
                     // Two independent concerns, deliberately kept apart:
                     //   active  -> is this object CREATED AT ALL (production: no)
                     //   visible -> is it on screen right now (inactive tab: no).
@@ -286,11 +306,26 @@ Item {
                         color: DS.textSecondary
                         font.pixelSize: DS.fontCaption
                     }
-                    ScrollView {
-                        objectName: "write10ValuesScroll"
+                    // Typed validation belongs to ONE field: the controller says
+                    // WHICH one (writeDraftErrorField === "values"), exactly as
+                    // the 0x06 fields do. Presentation only — the parser stays
+                    // the authority and the text is never re-interpreted here.
+                    Rectangle {
+                        objectName: "write10ValuesErrorFrame"
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 96 // bounded: never grows the window
-                        clip: true
+                        Layout.preferredHeight: 98
+                        color: "transparent"
+                        radius: 4
+                        border.width: 1
+                        border.color: section.analysisController.writeDraftErrorField
+                                      === "values" ? DS.error : DS.border
+
+                        ScrollView {
+                            objectName: "write10ValuesScroll"
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            Layout.preferredHeight: 96 // bounded: never grows the window
+                            clip: true
                         TextArea {
                             id: valuesArea
                             objectName: "write10ValuesArea"
@@ -319,8 +354,9 @@ Item {
                                     event.accepted = true
                                 }
                             }
-                        }
-                    }
+                        } // TextArea
+                        } // ScrollView
+                    } // write10ValuesErrorFrame
                     } // write10DraftColumn
                 } // write10DraftComponent
 

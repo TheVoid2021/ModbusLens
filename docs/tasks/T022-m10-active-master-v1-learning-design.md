@@ -1,8 +1,8 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E3 review correction 后）：M10-E1/E2 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E3 = 已实现（Review 要求补齐 Controller 层 FC16 证据矩阵，已按 §ZL 新增 9 个 oracle，产品源码零改动）= AWAITING RE-REVIEW；M10-E4（production 0x10 UI）= NOT STARTED；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
+> **状态（M10-E4 实现后）：M10-E1/E2/E3 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E4 = 已实现（production FC16 write UI rollout + canonical N=2 production oracle），AWAITING REVIEW（MANUAL VISUAL 保留给 Human Review）；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
-> 能力终态：0x03 与 0x06 = 四件套全备；**0x10 = encoder + 共享 analyzer + session + capability 常量 + Controller atomic dispatch（M10-E3 新增）= YES；production 0x10 UI 仍 ABSENT（E4）**；Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED。** **Next = M10-E3 Review → M10-E4（非 M11）。**
+> 能力终态：0x03 / 0x06 / **0x10 = 四件套全备 + production UI（E4）**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED；MANUAL VISUAL NOT VERIFIED。** **Next = M10-E4 Review → M10-E5（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
@@ -8515,4 +8515,170 @@ ISSUE-014：PRE-EXISTING NON-BLOCKING
 commit：`M10-E3: close FC16 controller-level evidence matrix`（独立；不 amend；不 rebase；不 push；不 tag）
 状态：M10-E3 = **AWAITING RE-REVIEW**；M10-E4 = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD。
 verified LKGC 保持 **9bdd99c**（不推进；Agent 仅提出 candidate）。
+```
+
+## M10-E4 — FC16/0x10 Production Write UI / Multi-Value Confirmation / QML a11y / Keyboard / Geometry（2026-09-22，behavior-bearing）
+
+> **M10-E3 Final Re-review = PASS ⇒ M10-E3 = COMPLETE ⇒ M10-E4 = GO。**
+> 范围：在既有 production Write section 内正式开放 **FC16 / 0x10 Write Multiple Registers**
+> （input / multi-value editor / confirmation summary / atomic Confirm / result presentation /
+> a11y / keyboard / focus / modal / scroll / geometry），并建立 production QML → Controller →
+> immutable snapshot → encoder → transport 的 canonical N=2 oracle。
+> **未做**：协议/编码/分析器/会话/分类学改动、Write10 专用 dispatch API、Write10 专用 result model、
+> retry / queue / parallel / active broadcast / Agent write tool、E5 / M10-F / M11。
+
+### ZM0. E3 接受链归档（§2）
+
+```text
+M10-E3 Final Re-review = PASS；M10-E3 = COMPLETE；M10-E4 = GO。
+接受链：7eb3ba5（M10-E3 product capability + atomic dispatch）
+      → d964dcd（Controller-level evidence matrix closure）——
+        d964dcd **未修改产品 src 行为**，仅 test + docs evidence correction（git show --stat 可证）。
+历史保留：M10-E3 Review HOLD（FC16 Controller 证据矩阵不完整）与 §ZL 更正文均未改写。
+```
+
+### ZM1. 源码重读结论（§3）
+
+```text
+· production Write 结构：单一组件 components/WriteFoundationSection.qml
+  （objectName writeFoundationSection），由 CommunicationPage 的
+  writeFoundationLoader 承载，active = write06Supported || writeFoundationVisible，
+  testFoundationMode = writeFoundationVisible（production = false）。
+· 隐藏 foundation：同一文件中 testFoundationMode 下才创建的 tabs / 0x10 draft
+  （writeFunctionTabsLoader / writeMultiDraftLoader 均 active: testFoundationMode）。
+· 运行期 enable 规则：输入 enabled: !serialBusy；Write enabled: serialConnected && !serialBusy。
+· modal 契约：closePolicy = Popup.CloseOnEscape（outside press 关闭被刻意排除）；
+  onRejected → cancelPreparedWrite；onOpened → forceCancelFocus（默认焦点 = Cancel）；
+  Confirm 无 default/highlight，Enter 仅在自身持有焦点时生效。
+· confirm 语义：production 走 requestPreparedWriteDispatch(token)（原子 consume+encode+start）；
+  foundation 走 confirmPreparedWriteToken(token)（confirmation-only）。
+```
+
+### ZM2. E4 true RED（§4，实现前实测）
+
+```text
+--qml-focus-check 在改动 QML 后 FAIL（exit 1），证据即 E3 staging negative 被触发：
+  0x10 production nodes exist: [write10DraftColumn, write10UnitSpin, write10StartSpin,
+    write10TimeoutSpin, write10ValuesErrorFrame, write10ValuesScroll, write10ValuesArea]
+  writeFunctionTabs exists / writeTab10 exists / write10ValuesArea exists
+  0x10 accessible nodes exist: [0x10 从站地址 | 0x10 起始地址 | 0x10 超时（毫秒）| 0x10 寄存器值（每行一个）]
+  writeTab10 is Tab-reachable in production
+  → 即 backend capability TRUE + production UI 现已 present，旧 negative 必须 intentional supersede。
+--qml-write-foundation-check 同时保持 PASS（隐藏 foundation 未受影响）。
+```
+
+### ZM3. production Write 结构 after（§5 / §7）
+
+```text
+Communication → Write（同一 section，未复制整条 flow）
+  ├── FC06 / 0x06  单寄存器（保持原行为）
+  └── FC16 / 0x10  多寄存器（E4 新增）
+      Unit / Start / Timeout / Values（多行）→ 写入 → 确认对话框（summary + Cancel/Confirm）
+所有权：protocol truth 仍只在 Controller/core；QML 仅持有 page-local draft 与 opaque token。
+未新增 ProductionWrite10.qml，未复制 flow；FC16 draft 与 FC06 draft 为两套独立 page-local 状态。
+```
+
+### ZM4. capability vs availability（§6）
+
+```text
+write10Supported 仅决定 FC16 控件是否**存在**（tabs 与 0x10 draft Loader 的 active 谓词 =
+testFoundationMode || analysisController.write10Supported）。
+每个 ACTION 的 enable 完全复用 0x06 的运行期契约（!serialBusy / serialConnected && !serialBusy），
+因此 disconnect / busy / Replay / Simulator 只禁用控件，绝不卸载 section（不会丢弃 draft）。
+结构不变量由 test_write_dispatch 的 fc10_write10SupportedIsStructuralAndRuntimeInvariant 覆盖
+（clear / diagnosis / disconnect / busy / timeout / Simulator 六态下恒为 true）。
+```
+
+### ZM5. FC16 生产控件与 objectName（§9）
+
+```text
+writeFunctionTabs / writeTab06 / writeTab10（均带 Accessible.name）
+write10DraftColumn / write10UnitSpin / write10StartSpin / write10TimeoutSpin
+write10ValuesErrorFrame（字段级错误边框）+ write10ValuesScroll / write10ValuesArea
+writeActivateButton（写入）· writeValidationError · writeDispatchNotice
+writeConfirmationDialog / writeSummaryFunction / writeSummaryUnit / writeSummaryAddress /
+writeSummaryQuantity / writeSummaryValues / writeSummaryConnection /
+writeConfirmCancelButton / writeConfirmAcceptButton
+```
+
+### ZM6. canonical N=2 production oracle（§13 / §14）—— 本轮核心证据
+
+```text
+--qml-production-write-check 新增 R1–R6（真实 production 路径：setDraft → 真实 Write 按钮 →
+  真实 summary → Tab 到 Confirm → Space）：
+R1 canonical N=2：unit 17 / start 1 / values 10,258
+   summary: function 文本含 0x10 与 "Write Multiple Registers"；unit 含 17；address==1；quantity==2；
+            快照投影 values == [10, 258]
+   打开对话框 0 attempt（delta=0）
+   Confirm → attempt 1 / send 1，发送 **精确 13 字节** ADU
+             `11 10 00 01 00 02 04 00 0A 01 02 C6 F0`（独立字面量比对）
+   matching echo（起始地址 + 数量回显）→ 共享历史中**恰好一条** functionCode==0x10 的 Success
+             （records +1、successes +1），零 failure terminal
+R2 snapshot 不可变：打开对话框后把 draft 改成 [999, 888] / start 4242 →
+   summary 仍 1 / 2 / [10, 258]，投影仍 [10,258]，token 不变；Cancel → Invalidated 且 draft 保留
+R3 124 values：无对话框、state 非 prepared/consumed、attempt delta 0、**无 transport notice**、
+   字段级错误 field=="values"
+R4 span overflow（start 65535 + 2 values）：拒绝、attempt delta 0、无 notice、不 wrap
+R5 123 values：准备成功、summary quantity==123、投影 123 项；
+   summary 可滚到末尾（contentY 1599）再回 0；viewport 120 且未超出窗口
+R6 N=1 边界：summary quantity==1、ADU = 11 字节 `11 10 00 01 00 01 02 00 07 2B 83`、
+   echo → 再 +1 条 FC16 Success
+N=1 只作 boundary/regression，multi-value 主证据是 R1 的 N=2 canonical。
+```
+
+### ZM7. oracle transition（§39）与 harness 变更
+
+```text
+--qml-focus-check 的 prod-write 段按 intentional transition 改写（未删除）：
+  (3) 旧「0x10 必须缺席」→ 断言 **FC16 surface 存在**（tabs / tab06 / tab10 齐备）
+      + 每个 FC16 控件必须有非空 Accessible.name。
+      **FINDING**：旧扫描用 QObject::findChildren 找 write10* 名字——QML Loader 创建的对象
+      **根本不在该 QObject 树上**，所以那一条检查在 Loader 激活时是**空洞通过**的；
+      真正能观察到它们的是 visual item tree walk（findNamedItem）。此项已记入本节。
+  (4) 旧「0x10 accessible node 必须为空」→ 正断言：必须存在 ≥4 个 0x10 accessible name
+      （从站地址 / 起始地址 / 超时 / 寄存器值）。
+  (5) 旧「write10ValuesArea/write10UnitSpin/writeTab10 不得 Tab-reachable」→
+      **按 tab 语义**改为：FC06 tab 激活时 FC16 的**输入控件**不得是 Tab stop
+      （inactive tab 排除，冻结 M10-C 规则），而 FC16 的 TabButton 本身必须可达。
+harness-only 变更：HarnessWriteTransport 新增 completeWriteWithEcho16()——
+  从 pending descriptor 构造 0x10 合规回显（starting address + written quantity，不回显 values），
+  仍由 shipped analyzer 判定结果（harness 只提供 stimulus）。
+QML a11y 变更：两个 TabButton 补 Accessible.name（0x06/0x10 写…），因 accessible name 不再
+  从 text 自动回落，focus oracle 要求非空。
+```
+
+### ZM8. 未覆盖 / 保留（诚实披露，§47）
+
+```text
+· **MANUAL VISUAL NOT VERIFIED** —— 本 Agent 无法进行真实人工视觉查看（无显示环境）。
+  已完成的机器证据：P12（1024x720 / 1000x700 对话框 560x144 完整在窗口内）、
+  R5（123 值 summary 可滚动、viewport 120、窗口不自增）、focus/keyboard/modal oracle。
+  人工视觉门（FC06/FC16 tab、N=1/N=2/123 显示、对话框滚动、按钮与文本裁切、Confirmation 位置）
+  **保留至 Human Review**，不伪造 PASS。
+· keyboard：本轮断言了「inactive tab 输入不可达 / FC16 tab 可达 / 对话框内 8 次 Tab 不逃逸
+  （M5，function-agnostic）/ 初始焦点 = Cancel」；**完整的 FC16 全程纯键盘链**
+  （tab → unit → start → values → Write → dialog → Cancel/Confirm）未逐步断言，保留待评审要求时补。
+· active FC16 的 unit 0：spinner from=1 ⇒ UI 无法构造广播；controller 层 unit 0 拒绝由
+  write_dispatch fc10_invalidDraftsAreRejectedBeforeDispatchNotNotSent 覆盖。
+· invalid decimal：本轮生产 oracle 覆盖 124 / span 两类；parser 层的非法十进制
+  （如 "12x" / "0x1"）由 write_prepare d8/d9 与 fc16 相关解析用例覆盖。
+· Simulator / Replay policy：未改动 source switching 契约，FC16 沿用 FC06 同一产品策略。
+· deploy / portable acceptance 属 M10-E5 / M10-F；本轮未 push / tag / publish。
+```
+
+### ZM9. 门禁 / warnings / Git（§43–§46 / §51 / §52）
+
+```text
+targeted（真实 target 名与计数）：
+  qml_production_write_check PASS（P1–P12 + M1–M6 + 新增 R1–R6）
+  qml_focus_check PASS（含 FC16 transition 段）· qml_write_foundation_check PASS（C01–C37 隐藏 foundation 保持）
+真实 CTest：Debug **36/36**、Release **36/36**（未预写数量）
+warnings：**0 NEW；5 PRE-EXISTING（main.cpp）**——过程中我自己引入的 1 条 signedness warning
+  （qvariant size 与 int 比较）已被发现并修复，最终两配置均回到 5 条旧 warning（强制重编实证）。
+ISSUE-014：PRE-EXISTING NON-BLOCKING（未顺手修）。
+REAL HARDWARE：NOT VERIFIED（本阶段无真实 PLC/device，未伪造）。
+分类：**behavior-bearing**（production QML rollout + harness/oracle）。
+commit：`M10-E4: expose safe FC16 production write UI`（独立；不 amend/rebase/push/tag）。
+状态：M10-E4 = **AWAITING REVIEW**；M10-E5 = NOT STARTED；M10-F = NOT STARTED；
+  M10 overall = IN PROGRESS；M11 = HOLD。verified LKGC 保持 **9bdd99c**。
 ```

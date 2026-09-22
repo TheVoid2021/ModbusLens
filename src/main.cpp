@@ -17,6 +17,8 @@
 #include "core/active/ActiveRequestIntent.h"
 #include "core/serial/SerialTransactionSession.h"
 #include "core/active/ActiveTransactionEvidence.h"
+#include "core/protocol/Function16.h"
+#include "core/protocol/ModbusRtuCodec.h"
 #include "ui/AnalysisController.h"
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
@@ -4940,6 +4942,51 @@ public:
         }
     }
 
+    // M10-E4: complete an accepted 0x10 write with its CONFORMING echo
+    // (starting address + written quantity; 0x10 never echoes the values).
+    // Harness-only stimulus: the shipped analyzer still decides the outcome.
+    void completeWriteWithEcho16()
+    {
+        if (!pending_.has_value()
+            || pending_->intent.function
+                != modbuslens::core::ActiveFunction::WriteMultipleRegisters) {
+            return;
+        }
+        modbuslens::core::SerialTransactionSession session;
+        const auto begin = session.beginActiveRequest(*pending_);
+        if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
+            return;
+        }
+        const auto &descriptor =
+            std::get<modbuslens::core::ActiveRequestDescriptor>(begin);
+        const auto fields = modbuslens::core::readWriteMultipleRegistersFields(
+            descriptor.frame);
+        if (!fields.has_value()) {
+            return;
+        }
+        const std::vector<std::uint8_t> echo = modbuslens::core::encodeRtuFrame(
+            modbuslens::core::ModbusRtuFrame{
+                .address = descriptor.frame.address,
+                .functionCode = 0x10,
+                .data = {static_cast<std::uint8_t>(fields->startingAddress >> 8),
+                         static_cast<std::uint8_t>(fields->startingAddress & 0xFF),
+                         static_cast<std::uint8_t>(fields->quantity >> 8),
+                         static_cast<std::uint8_t>(fields->quantity & 0xFF)}});
+        const auto result = session.feedResponseBytes(
+            echo, std::chrono::milliseconds{25});
+        if (const auto *analysis =
+                std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
+            const auto finished = *pending_;
+            pending_.reset();
+            emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
+                .request = finished,
+                .responseAdu = echo,
+                .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+                .analysis = *analysis,
+            });
+        }
+    }
+
     void closePort() override
     {
         portOpen_ = false;
@@ -8443,17 +8490,309 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         clickNamed(QStringLiteral("writeConfirmCancelButton"));
     });
 
+    // ------------------------------------------------------------------
+    // M10-E4: FC16 / 0x10 PRODUCTION sections (R1-R6).
+    //
+    // These drive the SHIPPED FC16 UI: the real tab, the real inputs, the real
+    // Write button, the real confirmation summary and the real Confirm — from
+    // QML through the Controller's atomic dispatch to the exact wire bytes.
+    // ------------------------------------------------------------------
+    const std::vector<std::uint8_t> kFc16TwoReg = {0x11, 0x10, 0x00, 0x01, 0x00,
+                                                   0x02, 0x04, 0x00, 0x0A, 0x01,
+                                                   0x02, 0xC6, 0xF0};
+    const std::vector<std::uint8_t> kFc16OneReg = {0x11, 0x10, 0x00, 0x01, 0x00,
+                                                   0x01, 0x02, 0x00, 0x07, 0x2B,
+                                                   0x83};
+    auto fc16ValuesText = [](const std::vector<int> &values) {
+        QString text;
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            if (i != 0) {
+                text += QLatin1Char('\n');
+            }
+            text += QString::number(values[i]);
+        }
+        return text;
+    };
+    auto openFc16Dialog = [&](int unit, int start, const QString &valuesText) {
+        setDraft("unit10", unit);
+        setDraft("start10", start);
+        setDraft("timeout10", 1000);
+        setDraft("valuesText10", valuesText);
+        setDraft("activeFunctionIndex", 1);
+        return clickNamed(QStringLiteral("writeActivateButton"));
+    };
+    auto summaryText = [&itemOf](const QString &name) {
+        auto *item = itemOf(name);
+        return item ? item->property("text").toString() : QString();
+    };
+
+    // ---- R1: canonical N=2 through the SHIPPED production path ----
+    push([&]() {
+        resetWrite();
+        const int attemptsAtOpen = transport->writeAttempts();
+        if (!openFc16Dialog(17, 1, fc16ValuesText({10, 258})))
+            fail(QStringLiteral("PRODWRITEFAIL R1: the Write button was not "
+                                "clickable on the FC16 tab"));
+        if (transport->writeAttempts() != attemptsAtOpen)
+            fail(QStringLiteral("PRODWRITEFAIL R1: opening the dialog dispatched "
+                                "(%1 -> %2)")
+                     .arg(attemptsAtOpen)
+                     .arg(transport->writeAttempts()));
+        if (!dialogVisible() || stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL R1: no Prepared snapshot "
+                                "(visible=%1 state=%2)")
+                     .arg(dialogVisible() ? 1 : 0)
+                     .arg(stateToken()));
+        if (controller->preparedWriteFunction() != 0x10)
+            fail(QStringLiteral("PRODWRITEFAIL R1: prepared function=%1, expected "
+                                "0x10").arg(controller->preparedWriteFunction()));
+        // The summary reads the CONTROLLER snapshot: function / unit / start /
+        // quantity / values.
+        const QString functionText =
+            summaryText(QStringLiteral("writeSummaryFunction"));
+        if (!functionText.contains(QStringLiteral("0x10"))
+            || !functionText.contains(QStringLiteral("Write Multiple Registers")))
+            fail(QStringLiteral("PRODWRITEFAIL R1: function text=[%1]")
+                     .arg(functionText));
+        if (!summaryText(QStringLiteral("writeSummaryUnit"))
+                 .contains(QStringLiteral("17")))
+            fail(QStringLiteral("PRODWRITEFAIL R1: unit text=[%1]")
+                     .arg(summaryText(QStringLiteral("writeSummaryUnit"))));
+        if (summaryText(QStringLiteral("writeSummaryAddress")) != QStringLiteral("1"))
+            fail(QStringLiteral("PRODWRITEFAIL R1: address text=[%1]")
+                     .arg(summaryText(QStringLiteral("writeSummaryAddress"))));
+        if (summaryText(QStringLiteral("writeSummaryQuantity")) != QStringLiteral("2"))
+            fail(QStringLiteral("PRODWRITEFAIL R1: quantity text=[%1]")
+                     .arg(summaryText(QStringLiteral("writeSummaryQuantity"))));
+        const QVariantList projected = controller->preparedWriteValues();
+        if (projected.size() != qsizetype{2} || projected.at(0).toInt() != 10
+            || projected.at(1).toInt() != 258)
+            fail(QStringLiteral("PRODWRITEFAIL R1: snapshot values are not "
+                                "[10, 258]"));
+        note(QStringLiteral("PRODWRITE [R1]: FC16 summary function=0x10 unit=17 "
+                            "start=1 quantity=2 values=[10, 258]"));
+    });
+    push([&]() {
+        if (focusOwnerName() != QStringLiteral("writeConfirmCancelButton"))
+            fail(QStringLiteral("PRODWRITEFAIL R1: FC16 initial focus is [%1], "
+                                "expected Cancel").arg(focusOwnerName()));
+        if (tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10) < 0)
+            fail(QStringLiteral("PRODWRITEFAIL R1: Confirm is not reachable by Tab "
+                                "(focus=%1)").arg(focusOwnerName()));
+        const int attemptsBefore = transport->writeAttempts();
+        const int sendsBefore = transport->writeSends();
+        sendKey(Qt::Key_Space, false);
+        if (transport->writeAttempts() - attemptsBefore != 1)
+            fail(QStringLiteral("PRODWRITEFAIL R1: Space produced %1 attempts, "
+                                "expected exactly 1")
+                     .arg(transport->writeAttempts() - attemptsBefore));
+        if (transport->writeSends() - sendsBefore != 1
+            || transport->writeAduLog().empty()
+            || transport->writeAduLog().back() != kFc16TwoReg)
+            fail(QStringLiteral("PRODWRITEFAIL R1: the dispatched ADU is not the "
+                                "canonical 13-byte FC16 request"));
+        else
+            note(QStringLiteral("PRODWRITE [R1]: exact 13-byte ADU 11 10 00 01 00 "
+                                "02 04 00 0A 01 02 C6 F0 sent from the production "
+                                "UI"));
+    });
+    push([&]() {
+        const int recordsBefore = controller->activeSerialRecordCount();
+        const int successesBefore = controller->successCount();
+        transport->completeWriteWithEcho16();
+        if (controller->activeSerialRecordCount() != recordsBefore + 1
+            || controller->successCount() != successesBefore + 1)
+            fail(QStringLiteral("PRODWRITEFAIL R1: the FC16 echo did not produce "
+                                "exactly one Success (records %1 -> %2, successes "
+                                "%3 -> %4)")
+                     .arg(recordsBefore)
+                     .arg(controller->activeSerialRecordCount())
+                     .arg(successesBefore)
+                     .arg(controller->successCount()));
+        if (controller->activeSerialRecords().back().functionCode() != 0x10)
+            fail(QStringLiteral("PRODWRITEFAIL R1: the new history row is not an "
+                                "FC16 transaction"));
+        if (controller->activeSerialTerminalCount() != 0)
+            fail(QStringLiteral("PRODWRITEFAIL R1: a failure terminal was created"));
+        note(QStringLiteral("PRODWRITE [R1]: matching echo -> one FC16 Success in "
+                            "the shared history (%1 rows), zero terminals")
+                 .arg(controller->activeSerialRecordCount()));
+    });
+
+    // ---- R2: the confirmation reads the IMMUTABLE snapshot ----
+    push([&]() {
+        resetWrite();
+        if (!openFc16Dialog(17, 1, fc16ValuesText({10, 258})))
+            fail(QStringLiteral("PRODWRITEFAIL R2: could not open the FC16 dialog"));
+        const auto tokenBefore = tokenOf(); // same type as tokenOf()
+        // Mutate the underlying draft AFTER the snapshot exists.
+        setDraft("valuesText10", fc16ValuesText({999, 888}));
+        setDraft("start10", 4242);
+        if (summaryText(QStringLiteral("writeSummaryQuantity")) != QStringLiteral("2")
+            || summaryText(QStringLiteral("writeSummaryAddress"))
+                   != QStringLiteral("1"))
+            fail(QStringLiteral("PRODWRITEFAIL R2: the summary followed the draft "
+                                "(quantity=[%1] address=[%2])")
+                     .arg(summaryText(QStringLiteral("writeSummaryQuantity")),
+                          summaryText(QStringLiteral("writeSummaryAddress"))));
+        const QVariantList projected = controller->preparedWriteValues();
+        if (projected.size() != qsizetype{2} || projected.at(1).toInt() != 258)
+            fail(QStringLiteral("PRODWRITEFAIL R2: the snapshot changed with the "
+                                "draft"));
+        if (tokenOf() != tokenBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R2: the token changed"));
+        note(QStringLiteral("PRODWRITE [R2]: draft mutated to [999, 888] / start "
+                            "4242 -> summary still 1 / 2 / [10, 258]"));
+        clickNamed(QStringLiteral("writeConfirmCancelButton"));
+    });
+    push([&]() {
+        if (stateToken() != QStringLiteral("invalidated"))
+            fail(QStringLiteral("PRODWRITEFAIL R2: Cancel state=%1")
+                     .arg(stateToken()));
+        auto *s = section();
+        if (s && s->property("valuesText10").toString() != fc16ValuesText({999, 888}))
+            fail(QStringLiteral("PRODWRITEFAIL R2: Cancel cleared the draft (a "
+                                "Cancel must never clear a draft)"));
+        note(QStringLiteral("PRODWRITE [R2]: Cancel -> Invalidated, draft "
+                            "preserved"));
+    });
+
+    // ---- R3: 124 values are REJECTED before any send ----
+    push([&]() {
+        resetWrite();
+        const std::vector<int> many(124, 1);
+        const int attemptsBefore = transport->writeAttempts();
+        if (!openFc16Dialog(17, 1, fc16ValuesText(many)))
+            fail(QStringLiteral("PRODWRITEFAIL R3: the Write button was not "
+                                "clickable"));
+        if (dialogVisible() || stateToken() == QStringLiteral("prepared")
+            || stateToken() == QStringLiteral("consumed"))
+            fail(QStringLiteral("PRODWRITEFAIL R3: 124 values opened a confirmation "
+                                "(state=%1)").arg(stateToken()));
+        if (transport->writeAttempts() != attemptsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R3: a validation rejection reached "
+                                "the transport"));
+        if (!noticeText().isEmpty())
+            fail(QStringLiteral("PRODWRITEFAIL R3: a validation rejection was "
+                                "presented as a transport outcome"));
+        if (controller->writeDraftError().isEmpty()
+            || controller->writeDraftErrorField() != QStringLiteral("values"))
+            fail(QStringLiteral("PRODWRITEFAIL R3: the field-specific error is "
+                                "missing (field=[%1])")
+                     .arg(controller->writeDraftErrorField()));
+        note(QStringLiteral("PRODWRITE [R3]: 124 values -> field error, no dialog, "
+                            "0 attempts, no transport notice"));
+    });
+
+    // ---- R4: address-span overflow is REJECTED before any send ----
+    push([&]() {
+        resetWrite();
+        const int attemptsBefore = transport->writeAttempts();
+        if (!openFc16Dialog(17, 65535, fc16ValuesText({1, 2})))
+            fail(QStringLiteral("PRODWRITEFAIL R4: the Write button was not "
+                                "clickable"));
+        if (dialogVisible() || stateToken() == QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL R4: a span overflow prepared "
+                                "(state=%1)").arg(stateToken()));
+        if (transport->writeAttempts() != attemptsBefore || !noticeText().isEmpty())
+            fail(QStringLiteral("PRODWRITEFAIL R4: the rejection leaked into the "
+                                "transport lane"));
+        note(QStringLiteral("PRODWRITE [R4]: start 65535 + 2 values -> reject, "
+                            "0 attempts, no wrap"));
+    });
+
+    // ---- R5: 123 values prepare; the summary scrolls first -> last -> first ----
+    push([&]() {
+        resetWrite();
+        std::vector<int> many(123);
+        for (int i = 0; i < 123; ++i) {
+            many[static_cast<std::size_t>(i)] = i + 1;
+        }
+        if (!openFc16Dialog(17, 1, fc16ValuesText(many)))
+            fail(QStringLiteral("PRODWRITEFAIL R5: the Write button was not "
+                                "clickable"));
+        if (!dialogVisible() || stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL R5: 123 values did not prepare "
+                                "(state=%1)").arg(stateToken()));
+        if (summaryText(QStringLiteral("writeSummaryQuantity"))
+            != QStringLiteral("123"))
+            fail(QStringLiteral("PRODWRITEFAIL R5: summary quantity=[%1]")
+                     .arg(summaryText(QStringLiteral("writeSummaryQuantity"))));
+        if (controller->preparedWriteValues().size() != qsizetype{123})
+            fail(QStringLiteral("PRODWRITEFAIL R5: projected values=%1, expected 123")
+                     .arg(controller->preparedWriteValues().size()));
+        note(QStringLiteral("PRODWRITE [R5]: 123 values -> quantity 123 (byteCount "
+                            "246 derived), full list projected"));
+    });
+    push([&]() {
+        auto *list = itemOf(QStringLiteral("writeSummaryValues"));
+        if (!list) {
+            fail(QStringLiteral("PRODWRITEFAIL R5: the summary value list is "
+                                "absent"));
+        } else {
+            auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+            const qreal contentHeight = list->property("contentHeight").toReal();
+            list->setProperty("contentY", contentHeight);
+            const qreal atEnd = list->property("contentY").toReal();
+            list->setProperty("contentY", 0.0);
+            const qreal atStart = list->property("contentY").toReal();
+            if (atEnd <= 0.0 || atStart != 0.0)
+                fail(QStringLiteral("PRODWRITEFAIL R5: the 123-value summary is not "
+                                    "scrollable (end=%1 start=%2)")
+                         .arg(atEnd).arg(atStart));
+            if (window && list->height() > window->height())
+                fail(QStringLiteral("PRODWRITEFAIL R5: the summary grew beyond the "
+                                    "window"));
+            note(QStringLiteral("PRODWRITE [R5]: summary scrolled end=%1 then back "
+                                "to 0; viewport=%2; window unchanged")
+                     .arg(atEnd).arg(list->height()));
+        }
+        clickNamed(QStringLiteral("writeConfirmCancelButton"));
+    });
+
+    // ---- R6: N=1 stays a valid boundary case (not the multi-value evidence) ----
+    push([&]() {
+        resetWrite();
+        if (!openFc16Dialog(17, 1, fc16ValuesText({7})))
+            fail(QStringLiteral("PRODWRITEFAIL R6: the Write button was not "
+                                "clickable"));
+        if (summaryText(QStringLiteral("writeSummaryQuantity")) != QStringLiteral("1"))
+            fail(QStringLiteral("PRODWRITEFAIL R6: summary quantity=[%1]")
+                     .arg(summaryText(QStringLiteral("writeSummaryQuantity"))));
+        if (tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10) < 0)
+            fail(QStringLiteral("PRODWRITEFAIL R6: Confirm not reachable"));
+        sendKey(Qt::Key_Space, false);
+        if (transport->writeAduLog().empty()
+            || transport->writeAduLog().back() != kFc16OneReg)
+            fail(QStringLiteral("PRODWRITEFAIL R6: the N=1 ADU is not the 11-byte "
+                                "wire"));
+        else
+            note(QStringLiteral("PRODWRITE [R6]: N=1 boundary ADU = 11 10 00 01 00 "
+                                "01 02 00 07 2B 83"));
+        const int recordsBefore = controller->activeSerialRecordCount();
+        transport->completeWriteWithEcho16();
+        if (controller->activeSerialRecordCount() != recordsBefore + 1
+            || controller->activeSerialRecords().back().functionCode() != 0x10)
+            fail(QStringLiteral("PRODWRITEFAIL R6: the N=1 echo did not append one "
+                                "FC16 transaction"));
+        else
+            note(QStringLiteral("PRODWRITE [R6]: N=1 echo -> one more FC16 Success "
+                                "(%1 rows total)")
+                     .arg(controller->activeSerialRecordCount()));
+    });
+
     auto step = std::make_shared<int>(0);
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, step, schedule]() {
         if (*step >= steps->size()) {
-            // Accounting: exactly the accepted sends the oracles asked for
-            // (P2, P4, P5, P11) = 4; P9 adds an attempt only, P10 a terminal.
-            if (transport->writeSends() != 4)
+            // Accounting: exactly the accepted sends the oracles asked for —
+            // P2, P4, P5, P11 (0x06) = 4 plus R1 (canonical FC16 N=2) and R6
+            // (FC16 N=1 boundary) = 6; P9 adds an attempt only, P10 a terminal.
+            if (transport->writeSends() != 6)
                 fail(QStringLiteral("PRODWRITEFAIL final: accepted sends=%1, "
-                                    "expected 4").arg(transport->writeSends()));
-            if (transport->sentAduLogSize() != 4)
-                fail(QStringLiteral("PRODWRITEFAIL final: ADU log=%1, expected 4")
+                                    "expected 6").arg(transport->writeSends()));
+            if (transport->sentAduLogSize() != 6)
+                fail(QStringLiteral("PRODWRITEFAIL final: ADU log=%1, expected 6")
                          .arg(transport->sentAduLogSize()));
             if (transport->writeTerminals() != 1)
                 fail(QStringLiteral("PRODWRITEFAIL final: terminals=%1, expected 1")
@@ -8826,28 +9165,54 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             if (!section->property("productionMode").toBool())
                 fail(QStringLiteral("FOCUSFAIL prod-write: productionMode is false"));
         }
-        // (3) TRANSFERRED NEGATIVE COVERAGE — 0x10 must not exist anywhere in
-        // the scene, by object name, in any form.
-        QStringList found10;
+        // (3) M10-E4 INTENTIONAL TRANSITION — the E3 staging negative ("0x10
+        // must not exist in production") is superseded: E4 publishes the FC16
+        // write UI. The negative MOVES to what must still hold, and the
+        // presence of the FC16 surface is now asserted directly.
+        //
+        // FINDING (carried into T022 §ZM): the old QObject-name scan could NOT
+        // see Loader-created QML items at all (QObject::findChildren does not
+        // reach them in this declarative tree), so that particular check passed
+        // vacuously while the Loader was active. The visual-tree walk below is
+        // the mechanism that actually observes them.
         int scanned = 0;
         for (QObject *root : roots) {
-            const QList<QObject *> all = root->findChildren<QObject *>();
-            for (QObject *obj : all) {
-                ++scanned;
-                if (obj->objectName().startsWith(QStringLiteral("write10")))
-                    found10 << obj->objectName();
-            }
+            scanned += root->findChildren<QObject *>().size();
         }
-        if (!found10.isEmpty())
-            fail(QStringLiteral("FOCUSFAIL prod-write: 0x10 production nodes exist: "
-                                "[%1]").arg(found10.join(QStringLiteral(", "))));
-        for (const QString &absent : {QStringLiteral("writeFunctionTabs"),
-                                      QStringLiteral("writeTab10"),
-                                      QStringLiteral("write10ValuesArea"),
-                                      QStringLiteral("writeSummaryQuantity")}) {
-            if (findNamedItem(roots, absent) != nullptr)
-                fail(QStringLiteral("FOCUSFAIL prod-write: %1 exists in production")
-                         .arg(absent));
+        // (3a) the FC16 surface EXISTS, because the STRUCTURAL capability and
+        // the selector tab are present (never because a harness flag ran).
+        if (section && !section->property("productionMode").toBool())
+            fail(QStringLiteral("FOCUSFAIL prod-write: not in production mode"));
+        for (const auto &name : {QStringLiteral("writeFunctionTabs"),
+                                 QStringLiteral("writeTab06"),
+                                 QStringLiteral("writeTab10")}) {
+            if (findNamedItem(roots, name) == nullptr)
+                fail(QStringLiteral("FOCUSFAIL prod-write: the FC16 surface is "
+                                    "incomplete — %1 is missing").arg(name));
+        }
+        // (3b) the FC16 controls exist and each carries an accessible name.
+        // The 0x10 draft is instantiated regardless of which tab is selected
+        // (only its VISIBILITY follows the tab), so the inputs are observable
+        // here without switching tabs.
+        for (const auto &entry : {std::pair<const char *, const char *>{
+                                      "write10UnitSpin", "0x10"},
+                                  {"write10StartSpin", "0x10"},
+                                  {"write10TimeoutSpin", "0x10"},
+                                  {"write10ValuesArea", "0x10"},
+                                  {"writeTab10", "0x10"}}) {
+            auto *item = findNamedItem(roots, QString::fromUtf8(entry.first));
+            if (!item) {
+                fail(QStringLiteral("FOCUSFAIL prod-write: required FC16 control %1 "
+                                    "is missing")
+                         .arg(QString::fromUtf8(entry.first)));
+                continue;
+            }
+            QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item);
+            const QString name = iface ? iface->text(QAccessible::Name) : QString();
+            if (name.isEmpty())
+                fail(QStringLiteral("FOCUSFAIL prod-write: FC16 control %1 has no "
+                                    "accessible name")
+                         .arg(QString::fromUtf8(entry.first)));
         }
         // M10-E3 INTENTIONAL TRANSITION: the write10Supported product
         // capability property now EXISTS (the capability layer is E3's
@@ -8868,23 +9233,28 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 fail(QStringLiteral("FOCUSFAIL prod-write: write10Supported is "
                                     "false"));
         }
-        // (4) …including in the ACCESSIBILITY tree of the write section (a name
-        // scan alone cannot catch "instantiated but unnamed").
+        // (4) M10-E4: the FC16 accessible names must now EXIST (the E3 negative
+        // "no 0x10 accessible node" is superseded with its positive mirror).
         if (section) {
             QStringList a11y10;
-            const QList<QObject *> subtree = section->findChildren<QObject *>();
-            for (QObject *obj : subtree) {
-                auto *item = qobject_cast<QQuickItem *>(obj);
-                if (!item)
-                    continue;
-                QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item);
-                if (iface && iface->text(QAccessible::Name).contains(QStringLiteral("0x10")))
+            QQuickItem *walk = section;
+            std::function<void(QQuickItem *)> collect = [&](QQuickItem *item) {
+                auto *iface = QAccessible::queryAccessibleInterface(item);
+                if (iface
+                    && iface->text(QAccessible::Name).contains(QStringLiteral("0x10")))
                     a11y10 << iface->text(QAccessible::Name);
-            }
-            if (!a11y10.isEmpty())
-                fail(QStringLiteral("FOCUSFAIL prod-write: 0x10 accessible nodes "
-                                    "exist in production: [%1]")
-                         .arg(a11y10.join(QStringLiteral(" | "))));
+                for (QQuickItem *child : item->childItems())
+                    collect(child);
+            };
+            collect(walk);
+            if (a11y10.size() < 4)
+                fail(QStringLiteral("FOCUSFAIL prod-write: expected the FC16 unit / "
+                                    "start / timeout / values accessible names, saw "
+                                    "[%1]").arg(a11y10.join(QStringLiteral(" | "))));
+            else
+                note(QStringLiteral("FOCUS [prod-write]: FC16 accessible names = "
+                                    "[%1]").arg(a11y10.join(
+                                        QStringLiteral(" | "))));
         }
         // (5) the 0x06 controls DO exist and each carries an accessible name
         // (the D4 supersession of "production has no write a11y").
@@ -8972,13 +9342,22 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         // Negative coverage, moved here from the retired foundation oracle: no
         // 0x10 control is Tab-reachable, because none of them is ever created.
-        for (const QString &absent : {QStringLiteral("write10ValuesArea"),
-                                      QStringLiteral("write10UnitSpin"),
-                                      QStringLiteral("writeTab10")}) {
-            if (tabTo(absent, 60) >= 0)
-                fail(QStringLiteral("FOCUSFAIL prod-write: %1 is Tab-reachable in "
-                                    "production").arg(absent));
+        // M10-E4: with the FC06 tab ACTIVE, the FC16 *inputs* must not be Tab
+        // stops (the inactive tab is excluded from traversal — the frozen
+        // M10-C rule), while the FC16 TabButton itself IS one. After selecting
+        // the FC16 tab the situation must mirror exactly.
+        for (const QString &inactive : {QStringLiteral("write10ValuesArea"),
+                                        QStringLiteral("write10UnitSpin"),
+                                        QStringLiteral("write10StartSpin")}) {
+            if (tabTo(inactive, 60) >= 0)
+                fail(QStringLiteral("FOCUSFAIL prod-write: %1 is Tab-reachable "
+                                    "while the FC06 tab is active").arg(inactive));
         }
+        if (tabTo(QStringLiteral("writeTab10"), 20) < 0)
+            fail(QStringLiteral("FOCUSFAIL prod-write: the FC16 tab button is not "
+                                "Tab-reachable"));
+        note(QStringLiteral("FOCUS [prod-write] PASS: inactive-tab FC16 inputs are "
+                            "not Tab stops; the FC16 tab button is"));
         note(QStringLiteral("FOCUS [prod-write] PASS: the 0x06 controls are Tab "
                             "reachable in the production write section and no "
                             "0x10 control is"));
