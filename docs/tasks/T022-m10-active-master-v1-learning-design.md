@@ -9111,3 +9111,51 @@ artifact source tree HEAD = 60b8724 的已接受证据：
 状态：M10-E4 = **HOLD**；M10-E5 / M10-F = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD；
   verified LKGC 保持 **9bdd99c**。
 ```
+
+## M10-E4 Portable Runtime Evidence — offscreen 失败根因与闭合（2026-09-22，docs-only）
+
+> 用户报告 portable 启动弹出 `no Qt platform plugin could be initialized … Available platform plugins are: windows.`。
+> 诊断后**全部 portable runtime gate 通过**，且前几轮「portable 直跑 fast-fail」的根因确定。零产品/测试改动。
+
+### ZR1. 根因
+
+```text
+实读 build/package-extract/ModbusLens-2.0.0-windows-x64/：platforms/ -> [qwindows.dll]
+  ⇒ **只打包了 windows 平台插件，没有 qoffscreen.dll**。
+任何 QT_QPA_PLATFORM=offscreen 的启动都会请求包内不存在的插件 → Qt 初始化失败 → 进程 fail-fast
+  （实测 0xC0000142 → 随后稳定 0xC0000602）。这正是本 Agent 前四轮 portable 直跑失败的原因
+  （那些命令设置了 offscreen），**不是 artifact 缺陷**：canonical make_package 不覆盖该变量，
+  使用包内 windows 插件，故一直通过。用户看到的对话框即同一机制（其终端会话仍导出 offscreen）。
+**正确用法**：运行 portable 时不要设置 QT_QPA_PLATFORM（或显式设为 windows）；
+  offscreen 仅适用于 build-tree 的 exe（Qt 安装目录提供全部插件）。
+```
+
+### ZR2. 去除 offscreen 覆盖后的 portable runtime gates（全部 PASS）
+
+```text
+对象：build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe
+      sha256 a6f981a9ae994ccbd3c128175143e5cee770946eb916684e23fb75d7b6402eee
+--qml-smoke-test              exit **0**  ← 捕获到 runtime identity 行（见下）
+--qml-production-write-check  exit **0**  ← 内含 P1–P12 + M1–M6 + **R1–R13**；仓库惯例「退出码即门禁」
+                                            ⇒ **R12/R13 在 portable 上亦通过**
+--qml-focus-check             exit **0**
+--qml-nav-check               exit **0**
+--qml-geometry-check          exit **0**
+
+runtime identity line（直接证据，非目录名推断）：
+  SMOKE IDENTITY PASS: applicationName=ModbusLens displayName=ModbusLens **version=2.0.0**
+    organizationName=ModbusLens organizationDomain=<unset> title=ModbusLens windowIconSizes=[16x16 24…]
+（注：其余 gate 的中文输出为 GBK 编码，与子进程文本解码器不匹配触发 UnicodeDecodeError；
+  退出码不受影响，且仓库惯例以退出码为门禁。）
+```
+
+### ZR3. E4 artifact 侧证据闭合清单
+
+```text
+✅ 四路 identity A==B==C==D = a6f981a9ae994ccbd3c128175143e5cee770946eb916684e23fb75d7b6402eee（3924554 B）
+✅ ZIP 594778bc2ddd1d2ac9fe943cb9ca0d4dc0ca6b27949ee00477cf8c2f479f7c78（40936832 B）
+✅ PE VersionInfo FileVersion/ProductVersion = 2.0.0；FileVersionRaw/ProductVersionRaw = 2.0.0.0
+✅ portable runtime identity version=2.0.0（SMOKE IDENTITY PASS 行）
+✅ portable gates smoke / production-write(含 R1–R13) / focus / nav / geometry 全部 exit 0
+⏳ **M10-E4 Human Visual = WAITING FOR USER**（唯一剩余项）
+```
