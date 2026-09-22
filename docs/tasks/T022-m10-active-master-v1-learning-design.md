@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E4 final portable refresh 后）：M10-E1/E2/E3 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E4 = Review HOLD（Replay oracle 已 PASS；四路身份 A==B==C==D 已闭合 = a6f981a9…；PE 版本 2.0.0 / 2.0.0.0 已取得；未闭合：portable runtime identity 行与 portable 上的 write/focus/nav/geometry exit code 未捕获（本会话进程启动限制）、Human Visual 待人工）= HOLD；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
+> **状态（portable runtime evidence 闭合后）：M10-E1/E2/E3 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E4 = Review HOLD —— artifact 侧证据已全部闭合（四路身份 / ZIP / PE 2.0.0 / portable smoke identity version=2.0.0 / portable 五个 gate 含 R1–R13 全 exit 0）；唯一剩余项 = Human Visual（WAITING FOR USER）。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
 > 能力终态：0x03 / 0x06 / **0x10 = 四件套全备 + production UI（E4）**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED；MANUAL VISUAL NOT VERIFIED。** **Next = M10-E4 Review → M10-E5（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
