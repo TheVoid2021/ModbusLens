@@ -1,6 +1,6 @@
 # T022 — M10 Active Master v1 — Learning / Design Gate
 
-> **状态（M10-E4 final Replay oracle 后）：M10-E1/E2/E3 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E4 = Review HOLD（Replay direct oracle R12/R13 已闭合；FINAL ARTIFACT SOURCE HEAD = 60b8724；Release/deploy 新 hash a6f981a9…；未闭合：package/extract 刷新受宿主 bulk-delete 门阻塞、runtime identity/PE 版本未捕获、Human Visual 待人工）= HOLD；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
+> **状态（M10-E4 final portable refresh 后）：M10-E1/E2/E3 = ✅ COMPLETE；M10 overall = IN PROGRESS；**M10-E4 = Review HOLD（Replay oracle 已 PASS；四路身份 A==B==C==D 已闭合 = a6f981a9…；PE 版本 2.0.0 / 2.0.0.0 已取得；未闭合：portable runtime identity 行与 portable 上的 write/focus/nav/geometry exit code 未捕获（本会话进程启动限制）、Human Visual 待人工）= HOLD；M10-E5/M10-F = NOT STARTED；M11 = HOLD。**
 > **M10-D accepted behavior tree = `9bdd99c`；verified LKGC = `9bdd99c`（Human Review 已授权）。0cf0748 为 docs-only closure，不是 LKGC。**
 > 能力终态：0x03 / 0x06 / **0x10 = 四件套全备 + production UI（E4）**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED；MANUAL VISUAL NOT VERIFIED。** **Next = M10-E4 Review → M10-E5（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
@@ -9009,4 +9009,105 @@ M10-E4 = **HOLD**。未闭合项：
   Release/deploy 新 hash、freshness。
 M10-E5 / M10-F = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD；
   verified LKGC 保持 **9bdd99c**（未推进）。
+```
+
+
+## M10-E4 Final Portable Artifact Refresh（2026-09-22，docs-only evidence）
+
+> Artifact-only acceptance closure。**零产品/测试改动**（本轮 `git status --porcelain` 全程 empty；
+> 未改 protocol / encoder / analyzer / session / taxonomy / QML 行为 / packaging 语义；未新增 CLI）。
+> NO AMEND / NO REBASE / NO PUSH / NO TAG / NO LKGC ADVANCE；未开始 E5 / M10-F / M11。
+
+### ZQ1. Preflight 与 provenance
+
+```text
+branch main · repo HEAD = cd1b7afab9ac6ead7cf90e565d7a32741b03c6b7（**docs-only**，
+  git show --stat 仅 4 个 docs 文件）· porcelain empty · origin/main a40d935…b42b63 · ahead/behind 137/0
+verified LKGC = 9bdd99c · VERSION = 2.0.0 · v2.0.0 ABSENT
+commit chain 含 60b8724（M10-E4: add direct FC16 Replay production oracle）= **artifact source tree**
+陈旧目录确认：build/package/ModbusLens-2.0.0-windows-x64 与 build/package-extract/… **ABSENT**（用户已清理）
+freshness：scripts/test_make_package_freshness.py → **PASS**（missing / stale / current / RED old-rule /
+  same-size trap / missing-build-exe）
+```
+
+### ZQ2. Canonical packaging（全部既有 gate 通过）
+
+```text
+命令：<managed-venv-python> scripts/make_package.py build/release build/release/deploy
+结果 **make_package PASS**：
+  deploy identity OK（sha256=a6f981a9ae994ccbd3c128175143e5cee770946eb916684e23fb75d7b6402eee）
+  structural checks PASS（required present / forbidden absent / StatisticsOverview retained / samples policy）
+  credential-config negative scan PASS · absolute-path negative audit PASS
+  manifest written（1498 payload files）· ZIP creation PASS · ZIP entries == staging file set（1499）
+  fresh extraction verified against manifest · **extract identity OK（a6f981a9…）**
+  minimal-PATH extracted --qml-smoke-test PASS · --qml-nav-check PASS · --qml-geometry-check PASS
+  external-CWD launch PASS
+```
+
+### ZQ3. 四路 executable identity —— **A == B == C == D 已闭合**
+
+```text
+A build/release/modbuslens.exe                                        a6f981a9…  3924554 B  2026-09-22 20:56:09
+B build/release/deploy/ModbusLens.exe                                 a6f981a9…  3924554 B  2026-09-22 20:56:09
+C build/package/ModbusLens-2.0.0-windows-x64/ModbusLens.exe           a6f981a9…  3924554 B  2026-09-22 20:56:09
+D build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe   a6f981a9…  3924554 B  2026-09-22 21:09:14
+（四者 sha256 = a6f981a9ae994ccbd3c128175143e5cee770946eb916684e23fb75d7b6402eee，byte-identical）
+ZIP build/package/ModbusLens-2.0.0-windows-x64.zip
+    sha256=594778bc2ddd1d2ac9fe943cb9ca0d4dc0ca6b27949ee00477cf8c2f479f7c78  40936832 B  2026-09-22 21:09:14
+```
+
+### ZQ4. PE VersionInfo（最终 portable exe）—— **已闭合**
+
+```text
+FileVersion      = 2.0.0          ProductVersion   = 2.0.0
+FileVersionRaw   = 2.0.0.0        ProductVersionRaw= 2.0.0.0
+ProductName      = ModbusLens     FileDescription  = ModbusLens
+OriginalFilename = ModbusLens.exe
+（读取方式：managed venv 的 pefile 2004.8.26 读取 VS_VERSIONINFO；非目录名推断）
+```
+
+### ZQ5. Portable runtime identity / gates —— **未能捕获，如实披露**
+
+```text
+目标对象：build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe（最终且哈希正确）
+结果：本会话对该 exe 的**直接进程启动全部 fast-fail**：
+  第 1 次（继承环境 PATH + cwd=portable）：exit=3221227010 = **0xC0000142 STATUS_DLL_INIT_FAILED**
+  第 2 次（minimal PATH + cwd=portable）：  exit=3221227010 = **0xC0000602 STATUS_FAIL_FAST_EXCEPTION**
+  第 3 次（提升权限重试）：                  exit=3221227010 = **0xC0000602**
+  第 4 次（**精确复刻 make_package 的调用**：dict(os.environ) + PATH="C:\Windows\System32;C:\Windows"
+           + cwd=REPO_ROOT）：              exit=3221227010 = **0xC0000602**，captured=0 chars
+⇒ 因此以下证据**未能取得**，不作为已验证事实报告：
+  · `SMOKE IDENTITY PASS: … version=2.0.0` runtime identity 行
+  · runtime applicationVersion（无 `--version` CLI，仓库已实读 flag 列表）
+  · --qml-production-write-check / --qml-focus-check / --qml-nav-check / --qml-geometry-check 的 exit code
+  · **最终 portable 上的 R12/R13 运行时证据**（构建树在 HEAD 60b8724 上已证明；portable exe 与该树 exe
+    字节完全相同，但「完全相同」不等于「已在 portable 上运行验证」——故不宣称）
+对照事实（不是替代证据）：canonical make_package 在同一会话内**对同一 binary** 成功运行了
+  minimal-PATH 的 smoke/nav/geometry 三个 gate（见 ZQ2），说明该 exe 本身可运行；
+  失败集中在「由本 Agent 直接 spawn」的路径上，且错误码在多次尝试间变化
+  （0xC0000142 → 0xC0000602），指向**本会话进程启动环境限制**，而非 artifact 缺陷。
+```
+
+### ZQ6. 回归引用（本轮零 source/test 改动）
+
+```text
+artifact source tree HEAD = 60b8724 的已接受证据：
+  Debug full CTest **36/36 PASS** · Release full CTest **36/36 PASS**
+  warnings **0 NEW / 5 PRE-EXISTING（src/main.cpp）**
+本轮未重复运行 CTest，因为本轮 **zero tracked source/test change**（porcelain 全程 empty）。
+```
+
+### ZQ7. Human Visual 与状态
+
+```text
+**M10-E4 Human Visual = WAITING FOR USER**（Agent 无显示环境，不自标 PASS）。
+交付对象：build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe
+  sha256 a6f981a9ae994ccbd3c128175143e5cee770946eb916684e23fb75d7b6402eee
+  3924554 B · 2026-09-22 21:09:14 · PE FileVersion/ProductVersion = 2.0.0（Raw 2.0.0.0）
+  artifact source HEAD = 60b8724
+未闭合项：① portable runtime identity 行 / applicationVersion 未捕获（本会话进程启动限制）；
+  ② 最终 portable 上的 production-write / focus / nav / geometry exit code 未捕获；
+  ③ Human Visual。
+状态：M10-E4 = **HOLD**；M10-E5 / M10-F = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD；
+  verified LKGC 保持 **9bdd99c**。
 ```
