@@ -57,9 +57,11 @@ bool SerialTransactionAdapter::openPort(const QString& portName, qint32 baudRate
     port_.setPortName(portName);
     port_.setBaudRate(baudRate);
     if (!port_.open(QIODevice::ReadWrite)) {
-        // Synchronous single report; the queued errorOccurred feedback that
-        // follows is suppressed by the PE-4 guard (bounded at exactly one
-        // user-visible emission — locked by SERIAL-I02).
+        // Synchronous single report. The queued errorOccurred delivery that
+        // follows is the SAME failure, already reported here, so the PE-4
+        // guard is armed now: exactly one user-visible emission per failed
+        // open (locked by SERIAL-I02).
+        suppressPortErrors_ = true;
         emit transportError(
             QStringLiteral("串口打开失败：%1").arg(port_.errorString()));
         return false;
@@ -238,6 +240,39 @@ void SerialTransactionAdapter::handleTimeout()
     // timer is stopped on completion, nothing to do here.
 }
 
+bool SerialTransactionAdapter::isFatalLocalPortFailure(
+    QSerialPort::SerialPortError error)
+{
+    switch (error) {
+    case QSerialPort::NoError:
+        // Not an error at all.
+        return false;
+    case QSerialPort::TimeoutError:
+        // Only the blocking waitFor*() calls produce this, and this adapter
+        // never makes one. A response timeout is decided by the session's own
+        // threshold callback, NOT by a QSerialPort error — so nothing here can
+        // legitimately mean "the device was removed".
+        return false;
+    case QSerialPort::NotOpenError:
+        // "The device is not open" describes an operation attempted on a
+        // closed handle. It states nothing about a port that WAS open, so it
+        // cannot prove a removal.
+        return false;
+    default:
+        // ResourceError / DeviceNotFoundError / PermissionError / ReadError /
+        // WriteError / OpenError / UnsupportedOperationError / UnknownError:
+        // the LOCAL port is no longer usable (device removed, handle invalid,
+        // or a real I/O failure). The connection is over.
+        return true;
+    }
+}
+
+void SerialTransactionAdapter::deliverPortErrorForTest(
+    QSerialPort::SerialPortError error)
+{
+    handlePortError(error);
+}
+
 void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError error)
 {
     using modbuslens::core::ActiveTransportTerminal;
@@ -247,9 +282,18 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
     if (error == QSerialPort::NoError || suppressPortErrors_) {
         return;
     }
-    // A failed/closed port keeps re-emitting DeviceNotFoundError: handle the
-    // fatal fact exactly once, then swallow the rest until the next start.
+    if (!isFatalLocalPortFailure(error)) {
+        // NOT a removal — see the classification. Tearing the port down on a
+        // timeout/not-open state would convert a transaction-level fact into a
+        // fabricated "device removed" claim, and would drop a healthy port.
+        return;
+    }
     suppressPortErrors_ = true;
+
+    // Capture the cause BEFORE the close: QSerialPort::close() resets the
+    // port's error, so reading errorString() afterwards would report "no
+    // error" instead of the reason the user needs to see.
+    const QString cause = port_.errorString();
 
     // Evidence FIRST, abort second: the port error is NOT a Modbus response,
     // so no TransactionAnalysis is fabricated — but a request that already
@@ -269,9 +313,9 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
     observedResponseBytes_.clear();
 
     if (wasSubmitted) {
-        // Terminal transport fact, then the existing error lane (bounded,
-        // presentation-only). The controller must never receive a second
-        // terminal for this request.
+        // Terminal transport fact: the frozen post-submission evidence
+        // semantics (taxonomy unchanged — a port failure is TransportError,
+        // and no Modbus outcome is invented for it).
         emit transactionTerminated(ActiveTransportTerminal{
             .request = *pending,
             .responseAdu = observed,
@@ -279,9 +323,15 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
             .reason = TransportTerminalReason::TransportError,
             .submissionAcceptedByteCount = std::nullopt,
         });
-        emit transportError(
-            QStringLiteral("串口错误：%1").arg(port_.errorString()));
     }
+    // M10-E4: the LOCAL port is gone. That is a user-visible CONNECTION fact
+    // whether or not a request was in flight — before this correction an idle
+    // removal closed the port SILENTLY and the owner kept presenting a
+    // connection that no longer existed (stale "已连接", enabled actions, and
+    // a confirmation snapshot outliving its session). The message names the
+    // LOCAL device only: a port failure never claims anything about a remote
+    // Modbus slave.
+    emit transportError(QStringLiteral("串口设备不可用：%1").arg(cause));
 }
 
 void SerialTransactionAdapter::cancelPending()

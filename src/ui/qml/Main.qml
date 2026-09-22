@@ -125,10 +125,16 @@ ApplicationWindow {
                     text: analysisController.sourceLabel
                     color: root.textSecondary
                 }
+                // M10-E4 Human Visual correction (serial state semantics):
+                // serialConnected is the LOCAL transport fact — the port is
+                // OPEN. Modbus RTU has no connection handshake, so an open
+                // port proves nothing about a remote slave, and the old "已连接"
+                // read as "the device is connected". The chip now states
+                // exactly what is known.
                 Label {
                     objectName: "sessionChipConnection"
                     visible: analysisController.serialConnected
-                    text: qsTr("· 已连接")
+                    text: qsTr("· 串口已打开")
                     color: DS.success
                 }
 

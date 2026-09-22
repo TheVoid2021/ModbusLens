@@ -4917,6 +4917,61 @@ public:
 
     void setCompleteReadImmediately(bool value) { completeReadImmediately_ = value; }
 
+    // End an accepted READ at its own response timeout — a silent remote
+    // slave. The shipped analyzer's session still decides the verdict (no
+    // bytes observed => Timeout); the harness only supplies the absence of
+    // data, and no write accounting is touched.
+    void completeReadWithTimeout()
+    {
+        if (!pending_.has_value()
+            || pending_->intent.function
+                != modbuslens::core::ActiveFunction::ReadHoldingRegisters) {
+            return;
+        }
+        modbuslens::core::SerialTransactionSession session;
+        const auto begin = session.beginActiveRequest(*pending_);
+        if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
+            return;
+        }
+        const auto result = session.onResponseTimeout(pending_->intent.timeout);
+        if (const auto *analysis =
+                std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
+            const auto finished = *pending_;
+            pending_.reset();
+            emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
+                .request = finished,
+                .responseAdu = {},
+                .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+                .analysis = *analysis,
+            });
+        }
+    }
+
+    // ---- M10-E4: fatal LOCAL adapter removal ----
+    // The USB serial adapter itself was unplugged. Same order and semantics as
+    // the production adapter's fatal-port-error branch: a SUBMITTED request
+    // gets exactly ONE terminal event (TransportError, the frozen taxonomy) with
+    // its retained evidence, the local port becomes CLOSED so the owner must
+    // re-sync, and the bounded error lane reports the removal in both cases.
+    // Harness-only stimulus — every verdict still comes from the shipped
+    // controller and evidence model.
+    void simulateAdapterRemoval(const QString& message)
+    {
+        if (pending_.has_value()) {
+            const auto terminal = modbuslens::core::ActiveTransportTerminal{
+                .request = *pending_,
+                .responseAdu = observed_,
+                .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+                .reason = modbuslens::core::TransportTerminalReason::TransportError,
+                .submissionAcceptedByteCount = std::nullopt,
+            };
+            pending_.reset();
+            emit transactionTerminated(terminal);
+        }
+        portOpen_ = false;
+        emit transportError(message);
+    }
+
     // Complete an accepted WRITE with no response at all: a real 0x06 Timeout
     // produced by the SHIPPED analyzer (its own session, the request's own
     // threshold), not a fabricated verdict.
@@ -7837,6 +7892,35 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto itemOf = [&roots](const QString &name) {
         return qobject_cast<QQuickItem *>(findNamedItem(roots, name));
     };
+    auto textOf = [&itemOf](const QString &name) {
+        auto *item = itemOf(name);
+        return item ? item->property("text").toString() : QStringLiteral("<none>");
+    };
+    auto boolOf = [&itemOf](const QString &name, const char *prop) {
+        auto *item = itemOf(name);
+        return item ? item->property(prop).toBool() : false;
+    };
+    // Every VISIBLE text in the item tree (R15). A wording oracle must judge
+    // what the user can actually read, not one known binding — that is exactly
+    // how the stale "已连接" claim survived the previous review.
+    auto visibleTextsIn = [](QQuickItem *rootItem) {
+        QStringList out;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            if (!item || !item->isVisible()) {
+                return;
+            }
+            const QVariant text = item->property("text");
+            if (text.isValid() && !text.toString().isEmpty()) {
+                out << text.toString();
+            }
+            const auto kids = item->childItems();
+            for (auto *kid : kids) {
+                walk(kid);
+            }
+        };
+        walk(rootItem);
+        return out;
+    };
     auto section = [&itemOf]() { return itemOf(QStringLiteral("writeFoundationSection")); };
     auto setDraft = [&section](const char *prop, const QVariant &value) {
         if (auto *item = section())
@@ -9288,6 +9372,164 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
     });
 
+    // ---- R15: LOCAL serial port state semantics (M10-E4) ----
+    // serialConnected is the LOCAL transport fact — the port is OPEN. Modbus
+    // RTU has no connection handshake, so an open port proves nothing about a
+    // remote slave, and an adapter that disappears must take the port state
+    // down with it. Three states, three different truths.
+    push([&]() {
+        // A. Port open, no remote slave: the LOCAL fact is true and the UI must
+        //    say exactly that — never a bare "已连接".
+        if (!controller->serialConnected())
+            fail(QStringLiteral("PRODWRITEFAIL R15: no open local serial port to "
+                                "start from"));
+        auto *stateItem = itemOf(QStringLiteral("communicationSerialState"));
+        auto *chip = itemOf(QStringLiteral("sessionChipConnection"));
+        if (!stateItem || !chip)
+            fail(QStringLiteral("PRODWRITEFAIL R15: a serial-state presentation is "
+                                "missing (state=%1 chip=%2)")
+                     .arg(stateItem != nullptr ? 1 : 0)
+                     .arg(chip != nullptr ? 1 : 0));
+        else {
+            if (textOf(QStringLiteral("communicationSerialState"))
+                != QStringLiteral("串口已打开"))
+                fail(QStringLiteral("PRODWRITEFAIL R15: the connection section "
+                                    "must state 串口已打开, read [%1]")
+                         .arg(textOf(QStringLiteral("communicationSerialState"))));
+            if (!chip->isVisible()
+                || !chip->property("text").toString().contains(
+                    QStringLiteral("串口已打开")))
+                fail(QStringLiteral("PRODWRITEFAIL R15: the session chip must read "
+                                    "串口已打开, visible=%1 text=[%2]")
+                         .arg(chip->isVisible() ? 1 : 0)
+                         .arg(chip->property("text").toString()));
+        }
+        // The exact claim the correction removed: no VISIBLE text anywhere may
+        // present the local port as a plain connection.
+        const QStringList texts = visibleTextsIn(window->contentItem());
+        for (const auto &text : texts) {
+            if (text.contains(QStringLiteral("已连接")))
+                fail(QStringLiteral("PRODWRITEFAIL R15: the UI still claims "
+                                    "\"已连接\": [%1]").arg(text));
+        }
+        // Read and Write are ACTIONS on an open port: a remote slave that has
+        // not answered yet must not disable them.
+        if (!boolOf(QStringLiteral("commReadButton"), "enabled"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: Read is disabled on an OPEN "
+                                "port"));
+        if (!boolOf(QStringLiteral("writeActivateButton"), "enabled"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: Write is disabled on an OPEN "
+                                "port"));
+        note(QStringLiteral("PRODWRITE [R15]: open port without a remote slave -> "
+                            "serialConnected=1, UI says 串口已打开, no \"已连接\" "
+                            "claim anywhere, Read/Write enabled"));
+    });
+    push([&]() {
+        // B. The remote slave says NOTHING: that is a transaction-level Timeout,
+        //    not a lost connection.
+        const int timeoutsBefore = controller->timeoutCount();
+        transport->setCompleteReadImmediately(false);
+        clickNamed(QStringLiteral("commReadButton"));
+        transport->completeReadWithTimeout();
+        transport->setCompleteReadImmediately(true);
+        if (controller->timeoutCount() != timeoutsBefore + 1)
+            fail(QStringLiteral("PRODWRITEFAIL R15: silent slave produced %1 "
+                                "timeouts, expected exactly one more")
+                     .arg(controller->timeoutCount() - timeoutsBefore));
+        if (!controller->serialConnected())
+            fail(QStringLiteral("PRODWRITEFAIL R15: a response timeout closed the "
+                                "local port"));
+        if (textOf(QStringLiteral("communicationSerialState"))
+            != QStringLiteral("串口已打开"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: a response timeout changed the "
+                                "port wording to [%1]")
+                     .arg(textOf(QStringLiteral("communicationSerialState"))));
+        if (controller->hasSerialError())
+            fail(QStringLiteral("PRODWRITEFAIL R15: a response timeout raised a "
+                                "transport error"));
+        if (!boolOf(QStringLiteral("commReadButton"), "enabled")
+            || !boolOf(QStringLiteral("writeActivateButton"), "enabled"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: a response timeout disabled "
+                                "Read/Write"));
+        note(QStringLiteral("PRODWRITE [R15]: silent slave -> exactly one Timeout; "
+                            "local port still OPEN (串口已打开), Read/Write still "
+                            "enabled, no transport error"));
+    });
+    push([&]() {
+        // C. The USB adapter ITSELF is removed. The local port is gone, so every
+        //    local-state presentation must follow — and nothing may be claimed
+        //    about the remote device.
+        if (!controller->prepareWrite06Draft(120, QStringLiteral("21"),
+                                             QStringLiteral("7"), 1000))
+            fail(QStringLiteral("PRODWRITEFAIL R15: the confirmation snapshot "
+                                "could not be prepared"));
+        if (stateToken() != QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: state=%1, expected prepared")
+                     .arg(stateToken()));
+        const qreal heightBefore = window->height();
+        transport->simulateAdapterRemoval(
+            QStringLiteral("串口设备不可用：USB 适配器已移除（测试夹具）"));
+
+        if (controller->serialConnected())
+            fail(QStringLiteral("PRODWRITEFAIL R15: the local connection survived "
+                                "the adapter removal"));
+        if (!controller->hasSerialError())
+            fail(QStringLiteral("PRODWRITEFAIL R15: the removal raised no error"));
+        if (textOf(QStringLiteral("communicationSerialState"))
+            != QStringLiteral("串口未打开"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: the section must read 串口未打开, "
+                                "read [%1]")
+                     .arg(textOf(QStringLiteral("communicationSerialState"))));
+        auto *chip = itemOf(QStringLiteral("sessionChipConnection"));
+        if (chip && chip->isVisible())
+            fail(QStringLiteral("PRODWRITEFAIL R15: the session chip still shows a "
+                                "connection after the removal"));
+        if (boolOf(QStringLiteral("commReadButton"), "enabled"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: Read is enabled with no local "
+                                "port"));
+        if (boolOf(QStringLiteral("writeActivateButton"), "enabled"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: Write is enabled with no local "
+                                "port"));
+        // The confirmation was captured for a session that no longer exists.
+        if (controller->preparedWriteStateToken() != QStringLiteral("invalidated")
+            || controller->preparedWriteInvalidReasonToken()
+                   != QStringLiteral("disconnected"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: the prepared snapshot survived "
+                                "the removal (state=%1 reason=%2)")
+                     .arg(controller->preparedWriteStateToken())
+                     .arg(controller->preparedWriteInvalidReasonToken()));
+        if (window->height() != heightBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R15: the removal resized the window "
+                                "(%1 -> %2)")
+                     .arg(heightBefore)
+                     .arg(window->height()));
+        note(QStringLiteral("PRODWRITE [R15]: adapter removal -> serialConnected "
+                            "1->0, 串口未打开, chip gone, Read/Write disabled, "
+                            "prepared snapshot invalidated(disconnected)"));
+    });
+    push([&]() {
+        // D. Reconnect: the OLD confirmation must not come back to life.
+        controller->connectSerial(QStringLiteral("COM_HARNESS"), 9600);
+        if (!controller->serialConnected())
+            fail(QStringLiteral("PRODWRITEFAIL R15: the reconnect did not restore "
+                                "the local connection"));
+        if (textOf(QStringLiteral("communicationSerialState"))
+            != QStringLiteral("串口已打开"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: after reconnect the section "
+                                "reads [%1]")
+                     .arg(textOf(QStringLiteral("communicationSerialState"))));
+        if (controller->preparedWriteStateToken() == QStringLiteral("prepared"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: the pre-removal confirmation "
+                                "revived after reconnect"));
+        if (!boolOf(QStringLiteral("commReadButton"), "enabled")
+            || !boolOf(QStringLiteral("writeActivateButton"), "enabled"))
+            fail(QStringLiteral("PRODWRITEFAIL R15: Read/Write did not come back "
+                                "with the local port"));
+        note(QStringLiteral("PRODWRITE [R15]: reconnect -> 串口已打开, Read/Write "
+                            "enabled again, and the pre-removal confirmation did "
+                            "NOT revive"));
+    });
+
     auto step = std::make_shared<int>(0);
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, step, schedule]() {
@@ -9314,7 +9556,14 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "1024x720 + 1000x700 geometry; M1-M6 PRODUCTION modal "
                            "safety: outside press ignored, rail blocked, "
                            "background Write blocked, 8 Tabs stay in the modal "
-                           "scope, Cancel/Confirm accessible names)";
+                           "scope, Cancel/Confirm accessible names; R1-R14 "
+                           "FC16/replay/capability/connection-placement oracles; "
+                           "R15 LOCAL serial port state semantics: open port is "
+                           "not a device-online claim (say 串口已打开, never a bare "
+                           "已连接), a silent slave stays a Timeout, and a removed "
+                           "USB adapter takes the port state down "
+                           "(串口未打开 / Read+Write disabled / prepared snapshot "
+                           "invalidated, no revival after reconnect))";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "PRODWRITEFAIL:" << f;

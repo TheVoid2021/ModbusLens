@@ -493,7 +493,12 @@ Item {
                     text: String(section.analysisController.preparedWriteQuantity)
                     color: DS.textPrimary
                 }
-                Label { text: qsTr("连接"); color: DS.textMuted; font.pixelSize: DS.fontCaption }
+                // M10-E4 Human Visual correction: the field holds the LOCAL
+                // serial port label ("COM3 @ 9600") taken from the immutable
+                // prepared snapshot — no re-derivation here. Labelled "串口"
+                // rather than "连接" because "连接" reads as a completed
+                // remote-device connection, which this value cannot prove.
+                Label { text: qsTr("串口"); color: DS.textMuted; font.pixelSize: DS.fontCaption }
                 Label {
                     objectName: "writeSummaryConnection"
                     text: section.analysisController.preparedWriteConnectionLabel

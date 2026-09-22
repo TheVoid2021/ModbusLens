@@ -121,6 +121,15 @@ private slots:
     void s09_serialErrorRecovery();
     // UI-S10 (P1): stale completion without pending metadata is ignored.
     void s10_staleCompletionGuard();
+    // UI-S11 (M10-E4): an OPEN local port is not a claim about a remote slave;
+    // a silent slave must stay a Timeout.
+    void s11_openPortIsNotDeviceOnline();
+    // UI-S12 (M10-E4, hot-unplug): a removed USB adapter takes the LOCAL
+    // connection state down with it, and fabricates no Modbus outcome.
+    void s12_adapterRemovalClearsLocalConnectionState();
+    // UI-S13 (M10-E4): a removed adapter invalidates a prepared confirmation,
+    // and the old token never revives after reconnect.
+    void s13_adapterRemovalInvalidatesPreparedWrite();
 
     // ---- M10-B: source boundaries around the Active Serial history ----
     // B10: switching to Simulator replaces the visible set (no Active rows).
@@ -945,6 +954,87 @@ void UiBridgeTest::s10_staleCompletionGuard()
     QCOMPARE(controller.observedCount(), observedBefore);
     QCOMPARE(controller.modeLabel(), QStringLiteral("模拟器模式"));
     QCOMPARE(controller.sourceLabel(), QStringLiteral("确定性演示"));
+}
+
+// ---- M10-E4: LOCAL serial port state semantics ----
+
+void UiBridgeTest::s11_openPortIsNotDeviceOnline()
+{
+    // An OPEN port with a silent remote: Modbus RTU has no connection
+    // handshake, so serialConnected means "the LOCAL port is open" and must
+    // stay true while the slave says nothing.
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    QVERIFY(controller.serialConnected());
+
+    f.request(9); // no slave exists for unit 9 in this fixture
+    QVERIFY(controller.serialBusy());
+    f.completeWithTimeout(1000);
+
+    QCOMPARE(controller.timeoutCount(), 1);
+    // Silence is a TRANSACTION fact: no transport error, no port teardown.
+    QVERIFY(!controller.hasSerialError());
+    QVERIFY(controller.serialErrorMessage().isEmpty());
+    QVERIFY(controller.serialConnected());
+    QVERIFY(!controller.serialBusy());
+    QCOMPARE(controller.modeLabel(), QStringLiteral("串口模式"));
+    QCOMPARE(controller.sourceLabel(), QStringLiteral("COM_TEST @ 9600"));
+}
+
+void UiBridgeTest::s12_adapterRemovalClearsLocalConnectionState()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1);
+    f.completeWith(goodFc03Response());
+    QVERIFY(controller.serialConnected());
+    QVERIFY(!controller.hasSerialError());
+    const int recordsBefore = controller.activeSerialRecordCount();
+    const int terminalsBefore = controller.activeSerialTerminalCount();
+
+    // The USB serial adapter ITSELF is removed while the session is idle: the
+    // local port is gone, so the connection state must follow it — and the
+    // remote-device rows are NOT reinterpreted (an adapter removal is not a
+    // Modbus outcome).
+    f.transport.simulateAdapterRemoval(QStringLiteral("串口设备不可用：适配器已移除"));
+
+    QVERIFY(!controller.serialConnected());
+    QVERIFY(!controller.serialBusy());
+    QVERIFY(controller.hasSerialError());
+    QVERIFY(controller.serialErrorMessage().contains(QStringLiteral("适配器已移除")));
+    QCOMPARE(controller.activeSerialRecordCount(), recordsBefore);
+    QCOMPARE(controller.activeSerialTerminalCount(), terminalsBefore);
+    QCOMPARE(controller.observedCount(), 1);
+
+    // A read attempt now hits the existing "not connected" guard and sends
+    // nothing (the port is really closed — isPortOpen() is the authority).
+    f.request(1);
+    QCOMPARE(f.transport.startAttemptCount(), 1);
+}
+
+void UiBridgeTest::s13_adapterRemovalInvalidatesPreparedWrite()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    QVERIFY(controller.prepareWrite06(7, 100, 5, 1000));
+    QCOMPARE(controller.preparedWriteStateToken(), QStringLiteral("prepared"));
+    const qulonglong token = controller.preparedWriteTokenValue();
+    QVERIFY(token != 0);
+
+    f.transport.simulateAdapterRemoval(QStringLiteral("串口设备不可用：适配器已移除"));
+
+    // The confirmation was captured for a session that no longer exists.
+    QCOMPARE(controller.preparedWriteStateToken(), QStringLiteral("invalidated"));
+    QCOMPARE(controller.preparedWriteInvalidReasonToken(),
+             QStringLiteral("disconnected"));
+
+    // Reconnecting creates a NEW session: the old token must not revive, and
+    // it must not be usable.
+    controller.connectSerial(QStringLiteral("COM_TEST_2"), 9600);
+    QVERIFY(controller.serialConnected());
+    QVERIFY(controller.preparedWriteStateToken() != QStringLiteral("prepared"));
+    QVERIFY(!controller.confirmPreparedWriteToken(token));
+    QCOMPARE(controller.activeSerialRecordCount(), 0);
 }
 
 // ---- T011 Part A test implementations ----

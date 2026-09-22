@@ -54,6 +54,37 @@ public:
     [[nodiscard]] bool hasActiveTransaction() const override;
     [[nodiscard]] bool isPortOpen() const override;
 
+    // ---- Fatal local port failure (M10-E4) ----
+    //
+    // A QSerialPort error is a FATAL LOCAL PORT FAILURE when the LOCAL port
+    // itself disappeared or became unusable (the USB serial adapter was
+    // unplugged, the handle went invalid) — as opposed to a transaction-level
+    // failure, and as opposed to remote-slave silence. The distinction is a
+    // frozen product rule, because the three are NOT the same event:
+    //   NoError       -> not an error at all;
+    //   TimeoutError  -> NOT a removal. QSerialPort emits it only from the
+    //                    blocking waitFor*() calls this adapter never uses, so
+    //                    it cannot be a response timeout either; presenting
+    //                    silence as an unplug would be a fabricated claim;
+    //   NotOpenError  -> NOT a removal. "The device is not open" is a STATE
+    //                    statement about an operation on a closed handle, not
+    //                    evidence that a live port vanished;
+    //   everything else (ResourceError, DeviceNotFoundError, PermissionError,
+    //                    ReadError, WriteError, OpenError,
+    //                    UnsupportedOperationError, UnknownError) -> the local
+    //                    port is no longer usable, so the session must end and
+    //                    the owner must be told.
+    [[nodiscard]] static bool isFatalLocalPortFailure(
+        QSerialPort::SerialPortError error);
+
+    // Test seam: QSerialPort::errorOccurred cannot be manufactured without a
+    // real device disappearing, so a deterministic test must be able to
+    // deliver the EXACT event the Qt slot receives. This forwards to the same
+    // handler the signal is connected to — same classification, same teardown,
+    // same terminal evidence, same bounded error lane. Product code never
+    // calls it, and it adds no second path: it IS the slot body.
+    void deliverPortErrorForTest(QSerialPort::SerialPortError error);
+
 public slots:
     void closePort() override;
 
@@ -75,7 +106,10 @@ private:
     std::vector<std::uint8_t> observedResponseBytes_;
     // Breaks the errorOccurred feedback loop (see T010 archive PE-4): closing
     // an already-failed port re-emits DeviceNotFoundError forever, so once a
-    // fatal error is handled, further emissions are ignored until the next
-    // openPort/start attempt.
+    // failure is handled further emissions are ignored until the next
+    // openPort/start attempt. M10-E4: the failed-open branch arms this too,
+    // because the queued errorOccurred that follows it is the SAME failure
+    // already reported synchronously — the user-visible emission stays exactly
+    // one per failure event (SERIAL-I02).
     bool suppressPortErrors_ = false;
 };

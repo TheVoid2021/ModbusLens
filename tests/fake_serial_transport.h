@@ -80,6 +80,15 @@ public:
     // (DisconnectedAfterSubmission). Without a pending request it is silent,
     // exactly like the production adapter.
     void disconnectAfterSubmission();
+    // Fatal LOCAL adapter removal (M10-E4): the USB serial adapter itself was
+    // unplugged. Mirrors the production adapter's fatal-port-error branch: with
+    // a SUBMITTED request one terminal event (TransportError) carries the
+    // retained evidence, the port then becomes CLOSED (isPortOpen() false) so
+    // the owner must re-sync its connection state, and the bounded error lane
+    // is emitted in BOTH cases — a removal is user-visible whether or not a
+    // request was in flight. Distinct from disconnectAfterSubmission, which is
+    // an INTENTIONAL close and therefore never reports an error.
+    void simulateAdapterRemoval(const QString& message);
 
     // ---- SerialTransport implementation ----
     bool openPort(const QString& portName, qint32 baudRate) override;

@@ -64,6 +64,18 @@ private slots:
     // SERIAL-I05 (P1): startTransaction without an open port fails with a
     // single transport error and never creates a transaction.
     void i05_startWithoutOpenPort();
+    // SERIAL-I06 (M10-E4): the fatal-local-port-failure classification table.
+    // A response Timeout and a not-open state are NOT removals; the real I/O /
+    // device / permission errors are.
+    void i06_portErrorClassification();
+    // SERIAL-I07 (M10-E4, hot-unplug): a fatal LOCAL port failure is reported
+    // on the bounded error lane even with NOTHING in flight. Before the
+    // correction an idle removal closed the port silently and the owner kept
+    // presenting a connection that no longer existed.
+    void i07_idleFatalPortErrorIsReported();
+    // SERIAL-I08 (M10-E4): a TimeoutError / NotOpenError must never be turned
+    // into a removal — no error, no fabricated disconnect.
+    void i08_silenceIsNotARemoval();
 };
 
 void SerialAdapterTest::i01_invalidPortOpen()
@@ -108,6 +120,14 @@ void SerialAdapterTest::i02_failedOpenErrorIsBounded()
     QCOMPARE(spy.count(), 1);           // exactly one user-visible error
     QVERIFY(!adapter.isPortOpen());
     QVERIFY(!adapter.hasActiveTransaction());
+
+    // M10-E4: the failed open already reported this failure, so a later fatal
+    // port event cannot add a SECOND user-visible error for it. There is no
+    // open port left, hence nothing that could be "removed".
+    adapter.deliverPortErrorForTest(QSerialPort::ResourceError);
+    QCoreApplication::processEvents();
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(!adapter.isPortOpen());
 }
 
 void SerialAdapterTest::i03_intentionalCloseIsSilent()
@@ -158,6 +178,83 @@ void SerialAdapterTest::i05_startWithoutOpenPort()
     QVERIFY(!adapter.hasActiveTransaction());
     QVERIFY(!adapter.isPortOpen());
     QVERIFY(!completed);
+}
+
+void SerialAdapterTest::i06_portErrorClassification()
+{
+    using Adapter = SerialTransactionAdapter;
+
+    // Fatal local port failures: the LOCAL port itself is gone/unusable.
+    for (const auto error : {QSerialPort::ResourceError,
+                             QSerialPort::DeviceNotFoundError,
+                             QSerialPort::PermissionError,
+                             QSerialPort::ReadError,
+                             QSerialPort::WriteError,
+                             QSerialPort::OpenError,
+                             QSerialPort::UnsupportedOperationError,
+                             QSerialPort::UnknownError}) {
+        QVERIFY2(Adapter::isFatalLocalPortFailure(error),
+                 qPrintable(QStringLiteral("error %1 must be fatal")
+                                .arg(static_cast<int>(error))));
+    }
+
+    // NOT removals, and each for a different reason:
+    //   NoError      -> not an error at all;
+    //   TimeoutError -> this adapter never calls waitFor*(), and a response
+    //                   timeout is decided by the session threshold callback,
+    //                   so silence must never be presented as an unplug;
+    //   NotOpenError -> a state statement about a closed handle.
+    for (const auto error : {QSerialPort::NoError,
+                             QSerialPort::TimeoutError,
+                             QSerialPort::NotOpenError}) {
+        QVERIFY2(!Adapter::isFatalLocalPortFailure(error),
+                 qPrintable(QStringLiteral("error %1 must NOT be fatal")
+                                .arg(static_cast<int>(error))));
+    }
+}
+
+void SerialAdapterTest::i07_idleFatalPortErrorIsReported()
+{
+    // HOT-UNPLUG with nothing in flight. QSerialPort::errorOccurred cannot be
+    // produced without a real device disappearing, so the exact event the Qt
+    // slot receives is delivered through the same handler the signal is bound
+    // to — identical classification, teardown, evidence and error lane.
+    SerialTransactionAdapter adapter;
+    QSignalSpy errorSpy(&adapter, &SerialTransactionAdapter::transportError);
+    QSignalSpy terminalSpy(&adapter, &SerialTransactionAdapter::transactionTerminated);
+    QSignalSpy completedSpy(&adapter, &SerialTransactionAdapter::transactionCompleted);
+
+    adapter.deliverPortErrorForTest(QSerialPort::ResourceError);
+
+    QCOMPARE(errorSpy.count(), 1);        // the removal IS user-visible
+    QVERIFY(!errorSpy.at(0).at(0).toString().isEmpty());
+    QCOMPARE(terminalSpy.count(), 0);     // nothing was submitted -> no terminal
+    QCOMPARE(completedSpy.count(), 0);    // and above all no Modbus outcome
+    QVERIFY(!adapter.isPortOpen());
+    QVERIFY(!adapter.hasActiveTransaction());
+
+    // Bounded: the same removal is never reported twice, no matter how many
+    // further emissions a failed/closed port produces (T010 PE-4 guard).
+    adapter.deliverPortErrorForTest(QSerialPort::ResourceError);
+    QCoreApplication::processEvents();
+    QCOMPARE(errorSpy.count(), 1);
+}
+
+void SerialAdapterTest::i08_silenceIsNotARemoval()
+{
+    // A remote slave that says nothing is NOT a disconnected adapter: neither
+    // a TimeoutError nor a not-open state may manufacture a removal.
+    SerialTransactionAdapter adapter;
+    QSignalSpy errorSpy(&adapter, &SerialTransactionAdapter::transportError);
+    QSignalSpy terminalSpy(&adapter, &SerialTransactionAdapter::transactionTerminated);
+
+    adapter.deliverPortErrorForTest(QSerialPort::TimeoutError);
+    adapter.deliverPortErrorForTest(QSerialPort::NotOpenError);
+    adapter.deliverPortErrorForTest(QSerialPort::NoError);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(errorSpy.count(), 0);
+    QCOMPARE(terminalSpy.count(), 0);
 }
 
 QTEST_GUILESS_MAIN(SerialAdapterTest)

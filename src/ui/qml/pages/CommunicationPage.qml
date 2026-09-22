@@ -155,6 +155,19 @@ Item {
                 Item {
                     Layout.fillWidth: true
                 }
+                // M10-E4 Human Visual correction (serial state semantics): the
+                // LOCAL transport fact, stated in words. `serialConnected` means
+                // the serial PORT is open — Modbus RTU has no connection
+                // handshake, so it can never mean "the remote device is
+                // connected". Same single authority as the rest of the page;
+                // this label adds presentation, not a second truth.
+                Label {
+                    objectName: "communicationSerialState"
+                    text: page.analysisController.serialConnected
+                          ? qsTr("串口已打开") : qsTr("串口未打开")
+                    color: page.analysisController.serialConnected
+                           ? DS.success : DS.textSecondary
+                }
             }
 
             // M10-E4 Human Visual correction: a CONNECTION/open failure belongs
@@ -223,6 +236,7 @@ Item {
                     enabled: !page.analysisController.serialBusy
                 }
                 Button {
+                    objectName: "commReadButton"
                     text: page.analysisController.serialBusy
                           ? qsTr("读取中...") : qsTr("读取保持寄存器")
                     enabled: page.analysisController.serialConnected

@@ -253,3 +253,14 @@ void RecordingSerialTransport::disconnectAfterSubmission()
     emitTerminalIfSubmitted(modbuslens::core::TransportTerminalReason::
                                 DisconnectedAfterSubmission);
 }
+
+void RecordingSerialTransport::simulateAdapterRemoval(const QString& message)
+{
+    // Fatal local removal: evidence first, then the closed port, then the
+    // bounded error lane — the production adapter's order, so the controller
+    // sees exactly the same event sequence.
+    emitTerminalIfSubmitted(
+        modbuslens::core::TransportTerminalReason::TransportError);
+    portOpen_ = false;
+    emit transportError(message);
+}
