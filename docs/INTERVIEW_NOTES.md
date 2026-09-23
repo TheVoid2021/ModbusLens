@@ -1034,7 +1034,7 @@
   另：本轮打开后零 I/O，**不能**据此排除“下一次 read/write 才暴露错误”的路径。
 - **Q：日志里 `errorOccurred enum=NoError(0)` 是什么？** A：Qt 在**打开流程内**发出的**良性状态通知**
   （分类表把 `NoError` 定义为"不是错误"，`handlePortError` 首行即忽略；
-  打开成功后的 `errorString=[Unknown error]` 只是 NoError 的字符串投影）。
+  evidence-safe 表述：open succeeded、无非 NoError/fatal 错误事件；打开后 `errorString` 字面为 "Unknown error"，该读数本身不构成 open 失败的证据。
   已知探针口径瑕疵：它被计入 `errorEvents` / `errorOccurredFired`，已入 BACKLOG 追踪；
   正确读法：`errorOccurred` **触发 1 次但携带 `NoError(0)`** ⇒ **没有 fatal / non-NoError 错误事件**，
   仅一次良性通知。

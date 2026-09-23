@@ -9674,8 +9674,7 @@ SERIAL-HOTPLUG VERDICT errorOccurredFired=yes enum=NoError errorLatency=+0.000s 
    错误串 = `No error`。这是 Qt 在**打开流程内**发出的**良性状态通知**，不是失败事实：
    本仓库两处实现都已正确处理——分类表把 NoError 明确定义为「不是 fatal 本地故障」，
    handlePortError() 首行即 `if (error == QSerialPort::NoError || suppressPortErrors_) return;`。
-   同一个端口在 t=+0.064s 打开成功后的 `errorString=[Unknown error]` 亦为 NoError 状态的字符串投影
-   （Qt 对 NoError 返回 "Unknown error"），**不是缺陷**。
+   evidence-safe 表述：**open succeeded**；**没有观察到 non-NoError / fatal 本地错误事件**；打开后读到的 `errorString` 字面为 "Unknown error"，**这一读数本身不构成 open 失败的证据**（本次未做 Qt `errorString()` 与 `error()` 枚举对应关系的源码/API 验证）。
 2. t=+0.064s COM5 @ 9600 打开成功（isOpen=1）；30 s 内 **119 次 poll**；结束时 isOpen=1、enumerated=1。
 3. **本轮没有观察到端口从 availablePorts 消失**：firstAbsentAt=n/a、availablePortsDropped=no。
    （poll 行只在 isOpen/enumerated/端口总数**发生变化**时写出；全程仅 1 行 ⇒ 在有观测的约 29.6 s 内三者一直未变。）
@@ -9719,4 +9718,56 @@ REAL MODBUS HARDWARE = NOT VERIFIED（本轮未连接任何 PLC / slave；远端
   真实串口硬件在自动化环境不可得，故该探针正是「文档化的人工真机仪器」，**不注册进 ctest**、也不进产品 UI。
   本轮已把它的用途、参数与读数口径写入 docs/04_TEST_STRATEGY.md（§3 Serial / §4）。
 · 生成物不入库：serial-hotplug-probe.log / deploy 树 / build 树仍按仓库规则被 .gitignore 排除（未纳入版本控制）。
+```
+
+## M10-E4 Final Closure — Human Visual Re-review = PASS（2026-09-23）
+
+> 本轮为 **final closure（docs-only）**：零产品 / 零测试 / 零 harness 行为改动。
+> artifact source 仍为 `4b75db7`；本轮**不产生新二进制**。
+
+### ZX1. 人工验收结果与绑定
+
+```text
+Human Visual Re-review = **PASS**（人工给出）
+被验收 artifact = **D** = build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe
+  SHA-256 = d5a49582cc2033ce39a0ab2f727222ec57bacf768cceb795f5a237d112b11e87
+  size    = 4 019 721 B
+  runtime version = 2.0.0（--qml-smoke-test identity 行实测）
+
+该 artifact **正是**上一轮完成四路 identity 与五个 portable runtime gate 的**同一字节文件**：
+  A == B == C == D = PASS（同一 SHA-256）
+  portable runtime gates = 5/5 PASS（在同一文件上运行）
+⇒ 本次人工视觉验收**不针对** IDE build、`build/release` 副本、旧 portable 或任何其他目录副本。
+```
+
+### ZX2. M10-E4 闭合状态
+
+```text
+M10-E4 = ✅ CLOSED
+  行为链：8812c22（串口本地状态语义 / 措辞）→ 4b75db7（真实热拔检测 / presence watch / 探针）
+  docs 归档链：ff14521 → c033e64（探针实机 PASS）→ 2369ec2（证据边界收紧）→ 本轮 closure commit
+  自动化：Debug / Release full CTest 36/36 · QML 门禁各 6/6 · freshness PASS ·
+          canonical make_package PASS · 四路 executable identity PASS · portable 5/5 PASS
+  人工  ：SERIAL-HOTPLUG 探针实机验收 PASS（§ZW）· Final Human Visual Re-review PASS（本 §ZX）
+  遗留边界（不阻塞闭合，已如实保留）：
+    · 真实拔线的**端到端**实机链路仍未被实机观察（probe 本轮 availablePortsDropped=no / firstAbsentAt=n/a）；
+      该链路的软件侧证据 = i09–i13（观测边界 seam）+ R15-C / R16（harness 传输），均为
+      **automated harness evidence**，不是真实 USB-RS485 物理拔线证据。
+    · REAL MODBUS HARDWARE = NOT VERIFIED。
+  探针 `--serial-hotplug-probe` 保留为**文档化人工真机仪器**（04_TEST_STRATEGY §3 / §4），
+  后续任何一轮可用同一 deploy / package-extract 树补做实机拔线复验。
+```
+
+### ZX3. 证据边界一致性（本轮再次核对）
+
+```text
+A. ioPerformedAfterOpen=0 ⇒ 仅说明 open 后没有额外 I/O；「只有下一次 read/write 才暴露错误」
+   本轮既未验证、也未排除。 ✅ 文档已按此表述
+B. errorOccurred：确实触发 1 次（enum=NoError(0)、t=+0.000s、isOpen=0）；
+   **没有 non-NoError / fatal 本地错误事件**。 ✅ 未写成笼统的 “no error event”
+C. `errorString=[Unknown error]`：按证据边界收紧为 —— **open succeeded**；
+   没有观察到 non-NoError / fatal 本地错误事件；该字面读数**本身不构成 open 失败的证据**
+   （未做 Qt `errorString()` ↔ `error()` 枚举对应关系的源码 / API 验证）。 ✅ 本轮已修正
+D. R15 / R16：始终标注为 **automated harness evidence**（观测边界 seam + harness 传输），
+   **不得**写成真实 USB-RS485 物理拔线证据；真实 removal 在那次 probe 中未被观察到。 ✅ 已核对
 ```
