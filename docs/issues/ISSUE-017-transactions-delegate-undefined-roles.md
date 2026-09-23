@@ -136,3 +136,24 @@ set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check
    绑定的同一个控制器方法**。分类要靠**调用路径**，不能靠「谁先发现」。
 3. **一次 reset 只出一块诊断**这种"数量特征"是很好的机制指纹 —— 它把范围直接锁定到
    「每个被销毁的 delegate 再求值一次」，而不是逐行/逐字段的数据问题。
+
+---
+
+## 追加批注（2026-09-23，建档重复说明 —— 只增不改）
+
+**本文档与既有的 `ISSUE-014-transactions-delegate-reset-binding-warnings.md` 记录的是同一个现象。**
+
+- `ISSUE-014`（更早，提交 `0d5c219`，M10-C3 时期）已经完整记录了同一组告警（271–277 + 344 + 349/379），
+  根因描述一致（Qt Quick model reset 期间 delegate 按无效 index 再求值），
+  当时的处置是 **「本轮不修」+ 分类 PRE-EXISTING NON-BLOCKING**，
+  并建议「在未来的 warning hygiene / UI robustness 任务中统一处理（给 delegate 绑定加 `?? 0` / `?? ""`）」。
+- 本轮（M10-F pre-package acceptance cleanup）在**未检索既有 Issue** 的情况下重复建档，
+  并按 `ISSUE-014` 已建议的方式实施了修复（delegate 根 `id` + 7 个容错 readonly 属性 + 表现层统一读取）。
+  **修复本身有效且已验证**（六模式 0 条诊断、Release/Debug 各 36/36），但本文档应视为
+  **对 `ISSUE-014` 的执行闭环**，而不是一个全新的问题。
+- **后续文档整理建议**（不由本轮擅自合并，遵循只增不改）：
+  把 `ISSUE-014` 的状态更新为「已在 M10-F cleanup 轮修复，见 `ISSUE-017`」，
+  或把两者合并为一份；保留本文档亦可，但必须在两处互相引用以避免继续分叉。
+- **教训**：建档前应先按关键字（错误文本/文件名/objectName）检索 `docs/issues/`，
+  而不是只凭「本轮首次观察到」就认定为新问题。本轮的两处观测
+  （`--qml-write-foundation-check` 的 TransactionsPage 告警）在 `ISSUE-014` 的「复现步骤」里被逐字写明。

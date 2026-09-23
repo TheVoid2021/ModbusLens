@@ -11093,3 +11093,126 @@ M11 = HOLD（未开始）
 下一动作 = **HUMAN native PowerShell** → safe retention → freshness → canonical make_package
             → A/B/C/D identity → NEW D portable gates → fresh Human #10/#11
 ```
+
+---
+
+## ZMK. M10-F 1000x700 写区几何回归修复（真实 windows QPA）（2026-09-23，behavior-bearing）
+
+> 触发：M10-F final portable verification 中，NEW D 在**真实 Windows 平台**
+> （`QT_QPA_PLATFORM=windows`）下 `--qml-write-foundation-check` = **rc=1**：
+> `C4 geometry 1000x700 0x10: writeFoundationPanel is clipped by the window`。
+> 建档：**`ISSUE-018-write-panel-clipped-windows-1000x700.md`**（完整证据与量化）。
+
+### ZMK1. 失败与精确几何（修复前，windows QPA / 1000x700）
+
+```text
+WRITEFAIL C4 geometry 1000x700 0x10: writeFoundationPanel is clipped by the window (scene 73,395 911x319 vs window 1000x700)
+WRITEFAIL C4 geometry 1000x700 0x10: the validation message is clipped by the window
+
+communicationContentLayout  (73, 57) 911x627   ← 可用 627
+  communicationRequestSection    (73,213)  911x138
+  writeFoundationSection         (73,363)  911x**0**   ← 布局分配高度 0
+  writeFoundationPanel           (73,395)  911x319  bottom=714  ✗
+  writeValidationError           (85,686)  887x16   bottom=702  ✗
+```
+
+### ZMK2. 定性（三重排除 + 历史对照）
+
+```text
+① 非 packaging/portable-only：同一二进制在 source tree + windows QPA 报同样两条失败；offscreen rc=0。
+② 差异 = QPA 字体度量：同一行文字 windows 16px / offscreen 12px（validation 16 vs 12；panel 319 vs 305）。
+③ **不是历来如此**：修正前旧产物 release-deploy-stale-0832（`d5a49582…`）在同样 windows QPA 下 rc=0
+   （panel y=305 h=271 → bottom=576）；当前为 y=395 h=319 → bottom=714。
+```
+
+### ZMK3. y +90px / h +48px 的精确来源（逐项量化）
+
+```text
+y +90（主因）：写区**上方**的 request section 80 → 138（+58）
+             （cc3c6f8 的 FC03 Function 标签与请求行加宽 + 8d78ddb 的请求行 1→2 行）
+             其余来自页面 6 个纵向间距（12px × 6 = 72px）的累计
+h +48（次因）：写区内部 write10DraftColumn 152 → 200
+             （cc3c6f8 新增 FC16 Quantity/ByteCount 派生行与预览行）
+⚠️ 只看失败对象（写面板）会得出错误归属 —— 下移主因在它上方。
+```
+
+### ZMK4. 真正的 root cause（两个叠加缺陷）
+
+```text
+① WriteFoundationSection 根 `Item` 无 implicit 尺寸（Item 默认 implicitHeight=0），
+   而内部 `ColumnLayout { anchors.fill: parent }` 内容仍按自然尺寸渲染
+   （SectionHeader 20 + spacing 12 + PanelCard 319 = 351）
+   ⇒ 页面 ColumnLayout 认为该 section 高 **0**，**整页高度漏算写区**，写区永远以「溢出」形式绘制。
+② 内容自洽总高 657 > 可用 627，超出 30px —— 与实测吻合（714 − 684 = 30）。
+③ 为何直到 portable 才暴露：source-tree 六个 QML 门禁**全部**用 offscreen（行高 12px）；
+   真实平台行高 16px，逐行累计后在 offscreen 下仍有 41px 余量（底边 673 ≤ 700）。
+   ⇒ **门禁的平台与验收的平台不是同一个**。
+```
+
+### ZMK5. 修复（保留全部协议信息；只用真正的布局手段回收 46px）
+
+```text
+1. WriteFoundationSection.qml：根 Item 增加
+     implicitWidth: writeContentLayout.implicitWidth
+     implicitHeight: writeContentLayout.implicitHeight
+   内部 ColumnLayout 加 `id: writeContentLayout`，间距 spacingM → spacingS。
+   （内部 layout 的 implicitHeight 只来自子项，与 anchors.fill 不构成绑定环。）
+2. CommunicationPage.qml：PDU 与 RTU Frame 预览**并排一行**（各带 elide，各占半宽）⇒ 省约 15-18px。
+3. CommunicationPage.qml：communicationContentLayout 间距 spacingM(12) → spacingS(8) ⇒ 6 个间隙省 24px，
+   分组结构不变。
+未删功能、未缩字号、未隐藏协议信息、未减少 Human 所需信息。
+```
+
+### ZMK6. 修复后几何（windows QPA / 1000x700）与验证
+
+```text
+communicationContentLayout  (73, 57) 911x627  bottom=684
+  communicationRequestSection   (73,197)  911x123   ← 138 → 123
+  writeFoundationSection        (73,328)  911x347   ← 0 → 347（成为一等布局参与者）
+  writeFoundationPanel          (73,356)  911x319  bottom=**675**  ✓ ≤ 700（余量 25px）
+  writeValidationError          (85,647)  887x16   bottom=663     ✓ 可见
+  writeActivateButton           (85,605)   50x34   bottom=639     ✓ 可达
+  → --qml-write-foundation-check = **rc=0 PASS**
+
+真实 windows QPA 六门禁：smoke / production-write / write-foundation / focus / nav / geometry
+  **全部 rc=0**，ReferenceError / TypeError / Unable to assign **计数全 0**
+R15 / R16 / R17：**全部 PASS**（R15/R16 的 clickReachesNamed 前置断言通过
+  ⇒ 运行时证明 commReadButton 在 1000x700 窗口内）
+真实 ctest：**Release 37/37 PASS**（88.30 s）；**Debug 37/37 PASS**（90.13 s）
+```
+
+### ZMK7. 回归保护（最小必要，复用既有 oracle）
+
+```text
+CMakeLists.txt 新增**一个**条目（不把全部 CI 改成 windows）：
+  add_test(NAME qml_write_foundation_check_windows COMMAND modbuslens --qml-write-foundation-check)
+  ENVIRONMENT 仅 QT_ASSUME_STDERR_HAS_CONSOLE=1（**不给 offscreen** ⇒ 真实平台）
+  FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign"
+测试数 36 → **37**（如实披露）。该条目需要交互式 Windows 会话。
+复用同一个 C4 几何断言，未建第二套体系。
+```
+
+### ZMK8. 附：建档重复（如实披露）
+
+```text
+本轮发现上一轮的 ISSUE-017 与既有 ISSUE-014（`0d5c219`）记录的是**同一现象**：
+ISSUE-014 早已完整记录该组 delegate reset 告警、根因一致、处置为「本轮不修 + PRE-EXISTING NON-BLOCKING」，
+并建议「在未来的 warning hygiene / UI robustness 任务中统一处理」。
+⇒ ISSUE-017 实质上是对 ISSUE-014 的**执行闭环**（修复方式与 ISSUE-014 的建议一致），
+  已在 ISSUE-017 末尾追加批注说明，并保留不删（只增不改）。
+建议后续把 ISSUE-014 状态更新为「已修复，见 ISSUE-017」或两者合并；本轮不擅自合并。
+教训：建档前应先按错误文本/文件名/objectName 检索 docs/issues/，不要只凭「本轮首次观察到」判定为新问题。
+```
+
+### ZMK9. 本轮边界与状态
+
+```text
+M10-F = **HOLD**（未闭合）
+M11 = HOLD（未开始）
+未 push；未 tag；LKGC 保持 `9bdd99c`；未 amend 任何既有提交
+未做（明确）：未运行 make_package / windeployqt；未刷新便携产物；未开始 Human #10/#11；
+              未修 ISSUE-015 的 deploy_is_current；未动无关 backlog
+便携产物 = **STALE**（`772a4a80…` 不含 §ZMK 修正）
+下一动作 = **HUMAN native PowerShell** → retention → canonical package → A/B/C/D
+            → NEW D portable gates（真实 windows QPA）→ Human #10/#11
+```
