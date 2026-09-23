@@ -265,16 +265,41 @@ Item {
                         spacing: 4
 
                         delegate: Rectangle {
+                            id: rowItem
                             // D3: the row's presented values, exposed so the
                             // page-local detail can snapshot them at selection
                             // time (presentation copy only).
-                            readonly property int rowDeviceAddress: model.deviceAddress
-                            readonly property int rowFunctionCode: model.functionCode
-                            readonly property int rowElapsedMs: model.elapsedMs
-                            readonly property bool rowHasExceptionCode: model.hasExceptionCode
-                            readonly property int rowExceptionCode: model.exceptionCode
-                            readonly property string rowStatusText: model.statusText
-                            readonly property string rowIssueText: model.issueText
+                            //
+                            // These seven properties are the delegate's ONLY
+                            // readers of `model.*`, and each one tolerates an
+                            // absent role. QQuickItemView re-evaluates a
+                            // delegate's bindings once while the view is being
+                            // reset — Clear Results (appBarClearResults ->
+                            // AnalysisController::clearResults), a replay load,
+                            // a source switch — and by then the row's model
+                            // index is already invalid, so EVERY role reads as
+                            // undefined. A binding that assigns that undefined
+                            // to a typed property, or calls a method on it
+                            // (`model.functionCode.toString(16)`), then logs
+                            // "Unable to assign [undefined] to ..." or throws a
+                            // TypeError — on the production Clear Results path,
+                            // not only under test. Guarding here fixes the whole
+                            // class at one point; the presentation row and the
+                            // detail snapshot both read these properties.
+                            readonly property int rowDeviceAddress:
+                                model.deviceAddress !== undefined ? model.deviceAddress : 0
+                            readonly property int rowFunctionCode:
+                                model.functionCode !== undefined ? model.functionCode : 0
+                            readonly property int rowElapsedMs:
+                                model.elapsedMs !== undefined ? model.elapsedMs : 0
+                            readonly property bool rowHasExceptionCode:
+                                model.hasExceptionCode !== undefined ? model.hasExceptionCode : false
+                            readonly property int rowExceptionCode:
+                                model.exceptionCode !== undefined ? model.exceptionCode : 0
+                            readonly property string rowStatusText:
+                                model.statusText !== undefined ? model.statusText : ""
+                            readonly property string rowIssueText:
+                                model.issueText !== undefined ? model.issueText : ""
                             // `ListView.view` is attached to the DELEGATE ROOT only —
                             // nested children must read this flag instead.
                             readonly property bool rowSelected:
@@ -294,7 +319,7 @@ Item {
                             // join may wrap to two lines, so the delegate
                             // reserves 64px and the label wraps instead
                             // of clipping.
-                            height: model.issueText !== "" ? 64 : 36
+                            height: rowItem.rowIssueText !== "" ? 64 : 36
                             // restrained selected state: an existing design
                             // token plus a thin brand accent (no severity or
                             // health colour is introduced)
@@ -335,34 +360,34 @@ Item {
                                     spacing: 0
 
                                     Label {
-                                        text: qsTr("设备 %1").arg(model.deviceAddress)
+                                        text: qsTr("设备 %1").arg(rowItem.rowDeviceAddress)
                                         width: transactionsPane.deviceColumnWidth
                                         leftPadding: 6
                                         elide: Text.ElideRight
                                     }
                                     Label {
-                                        text: "0x" + ("0" + model.functionCode.toString(16).toUpperCase()).slice(-2)
+                                        text: "0x" + ("0" + rowItem.rowFunctionCode.toString(16).toUpperCase()).slice(-2)
                                         width: transactionsPane.functionColumnWidth
                                         leftPadding: 6
                                     }
                                     Label {
-                                        text: model.statusText
+                                        text: rowItem.rowStatusText
                                         width: transactionsPane.statusColumnWidth
                                         leftPadding: 6
                                         elide: Text.ElideRight
                                     }
                                     Label {
-                                        text: model.elapsedMs + qsTr(" ms")
+                                        text: rowItem.rowElapsedMs + qsTr(" ms")
                                         width: transactionsPane.latencyColumnWidth
                                         leftPadding: 6
                                         elide: Text.ElideRight
                                     }
                                     Label {
-                                        text: model.hasExceptionCode
+                                        text: rowItem.rowHasExceptionCode
                                               ? qsTr("异常码 0x%1").arg(
-                                                    ("0" + model.exceptionCode.toString(16).toUpperCase()).slice(-2))
+                                                    ("0" + rowItem.rowExceptionCode.toString(16).toUpperCase()).slice(-2))
                                               : qsTr("—")
-                                        color: model.hasExceptionCode ? page.frozenErrorAccent : DS.textSecondary
+                                        color: rowItem.rowHasExceptionCode ? page.frozenErrorAccent : DS.textSecondary
                                         width: parent.width - transactionsPane.leadingColumnsWidth
                                         leftPadding: 6
                                         elide: Text.ElideRight
@@ -375,8 +400,8 @@ Item {
                                 Label {
                                     width: parent.width
                                     height: 28
-                                    visible: model.issueText !== ""
-                                    text: model.issueText
+                                    visible: rowItem.rowIssueText !== ""
+                                    text: rowItem.rowIssueText
                                     color: DS.textSecondary
                                     leftPadding: 6
                                     rightPadding: 6

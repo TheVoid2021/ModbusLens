@@ -729,14 +729,17 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
-    # Source-tree mirror of the shipping warning rejection, applied to the SAME
-    # three diagnostic modes the packaging gate runs. A QML binding that cannot
-    # resolve an identifier evaluates to undefined and is only reported as a
-    # runtime diagnostic -- the process still exits 0 -- so an exit-code-only
-    # test cannot see it. Asserting the diagnostic text here makes such a defect
-    # fail in CI instead of surfacing for the first time at make_package time.
-    # ReferenceError/TypeError are the QML scope-and-binding failure family.
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check PROPERTIES
-        FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError"
+    # Source-tree mirror of the shipping warning rejection, applied to EVERY QML
+    # diagnostic mode in the acceptance set. A QML binding that cannot resolve an
+    # identifier, or that reads an absent map key / an invalidated model index,
+    # evaluates to undefined and is reported only as a runtime diagnostic -- the
+    # process still exits 0 -- so an exit-code-only test asserts nothing about it
+    # (the packaging gate is the only place that greps the text).
+    #   ReferenceError / TypeError : scope and binding failures
+    #   Unable to assign           : a failed binding assigning undefined to a
+    #                                typed property (absent map key, or a role
+    #                                read against an invalidated model index)
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check PROPERTIES
+        FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign"
     )
 endif()

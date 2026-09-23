@@ -8012,6 +8012,21 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         QCoreApplication::sendEvent(window, &release);
         return true;
     };
+    // The click above is POSITION-BASED: it maps the item's centre to a scene
+    // point and sends the event to the window, so it only reaches whatever the
+    // item tree hit-tests at that point. It therefore means something only
+    // while the control is actually inside the window: a layout overflow that
+    // pushes the control past the window edge makes the click land on nothing,
+    // and clickNamed's own `true` (found + visible) does not report that.
+    // Callers that depend on the click landing must assert this precondition.
+    auto clickReachesNamed = [&roots, window](const QString &name) {
+        auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+        if (!item || !item->isVisible() || !item->isEnabled())
+            return false;
+        const QPointF scene = item->mapToScene(
+            QPointF(item->width() / 2.0, item->height() / 2.0));
+        return QRectF(0, 0, window->width(), window->height()).contains(scene);
+    };
     // A raw click at a scene position (used for "press somewhere outside the
     // dialog"), delivered through the window like every other production click.
     auto clickAtScene = [window](const QPointF &scene) {
@@ -9465,7 +9480,22 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         //    not a lost connection.
         const int timeoutsBefore = controller->timeoutCount();
         transport->setCompleteReadImmediately(false);
-        clickNamed(QStringLiteral("commReadButton"));
+        // The click is the ONLY thing that starts this read, and it is
+        // position-based: require that it can reach the control AND that it
+        // actually did, before trusting the state assertions below. Without
+        // this the step could fail as a confusing "0 timeouts", or pass on a
+        // pending request left behind by an earlier step.
+        if (!clickReachesNamed(QStringLiteral("commReadButton")))
+            fail(QStringLiteral("PRODWRITEFAIL R15: commReadButton is not inside "
+                                "the %1x%2 window, so a position-based click "
+                                "cannot reach it")
+                     .arg(window->width()).arg(window->height()));
+        if (!clickNamed(QStringLiteral("commReadButton")))
+            fail(QStringLiteral("PRODWRITEFAIL R15: clickNamed(commReadButton) "
+                                "refused (missing or not visible)"));
+        if (!controller->serialBusy())
+            fail(QStringLiteral("PRODWRITEFAIL R15: the Read click did not start "
+                                "a request"));
         transport->completeReadWithTimeout();
         transport->setCompleteReadImmediately(true);
         if (controller->timeoutCount() != timeoutsBefore + 1)
@@ -9578,7 +9608,16 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         const int timeoutsBefore = controller->timeoutCount();
         const int successesBefore = controller->successCount();
         transport->setCompleteReadImmediately(false);
-        clickNamed(QStringLiteral("commReadButton")); // accepted -> pending
+        // Same precondition as R15: the pending request must come from THIS
+        // click, so prove the click can reach the control and did.
+        if (!clickReachesNamed(QStringLiteral("commReadButton")))
+            fail(QStringLiteral("PRODWRITEFAIL R16: commReadButton is not inside "
+                                "the %1x%2 window, so a position-based click "
+                                "cannot reach it")
+                     .arg(window->width()).arg(window->height()));
+        if (!clickNamed(QStringLiteral("commReadButton"))) // accepted -> pending
+            fail(QStringLiteral("PRODWRITEFAIL R16: clickNamed(commReadButton) "
+                                "refused (missing or not visible)"));
         transport->setCompleteReadImmediately(true);
         if (!controller->serialBusy())
             fail(QStringLiteral("PRODWRITEFAIL R16: no pending request to lose"));

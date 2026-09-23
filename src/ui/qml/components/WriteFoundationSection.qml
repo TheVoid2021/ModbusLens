@@ -88,6 +88,18 @@ Item {
         const unit = section.analysisController.preparedWriteUnitId
         return section.analysisController.previewPreparedWrite()
     }
+    // The map above carries pduHex/rtuHex ONLY while a snapshot is actually
+    // prepared; with nothing prepared `previewPreparedWrite` returns
+    // {ok:false, state:"none"}, which is the normal state before the user opens
+    // Confirm. The confirmation labels therefore can never bind a key that is
+    // absent — that assignment logs "Unable to assign [undefined] to QString"
+    // on every load in every mode. Project the optional keys into typed text
+    // instead (the same pattern the FC03 read preview uses).
+    readonly property bool preparedPreviewOk: preparedPreview.ok === true
+    readonly property string preparedPreviewPduText:
+        preparedPreviewOk ? preparedPreview.pduHex : ""
+    readonly property string preparedPreviewRtuText:
+        preparedPreviewOk ? preparedPreview.rtuHex : ""
 
     // ---- write activation: validate through the controller, then open ----
     function activateWrite() {
@@ -652,7 +664,7 @@ Item {
                 Label {
                     objectName: "writeSummaryPdu"
                     Layout.fillWidth: true
-                    text: preparedPreview.pduHex
+                    text: preparedPreviewPduText
                     color: DS.textPrimary
                     font.pixelSize: DS.fontCaption
                     font.family: "Consolas"
@@ -666,7 +678,7 @@ Item {
                 Label {
                     objectName: "writeSummaryRtu"
                     Layout.fillWidth: true
-                    text: preparedPreview.rtuHex
+                    text: preparedPreviewRtuText
                     color: DS.textPrimary
                     font.pixelSize: DS.fontCaption
                     font.family: "Consolas"
