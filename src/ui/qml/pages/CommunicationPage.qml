@@ -39,7 +39,13 @@ Item {
         objectName: "communicationContentLayout"
         anchors.fill: parent
         anchors.margins: DS.spacingL
-        spacing: DS.spacingM
+        // spacingS (8) rather than spacingM (12): this page carries four
+        // stacked sections (two headers, connection, request) PLUS the write
+        // section, and at the 1000x700 minimum the whole stack must fit the
+        // window without clipping the write panel (C4 geometry). Six gaps at
+        // 12px cost 72px of the ~627px budget; 8px keeps the same grouping and
+        // returns 24px. The grouping itself is unchanged.
+        spacing: DS.spacingS
 
         SectionHeader {
             objectName: "communicationHeader"
@@ -331,23 +337,31 @@ Item {
                     requestPreviewPanel.previewOk
                         ? "" : requestPreviewPanel.preview.error
 
-                Label {
+                // One row, not two: at the 1000x700 minimum the page has ~627px
+                // of content height and every vertical line counts. PDU and
+                // RTU Frame are shown side by side (each elided) so both stay
+                // visible and readable without spending a second line.
+                RowLayout {
                     visible: requestPreviewPanel.previewOk
                     Layout.fillWidth: true
-                    text: qsTr("PDU  %1").arg(requestPreviewPanel.previewPduText)
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                    font.family: "Consolas"
-                    elide: Text.ElideRight
-                }
-                Label {
-                    visible: requestPreviewPanel.previewOk
-                    Layout.fillWidth: true
-                    text: qsTr("RTU Frame  %1").arg(requestPreviewPanel.previewRtuText)
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                    font.family: "Consolas"
-                    elide: Text.ElideRight
+                    spacing: DS.spacingS
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("PDU  %1").arg(requestPreviewPanel.previewPduText)
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        font.family: "Consolas"
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("RTU Frame  %1").arg(requestPreviewPanel.previewRtuText)
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        font.family: "Consolas"
+                        elide: Text.ElideRight
+                    }
                 }
                 Label {
                     visible: !requestPreviewPanel.previewOk

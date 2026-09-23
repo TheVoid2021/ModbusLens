@@ -708,6 +708,20 @@ if(BUILD_TESTING)
     add_test(NAME qml_production_write_check
         COMMAND modbuslens --qml-production-write-check)
 
+    # All QML gates above run under QT_QPA_PLATFORM=offscreen so they stay
+    # headless-safe. Offscreen, however, does NOT use the shipped font
+    # metrics: measured on the same binary, a line of text is 12px offscreen
+    # and 16px on the real Windows platform, and that difference accumulates
+    # down a stacked page. The C4 write-section geometry contract (panel and
+    # validation message fully inside the window at 1000x700) therefore passed
+    # offscreen while failing on the platform the product actually ships on.
+    # This one extra entry re-runs the write-section geometry under the real
+    # windows QPA so a "the write panel no longer fits 1000x700" regression is
+    # caught here instead of for the first time in a portable run.
+    # Requires an interactive Windows session (a desktop is present).
+    add_test(NAME qml_write_foundation_check_windows
+        COMMAND modbuslens --qml-write-foundation-check)
+
     # M9-B4.3 scenario fixtures (repo-relative: copied into the build tree,
     # same mechanism as the demo_v1 test_data above -- no absolute paths).
     target_compile_definitions(modbuslens PRIVATE
@@ -729,6 +743,12 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
+    # The Windows-layout entry deliberately does NOT get the offscreen
+    # environment above: its whole purpose is the real platform's font metrics.
+    set_tests_properties(qml_write_foundation_check_windows PROPERTIES
+        ENVIRONMENT "QT_ASSUME_STDERR_HAS_CONSOLE=1"
+    )
+
     # Source-tree mirror of the shipping warning rejection, applied to EVERY QML
     # diagnostic mode in the acceptance set. A QML binding that cannot resolve an
     # identifier, or that reads an absent map key / an invalidated model index,
@@ -739,7 +759,7 @@ if(BUILD_TESTING)
     #   Unable to assign           : a failed binding assigning undefined to a
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check PROPERTIES
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign"
     )
 endif()

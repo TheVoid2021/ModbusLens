@@ -41,6 +41,18 @@ Item {
 
     required property var analysisController
 
+    // Size contract: this root is a plain Item, so it has no implicit size of
+    // its own. Inside CommunicationPage's ColumnLayout that meant the layout
+    // allocated it ZERO height while its anchored content still rendered at
+    // full size — the write panel silently overflowed its own parent and the
+    // page's total height never included it (measured: root height 0, panel
+    // 319, panel bottom past the 1000x700 window edge). Deriving the implicit
+    // size from the content layout makes the section a first-class layout
+    // participant again. The inner layout's implicitHeight comes from its
+    // children only, so this is not a binding loop with anchors.fill.
+    implicitWidth: writeContentLayout.implicitWidth
+    implicitHeight: writeContentLayout.implicitHeight
+
     // See the header note. Production never exposes 0x10 (no encoder, no
     // dispatch capability), so 0x10 controls exist only in the test
     // foundation.
@@ -169,8 +181,9 @@ Item {
     }
 
     ColumnLayout {
+        id: writeContentLayout
         anchors.fill: parent
-        spacing: DS.spacingM
+        spacing: DS.spacingS
 
         SectionHeader {
             objectName: "writeFoundationHeader"
