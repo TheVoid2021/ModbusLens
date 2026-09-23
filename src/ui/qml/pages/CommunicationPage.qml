@@ -196,6 +196,15 @@ Item {
             objectName: "communicationRequestSection"
             Layout.fillWidth: true
 
+            // M10-F: the function code is a FIRST-CLASS request parameter and
+            // is always shown in the unified FCnn (0xNN) form. FC03 reads
+            // holding registers — a read request has NO register-value field.
+            Label {
+                text: qsTr("Function: FC03 (0x03) Read Holding Registers 读取保持寄存器")
+                color: DS.textSecondary
+                font.pixelSize: DS.fontCaption
+            }
+
             // Controls verbatim from B3.1 / the Legacy workbench.
             RowLayout {
                 Layout.fillWidth: true
@@ -208,7 +217,7 @@ Item {
                     value: 1
                     enabled: !page.analysisController.serialBusy
                 }
-                Label { text: qsTr("起始地址") }
+                Label { text: qsTr("起始地址（PDU / 0-based）") }
                 SpinBox {
                     id: serialStartSpin
                     objectName: "commStartSpin"
@@ -216,6 +225,13 @@ Item {
                     to: 65535
                     value: 0
                     enabled: !page.analysisController.serialBusy
+                }
+                Label {
+                    text: qsTr("HEX %1").arg(
+                        "0x" + Number(serialStartSpin.value).toString(16)
+                                  .toUpperCase().padStart(4, "0"))
+                    color: DS.textSecondary
+                    font.pixelSize: 11
                 }
                 Label { text: qsTr("寄存器数量") }
                 SpinBox {
@@ -249,6 +265,46 @@ Item {
                 }
                 Item {
                     Layout.fillWidth: true
+                }
+            }
+
+            // M10-F request preview (single source of truth): the bytes come
+            // from the SAME production encoder the dispatch path uses
+            // (encodeActiveRequest), so PREVIEW == WIRE by construction.
+            // PDU = Function + Data; RTU Frame = Slave + PDU + CRC.
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+
+                readonly property var preview:
+                    page.analysisController.previewReadRequest(
+                        serialSlaveSpin.value, serialStartSpin.value,
+                        serialQuantitySpin.value, serialTimeoutSpin.value)
+
+                Label {
+                    visible: preview.ok
+                    Layout.fillWidth: true
+                    text: qsTr("PDU  %1").arg(preview.pduHex)
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                    font.family: "Consolas"
+                    elide: Text.ElideRight
+                }
+                Label {
+                    visible: preview.ok
+                    Layout.fillWidth: true
+                    text: qsTr("RTU Frame  %1").arg(preview.rtuHex)
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                    font.family: "Consolas"
+                    elide: Text.ElideRight
+                }
+                Label {
+                    visible: !preview.ok
+                    text: qsTr("预览不可用：%1").arg(preview.error)
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                    wrapMode: Text.Wrap
                 }
             }
         }

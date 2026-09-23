@@ -19,6 +19,7 @@
 #include "fake_chat_completions_server.h"
 #include "fake_serial_transport.h"
 #include "ui/AnalysisController.h"
+#include "core/active/ActiveRequestIntent.h"
 #include "ui/TransactionListModel.h"
 
 namespace {
@@ -191,6 +192,10 @@ private slots:
     // ---- M10-D1 staging: product capability is still ABSENT ----
     void d3_productWriteCapabilityExposedForFc06Only();
     void d1_typedPrepareApiStillAuthoritative();
+    void pv1_readPreviewMatchesEncoder();
+    void pv2_write06PreviewDecHex();
+    void pv3_write10PreviewQuantityByteCountAndTable();
+    void pv4_previewRejectsInvalidDrafts();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -1766,6 +1771,167 @@ void UiBridgeTest::d1_typedPrepareApiStillAuthoritative()
     QVERIFY(!controller.prepareWrite06Draft(1, QStringLiteral("100"),
                                             QStringLiteral("65536"), 1000));
     QCOMPARE(controller.writeDraftErrorField(), QStringLiteral("value"));
+}
+
+// M10-F: the request PREVIEW must be byte-for-byte the DISPATCH request. The
+// controller preview is a thin read over the same core chain the real paths
+// run (parse -> validate -> encodeActiveRequest), so each test asserts the
+// preview against the production encoder output computed here — the wire can
+// never drift from what the user was shown.
+
+namespace {
+
+QString pvHexBytes(const std::vector<std::uint8_t>& wire)
+{
+    QString hex;
+    bool first = true;
+    for (const std::uint8_t byte : wire) {
+        if (!first)
+            hex += QLatin1Char(' ');
+        hex += QString::number(byte, 16).rightJustified(2, QLatin1Char('0'))
+                   .toUpper();
+        first = false;
+    }
+    return hex;
+}
+
+} // namespace
+
+void UiBridgeTest::pv1_readPreviewMatchesEncoder()
+{
+    AnalysisController controller;
+    const auto map = controller.previewReadRequest(1, 1, 2, 1000);
+    QCOMPARE(map.value(QStringLiteral("ok")).toBool(), true);
+    QCOMPARE(map.value(QStringLiteral("functionCode")).toInt(), 3);
+    QCOMPARE(map.value(QStringLiteral("functionHex")).toString(),
+             QStringLiteral("0x03"));
+    QCOMPARE(map.value(QStringLiteral("functionLabel")).toString(),
+             QStringLiteral("FC03 (0x03) Read Holding Registers 读取保持寄存器"));
+    // The frozen FC03 PDU: fn=03, start=0001, qty=0002.
+    QCOMPARE(map.value(QStringLiteral("pduHex")).toString(),
+             QStringLiteral("03 00 01 00 02"));
+    // The RTU frame must be the PRODUCTION encoder wire, byte-for-byte.
+    const modbuslens::core::ActiveRequestIntent intent{
+        modbuslens::core::ActiveFunction::ReadHoldingRegisters,
+        1,
+        std::chrono::milliseconds{1000},
+        modbuslens::core::ReadHoldingRegistersIntent{1, 2},
+    };
+    const auto encoded = modbuslens::core::encodeActiveRequest(intent);
+    const auto& descriptor =
+        std::get<modbuslens::core::ActiveRequestDescriptor>(encoded);
+    QCOMPARE(map.value(QStringLiteral("rtuHex")).toString(),
+             pvHexBytes(descriptor.wire));
+    QCOMPARE(map.value(QStringLiteral("startAddressHex")).toString(),
+             QStringLiteral("0x0001"));
+    QCOMPARE(map.value(QStringLiteral("quantity")).toInt(), 2);
+}
+
+
+void UiBridgeTest::pv2_write06PreviewDecHex()
+{
+    AnalysisController controller;
+    const auto map = controller.previewWrite06Draft(1, QStringLiteral("0"),
+                                                    QStringLiteral("112"));
+    QCOMPARE(map.value(QStringLiteral("ok")).toBool(), true);
+    QCOMPARE(map.value(QStringLiteral("functionHex")).toString(),
+             QStringLiteral("0x06"));
+    QCOMPARE(map.value(QStringLiteral("value")).toInt(), 112);
+    // DEC 112 == HEX 0x0070 — the raw uint16 register value, never an
+    // engineering unit.
+    QCOMPARE(map.value(QStringLiteral("valueHex")).toString(),
+             QStringLiteral("0x0070"));
+    QCOMPARE(map.value(QStringLiteral("addressHex")).toString(),
+             QStringLiteral("0x0000"));
+    const modbuslens::core::ActiveRequestIntent intent{
+        modbuslens::core::ActiveFunction::WriteSingleRegister,
+        1,
+        std::chrono::milliseconds{1000},
+        modbuslens::core::WriteSingleRegisterIntent{0, 112},
+    };
+    const auto encoded = modbuslens::core::encodeActiveRequest(intent);
+    const auto& descriptor =
+        std::get<modbuslens::core::ActiveRequestDescriptor>(encoded);
+    QCOMPARE(map.value(QStringLiteral("rtuHex")).toString(),
+             pvHexBytes(descriptor.wire));
+    QCOMPARE(map.value(QStringLiteral("pduHex")).toString(),
+             QStringLiteral("06 00 00 00 70"));
+}
+
+void UiBridgeTest::pv3_write10PreviewQuantityByteCountAndTable()
+{
+    AnalysisController controller;
+    const auto map = controller.previewWrite10Draft(
+        1, 1, QStringLiteral("112\n1222\n1212\n21221\n21"));
+    QCOMPARE(map.value(QStringLiteral("ok")).toBool(), true);
+    QCOMPARE(map.value(QStringLiteral("functionHex")).toString(),
+             QStringLiteral("0x10"));
+    // Quantity and ByteCount are DERIVED from the values list (the single
+    // authority); the UI shows them, it never asks for them.
+    QCOMPARE(map.value(QStringLiteral("quantity")).toInt(), 5);
+    QCOMPARE(map.value(QStringLiteral("byteCount")).toInt(), 10);
+    const auto rows = map.value(QStringLiteral("values")).toList();
+    QCOMPARE(rows.size(), qsizetype{5});
+    const int expectedDec[] = {112, 1222, 1212, 21221, 21};
+    const QString expectedHex[] = {QStringLiteral("0x0070"),
+                                   QStringLiteral("0x04C6"),
+                                   QStringLiteral("0x04BC"),
+                                   QStringLiteral("0x52E5"),
+                                   QStringLiteral("0x0015")};
+    for (int i = 0; i < 5; ++i) {
+        const auto row = rows.at(i).toMap();
+        QCOMPARE(row.value(QStringLiteral("index")).toInt(), i + 1);
+        QCOMPARE(row.value(QStringLiteral("address")).toInt(), 1 + i);
+        QCOMPARE(row.value(QStringLiteral("dec")).toInt(), expectedDec[i]);
+        QCOMPARE(row.value(QStringLiteral("hex")).toString(), expectedHex[i]);
+    }
+    const modbuslens::core::ActiveRequestIntent intent{
+        modbuslens::core::ActiveFunction::WriteMultipleRegisters,
+        1,
+        std::chrono::milliseconds{1000},
+        modbuslens::core::WriteMultipleRegistersIntent{
+            1, {112, 1222, 1212, 21221, 21}},
+    };
+    const auto encoded = modbuslens::core::encodeActiveRequest(intent);
+    const auto& descriptor =
+        std::get<modbuslens::core::ActiveRequestDescriptor>(encoded);
+    QCOMPARE(map.value(QStringLiteral("rtuHex")).toString(),
+             pvHexBytes(descriptor.wire));
+    QCOMPARE(map.value(QStringLiteral("pduHex")).toString(),
+             QStringLiteral("10 00 01 00 05 0A 00 70 04 C6 04 BC 52 E5 00 15"));
+}
+
+void UiBridgeTest::pv4_previewRejectsInvalidDrafts()
+{
+    AnalysisController controller;
+    // 0x06 value above 65535 -> the SAME typed rejection the prepare path
+    // produces (field "value"), never a fabricated request.
+    auto map = controller.previewWrite06Draft(1, QStringLiteral("0"),
+                                              QStringLiteral("65536"));
+    QCOMPARE(map.value(QStringLiteral("ok")).toBool(), false);
+    QCOMPARE(map.value(QStringLiteral("errorField")).toString(),
+             QStringLiteral("value"));
+    // 0x06 address above 65535.
+    map = controller.previewWrite06Draft(1, QStringLiteral("65536"),
+                                         QStringLiteral("1"));
+    QCOMPARE(map.value(QStringLiteral("ok")).toBool(), false);
+    QCOMPARE(map.value(QStringLiteral("errorField")).toString(),
+             QStringLiteral("address"));
+    // 0x10 span beyond the 16-bit register space.
+    map = controller.previewWrite10Draft(1, 65535, QStringLiteral("1\n1"));
+    QCOMPARE(map.value(QStringLiteral("ok")).toBool(), false);
+    QCOMPARE(map.value(QStringLiteral("errorField")).toString(),
+             QStringLiteral("span"));
+    // 0x10 empty draft.
+    map = controller.previewWrite10Draft(1, 0, QStringLiteral(""));
+    QCOMPARE(map.value(QStringLiteral("ok")).toBool(), false);
+    QCOMPARE(map.value(QStringLiteral("errorField")).toString(),
+             QStringLiteral("values"));
+    // FC03 quantity outside 1..125.
+    map = controller.previewReadRequest(1, 0, 126, 1000);
+    QCOMPARE(map.value(QStringLiteral("ok")).toBool(), false);
+    QVERIFY(map.value(QStringLiteral("error")).toString()
+                .contains(QStringLiteral("1..125")));
 }
 
 QTEST_GUILESS_MAIN(UiBridgeTest)

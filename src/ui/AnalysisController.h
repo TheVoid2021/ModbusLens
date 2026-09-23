@@ -362,6 +362,40 @@ public:
     // for a completed transaction).
     Q_INVOKABLE void requestPreparedWriteDispatch(qulonglong token);
 
+    // ---- M10-F: protocol preview (single source of truth) ----
+    //
+    // The preview bytes come from THE SAME production encoder
+    // (`core::encodeActiveRequest`) the dispatch path uses — the dispatch
+    // encodes the prepared snapshot exactly once and the transport writes
+    // `descriptor.wire` as-is. The preview calls that same encoder, so
+    // PREVIEW BYTES == DISPATCH BYTES by construction, never by convention.
+    //
+    // A preview NEVER dispatches, NEVER creates a prepared snapshot and NEVER
+    // mutates the write store: it is a pure read over the same core parse /
+    // validate / encode chain the prepare path uses. A rejected draft returns
+    // ok=false with the same field/message mapping the prepare path would
+    // produce (writeDraftError-style), so the UI shows one validation truth.
+    //
+    // Every map carries: ok, and on success functionCode / functionHex /
+    // functionLabel / unitId / pduHex / rtuHex / crcHex, plus the
+    // function-specific fields (FC03: startAddress + startAddressHex + quantity;
+    // FC06: address + addressHex + value + valueHex; FC16: startAddress +
+    // startAddressHex + quantity + byteCount + values[{index,address,dec,hex}]).
+    // Addresses/values are protocol truth: DEC for input, HEX as a display
+    // projection only (never an input format).
+    Q_INVOKABLE QVariantMap previewReadRequest(int slaveAddress, int startAddress,
+                                               int quantity, int timeoutMs);
+    Q_INVOKABLE QVariantMap previewWrite06Draft(int unitId,
+                                                const QString& addressRaw,
+                                                const QString& valueRaw);
+    Q_INVOKABLE QVariantMap previewWrite10Draft(int unitId, int startAddress,
+                                                const QString& valuesText);
+    // Encodes the CURRENT prepared snapshot's intent exactly the way
+    // confirmAndDispatchPreparedWrite will — rendered inside the confirmation
+    // dialog so what the user confirms is byte-for-byte what would travel.
+    // When nothing is Prepared: {ok:false, state:"none"}.
+    Q_INVOKABLE QVariantMap previewPreparedWrite();
+
     // QML projection getters (read-only; typed accessors above stay for C++).
     [[nodiscard]] bool hasPreparedWrite() const;
     [[nodiscard]] QString preparedWriteStateToken() const;

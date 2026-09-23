@@ -70,6 +70,25 @@ Item {
     readonly property bool confirmationVisible: confirmationDialog.visible
     readonly property bool confirmationOpened: confirmationDialog.opened
 
+    // M10-F: live request previews (single source of truth = the production
+    // encoder via the controller; QML never builds bytes itself). These are
+    // pure reads over the same core parse/validate/encode chain the prepare
+    // path runs, and re-evaluate with every draft keystroke.
+    readonly property var write06Preview:
+        section.analysisController.previewWrite06Draft(
+            section.unit06, section.addressText06, section.valueText06)
+    readonly property var write10Preview:
+        section.analysisController.previewWrite10Draft(
+            section.unit10, section.start10, section.valuesText10)
+    // Authoritative DISPATCH preview: the prepared snapshot encoded by the
+    // SAME encoder confirmAndDispatchPreparedWrite uses. Re-evaluates through
+    // the preparedWriteChanged projection (function/unit are NOTIFY-bearing).
+    readonly property var preparedPreview: {
+        const fn = section.analysisController.preparedWriteFunction
+        const unit = section.analysisController.preparedWriteUnitId
+        return section.analysisController.previewPreparedWrite()
+    }
+
     // ---- write activation: validate through the controller, then open ----
     function activateWrite() {
         if (section.analysisController.hasPreparedWrite) {
@@ -185,14 +204,14 @@ Item {
                         TabButton {
                             objectName: "writeTab06"
                             Accessible.name: qsTr("0x06 写单寄存器（Write Single Register）")
-                            text: qsTr("0x06 单寄存器")
+                            text: qsTr("FC06 (0x06) 单寄存器")
                             width: implicitWidth
                             focusPolicy: Qt.TabFocus
                         }
                         TabButton {
                             objectName: "writeTab10"
                             Accessible.name: qsTr("0x10 写多寄存器（Write Multiple Registers）")
-                            text: qsTr("0x10 多寄存器")
+                            text: qsTr("FC16 (0x10) 多寄存器")
                             width: implicitWidth
                             focusPolicy: Qt.TabFocus
                         }
@@ -225,7 +244,7 @@ Item {
                                   === "address"
                         onTextChanged: section.addressText06 = text
                     }
-                    Label { text: qsTr("写入值") }
+                    Label { text: qsTr("寄存器原始值（uint16，DEC）") }
                     DecimalField {
                         objectName: "write06ValueField"
                         fieldLabel: qsTr("写入值")
@@ -245,6 +264,50 @@ Item {
                         onValueModified: section.timeout06 = value
                     }
                     Item { Layout.fillWidth: true }
+                }
+
+                // M10-F: FC06 request preview. PDU = Function + Data;
+                // RTU Frame = Slave + PDU + CRC. The bytes come from the SAME
+                // production encoder the dispatch path uses.
+                ColumnLayout {
+                    visible: section.activeFunctionIndex === 0
+                    Layout.fillWidth: true
+                    spacing: 2
+
+                    Label {
+                        visible: write06Preview.ok
+                        Layout.fillWidth: true
+                        text: qsTr("寄存器原始值: %1 (DEC) / %2 (HEX)")
+                                  .arg(write06Preview.value)
+                                  .arg(write06Preview.valueHex)
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                    }
+                    Label {
+                        visible: write06Preview.ok
+                        Layout.fillWidth: true
+                        text: qsTr("PDU  %1").arg(write06Preview.pduHex)
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        font.family: "Consolas"
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        visible: write06Preview.ok
+                        Layout.fillWidth: true
+                        text: qsTr("RTU Frame  %1").arg(write06Preview.rtuHex)
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        font.family: "Consolas"
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        visible: !write06Preview.ok
+                        text: qsTr("预览不可用：%1").arg(write06Preview.error)
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        wrapMode: Text.Wrap
+                    }
                 }
 
                 // ---------- 0x10 draft (TEST FOUNDATION ONLY) ----------
@@ -282,7 +345,7 @@ Item {
                             enabled: !section.analysisController.serialBusy
                             onValueModified: section.unit10 = value
                         }
-                        Label { text: qsTr("起始地址") }
+                        Label { text: qsTr("起始地址（PDU / 0-based）") }
                         SpinBox {
                             objectName: "write10StartSpin"
                             Accessible.name: qsTr("0x10 起始地址")
@@ -302,7 +365,7 @@ Item {
                     }
 
                     Label {
-                        text: qsTr("寄存器值（每行一个十进制数值）")
+                        text: qsTr("寄存器原始值（uint16，每行一个十进制数值 DEC）")
                         color: DS.textSecondary
                         font.pixelSize: DS.fontCaption
                     }
@@ -313,7 +376,7 @@ Item {
                     Rectangle {
                         objectName: "write10ValuesErrorFrame"
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 98
+                        Layout.preferredHeight: 82
                         color: "transparent"
                         radius: 4
                         border.width: 1
@@ -324,7 +387,7 @@ Item {
                             objectName: "write10ValuesScroll"
                             anchors.fill: parent
                             anchors.margins: 1
-                            Layout.preferredHeight: 96 // bounded: never grows the window
+                            Layout.preferredHeight: 80 // bounded: never grows the window
                             clip: true
                         TextArea {
                             id: valuesArea
@@ -357,6 +420,48 @@ Item {
                         } // TextArea
                         } // ScrollView
                     } // write10ValuesErrorFrame
+                     // M10-F: derived values are COMPUTED, never entered —
+                     // quantity and byteCount come from the values list itself
+                     // (the single authority; the intent carries only values),
+                     // shown here for transparency.
+                     Label {
+                         visible: write10Preview.ok
+                         Layout.fillWidth: true
+                         text: qsTr("Quantity（自动）: %1 · Byte Count（自动）: %2")
+                                   .arg(write10Preview.quantity)
+                                   .arg(write10Preview.byteCount)
+                         color: DS.textSecondary
+                         font.pixelSize: DS.fontCaption
+                     }
+                     // FC16 request preview (PDU / RTU Frame) — the same
+                     // production encoder the dispatch path uses. Per-value
+                     // transparency (index / address / DEC / HEX) is rendered
+                     // by the confirmation summary below.
+                     Label {
+                         visible: write10Preview.ok
+                         Layout.fillWidth: true
+                         text: qsTr("PDU  %1").arg(write10Preview.pduHex)
+                         color: DS.textSecondary
+                         font.pixelSize: DS.fontCaption
+                         font.family: "Consolas"
+                         elide: Text.ElideRight
+                     }
+                     Label {
+                         visible: write10Preview.ok
+                         Layout.fillWidth: true
+                         text: qsTr("RTU Frame  %1").arg(write10Preview.rtuHex)
+                         color: DS.textSecondary
+                         font.pixelSize: DS.fontCaption
+                         font.family: "Consolas"
+                         elide: Text.ElideRight
+                     }
+                     Label {
+                         visible: !write10Preview.ok
+                         text: qsTr("预览不可用：%1").arg(write10Preview.error)
+                         color: DS.textSecondary
+                         font.pixelSize: DS.fontCaption
+                         wrapMode: Text.Wrap
+                     }
                     } // write10DraftColumn
                 } // write10DraftComponent
 
@@ -519,9 +624,53 @@ Item {
                 delegate: Label {
                     required property var modelData
                     required property int index
-                    text: qsTr("值 %1：%2").arg(index + 1).arg(modelData)
+                    // M10-F per-value transparency: 1-based index, the target
+                    // PDU address, and the raw uint16 value in DEC + HEX.
+                    text: qsTr("值 %1 @%2（%3）：%4")
+                              .arg(index + 1)
+                              .arg(section.analysisController
+                                       .preparedWriteAddress + index)
+                              .arg("0x" + Number(modelData).toString(16)
+                                            .toUpperCase().padStart(4, "0"))
+                              .arg(modelData)
                     color: DS.textPrimary
                     font.pixelSize: DS.fontBody
+                }
+            }
+            // M10-F: the AUTHORITATIVE dispatch preview — the prepared
+            // snapshot encoded by the SAME encoder the dispatch path uses, so
+            // what the user confirms here is byte-for-byte what would travel.
+            ColumnLayout {
+                visible: preparedPreview.ok
+                spacing: 2
+
+                Label {
+                    text: qsTr("PDU")
+                    color: DS.textMuted
+                    font.pixelSize: DS.fontCaption
+                }
+                Label {
+                    objectName: "writeSummaryPdu"
+                    Layout.fillWidth: true
+                    text: preparedPreview.pduHex
+                    color: DS.textPrimary
+                    font.pixelSize: DS.fontCaption
+                    font.family: "Consolas"
+                    elide: Text.ElideRight
+                }
+                Label {
+                    text: qsTr("RTU Frame")
+                    color: DS.textMuted
+                    font.pixelSize: DS.fontCaption
+                }
+                Label {
+                    objectName: "writeSummaryRtu"
+                    Layout.fillWidth: true
+                    text: preparedPreview.rtuHex
+                    color: DS.textPrimary
+                    font.pixelSize: DS.fontCaption
+                    font.family: "Consolas"
+                    elide: Text.ElideRight
                 }
             }
         }

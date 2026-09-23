@@ -5005,6 +5005,39 @@ public:
         }
     }
 
+    // M10-F: the 0x10 twin of completeWriteWithTimeout. The Human M10-F
+    // review found that an FC16 dispatch with no responding slave produced
+    // no user-visible terminal, and the old helper refused to complete
+    // anything but a 0x06 pending, which is exactly why no oracle ever
+    // exercised that path. The 0x10 timeout is produced by the SHIPPED
+    // analyzer (its own session, the intent own threshold), not a
+    // fabricated verdict.
+    void completeWriteWithTimeout16()
+    {
+        if (!pending_.has_value()
+            || pending_->intent.function
+                != modbuslens::core::ActiveFunction::WriteMultipleRegisters) {
+            return;
+        }
+        modbuslens::core::SerialTransactionSession session;
+        const auto begin = session.beginActiveRequest(*pending_);
+        if (std::get_if<modbuslens::core::SerialTransactionError>(&begin) != nullptr) {
+            return;
+        }
+        const auto result = session.onResponseTimeout(pending_->intent.timeout);
+        if (const auto *analysis =
+                std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
+            const auto finished = *pending_;
+            pending_.reset();
+            emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
+                .request = finished,
+                .responseAdu = {},
+                .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+                .analysis = *analysis,
+            });
+        }
+    }
+
     // Complete an accepted WRITE with a trusted 0x06 echo (the shipped analyzer
     // decides the outcome).
     void completeWriteWithEcho()
@@ -9614,18 +9647,83 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                             "Read/Write still disabled"));
     });
 
+    // ---- R17: FC16 write Timeout — the user-VISIBLE terminal (M10-F) ----
+    // The Human M10-F review found that an FC16 dispatch with no responding
+    // slave produced NO user-visible terminal: the write-unknown notice was
+    // gated on 0x06 only. This oracle pins the corrected behaviour on the
+    // SHIPPED production UI — exactly one Timeout, the frozen wording in the
+    // write notice lane, and nothing that could read as a Success.
+    push([&]() {
+        resetWrite();
+        const int rowsBefore = controller->activeSerialRecordCount();
+        const int successesBefore = controller->successCount();
+        const int timeoutsBefore = controller->timeoutCount();
+        if (!openFc16Dialog(17, 1, fc16ValuesText({112, 1222})))
+            fail(QStringLiteral("PRODWRITEFAIL R17: could not open the FC16 dialog"));
+        // The AUTHORITATIVE dispatch preview (the prepared snapshot encoded by
+        // the SAME encoder dispatch uses) must show the canonical FC16 PDU:
+        // fn=10, start=0001, qty=0002, byteCount=04, values 0070 / 04C6.
+        if (summaryText(QStringLiteral("writeSummaryPdu"))
+            != QStringLiteral("10 00 01 00 02 04 00 70 04 C6"))
+            fail(QStringLiteral("PRODWRITEFAIL R17: the confirmation PDU preview "
+                                "is [%1], expected the canonical FC16 PDU")
+                     .arg(summaryText(QStringLiteral("writeSummaryPdu"))));
+        note(QStringLiteral("PRODWRITE [R17]: confirmation PDU preview = %1")
+                 .arg(summaryText(QStringLiteral("writeSummaryPdu"))));
+        tabToOwner(QStringLiteral("writeConfirmAcceptButton"), 10);
+        sendKey(Qt::Key_Space, false);
+        transport->completeWriteWithTimeout16();
+        if (controller->timeoutCount() != timeoutsBefore + 1)
+            fail(QStringLiteral("PRODWRITEFAIL R17: timeoutCount=%1, expected "
+                                "exactly one more")
+                     .arg(controller->timeoutCount()));
+        if (controller->activeSerialRecordCount() != rowsBefore + 1)
+            fail(QStringLiteral("PRODWRITEFAIL R17: the timeout did not enter the "
+                                "shared history (rows=%1)")
+                     .arg(controller->activeSerialRecordCount()));
+        else if (controller->activeSerialRecords().back().functionCode() != 0x10
+                 || controller->activeSerialRecords().back().analysis.status
+                     != modbuslens::core::TransactionStatus::Timeout)
+            fail(QStringLiteral("PRODWRITEFAIL R17: the new history row is not an "
+                                "FC16 Timeout"));
+        if (controller->successCount() != successesBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R17: a Success appeared for a "
+                                "write that timed out"));
+        const QString text = noticeText();
+        if (!text.contains(QStringLiteral("响应超时"))
+            || !text.contains(QStringLiteral("设备写入状态未知")))
+            fail(QStringLiteral("PRODWRITEFAIL R17: the notice must read as the "
+                                "frozen write-unknown wording: [%1]").arg(text));
+        if (text.contains(QStringLiteral("设备未写入"))
+            || text.contains(QStringLiteral("写入成功")))
+            fail(QStringLiteral("PRODWRITEFAIL R17: the notice makes an "
+                                "unsupported claim: [%1]").arg(text));
+        note(QStringLiteral("PRODWRITE [R17]: FC16 no-response dispatch -> exactly "
+                            "one Timeout + user-visible write-unknown notice [%1]")
+                 .arg(text));
+    });
+    push([&]() {
+        if (dialogVisible())
+            fail(QStringLiteral("PRODWRITEFAIL R17: the dialog is still visible "
+                                "after the timeout"));
+        note(QStringLiteral("PRODWRITE [R17]: dialog closed; the write-unknown "
+                            "notice stays visible"));
+    });
+
     auto step = std::make_shared<int>(0);
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, step, schedule]() {
         if (*step >= steps->size()) {
             // Accounting: exactly the accepted sends the oracles asked for —
-            // P2, P4, P5, P11 (0x06) = 4 plus R1 (canonical FC16 N=2) and R6
-            // (FC16 N=1 boundary) = 6; P9 adds an attempt only, P10 a terminal.
-            if (transport->writeSends() != 7)
+            // P2, P4, P5, P11 (0x06) = 4 plus R1 (canonical FC16 N=2), R6 (FC16
+            // N=1 boundary) and R17 (FC16 no-response Timeout) = 7; P9 adds an
+            // attempt only, P10 a terminal. M10-F: R17 exists because the Human
+            // review found the FC16 timeout was never user-visible.
+            if (transport->writeSends() != 8)
                 fail(QStringLiteral("PRODWRITEFAIL final: accepted sends=%1, "
-                                    "expected 7").arg(transport->writeSends()));
-            if (transport->sentAduLogSize() != 7)
-                fail(QStringLiteral("PRODWRITEFAIL final: ADU log=%1, expected 7")
+                                    "expected 8").arg(transport->writeSends()));
+            if (transport->sentAduLogSize() != 8)
+                fail(QStringLiteral("PRODWRITEFAIL final: ADU log=%1, expected 8")
                          .arg(transport->sentAduLogSize()));
             if (transport->writeTerminals() != 1)
                 fail(QStringLiteral("PRODWRITEFAIL final: terminals=%1, expected 1")

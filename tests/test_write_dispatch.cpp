@@ -229,6 +229,7 @@ private slots:
     void r4_fc10NotSentMirror();
     void r4_fc10ShortSubmissionMirror();
     void fc10TimeoutEntersHistory();
+    void fc10WriteTimeoutNoticeSaysUnknown();
     void mixedFc03Fc06Fc10ShareOneStatisticsUniverse();
     void fc10_write10SupportedIsStructuralAndRuntimeInvariant();
     void fc10_write10SupportedDoesNotRevealProductionUi();
@@ -683,6 +684,33 @@ void WriteDispatchTest::fc10TimeoutEntersHistory()
     const auto& record = s.controller.activeSerialRecords().front();
     QCOMPARE(record.functionCode(), 0x10);
     QCOMPARE(record.analysis.status, TransactionStatus::Timeout);
+    QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
+}
+
+void WriteDispatchTest::fc10WriteTimeoutNoticeSaysUnknown()
+{
+    // M10-F regression (Human M10-F review found the defect): an FC16 write
+    // timeout used to produce NO user-visible terminal — the write-unknown
+    // notice was gated on 0x06 only. The notice must now treat every WRITE
+    // function the same: exactly one Timeout, the frozen wording, and nothing
+    // that could read as a Success.
+    Session s;
+    const auto token = s.prepare10();
+    s.controller.requestPreparedWriteDispatch(token);
+    s.completeAtTimeout();
+
+    QCOMPARE(s.controller.timeoutCount(), 1);
+    QCOMPARE(s.controller.observedCount(), 1);
+    const auto& record = s.controller.activeSerialRecords().front();
+    QCOMPARE(record.functionCode(), 0x10);
+    QCOMPARE(record.analysis.status, TransactionStatus::Timeout);
+    QVERIFY(s.controller.hasWriteDispatchNotice());
+    const QString text = s.controller.writeDispatchNotice();
+    QVERIFY(text.contains(QStringLiteral("响应超时")));
+    QVERIFY(text.contains(QStringLiteral("设备写入状态未知")));
+    QVERIFY(!text.contains(QStringLiteral("设备未写入")));
+    QVERIFY(!text.contains(QStringLiteral("写入成功")));
+    QCOMPARE(s.controller.writeDispatchNoticeTone(), QStringLiteral("warning"));
     QCOMPARE(s.controller.activeSerialTerminalCount(), 0);
 }
 

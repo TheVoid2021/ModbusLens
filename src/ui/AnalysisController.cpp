@@ -2,6 +2,7 @@
 
 #include "core/analysis/TransactionStatistics.h"
 #include "core/active/WriteDraftParsing.h"
+#include "core/active/WritePrepareValidation.h"
 #include "core/active/ProductWriteCapability.h"
 #include "core/protocol/Function03.h"
 #include "core/protocol/ModbusRtuCodec.h"
@@ -1399,6 +1400,385 @@ void AnalysisController::requestPreparedWriteDispatch(qulonglong token)
     (void)confirmAndDispatchPreparedWrite(static_cast<std::uint64_t>(token));
 }
 
+// ---------------------------------------------------------------------------
+// M10-F: protocol preview (single source of truth).
+//
+// The preview NEVER dispatches, NEVER creates a prepared snapshot and NEVER
+// mutates the write store. It runs the SAME core chain the real paths run —
+// parse (WriteDraftParsing) -> validate (WritePrepareValidation) -> encode
+// (encodeActiveRequest) — so PREVIEW BYTES == DISPATCH BYTES by construction:
+// the dispatch encodes the prepared snapshot exactly once and the transport
+// writes `descriptor.wire` as-is; the preview encodes the same intent through
+// the same encoder.
+//
+// PDU / RTU terminology (frozen): PDU = Function Code + Data (no slave
+// address, no CRC); RTU ADU / Frame = Slave Address + PDU + CRC. The wire ADU
+// (`descriptor.wire`) is the RTU frame; the PDU is the ADU without the leading
+// slave address and without the trailing two CRC bytes.
+// ---------------------------------------------------------------------------
+namespace {
+
+QString previewHexBytes(const std::vector<std::uint8_t>& bytes)
+{
+    QString hex;
+    bool first = true;
+    for (const std::uint8_t byte : bytes) {
+        if (!first)
+            hex += QLatin1Char(' ');
+        hex += QString::number(byte, 16).rightJustified(2, QLatin1Char('0'))
+                   .toUpper();
+        first = false;
+    }
+    return hex;
+}
+
+QString previewHex16(std::uint16_t value)
+{
+    return QStringLiteral("0x")
+        + QString::number(value, 16).rightJustified(4, QLatin1Char('0'))
+              .toUpper();
+}
+
+QString previewFunctionLabel(modbuslens::core::ActiveFunction function)
+{
+    using modbuslens::core::ActiveFunction;
+    switch (function) {
+    case ActiveFunction::ReadHoldingRegisters:
+        return QStringLiteral("FC03 (0x03) Read Holding Registers 读取保持寄存器");
+    case ActiveFunction::WriteSingleRegister:
+        return QStringLiteral("FC06 (0x06) Write Single Register 写单个保持寄存器");
+    case ActiveFunction::WriteMultipleRegisters:
+        return QStringLiteral("FC16 (0x10) Write Multiple Registers 写多个保持寄存器");
+    }
+    return QString();
+}
+
+// Same presentation mapping the prepare path uses (setWriteDraftErrorFrom):
+// one validation truth for preview and prepare, never a second wording.
+void previewApplyValidationError(const modbuslens::core::WriteValidationError& error,
+                                 QVariantMap& out)
+{
+    using modbuslens::core::WriteValidationErrorCode;
+    out.insert(QStringLiteral("ok"), false);
+    switch (error.code) {
+    case WriteValidationErrorCode::UnitIdOutOfRange:
+        out.insert(QStringLiteral("errorField"), QStringLiteral("unit"));
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("从站地址须在 1..247 之间（当前不支持广播）"));
+        return;
+    case WriteValidationErrorCode::AddressOutOfRange:
+        out.insert(QStringLiteral("errorField"), QStringLiteral("address"));
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("寄存器地址须在 0..65535 之间"));
+        return;
+    case WriteValidationErrorCode::ValueOutOfRange:
+        out.insert(QStringLiteral("errorField"), QStringLiteral("value"));
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("寄存器值须在 0..65535 之间"));
+        return;
+    case WriteValidationErrorCode::TimeoutOutOfRange:
+        out.insert(QStringLiteral("errorField"), QStringLiteral("timeout"));
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("超时须在 %1..%2 ms 之间")
+                       .arg(modbuslens::core::kWriteUiMinTimeoutMs)
+                       .arg(modbuslens::core::kWriteUiMaxTimeoutMs));
+        return;
+    case WriteValidationErrorCode::QuantityOutOfRange:
+        out.insert(QStringLiteral("errorField"), QStringLiteral("quantity"));
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("寄存器数量须在 1..123 之间"));
+        return;
+    case WriteValidationErrorCode::AddressSpanOutOfRange:
+        out.insert(QStringLiteral("errorField"), QStringLiteral("span"));
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("起始地址与数量超出 16 位寄存器地址空间"));
+        return;
+    case WriteValidationErrorCode::ValuesParseError:
+        break;
+    }
+
+    if (!error.parseError.has_value()) {
+        out.insert(QStringLiteral("errorField"), QStringLiteral("values"));
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("寄存器值列表无法解析"));
+        return;
+    }
+    const auto& parse = *error.parseError;
+    const auto line = static_cast<int>(parse.lineIndex) + 1;
+    out.insert(QStringLiteral("errorField"), QStringLiteral("values"));
+    switch (parse.code) {
+    case modbuslens::core::ValuesParseErrorCode::NoValues:
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("请输入至少一个寄存器值（每行一个）"));
+        return;
+    case modbuslens::core::ValuesParseErrorCode::BlankLineInside:
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("第 %1 行为空行：中间不能有空行").arg(line));
+        return;
+    case modbuslens::core::ValuesParseErrorCode::InvalidCharacter:
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("第 %1 行不是合法的十进制数值").arg(line));
+        return;
+    case modbuslens::core::ValuesParseErrorCode::ValueOutOfRange:
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("第 %1 行的数值超出 0..65535").arg(line));
+        return;
+    case modbuslens::core::ValuesParseErrorCode::TooManyValues:
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("寄存器数量须在 1..123 之间"));
+        return;
+    case modbuslens::core::ValuesParseErrorCode::MultipleValuesInSingleField:
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("只能输入一个数值（不能包含换行）"));
+        return;
+    }
+    out.insert(QStringLiteral("error"), QStringLiteral("寄存器值列表无法解析"));
+}
+
+QVariantMap previewFromDescriptor(
+    const modbuslens::core::ActiveRequestDescriptor& descriptor)
+{
+    using modbuslens::core::ActiveFunction;
+    QVariantMap out;
+    out.insert(QStringLiteral("ok"), true);
+    const auto& intent = descriptor.intent;
+    const auto code = modbuslens::core::activeFunctionCode(intent.function);
+    out.insert(QStringLiteral("functionCode"), static_cast<int>(code));
+    out.insert(QStringLiteral("functionHex"),
+               QStringLiteral("0x")
+                   + QString::number(code, 16).rightJustified(2, QLatin1Char('0'))
+                         .toUpper());
+    out.insert(QStringLiteral("functionLabel"),
+               previewFunctionLabel(intent.function));
+    out.insert(QStringLiteral("unitId"), static_cast<int>(intent.unitId));
+
+    // wire = [slave, fn, data..., crcLo, crcHi]; PDU = [fn, data...].
+    const auto& wire = descriptor.wire;
+    Q_ASSERT(wire.size() >= 4);
+    std::vector<std::uint8_t> pdu(wire.begin() + 1, wire.end() - 2);
+    out.insert(QStringLiteral("pduHex"), previewHexBytes(pdu));
+    out.insert(QStringLiteral("rtuHex"), previewHexBytes(wire));
+    out.insert(QStringLiteral("crcHex"),
+               previewHexBytes({*(wire.end() - 2), *(wire.end() - 1)}));
+
+    if (intent.function == ActiveFunction::ReadHoldingRegisters) {
+        const auto& read =
+            std::get<modbuslens::core::ReadHoldingRegistersIntent>(
+                intent.payload);
+        out.insert(QStringLiteral("startAddress"),
+                   static_cast<int>(read.startAddress));
+        out.insert(QStringLiteral("startAddressHex"),
+                   previewHex16(read.startAddress));
+        out.insert(QStringLiteral("quantity"), static_cast<int>(read.quantity));
+    } else if (intent.function == ActiveFunction::WriteSingleRegister) {
+        const auto& write =
+            std::get<modbuslens::core::WriteSingleRegisterIntent>(
+                intent.payload);
+        out.insert(QStringLiteral("address"), static_cast<int>(write.registerAddress));
+        out.insert(QStringLiteral("addressHex"), previewHex16(write.registerAddress));
+        out.insert(QStringLiteral("value"), static_cast<int>(write.value));
+        out.insert(QStringLiteral("valueHex"), previewHex16(write.value));
+        out.insert(QStringLiteral("rawValueType"),
+                   QStringLiteral("uint16"));
+    } else { // WriteMultipleRegisters
+        const auto& write =
+            std::get<modbuslens::core::WriteMultipleRegistersIntent>(
+                intent.payload);
+        out.insert(QStringLiteral("startAddress"),
+                   static_cast<int>(write.startAddress));
+        out.insert(QStringLiteral("startAddressHex"),
+                   previewHex16(write.startAddress));
+        out.insert(QStringLiteral("quantity"),
+                   static_cast<int>(write.values.size()));
+        // Derived, never user-entered: the intent carries ONLY values.
+        out.insert(QStringLiteral("byteCount"),
+                   static_cast<int>(2 * write.values.size()));
+        QVariantList rows;
+        std::uint16_t address = write.startAddress;
+        int index = 1;
+        for (const std::uint16_t value : write.values) {
+            QVariantMap row;
+            row.insert(QStringLiteral("index"), index);
+            row.insert(QStringLiteral("address"), static_cast<int>(address));
+            row.insert(QStringLiteral("addressHex"), previewHex16(address));
+            row.insert(QStringLiteral("dec"), static_cast<int>(value));
+            row.insert(QStringLiteral("hex"), previewHex16(value));
+            rows.append(row);
+            ++index;
+            ++address;
+        }
+        out.insert(QStringLiteral("values"), rows);
+        out.insert(QStringLiteral("rawValueType"), QStringLiteral("uint16"));
+    }
+    return out;
+}
+
+} // namespace
+
+QVariantMap AnalysisController::previewReadRequest(int slaveAddress,
+                                                   int startAddress, int quantity,
+                                                   int timeoutMs)
+{
+    // Same wide validation as readHoldingRegistersOnce (frozen FC03 messages
+    // stay there for the dispatch path); the preview reports ok=false instead
+    // of touching the serial error lane.
+    QVariantMap invalid;
+    invalid.insert(QStringLiteral("ok"), false);
+    if (slaveAddress < 1 || slaveAddress > 247) {
+        invalid.insert(QStringLiteral("error"),
+                       QStringLiteral("从站地址须在 1..247 之间"));
+        return invalid;
+    }
+    if (startAddress < 0 || startAddress > 65535) {
+        invalid.insert(QStringLiteral("error"),
+                       QStringLiteral("起始地址须在 0..65535 之间"));
+        return invalid;
+    }
+    if (quantity < 1 || quantity > 125) {
+        invalid.insert(QStringLiteral("error"),
+                       QStringLiteral("寄存器数量须在 1..125 之间"));
+        return invalid;
+    }
+    if (timeoutMs <= 0) {
+        invalid.insert(QStringLiteral("error"),
+                       QStringLiteral("超时时间须大于 0 ms"));
+        return invalid;
+    }
+    const modbuslens::core::ActiveRequestIntent intent{
+        .function = modbuslens::core::ActiveFunction::ReadHoldingRegisters,
+        .unitId = static_cast<std::uint8_t>(slaveAddress),
+        .timeout = std::chrono::milliseconds{timeoutMs},
+        .payload = modbuslens::core::ReadHoldingRegistersIntent{
+            .startAddress = static_cast<std::uint16_t>(startAddress),
+            .quantity = static_cast<std::uint16_t>(quantity),
+        },
+    };
+    const auto encoded = modbuslens::core::encodeActiveRequest(intent);
+    if (std::get_if<modbuslens::core::ActiveRequestEncodeError>(&encoded)
+        != nullptr) {
+        invalid.insert(QStringLiteral("error"), QStringLiteral("请求无效"));
+        return invalid;
+    }
+    auto out = previewFromDescriptor(
+        std::get<modbuslens::core::ActiveRequestDescriptor>(encoded));
+    return out;
+}
+
+QVariantMap AnalysisController::previewWrite06Draft(int unitId,
+                                                    const QString& addressRaw,
+                                                    const QString& valueRaw)
+{
+    using modbuslens::core::SingleRegisterValue;
+    using modbuslens::core::ValuesParseError;
+
+    // EXACTLY the same parse the prepare path runs (prepareWrite06Draft), then
+    // the same core validation — minus the snapshot: the preview can never
+    // create prepared state.
+    const auto addressParse =
+        modbuslens::core::parseDecimalRegisterValue(addressRaw.toStdString());
+    if (const auto* error = std::get_if<modbuslens::core::ValuesParseError>(
+            &addressParse)) {
+        QVariantMap out;
+        out.insert(QStringLiteral("ok"), false);
+        out.insert(QStringLiteral("errorField"), QStringLiteral("address"));
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("寄存器地址无法解析（须为 0..65535 的十进制数值）"));
+        Q_UNUSED(error);
+        return out;
+    }
+    const auto valueParse =
+        modbuslens::core::parseDecimalRegisterValue(valueRaw.toStdString());
+    if (const auto* error = std::get_if<modbuslens::core::ValuesParseError>(
+            &valueParse)) {
+        QVariantMap out;
+        out.insert(QStringLiteral("ok"), false);
+        out.insert(QStringLiteral("errorField"), QStringLiteral("value"));
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("写入值无法解析（须为 0..65535 的十进制数值）"));
+        Q_UNUSED(error);
+        return out;
+    }
+
+    const auto outcome = modbuslens::core::prepareWriteSingleRegisterIntent(
+        unitId, std::get<SingleRegisterValue>(addressParse).value,
+        std::get<SingleRegisterValue>(valueParse).value, 1000);
+    if (const auto* error =
+            std::get_if<modbuslens::core::WriteValidationError>(&outcome)) {
+        QVariantMap out;
+        previewApplyValidationError(*error, out);
+        return out;
+    }
+    const auto& intent =
+        std::get<modbuslens::core::ActiveRequestIntent>(outcome);
+    const auto encoded = modbuslens::core::encodeActiveRequest(intent);
+    if (std::get_if<modbuslens::core::ActiveRequestEncodeError>(&encoded)
+        != nullptr) {
+        QVariantMap out;
+        out.insert(QStringLiteral("ok"), false);
+        out.insert(QStringLiteral("error"), QStringLiteral("请求无效"));
+        return out;
+    }
+    return previewFromDescriptor(
+        std::get<modbuslens::core::ActiveRequestDescriptor>(encoded));
+}
+
+QVariantMap AnalysisController::previewWrite10Draft(int unitId, int startAddress,
+                                                    const QString& valuesText)
+{
+    const auto utf8 = valuesText.toUtf8();
+    const auto outcome = modbuslens::core::prepareWriteMultipleRegistersIntent(
+        unitId, startAddress,
+        std::string_view{utf8.constData(), static_cast<std::size_t>(utf8.size())},
+        1000);
+    if (const auto* error =
+            std::get_if<modbuslens::core::WriteValidationError>(&outcome)) {
+        QVariantMap out;
+        previewApplyValidationError(*error, out);
+        return out;
+    }
+    const auto& intent =
+        std::get<modbuslens::core::ActiveRequestIntent>(outcome);
+    const auto encoded = modbuslens::core::encodeActiveRequest(intent);
+    if (std::get_if<modbuslens::core::ActiveRequestEncodeError>(&encoded)
+        != nullptr) {
+        QVariantMap out;
+        out.insert(QStringLiteral("ok"), false);
+        out.insert(QStringLiteral("error"), QStringLiteral("请求无效"));
+        return out;
+    }
+    return previewFromDescriptor(
+        std::get<modbuslens::core::ActiveRequestDescriptor>(encoded));
+}
+
+QVariantMap AnalysisController::previewPreparedWrite()
+{
+    using modbuslens::core::PreparedWriteState;
+    if (preparedWriteStore_.state() != PreparedWriteState::Prepared
+        || !preparedWriteStore_.snapshot().has_value()) {
+        QVariantMap out;
+        out.insert(QStringLiteral("ok"), false);
+        out.insert(QStringLiteral("state"), QStringLiteral("none"));
+        return out;
+    }
+    // The dispatch encodes THIS captured intent (confirmAndDispatchPreparedWrite,
+    // ENCODE step) — the preview calls the same encoder on the same intent, so
+    // what the user sees in the dialog is byte-for-byte what would travel.
+    const auto encoded =
+        modbuslens::core::encodeActiveRequest(preparedWriteStore_.snapshot()->intent);
+    if (std::get_if<modbuslens::core::ActiveRequestEncodeError>(&encoded)
+        != nullptr) {
+        QVariantMap out;
+        out.insert(QStringLiteral("ok"), false);
+        out.insert(QStringLiteral("state"), QStringLiteral("prepared"));
+        out.insert(QStringLiteral("error"), QStringLiteral("请求无效"));
+        return out;
+    }
+    auto out = previewFromDescriptor(
+        std::get<modbuslens::core::ActiveRequestDescriptor>(encoded));
+    out.insert(QStringLiteral("state"), QStringLiteral("prepared"));
+    return out;
+}
+
 bool AnalysisController::hasPreparedWrite() const
 {
     return preparedWriteStore_.state() == modbuslens::core::PreparedWriteState::Prepared;
@@ -1976,8 +2356,19 @@ void AnalysisController::handleSerialTransactionCompleted(
     // status, but for a WRITE that status does not by itself tell the user
     // what it means for the device, so it is stated explicitly. It never says
     // the device was not written.
-    if (pendingRequest_->intent.function
+    // M10-F correction (Human M10-F manual review found the defect): the
+    // write-unknown notice belongs to EVERY active WRITE function. A 0x10
+    // timeout is the same "device write state UNKNOWN" fact as a 0x06 one —
+    // the request may already be on the wire and only the response is missing
+    // — so the FC16 user must see exactly the same terminal wording instead of
+    // silence. A READ timeout is deliberately NOT covered: "写入状态未知"
+    // would be a fabricated claim for a read.
+    const bool isWriteFunction =
+        pendingRequest_->intent.function
             == modbuslens::core::ActiveFunction::WriteSingleRegister
+        || pendingRequest_->intent.function
+            == modbuslens::core::ActiveFunction::WriteMultipleRegisters;
+    if (isWriteFunction
         && result.analysis.status == modbuslens::core::TransactionStatus::Timeout) {
         setWriteDispatchNotice(WriteDispatchNoticeKind::WriteTimeoutUnknown);
     }
