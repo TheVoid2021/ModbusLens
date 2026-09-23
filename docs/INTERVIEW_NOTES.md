@@ -1028,10 +1028,13 @@
 - **Q：本轮真机 probe PASS 到底证明了什么？** A：① 探针在真实 Windows + 真实 USB-RS485 + 生产同配置下可用并产出可追溯读数
   （COM5 打开成功、30 s / 119 次 poll、`isOpenAtEnd=1`、`enumeratedAtEnd=1`、`ioAfterOpen=0`）；
   ② 30 s 稳定持有期间**没有虚假本地丢失判定**。**它没证明**"真实拔线端到端链路"——
-  本轮 `availablePortsDropped=no`、无 error 事件 ⇒ **没有发生可观测的 removal**，
-  `isOpenStaleAfterRemoval=no` 应读作**不适用**，不能扩大解释。
+  本轮 `availablePortsDropped=no`，且**没有 non-NoError / fatal 本地错误事件**
+  （`errorOccurred` signal 触发 1 次、携带 `NoError(0)`）⇒ **没有发生可观测的 removal**，
+  `isOpenStaleAfterRemoval=no` 应读作**不适用**，不能扩大解释；
+  另：本轮打开后零 I/O，**不能**据此排除“下一次 read/write 才暴露错误”的路径。
 - **Q：日志里 `errorOccurred enum=NoError(0)` 是什么？** A：Qt 在**打开流程内**发出的**良性状态通知**
   （分类表把 `NoError` 定义为"不是错误"，`handlePortError` 首行即忽略；
   打开成功后的 `errorString=[Unknown error]` 只是 NoError 的字符串投影）。
   已知探针口径瑕疵：它被计入 `errorEvents` / `errorOccurredFired`，已入 BACKLOG 追踪；
-  正确读法为"无失败事实，仅一次良性通知"。
+  正确读法：`errorOccurred` **触发 1 次但携带 `NoError(0)`** ⇒ **没有 fatal / non-NoError 错误事件**，
+  仅一次良性通知。

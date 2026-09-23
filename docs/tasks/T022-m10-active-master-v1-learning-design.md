@@ -9679,9 +9679,12 @@ SERIAL-HOTPLUG VERDICT errorOccurredFired=yes enum=NoError errorLatency=+0.000s 
 2. t=+0.064s COM5 @ 9600 打开成功（isOpen=1）；30 s 内 **119 次 poll**；结束时 isOpen=1、enumerated=1。
 3. **本轮没有观察到端口从 availablePorts 消失**：firstAbsentAt=n/a、availablePortsDropped=no。
    （poll 行只在 isOpen/enumerated/端口总数**发生变化**时写出；全程仅 1 行 ⇒ 在有观测的约 29.6 s 内三者一直未变。）
-4. 打开后**未执行任何 I/O**（ioPerformedAfterOpen=0）⇒ 本轮读数可排除「只有下一次读/写才暴露错误」这一类解释。
+4. 打开后**未执行任何 I/O**（`ioPerformedAfterOpen=0`）。该字段只说明**没有额外 I/O 发生**：
+   ⇒ 因此「只有下一次 read/write 才暴露错误」这一路径**本轮并未被覆盖** —— **既不能由本轮结果验证，也不能由本轮结果排除**。
 5. **`isOpenStaleAfterRemoval=no` 不得解读为「已证明不 stale」**：原始数据表明**本轮没有发生可观测的 removal**
-   （既无 error 事件、也无枚举消失）。在无 removal 情形下该字段应读作「不适用」，而非「已验证为否」。
+   —— 具体而言：Qt `errorOccurred` signal **确实触发过 1 次**，但携带 **`NoError(0)`**（见第 1 点），
+   **没有任何 non-NoError / fatal 本地错误事件**，也没有枚举消失。
+   在无 removal 情形下该字段应读作「不适用」，而非「已验证为否」。
 6. 人工验收判定 = **PASS**（权威结论来自 Human Hardware Re-review，本档案按 PASS 归档，不改成 FAIL/BLOCKED）。
    本轮 PASS 的**实质内容** = ① 探针在真实 Windows + 真实硬件 + 生产同配置下**可用**且产出可追溯读数；
    ② 端口成功打开并持有 30 s 期间**没有出现虚假的本地丢失判定**（§ZV4 的抗误报设计在真实硬件上未被误触发）。
