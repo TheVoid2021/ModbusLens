@@ -10105,23 +10105,29 @@ policy 取值：FRESH_REQUIRED / REUSE_ALLOWED / HUMAN_REQUIRED / OPTIONAL / N/A
    PASS = a–h 全部成立并逐项记录
    failure meaning：任一不成立 ⇒ 停止，先查明来源，不得自行解释成「应该没问题」
 
-2  behavior-tree continuity（按**实际存在且被实际消费**的路径桶分类）    FRESH_REQUIRED
-   procedure：git diff --name-only <accepted-tree>..HEAD，逐文件归入下列桶：
-   · product behavior inputs：src/ · assets/（assets/brand/windows/ModbusLens.ico
-     由 CMakeLists 消费）· CMakeLists.txt
-   · test-only inputs：tests/ · samples/（configure_file 进 test_data，由 ctest 消费）
-   · packaging/deployment inputs：scripts/（make_package.py / deploy_windows.bat /
-     test_make_package_freshness.py）· CMakePresets.json（构建配置）
-   · docs-only inputs：docs/ · README.md · AGENTS.md · demo/ · .gitattributes · .gitignore
-     （仓库**无 cmake/ 目录**；CMakeUserPresets.json 为 gitignored 本机文件）
+2  behavior-tree continuity（按 §ZC11 的**真实依赖表**逐路径分类）        FRESH_REQUIRED
+   procedure：git diff --name-only <accepted-tree>..HEAD，对每个 changed tracked path
+   依 §ZC11 归桶，并映射到对应 gate：
+   · product behavior input changed（src/ · assets/brand/windows/ModbusLens.ico · CMakeLists.txt）
+     ⇒ 不能直接进入 acceptance；确认 rebuild + fresh product evidence 覆盖
+     （#3/#4 全量回归 + #7 identity + #8 portable gates + #10/#11 人工）
+   · test-only input changed（tests/ · samples 的 t014_*/t015_* fixtures）
+     ⇒ fresh Debug/Release 全量回归覆盖（#3/#4）
+   · packaging/deployment input changed（scripts/make_package.py · scripts/deploy_windows.bat ·
+     scripts/test_make_package_freshness.py · samples/demo_v1.mlog）
+     ⇒ fresh package/deployment 证据覆盖（#5/#6/#7/#8）
+   · true docs-only input changed（docs/ · README.md · AGENTS.md · demo/ ·
+     CMakePresets.json [条件性，见 §ZC11] · .gitattributes · .gitignore）
+     ⇒ 不要求重建 artifact
    PASS =
-     · product behavior inputs 桶为空（⇒ 无需重建，exe 字节延续才有依据）
-     · test-only / packaging 桶若非空 ⇒ 对应 gate（#3/#4 全量回归、#6 package）
-       本就 FRESH_REQUIRED，必须重跑 —— **不得**以 product 桶为空推断其不变
-     · docs-only 桶变化不影响任何 gate
-   failure meaning：product 桶非空 ⇒ 存在未经重新验收的行为变化 ⇒ M10-F 停止并走 correction 轮
-   reuse rule：无（本项是**本轮必须重新计算**的连续性证明，不得引用上一轮结果）
-
+     · product behavior inputs 桶为空（⇒ exe 字节延续才有依据）
+     · packaging/deployment 桶为空，或非空但 #5/#6/#7/#8 已在该轮重跑并通过
+     · test-only 桶变化已被 #3/#4 覆盖
+   failure meaning：
+     product 桶非空 ⇒ 未验收行为变化 ⇒ 停止并走 correction 轮；
+     packaging 桶非空且未重跑 package ⇒ 不得闭合
+   reuse rule：无
+   完整依赖表与逐路径依据 = §ZC11（不要按目录名/语义名归类，按「改变后会影响什么」归类）。
 3  全量回归 Debug                   FRESH_REQUIRED  ctest（build/debug）                                   36/36 PASS
 4  全量回归 Release                 FRESH_REQUIRED  ctest（build/release）                                 36/36 PASS
    （ctest 内含 qml_smoke / qml_geometry / qml_nav / qml_focus / qml_write_foundation /
@@ -10311,4 +10317,62 @@ M10-F = PASS / CLOSED 当且仅当：
 
 全量复查结论：hidden reuse exemption = none；historical-as-fresh = none；
 optional hardware escalation/de-escalation = none；Human binding ambiguity = none。
+```
+
+### ZC11. Dependency-classification correction（2026-09-23；以真实依赖重建四桶）
+
+> 依据 = 读取脚本 / CMake 的**真实消费关系**（不是目录名或语义名）。
+> 关键更正：**仓库 `README.md` 不是 packaging input** —— 见 ZZ-A。
+
+#### ZZ-A. README.md 的实测结论（对 Review 提出的前提的更正）
+
+```text
+Review 前提：「canonical make_package 输出 staged 1499+README ⇒ README.md 是 canonical package
+的实际输入之一，至少属于 packaging/deployment inputs」。
+
+实测（make_package.py 真实代码）：
+  · `shutil.copytree(deploy_dir, staging)`（line 198）——staging 内容来自 **deploy 树**；
+  · staged 的 `README.txt` 由脚本**内嵌**的 `README_TEMPLATE`（line 52–66）在
+    line 205–207 **生成**（`README_TEMPLATE.format(version=AUTHORITY_VERSION)`）；
+  · 脚本全文检索 `README.md` = **0 处**（它从不读取仓库根的 README.md）；
+  · `CMakeLists.txt` 同样不引用 README.md（grep = 0）。
+⇒ staged 输出里的 "README" 一词指的是**脚本生成的 README.txt**，与仓库 `README.md` **无关**。
+⇒ 按本轮确立的规则（「改变后会影响什么」，而非文件名）：
+  **README.md = docs-only input**（改变它不会进入 exe、不会进入 tests、不会改变
+  staged/manifest/ZIP/extract，也不会改变 acceptance automation）。
+  ※ 若未来希望包内 README 反映仓库 README.md，那是 make_package.py 的**功能变更**，
+    须走独立任务，不得在本 acceptance contract 内顺手改动。
+```
+
+#### ZZ-B. 最终依赖桶（逐路径，依据 = 真实消费者）
+
+```text
+| tracked path                                | bucket                 | 实际消费者（证据）                                        | 改变后影响                       | M10-F 证据          |
+| README.md                                   | docs-only              | 无（make_package 不读；staged README.txt 为脚本内嵌模板生成，line 52–66/205–207） | 无 | 无 |
+| docs/**                                     | docs-only              | 无                                                        | 无                               | 无 |
+| AGENTS.md                                   | docs-only              | 无                                                        | 无                               | 无 |
+| demo/**（仅 README.md）                     | docs-only              | CMake / package / ctest 均不消费（CMakeLists grep=0）      | 无                               | 无 |
+| .gitignore                                  | docs-only(infra)       | git（仅影响 tracked 集合）                                 | 无                               | 无 |
+| .gitattributes                              | docs-only(infra)       | git checkout 行尾归一化                                    | 若改变真实文件行尾 ⇒ 会以 product 桶 diff 呈现 | 无（出现则按 product 桶处理） |
+| CMakePresets.json / CMakeUserPresets.example.json | docs-only(条件性) | canonical M10-F 命令**不消费**（cmake --build build/release、ctest、make_package 均不经 preset） | 无；仅当未来改用 --preset 重新 configure 才须重分类为 product/build input | 无 |
+| CMakeLists.txt                              | product behavior       | CMake（targets / QML 模块 / configure_file / 图标 / 宏）   | rebuild ⇒ exe/测试/包内容可能变  | #3/#4/#6/#7/#8 |
+| src/**                                      | product behavior       | 编译 / QML 模块                                            | exe 字节 / 行为                  | #3/#4/#6/#7/#8 |
+| assets/brand/windows/ModbusLens.ico         | product behavior       | CMakeLists（嵌入图标资源）                                 | exe 字节（图标）                 | #3/#4/#6/#7/#8 |
+| tests/**                                    | test-only              | ctest                                                      | 测试证据                         | #3/#4 |
+| samples/demo_v1.mlog                        | test-only + packaging  | CMake configure_file（ctest）+ deploy_windows.bat line 124（deploy/samples/）+ make_package REQUIRED_FILES line 37 | 测试证据 + staged/ZIP/extract | #3/#4 + #6/#7 |
+| samples/t014_protocol_error.mlog、t015_broadcast.mlog、t015_unsupported_fc08.mlog | test-only | CMake configure_file（ctest fixtures）                     | 测试证据                         | #3/#4 |
+| scripts/make_package.py                     | packaging              | canonical package（README.txt 生成、REQUIRED_FILES、负向扫描、manifest、ZIP、extract、identity） | staged / README.txt / manifest / ZIP / extract / 检查行为 | #6/#7 |
+| scripts/deploy_windows.bat                  | packaging              | deploy 树组成（exe / MinGW DLL / windeployqt / QML 模块树 / samples） | deploy 树 ⇒ staged ⇒ ZIP         | #6/#7 |
+| scripts/test_make_package_freshness.py      | packaging(acceptance automation) | ZC3 #5 freshness gate                          | gate 行为                        | #5 |
+| scripts/make_icon.py、scripts/bench_replay  | 工具（未被 canonical M10-F 命令消费） | 无                          | 无（除非未来使用）               | 无 |
+```
+
+#### ZZ-C. 分类规则
+
+```text
+· 按「该 tracked path 改变后会影响什么」归类；**禁止**按目录名/语义名归类。
+· 若某目录内部分文件进入 package、部分不进入（如 samples/），必须按文件拆分，不整目录一桶。
+· docs-only 的判定必须同时满足：不进 executable、不进 tests、不进 package/deploy artifact、
+  不改变 acceptance automation。
+· 分类一旦用于 acceptance 判定，其依据（脚本/CMake 行号与 grep 结果）必须随 contract 一并归档。
 ```
