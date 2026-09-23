@@ -9771,3 +9771,74 @@ C. `errorString=[Unknown error]`：按证据边界收紧为 —— **open succee
 D. R15 / R16：始终标注为 **automated harness evidence**（观测边界 seam + harness 传输），
    **不得**写成真实 USB-RS485 物理拔线证据；真实 removal 在那次 probe 中未被观察到。 ✅ 已核对
 ```
+
+## M10-E5 — Final Acceptance（automated + manual + deploy）（2026-09-23）
+
+> canonical 定义出处：**T022 §ZE15（line 7754–7755）**
+> `E5  Final acceptance（M10-F 前置）：全量回归 + deploy/package + 部署客户端验收`
+> `（M10-F 仍独立存在，覆盖 0x03/0x06/0x10 整体 + optional real hardware）`
+> 另一处：`PROJECT_STATUS.md`「下一任务（Next Task After T022）」= `M10-E5 — final acceptance（automated + manual + deploy）（T022 §ZE15；M10-E4 Review 通过后启动）`。
+> 实现期覆盖范围（§ZE16 line 7760–7766 Test plan）由既有 CTest 目标承载。
+
+### ZY1. Acceptance matrix
+
+```text
+1 全量回归（Debug）              → ctest（build/debug）                 36/36 PASS  （本轮重跑，FRESH）
+2 全量回归（Release）            → ctest（build/release）               36/36 PASS  （本轮重跑，FRESH）
+3 deploy/package currency       → scripts/test_make_package_freshness.py  PASS     （本轮重跑，FRESH）
+4 deploy/package                → scripts/make_package.py …             PASS       （REUSED，见 ZY2）
+5 四路 executable identity      → A/B/C/D SHA-256                      PASS       （本轮复核，FRESH）
+6 部署客户端验收（automated）    → final portable 五个 runtime gate      5/5 PASS   （本轮重跑，FRESH）
+7 部署客户端验收（manual）      → Final Human Visual Re-review          PASS       （§ZX，绑定同一 D）
+8 minimal-PATH / external-CWD   → canonical package 内已执行           PASS       （REUSED，同 ZY2）
+```
+
+### ZY2. 为什么 deploy/package 允许 REUSED（不重复制造 artifact）
+
+```text
+判定依据（用户/仓库规则：「artifact bytes unchanged 且 canonical 规则允许 ⇒ 不要为了形式重复制造另一个 artifact」）：
+  · `git diff --stat 4b75db7..HEAD -- src tests CMakeLists.txt scripts` ⇒ **空**；
+    HEAD 相对最后一个 behavior commit 仅 6 个 docs 文件变更 ⇒ 与 artifact 相关的源树未变。
+  · 因此重建不会产生新字节：A/B/C/D 复核仍为 d5a49582…（4 019 721 B），未变。
+  · canonical package 已在上一步以同一输入（同一 build/release + deploy）产出，
+    package / extract / ZIP 均在位，且本轮已重新验证 identity。
+  · 若强行重跑 make_package：脚本需先清空 build/package/ModbusLens-2.0.0-windows-x64（1500 文件）
+    才能重新 staging ⇒ 触发宿主 bulk-delete 门（threshold 50），
+    且会**删除人工已验收的最终 artifact 目录 D**，而产出字节完全相同 —— 无收益且有损证据链。
+  ⇒ 结论：deploy/package 门以 **REUSED + 本轮重新验证（freshness + A/B/C/D identity）** 满足。
+```
+
+### ZY3. Artifact continuity
+
+```text
+M10-E5 最终 artifact 仍为：
+  build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe
+  SHA-256 = d5a49582cc2033ce39a0ab2f727222ec57bacf768cceb795f5a237d112b11e87（4 019 721 B）
+⇒ 与获得 Final Human Visual Re-review PASS 的 artifact **同一字节**，
+  该人工 PASS **继续有效**，无需重新人工验收。
+```
+
+### ZY4. LKGC
+
+```text
+规则出处：T022 §ZE17（line 7794–7795）
+  「verified LKGC 保持 9bdd99c（不推进）；未来 Agent 只提出 LKGC candidate，Human Review PASS 前不自行宣布 advance」
+另有：AGENTS.md V2 protocol line 130
+  「→ LKGC decision（docs-only 不推进 LKGC；有人工验收项时验收前不得推进）」
+
+本轮：
+  · LKGC candidate = `4b75db7`（M10-E 最后一个 behavior-bearing accepted tree；
+    其证据：Debug/Release 36/36 · QML 门禁 6/6 · canonical package PASS ·
+    A==B==C==D PASS · portable 5/5 PASS · Final Human Visual PASS）
+  · **verified LKGC 保持 `9bdd99c`**（Agent 仅提出 candidate，不自行推进）
+```
+
+### ZY5. 结论
+
+```text
+M10-E5 = ✅ PASS / CLOSED
+M10-E = ✅ COMPLETE（E1 → E5 全部完成）
+M10 overall = IN PROGRESS（**M10-F 仍独立存在**：覆盖 0x03/0x06/0x10 整体 + optional real hardware）
+下一任务 = **M10-F**（本轮不启动）
+REAL MODBUS HARDWARE = NOT VERIFIED；真实拔线端到端实机链路仍未获实机证据（沿用 §ZX3 边界）。
+```
