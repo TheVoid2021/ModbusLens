@@ -67,6 +67,25 @@
 - **Local port presence（M10-E4）**：`serialConnected` 只表示**本地串口已打开**；`QSerialPort::isOpen()` 是**句柄自述状态**（设备消失后仍为 true），因此"适配器还在不在"必须问 OS —— `QSerialPortInfo::availablePorts()`（`DIGCF_PRESENT` 实时枚举，设备消失即消失）。自动化侧以**观测边界 seam**（注入 port-presence provider）覆盖：`tests/test_serial_adapter.cpp` i09–i13（确认消失恰好上报一次、抗单次抖动、显式 start、真实 teardown、仍枚举即非丢失）；控制器 / UI 侧由 `--qml-production-write-check` 的 R15 / R16 覆盖。**这不是远端 Modbus 存活检测**：不寻址任何从站、不发任何帧，从站沉默仍保持端口存在（Timeout 仍为 Timeout，见 R15-B / i13）。
 - **`--serial-hotplug-probe`（人工真机仪器，2026-09-23 实机验收 PASS）**：真实 USB 串口硬件在自动化环境不可得，故保留一个**文档化、不进 ctest** 的探针（与 §4 规则一致：需要真实硬件或人工步骤的测试以 `manual_` 前缀 + `DISABLED` 或文档化）。用法：`ModbusLens.exe --serial-hotplug-probe=COMx [--serial-hotplug-probe-seconds=N] [--serial-hotplug-probe-log=<path>] [--serial-hotplug-probe-baud=N]`；以**与生产 adapter 完全相同**的配置打开端口，打开后**不做任何 I/O**（`ioPerformedAfterOpen=0`），逐事件输出 `errorOccurred` 的 enum 名/数值与 `errorString`，按变化输出 `poll` 行，结尾给出 `SUMMARY` 与 `VERDICT`；退出码 0 = 错误门触发 / 3 = 全程静默 / 1 = 打开失败。读数口径注意：`SUMMARY` / `VERDICT` 目前把 Qt 打开流程内的**良性** `NoError(0)` 也计入 `errorEvents` / `errorOccurredFired`，故可能出现 `errorOccurredFired=yes enum=NoError errorLatency=+0.000s` —— 正确读法：`errorOccurred` signal **确实触发 1 次但携带 `NoError(0)`**，即**没有 fatal / non-NoError 错误事件**（已入 BACKLOG 追踪项）；且 `ioPerformedAfterOpen=0` 只说明打开后没有额外 I/O，**不代表**已排除「只有下一次 read/write 才暴露错误」的可能。原始证据归档：T022 §ZW（`docs/tasks/T022-m10-active-master-v1-learning-design.md`）。
 
+### 请求预览 / 事务透明（M10-F correction）
+
+- **PREVIEW == WIRE（单一事实源）**：请求预览字节必须来自 dispatch 使用的同一个
+  production encoder（`encodeActiveRequest`；dispatch 对 prepared snapshot 只编码一次，
+  transport 原样写 `descriptor.wire`）。控制器 preview 入口
+  （previewReadRequest / previewWrite06Draft / previewWrite10Draft / previewPreparedWrite）
+  绝不 dispatch、绝不建 snapshot、绝不改 write store；拒绝时返回与 prepare 相同的
+  field/message。契约测试 = `test_ui_bridge` pv1–pv4（预览 == encoder 字节，逐字节）。
+- **写 terminal 必须对所有 WRITE 功能可见**：写超时 notice（WriteDispatchNoticeKind::
+  WriteTimeoutUnknown）覆盖 0x06 与 0x10（READ 超时明确不覆盖）。
+  回归 = `test_write_dispatch::fc10WriteTimeoutNoticeSaysUnknown` +
+  `--qml-production-write-check` **R17**（FC16 无响应派发 → 恰一个 Timeout +
+  冻结文案 + 无 Success；harness `completeWriteWithTimeout16()`）。
+  历史教训：harness 只能驱动 0x06 timeout ⇒ FC16 timeout 从未被 oracle 覆盖
+  （Human review 才发现）。
+- **未来 Raw PDU / Raw RTU mode（仅设计边界）**：Structured Request（已知 FC =
+  structured schema）→ Raw PDU（unknown/vendor FC = Data HEX）→ Raw RTU Frame
+  （整帧输入 + CRC 策略待定）；本轮不改 serial stack。
+
 ### GUI
 
 - 冒烟：offscreen 平台下构造窗口/控件（T001 已建立 `smoke`）。

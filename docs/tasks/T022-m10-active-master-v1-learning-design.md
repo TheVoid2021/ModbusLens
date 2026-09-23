@@ -10446,3 +10446,113 @@ Review 裁决：对 §ZC3 #11 的 procedure blocker 采纳 **(a) 修订 #11**。
   · 状态不变：M10-F automated gates = PASS；M10-F = **PENDING HUMAN #10/#11**；
     LKGC 保持 9bdd99c；M11 HOLD；未 push / 未 tag。
 ```
+
+## ZD. M10-F Correction Round — FC16 Terminal Defect + Structured Request Foundation（2026-09-23，behavior `cc3c6f8`）
+
+> 触发：Human M10-F manual review 发现**真实产品缺陷** —— FC06 无响应派发正确呈现
+> 「响应超时，设备写入状态未知…」，而 **FC16 在完全相同的场景下没有任何 terminal 反馈**
+> （无 Success / Timeout / TransportError，确认后即静默）。Human 判定：M10-F acceptance =
+> INTERRUPTED / FAIL ⇒ M10-F = HOLD，进入 correction round。本轮 = 行为修正 + UI foundation；
+> **M10-F 仍 HOLD**（行为已变 ⇒ 此前 package/identity/portable gates/人工 PASS **不可迁移**，
+> 需重新生成 corrected portable artifact + fresh acceptance replay）。
+
+### ZD1. Root cause（真实 production path 逐层对比）
+
+```text
+断点位置：src/ui/AnalysisController.cpp
+  AnalysisController::handleSerialTransactionCompleted() 内（M10-D4 引入）：
+    if (pendingRequest_->intent.function
+            == ActiveFunction::WriteSingleRegister        // ← FC06-only gate
+        && result.analysis.status == TransactionStatus::Timeout) {
+        setWriteDispatchNotice(WriteDispatchNoticeKind::WriteTimeoutUnknown);
+    }
+⇒ FC06 timeout：notice lane 呈现「响应超时，设备写入状态未知；如需重试，请重新确认写入。」
+⇒ FC16 timeout：事务行照常入历史（Timeout），但 **writeDispatchNotice 从不置位**
+  ⇒ Communication 页 Write 区 outcome lane 保持空 ⇒ 用户视角 = 「点了没反应」。
+
+为什么 automated R1–R16 没抓到（两层缺口，均为断言缺口而非产品回归）：
+  ① harness 层：`completeWriteWithTimeout()` 明确 **只接受 0x06 pending**
+     （`!= WriteSingleRegister ⇒ return`）——FC16 的 timeout 在 QML oracle 里根本无法驱动；
+     FC16 的派发 oracle（R1/R6）用的是 echo 完成路径。
+  ② 控制器层：`test_write_dispatch::fc10TimeoutEntersHistory` 断言了 FC16 timeout 的
+     record/status，但**没有断言 writeDispatchNotice**；
+     `d4_writeTimeoutNoticeSaysUnknown` 只用 FC06 驱动。
+⇒ 该 Human-visible 层（Write 区 outcome lane）从未被 FC16 timeout 覆盖。
+```
+
+### ZD2. Behavior fix
+
+```text
+· handleSerialTransactionCompleted 的 notice gate 改为覆盖**所有 active WRITE 功能**
+  （0x06 + 0x10，file-local `isWriteFunction`）；READ timeout **明确不覆盖**
+  （对读而言「写入状态未知」是捏造）。
+· 文案**不新增第二套**：继续复用既有 WriteDispatchNoticeKind::WriteTimeoutUnknown
+  的 canonical wording（响应超时，设备写入状态未知；如需重试，请重新确认写入）。
+· 语义保持：Timeout ≠ Success；Timeout ≠ confirmed failure（请求可能已上线）；
+  write state unknown 语义保留；exactly one terminal；无重复 timeout；
+  无 Success after timeout；无 stale confirmation revival；pending 正确清理。
+· 回归：`tests/test_write_dispatch.cpp` 新增 **fc10WriteTimeoutNoticeSaysUnknown**
+  （Human-found defect 的直接回归）；harness 新增 **completeWriteWithTimeout16()**
+  （0x10 twin）+ **R17** oracle（FC16 无响应派发 → 恰好一个 Timeout + 冻结文案 +
+  确认对话框 AUTHORITATIVE PDU preview = `10 00 01 00 02 04 00 70 04 C6`；
+  production-write sends accounting 7 → 8，如实披露）。
+```
+
+### ZD3. Structured request builder / protocol transparency foundation
+
+```text
+· 单一事实源（硬要求）：预览字节来自 **dispatch 使用的同一个 production encoder**
+  （`encodeActiveRequest`；dispatch 对 prepared snapshot 只编码一次，transport 原样写
+  `descriptor.wire`）⇒ PREVIEW BYTES == DISPATCH BYTES 由构造保证。
+  控制器新增 preview 入口（Q_INVOKABLE，绝不 dispatch / 绝不建 snapshot / 绝不改 write store；
+  拒绝时返回与 prepare 相同的 field/message 映射）：
+    previewReadRequest(unit, start, quantity, timeoutMs)
+    previewWrite06Draft(unit, addressRaw, valueRaw)
+    previewWrite10Draft(unit, start, valuesText)
+    previewPreparedWrite()   ← 编码**当前 prepared snapshot**（确认对话框内渲染，
+                               用户确认的就是将上线的字节）
+· Function Code 一等参数 + 统一展示：FC03 (0x03) / FC06 (0x06) / FC16 (0x10)
+  （Request 区新增 Function 标识行；Write 子 Tab 改为 FC06 (0x06)/FC16 (0x10)）。
+· 地址语义：起始地址标注 **PDU / 0-based** + HEX 回显（DEC 1 = 0x0001）；
+  不做 40001 映射猜测。
+· FC06 值语义：`写入值` → **寄存器原始值（uint16，DEC）** + DEC/HEX 预览行。
+· FC16：values 标注 **uint16 DEC**；Quantity/Byte Count **自动派生**展示（intent 只带 values）；
+  确认摘要逐值 **index / address / DEC / HEX**（`值 %1 @%2：%3（%4）`，行尾 = DEC 值，
+  与 C4 confirm-scroll 的 trailing-number oracle 兼容）。
+· PDU / RTU 术语冻结：PDU = Function Code + Data；RTU Frame = Slave + PDU + CRC；
+  所有 hex 行 `Layout.fillWidth + elide`（123 值草稿不会把面板撑出窗口——C4 geometry 修复）。
+· 事务透明基础：FC16 timeout 修复后，Write 区 outcome lane 对三个功能码都给出可见 terminal
+  （Success 经事务历史；Timeout 经 notice；TransportError 经 serial error lane；
+  Exception 经事务行）。TX/RX Monitor 的完整呈现留下一轮
+  （`ActiveTransactionEvidence.requestAdu/responseAdu` 已在 runtime 记录中保留，接口就绪）。
+· Future raw mode（本轮仅设计边界）：Structured Request（已知 FC = structured schema）→
+  Raw PDU（unknown/vendor FC = Data HEX）→ Raw RTU Frame（整帧输入 + CRC 策略待定）；
+  本轮不改 serial stack，架构不阻碍下一轮。
+```
+
+### ZD4. 门禁（真实执行）
+
+```text
+Debug build：0 error / 0 NEW warnings（5 PRE-EXISTING，src/main.cpp）。
+Debug full CTest（修复后重跑）：**36/36 PASS**（73.00 s）。
+Release build：0 error / 5 PRE-EXISTING warnings。
+Release full CTest：**36/36 PASS**（72.71 s）。
+QML 门禁 Debug 与 Release **各 6/6 exit 0**（windows 平台，从未 offscreen）：
+  smoke / production-write（P1–P12 + M1–M6 + R1–**R17** + sends accounting 8）/
+  write-foundation（C 系列，含 C4 geometry 修复后）/ focus / nav / geometry。
+新增测试：R17（QML oracle）· fc10WriteTimeoutNoticeSaysUnknown（控制器回归）·
+  test_ui_bridge pv1–pv4（preview == encoder 契约）。
+```
+
+### ZD5. 状态与下一步
+
+```text
+M10-F correction implementation = ✅ PASS（本轮 gates）
+M10-F overall = **HOLD**（行为已变 ⇒ portable artifact / A/B/C/D / portable gates /
+  Human #10/#11 **全部需要 fresh replay**；此前 PASS 不可迁移）
+下一步 = 重新生成 corrected portable artifact（retention 方案 + canonical make_package）
+  → fresh A/B/C/D identity → portable 5 gates → Human #10/#11 replay（按 §ZC12 修订后
+  的 reachable-path checklist）→ 全过才可闭合 M10-F。
+REAL MODBUS HARDWARE = NOT VERIFIED（#12 OPTIONAL 未执行）。
+M11 = HOLD；未 push；未 tag；LKGC 保持 `9bdd99c`。
+```
