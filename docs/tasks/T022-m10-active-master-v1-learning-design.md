@@ -10828,3 +10828,139 @@ M11 = HOLD（未开始）
   · docs/tasks/T022-*.md（本章）· docs/issues/ISSUE-015-*.md（新建）
 REAL MODBUS HARDWARE = NOT VERIFIED
 ```
+
+---
+
+## ZMG. M10-F Follow-up Correction — portable minimal-PATH `ReferenceError` + FC03 request-row overflow（2026-09-23，behavior-bearing）
+
+> 触发：native PowerShell 下 canonical packaging 已走到 portable runtime gate
+> （deploy ✅ / deploy identity ✅ / ZIP ✅ / extract identity ✅），但
+> `make_package FAIL: minimal-PATH --qml-smoke-test emitted warning containing 'referenceerror'`。
+> 本章记录定位、两个真实缺陷、修复与回归保护。完整证据见
+> **`docs/issues/ISSUE-016-qml-referenceerror-and-request-row-overflow.md`**。
+
+### ZMG1. 原始失败行（精确，非“contains referenceerror”）
+
+```text
+qrc:/ModbusLens/src/ui/qml/pages/CommunicationPage.qml:287: ReferenceError: preview is not defined
+qrc:/ModbusLens/src/ui/qml/pages/CommunicationPage.qml:285: ReferenceError: preview is not defined
+qrc:/ModbusLens/src/ui/qml/pages/CommunicationPage.qml:296: ReferenceError: preview is not defined
+qrc:/ModbusLens/src/ui/qml/pages/CommunicationPage.qml:294: ReferenceError: preview is not defined
+qrc:/ModbusLens/src/ui/qml/pages/CommunicationPage.qml:304: ReferenceError: preview is not defined
+qrc:/ModbusLens/src/ui/qml/pages/CommunicationPage.qml:303: ReferenceError: preview is not defined
+```
+
+- QML file = `src/ui/qml/pages/CommunicationPage.qml`；line = 285/287/294/296/303/304（**无 column**）
+- **undefined symbol = `preview`**（三个嵌套 `Label` 的 `visible` / `text`）
+- 上下文其它诊断：`WriteFoundationSection.qml:655/669: Unable to assign [undefined] to QString`
+  （**不**在打包门禁的 substring 列表内，故未触发 FAIL）
+
+### ZMG2. 触发条件（最小化）
+
+```text
+1. 任意模式（smoke / nav / geometry / focus / write-foundation / production-write）都会触发。
+2. 与 PATH / cwd / QPA / 打包无关 —— packaged exe 与 build/release/modbuslens.exe 同 SHA-256，
+   dev PATH 下同样 6 条；release/debug × offscreen/windows 四组合全部 6 条、rc=0。
+3. 触发点是「组件加载时对中间对象属性的无限定读取」，不是任何运行时状态。
+```
+
+### ZMG3. 根因（QML 作用域实证，非推断）
+
+```text
+build/_qt_rca/scope_test.qml（canonical qml.exe 运行）：
+  RESULT t1.text(root prop) = "1"     <- 组件 ROOT 的属性：可见
+  RESULT t2.text(mid prop)  = ""      <- 中间对象的属性：不可见
+  scope_test.qml:16: ReferenceError: midProp is not defined
+```
+
+**规则**：QML 无限定名解析 = 对象自身属性 + **组件 root** 属性 + id；
+**中间祖先对象的属性不在链上**。`preview` 声明在中间 `ColumnLayout`（第 279 行）上，
+被其嵌套 `Label` 无限定读取 ⇒ ReferenceError。对照正确范例：同一提交把
+`write06Preview` / `write10Preview` / `preparedPreview` 声明在
+`WriteFoundationSection.qml` 的**组件 root**（第 77–86 行）。
+
+**归属**：`git blame -L 275,310` → 全部 `cc3c6f8b (2026-09-23)`；
+`git show --stat cc3c6f8` → 本文件 +58 行。**由 `cc3c6f8` 引入（非 pre-existing）。**
+
+### ZMG4. 为什么全部 source-tree 门禁都漏掉了（关键差异）
+
+```text
+CTest QML 门禁 = add_test(NAME qml_smoke COMMAND modbuslens --qml-smoke-test)
+               = 只判 exit code（无 PASS/FAIL_REGULAR_EXPRESSION）
+缺陷           = 不改变 exit code（rc=0）
+观测条件       = modbuslens.exe 是 WIN32 子系统程序；未设 QT_ASSUME_STDERR_HAS_CONSOLE=1 时
+                 Qt 把诊断写到 OutputDebugString ⇒ CTest 捕获到的 Output 块为空
+实证           = 加上 QT_ASSUME_STDERR_HAS_CONSOLE=1 后，六个 QML 门禁全部开始输出，
+                 且六个全部含 referenceerror（write-foundation 另含 typeerror）
+```
+
+⇒ 缺陷自 `cc3c6f8` 起一直存在，只是**在 CI 中不可观测**；
+`make_package.py` 是唯一 grep stdout/stderr 的门禁，所以第一次暴露发生在打包末端。
+
+### ZMG5. 修复 A —— QML binding / ownership（真正的缺陷）
+
+```text
+文件：src/ui/qml/pages/CommunicationPage.qml（预览块）
+- ColumnLayout 增加 id: requestPreviewPanel；所有读取改为 id 限定，不再依赖隐式祖先查找。
+- 新增有类型的投影 previewOk / previewPduText / previewRtuText / previewErrorText：
+  controller 的 map 在 ok=false 时无 pduHex/rtuHex、ok=true 时无 error，
+  直接绑定缺失键会打印 "Unable to assign [undefined] to QString" ⇒ 等于自造新诊断。
+- 属性仍留在**原块**（未上提到 page root），所有权不变。
+未做：未降低 make_package 的门禁、未过滤/隐藏日志、未改 make_package.py。
+```
+
+### ZMG6. 修复 B —— FC03 请求行溢出（修复 A 后暴露的第二个真实缺陷）
+
+```text
+现象：修 A 后 --qml-production-write-check rc=1
+      R15: silent slave produced 0 timeouts / R16: no pending request to lose
+诊断（临时，已移除）：commReadButton scene=(1186.0,241.0) 而 win=1000x700 ⇒ 按钮在窗口外
+机制验证：把窗口临时加宽到 1400 ⇒ 同一步骤立刻恢复（busy=1 / timeouts=1 / rc=0）
+归属测量：cc3c6f8~1 的 QML 重建后按钮 scene=(891.0,222.0)（窗口内，可点击）
+          cc3c6f8 的 QML           按钮 scene=(1186.0,241.0)（窗口外，不可点击）
+改动来源：cc3c6f8 在**唯一且不换行的 RowLayout** 内把“起始地址”→“起始地址（PDU / 0-based）”
+          并新增 “HEX 0x0000” Label ⇒ 行宽超出最小窗口，把尾部 Button 推出可视区。
+修复：该请求区改为 ColumnLayout{ RowLayout(从站地址/起始地址/HEX) ; RowLayout(寄存器数量/超时/读按钮) }。
+      所有控件、标签文本、绑定、id **完全保留**（无文案/功能变更），只是换行。
+```
+
+### ZMG7. 回归保护（加强既有门禁，不新增测试目标）
+
+```text
+CMakeLists.txt：
+1. 测试 ENVIRONMENT 增加 QT_ASSUME_STDERR_HAS_CONSOLE=1（否则诊断到不了 CTest，断言无意义）。
+2. qml_smoke / qml_nav_check / qml_geometry_check（= 打包门禁实际运行的同样三个模式）
+   增加 FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError"。
+红→绿归因证据：先加断言（未修）→ qml_smoke 失败
+   "Error regular expression found in output. Regex=[ReferenceError]"；修后通过。
+覆盖边界（显式）：不覆盖 plugin / missing dll / qimagereader（部署完整性，source tree 会误报）；
+   不覆盖 "Unable to assign [undefined]"（WriteFoundationSection 655/669 为 pre-existing）；
+   不覆盖 focus / write-foundation / production-write 三个模式（pre-existing TypeError 只在
+   write-foundation 可达，加上断言会立即变红 —— 已知缺口，待 follow-up 修复后扩展到全部六个）。
+```
+
+### ZMG8. 门禁（真实执行）
+
+```text
+Release build：0 error；Debug build：0 error。
+真实 ctest：Release **36/36 PASS**（78.25 s）；Debug **36/36 PASS**（80.93 s）。
+测试数量 = 36（**未变化**，未新增 target，只加强了既有三个的断言）。
+六个诊断模式（dev PATH + offscreen + QT_ASSUME_STDERR_HAS_CONSOLE=1）：
+  smoke/nav/geometry/focus/production-write = gate_hits **none**；ReferenceError 计数 **0**（原为 6）
+  write-foundation = gate_hits ['typeerror']（= ISSUE-016 E6-2 的 pre-existing 缺陷，未修）
+可达性：commReadButton scene x **1186 → 926**（窗口 1000），R15/R16 恢复为绿。
+```
+
+### ZMG9. 本轮边界与状态
+
+```text
+M10-F = **HOLD**（本轮只修正源码与 source-tree 门禁；**未重打包**）
+M11 = HOLD（未开始）
+未 push；未 tag；LKGC 保持 `9bdd99c`
+本轮改动 = src/ui/qml/pages/CommunicationPage.qml（修复 A + B）· CMakeLists.txt（回归保护）
+          + docs（ISSUE-016 新建 / 本章 / PROJECT_STATUS / BACKLOG / devlog）
+便携产物 = **STALE**：现有 package/extract 不含本次修正 ⇒ 必须由 native PowerShell 重跑
+REAL MODBUS HARDWARE = NOT VERIFIED
+未做（明确）：未在 WorkBuddy 内运行 make_package（ISSUE-015 宿主阻塞仍在）；
+              未做人眼验收；未闭合 M10-F；未开始 M11；未 amend `cc3c6f8` / `664f003`。
+```
