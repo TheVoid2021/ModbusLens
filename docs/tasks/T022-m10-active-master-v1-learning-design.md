@@ -10556,3 +10556,275 @@ M10-F overall = **HOLD**（行为已变 ⇒ portable artifact / A/B/C/D / portab
 REAL MODBUS HARDWARE = NOT VERIFIED（#12 OPTIONAL 未执行）。
 M11 = HOLD；未 push；未 tag；LKGC 保持 `9bdd99c`。
 ```
+
+---
+
+## ZMF. M10-F Corrected Portable Artifact Refresh — ⛔ BLOCKED（环境级，2026-09-23）
+
+> 本轮目标：把 `cc3c6f8` 的行为提交重新打包为**全新便携产物**，在新产物上重跑便携门禁，
+> 并准备 fresh Human #10/#11 验收。
+> 结论：**第 1–2 步与仓库内全部门禁 PASS；canonical packaging 因环境级阻塞无法完成。**
+> 阻塞建档：`docs/issues/ISSUE-015-qt-qprocess-pipe-blocked-packaging.md`。
+
+### ZMF1. 第 1 步 — RE-SYNC FROM REPOSITORY：✅ PASS
+
+```text
+HEAD == b7408aba8bc1ab8f5c21dd98d164e5be07742d83   ✅（与规约要求逐字符一致）
+git status --porcelain = empty（本轮动作前）        ✅
+b7408ab 相对 cc3c6f8 只含 docs change              ✅
+  = docs/04_TEST_STRATEGY.md · docs/BACKLOG.md · docs/PROJECT_STATUS.md
+    · docs/devlog/2026-09-23.md · docs/tasks/T022-*.md   （恰 5 个，无 src/tests/CMake/scripts/assets）
+tags = 仅 v1.0.0（无新 tag）                        ✅
+ahead/behind = 159 / 0（未 push）                   ✅
+```
+
+未触发 STOP 条件。
+
+### ZMF2. 第 2 步 — REVIEW THE BEHAVIOR COMMIT BEFORE PACKAGING：✅ PASS（提交未损坏）
+
+针对上一 Agent 曾发生的 `src/main.cpp` slice 损坏（重复块 / 丢失 guard / 无关重写）逐项复核
+`cc3c6f8` 提交内文件（**只读，未修改**）：
+
+```text
+src/main.cpp                 12529 行；`{`/`}` 各 1171（平衡）；无冲突标记；
+                             顶层函数名无重复；无整段重复块；
+                             writeTerminals() != 1 → 恰 3 处（7829 / 8333 / 9728，guard 完整）；
+                             completeWriteWithTimeout16 → 恰 2 处（定义 5015 / 调用 9675）；
+                             PRODWRITEFAIL R17 → 9 处；`R17:` → 10 处。
+src/ui/AnalysisController.cpp  368 / 368 平衡
+src/ui/AnalysisController.h      4 /   4 平衡
+src/ui/qml/.../WriteFoundationSection.qml  93 / 93 平衡
+src/ui/qml/pages/CommunicationPage.qml     46 / 46 平衡
+FC16 notice gate（0x06 + 0x10，READ 不覆盖）  在提交内 ✅
+preview API ×4（previewReadRequest / previewWrite06Draft /
+  previewWrite10Draft / previewPreparedWrite）在提交内 ✅
+新增测试（test_write_dispatch::fc10WriteTimeoutNoticeSaysUnknown；
+  test_ui_bridge pv1–pv4；QML oracle R17）在提交内 ✅
+git diff --check HEAD → 无输出 ✅
+```
+
+**未发现切片损坏 ⇒ 不触发 STOP，允许进入 packaging。**
+
+### ZMF3. Safe retention（整目录 Move，绝不逐文件删除）
+
+按「避开 host bulk-delete gate」原则，本轮全部历史产物以**整目录 Move**方式保留，
+未发生任何逐文件删除：
+
+```text
+build/package-retention-20260923-m10f-corrected/
+  package                                              files=10493（陈旧 ZIP 来源树，12:51）
+  package-extract                                      files=9578
+  package-extract-residual                             files=914
+  package-staging-partial                              files=2
+  release-deploy-partial-windeployqt-failed            files=1
+  release-deploy-partial-windeployqt-pipe-blocked      files=1
+  release-deploy-stale-0832                            files=1499（陈旧 deploy，08:32）
+```
+
+补充实测（防止后续误取）：对**全部**保留 extract 树中的 `ModbusLens.exe` 做 SHA-256 + R17
+指纹扫描，结果 `R17`（UTF-16）计数**一律为 0**：
+
+```text
+package-extract\ModbusLens-2.0.0-windows-x64\ModbusLens.exe   d5a49582cc2033ce…b11e87  4 019 721 B  R17=0
+package-extract\_superseded-m9f\…\ModbusLens.exe              53d2f5968ac0a49d…b09ff4  2 803 304 B  R17=0
+package-extract\_superseded-rerun-174212\…\ModbusLens.exe     3cb9da5fb3d36538…a552862 3 801 977 B  R17=0
+package-extract\_superseded-rerun-174526\…\ModbusLens.exe     3cb9da5fb3d36538…a552862 3 801 977 B  R17=0
+package-extract\_superseded-rerun-181306\…\ModbusLens.exe     1e50bdb63f417063…e8e3256 3 825 797 B  R17=0
+package-extract\_superseded-rerun-181437\…\ModbusLens.exe     1e50bdb63f417063…e8e3256 3 825 797 B  R17=0
+package-extract\_superseded-rerun-181441\…\ModbusLens.exe     1e50bdb63f417063…e8e3256 3 825 797 B  R17=0
+对照：build\release\ModbusLens.exe（15:56）R17 = 12
+```
+
+⇒ 保留树中的**任何** extract 产物都不得作为 M10-F 的人工验收目标
+（§ZC12 PROJECT_STATUS 中旧 HANDOFF 指向的 `1e50bdb6…` 亦在其中，已加追加批注）。
+
+### ZMF4. 关键事实更正 — 陈旧产物绝不能复用（R17 指纹）
+
+```text
+build/release/ModbusLens.exe      （15:56）含 R17: utf16=12 · writeSummaryPdu utf16=2  ✅ 新
+deploy/ModbusLens.exe（stale-0832）（08:32）R17: utf16=0  · writeSummaryPdu utf16=0  ❌ 旧
+build/package/...ZIP             （12:51）R17: utf16=0  · writeSummaryPdu utf16=0  ❌ 旧
+```
+
+陈旧 deploy 与陈旧 ZIP **均早于 FC16 终端修正**，据此确认：本轮必须生成全新产物，
+复用任何现存便携产物都会导致「用旧行为冒充新行为」。此指纹为后续 A/B/C/D identity 之外
+的**语义新鲜度**佐证。
+
+### ZMF5. Freshness oracle：✅ 7/7 PASS
+
+```text
+python scripts/test_make_package_freshness.py
+  case1 deploy missing        → not current      PASS
+  case1 deploy exe absent      → not current      PASS
+  case2 stale exe content      → not current      PASS
+  case3 identical content      → current          PASS
+  RED  old existence-only rule → would be wrong   PASS（否定规则被正确拒绝）
+  RED  content differs (same size) → not current  PASS
+  missing build exe            → refuses          PASS
+```
+
+确认 freshness 是**内容属性**：`sha256_file(build/modbuslens.exe)` vs
+`sha256_file(deploy/ModbusLens.exe)`，既非 existence 也非 mtime。
+
+### ZMF6. 仓库内全量回归（真实 ctest）：✅ Debug 36/36 · Release 36/36
+
+```text
+绝对路径 D:/QT/Tools/CMake_64/bin/ctest.exe；PATH 前置
+  D:/QT/6.11.1/mingw_64/bin 与 D:/QT/Tools/mingw1310_64/bin
+Debug   full CTest = 36/36 PASS（36 项 Test time 合计 72.25 s；17:07 完成）
+Release full CTest = 36/36 PASS（36 项 Test time 合计 71.51 s；17:16 完成）
+  ninja: no work to do（与 HEAD 同源）
+  注：LastTestsFailed.log 残留 15:39/15:42 的旧记录（qml_write_foundation_check），
+      非本轮结果；本轮 LastTest.log 均 36/36 Test Passed（17:07 / 17:16）。
+含 QML 六门禁（windows QPA，真实窗口，从未 offscreen）：
+  qml_smoke · qml_production_write_check（含 R17 + sends accounting 8）
+  qml_write_foundation_check · qml_focus_check · qml_nav_check · qml_geometry_check
+```
+
+因此 **structured request builder 的仓库级事实经真实测试确认**：
+FC03/FC06/FC16 统一 `FCnn(0xNN)` 标签、地址 PDU/0-based + HEX、FC06 `112 → 0x0070`、
+FC16 Quantity/ByteCount 自动派生、PDU/RTU 术语冻结、
+`pv1_readPreviewMatchesEncoder` / `pv2_write06PreviewDecHex` /
+`pv3_write10PreviewQuantityByteCountAndTable` / `pv4_previewRejectsInvalidDrafts`
+⇒ **preview 与 dispatch 共用同一 production encoder（single source of truth）**。
+⚠️ 但以上属**仓库内**证据；规约要求的「便携产物内运行时确认」尚未执行（见 ZMF7）。
+
+### ZMF7. ⛔ BLOCKER — canonical packaging 无法完成
+
+```text
+python scripts/make_package.py build/release build/release/deploy
+make_package FAIL: Release deploy failed: [ERROR] windeployqt failed with exit code 1
+Unable to query qtpaths: Error running binary qtpaths: pipe:
+windeployqt --dir build/_wdqprobe build/release/ModbusLens.exe
+  → Unable to query qtpaths: Error running binary qtpaths: pipe:  EXIT=1  部署文件数 = 0
+```
+
+`windeployqt` 在**最早阶段**（`Running: qtpaths -query`）即失败，从未复制任何文件。
+根因（见 `ISSUE-015`，6 项证据）：
+`QProcess` 命名管道配对 `PIPE_ACCESS_OUTBOUND` 服务端 + 客户端 `GENERIC_READ`
+（= Qt `QWindowsPipeWriter` 实际用法）在本 Windows 会话失败（`ERROR_PIPE_BUSY` = 231）。
+工程外最小探针 `build/_qprocess_probe.exe` 在 Bash / 原生 PowerShell / `dangerouslyDisableSandbox`
+三种父子链下一致报 `error = 0 (pipe: 系统找不到指定的文件。)`；
+`_qprocess_probe2.exe` 显示 `A default-pipes` 与 `B forwarded` 均失败而**仅 `C startDetached` 成功**。
+⇒ **环境级缺陷，非产品缺陷。**
+
+**未执行的规约项（因阻塞）**：portable gates on NEW D、
+A/B/C/D identity 实测、fresh Human #10/#11 replay。
+
+**明确否决的绕过**（记录以免后续误用）：
+1. 手工拼装部署树冒充 `windeployqt` 产物 —— 破坏部署 provenance 契约，并使 A/B/C/D identity 失去意义。
+2. 复用陈旧 package / ZIP / deploy —— 早于 FC16 修正（见 ZMF4）。
+
+**另记一个脚本真实盲点（本轮不修，越界）**：
+`make_package.py` 的 `deploy_is_current()` 仅比较 **exe** 的 SHA-256，
+因此 `windeployqt` 失败后「只留下 1 个 exe」的部分部署会被误判为 current 从而跳过 redeploy
+（本轮实测触发 `FAIL: required package file missing: platforms/qwindows.dll`）。
+属脚本健壮性改进点，应另立任务处理。
+
+### ZMF8. 人工解除路径（BLOCKER 解除后方可继续）
+
+```text
+可选任一：
+  (a) 重启本机（清空 Windows 会话/管道句柄状态，最彻底）
+  (b) 注销并重新登录
+  (c) 重启 WorkBuddy 宿主进程（新会话 = 干净管道命名空间）
+  (d) 在另一个 Windows 会话 / 另一台机器执行 packaging
+解除后必须**完整重跑**（不得复用本轮任何残缺产物）：
+  retention → freshness oracle → make_package.py build/release build/release/deploy
+  → fresh A/B/C/D identity（full SHA-256）→ portable gates on NEW D
+  （smoke / production-write 含 R17 / write-foundation / focus / nav / geometry）
+  → structured request builder 便携事实采集 → Human #10/#11 replay
+```
+
+### ZMF9. Human #10 / #11 清单与回复模板（**PREPARED — 待阻塞解除后方可执行**）
+
+> 状态：**PREPARED, NOT EXECUTED**。在 fresh corrected artifact 生成且 portable gates 通过前
+> **不得下发执行**。口径依 §ZC12 修订（reachable path）；`#12` 保持 OPTIONAL，不被 `#11` 间接强制。
+
+#### ZMF9.a 前置门槛（执行 #10/#11 之前必须全部满足）
+
+```text
+[P1] canonical make_package.py build/release build/release/deploy  exit 0
+[P2] A == B == C == D（exe full SHA-256 四方一致；ZIP 非 identity criterion）
+[P3] 新 D 上 portable gates 5/6 项全 PASS（真实 Windows QPA，从未 offscreen）
+     smoke / production-write（含 R17）/ write-foundation / focus / nav / geometry
+[P4] 新 D 的 ModbusLens.exe 实测含 R17 指纹（> 0），证明是新行为而非陈旧产物
+[P5] 记录 D 的绝对路径 + full SHA-256 + 文件大小（写入回复模板）
+```
+
+#### ZMF9.b Human #10 — Portable Artifact / Simulator Readout
+
+```text
+[H10-1] 从 fresh D 的绝对路径启动 ModbusLens.exe（脱离 build 树，外部 CWD）
+[H10-2] 选择 Simulator 数据源 → 启动演示批次 → 观察 Dashboard
+[H10-3] 核对冻结口径（与 §ZC12 / §ZMF 系列一致）：4/4/0 · 1/1/1/1/0 · 25% · 25 ms
+[H10-4] StatisticsOverview 仍被保留且数值自洽（M9 retained 契约）
+[H10-5] 条件性子项：Serial 源连接失败/超时路径可跳过并如实记录（不阻断 #10）
+[H10-6] 记录：源模式 / 观察到的事务统计 / 是否有渲染异常 / 截图或文字证据
+```
+
+#### ZMF9.c Human #11 — Write Path End-to-End（reachable path，非真实硬件）
+
+```text
+[H11-0] execution prerequisite：Communication → 打开 local COM（≠ REAL MODBUS HARDWARE validation）
+        无可打开 COM ⇒ 全部 FC06/FC16 子项记 **BLOCKED (no openable COM)**，不得记 FAIL
+[H11-1] FC03：Dashboard 运行演示批次 → 冻结口径 4/4/0 · 1/1/1/1/0 · 25% · 25 ms
+[H11-2] FC06 prepare：值 112 → 确认摘要 HEX 预览应为 **0x0070**（uint16）；地址标注 PDU/0-based + HEX
+[H11-3] FC06 dispatch（无响应 slave）⇒ 必须出现「响应超时，设备写入状态未知…」
+        **不得呈现为 Success**（无假成功）
+[H11-4] FC16 prepare：草稿多行 → Quantity/Byte Count **自动派生**展示（intent 只带 values）；
+        确认摘要逐值列出 index / address / DEC / HEX
+[H11-5] FC16 dispatch（无响应 slave）⇒ 必须出现同一冻结文案（R17 所测路径）
+        **不得呈现为 Success**
+[H11-6] FC06 负向（GUI 真实可构造）：值 65536 / -1 / 12x / 空 ⇒ ValueOutOfRange；
+        地址 65536 ⇒ AddressOutOfRange
+[H11-7] FC16 负向：空草稿 / >123 行 ⇒ QuantityOutOfRange（1..123）；
+        某行 65536 ⇒ ValueOutOfRange；起始 65535 + 2 行 ⇒ AddressSpanOutOfRange
+[H11-8] PDU/RTU 术语核对：PDU = Function Code + Data；RTU Frame = Slave + PDU + CRC
+        （界面不得混用）
+[H11-9] 记录：可打开 COM 与否 / 每个子项的观察到结果 / 负向是否被正确拒绝 /
+        是否出现任何假成功
+[H11-10] FC06/FC16 真实 Success 呈现 **不在 #11**，属 **#12 OPTIONAL real-hardware**
+        （真实读取/写入/核对返回/恢复原值）；未执行 ⇒ REAL MODBUS HARDWARE = NOT VERIFIED
+```
+
+#### ZMF9.d 人工回复模板（Human 填写后回传）
+
+```text
+[M10-F FRESH HUMAN REPLAY]
+轮次标识：M10-F corrected portable artifact refresh
+前置门槛：P1=  P2=  P3=  P4=  P5=
+目标产物：D 路径 = ____________________________________
+          D exe SHA-256 = ____________________________________
+          D exe size = __________ bytes
+
+HUMAN #10（Portable / Simulator Readout）：PASS / FAIL / PARTIAL
+  口径核对（4/4/0 · 1/1/1/1/0 · 25% · 25ms）：一致 / 不一致（说明）
+  异常/截图证据：________________
+
+HUMAN #11（Write Path End-to-End）：PASS / FAIL / PARTIAL / BLOCKED (no openable COM)
+  可打开 local COM：YES / NO
+  FC03：____    FC06 preview(112→0x0070)：____    FC06 timeout 文案：____
+  FC16 派生 Quantity/ByteCount：____    FC16 摘要逐值：____
+  FC16 timeout 文案：____
+  负向拒绝（FC06 4 项 / FC16 3 项）：____
+  是否出现任何「假成功」：NO / YES（详述）
+
+#12 OPTIONAL real-hardware：已执行 / 未执行
+REAL MODBUS HARDWARE = VERIFIED / NOT VERIFIED
+
+结论：M10-F = CLOSE / HOLD / FAIL
+备注（任何偏离冻结口径之处必须显式写出）：________________
+```
+
+### ZMF10. 本轮边界（严格遵守）
+
+```text
+M10-F = **PENDING FRESH HUMAN #10/#11**（未闭合）
+M11 = HOLD（未开始）
+未 push；未 tag；LKGC 保持 `9bdd99c`
+本轮产品代码 / 测试代码 / 构建脚本 / 资产 = 零改动
+本轮文档改动 = docs/BACKLOG.md · docs/PROJECT_STATUS.md · docs/devlog/2026-09-23.md
+  · docs/tasks/T022-*.md（本章）· docs/issues/ISSUE-015-*.md（新建）
+REAL MODBUS HARDWARE = NOT VERIFIED
+```
