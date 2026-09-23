@@ -76,6 +76,24 @@ private slots:
     // SERIAL-I08 (M10-E4): a TimeoutError / NotOpenError must never be turned
     // into a removal — no error, no fabricated disconnect.
     void i08_silenceIsNotARemoval();
+    // SERIAL-I09 (M10-E4 real hot-unplug): the presence watch declares a
+    // confirmed disappearance exactly once, then stops itself — a reinserted
+    // adapter cannot revive the old session.
+    void i09_presenceWatchDeclaresRemovalOnce();
+    // SERIAL-I10: a single transient enumeration miss must not tear down a
+    // healthy link (anti-false-positive confirmations).
+    void i10_presenceWatchToleratesATransientMiss();
+    // SERIAL-I11: the watch is inert until a session explicitly starts it, and
+    // stop() is final.
+    void i11_presenceWatchRequiresAnExplicitStart();
+    // SERIAL-I12 (the real hot-unplug oracle): a confirmed disappearance travels
+    // the PRODUCTION teardown — one bounded error, the port really closed, the
+    // pending-request evidence untouched, and no second report from the
+    // QSerialPort error door for the same physical loss.
+    void i12_adapterPresenceLossTearsTheSessionDownOnce();
+    // SERIAL-I13 (regression guard): while the local port is still ENUMERATED, a
+    // silent remote slave produces no local-loss report at all.
+    void i13_enumeratedPortIsNeverALoss();
 };
 
 void SerialAdapterTest::i01_invalidPortOpen()
@@ -255,6 +273,166 @@ void SerialAdapterTest::i08_silenceIsNotARemoval()
 
     QCOMPARE(errorSpy.count(), 0);
     QCOMPARE(terminalSpy.count(), 0);
+}
+
+// ---- M10-E4 real hot-unplug correction: LOCAL PORT PRESENCE OBSERVATION ----
+//
+// Real hardware showed that "given a fatal QSerialPort error the teardown is
+// right" was not sufficient evidence: the shipped UI could keep presenting an
+// open port, because QSerialPort::isOpen() answers about the HANDLE, not about
+// whether the endpoint still exists. These tests drive the observation boundary
+// itself — the injectable presence probe — so the production check and the
+// production teardown are what actually run.
+
+void SerialAdapterTest::i09_presenceWatchDeclaresRemovalOnce()
+{
+    LocalPortPresenceWatch watch;
+    bool present = true;
+    watch.setProbe([&present](const QString&) { return present; });
+    watch.setInterval(10);
+    watch.setConfirmations(2);
+    QSignalSpy spy(&watch, &LocalPortPresenceWatch::portDisappeared);
+
+    watch.start(QStringLiteral("COM3"));
+    QVERIFY(watch.isWatching());
+    QCOMPARE(watch.watchedPort(), QStringLiteral("COM3"));
+
+    // Still enumerated: nothing to report, however long we watch.
+    QTest::qWait(60);
+    QCOMPARE(spy.count(), 0);
+    QVERIFY(watch.isWatching());
+
+    // The adapter is physically removed: the OS stops enumerating it.
+    present = false;
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 2000);
+    QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("COM3"));
+
+    // Reported once, then the watch stops itself.
+    QVERIFY(!watch.isWatching());
+    QVERIFY(watch.watchedPort().isEmpty());
+
+    // Reinserting the adapter must NOT revive anything: no second signal, and
+    // nothing is watching.
+    present = true;
+    QTest::qWait(60);
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(!watch.isWatching());
+}
+
+void SerialAdapterTest::i10_presenceWatchToleratesATransientMiss()
+{
+    LocalPortPresenceWatch watch;
+    int absentFor = 0; // number of consecutive absent answers to give
+    watch.setProbe([&absentFor](const QString&) { return absentFor-- <= 0; });
+    watch.setInterval(10);
+    watch.setConfirmations(2);
+    QSignalSpy spy(&watch, &LocalPortPresenceWatch::portDisappeared);
+
+    watch.start(QStringLiteral("COM3"));
+    // One single absent observation, then present again: a transient
+    // enumeration hiccup must not tear down a healthy link.
+    absentFor = 1;
+    QTest::qWait(120);
+    QCOMPARE(spy.count(), 0);
+    QVERIFY(watch.isWatching());
+    watch.stop();
+}
+
+void SerialAdapterTest::i11_presenceWatchRequiresAnExplicitStart()
+{
+    LocalPortPresenceWatch watch;
+    watch.setProbe([](const QString&) { return false; }); // endpoint absent
+    watch.setInterval(10);
+    watch.setConfirmations(1);
+    QSignalSpy spy(&watch, &LocalPortPresenceWatch::portDisappeared);
+
+    // Never started: a watch is inert, even with a permanently absent probe.
+    QTest::qWait(60);
+    QCOMPARE(spy.count(), 0);
+    QVERIFY(!watch.isWatching());
+
+    // stop() is final: an explicitly stopped watch does not keep observing.
+    watch.start(QStringLiteral("COM3"));
+    watch.stop();
+    QVERIFY(!watch.isWatching());
+    QVERIFY(watch.watchedPort().isEmpty());
+    QTest::qWait(60);
+    QCOMPARE(spy.count(), 0);
+}
+
+void SerialAdapterTest::i12_adapterPresenceLossTearsTheSessionDownOnce()
+{
+    // The adapter OWNS the watch, and it is the production code under test: the
+    // injected probe replaces only the OS observation, and everything the
+    // observation triggers (loss classification, evidence capture, port close,
+    // bounded error lane, exactly-once reporting) is the shipped implementation.
+    SerialTransactionAdapter adapter;
+    bool present = true;
+    adapter.localPortPresence().setProbe(
+        [&present](const QString&) { return present; });
+    adapter.localPortPresence().setInterval(10);
+    adapter.localPortPresence().setConfirmations(2);
+
+    QSignalSpy errorSpy(&adapter, &SerialTransactionAdapter::transportError);
+    QSignalSpy terminalSpy(&adapter, &SerialTransactionAdapter::transactionTerminated);
+    QSignalSpy completedSpy(&adapter, &SerialTransactionAdapter::transactionCompleted);
+
+    // A REAL successful open cannot be manufactured without hardware, so the
+    // test enters the state an open establishes through the watch's own
+    // production entry point — the same call openPort() makes on success.
+    adapter.localPortPresence().start(QStringLiteral("COM3"));
+    QVERIFY(adapter.localPortPresence().isWatching());
+
+    // Local loss: the OS stops enumerating COM3. Nothing else changes.
+    present = false;
+    QTRY_COMPARE_WITH_TIMEOUT(errorSpy.count(), 1, 2000);
+
+    const QString message = errorSpy.at(0).at(0).toString();
+    QVERIFY2(message.contains(QStringLiteral("已从系统移除")),
+             qPrintable(message));
+    QVERIFY2(message.contains(QStringLiteral("COM3")), qPrintable(message));
+    QVERIFY2(message.contains(QStringLiteral("串口设备不可用")), qPrintable(message));
+    // A local loss must say nothing about a remote Modbus slave.
+    QVERIFY(!message.contains(QStringLiteral("从站")));
+    QVERIFY(!message.contains(QStringLiteral("设备已连接")));
+
+    QVERIFY(!adapter.isPortOpen());               // the port is really closed
+    QVERIFY(!adapter.localPortPresence().isWatching()); // and no longer watched
+    QVERIFY(!adapter.hasActiveTransaction());
+    QCOMPARE(terminalSpy.count(), 0);   // nothing was submitted -> no terminal
+    QCOMPARE(completedSpy.count(), 0);  // and above all no Modbus outcome
+
+    // Exactly once across BOTH doors: the QSerialPort error lane arriving later
+    // for the same physical loss must not add a second report.
+    adapter.deliverPortErrorForTest(QSerialPort::ResourceError);
+    QCoreApplication::processEvents();
+    QTest::qWait(60);
+    QCOMPARE(errorSpy.count(), 1);
+
+    // Reinsert does not auto-reconnect: the adapter stays closed and silent.
+    present = true;
+    QTest::qWait(60);
+    QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(!adapter.isPortOpen());
+    QVERIFY(!adapter.localPortPresence().isWatching());
+}
+
+void SerialAdapterTest::i13_enumeratedPortIsNeverALoss()
+{
+    // The regression that matters most: "the slave did not answer" must never be
+    // read as "the USB adapter was removed".
+    SerialTransactionAdapter adapter;
+    adapter.localPortPresence().setProbe([](const QString&) { return true; });
+    adapter.localPortPresence().setInterval(10);
+    adapter.localPortPresence().setConfirmations(2);
+    QSignalSpy errorSpy(&adapter, &SerialTransactionAdapter::transportError);
+
+    adapter.localPortPresence().start(QStringLiteral("COM3"));
+    QTest::qWait(120);
+
+    QCOMPARE(errorSpy.count(), 0);
+    QVERIFY(adapter.localPortPresence().isWatching());
+    adapter.localPortPresence().stop();
 }
 
 QTEST_GUILESS_MAIN(SerialAdapterTest)

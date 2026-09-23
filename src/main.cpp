@@ -27,7 +27,10 @@
 #include <QQuickWindow>
 #include <QCoreApplication>
 #include <QQuickStyle>
+#include <QSerialPort>
+#include <QSerialPortInfo>
 #include <QStringList>
+#include <QTextStream>
 #include <QTimer>
 
 #include <functional>
@@ -9530,6 +9533,87 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                             "NOT revive"));
     });
 
+    // ---- R16: LOCAL LOSS while a request is IN FLIGHT, and reinsertion ----
+    // The physical event that real hardware exposed: the adapter disappears. A
+    // request that already entered the transmission lifecycle must land in the
+    // FROZEN post-submission evidence semantics (no invented Modbus outcome),
+    // and plugging the adapter back in must not resurrect anything.
+    push([&]() {
+        resetWrite();
+        const int terminalsBefore = controller->activeSerialTerminalCount();
+        const int recordsBefore = controller->activeSerialRecordCount();
+        const int timeoutsBefore = controller->timeoutCount();
+        const int successesBefore = controller->successCount();
+        transport->setCompleteReadImmediately(false);
+        clickNamed(QStringLiteral("commReadButton")); // accepted -> pending
+        transport->setCompleteReadImmediately(true);
+        if (!controller->serialBusy())
+            fail(QStringLiteral("PRODWRITEFAIL R16: no pending request to lose"));
+        transport->simulateAdapterRemoval(
+            QStringLiteral("串口设备不可用：COM_HARNESS 已从系统移除"));
+
+        // Exactly ONE terminal, carrying the retained evidence — and no Modbus
+        // outcome invented for a local loss.
+        if (controller->activeSerialTerminalCount() != terminalsBefore + 1)
+            fail(QStringLiteral("PRODWRITEFAIL R16: terminals=%1, expected one "
+                                "more").arg(controller->activeSerialTerminalCount()));
+        else {
+            const auto &terminals = controller->activeSerialTerminations();
+            const auto &terminal = terminals.back();
+            if (terminal.reason
+                != modbuslens::core::TransportTerminalReason::TransportError)
+                fail(QStringLiteral("PRODWRITEFAIL R16: the terminal reason is not "
+                                    "the frozen TransportError"));
+            if (terminal.disposition
+                != modbuslens::core::TransportDisposition::PossiblySent)
+                fail(QStringLiteral("PRODWRITEFAIL R16: the terminal disposition "
+                                    "must stay PossiblySent"));
+        }
+        if (controller->activeSerialRecordCount() != recordsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R16: a transaction was fabricated "
+                                "for a local port loss"));
+        if (controller->timeoutCount() != timeoutsBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R16: a local loss was reported as a "
+                                "response Timeout"));
+        if (controller->successCount() != successesBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R16: a local loss was reported as a "
+                                "Success"));
+        if (controller->serialConnected())
+            fail(QStringLiteral("PRODWRITEFAIL R16: the local connection survived "
+                                "the removal"));
+        if (!controller->hasSerialError())
+            fail(QStringLiteral("PRODWRITEFAIL R16: the removal raised no error"));
+        note(QStringLiteral("PRODWRITE [R16]: pending request + local loss -> "
+                            "exactly one TransportError/PossiblySent terminal, no "
+                            "record, no Timeout, no Success"));
+    });
+    push([&]() {
+        // Reinsert: the port is probably enumerated again, but NOTHING may
+        // reconnect by itself. Reconnecting stays an explicit user action.
+        const auto sessionBefore = controller->activeSerialSessionId();
+        if (textOf(QStringLiteral("communicationSerialState"))
+            != QStringLiteral("串口未打开"))
+            fail(QStringLiteral("PRODWRITEFAIL R16: the section reads [%1] after "
+                                "the loss")
+                     .arg(textOf(QStringLiteral("communicationSerialState"))));
+        // The shipped Refresh Ports action is the user's discovery path: it must
+        // enumerate only, never reopen a session.
+        controller->refreshSerialPorts();
+        if (controller->serialConnected())
+            fail(QStringLiteral("PRODWRITEFAIL R16: the adapter came back and the "
+                                "app reconnected on its own"));
+        if (controller->activeSerialSessionId() != sessionBefore)
+            fail(QStringLiteral("PRODWRITEFAIL R16: a new session appeared without "
+                                "a user Connect"));
+        if (boolOf(QStringLiteral("commReadButton"), "enabled")
+            || boolOf(QStringLiteral("writeActivateButton"), "enabled"))
+            fail(QStringLiteral("PRODWRITEFAIL R16: an action is enabled while the "
+                                "local port is gone"));
+        note(QStringLiteral("PRODWRITE [R16]: reinsert + Refresh Ports -> still "
+                            "串口未打开, no auto-reconnect, no new session, "
+                            "Read/Write still disabled"));
+    });
+
     auto step = std::make_shared<int>(0);
     auto schedule = std::make_shared<std::function<void()>>();
     *schedule = [&, step, schedule]() {
@@ -9563,7 +9647,10 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "已连接), a silent slave stays a Timeout, and a removed "
                            "USB adapter takes the port state down "
                            "(串口未打开 / Read+Write disabled / prepared snapshot "
-                           "invalidated, no revival after reconnect))";
+                           "invalidated, no revival after reconnect); R16 local loss "
+                           "with a request IN FLIGHT -> one TransportError/"
+                           "PossiblySent terminal, no record/Timeout/Success, and a "
+                           "reinserted adapter does not auto-reconnect)";
             else
                 for (const QString &f : *failures)
                     qWarning().noquote() << "PRODWRITEFAIL:" << f;
@@ -11868,6 +11955,254 @@ int runEvidenceCapture(QQmlApplicationEngine &engine, QGuiApplication &app,
 
 } // namespace
 
+// ---------------------------------------------------------------------------
+// `--serial-hotplug-probe[=COMx] [--serial-hotplug-probe-seconds=N]
+//   [--serial-hotplug-probe-log=<path>] [--serial-hotplug-probe-baud=N]`
+//
+// DIAGNOSTIC ONLY (M10-E4 real hot-unplug correction). It is deliberately NOT a
+// product feature: it opens no Modbus session, sends no frame and is never
+// reachable from the UI. It exists to answer, on REAL hardware, the questions
+// that reading source code cannot answer:
+//
+//   1. does QSerialPort::errorOccurred fire AT ALL when the USB adapter is
+//      physically removed while the port is idle?
+//   2. if it fires, which SerialPortError enum, and how long after the removal?
+//   3. what does QSerialPort::isOpen() report afterwards?
+//   4. does QSerialPortInfo::availablePorts() (SetupAPI, DIGCF_PRESENT) drop the
+//      port, and how long after the removal?
+//   5. or is the removal only exposed by the next read/write?
+//
+// Question 5 is answered by construction: after open() the probe performs NO
+// I/O at all, so any error that arrives proves it is not gated on a later read
+// or write.
+//
+// The port is configured EXACTLY like the production adapter (8N1, no flow
+// control, ReadWrite, caller baud) so the measurement describes the shipped
+// open. Because this is a WIN32-subsystem binary with no console, every line
+// goes to a log file AND to stderr (visible when the caller redirects output):
+//
+//   SERIAL-HOTPLUG t=+0.000 open port=COM3 baud=9600 result=ok isOpen=1 ...
+//   SERIAL-HOTPLUG t=+0.250 poll port=COM3 isOpen=1 enumerated=1 ports=1
+//   SERIAL-HOTPLUG t=+1.014 errorOccurred enum=ResourceError(15) isOpen=1 ...
+//   SERIAL-HOTPLUG t=+1.250 poll port=COM3 isOpen=1 enumerated=0 ports=0
+//   SERIAL-HOTPLUG SUMMARY ...
+//   SERIAL-HOTPLUG VERDICT ...
+//
+// Operator procedure: start it with the adapter inserted, wait for the `open`
+// line, physically unplug the adapter, then let it run out.
+// ---------------------------------------------------------------------------
+static QString serialPortErrorName(QSerialPort::SerialPortError error)
+{
+    switch (error) {
+    case QSerialPort::NoError:
+        return QStringLiteral("NoError");
+    case QSerialPort::DeviceNotFoundError:
+        return QStringLiteral("DeviceNotFoundError");
+    case QSerialPort::PermissionError:
+        return QStringLiteral("PermissionError");
+    case QSerialPort::OpenError:
+        return QStringLiteral("OpenError");
+    case QSerialPort::NotOpenError:
+        return QStringLiteral("NotOpenError");
+    // Qt 6 removed ParityError / FramingError / BreakConditionError from
+    // SerialPortError (parity and framing faults are no longer port errors).
+    case QSerialPort::WriteError:
+        return QStringLiteral("WriteError");
+    case QSerialPort::ReadError:
+        return QStringLiteral("ReadError");
+    case QSerialPort::ResourceError:
+        return QStringLiteral("ResourceError");
+    case QSerialPort::UnsupportedOperationError:
+        return QStringLiteral("UnsupportedOperationError");
+    case QSerialPort::TimeoutError:
+        return QStringLiteral("TimeoutError");
+    case QSerialPort::UnknownError:
+        return QStringLiteral("UnknownError");
+    }
+    return QStringLiteral("Unrecognised(%1)").arg(static_cast<int>(error));
+}
+
+static int runSerialHotplugProbe(const QStringList &arguments)
+{
+    const auto optionValue = [&arguments](const QString &name) {
+        for (int i = 0; i < arguments.size(); ++i) {
+            if (arguments.at(i) == name && i + 1 < arguments.size())
+                return arguments.at(i + 1);
+            if (arguments.at(i).startsWith(name + QLatin1Char('=')))
+                return arguments.at(i).mid(name.size() + 1);
+        }
+        return QString();
+    };
+
+    const QString portName =
+        optionValue(QStringLiteral("--serial-hotplug-probe")).trimmed();
+    if (portName.isEmpty()) {
+        qWarning() << "--serial-hotplug-probe requires a port name, e.g."
+                      "--serial-hotplug-probe=COM3";
+        return 2;
+    }
+    const QString secondsRaw =
+        optionValue(QStringLiteral("--serial-hotplug-probe-seconds"));
+    const int seconds = secondsRaw.isEmpty() ? 20 : secondsRaw.toInt();
+    const QString baudRaw =
+        optionValue(QStringLiteral("--serial-hotplug-probe-baud"));
+    const qint32 baud = baudRaw.isEmpty() ? 9600 : baudRaw.toInt();
+    QString logPath = optionValue(QStringLiteral("--serial-hotplug-probe-log"));
+    if (logPath.isEmpty())
+        logPath = QDir::current().filePath(QStringLiteral("serial-hotplug-probe.log"));
+
+    QFile log(logPath);
+    if (!log.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        qWarning() << "cannot open probe log" << logPath;
+        return 2;
+    }
+    QTextStream out(&log);
+    const auto emitLine = [&out](const QString &line) {
+        out << line << '\n';
+        out.flush();
+        qInfo().noquote() << line;
+    };
+
+    QSerialPort port;
+    // Exactly the production adapter's configuration (8N1, no flow control).
+    port.setDataBits(QSerialPort::Data8);
+    port.setParity(QSerialPort::NoParity);
+    port.setStopBits(QSerialPort::OneStop);
+    port.setFlowControl(QSerialPort::NoFlowControl);
+    port.setPortName(portName);
+    port.setBaudRate(baud);
+
+    QElapsedTimer clock;
+    clock.start();
+    const auto stamp = [&clock]() {
+        return QStringLiteral("+%1s").arg(clock.elapsed() / 1000.0, 0, 'f', 3);
+    };
+    const auto isEnumerated = [&portName]() {
+        const auto ports = QSerialPortInfo::availablePorts();
+        for (const auto &info : ports) {
+            if (info.portName() == portName)
+                return true;
+        }
+        return false;
+    };
+
+    int errorEvents = 0;
+    QString firstErrorAt;
+    QString firstErrorEnum;
+    QString firstErrorString;
+    bool absentSeen = false;
+    QString firstAbsentAt;
+
+    QObject::connect(&port, &QSerialPort::errorOccurred, &port,
+                     [&](QSerialPort::SerialPortError error) {
+        ++errorEvents;
+        const QString line =
+            QStringLiteral("SERIAL-HOTPLUG t=%1 errorOccurred enum=%2(%3) "
+                           "isOpen=%4 errorString=[%5]")
+                .arg(stamp())
+                .arg(serialPortErrorName(error))
+                .arg(static_cast<int>(error))
+                .arg(port.isOpen() ? 1 : 0)
+                .arg(port.errorString());
+        emitLine(line);
+        if (firstErrorEnum.isEmpty()) {
+            firstErrorAt = stamp();
+            firstErrorEnum = serialPortErrorName(error);
+            firstErrorString = port.errorString();
+        }
+    });
+
+    const bool opened = port.open(QIODevice::ReadWrite);
+    emitLine(QStringLiteral("SERIAL-HOTPLUG t=%1 open port=%2 baud=%3 result=%4 "
+                            "isOpen=%5 errorString=[%6]")
+                 .arg(stamp())
+                 .arg(portName)
+                 .arg(baud)
+                 .arg(opened ? QStringLiteral("ok") : QStringLiteral("failed"))
+                 .arg(port.isOpen() ? 1 : 0)
+                 .arg(port.errorString()));
+    if (!opened) {
+        emitLine(QStringLiteral("SERIAL-HOTPLUG VERDICT openFailed=1 "
+                                "errorString=[%1] log=%2")
+                     .arg(port.errorString(), logPath));
+        return 1;
+    }
+
+    // Observation loop. A line is written on every CHANGE (plus the first
+    // sample) so the timestamps show exactly when each observable flipped.
+    int polls = 0;
+    bool haveLast = false;
+    bool lastOpen = false;
+    bool lastEnumerated = false;
+    int lastPortCount = -1;
+    QTimer pollTimer;
+    QObject::connect(&pollTimer, &QTimer::timeout, &port, [&]() {
+        ++polls;
+        const auto ports = QSerialPortInfo::availablePorts();
+        const bool enumerated = isEnumerated();
+        const int portCount = static_cast<int>(ports.size());
+        const bool isOpen = port.isOpen();
+        if (!enumerated && !absentSeen) {
+            absentSeen = true;
+            firstAbsentAt = stamp();
+        }
+        if (!haveLast || isOpen != lastOpen || enumerated != lastEnumerated
+            || portCount != lastPortCount) {
+            haveLast = true;
+            lastOpen = isOpen;
+            lastEnumerated = enumerated;
+            lastPortCount = portCount;
+            emitLine(QStringLiteral("SERIAL-HOTPLUG t=%1 poll port=%2 isOpen=%3 "
+                                    "enumerated=%4 ports=%5")
+                         .arg(stamp())
+                         .arg(portName)
+                         .arg(isOpen ? 1 : 0)
+                         .arg(enumerated ? 1 : 0)
+                         .arg(portCount));
+        }
+    });
+    pollTimer.start(250);
+
+    QTimer::singleShot(seconds * 1000, &port, [&]() {
+        pollTimer.stop();
+        const bool isOpenAtEnd = port.isOpen();
+        const bool enumeratedAtEnd = isEnumerated();
+        emitLine(QStringLiteral("SERIAL-HOTPLUG SUMMARY port=%1 ran=%2s polls=%3 "
+                                "errorEvents=%4 firstErrorEnum=%5 firstErrorAt=%6 "
+                                "errorStringAtFirst=[%7] isOpenAtEnd=%8 "
+                                "enumeratedAtEnd=%9 firstAbsentAt=%10 "
+                                "ioAfterOpen=0 log=%11")
+                     .arg(portName)
+                     .arg(seconds)
+                     .arg(polls)
+                     .arg(errorEvents)
+                     .arg(firstErrorEnum.isEmpty() ? QStringLiteral("none") : firstErrorEnum)
+                     .arg(firstErrorAt.isEmpty() ? QStringLiteral("n/a") : firstErrorAt)
+                     .arg(firstErrorString)
+                     .arg(isOpenAtEnd ? 1 : 0)
+                     .arg(enumeratedAtEnd ? 1 : 0)
+                     .arg(firstAbsentAt.isEmpty() ? QStringLiteral("n/a") : firstAbsentAt)
+                     .arg(logPath));
+        emitLine(QStringLiteral("SERIAL-HOTPLUG VERDICT errorOccurredFired=%1 "
+                                "enum=%2 errorLatency=%3 availablePortsDropped=%4 "
+                                "dropLatency=%5 isOpenStaleAfterRemoval=%6 "
+                                "ioPerformedAfterOpen=0")
+                     .arg(errorEvents > 0 ? QStringLiteral("yes") : QStringLiteral("no"))
+                     .arg(firstErrorEnum.isEmpty() ? QStringLiteral("n/a") : firstErrorEnum)
+                     .arg(firstErrorAt.isEmpty() ? QStringLiteral("n/a") : firstErrorAt)
+                     .arg(absentSeen ? QStringLiteral("yes") : QStringLiteral("no"))
+                     .arg(firstAbsentAt.isEmpty() ? QStringLiteral("n/a") : firstAbsentAt)
+                     .arg((absentSeen && isOpenAtEnd) ? QStringLiteral("yes")
+                                                      : QStringLiteral("no")));
+        port.close();
+        // Purposeful exit code so the probe is scriptable:
+        //   0 -> the QSerialPort error door DID fire (Case A evidence)
+        //   3 -> it stayed silent for the whole run (Case B evidence)
+        QCoreApplication::exit(errorEvents > 0 ? 0 : 3);
+    });
+    return QCoreApplication::exec();
+}
+
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
@@ -11884,6 +12219,18 @@ int main(int argc, char *argv[])
         ":/ModbusLens/assets/brand/windows/ModbusLens.ico")));
     // M9-E E1: the frozen product name as the user-visible display name.
     QGuiApplication::setApplicationDisplayName(QStringLiteral("ModbusLens"));
+
+    // M10-E4 REAL-HARDWARE diagnostic (not a product feature, never reachable
+    // from the UI): measure what the OS/Qt actually do when a USB serial
+    // adapter is physically removed. Dispatched BEFORE any QML is loaded so the
+    // measurement is not disturbed by the application's own serial session.
+    for (const auto &argument : app.arguments()) {
+        if (argument == QStringLiteral("--serial-hotplug-probe")
+            || argument.startsWith(
+                QStringLiteral("--serial-hotplug-probe="))) {
+            return runSerialHotplugProbe(app.arguments());
+        }
+    }
 
     // T013 Phase E: the Windows native style ignores our QML control
     // customization (TabButton/ScrollBar background & contentItem) — switch

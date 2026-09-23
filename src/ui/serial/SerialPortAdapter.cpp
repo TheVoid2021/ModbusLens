@@ -1,11 +1,22 @@
 #include "ui/serial/SerialPortAdapter.h"
 
 #include <QByteArray>
+#include <QSerialPortInfo>
 
 #include <utility>
 #include <vector>
 
 namespace {
+
+// Production observation interval. A presence question is a slow, local,
+// physical fact: twice a second is responsive to a human and costs about one
+// SetupAPI enumeration per second, i.e. nothing like a busy poll.
+constexpr int kLocalPortPresenceIntervalMs = 500;
+// Consecutive absent observations required before a removal is declared. The
+// enumeration is a live OS query, so a single miss would already be surprising;
+// two in a row makes a transient enumeration hiccup unable to tear down a
+// healthy link, at a worst-case cost of one extra interval.
+constexpr int kLocalPortPresenceConfirmations = 2;
 
 // QByteArray -> span-friendly buffer (the adapter's only data conversion).
 std::vector<std::uint8_t> toBytes(const QByteArray& data)
@@ -18,7 +29,105 @@ std::vector<std::uint8_t> toBytes(const QByteArray& data)
     return bytes;
 }
 
+// The production presence probe: is `portName` still enumerated by the OS?
+// QSerialPortInfo::availablePorts() performs a live SetupAPI query with
+// DIGCF_PRESENT, so a physically removed adapter is absent here even though the
+// stale QSerialPort handle still reports isOpen() == true.
+bool localPortIsEnumerated(const QString& portName)
+{
+    const auto ports = QSerialPortInfo::availablePorts();
+    for (const auto& info : ports) {
+        if (info.portName() == portName) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
+
+// ---------------------------------------------------------------------------
+// LocalPortPresenceWatch
+// ---------------------------------------------------------------------------
+LocalPortPresenceWatch::LocalPortPresenceWatch(QObject* parent)
+    : QObject(parent)
+    , probe_(&localPortIsEnumerated)
+{
+    timer_.setInterval(kLocalPortPresenceIntervalMs);
+    connect(&timer_, &QTimer::timeout, this, &LocalPortPresenceWatch::observe);
+}
+
+void LocalPortPresenceWatch::setProbe(LocalPortPresenceProbe probe)
+{
+    // An empty probe would silently disable observation, so it is rejected by
+    // falling back to the production probe instead of "never present".
+    probe_ = probe ? std::move(probe) : LocalPortPresenceProbe(&localPortIsEnumerated);
+}
+
+void LocalPortPresenceWatch::setInterval(int milliseconds)
+{
+    timer_.setInterval(milliseconds > 0 ? milliseconds : kLocalPortPresenceIntervalMs);
+}
+
+void LocalPortPresenceWatch::setConfirmations(int consecutiveAbsentObservations)
+{
+    confirmations_ = consecutiveAbsentObservations > 0
+        ? consecutiveAbsentObservations
+        : kLocalPortPresenceConfirmations;
+}
+
+bool LocalPortPresenceWatch::isWatching() const
+{
+    return timer_.isActive();
+}
+
+QString LocalPortPresenceWatch::watchedPort() const
+{
+    return portName_;
+}
+
+int LocalPortPresenceWatch::interval() const
+{
+    return timer_.interval();
+}
+
+void LocalPortPresenceWatch::start(const QString& portName)
+{
+    // Watching a DIFFERENT port replaces the previous subject; watching the same
+    // port again continues without losing the streak.
+    if (portName_ != portName) {
+        portName_ = portName;
+        consecutiveAbsent_ = 0;
+    }
+    timer_.start();
+}
+
+void LocalPortPresenceWatch::stop()
+{
+    timer_.stop();
+    portName_.clear();
+    consecutiveAbsent_ = 0;
+}
+
+void LocalPortPresenceWatch::observe()
+{
+    if (portName_.isEmpty()) {
+        return;
+    }
+    if (probe_(portName_)) {
+        consecutiveAbsent_ = 0;
+        return;
+    }
+    ++consecutiveAbsent_;
+    if (consecutiveAbsent_ < confirmations_) {
+        return;
+    }
+    // Confirmed physical loss. The watch stops itself: one loss is reported
+    // once, and a reinserted adapter does not restart anything.
+    const QString lost = portName_;
+    stop();
+    emit portDisappeared(lost);
+}
 
 SerialTransactionAdapter::SerialTransactionAdapter(QObject* parent)
     : SerialTransport(parent)
@@ -41,6 +150,16 @@ SerialTransactionAdapter::SerialTransactionAdapter(QObject* parent)
     connect(&port_, &QSerialPort::errorOccurred,
             this, &SerialTransactionAdapter::handlePortError,
             Qt::QueuedConnection);
+    // The SECOND door into the same local-loss handling. It exists because the
+    // first door is not guaranteed to open: QSerialPort::isOpen() keeps
+    // answering true for a removed device, and whether errorOccurred is
+    // delivered while the link is idle depends on the driver/backend. The
+    // presence watch asks the OS instead of the handle.
+    connect(&presence_, &LocalPortPresenceWatch::portDisappeared,
+            this, [this](const QString& portName) {
+                handleLocalPortLoss(
+                    QStringLiteral("%1 已从系统移除").arg(portName));
+            });
 }
 
 bool SerialTransactionAdapter::openPort(const QString& portName, qint32 baudRate)
@@ -53,6 +172,7 @@ bool SerialTransactionAdapter::openPort(const QString& portName, qint32 baudRate
         return false;
     }
 
+    const bool wasAlreadyOpen = port_.isOpen();
     suppressPortErrors_ = false;
     port_.setPortName(portName);
     port_.setBaudRate(baudRate);
@@ -61,11 +181,19 @@ bool SerialTransactionAdapter::openPort(const QString& portName, qint32 baudRate
         // follows is the SAME failure, already reported here, so the PE-4
         // guard is armed now: exactly one user-visible emission per failed
         // open (locked by SERIAL-I02).
-        suppressPortErrors_ = true;
+        //
+        // Only when nothing was open before: a failed RE-open must not silence
+        // the presence watch of a session that is still live.
+        if (!wasAlreadyOpen) {
+            suppressPortErrors_ = true;
+        }
         emit transportError(
             QStringLiteral("串口打开失败：%1").arg(port_.errorString()));
         return false;
     }
+    // A real local session now exists: start watching whether the local endpoint
+    // is still enumerated by the OS. This is the only place the watch starts.
+    startPresenceWatch(portName);
     return true;
 }
 
@@ -168,6 +296,7 @@ void SerialTransactionAdapter::closePort()
     const bool wasSubmitted = pending.has_value();
 
     suppressPortErrors_ = true; // closing triggers error emissions; ignore
+    stopPresenceWatch();        // no session left to watch
     session_.cancel();
     timeoutTimer_.stop();
     port_.close();
@@ -275,10 +404,6 @@ void SerialTransactionAdapter::deliverPortErrorForTest(
 
 void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError error)
 {
-    using modbuslens::core::ActiveTransportTerminal;
-    using modbuslens::core::TransportDisposition;
-    using modbuslens::core::TransportTerminalReason;
-
     if (error == QSerialPort::NoError || suppressPortErrors_) {
         return;
     }
@@ -288,18 +413,34 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
         // fabricated "device removed" claim, and would drop a healthy port.
         return;
     }
+    // Capture the cause BEFORE the close: QSerialPort::close() resets the port's
+    // error, so reading errorString() afterwards would report "no error" instead
+    // of the reason the user needs to see.
+    handleLocalPortLoss(port_.errorString());
+}
+
+void SerialTransactionAdapter::handleLocalPortLoss(const QString& cause)
+{
+    using modbuslens::core::ActiveTransportTerminal;
+    using modbuslens::core::TransportDisposition;
+    using modbuslens::core::TransportTerminalReason;
+
+    // Exactly-once, whichever door detected the loss first: the QSerialPort
+    // error lane and the presence watch both land here, so a physical loss that
+    // is observed twice is still reported once (SERIAL-I02).
+    if (suppressPortErrors_) {
+        return;
+    }
     suppressPortErrors_ = true;
+    // Stop the other door immediately: a torn-down session must not keep asking
+    // the OS about a port the user no longer has.
+    stopPresenceWatch();
 
-    // Capture the cause BEFORE the close: QSerialPort::close() resets the
-    // port's error, so reading errorString() afterwards would report "no
-    // error" instead of the reason the user needs to see.
-    const QString cause = port_.errorString();
-
-    // Evidence FIRST, abort second: the port error is NOT a Modbus response,
-    // so no TransactionAnalysis is fabricated — but a request that already
-    // entered the transmission lifecycle keeps its snapshot, its exact wire
-    // bytes and any response bytes observed so far. Clearing the abort first
-    // would destroy exactly the evidence a future write needs.
+    // Evidence FIRST, abort second: the loss is NOT a Modbus response, so no
+    // TransactionAnalysis is fabricated — but a request that already entered the
+    // transmission lifecycle keeps its snapshot, its exact wire bytes and any
+    // response bytes observed so far. Clearing the abort first would destroy
+    // exactly the evidence a future write needs.
     const auto pending = session_.pendingRequest();
     const auto observed = observedResponseBytes_;
     const bool wasSubmitted = pending.has_value();
@@ -314,7 +455,7 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
 
     if (wasSubmitted) {
         // Terminal transport fact: the frozen post-submission evidence
-        // semantics (taxonomy unchanged — a port failure is TransportError,
+        // semantics (taxonomy unchanged — a local port loss is TransportError,
         // and no Modbus outcome is invented for it).
         emit transactionTerminated(ActiveTransportTerminal{
             .request = *pending,
@@ -324,19 +465,26 @@ void SerialTransactionAdapter::handlePortError(QSerialPort::SerialPortError erro
             .submissionAcceptedByteCount = std::nullopt,
         });
     }
-    // M10-E4: the LOCAL port is gone. That is a user-visible CONNECTION fact
-    // whether or not a request was in flight — before this correction an idle
-    // removal closed the port SILENTLY and the owner kept presenting a
-    // connection that no longer existed (stale "已连接", enabled actions, and
-    // a confirmation snapshot outliving its session). The message names the
-    // LOCAL device only: a port failure never claims anything about a remote
-    // Modbus slave.
+    // The LOCAL port is gone. That is a user-visible CONNECTION fact whether or
+    // not a request was in flight. The message names the LOCAL device only: a
+    // local loss never claims anything about a remote Modbus slave.
     emit transportError(QStringLiteral("串口设备不可用：%1").arg(cause));
+}
+
+void SerialTransactionAdapter::startPresenceWatch(const QString& portName)
+{
+    presence_.start(portName);
+}
+
+void SerialTransactionAdapter::stopPresenceWatch()
+{
+    presence_.stop();
 }
 
 void SerialTransactionAdapter::cancelPending()
 {
     suppressPortErrors_ = true; // the close below re-emits errors; ignore
+    stopPresenceWatch();        // the port is closed below
     session_.cancel();
     timeoutTimer_.stop();
     port_.close();
