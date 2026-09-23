@@ -10162,35 +10162,61 @@ policy 取值：FRESH_REQUIRED / REUSE_ALLOWED / HUMAN_REQUIRED / OPTIONAL / N/A
    · 本 gate 为 **fresh**：即使 M10-F 的 D 与旧 D 字节相同，旧 PASS 也只作
      historical / supporting evidence，**不能替代本 gate**
 
-11 Manual client acceptance        HUMAN_REQUIRED  在 **D** 上、**无真实 PLC 亦可执行**的人工 procedure
-   （产品内端到端：UI → 生产请求路径 → 传输/序列化 → Simulator slave → 分析 → 呈现）
-   · **可验证到的真实边界**：上述产品链路。**不得**表述为「真实 Modbus 设备事务已验证」——
-     真实设备事务属 #12（OPTIONAL）。
-   · FC03：Simulator 模式运行确定性 Demo 批次 ⇒ 事务 / 统计 / 诊断呈现与既有口径一致
-     （4/4/0 · 1/1/1/1/0 · 25% · 25 ms）；若机器上存在真实 COM 口，另在 Serial 模式
-     开端口后向不存在 / 已知无响应地址发一次读 ⇒ 必须呈现 **Timeout**
-     （证明请求路径与错误语义，无假成功）；**无 COM 口 ⇒ 该子项跳过并如实记录**（不算失败）。
-   · FC06：Simulator 可写模式 → prepared → 确认 → Success 事务呈现；并验证负向路径
-     （非法值 / 非法地址在派发前被校验拒绝；异常 / 超时呈现冻结文案）。
-   · FC16：Simulator 可写模式 → 多值编辑 / 确认摘要（含 123 与 N=1 边界）→ Success 事务呈现；
-     同样验证负向路径（byteCount / 数量 / 跨度错误在派发前拒绝）。
-   · **「无假成功」判定 = 呈现的每一个结果都必须等于 analyzer 的判定**
-     （成功只在该成功时出现；Timeout / 异常 / 校验错误绝不能呈现为 Success）。
-   · **不得声称**：真实设备收到 / 应用了写入、真实电气层已验证（那属 #12）。
-   · PASS：上述每条路径可达且呈现与 analyzer 判定一致；
-     FAIL：任何「无证据的成功」、漏路径、或呈现与判定不一致。
-   · reuse rule：无（每轮 M10-F 执行都必须重新人工走一遍）。
-   · 与 #12 不冲突：#11 验证**产品链路**（Simulator 端），#12 验证**真实电气设备**；
-     #11 不要求硬件，#12 不被 #11 间接强制。
+11 Manual client acceptance        HUMAN_REQUIRED  在 **D** 上执行（产品内端到端：UI → 生产请求路径 →
+   （真实可达路径版；ZC12 澄清）                      传输/序列化 → 分析 → 呈现）
+   执行前置（Human #11 execution prerequisite，**不是** REAL MODBUS HARDWARE validation）：
+     需要一个**能够实际打开的 local serial port**（USB-RS485 等本地适配器即可），
+     使 serialConnected=true；**不要求**真实 PLC/slave。
+     ⇒ 可打开 COM ≠ real Modbus device verified（两者严格区分）。
+     若机器上完全没有可打开 COM ⇒ FC06/FC16 子项记
+     **BLOCKED (no openable COM)**（不是 SKIPPED），此时 #11 整体 = BLOCKED。
 
+   · FC03（Simulator 演示批次）：
+       Dashboard → `运行演示批次`（dashboardRunDemo）⇒ 统计卡必须与冻结口径一致：
+       4/4/0 · 1/1/1/1/0 · 25% · 25 ms（异常/CRC/超时/协议错误四卡 = 1/1/1/1/0）。
+       并核对统计/诊断呈现无「无证据的成功」。
+     FC03（Serial 子项，条件性）：若存在真实 COM 口，Serial 模式开端口后向
+       不存在 / 已知无响应地址发一次读 ⇒ 必须呈现 **Timeout**；无 COM 口/无可打开端口
+       ⇒ 该子项记 `SKIPPED (no applicable COM subitem)`，不算失败。
+   · FC06（`0x06 单寄存器` Tab）：
+       可打开 COM → 连接 → 从站地址/寄存器地址/写入值 → **确认写入**（确认摘要：
+       目标从站 / 寄存器地址 / 写入值）→ 派发。
+       无响应 slave ⇒ 必须呈现 **Timeout / 「响应超时，设备写入状态未知」**，
+       **不得显示 Success**。
+       负向（GUI 真实可构造，派发前拒绝，源自 WriteDraftParsing/WritePrepareValidation）：
+       - 写入值键入 `65536`（或 `-1`、`12x`、空） ⇒ ValueOutOfRange（0x06 值域 0..65535）
+       - 寄存器地址键入 `65536` ⇒ AddressOutOfRange（0..65535）
+   · FC16（`0x10 多寄存器` Tab）：
+       可打开 COM → 连接 → 寄存器值（每行一个十进制数值）：
+       - **N=1** 边界（1 行）
+       - 多值正常（若干行，如 3 行）
+       - **123 行上限边界**
+       - 跨度：起始地址 65535 + 2 行 ⇒ AddressSpanOutOfRange（start+count ≤ 65536）
+       每种 ⇒ 确认摘要（寄存器数量 / 值 %1：%2）→ 派发 ⇒ 无响应 slave ⇒ **Timeout**，
+       **不得显示 Success**。
+       负向（GUI 真实可构造）：空草稿 / >123 行 ⇒ QuantityOutOfRange（1..123）；
+       某行 `65536` ⇒ ValueOutOfRange；跨度超限 ⇒ AddressSpanOutOfRange。
+       **byteCount 不匹配 ⇒ 已从 HUMAN_REQUIRED 删除**：byteCount 由内部派生
+       （`2 × values.size()`，Function16.cpp line 115），GUI 永远不让用户直接构造，
+       其覆盖保留在自动化层（`write_encoder` F16 金样含 byteCount 不一致；`fc16_active`）。
+   · **「无假成功」判定 = 呈现的每一个结果都必须等于 analyzer 的判定**
+     （Success 只在该成功时出现；Timeout / 异常 / 校验错误绝不能呈现为 Success）。
+   · **明确不属于 #11**：FC06 / FC16 的 **Success transaction presentation**
+     —— 无响应 slave 时不可达；其人工证据属 **#12 OPTIONAL real-hardware**
+     （真实读取 / 写入 / 核对返回 / 恢复原值）。
+   · PASS：上述 GUI 可达路径全部按判定一致；FAIL：任何「无证据的成功」、
+     漏路径、或呈现与判定不一致；FC06/FC16 无可打开 COM ⇒ 整体记
+     `BLOCKED (no openable COM)`。
+   · reuse rule：无（每轮 M10-F 执行都必须重新人工走一遍）。
 12 Optional real-hardware acceptance  OPTIONAL        仅当存在**安全可写**的真实测试设备（§ZE14 line 7719–7721；
-   （真实 Modbus 设备事务验证）                        line 802 / 1174）：
-   · FC03 真实读取；FC06 真实写入；FC16 真实多寄存器写入；核对真实返回值；
-     **写操作后恢复原值**；记录为**单独人工验收**条目（hardware evidence 单独归档）。
+   （真实 Modbus 设备事务验证；含 FC06/FC16                    line 802 / 1174）：
+   真实 Success transaction presentation）**             · FC03 真实读取；FC06 真实写入；FC16 真实多寄存器写入；
+     核对真实返回值；**写操作后恢复原值**；记录为**单独人工验收**条目
+     （hardware evidence 单独归档）。
+   · **自 ZC12 澄清起**：FC06 / FC16 的 **真实 Success transaction presentation**
+     的人工证据**属于本项**（#11 无硬件版不要求它，见 ZC3 #11）。
    · 未执行 ⇒ 必须如实保留：**REAL MODBUS HARDWARE = NOT VERIFIED**（不得写成 PASS）。
    · 不阻塞 M10-F closure（§ZE14：真实 PLC 不是硬性 completion gate）。
-   · 与 #11 不冲突（见 #11 末条）。
-
 13 SERIAL-HOTPLUG 实机复验          OPTIONAL        `--serial-hotplug-probe=COMx`（真实拔线场景）          记录 VERDICT
    · 边界（沿用 §ZW / §ZX）：上一轮实机 PASS **未观察到 removal**
      （availablePortsDropped=no / firstAbsentAt=n/a）⇒ 该 probe 至今未验证真实 physical removal；
@@ -10375,4 +10401,48 @@ Review 前提：「canonical make_package 输出 staged 1499+README ⇒ README.m
 · docs-only 的判定必须同时满足：不进 executable、不进 tests、不进 package/deploy artifact、
   不改变 acceptance automation。
 · 分类一旦用于 acceptance 判定，其依据（脚本/CMake 行号与 grep 结果）必须随 contract 一并归档。
+```
+
+### ZC12. Clarification record #2 — #11 修订决策（(a)）（2026-09-23，Review 裁决后）
+
+```text
+Review 裁决：对 §ZC3 #11 的 procedure blocker 采纳 **(a) 修订 #11**。
+（不修改产品行为 / 不新增隐藏 UI / 不放宽 serialConnected / 不用 harness 冒充人工 GUI /
+  不把 automated Success oracle 当人工 PASS / 不把 optional real hardware 升级为 required。）
+
+为什么原 #11 不可执行（acceptance contract 与产品既有设计不一致，**不是产品 defect**）：
+  · 写确认入口受 runtime predicate 控制：WriteFoundationSection line 370
+    `enabled: section.analysisController.serialConnected`。
+  · Simulator / Replay 模式下 serialConnected = false ⇒ Write disabled
+    （R12 亦证 Replay 下 Write disabled；零自动写权限纪律不变）。
+  · production write dispatch 只走真实 serial transport；
+    **不存在** GUI 可达的「Simulator 可写模式 → FC06/FC16 Success 事务」路径。
+  ⇒ frozen #11 的「Simulator 可写模式 → Success transaction presentation」为不可达要求。
+
+修正内容（本节 + ZC3 #11/#12 同步）：
+  · #11 重写为**真实可达路径**：FC03（Simulator 演示批次 + 条件性 Serial Timeout 子项）；
+    FC06 / FC16 = Communication → 可打开 COM → Write → prepare / confirmation summary /
+    dispatch → 无响应 slave ⇒ **Timeout**（不得 Success）+ **GUI 真实可构造**的负向输入。
+  · FC06 负向（GUI 可构造，WriteDraftParsing / WritePrepareValidation 实证）：
+    写入值 65536 / -1 / 12x / 空 ⇒ ValueOutOfRange；地址 65536 ⇒ AddressOutOfRange。
+  · FC16 负向（GUI 可构造）：空草稿 / >123 行 ⇒ QuantityOutOfRange（1..123）；
+    某行 65536 ⇒ ValueOutOfRange；起始 65535+2 行 ⇒ AddressSpanOutOfRange。
+  · **byteCount 不匹配从 HUMAN_REQUIRED 删除**（内部派生量 2×values.size()，
+    Function16.cpp line 115，GUI 永不暴露）；其覆盖保留于自动化
+    （write_encoder F16 金样 byteCount 不一致 + fc16_active）——非删除覆盖，仅转移层次。
+  · **FC06/FC16 的 Success transaction presentation 人工证据移入 #12**
+    （OPTIONAL real-hardware：真实读取/写入/核对返回/恢复原值）。
+  · **COM prerequisite**：#11 的 FC06/FC16 需要一个**能实际打开的 local serial port**
+    （USB-RS485 适配器即可），使 serialConnected=true；**这 ≠ REAL MODBUS HARDWARE
+    validation**（可打开 COM ≠ real Modbus device verified）。
+    无可打开 COM ⇒ FC06/FC16 记 **BLOCKED (no openable COM)**（不是 SKIPPED）；
+    FC03 的 Serial Timeout 子项无 COM ⇒ `SKIPPED (no applicable COM subitem)`。
+  · 自动化证据继续有效：本轮（M10-F）FRESH Debug/Release 36/36、freshness、
+    canonical package、A==B==C==D、portable 5/5 均已 PASS 且本修正为 docs-only
+    （4b75db7..HEAD 无 src/tests/CMake/scripts/assets 变化）⇒ **不需重跑**；
+    最终 Human target 仍为
+    build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe
+    （d5a49582cc2033ce39a0ab2f727222ec57bacf768cceb795f5a237d112b11e87，4 019 721 B）。
+  · 状态不变：M10-F automated gates = PASS；M10-F = **PENDING HUMAN #10/#11**；
+    LKGC 保持 9bdd99c；M11 HOLD；未 push / 未 tag。
 ```
