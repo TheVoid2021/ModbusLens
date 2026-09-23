@@ -9635,3 +9635,85 @@ deploy 通过 canonical 共享脚本 `scripts/deploy_windows.bat`（复用 make_
 可选并行测量：`ModbusLens.exe --serial-hotplug-probe=COM3 --serial-hotplug-probe-seconds=30`
   （在拔线前启动；读数见同目录 serial-hotplug-probe.log）。
 ```
+
+## M10-E4 Real USB Hot-Unplug Verification — SERIAL-HOTPLUG Probe 人工实机验收 = PASS（2026-09-23）
+
+> 本轮为 **verification / archive only**：**零产品代码、零测试代码、零 harness 行为改动**
+> （artifact source 保持 `4b75db7`；HEAD 为 docs-only）。NO AMEND / NO REBASE / NO PUSH / NO TAG / NO LKGC ADVANCE。
+> 一句话结论：探针在**真实 Windows + 真实 USB-RS485 + 生产同配置**下可用并产生可追溯读数，30 s 稳定持有期间**未出现虚假本地丢失判定**；
+> 人工验收判定 = **PASS**（Human Hardware Re-review 权威结论）。
+> **但本轮没有发生可观测的 removal**——因此不得把本轮读数扩大解释为「已完成真实拔线后的 stale-open 验证」。
+
+### ZW1. 目的与环境
+
+```text
+目的：把上一轮「必须测量、不能假设」留下的问题变成可复现实机读数，并验证探针本身在生产配置下可用。
+  待测问题：真实 Windows 上 USB adapter 物理移除时，(a) QSerialPort::errorOccurred 是否投递、
+  (b) QSerialPortInfo::availablePorts() 是否移除该端口、(c) QSerialPort::isOpen() 是否 stale。
+工具（行为 = `4b75db7` 的 src/main.cpp）：--serial-hotplug-probe=COM5 --serial-hotplug-probe-seconds=30
+被测可执行文件：build/release/deploy/ModbusLens.exe
+  sha256 d5a49582cc2033ce39a0ab2f727222ec57bacf768cceb795f5a237d112b11e87（4 019 721 B）
+环境：Windows + 真实 USB-RS485 适配器（枚举为 COM5）+ 9600 8N1；运行 30 s；**端口打开后零 I/O**（ioPerformedAfterOpen=0）。
+日志（原始证据文件，生成物不入库）：build/release/deploy/serial-hotplug-probe.log
+```
+
+### ZW2. 原始读数（逐字归档）
+
+```text
+SERIAL-HOTPLUG t=+0.000s errorOccurred enum=NoError(0) isOpen=0 errorString=[No error]
+SERIAL-HOTPLUG t=+0.064s open port=COM5 baud=9600 result=ok isOpen=1 errorString=[Unknown error]
+SERIAL-HOTPLUG t=+0.370s poll port=COM5 isOpen=1 enumerated=1 ports=3
+SERIAL-HOTPLUG SUMMARY port=COM5 ran=30s polls=119 errorEvents=1 firstErrorEnum=NoError firstErrorAt=+0.000s errorStringAtFirst=[No error] isOpenAtEnd=1 enumeratedAtEnd=1 firstAbsentAt=n/a ioAfterOpen=0 log=E:/desktop/ModbusLens/build/release/deploy/serial-hotplug-probe.log
+SERIAL-HOTPLUG VERDICT errorOccurredFired=yes enum=NoError errorLatency=+0.000s availablePortsDropped=no dropLatency=n/a isOpenStaleAfterRemoval=no ioPerformedAfterOpen=0
+```
+
+### ZW3. 正确解读（**禁止扩大解释**）
+
+```text
+1. errorOccurred **确实触发过 1 次**，但发生在 t=+0.000s、isOpen=0 阶段，枚举值 = **NoError(0)**，
+   错误串 = `No error`。这是 Qt 在**打开流程内**发出的**良性状态通知**，不是失败事实：
+   本仓库两处实现都已正确处理——分类表把 NoError 明确定义为「不是 fatal 本地故障」，
+   handlePortError() 首行即 `if (error == QSerialPort::NoError || suppressPortErrors_) return;`。
+   同一个端口在 t=+0.064s 打开成功后的 `errorString=[Unknown error]` 亦为 NoError 状态的字符串投影
+   （Qt 对 NoError 返回 "Unknown error"），**不是缺陷**。
+2. t=+0.064s COM5 @ 9600 打开成功（isOpen=1）；30 s 内 **119 次 poll**；结束时 isOpen=1、enumerated=1。
+3. **本轮没有观察到端口从 availablePorts 消失**：firstAbsentAt=n/a、availablePortsDropped=no。
+   （poll 行只在 isOpen/enumerated/端口总数**发生变化**时写出；全程仅 1 行 ⇒ 在有观测的约 29.6 s 内三者一直未变。）
+4. 打开后**未执行任何 I/O**（ioPerformedAfterOpen=0）⇒ 本轮读数可排除「只有下一次读/写才暴露错误」这一类解释。
+5. **`isOpenStaleAfterRemoval=no` 不得解读为「已证明不 stale」**：原始数据表明**本轮没有发生可观测的 removal**
+   （既无 error 事件、也无枚举消失）。在无 removal 情形下该字段应读作「不适用」，而非「已验证为否」。
+6. 人工验收判定 = **PASS**（权威结论来自 Human Hardware Re-review，本档案按 PASS 归档，不改成 FAIL/BLOCKED）。
+   本轮 PASS 的**实质内容** = ① 探针在真实 Windows + 真实硬件 + 生产同配置下**可用**且产出可追溯读数；
+   ② 端口成功打开并持有 30 s 期间**没有出现虚假的本地丢失判定**（§ZV4 的抗误报设计在真实硬件上未被误触发）。
+```
+
+### ZW4. 本轮覆盖 / 未覆盖（边界声明）
+
+```text
+覆盖：探针可用性（真实硬件、生产配置、参数解析、日志落地、VERDICT/SUMMARY 产出）；30 s 稳定持有；
+  无虚假 removal；NoError 良性信号在真实环境下的实际形态。
+未覆盖：**物理移除的检测链路在本轮未被实际触发** ⇒ 「真实拔线 → presence watch 判定 → 单一 teardown →
+  serialConnected=false → UI 串口未打开」这一**端到端**场景仍**只有**确定性证据
+  （i09–i13 走观测边界 seam + R15-C / R16 走 harness 传输），**没有本轮的实机证据**。
+  ⇒ REAL USB HOT-PLUG-OUT 的「真实拔线」子场景 = **NOT EXERCISED THIS ROUND**；
+    其软件侧实现与 oracle 见 §ZV4–§ZV5，实机端到端复验可在后续任何一轮用同一探针与同一 deploy 树补做。
+已知探针读数口径瑕疵（**本轮不改 artifact**，避免动已验证的可执行文件；已入 BACKLOG 追踪）：
+  SUMMARY/VERDICT 把 **NoError 也计入** errorEvents / errorOccurredFired，故本轮打印
+  `errorOccurredFired=yes enum=NoError errorLatency=+0.000s`。正确读法 = 「没有失败事实，只有一次良性 NoError 通知」；
+  原始逐事件行（ZW2 前三行）本身无歧义。修复方向：把 NoError 单列为 benignSignals 而不计入 error 门。
+REAL MODBUS HARDWARE = NOT VERIFIED（本轮未连接任何 PLC / slave；远端 slave 场景由 R15-B/i13 覆盖，与本轮 B 类无关）。
+```
+
+### ZW5. 归档结论与资产处置
+
+```text
+· 本轮闭环：PROJECT_STATUS「下一步动作」中的实机复验待办 + §ZV10 Human hot-plug checkpoint**的探针侧** = ✅ 完成并归档。
+· artifact source 未变：`4b75db7`（== Release/deploy `d5a49582…`）；**未做 package**（package 闭合另起一轮）。
+· 探针处置 = **保留**，理由：它符合仓库既有惯例——所有 harness 模式（--qml-smoke-test / --qml-nav-check /
+  --qml-geometry-check / --qml-focus-check / --qml-write-foundation-check / --qml-production-write-check）
+  都是 main.cpp 内**带完整文档注释、在 main() 早期分发**的诊断入口；且 `docs/04_TEST_STRATEGY.md` §4 明确规定
+  「需要真实硬件或人工步骤的测试以 manual_ 前缀 + DISABLED 或**文档化**，不进默认 ctest」——
+  真实串口硬件在自动化环境不可得，故该探针正是「文档化的人工真机仪器」，**不注册进 ctest**、也不进产品 UI。
+  本轮已把它的用途、参数与读数口径写入 docs/04_TEST_STRATEGY.md（§3 Serial / §4）。
+· 生成物不入库：serial-hotplug-probe.log / deploy 树 / build 树仍按仓库规则被 .gitignore 排除（未纳入版本控制）。
+```

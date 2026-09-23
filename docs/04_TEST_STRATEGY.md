@@ -64,6 +64,8 @@
 - 虚拟串口对（Windows: com0com；Linux: socat pty）跑真正的 QSerialPort 代码路径（T010）。
 - 真机场景保留"人工核对清单"（见 05_DEMO_GUIDE），不计入自动测试。
 
+- **Local port presence（M10-E4）**：`serialConnected` 只表示**本地串口已打开**；`QSerialPort::isOpen()` 是**句柄自述状态**（设备消失后仍为 true），因此"适配器还在不在"必须问 OS —— `QSerialPortInfo::availablePorts()`（`DIGCF_PRESENT` 实时枚举，设备消失即消失）。自动化侧以**观测边界 seam**（注入 port-presence provider）覆盖：`tests/test_serial_adapter.cpp` i09–i13（确认消失恰好上报一次、抗单次抖动、显式 start、真实 teardown、仍枚举即非丢失）；控制器 / UI 侧由 `--qml-production-write-check` 的 R15 / R16 覆盖。**这不是远端 Modbus 存活检测**：不寻址任何从站、不发任何帧，从站沉默仍保持端口存在（Timeout 仍为 Timeout，见 R15-B / i13）。
+- **`--serial-hotplug-probe`（人工真机仪器，2026-09-23 实机验收 PASS）**：真实 USB 串口硬件在自动化环境不可得，故保留一个**文档化、不进 ctest** 的探针（与 §4 规则一致：需要真实硬件或人工步骤的测试以 `manual_` 前缀 + `DISABLED` 或文档化）。用法：`ModbusLens.exe --serial-hotplug-probe=COMx [--serial-hotplug-probe-seconds=N] [--serial-hotplug-probe-log=<path>] [--serial-hotplug-probe-baud=N]`；以**与生产 adapter 完全相同**的配置打开端口，打开后**不做任何 I/O**（`ioPerformedAfterOpen=0`），逐事件输出 `errorOccurred` 的 enum 名/数值与 `errorString`，按变化输出 `poll` 行，结尾给出 `SUMMARY` 与 `VERDICT`；退出码 0 = 错误门触发 / 3 = 全程静默 / 1 = 打开失败。读数口径注意：`SUMMARY` / `VERDICT` 目前把 Qt 打开流程内的**良性** `NoError(0)` 也计入 `errorEvents` / `errorOccurredFired`，故可能出现 `errorOccurredFired=yes enum=NoError errorLatency=+0.000s` —— 正确读法为"无失败事实，仅一次良性通知"（已入 BACKLOG 追踪项）。原始证据归档：T022 §ZW（`docs/tasks/T022-m10-active-master-v1-learning-design.md`）。
 ### GUI
 
 - 冒烟：offscreen 平台下构造窗口/控件（T001 已建立 `smoke`）。
@@ -75,6 +77,7 @@
 - 用 `set_tests_properties(... LABELS "unit|component|integration")` 打标签，未来支持 `ctest -L unit` 快速过滤；
 - 需要真实硬件或人工步骤的测试以 `manual_` 前缀 + `DISABLED` 或文档化，不进默认 `ctest`；
 - 所有可在无显示器环境运行的 QT 测试统一加 `QT_QPA_PLATFORM=offscreen`（CMakeLists 已示范）。
+- **不进 ctest 的人工真机仪器**：`--serial-hotplug-probe`（见 §3 Serial）—— 真实 USB 串口硬件不可得，按本节规则**仅文档化**、不入默认 `ctest`；
 - 已落地（T002–T008A）：ctest 注册 14 个测试——`crc`（CRC-T01~T06）、`frame`（FRAME-T01~T04）、`codec`（RTU-A01~A07）、`f03`（F03-B01~B12，含 V1.1b3 官方金样）、`simulator`（SIM-T01~T07）、`simulator_integration`（SIM-I01 全链路闭环）、`fault`（FAULT-T01~T05 含确定性护栏）、`fault_integration`（FAULT-I01/I02）、`transaction`（TX-A01~A12 六状态与跨帧校验）、`transaction_integration`（TX-I01~I03）、`statistics`（STAT-B01~B08 含四不变量）、`statistics_integration`（STAT-I01 真实链路聚合）、`ui_bridge`（Controller/Model 桥接）、`qml_smoke`（真实 exe 加载 QML 后退出；原 `smoke` 随 QWidget bootstrap 在 T008 Part A 删除）；除 `qml_smoke` 运行真实 app 外均链 `modbuslens_core`/`modbuslens_ui` + QtTest。
 
 ## 5. 覆盖率与质量门槛

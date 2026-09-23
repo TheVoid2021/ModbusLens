@@ -1003,3 +1003,35 @@
 - **Q：capability guard 改成「逐功能常量表」有什么好处？** A：原来是一个针对 0x06 的特判；现在每个写功能通过自己的结构常量进入同一条 consume→encode→start 原子路径，并且仍叠加 activeFunctionSupported 双保险。将来加新功能码时，规则是「常量 + 会话支持 + 共享分析器」三件齐备才放行——声明式，不再每次改 if。
 - **Q：main.cpp 的 prod-write oracle 为什么要从「属性不得存在」翻转成「属性必须存在且为 true」？** A：因为 oracle 原来保护的负向事实（0x10 没有能力）在 E3 变成了正向事实。转换纪律是：**负向覆盖上移一层而不是删除**——属性存在且为 true 被正向断言，而 0x10 production UI 的缺席（节点/命名项/a11y/tab stops）由紧邻的既有检查逐项继续断言。能力和 UI 是两个不同的冻结契约，E3 只翻开了前一个。
 - **Q：DLG4 的总账为什么从 3/1/1 变成 4/2/1？** A：DLG4 原来断言「0x10 → CapabilityUnavailable，零消耗零发送」，所以不计入 attempts/sends。E3 之后它镜像 DLG1：0x10 对话框确认 → 原子派发 → 恰好 1 attempt + 1 send + Consumed。总账是 DLG 节对自身派发行为的自洽校验（4 = 1+1+1+1+0），它变更是被转换**推导**出来的，不是为了让测试变绿而凑的数。
+
+## 104. Post-T022 M10-E4（串口本地状态语义 + 真实热拔检测 + 真机 probe 验收）条目（2026-09-23 追加）
+
+- **Q：`serialConnected` 到底表示什么？** A：**本地串口已打开**（`openPort()` 成功后置 true，
+  仅由 transport error lane 从 `isPortOpen()` 重新同步）。Modbus RTU **没有连接握手**，
+  所以打开端口不证明任何从站存在 —— 无 slave / 拔掉 slave / 地址不存在 / 不响应都**可以**是 true。
+- **Q：为什么不能把 `QSerialPort::isOpen()` 当"设备在线"？** A：它是**句柄自述状态**，
+  Windows 后端在设备消失后没有任何清除路径 ⇒ 陈旧句柄继续返回 true。
+  真实拔线后 UI 一直显示「串口已打开」就是这么来的。
+- **Q：真实热拔为什么改为问 OS 而不是等 `errorOccurred`？** A：源码层面
+  （`open(ReadWrite)` ⇒ `eventMask=EV_RXCHAR` ⇒ 发出未完成的 `WaitCommEvent`）本应在移除时产生 `ResourceError`，
+  但**是否真正投递取决于驱动**，实机观察也不支持"一定投递"；而 `QSerialPortInfo::availablePorts()` 是
+  **`DIGCF_PRESENT` 的实时 SetupAPI 枚举**，设备消失即消失 —— 故增加 `LocalPortPresenceWatch`。
+- **Q：presence watch 算不算"心跳 / 轮询设备在线"？** A：**不算**。它只问"OS 是否仍枚举当前端口"，
+  **不寻址任何从站、不发任何帧**；从站沉默 ⇒ 端口仍存在 ⇒ 会话保持（Timeout 仍是 Timeout）。
+  禁掉的正是 remote heartbeat / 周期 FC03 探测 / Device Online 状态机 / auto retry / auto reconnect。
+- **Q：一次物理丢失怎么保证只上报一次？** A：把 fatal 处理体抽成单一的 `handleLocalPortLoss(cause)`，
+  两条门（QSerialPort 错误门 + presence watch）**只提供 cause**，共享 `suppressPortErrors_` 做 exactly-once：
+  先发现者上报，另一方静默（SERIAL-I02：一次物理丢失 ↔ 一次权威上报）。
+- **Q：为什么不伪造 `QSerialPort::ResourceError`？** A：伪造枚举会把"OS 枚举消失"伪装成"Qt 端口错误"，
+  污染事实来源。presence 驱动用明确内部 cause（`<port> 已从系统移除`），UI 呈现为
+  `串口传输错误：串口设备不可用：COM3 已从系统移除` —— 只声称本地设备，不声称远端设备断开。
+- **Q：本轮真机 probe PASS 到底证明了什么？** A：① 探针在真实 Windows + 真实 USB-RS485 + 生产同配置下可用并产出可追溯读数
+  （COM5 打开成功、30 s / 119 次 poll、`isOpenAtEnd=1`、`enumeratedAtEnd=1`、`ioAfterOpen=0`）；
+  ② 30 s 稳定持有期间**没有虚假本地丢失判定**。**它没证明**"真实拔线端到端链路"——
+  本轮 `availablePortsDropped=no`、无 error 事件 ⇒ **没有发生可观测的 removal**，
+  `isOpenStaleAfterRemoval=no` 应读作**不适用**，不能扩大解释。
+- **Q：日志里 `errorOccurred enum=NoError(0)` 是什么？** A：Qt 在**打开流程内**发出的**良性状态通知**
+  （分类表把 `NoError` 定义为"不是错误"，`handlePortError` 首行即忽略；
+  打开成功后的 `errorString=[Unknown error]` 只是 NoError 的字符串投影）。
+  已知探针口径瑕疵：它被计入 `errorEvents` / `errorOccurredFired`，已入 BACKLOG 追踪；
+  正确读法为"无失败事实，仅一次良性通知"。
