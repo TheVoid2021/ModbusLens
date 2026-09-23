@@ -10964,3 +10964,132 @@ REAL MODBUS HARDWARE = NOT VERIFIED
 未做（明确）：未在 WorkBuddy 内运行 make_package（ISSUE-015 宿主阻塞仍在）；
               未做人眼验收；未闭合 M10-F；未开始 M11；未 amend `cc3c6f8` / `664f003`。
 ```
+
+---
+
+## ZMJ. M10-F pre-package acceptance cleanup — 三项遗留发现收口（2026-09-23，behavior/test-bearing）
+
+> 上一轮（§ZMG）明确留下三条 follow-up：①`TransactionsPage.qml:344` TypeError；
+> ②`WriteFoundationSection.qml:655/669` undefined→QString；③R15/R16 忽略 `clickNamed` 返回值。
+> 本轮**只**处理这三条（不搜索无关缺陷），全部关闭后再进入打包。
+> 档案：**`ISSUE-017`（新建，①的专属建档）** + **`ISSUE-016` 追加 closure 章（②③）**。
+
+### ZMJ1. 遗留诊断的完整原文（此前未给出完整 TypeError 文本，本轮补齐）
+
+以 Release binary + `QT_ASSUME_STDERR_HAS_CONSOLE=1` + offscreen 跑六个模式，逐行捕获（非只判 rc）：
+
+```text
+--qml-write-foundation-check 独有的一块（10 条，原文逐字）：
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:277:29: Unable to assign [undefined] to QString
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:276:29: Unable to assign [undefined] to QString
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:275:29: Unable to assign [undefined] to int
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:274:29: Unable to assign [undefined] to bool
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:273:29: Unable to assign [undefined] to int
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:272:29: Unable to assign [undefined] to int
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:271:29: Unable to assign [undefined] to int
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:344: TypeError: Cannot call method 'toString' of undefined
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:349:41: Unable to assign [undefined] to QString
+qrc:/ModbusLens/src/ui/qml/pages/TransactionsPage.qml:379:37: Unable to assign [undefined] to QString
+
+六个模式全部出现（各 ≥1 次；write-foundation / production-write 重复多次）：
+qrc:/ModbusLens/src/ui/qml/components/WriteFoundationSection.qml:655:21: Unable to assign [undefined] to QString
+qrc:/ModbusLens/src/ui/qml/components/WriteFoundationSection.qml:669:21: Unable to assign [undefined] to QString
+```
+
+**触发定位**：TransactionsPage 那一块落在 C15（`controller->clearResults()` 两次）之间：
+第一次清掉唯一一行（1 个 delegate 被销毁 → 1 块诊断），第二次无行可清（无诊断）。
+WriteFoundation 两条则在页面加载即发生（无 prepared 快照 = 正常初始态）。
+
+### ZMJ2. 分类（按调用路径，不看 commit 年龄）
+
+```text
+① TransactionsPage delegate：**(A) 生产可达产品缺陷**。
+   证据：Main.qml:145-149 `objectName: "appBarClearResults" / onClicked: analysisController.clearResults()`
+   —— harness 调用的是**真实 AppBar「清空结果」按钮绑定的同一个方法**；clearResults() 内含
+   transactionModel_.setEntries({}) ⇒ 任何有事务的用户点击它都会重现。另：加载 replay / 换源
+   同样 reset 模型。归属 9712a6cf（非 cc3c6f8），但**年龄不构成豁免**。
+② WriteFoundationSection 655/669：**(A) 生产可达**（写区在 production 始终存在；初始态即命中）。
+   用户可见影响为无（对话框只在 prepared 后显示，届时键存在，R17 仍通过），但确为真实缺陷。
+③ clickNamed R15/R16：harness 缺陷（假通过/假失败洞）—— 位置式点击的返回值不证明事件送达，
+   而调用处忽略了它。
+```
+
+### ZMJ3. 根因
+
+```text
+① QQuickItemView 在模型 reset 时会对每个 delegate 的绑定**再求值一次**，此时该行 index 已失效，
+   model.<role> 全部读成 undefined；delegate 把 undefined **赋给有类型属性**或**调用其方法**
+   （undefined.toString(16)）⇒ 9 条 Unable to assign + 1 条 TypeError。
+   模型侧无责：TransactionListModel::setEntries 用的是正确的 begin/endResetModel（225-227）。
+   自洽性佐证：纯 JS 比较（297 `!== ""`）、.arg()（338）、字符串拼接（355）、
+   三元假分支（361-365）都不报 ⇒ 与「角色整体 undefined」完全一致。
+② preparedPreview map 形状不对称：previewPreparedWrite() 无快照时返回 {ok:false,state:"none"}，
+   不含 pduHex/rtuHex ⇒ 直接绑定缺失键。与 §ZMG 主缺陷同族。
+③ clickNamed 位置式 + 调用处忽略返回值。
+```
+
+### ZMJ4. 修复（三处，均为最小改动；未抑制日志 / 未隐藏 stderr / 未改 make_package.py）
+
+```text
+① src/ui/qml/pages/TransactionsPage.qml：
+   delegate 根加 `id: rowItem`；7 个 readonly property 改为容错读取
+   （model.x !== undefined ? model.x : 0/false/""）；表现层全部读取改走 rowItem.*。
+   修复后 model.* 只出现在那 7 个容错点（grep 可验证）。
+   未用 `required property` 注入角色 —— 那会在创建时冻结值，破坏 pending→Success/Timeout 的
+   statusText/elapsedMs 实时更新。
+② src/ui/qml/components/WriteFoundationSection.qml：组件 root 新增
+   preparedPreviewOk / preparedPreviewPduText / preparedPreviewRtuText 三个有类型投影，
+   655 / 669 两个 Label 改读投影（与 FC03 read preview 同一模式）。
+③ src/main.cpp：新增前置判定 `clickReachesNamed(name)`
+   （存在 + isVisible + isEnabled + 中心点在窗口矩形内）；R15/R16 在点击前断言该前置条件
+   并**检查 clickNamed 返回值**；R15 另加「点击必须真的产生请求」（serialBusy）效果断言。
+```
+
+### ZMJ5. 加固的负向对照（证明不是新增死断言）
+
+```text
+变异：临时把请求区 Row 2 的一个标签加长，复现「读按钮被挤出 1000x700 窗口」，重建后运行：
+  rc = 1
+  PRODWRITEFAIL R15: commReadButton is not inside the 1000x700 window, so a position-based click cannot reach it
+  PRODWRITEFAIL R15: the Read click did not start a request
+  PRODWRITEFAIL R16: commReadButton is not inside the 1000x700 window, so a position-based click cannot reach it
+加固前同一变异只会报 `silent slave produced 0 timeouts` / `no pending request to lose`（根因不可见）。
+变异已还原（git checkout），随后全量验证为绿。
+```
+
+### ZMJ6. 门禁（真实执行）
+
+```text
+Release build 0 error；Debug build 0 error。
+真实 ctest：Release **36/36 PASS**（78.98 s）；Debug **36/36 PASS**（81.30 s）；测试数量 36（未变化）。
+六个诊断模式：**全部 rc=0，全部 0 条匹配诊断**
+  （关键词集：referenceerror / typeerror / unable to assign / is not defined /
+    cannot call method / undefined；此前 6 个模式合计命中 22+ 条）
+R15 / R16 / R17：全部 PASS（R17 确认 PDU preview 仍为 `10 00 01 00 02 04 00 70 04 C6`）。
+commReadButton：前置判定通过 ⇒ harness 运行时已证明其中心点在 1000x700 窗口内（约 x=926）。
+```
+
+### ZMJ7. 回归策略扩面
+
+```text
+CMakeLists.txt：FAIL_REGULAR_EXPRESSION 从「打包门禁的三个模式 + ReferenceError;TypeError」
+扩展为**全部六个** QML 门禁 + `Unable to assign`：
+  qml_smoke qml_nav_check qml_geometry_check qml_focus_check
+  qml_write_foundation_check qml_production_write_check
+  FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign"
+理由：`Unable to assign` 正是「缺 map key」与「失效 index 读角色」两类的静默报文。
+未新增测试目标（数量仍 36）；未建立新验收框架；未改 make_package.py。
+```
+
+### ZMJ8. 本轮边界与状态
+
+```text
+M10-F = **HOLD**（本轮为打包前的源码/测试收口；**未打包**）
+M11 = HOLD（未开始）
+未 push；未 tag；LKGC 保持 `9bdd99c`；未 amend `8d78ddb` / `c856bff` / `cc3c6f8`
+未做（明确）：未运行 make_package / windeployqt；未创建 portable package；未开始 Human #10/#11；
+              未修 ISSUE-015 的 deploy_is_current；未动无关 backlog
+便携产物 = **STALE**（不含 §ZMG 与 §ZMJ 的全部修正）
+下一动作 = **HUMAN native PowerShell** → safe retention → freshness → canonical make_package
+            → A/B/C/D identity → NEW D portable gates → fresh Human #10/#11
+```

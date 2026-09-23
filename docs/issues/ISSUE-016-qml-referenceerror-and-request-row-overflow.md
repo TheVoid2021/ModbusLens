@@ -216,3 +216,106 @@ post-cc3c6f8: commReadButton scene=(1186.0,241.0)  <- 在窗口外，不可点�
    这两行属 pre-existing，未改（避免越界），应并入同一轮 follow-up 修掉，
    之后即可把 `Unable to assign [undefined]` 也纳入断言。
 4. **ISSUE-015**（windeployqt / QProcess）仍独立未解，见该文档。
+
+---
+
+## Follow-up closure（2026-09-23 第二轮：M10-F pre-package acceptance cleanup）
+
+上一节列出的三条 follow-up **已全部关闭**。本节按「只增不改」原则追加，原文保留。
+
+### ① `WriteFoundationSection.qml:655/669` — 已修（与本文档主缺陷同族）
+
+**完整原始诊断**（六个模式**全部**输出，各至少一次；write-foundation / production-write 重复多次）：
+
+```text
+qrc:/ModbusLens/src/ui/qml/components/WriteFoundationSection.qml:655:21: Unable to assign [undefined] to QString
+qrc:/ModbusLens/src/ui/qml/components/WriteFoundationSection.qml:669:21: Unable to assign [undefined] to QString
+```
+
+**触发**：**全部六个** QML 模式；在页面加载时即发生，且在 `preparedPreview` 每次重算时重复
+（`preparedPreview` 绑定依赖 preparedWrite 的 NOTIFY 投影，写流程活动时反复重算）。
+
+**undefined 的值**：`preparedPreview.pduHex`（655，`writeSummaryPdu`）与 `preparedPreview.rtuHex`
+（669，`writeSummaryRtu`）。原因与本文档主缺陷同族 —— **map 形状不对称**：
+`AnalysisController::previewPreparedWrite()` 在**没有 prepared 快照**时返回
+`{ok:false, state:"none"}`（**正常初始状态**），只有真正 prepared 时才含 `pduHex`/`rtuHex`。
+即：**每次启动、每个模式**都命中。
+
+**分类**：**(A) 生产可达**——写区在 production 中始终存在，确认对话框的 PDU/RTU 标签在
+「尚未 prepare」这一正常状态下求值。用户可见影响为**无**（对话框只在 prepared 后显示，
+届时键存在且值正确，R17 断言 `10 00 01 00 02 04 00 70 04 C6` 仍通过），
+但它是真实的「undefined 被赋给 QString」缺陷，且已成为门禁对象。
+
+**最小修复**（`src/ui/qml/components/WriteFoundationSection.qml`，组件 root 上新增三个有类型投影，
+两个 Label 改读投影）：
+
+```qml
+readonly property bool preparedPreviewOk: preparedPreview.ok === true
+readonly property string preparedPreviewPduText:
+    preparedPreviewOk ? preparedPreview.pduHex : ""
+readonly property string preparedPreviewRtuText:
+    preparedPreviewOk ? preparedPreview.rtuHex : ""
+```
+
+与本文档主缺陷（FC03 read preview）用的是**同一个模式**。未抑制日志、未改门禁。
+
+### ② `clickNamed` R15/R16 假通过/假失败洞 — 已关闭（有负向对照证据）
+
+**弱点**：`clickNamed` 是**位置式**合成点击（取 item `mapToScene(中心)`，把 `QMouseEvent` 发给
+window，靠命中测试落地）。它的返回值只表示「找到且 visible」，**不表示事件真的到达了控件**；
+而 R15/R16 调用处**忽略了返回值**。⇒ 控件被布局挤出窗口时，点击静默失效，
+表现为「0 timeouts / no pending」这种误导性断言失败，甚至可能凭**上一步遗留的 pending 状态**通过。
+
+**加固**（`src/main.cpp`）：
+- 新增前置判定 lambda `clickReachesNamed(name)`：要求 item 存在、`isVisible`、`isEnabled`，
+  且其中心点落在 `QRectF(0,0,window->width(),window->height())` 内；
+- R15 / R16 各自在点击前断言该前置条件、并**检查 `clickNamed` 的返回值**，
+  失败即以指名原因的报文 `fail(...)`；
+- R15 另加「点击必须真的产生了请求」的效果断言（`serialBusy()`），
+  使「凭遗留状态通过」不可能。
+
+**负向对照（证明洞已关闭，而非新增死断言）**：临时把 Row 2 的一个标签加长以复现
+「按钮被挤出窗口」，重建后运行 `--qml-production-write-check`：
+
+```text
+rc = 1
+PRODWRITEFAIL R15: commReadButton is not inside the 1000x700 window, so a position-based click cannot reach it
+PRODWRITEFAIL R15: the Read click did not start a request
+PRODWRITEFAIL R16: commReadButton is not inside the 1000x700 window, so a position-based click cannot reach it
+```
+
+对比加固前同一变异只会报 `silent slave produced 0 timeouts` / `no pending request to lose`
+（即**根因不可见**）。变异随后已还原（`git checkout`）。
+
+**正向证明**：正常布局下 R15/R16/R17 全部通过（`rc=0`，无 `PRODWRITEFAIL`）；
+前置判定 `clickReachesNamed` 通过即意味着**控件中心确实在 1000x700 窗口内** ——
+这条不变量现在由 harness 在运行时强制，而不再依赖「合成事件恰好送达」。
+
+### ③ `TransactionsPage.qml` delegate 角色读取 — 已修，**独立建档**
+
+该缺陷有不同的根因（delegate 在模型 reset 时对已失效 index 再求值一次），
+已另立 **`ISSUE-017-transactions-delegate-undefined-roles.md`**（含完整原文 10 条、
+生产可达性证据、修复与验证）。结论：**生产可达**（AppBar「清空结果」绑定的同一控制器方法），
+因此本轮修复，而非记为非阻塞。
+
+### ④ 诊断回归策略已扩面
+
+断言从「打包门禁的三个模式」扩展到**全部六个** QML 门禁，并纳入本族的静默报文类别：
+
+```cmake
+FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign"
+```
+
+理由：`Unable to assign` 正是「缺 map key」与「失效 index 读角色」两类的静默报文，
+而这两类此前都只能等到 `make_package.py`（唯一 grep 文本的门禁）才暴露。
+
+### ⑤ 本轮收口结果
+
+```text
+六个诊断模式：全部 rc=0，全部 0 条匹配诊断（此前 smoke..production-write 均有 655/669；
+  write-foundation 另有 TransactionsPage 10 条）
+真实 ctest：Release 36/36 PASS（78.98 s）；Debug 36/36 PASS（81.30 s）；测试数量未变化（36）
+R15 / R16 / R17：全部 PASS
+未做：未打包（ISSUE-015 宿主阻塞仍在）、未启动 Human #10/#11、未开始 M11、
+     未修 ISSUE-015 的 deploy_is_current
+```
