@@ -65,3 +65,13 @@ Qt Quick 的 model reset 语义：`beginResetModel()` 之后、`endResetModel()`
 
 C3 的 harness 会持续执行「产生 transaction → 清空结果」这一序列，因此该告警若变成**失败**
 （例如升级 Qt 后把 undefined 赋值提升为错误）会立刻在 `qml_write_foundation_check` 中暴露。
+
+## 状态更新（2026-09-23，仅追加状态说明，不改写历史）
+
+本文档记录的实现问题**后续已由 `ISSUE-017-transactions-delegate-undefined-roles.md` 所载的修复闭合**：
+delegate 根改为经 `id` 单点容错读取全部角色，表现层统一走该 id；六个 QML 诊断模式下
+`ReferenceError` / `TypeError` / `Unable to assign` 计数均为 **0**，修复方式与本文件当初建议的
+「给 delegate 绑定加 `?? 0` / `?? ""`」一致（只是集中在一处完成）。
+
+两个历史编号及各自的原始记录**均保留**（未合并、未重写、未删除）；
+`ISSUE-017` 内部亦有一条指向本文件的批注。本轮不为此扩大任何工作范围。

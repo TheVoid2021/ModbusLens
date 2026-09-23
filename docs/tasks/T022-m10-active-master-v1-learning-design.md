@@ -11216,3 +11216,157 @@ M11 = HOLD（未开始）
 下一动作 = **HUMAN native PowerShell** → retention → canonical package → A/B/C/D
             → NEW D portable gates（真实 windows QPA）→ Human #10/#11
 ```
+
+---
+
+## ZML. M10-F FINAL ACCEPTANCE — CLOSED（2026-09-23，docs-only closure）
+
+> 本轮**只**归档与闭合：不改产品代码、不改测试、不重新 build、不重新 package、
+> 不重跑人工验收。所有机器证据引用此前各轮已产出的结果；人工结论只按
+> **「Human reported all required #10/#11 checks PASS」** 记录。
+
+### ZML1. 最终验收产物（A/B/C/D 同一字节）
+
+```text
+A = E:\desktop\ModbusLens\build\release\modbuslens.exe
+B = E:\desktop\ModbusLens\build\release\deploy\ModbusLens.exe
+C = E:\desktop\ModbusLens\build\package\ModbusLens-2.0.0-windows-x64\ModbusLens.exe
+D = E:\desktop\ModbusLens\build\package-extract\ModbusLens-2.0.0-windows-x64\ModbusLens.exe   ← 唯一验收目标
+
+四路 size 均 = 4141592 bytes
+四路 SHA-256 均 = 839082d3643c78d5e76c54092e939d3d40e44d7b845737b643d4e33af588aec4
+identity verdict = **A == B == C == D PASS**（identity = exe full SHA-256；ZIP 非 identity criterion）
+
+ZIP = build/package/ModbusLens-2.0.0-windows-x64.zip
+  size = 41002324 bytes
+  SHA-256 = 75e017beb59adfc952582406b28ef266d18d67d82cd6b5eb9d5b28f95f33ec11
+```
+
+### ZML2. 机器证据（引用既有产出，未在本轮重跑）
+
+```text
+canonical package（人工在独立 shell 执行）= PASS / exit 0
+freshness（scripts/test_make_package_freshness.py）= PASS / exit 0
+canonical package 内部 gate：minimal-PATH --qml-smoke-test / --qml-nav-check /
+  --qml-geometry-check / external-CWD launch 全部 PASS
+A == B == C == D = PASS
+
+NEW D portable gates（QT_QPA_PLATFORM=windows，真实平台，非 offscreen）：
+  --qml-smoke-test              PASS（rc=0）
+  --qml-production-write-check  PASS（rc=0）
+  --qml-write-foundation-check  PASS（rc=0）  ← 曾失败项（C4 1000x700 裁切），已修复
+  --qml-focus-check             PASS（rc=0）
+  --qml-nav-check               PASS（rc=0）
+  --qml-geometry-check          PASS（rc=0）
+  合计 **6/6 PASS**
+
+runtime（来自 NEW D 的 --qml-smoke-test，非目录名推断）：version = **2.0.0**
+runtime diagnostics：ReferenceError = **0** · TypeError = **0** · Unable to assign = **0**
+
+1000x700（windows QPA）实测坐标：
+  writeFoundationPanel = (73,356 911x319)  → bottom 675 ≤ 700  PASS
+  writeValidationError = (85,647 887x16)   → bottom 663 ≤ 700  PASS（完全可见）
+  writeActivateButton  = (85,605  50x34)   → bottom 639 ≤ 700  PASS（可达）
+  commReadButton 位于窗口内：由 R15/R16 的 clickReachesNamed 前置断言通过证明
+  （1024x720 三个变体亦全部通过；FOUNDATION CHECK PASS 含 C4 geometry 1024x720 + 1000x700）
+
+R15 = PASS（silent slave → exactly one Timeout；clickReachesNamed 前置判断通过）
+R16 = PASS（pending request + local loss → exactly one TransportError/PossiblySent，
+           no record / no Timeout / no Success）
+R17 = PASS（FC16 → confirmation → production dispatch → no response →
+           exactly one Timeout → WriteTimeoutUnknown 用户可见 → no Success；
+           notice 保持可见）
+FC16 no-response 回归：此前 Human 实机发现的「FC16 点击后没有 terminal feedback」
+  已由最终 NEW D 的 R17 回归保护覆盖。
+
+source-tree（最终源码树，windows QPA）六门禁 = PASS；真实 ctest = Release 37/37、Debug 37/37 PASS
+```
+
+### ZML3. 人工验收（Human）
+
+```text
+Human #10 Visual      = PASS
+Human #11 Functional  = PASS
+Overall M10-F Human   = PASS
+Human 明确回复：「全部PASS」
+
+归档口径：仅记录 **Human reported all required #10/#11 checks PASS**。
+未收到、因此**不记录**：截图、逐项观察文本、人工验收时间戳、COM 编号、
+  USB-RS485 适配器型号、PLC/slave 型号、真实 slave 响应、设备值核对、原值恢复记录。
+```
+
+### ZML4. REAL MODBUS HARDWARE 边界（保持）
+
+```text
+REAL MODBUS HARDWARE = **NOT VERIFIED**
+属性 = OPTIONAL / NON-BLOCKING（§ZE14：真实 PLC 不是硬性 completion gate）
+理由：可打开的 local COM 或 USB-RS485 适配器 **不等于** 真实 Modbus PLC/slave 成功响应。
+未记录且不得推断：真实 FC03 响应、真实 FC06 Success、真实 FC16 Success、
+  实际设备值核对、原值恢复。
+```
+
+### ZML5. 证据措辞边界（纠正此前报告中的两处过强表述）
+
+```text
+① 关于 112 → 0x0070：
+   不得表述为「R17 的 00 70 直接证明 FC06 UI 的 112 → 0x0070 显示」——
+   R17 是 **FC16** 路径，与 FC06 UI 无关。
+   正确记录：FC06 的「uint16 原始值 + DEC/HEX」要求由 **Human #10/#11 人工验收 PASS** 覆盖；
+   其自动化结构性证据仍在已接受的 source-tree 测试（write_encoder / fc16_active /
+   test_ui_bridge pv1–pv4）。
+② 关于 preview / dispatch 共用 encoder：
+   不得表述为「NEW D 内只有四个 preview API 因此证明 preview 与 dispatch 共用 encoder」——
+   该推断不成立。
+   正确边界：**NEW D 内包含对应的 preview capability**；
+   「preview 与 dispatch 共用 production encoder / request representation」的**结构性证明**
+   来自**已接受的 source-tree implementation / tests**；
+   portable evidence 的职责只是证明**相应能力已进入最终 D**。
+```
+
+### ZML6. ISSUE-014 / ISSUE-017（最小追加说明）
+
+```text
+事实：ISSUE-014（`0d5c219`）与 ISSUE-017 记录同一组 TransactionsPage delegate reset 诊断。
+处置（最小、不删不改历史）：在 ISSUE-014 末尾追加一句状态说明 ——
+  其对应实现问题**后续已由 ISSUE-017 所记录的修复闭合**。
+保留两个历史编号与原始记录；不合并、不重写、不删除。
+```
+
+### ZML7. M10-F 最终状态
+
+```text
+M10-F = **CLOSED**
+  machine acceptance        = PASS
+  portable acceptance       = PASS
+  Human #10 (Visual)        = PASS
+  Human #11 (Functional)    = PASS
+  REAL MODBUS HARDWARE      = NOT VERIFIED / OPTIONAL / NON-BLOCKING
+⇒ **M10（Active Master v1）= ✅ COMPLETE**
+```
+
+### ZML8. LKGC decision（本轮只提出 candidate，未推进）
+
+```text
+规则原文（依 T022 §ZE15/§ZE18 line 7794–7795 + M10-F acceptance matrix 第 14 项 + AGENTS.md line 130）：
+  「未来 Agent 只提出 LKGC candidate，Human Review PASS 前不自行宣布 advance。」
+  「Agent 仅提出 candidate（= M10-F 收口时最后一个 behavior-bearing accepted tree）；
+    verified LKGC 的推进需 Human 授权（先例 §ZD8）。」
+  「docs-only commit 永不作 LKGC；behavior-bearing accepted tree 才是 LKGC 身份。」
+
+PROPOSED LKGC CANDIDATE = **d08ab55c71f54211e35f6bcdf0c2ec026a1d185f**
+理由：它是 M10-F 收口时**最后一个 behavior-bearing** commit
+      （CMakeLists.txt + src/ui/qml/components/WriteFoundationSection.qml +
+        src/ui/qml/pages/CommunicationPage.qml ⇒ 正是最终 accepted package 的源码身份）；
+      其后的 `45e9dac` 与本轮 closure commit 均为 **docs-only**，按规则**永不**作 LKGC。
+
+verified LKGC **保持 `9bdd99c`**（本轮**未推进**）；
+推进需 **HUMAN AUTHORIZATION**。
+```
+
+### ZML9. 本轮边界
+
+```text
+本轮 = docs-only（零产品/测试/构建/packaging 改动）
+未 push；未 tag；未推进 LKGC；未开始 M11
+M11 = HOLD / NOT STARTED（§ZE14：M11 为独立阶段，需自行建立 scope）
+```
