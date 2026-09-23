@@ -717,7 +717,26 @@ if(BUILD_TESTING)
         MODBUSLENS_PROTOCOL_ERROR_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/t014_protocol_error.mlog")
 
     # Headless-safe on every platform (no display server needed).
+    #
+    # QT_ASSUME_STDERR_HAS_CONSOLE=1 forces Qt to write its diagnostics to the
+    # inherited stderr instead of OutputDebugString. The app is a WIN32
+    # subsystem binary: without this flag its QML warnings go to the debugger
+    # and CTest captures an EMPTY Output block, so a defect that only shows up
+    # in the diagnostics text is invisible here while it still fails the
+    # shipping gate (scripts/make_package.py minimal_path_run greps the
+    # captured stdout+stderr of the extracted package).
     set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
+    )
+
+    # Source-tree mirror of the shipping warning rejection, applied to the SAME
+    # three diagnostic modes the packaging gate runs. A QML binding that cannot
+    # resolve an identifier evaluates to undefined and is only reported as a
+    # runtime diagnostic -- the process still exits 0 -- so an exit-code-only
+    # test cannot see it. Asserting the diagnostic text here makes such a defect
+    # fail in CI instead of surfacing for the first time at make_package time.
+    # ReferenceError/TypeError are the QML scope-and-binding failure family.
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check PROPERTIES
+        FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError"
     )
 endif()

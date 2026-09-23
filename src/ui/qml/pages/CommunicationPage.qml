@@ -206,65 +206,89 @@ Item {
             }
 
             // Controls verbatim from B3.1 / the Legacy workbench.
-            RowLayout {
+            //
+            // TWO rows, not one. A RowLayout never wraps, so a single row must
+            // be at least as wide as the sum of its children; with the M10-F
+            // additions (the "起始地址（PDU / 0-based）" label and the HEX echo)
+            // that sum exceeds the 1000x700 minimum window, so the row
+            // overflowed the card and pushed `commReadButton` past the window
+            // edge — the page's primary action was unreachable by mouse at the
+            // supported minimum size. Splitting the parameters across two rows
+            // keeps every control, label, text and binding identical while
+            // staying inside the minimum width.
+            ColumnLayout {
                 Layout.fillWidth: true
-                Label { text: qsTr("从站地址") }
-                SpinBox {
-                    id: serialSlaveSpin
-                    objectName: "commSlaveSpin"
-                    from: 1
-                    to: 247
-                    value: 1
-                    enabled: !page.analysisController.serialBusy
-                }
-                Label { text: qsTr("起始地址（PDU / 0-based）") }
-                SpinBox {
-                    id: serialStartSpin
-                    objectName: "commStartSpin"
-                    from: 0
-                    to: 65535
-                    value: 0
-                    enabled: !page.analysisController.serialBusy
-                }
-                Label {
-                    text: qsTr("HEX %1").arg(
-                        "0x" + Number(serialStartSpin.value).toString(16)
-                                  .toUpperCase().padStart(4, "0"))
-                    color: DS.textSecondary
-                    font.pixelSize: 11
-                }
-                Label { text: qsTr("寄存器数量") }
-                SpinBox {
-                    id: serialQuantitySpin
-                    objectName: "commQuantitySpin"
-                    from: 1
-                    to: 125
-                    value: 2
-                    enabled: !page.analysisController.serialBusy
-                }
-                Label { text: qsTr("超时 (ms)") }
-                SpinBox {
-                    id: serialTimeoutSpin
-                    objectName: "commTimeoutSpin"
-                    from: 100
-                    to: 10000
-                    value: 1000
-                    enabled: !page.analysisController.serialBusy
-                }
-                Button {
-                    objectName: "commReadButton"
-                    text: page.analysisController.serialBusy
-                          ? qsTr("读取中...") : qsTr("读取保持寄存器")
-                    enabled: page.analysisController.serialConnected
-                             && !page.analysisController.serialBusy
-                    onClicked: page.analysisController.readHoldingRegistersOnce(
-                        serialSlaveSpin.value,
-                        serialStartSpin.value,
-                        serialQuantitySpin.value,
-                        serialTimeoutSpin.value)
-                }
-                Item {
+                spacing: DS.spacingS
+
+                // Row 1 — target address and the PDU / 0-based HEX echo.
+                RowLayout {
                     Layout.fillWidth: true
+                    Label { text: qsTr("从站地址") }
+                    SpinBox {
+                        id: serialSlaveSpin
+                        objectName: "commSlaveSpin"
+                        from: 1
+                        to: 247
+                        value: 1
+                        enabled: !page.analysisController.serialBusy
+                    }
+                    Label { text: qsTr("起始地址（PDU / 0-based）") }
+                    SpinBox {
+                        id: serialStartSpin
+                        objectName: "commStartSpin"
+                        from: 0
+                        to: 65535
+                        value: 0
+                        enabled: !page.analysisController.serialBusy
+                    }
+                    Label {
+                        text: qsTr("HEX %1").arg(
+                            "0x" + Number(serialStartSpin.value).toString(16)
+                                      .toUpperCase().padStart(4, "0"))
+                        color: DS.textSecondary
+                        font.pixelSize: 11
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+
+                // Row 2 — transfer parameters and the action.
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: qsTr("寄存器数量") }
+                    SpinBox {
+                        id: serialQuantitySpin
+                        objectName: "commQuantitySpin"
+                        from: 1
+                        to: 125
+                        value: 2
+                        enabled: !page.analysisController.serialBusy
+                    }
+                    Label { text: qsTr("超时 (ms)") }
+                    SpinBox {
+                        id: serialTimeoutSpin
+                        objectName: "commTimeoutSpin"
+                        from: 100
+                        to: 10000
+                        value: 1000
+                        enabled: !page.analysisController.serialBusy
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                    Button {
+                        objectName: "commReadButton"
+                        text: page.analysisController.serialBusy
+                              ? qsTr("读取中...") : qsTr("读取保持寄存器")
+                        enabled: page.analysisController.serialConnected
+                                 && !page.analysisController.serialBusy
+                        onClicked: page.analysisController.readHoldingRegistersOnce(
+                            serialSlaveSpin.value,
+                            serialStartSpin.value,
+                            serialQuantitySpin.value,
+                            serialTimeoutSpin.value)
+                    }
                 }
             }
 
@@ -272,36 +296,62 @@ Item {
             // from the SAME production encoder the dispatch path uses
             // (encodeActiveRequest), so PREVIEW == WIRE by construction.
             // PDU = Function + Data; RTU Frame = Slave + PDU + CRC.
+            //
+            // Ownership: the preview result belongs to THIS block, so it stays
+            // a property of the block rather than of the page root. QML
+            // resolves an unqualified name against the object itself and the
+            // component ROOT object only — a property declared on an
+            // intermediate object is NOT in scope for nested children. Every
+            // read below therefore goes through the block id explicitly.
             ColumnLayout {
+                id: requestPreviewPanel
                 Layout.fillWidth: true
                 spacing: 2
+
+                readonly property bool previewOk:
+                    requestPreviewPanel.preview.ok === true
 
                 readonly property var preview:
                     page.analysisController.previewReadRequest(
                         serialSlaveSpin.value, serialStartSpin.value,
                         serialQuantitySpin.value, serialTimeoutSpin.value)
 
+                // The controller's map carries pduHex/rtuHex only when the
+                // request is valid, and error only when it is not. Project the
+                // optional keys into typed text so a Label never binds an
+                // absent key (that prints "Unable to assign [undefined] to
+                // QString" and would be a new diagnostic of our own making).
+                readonly property string previewPduText:
+                    requestPreviewPanel.previewOk
+                        ? requestPreviewPanel.preview.pduHex : ""
+                readonly property string previewRtuText:
+                    requestPreviewPanel.previewOk
+                        ? requestPreviewPanel.preview.rtuHex : ""
+                readonly property string previewErrorText:
+                    requestPreviewPanel.previewOk
+                        ? "" : requestPreviewPanel.preview.error
+
                 Label {
-                    visible: preview.ok
+                    visible: requestPreviewPanel.previewOk
                     Layout.fillWidth: true
-                    text: qsTr("PDU  %1").arg(preview.pduHex)
+                    text: qsTr("PDU  %1").arg(requestPreviewPanel.previewPduText)
                     color: DS.textSecondary
                     font.pixelSize: DS.fontCaption
                     font.family: "Consolas"
                     elide: Text.ElideRight
                 }
                 Label {
-                    visible: preview.ok
+                    visible: requestPreviewPanel.previewOk
                     Layout.fillWidth: true
-                    text: qsTr("RTU Frame  %1").arg(preview.rtuHex)
+                    text: qsTr("RTU Frame  %1").arg(requestPreviewPanel.previewRtuText)
                     color: DS.textSecondary
                     font.pixelSize: DS.fontCaption
                     font.family: "Consolas"
                     elide: Text.ElideRight
                 }
                 Label {
-                    visible: !preview.ok
-                    text: qsTr("预览不可用：%1").arg(preview.error)
+                    visible: !requestPreviewPanel.previewOk
+                    text: qsTr("预览不可用：%1").arg(requestPreviewPanel.previewErrorText)
                     color: DS.textSecondary
                     font.pixelSize: DS.fontCaption
                     wrapMode: Text.Wrap
