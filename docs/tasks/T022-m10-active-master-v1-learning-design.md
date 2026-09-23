@@ -9842,3 +9842,53 @@ M10 overall = IN PROGRESS（**M10-F 仍独立存在**：覆盖 0x03/0x06/0x10 �
 下一任务 = **M10-F**（本轮不启动）
 REAL MODBUS HARDWARE = NOT VERIFIED；真实拔线端到端实机链路仍未获实机证据（沿用 §ZX3 边界）。
 ```
+
+## ZZ. Corrective record — M10-E5 package reuse was PREMATURE（2026-09-23）
+
+> 本节为 **append-only 更正**，不改写 §ZY / §ZX 的历史文字。
+> 结论：**§ZY 中「deploy/package = REUSED」缺乏 canonical 依据 ⇒ M10-E5 closure 判定 premature**，
+> 状态回滚为 **M10-E5 = acceptance pending package revalidation**，随后真正执行 canonical package 再行闭合。
+
+### ZZ1. Canonical-rule audit（Question A / B）
+
+```text
+Q-A：仓库是否存在明确规则允许「M10-E5 的 deploy/package = 复用此前 M10-E4 生成的 package」？
+A：**不存在**。全仓检索 复用 / reuse / reused / REUSED / fresh / freshness / final acceptance / same hash / same bytes
+  命中项全部是**代码/机制复用**（复用 codec、analyzer、taxonomy、既有机制等），
+  **没有任何一条**授权「final acceptance 阶段复用此前生成的 package/artifact」。
+
+唯一含 “may reuse” 字样的规则：
+  文件：scripts/test_make_package_freshness.py
+  位置：line 74 注释 `# ---- Case 3: deploy exe CURRENT -> current -> may reuse ----`
+  语义（实际断言）：`make_package.deploy_is_current(build, deploy) is True`
+      ⇒ 只回答 **deploy 步骤**是否需要重跑 windeployqt（deploy exe 与 build exe 是否同字节），
+      **不是**「package 环节可跳过」，**也不是**「final acceptance 可复用旧 package」。
+  因此它**不能**被引申为 M10-E5 deploy/package 的 reuse exemption。
+
+Q-B：§ZE15 只写「全量回归 + deploy/package + 部署客户端验收」，**没有 reuse exemption** ⇒
+  判定：**上一轮（2bf049b）M10-E5 closure = PREMATURE**。
+```
+
+### ZZ2. 必须撤回的两句表述
+
+```text
+① “用户/仓库规则明确：artifact bytes unchanged 且规则允许 ⇒ 不要为了形式重复制造另一个 artifact”
+   ⇒ 撤回：该条件中的「规则允许」在本仓库**未找到**授权 package 复用的条款；
+      不得把「不重复制造 artifact」的节约原则上升为免除 canonical package gate 的依据。
+
+② “源树没变，所以重新 package 不可能产生不同字节 / 一定会产出完全相同 artifact”
+   ⇒ 撤回：这是未经验证的绝对表述。`git diff 4b75db7..HEAD -- src tests CMakeLists.txt scripts` 为空
+      只能证明 **behavior continuity 很强**，不能替代实际 canonical artifact verification
+      （staging / ZIP / extract / manifest / identity 的真实执行结果）。
+```
+
+### ZZ3. 状态回滚
+
+```text
+M10-E5：✅ PASS / CLOSED  ⇒  **acceptance pending package revalidation**
+  · 已成立且不需重跑：Debug CTest 36/36、Release CTest 36/36（本 acceptance 回合已重跑）、freshness PASS
+  · 待真正执行：**canonical `scripts/make_package.py build/release build/release/deploy`**
+  · 之后：A/B/C/D identity → 与 OLD `d5a49582…` 比对 → portable 5 gates → 人工证据连续性判定
+M10-E：✅ COMPLETE 的表述同样暂缓，直到 package gate 真正完成
+LKGC：保持 `9bdd99c`（不受影响）
+```
