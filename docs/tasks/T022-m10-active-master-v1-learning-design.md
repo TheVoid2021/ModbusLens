@@ -9892,3 +9892,92 @@ M10-E5：✅ PASS / CLOSED  ⇒  **acceptance pending package revalidation**
 M10-E：✅ COMPLETE 的表述同样暂缓，直到 package gate 真正完成
 LKGC：保持 `9bdd99c`（不受影响）
 ```
+
+## M10-E5 — Canonical Package Re-execution → VERIFIED CLOSED（2026-09-23）
+
+> 本节是 §ZE15 要求的 **deploy/package** 在 acceptance 回合内**真正执行**后的正式闭合记录。
+> §ZY 的 CLOSED 曾被 §ZZ 判定 premature 并撤回；本节以**实际执行**取代「REUSED」，不 amend 任何历史 commit。
+
+### ZY-R1. canonical package 真正执行
+
+```text
+命令：C:/Users/付/.workbuddy/binaries/python/envs/default/Scripts/python.exe \
+      scripts/make_package.py build/release build/release/deploy
+exit = 0（make_package PASS）
+
+关键输出（逐条）：
+  deploy identity OK（sha256=d5a49582…）—— 按 freshness 契约「deploy current ⇒ 可复用」，未重跑 windeployqt
+  stem = ModbusLens-2.0.0-windows-x64
+  staged 1499 entries + README.txt
+  structural checks PASS · credential/config negative scan PASS · absolute-path negative audit PASS
+  manifest written（1499 payload files）
+  ZIP build/package/ModbusLens-2.0.0-windows-x64.zip  40 967 470 B
+      sha256 = bf6b894870a9e603b5fc2eee88802fc6bb0205f09a7a493eca79e9668548bbfb
+  ZIP entries == staging file set（1500 entries）
+  fresh extraction verified against manifest
+  extract identity OK（sha256=d5a49582…）
+  minimal-PATH extracted --qml-smoke-test / --qml-nav-check / --qml-geometry-check 均 PASS
+  external-CWD launch PASS
+  make_package PASS
+```
+
+执行前的**安全保留**（非逐文件删除）：
+```text
+build/package/ModbusLens-2.0.0-windows-x64            → build/package-retention-20260923/…
+build/package/ModbusLens-2.0.0-windows-x64.zip        → build/package-retention-20260923/…
+build/package-extract/ModbusLens-2.0.0-windows-x64    → build/package-extract-retention-20260923/…
+（保留副本内的旧 D 复核：sha256 = d5a49582…、4 019 721 B，与 Human-reviewed artifact 一致）
+⇒ 旧人工验收 artifact 未丢失；canonical 输出路径重新为空后由脚本自身重建。
+```
+
+### ZY-R2. Artifact identity（package 后）
+
+```text
+A build/release/modbuslens.exe                                     d5a49582…  4 019 721 B
+B build/release/deploy/ModbusLens.exe                              d5a49582…  4 019 721 B
+C build/package/ModbusLens-2.0.0-windows-x64/ModbusLens.exe        d5a49582…  4 019 721 B
+D build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe d5a49582…  4 019 721 B
+A == B == C == D = PASS（同一 SHA-256 内容）
+```
+
+### ZY-R3. Human evidence continuity
+
+```text
+OLD（Human-reviewed） = d5a49582cc2033ce39a0ab2f727222ec57bacf768cceb795f5a237d112b11e87
+NEW（本次 package 后 D）= d5a49582cc2033ce39a0ab2f727222ec57bacf768cceb795f5a237d112b11e87
+same bytes = **YES**
+⇒ Case 1：Final Human Visual Re-review PASS **继续有效**，无需重新人工验收。
+```
+
+**如实记录的差异**：ZIP 字节本次为 `bf6b8948…`，与上一轮 `6e04a7d9…` **不同**（大小同为 40 967 470 B）。
+ZIP **不是**四路 identity 的判定对象（A/B/C/D 才是），且仓库既有记录已说明 ZIP 内含 mtime、每次打包字节必然变化。
+此差异同时**实证**了 §ZZ2 撤回的第 ② 句是必要的：在 package 层面「重新打包必然产出相同字节」并不成立——
+**可执行体 identity 未变，但打包产物并非无条件可迁移**，因此必须以实际执行而非推断来闭合。
+
+### ZY-R4. portable runtime gates（在 NEW D 上重跑）
+
+```text
+target = build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe
+env    = QT_QPA_PLATFORM=windows（显式设置，未使用 offscreen/minimal）
+--qml-smoke-test             exit 0  SMOKE IDENTITY PASS … version=2.0.0
+--qml-production-write-check exit 0  PRODUCTION WRITE CHECK PASS
+--qml-focus-check            exit 0  FOCUS CHECK PASS
+--qml-nav-check              exit 0  NAV CHECK PASS
+--qml-geometry-check         exit 0  GEOMETRY CHECK PASS
+⇒ portable runtime gates = 5/5 PASS
+```
+
+### ZY-R5. 结论
+
+```text
+M10-E5 = ✅ VERIFIED CLOSED
+  · 全量回归：Debug 36/36、Release 36/36（本 acceptance 回合重跑）
+  · freshness：PASS
+  · deploy/package：**本 acceptance 回合真正执行**（§ZY-R1）
+  · 四路 identity：A==B==C==D PASS（§ZY-R2）
+  · 部署客户端验收：portable 5/5 PASS（§ZY-R4）+ Final Human Visual Re-review PASS（字节连续，§ZY-R3）
+M10-E = ✅ COMPLETE
+M10 overall = IN PROGRESS（M10-F 仍独立存在，§ZE15 line 7755）
+LKGC = 9bdd99c（未推进；candidate 仍为 4b75db7，按 §ZE17 规则 Agent 不自行宣布 advance）
+下一任务 = M10-F（未启动）
+```
