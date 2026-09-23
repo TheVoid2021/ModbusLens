@@ -9981,3 +9981,259 @@ M10 overall = IN PROGRESS（M10-F 仍独立存在，§ZE15 line 7755）
 LKGC = 9bdd99c（未推进；candidate 仍为 4b75db7，按 §ZE17 规则 Agent 不自行宣布 advance）
 下一任务 = M10-F（未启动）
 ```
+
+## ZC. M10-F Final Acceptance Contract — scope / acceptance definition（2026-09-23 冻结；执行待 Review）
+
+> **本轮（本节）只定义，不执行。** 执行必须在本 contract 经 Human Review 认可后另起一轮进行。
+> 定义 provenance 见 ZC0；凡标注「本轮新定义」的条目都不是仓库原有规则，执行前需 Review 认可。
+
+### ZC0. Definition provenance（哪些是既有 canonical，哪些是本轮新增）
+
+```text
+仓库既有（直接继承，非本轮发明）：
+  · T022 §ZE14（line 7716–7724）＝ M10-F / M11 边界与 optional 硬件语义：
+      M10-F = final automated / manual acceptance，覆盖 0x03 + 0x06 + 0x10 整体回归；
+      real hardware = **OPTIONAL**；允许以「REAL HARDWARE NOT VERIFIED」收尾，
+      只要自动化、人工客户端、部署包全部通过且诚实披露；真实 PLC **不是**硬性 completion gate。
+  · §ZE15（line 7754–7755）＝ E5/E5 与 M10-F 的切分：
+      E5 = 全量回归 + deploy/package + 部署客户端验收；M10-F 仍独立存在，覆盖 0x03/0x06/0x10 整体。
+  · line 855 / 7522 ＝ M10-F = final automated·manual acceptance + optional real-hardware acceptance。
+  · line 453 ＝ M10-F = manual / hardware / final acceptance（hardware 单独标注）。
+  · line 802 ＝ 自动化 acceptance 不要求真实设备；M10-F 若有**安全可写**的真实测试设备，
+      人工验证 0x03 / 0x06 / 0x10 **并恢复原值**。
+  · line 1174 ＝ real hardware 验证 → 非自动化；M10-F 若执行需**单独人工验收并恢复原值**。
+  · LKGC 治理 = T022 §ZE17（line 7794–7795）+ AGENTS.md line 130（Agent 仅提出 candidate）。
+  · 先例 = M9-F F3（里程碑收口时的最终人工验收，BACKLOG line 263 / PROJECT_STATUS line 334）、
+      M10-D5 §ZD8（LKGC candidate 验证与 Human Final Acceptance 后推进）。
+
+本轮新定义（需 Review 认可后才成为可执行 contract）：
+  · 具体的 acceptance matrix（ZC3）、evidence policy 逐项标注（FRESH_REQUIRED 等）、
+    evidence inventory（ZC4）、artifact policy 细则（ZC5）、optional hardware 的执行/记录方式（ZC6）、
+    completion condition 的形式化（ZC8）。
+  · M10-F 的 **detailed acceptance contract 原本并未完整定义**（仓库只有 scope / 边界 / optional 语义）——如实声明。
+```
+
+### ZC1. Scope
+
+```text
+纳入：0x03（FC03 读保持寄存器）· 0x06（FC06 写单寄存器）· 0x10（FC16 写多寄存器）的
+      **整体 final acceptance**（自动化 + 人工 + 部署包），以及直接支撑三者的 cross-cutting 项（ZC2）。
+排除（不属于 M10-F）：
+  · M11 Register Readout & Decode（§ZE14：HOLD，独立阶段，不得与 0x10 write 混为一谈）；
+  · 新产品功能 / 新 gate 的发明；0x17 等其它 FC、active broadcast、write queue、
+    automatic retry、Agent write tool（§ZE17 non-goals 不变）；
+  · 任何为“让 acceptance 通过”而做的产品改动 —— M10-F 为 **acceptance-only**：
+    预期零产品代码改动；若发现 defect ⇒ M10-F 停止，走独立 correction 轮
+    （先例：M10-D5 §ZD「如果没有真实 defect，一行产品代码都不该动」）。
+```
+
+### ZC2. Functional state inventory（本轮从仓库恢复的真实状态）
+
+```text
+FC03（0x03 读保持寄存器）
+  implementation：encoder + session + Controller dispatch + production UI（Communication 页）；
+                  passive/replay/simulator 共享同一 analyzer 统计与诊断（架构护栏 D1）。
+  automated     ：ctest `f03`(13) · `codec` · `frame` · `crc` · `transaction(_integration)` ·
+                  `statistics(_integration)` · `serial` · `ui_bridge` · `passive`（含 FC03 golden 回归锚）。
+  QML / UI      ：`--qml-production-write-check`（P 系列覆盖读路径可用性）、`--qml-nav-check`、
+                  `--qml-geometry-check`、`--qml-focus-check` 均以真实 UI 驱动。
+  package       ：canonical make_package 内 minimal-PATH smoke/nav/geometry + external-CWD。
+  manual        ：M9 系列 Human Visual PASS 覆盖 Communication 页呈现；M10-E4 Human Visual PASS
+                  覆盖串口状态措辞与错误归位。
+  limitations   ：REAL MODBUS HARDWARE = NOT VERIFIED（真实从站上的 FC03 未验证）。
+
+FC06（0x06 写单寄存器）
+  implementation：encoder + session（echo 比对）+ Controller 原子 dispatch（prepared/token）+
+                  production UI（确认对话框）+ evidence/统计/诊断集成。
+  automated     ：`write_encoder`? —— 否，0x06 编码在 active_request/write_dispatch 路径；
+                  `active_request`(15) · `fc06_active`(29) · `write_prepare`(46) · `write_dispatch`(59) ·
+                  `active_master`(52) · `ui_bridge` · `passive`（0x06 被动语义）。
+  QML / UI      ：`--qml-production-write-check` P1–P12（对话框/焦点/单次派发/Cancel/Escape/NotSent/
+                  short/timeout notice）+ M1–M6 模态安全 + R 系列。
+  package       ：同上（E4/E5 已验证）。
+  manual        ：M10-D4 Human Review PASS（production 0x06 UI）；M10-D5 Final Acceptance PASS。
+  limitations   ：无 broadcast（v1 冻结）；REAL MODBUS HARDWARE = NOT VERIFIED。
+
+FC16（0x10 写多寄存器）
+  implementation：Function16 encoder（M10-E1）+ 共享 analyzer（E2）+ capability/dispatch（E3）+
+                  production UI（第二子 Tab / 多值 summary / 确认）（E4）。
+  automated     ：`write_encoder`(28，含 F16-G6 官方金样) · `fc16_active`(24) · `fc06_active` 等价回归 ·
+                  `write_dispatch`（fc10 系列）· `active_master` · `passive`（0x10 被动语义）。
+  QML / UI      ：`--qml-production-write-check` R1–R16（R1 FC16 摘要/ADU、R5/R6 123 与 N=1 边界、
+                  R7/R8 草稿隔离、R9 键盘链、R12 Replay 下禁写、R13 恢复、R14 连接错误归位、
+                  R15 串口状态语义、R16 在飞丢失/重插）。
+  package       ：E4/E5 canonical package + 四路 identity + portable 5/5。
+  manual        ：M10-E4 Final Human Visual Re-review PASS（绑定 `d5a49582…`）。
+  limitations   ：REAL MODBUS HARDWARE = NOT VERIFIED；M11 register decode 未开始（解码对象来自
+                  successful FC03 raw registers，属另一阶段）。
+
+cross-cutting（直接支撑三项功能）
+  serial transport / connection semantics / local port loss：
+      `serial_adapter`（13，含 i06–i13 presence watch + 热拔 oracle）、`serial`、R15/R16、
+      SERIAL-HOTPLUG probe（实机 PASS，但**未观察到 removal**）。
+  timeout / transport error taxonomy：`write_dispatch`、`active_master`、R15-B/i13（沉默≠移除）。
+  prepared write / confirmation：`write_prepare`(46) / `write_dispatch` / M10-C/D 系列 oracle。
+  navigation / focus / geometry：`--qml-nav-check`（A–T）、`--qml-focus-check`、`--qml-geometry-check`。
+  portable deployment / artifact identity / human visual：canonical `make_package.py` +
+      freshness oracle + A/B/C/D identity + Human Visual（§ZX/§ZY）。
+  real hardware：OPTIONAL（§ZE14）；当前 NOT VERIFIED。
+```
+
+### ZC3. Acceptance matrix（policy 必填；执行须在 Review 认可后进行）
+
+```text
+policy 取值：FRESH_REQUIRED / REUSE_ALLOWED / HUMAN_REQUIRED / OPTIONAL / N/A
+教训锚点：§ZZ2 —— 「源树不变 ⇒ artifact 字节必然不变」**不是**可引用的推理；
+         任何 REUSE_ALLOWED 都必须写明可复用条件，否则一律 FRESH_REQUIRED。
+
+#  criterion                        policy          procedure（真实存在的命令/入口）                       PASS 判据
+1  Preflight                        FRESH_REQUIRED  git branch/status/rev-parse；核对 HEAD、porcelain、   全部符合且与本轮记录一致
+                                                    LKGC、artifact 在位
+2  behavior-tree continuity         FRESH_REQUIRED  git diff --stat <accepted-tree>..HEAD -- src tests    输出为空（或仅 docs）
+                                                    CMakeLists.txt scripts                                 ⇒ 无需重建
+3  全量回归 Debug                   FRESH_REQUIRED  ctest（build/debug）                                   36/36 PASS
+4  全量回归 Release                 FRESH_REQUIRED  ctest（build/release）                                 36/36 PASS
+   （ctest 内含 qml_smoke / qml_geometry / qml_nav / qml_focus / qml_write_foundation /
+     qml_production_write_check 六个 QML oracle 目标）
+5  package freshness                FRESH_REQUIRED  scripts/test_make_package_freshness.py                exit 0 / 全 PASS
+6  canonical package                FRESH_REQUIRED  scripts/make_package.py build/release                 exit 0 / make_package PASS
+                                                    build/release/deploy                                   （全部内部 gate）
+   failure meaning：任何 FAIL ⇒ M10-F 停止；不得以 REUSED 或「应该一样」替代
+   reuse rule：无（§ZZ1：仓库无 package reuse 条款）
+
+7  四路 executable identity         FRESH_REQUIRED  对 A/B/C/D 计算 SHA-256（A=build/release/modbuslens.exe；  A==B==C==D
+                                                    B=…deploy/ModbusLens.exe；C=…package/…；D=…package-extract/…）
+   failure meaning：identity 不成立 ⇒ 停止，诊断 stale/divergence，重走 canonical package
+   reuse rule：无
+
+8  portable runtime gates（×5）     FRESH_REQUIRED  在 **D** 上：--qml-smoke-test / --qml-production-write-check /  5×exit 0
+                                                    --qml-focus-check / --qml-nav-check / --qml-geometry-check
+   env：QT_QPA_PLATFORM=windows（显式设置；禁止 offscreen/minimal）
+   PASS：5×exit 0 且捕获各自 PASS 行（SMOKE IDENTITY … version=2.0.0 / PRODUCTION WRITE CHECK PASS /
+         FOCUS / NAV / GEOMETRY CHECK PASS）
+   failure meaning：任一 FAIL ⇒ M10-F 停止，诊断后重走 package（不得降标准）
+
+9  runtime version 证据             FRESH_REQUIRED  从 --qml-smoke-test 的 identity 行读取                 version=2.0.0
+                                                    （非目录名/VERSION 文件推断）
+
+10 Final Human Visual Re-review    HUMAN_REQUIRED  人工启动 **D**（上一轮交付的 checklist 沿用）           人工判定 PASS
+   · 观察对象：FC03 读取呈现、FC06/FC16 写 UI 与确认、串口状态措辞（串口已打开/串口未打开）、
+     连接错误归位、两尺寸布局、无裸「已连接」/「设备在线」表述
+   · 绑定规则：人工 PASS 只绑定**被验收 artifact 的字节**；
+     若 M10-F 期间 artifact 字节改变（任何 behavior commit 或重建），旧 PASS **不自动迁移**
+   · 先例：M9-F F3 = 里程碑收口时的最终人工验收（此前多轮 Visual PASS 已过，仍做了一次收口确认）
+
+11 Manual functional acceptance     HUMAN_REQUIRED  在 **D** 上按 demo/验收清单人工走通：
+   （0x03 / 0x06 / 0x10 端到端）                     0x03 Simulator 模式读保持寄存器；0x06 与 0x10 经
+                                                    Simulator 可写寄存器完成 prepared→confirm→结果；
+                                                    串口模式连接/断开与状态措辞核对
+   · 依据：§ZE14「final automated / manual acceptance，覆盖 0x03 + 0x06 + 0x10 整体回归」
+     + M9-F F3 里程碑收口人工验收先例
+   · 无硬件时：以 Simulator/部署客户端完成（§ZE14 允许 REAL HARDWARE NOT VERIFIED 收尾）
+   · PASS：各功能端到端可达、结果与已知口径一致、无「假成功」呈现
+
+12 Optional real hardware          OPTIONAL        仅当存在**安全可写**的真实测试设备：
+   （0x03 / 0x06 / 0x10 真机验证）                  人工验证 0x03 / 0x06 / 0x10 **并恢复原值**（line 802/1174），
+                                                    记录为**单独人工验收**条目
+   · 依据：§ZE14 line 7719–7721 —— real hardware = OPTIONAL；
+     允许以「REAL HARDWARE NOT VERIFIED」收尾；真实 PLC **不是**硬性 completion gate
+   · 未执行 ⇒ 必须如实保留：REAL MODBUS HARDWARE = NOT VERIFIED（不得写成 PASS/已验证）
+   · 语义澄清（§ZE14 原文）：optional = (b) 有硬件时执行、无硬件亦可 PASS 的**非阻塞附加证据**；
+     且不得「完全不用记录」——无论执行与否都必须在 closure 中显式披露
+
+13 SERIAL-HOTPLUG 实机复验          OPTIONAL        `--serial-hotplug-probe=COMx`（真实拔线场景）          记录 VERDICT
+   · 边界（沿用 §ZW/§ZX）：上一轮实机 PASS **未观察到 removal**（availablePortsDropped=no /
+     firstAbsentAt=n/a）⇒ 该 probe 至今未验证真实 physical removal；R15/R16 为 automated harness evidence
+   · 不执行 ⇒ 如实披露；不阻塞 closure（同 OPTIONAL 语义）
+
+14 LKGC decision                   N/A（执行）     依 T022 §ZE17 line 7794–7795 + AGENTS.md line 130：     closure 文档记录
+                                                    Agent 仅提出 candidate（= M10-F 收口时最后一个
+                                                    behavior-bearing accepted tree）；
+                                                    **verified LKGC 的推进需 Human 授权**（先例 §ZD8）
+   · docs-only commit 永不作 LKGC；behavior-bearing accepted tree 才是 LKGC 身份
+   · 本轮（定义轮）**不产生**新的 candidate 变化
+
+15 M11 自动开始                    N/A             无（§ZE14：M11 = Register Readout & Decode，HOLD，     —
+                                                    独立阶段，需自行建立 scope）
+```
+
+### ZC4. Evidence inventory（historical / reusable / must-rerun / optional）
+
+```text
+historical only（不得写成 M10-F fresh）：
+  · E4/E5 各轮的 Debug/Release CTest 36/36、portable 5/5、A==B==C==D、canonical package、
+    SERIAL-HOTPLUG 探针实机 PASS（§ZW，未观察到 removal）、R15/R16（harness）
+reusable under conditions（条件 = 被 M10-F 接受为**佐证**，不替代本round的 fresh gate）：
+  · Human Visual PASS（`d5a49582…`）：仅当 M10-F 最终 artifact 与其**字节相同**时可引用为佐证；
+    但 ZC3#10 仍要求 M10-F 收口人工签核
+must rerun for M10-F：ZC3 #1–#11（FRESH_REQUIRED 全部）
+optional supplementary：#12 / #13
+```
+
+### ZC5. Artifact policy
+
+```text
+· canonical artifact topology = **沿用仓库既有 A/B/C/D**（T022 §ZT3；E4 §ZX / E5 各轮一致）：
+  A=build/release/modbuslens.exe；B=build/release/deploy/ModbusLens.exe；
+  C=build/package/ModbusLens-2.0.0-windows-x64/ModbusLens.exe；
+  D=build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe。
+  （仓库中未发现 M10-F 需要不同 topology 的定义 ⇒ 沿用，不做新拓扑。）
+· identity criterion = **A/B/C/D 的 exe SHA-256**（A==B==C==D）。
+· **ZIP 不是 identity criterion**：仅记录 SHA-256 供追溯；实证依据 = §ZY-R3（两次打包 ZIP
+  sha256 不同 6e04a7d9… vs bf6b8948…，而 exe identity 不变）。
+· package 必须 **fresh execution**（§ZZ1：无 reuse 条款；§ZZ2：不得以「必然相同」推断）。
+· package 产出（D）= Human Visual 的**唯一目标**；A/B 仅作 identity 佐证。
+· artifact bytes 一旦改变：旧 Human Visual PASS **不自动迁移**（HUMAN_REQUIRED 重新签核）；
+  旧 package 以 move-to-retention 保留（§ZZ 既有做法），**不得删除人工验收过的 artifact**。
+```
+
+### ZC6. Optional real hardware
+
+```text
+仓库语义（§ZE14 line 7719–7721）：real hardware = **OPTIONAL**；
+  允许以「REAL HARDWARE NOT VERIFIED」收尾，只要自动化、人工客户端、部署包全部通过且诚实披露；
+  真实 PLC **不是**硬性 completion gate。⇒ 即 (b) 有硬件时执行、无硬件亦可 PASS 的非阻塞附加证据，
+  且必须在 closure 中显式披露执行与否（不得「完全不用记录」）。
+当前状态：**REAL MODBUS HARDWARE = NOT VERIFIED**（延续，未经本轮改变）。
+若有硬件应执行（line 802 / 1174）：安全可写真实测试设备上人工验证 0x03 / 0x06 / 0x10，
+  **并恢复原值**，作为**单独人工验收**条目记录（不得并入自动 gate）。
+是否阻塞 closure：**否**（按 §ZE14）。
+```
+
+### ZC7. LKGC policy
+
+```text
+current verified LKGC = `9bdd99c`
+candidate rule：Agent 在 M10-F closure 时提出 candidate = 收口时最后一个 behavior-bearing accepted tree
+  （当前为 `4b75db7`；若 M10-F 执行期间出现 correction，则为该 correction commit）。
+promotion rule：**Agent 不自行推进**（T022 §ZE17 line 7794–7795）；需 Human 授权
+  （先例：M10-D5 §ZD8 —— verified LKGC fc86dcc → 9bdd99c 于 Human Final Acceptance 后推进）。
+docs-only commit：**永不**作 LKGC。
+behavior-bearing commit：只有在其 artifact/acceptance 链被 Human 接受后才能成为 LKGC 身份。
+本轮（定义轮）：不产生 candidate 变化，不推进。
+```
+
+### ZC8. Completion condition
+
+```text
+M10-F = PASS / CLOSED 当且仅当：
+  ① ZC3 #1–#11 的全部 FRESH_REQUIRED gates 在 **M10-F acceptance 回合内**实际执行且 PASS；
+  ② #10 / #11 的 HUMAN_REQUIRED 由人工签署 PASS（针对当轮最终 artifact）；
+  ③ #12 / #13 如实披露（执行则附证据；未执行则明确 REAL … = NOT VERIFIED）；
+  ④ 未发现未解决 defect（发现 ⇒ M10-F 停止 → correction 轮，不得降标准）；
+  ⑤ LKGC decision 已按 §ZE17 记录（candidate 提出；推进与否由 Human 授权）；
+  ⑥ 文档归档完成（T022 / PROJECT_STATUS / BACKLOG / devlog）。
+满足后：M10 = ✅ COMPLETE（M10-A…F 全部闭合）；**M11 不会自动开始**（§ZE14：HOLD，独立阶段）。
+
+会阻止 closure 的失败：
+  任一 FRESH_REQUIRED gate FAIL · artifact/identity 不一致 · 人工未签署 ·
+  未解决 defect · 试图以 REUSED/推断替代未执行的 gate（= 本轮已判定的 premature 模式）。
+```
+
+### ZC9. 本轮冻结与执行禁令
+
+```text
+本节冻结 M10-F 的 scope / evidence policy / completion condition；
+**不执行** ZC3 的任何 gate；不改产品源码；不改测试代码；不新增/调整任何 gate 定义。
+执行须待 Human Review 认可本 contract 后，另起一轮按 ZC3 逐项进行。
+```
