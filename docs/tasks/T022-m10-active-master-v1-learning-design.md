@@ -5,6 +5,14 @@
 > 能力终态：0x03 / 0x06 / **0x10 = 四件套全备 + production UI（E4）**；AI/Agent 写权限 NONE。**REAL HARDWARE NOT VERIFIED；MANUAL VISUAL NOT VERIFIED。** **Next = M10-E4 Review → M10-E5（非 M11）。**
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
+>
+> **〔2026-09-23 追加批注 · M10-F closure + LKGC advance —— 本区块的最终状态〕**
+> 上方状态行（`M10 overall = IN PROGRESS` / `M10-E4 = Review HOLD` / `verified LKGC = 9bdd99c`）**均为历史快照**，不重写。
+> **当前事实**：**M10 = ✅ COMPLETE**；**M10-F = ✅ CLOSED**（machine acceptance PASS · portable acceptance PASS ·
+> Human #10 Visual PASS · Human #11 Functional PASS）；**REAL MODBUS HARDWARE = NOT VERIFIED**
+> （OPTIONAL / NON-BLOCKING，§ZE14）；**verified LKGC = `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`**
+> （Human 已明确授权推进，授权原文「批准推进 LKGC 到 d08ab55」）；**M11 = HOLD / NOT STARTED**。
+> 详见 **§ZML**（final acceptance closure）与 **§ZMM**（LKGC advance）。
 > 本轮**未修改** src / QML / CMakeLists.txt / scripts / tests / assets / samples / screenshots；未创建 tag；未 push。
 > 上游边界：M9 已冻结的 IA（五 workspace + Device disabled + Legacy retired + 默认 Transactions + navigation presentation-only）、
 > M9-E 的 version/PE/icon/package 契约、M9-F 的 focus/accessibility baseline **全部继续冻结**；M10 不得顺手改 focus visual / NavigationRail / packaging / StatisticsOverview。
@@ -11369,4 +11377,75 @@ verified LKGC **保持 `9bdd99c`**（本轮**未推进**）；
 本轮 = docs-only（零产品/测试/构建/packaging 改动）
 未 push；未 tag；未推进 LKGC；未开始 M11
 M11 = HOLD / NOT STARTED（§ZE14：M11 为独立阶段，需自行建立 scope）
+```
+
+---
+
+## ZMM. M10-F LKGC ADVANCE — verified LKGC：`9bdd99c` → `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`（2026-09-23，docs-only governance）
+
+### ZMM1. Human authorization（授权原文）
+
+```text
+Human 明确回复：「批准推进 LKGC 到 d08ab55」
+⇒ 满足治理规则「verified LKGC 的推进需 Human 授权」
+  （T022 §ZE17 line 7794–7795 + AGENTS.md line 130 + M10-F acceptance matrix 第 14 项）。
+仅记录该授权原文；**未虚构**授权时间、额外审批人、额外签名、tag、release、push、截图。
+```
+
+### ZMM2. 推进结果
+
+```text
+previous verified LKGC = 9bdd99c
+new verified LKGC      = d08ab55c71f54211e35f6bcdf0c2ec026a1d185f
+```
+
+### ZMM3. candidate 身份验证（为什么 candidate 是 `d08ab55`）
+
+```text
+本轮重新验证：
+· d08ab55 = M10-F 收口时**最后一个 behavior-bearing** commit，改动文件 =
+    CMakeLists.txt
+    src/ui/qml/components/WriteFoundationSection.qml
+    src/ui/qml/pages/CommunicationPage.qml
+  ⇒ 正是最终 accepted portable package（D = `839082d3…aec4`）对应的源码身份。
+· 其后的两个提交 **均为 docs-only**：
+    45e9dac  → docs/BACKLOG.md · docs/PROJECT_STATUS.md · docs/devlog/2026-09-23.md ·
+                docs/issues/ISSUE-017-*.md · docs/issues/ISSUE-018-*.md ·
+                docs/tasks/T022-*.md
+    b8abe2c  → docs/BACKLOG.md · docs/PROJECT_STATUS.md · docs/devlog/2026-09-23.md ·
+                docs/issues/ISSUE-014-*.md · docs/tasks/T022-*.md
+  实测 `git diff --name-only d08ab55..HEAD` 的**全部输出均落在 `docs/`**（无非 docs 文件）。
+· 按规则「**docs-only commit 永不作 LKGC**；behavior-bearing accepted tree 才是 LKGC 身份」
+  ⇒ `45e9dac` 与 `b8abe2c` **不可**作为 LKGC。
+```
+
+### ZMM4. candidate 已通过的验收（本轮未重跑，仅引用）
+
+```text
+Debug 37/37 PASS · Release 37/37 PASS · 真实 windows QPA 六门禁 PASS ·
+canonical package PASS · A/B/C/D identity PASS · portable 6/6 PASS ·
+R15/R16/R17 PASS · Human #10 PASS · Human #11 PASS
+（最终 accepted D = `839082d3643c78d5e76c54092e939d3d40e44d7b845737b643d4e33af588aec4`；
+  REAL MODBUS HARDWARE = NOT VERIFIED，OPTIONAL / NON-BLOCKING。）
+```
+
+### ZMM5. 本轮边界
+
+```text
+本轮 = docs-only（未 build / 未 test / 未 package / 未 windeployqt）
+未 push；未 tag；未 amend 既有提交；未开始 M11
+M10 = ✅ COMPLETE；M10-F = ✅ CLOSED；M11 = HOLD / NOT STARTED
+REAL MODBUS HARDWARE = NOT VERIFIED（证据边界未改变）
+```
+
+### ZMM6. 历史引用处理原则（本轮实际执行）
+
+```text
+按「只更新『当前 verified LKGC』字段；历史记录保留原貌」执行，未做全局 search-and-replace：
+· 更新（当前状态字段）：docs/PROJECT_STATUS.md 的 当前 Milestone / 当前任务（补注） /
+  当前阶段 / 下一动作 / 下一任务 / Known Issues（M10-F CLOSED · LKGC 段）；
+  T022 顶部追加当前状态批注（不重写历史快照行）。
+· 保留（历史记录 / 当时证据）：docs/BACKLOG.md 既有 35 处、docs/devlog/* 既有条目、
+  T022 既有 44 处章节正文、docs/INTERVIEW_NOTES.md 的历史问答、
+  docs/issues/ISSUE-015 的历史记载、PROJECT_STATUS 中历史 handoff 块与历史叙述区。
 ```
