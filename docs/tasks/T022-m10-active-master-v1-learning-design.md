@@ -9446,3 +9446,192 @@ canonical make_package：deploy 已识别为 STALE 并重新部署，**deploy id
 **REAL HARDWARE = NOT VERIFIED**（生产 adapter 的移除分支由「同一 handler」的单元测试 + seam 契约证明；
 真实的 COM 设备消失未被实际激发）。
 ```
+
+## M10-E4 Real USB Hot-Unplug Correction — Physical Serial Port Presence / Local Session Teardown（2026-09-23）
+
+> Human Hardware Re-review 的**真实硬件证据**推翻了上一轮的合成假设。本轮为 **Focused real-hardware
+> integration correction**：只修 B（USB adapter 本身从本机消失），**不碰** A（远端 slave 不存在/不响应）。
+> 未改 protocol / encoder / analyzer / session / taxonomy / Replay / Simulator / Agent 语义。
+> NO AMEND（`8812c22` 未动）/ NO REBASE / NO PUSH / NO TAG / NO LKGC ADVANCE。
+
+### ZV1. 真实硬件失败归档（**append-only，不得改写 R15 历史**）
+
+```text
+用户实测（Human Hardware Re-review）：USB-RS485 adapter 整个从电脑 USB 口拔掉后，
+  UI **仍持续显示「串口已打开」**，Read / Write **没有**进入 local serial disconnected 状态。
+⇒ REAL USB HOT-UNPLUG = **FAIL**。
+
+因此上一轮的结论必须被限定为：**R15-C（synthetic ResourceError）PASS 只证明**
+  「收到 fatal QSerialPort error 之后，既有 teardown 正确」；
+它**没有证明**「Windows 上真实 USB adapter removal 一定会产生该 error」。
+上一轮「QSerialPort::errorOccurred 覆盖 idle Windows hot-unplug」的假设被真实硬件**否定**。
+（R15 的既有记录保持原文，本节只是追加更正。）
+```
+
+### ZV2. 先测量：Qt 真实源码审计（非文档推断）
+
+```text
+本机仅安装 Qt 二进制 SDK（无 Src 目录），因此审计对象是 Qt 官方仓库的**真实后端源码**：
+  src/serialport/qserialport_win.cpp / qserialportinfo_win.cpp。
+
+(1) 空闲时是否存在在飞的异步 I/O —— 是：
+    open() → initialize()：`const DWORD eventMask = (mode & QIODevice::ReadOnly) ? EV_RXCHAR : 0;`
+    本 adapter 以 QIODevice::ReadWrite 打开（ReadWrite = ReadOnly|WriteOnly）⇒ eventMask = EV_RXCHAR
+    ⇒ 第 688 行 `if ((eventMask & EV_RXCHAR) && !startAsyncCommunication())` ⇒ 发出一个**未完成**的
+    WaitCommEvent（第 478–495 行）。
+(2) 该 OVERLAPPED 完成后如何上报：
+    QWinOverlappedIoNotifier → `_q_notified(...)`（564 行）→ `getSystemError(errorCode)`；错误表
+    （719–765 行）把 ERROR_DEVICE_REMOVED / ERROR_OPERATION_ABORTED / ERROR_ACCESS_DENIED /
+    ERROR_INVALID_HANDLE / ERROR_FILE_NOT_FOUND / ERROR_BAD_COMMAND 全部映射为 **ResourceError**。
+(3) 结论：**源码层面**移除本应产生 ResourceError 并到达 errorOccurred —— 但**是否真的投递**取决于
+    驱动/后端，且用户实测说没有投递。这正是「必须测量、不能假设」的原因。
+(4) `QSerialPort::isOpen()` 是**句柄自述状态**：Windows 后端 close() 只由我们调用，设备消失后没有任何
+    路径清除该状态 ⇒ 陈旧句柄继续返回 true。这就是 UI 能一直显示「串口已打开」的直接原因。
+(5) `QSerialPortInfo::availablePorts()`（498–521 行）是**实时 OS 枚举**：
+    SetupDiGetClassDevs(GUID_DEVCLASS_PORTS / MODEM / GUID_DEVINTERFACE_COMPORT，**DIGCF_PRESENT**)
+    ⇒ 物理移除的适配器**立刻从列表消失**。OS 知道；句柄不知道。
+(6) `QSerialPortInfo` 确实暴露 serialNumber / vendorIdentifier / productIdentifier（538–543 行），
+    但带 hasVendorIdentifier / hasProductIdentifier 可选标志 ⇒ **不是所有适配器都有**，故 v1 不据此做设备指纹。
+```
+
+### ZV3. 决策与不可测量的诚实披露
+
+```text
+§5 决策树要求「根据真实测量选择最小方案」。但 **Agent 无真实 USB 串口硬件**，
+无法在本环境完成 §3 的实机测量 ⇒ 不能声称已验证 CASE A / B / C。
+
+处理方式（两条并行，互不冲突）：
+  (a) 交付**真实硬件诊断探针**（§4）——把「不可测量」变成「用户一次运行即可测量」；
+  (b) 实现 CASE B 的 **LOCAL SERIAL PORT PRESENCE WATCH**，并且它是**严格增量 + 去重**的：
+      若 CASE A 成立（error lane 先触发），单一 teardown 路径的 exactly-once 守卫会让存在性轮询**保持静默**；
+      若 CASE B 成立，则由存在性轮询完成 teardown。⇒ 两种真实情形下都被覆盖，且不会互相打架。
+  探针的 VERDICT 行会**直接告诉用户到底哪条门先触发**，从而把这一决定变成有测量的结论。
+```
+
+### ZV4. 实现的边界（只做 B）
+
+```text
+· 新增 `LocalPortPresenceWatch`（src/ui/serial/SerialPortAdapter.*）：只监视**一个**端口，只在**会话打开期间**
+  运行；问的是「OS 是否仍枚举该端口」。**不做任何 Modbus I/O**：不寻址任何从站、不发任何帧。
+  ⇒ 沉默的从站仍然「端口存在」⇒ 会话保持打开（Timeout 仍是 Timeout）。
+· 启动/停止：只有 `openPort()` 成功才启动；`closePort()` / `cancelPending()` / 本地丢失处理都停表。
+  Simulator / Replay 永不运行（它们不打开端口）。**不把 OS 硬件枚举放进 AnalysisController**。
+· 抗误报：连续 **2** 次观测缺失才判定移除（生产间隔 **500 ms**）⇒ 单次枚举抖动不会拆掉健康链路。
+  判定后 watch **自行停止**。
+· **单一 teardown 路径**：原 fatal 端口处理体抽成 `handleLocalPortLoss(cause)`，
+  两个门（QSerialPort fatal error / presence watch）都只提供 **cause**，其余（证据捕获 → close →
+  bounded error lane → exactly-once）共用一份实现。`suppressPortErrors_` 作为**两条门共用的 exactly-once 守卫**：
+  先发现物理丢失的一方生效，另一方静默（SERIAL-I02：一次物理丢失 ↔ 一次权威上报）。
+· **不伪造 QSerialPort enum**：presence 驱动使用明确内部 cause
+  `<port> 已从系统移除` ⇒ 最终 UI 显示 `串口传输错误：串口设备不可用：COM3 已从系统移除`。
+  措辞只声称**本地**设备，绝不声称远端设备断开。
+· 端口身份（§8）最低要求：只用 **portName** 比较；COM3 从 availablePorts 消失 ⇒ 本地移除。
+· **无自动重连 / 无自动重试**（§9）：丢失后 watch 停止、端口关闭；重插只会出现在「刷新串口」里，
+  重新连接仍需用户点击 Connect。**旧 Prepared token 不复活**（既有 Disconnected 失效语义）。
+· **未新增**：remote heartbeat、后台 FC03 探测、Device Online 状态机、auto retry / reconnect（§0/§15）。
+```
+
+### ZV5. 测试 seam 与 oracles
+
+```text
+seam 位置（§12）：**PRESENCE OBSERVATION BOUNDARY**。production provider =
+  `QSerialPortInfo::availablePorts()`；test 注入 provider 后，通过 watch 自身的**生产入口** `start(portName)`
+  进入「一次成功 open 所建立的状态」——因为**没有硬件就无法制造真正的成功 open**。
+  观测触发之后的一切（丢失分类、证据捕获、关闭端口、bounded error lane、exactly-once）**都是生产实现**。
+  上一轮的 `deliverPortErrorForTest()` 保留但**降格并注明**：它只覆盖**错误门**，**不再作为 hot-unplug 证据**（§12）。
+
+· tests/test_serial_adapter.cpp：
+    i09  确认的消失**恰好上报一次**且 watch 自行停止（重插不复活）；
+    i10  单次瞬时缺失被容忍（连续确认才判定）；
+    i11  未显式 start 时完全惰性；stop() 是终态；
+    i12  **真实 hot-unplug oracle**：确认消失 → 生产 teardown → 恰好 1 条 bounded error（措辞含本地移除与端口名、
+         不含「从站」「设备已连接」）、端口**真的关闭**、无 terminal / 无 Modbus outcome；
+         随后 QSerialPort 错误门对**同一次**物理丢失**不再产生第二条**；重插后不重连；
+    i13  端口仍被枚举时**永远不算丢失**（守护「设备不回包 ≠ USB 被拔」）。
+· main.cpp **R16**（--qml-production-write-check）：
+    A 请求已 full submitted 时本地丢失 → **恰好一个 TransportError/PossiblySent terminal**，
+      证据保留；**不**产生 transaction record、**不**产生 Timeout、**不**产生 Success；
+      serialConnected false、UI 串口未打开、Read/Write disabled；
+    B 重插 + 执行「刷新串口」→ 仍 串口未打开、**无自动重连、无新 session**、Read/Write 仍 disabled。
+· R15（A–D）**原文保留**并通过；R1–R14 全部通过。
+```
+
+### ZV6. 真实硬件诊断探针（**非产品功能**，§4）
+
+```text
+新增 `--serial-hotplug-probe[=COMx] [--serial-hotplug-probe-seconds=N]
+      [--serial-hotplug-probe-log=<path>] [--serial-hotplug-probe-baud=N]`
+· 用**与生产 adapter 完全相同**的配置（8N1 / 无流控 / ReadWrite / 调用方 baud）打开端口；
+  打开之后**不执行任何 I/O** ⇒ 任何错误都证明「不是等到下一次读/写才暴露」。
+· 逐事件记录：`t=+1.014s errorOccurred enum=ResourceError(15) isOpen=1 errorString=[...]`；
+  以及按**变化**记录的 `poll` 行（isOpen / enumerated / 端口总数）；结尾 `SUMMARY` + `VERDICT`。
+· 输出走 stdout+stderr **并且**写入日志文件（WIN32 子系统程序无控制台）。
+· 退出码：0 = 错误门**确实触发**；3 = 全程静默（CASE B 的关键证据）；1 = 打开失败。
+· 在 main() 中于**任何 QML 加载之前**分发；不可从 UI 到达。
+· 自检（不存在的端口）：enum 名称与真实 Qt 枚举对齐（NoError(0) / DeviceNotFoundError(1)）、
+  真实 Windows 错误串、exit 1 —— 见 ZV8 证据。
+```
+
+### ZV7. 检测时延模型（§20）
+
+```text
+机制：**轮询本地存在性**（QSerialPortInfo::availablePorts()，SetupAPI/DIGCF_PRESENT），
+      **不是** instant，也**不是** busy poll。
+interval = 500 ms；confirmations = 2 ⇒ 理论 worst-case ≈ **1.0 s**（+ 每次枚举耗时，毫秒级），
+典型 ≈ 0.5–1.0 s ⇒ 用户感知上「及时」。
+另一条门（QSerialPort fatal error，若驱动投递）是**事件驱动**、时延由驱动决定（可能接近即时）。
+Human 实测 latency 待填（§19 checkpoint）。
+```
+
+### ZV8. 门禁与证据（真实执行）
+
+```text
+Debug full CTest **36/36 PASS**（83.54 s）；Release full CTest **36/36 PASS**（80.53 s）。
+Release 构建 0 error；warnings **0 NEW / 5 PRE-EXISTING（src/main.cpp）**。
+QML 运行期门禁 Debug 与 Release **各 6/6 exit 0**（windows 平台，从未 offscreen）：
+  smoke（`SMOKE IDENTITY PASS: … version=2.0.0`）、production-write（P1–P12 + M1–M6 + R1–**R16**）、
+  write-foundation、focus、nav、geometry。
+R16 实测两行（Debug 与 Release 均出现）：
+  `pending request + local loss -> exactly one TransportError/PossiblySent terminal, no record, no Timeout, no Success`
+  `reinsert + Refresh Ports -> still 串口未打开, no auto-reconnect, no new session, Read/Write still disabled`
+探针自检（Debug，COM_DOES_NOT_EXIST）：
+  `SERIAL-HOTPLUG t=+0.000s errorOccurred enum=NoError(0) isOpen=0 errorString=[No error]`
+  `SERIAL-HOTPLUG t=+0.000s errorOccurred enum=DeviceNotFoundError(1) isOpen=0 errorString=[系统找不到指定的文件。]`
+  `SERIAL-HOTPLUG t=+0.000s open port=COM_DOES_NOT_EXIST baud=9600 result=failed isOpen=0 …`
+  `SERIAL-HOTPLUG VERDICT openFailed=1 …`（exit 1）
+adapter 套件耗时由 0.95 s → 1.42 s（新增 i09–i13 确实在跑）。
+```
+
+### ZV9. Artifact —— 本轮**故意不做** package（§18/§24）
+
+```text
+behavior commit = **4b75db7** `M10-E4: detect physical serial adapter removal`（4 文件，+809/−31）；
+`8812c22` **未 amend**。
+Release 重建 = build/release/modbuslens.exe = **d5a49582cc2033ce39a0ab2f727222ec57bacf768cceb795f5a237d112b11e87**
+  （4 019 721 B，2026-09-23 08:32:09）。
+deploy 通过 canonical 共享脚本 `scripts/deploy_windows.bat`（复用 make_package.run_deploy 的同一派生逻辑）刷新：
+  build/release/deploy/ModbusLens.exe **同一 hash d5a49582…** ⇒ **release == deploy**；
+  deploy 树 smoke / production-write 均 exit 0；`SMOKE IDENTITY PASS … version=2.0.0`。
+**未运行 canonical make_package**（§24：先证明真实 USB hot-unplug PASS，再做最终 package；
+且上一轮已证宿主 bulk-delete 门按回合累计）。
+⇒ 四路 executable identity **未达成**；portable gates **未执行**；`build/package*` 目录 **ABSENT**；
+   `build/package/…zip` 仍是上一轮的旧内容（c9ec46a9…）。
+**REAL MODBUS HARDWARE = NOT VERIFIED。REAL USB HOT-PLUG-OUT = WAITING FOR USER。**
+状态：M10-E4 = **HOLD**；E5 / M10-F = NOT STARTED；M10 overall = IN PROGRESS；M11 = HOLD；
+  verified LKGC 保持 **9bdd99c**。
+
+**需要用户注意的一个前提问题**：本轮无法确认用户实测时所运行的可执行文件**是否已包含 `8812c22`**。
+若当时运行的是旧 portable（3b61f26f…，早于 idle 路径修正），则「errorOccurred 未触发」可能只是该旧行为；
+若运行的是含 `8812c22` 的构建，则 CASE A 被真实硬件否定、CASE B 成立。
+**探针的 VERDICT 行 + 本轮 deploy 树（d5a49582…）可一次性判定**，因此两者一并交付。
+```
+
+### ZV10. Human hot-plug checkpoint（§19，Agent 不自标 PASS）
+
+```text
+待用户执行：插着 USB-RS485 → 打开 ModbusLens → 连接 COM3 → 确认「串口已打开」→（无需连接 PLC）
+→ 直接拔掉 USB-RS485 → 在检测窗口内观察：串口已打开 → 串口未打开、Read/Write disabled、
+  Connection 区出现本地串口不可用语义、应用不崩溃 → 重插：**不得自动 reconnect**。
+可选并行测量：`ModbusLens.exe --serial-hotplug-probe=COM3 --serial-hotplug-probe-seconds=30`
+  （在拔线前启动；读数见同目录 serial-hotplug-probe.log）。
+```
