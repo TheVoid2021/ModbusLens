@@ -51,7 +51,7 @@
 | # | 能力 | repo 依据 |
 | --- | --- | --- |
 | R1 | 对「成功 register-read 结果」的 canonical raw uint16 words 提供只读**派生解码视图**：Hex、Binary、UInt16、Int16、UInt32、Int32、Float32 | B1（plan 逐名）+ B3-B4 |
-| R2 | 2 寄存器类型（UInt32 / Int32 / Float32）的 **word order**：`big-endian`（AB CD，默认）与 `little-endian word order`（CD AB）两种；类型选择 + word order 选择为**用户显式配置** | B1「含 byte/word order」+ T023 M11-B2「word swap 属 M11」 |
+| R2 | **ordering 双轴均 REQUIRED**（canonical §M11 逐字「含 byte/word order」）：**byte order**（16-bit 寄存器内字节序）= `normal`（协议大端直通，默认）与 `byte-swapped within register`；**word order**（寄存器间顺序，仅 2 寄存器类型适用）= `big-endian`（AB CD，默认）与 `little-endian word order`（CD AB）。类型选择 + 两轴选择为**用户显式配置** | B1 逐字（「含 byte/word order」同时点名两轴）+ T023 M11-B2「word swap 属 M11」 |
 | R3 | 解码资格按「**成功的 register-read-compatible 事务 + canonical raw words**」判定（FC03 / FC04 / 自定义 register-read-compatible 功能码一视同仁）；**禁止** `if function == 0x03` 硬编码；**禁止**把 FC01/FC02 位读当寄存器读 | T023 Part C（功能码可编辑、`0x01..0x7F`）+ 分析器已按 request frame 参数化 |
 | R4 | **Raw truth 不变式**：decode 只是派生视图；`TransactionAnalysis.values` 仍是唯一 raw 权威；raw DEC/HEX 展示保持原样并在解码视图旁边始终可查；**decode 状态/错误绝不改写 wire result**（Success 不得因解码失败变成 Timeout/TransportError/CRC/Exception） | T023 M11-B3/B4 + READ-RX-5 既有原则 |
 | R5 | **Decode failure model v1**（最小集，见 §9）：`InsufficientWords` / `OutOfRangeSelection` / `InvalidConfiguration` / `UnsupportedType` —— 独立的 decode 状态，**不是** wire outcome | T023 R-FACT 原则（事实与原因分离）的 M11 延伸 |
@@ -62,7 +62,6 @@
 
 | 项 | 状态 | 依据 / 理由 |
 | --- | --- | --- |
-| **byte swap（16-bit 寄存器**内部**字节序交换）** | DEFERRED | repo 只点名「word swap / word order」（T023 line 898、plan「byte/word order」）；**寄存器内字节交换未被任何条文点名**。M10 raw words 已是按协议大端解出的 uint16，v1 不再做寄存器内二次交换。**术语区分见 §8。** |
 | scaling / offset / engineering units | DEFERRED | repo 无任何条文指派（§P-10）；公式 repo 未定义（`decoded*scale` 还是 `+offset` 均无据），**不得发明** |
 | 40001 / 4xxxx 展示别名 | DEFERRED | 地址权威为 PDU/0-based（B6）；别名属 presentation，需 Human 明确要求 |
 | Float64 / ASCII-string 类型 | DEFERRED | 不在 plan §M11 类型清单中 |
@@ -89,10 +88,11 @@
 | Int32 | 32 bit | 2 | 同上 + two's complement | −2147483648..2147483647 | 同上 |
 | Float32 | 32 bit | 2 | IEEE-754 binary32 位型（按 word order 组合后直接重解释） | 按 IEEE 语义显示；**NaN / ±Inf 按位型如实呈现（显示 NaN / Inf），不视为 decode 错误** | 同上 |
 
-**word order 冻结**：
-- `big-endian`（默认）：字序 = 寄存器序（words[0] 为高 16 位，AB CD）。
-- `little-endian`（即行业所谓 word-swapped）：words[1] 为高 16 位（CD AB）。
-- **byte order within register：DEFERRED**（§5）。术语纪律：`word order`（寄存器序）与 `byte order`（16-bit 字内部的字节序）是**两个轴**，文档与 UI 不得混用 `endianness / byte swap / word swap` 三词。
+**ordering 冻结（双轴，canonical §M11「含 byte/word order」逐字依据）**：
+- **byte order（16-bit 寄存器内字节序；全部类型适用）**：`normal`（默认；协议大端直通，raw word 原样）与 `byte-swapped within register`（每字高/低字节互换——**仅用于该解码视图，不改 raw**）。
+- **word order（寄存器间顺序；仅 2 寄存器类型适用）**：`big-endian`（默认；words[0] 为高 16 位，AB CD）与 `little-endian word order`（words[1] 为高 16 位，CD AB）。
+- **组合管线**：raw words →（可选 byte swap within register）→（word order 组合，2 字类型）→ 按目标类型重解释。默认 `normal` + `big-endian` = 协议标准直通。raw 永不改变。
+- **术语纪律**：`word order`（寄存器间）、`byte order`（16-bit 字内部）、`endianness`（泛称）三词不得混用；`byte swap` 专指寄存器内互换，`word swap` 专指寄存器间互换。
 
 **Float32 确定性向量（REQUIRED 用例，写入验收矩阵）**：
 `1.0` = words [0x3F80, 0x0000]（big-endian）；`0.0` = [0x0000, 0x0000]；`−2.0` = [0xC000, 0x0000]；NaN = [0x7FC0, 0x0000]（任一 NaN 位型）；+Inf = [0x7F80, 0x0000]；little-endian 下 `1.0` = [0x0000, 0x3F80]。
@@ -105,7 +105,7 @@
 
 ## 9. Decode failure model（v1 冻结）
 
-独立于 wire result 的 **decode status**（四值，不新增 wire outcome，不触碰七 outcome）：
+独立于 wire result 的 **decode status 共 5 个状态**：`Ok` = success；其余 **4 个 = decode/configuration failure states**。不新增 wire outcome，不触碰七 outcome：
 
 | decode status | 触发 | wire result | raw 呈现 |
 | --- | --- | --- | --- |
@@ -122,7 +122,7 @@
 
 - 解码视图**并入既有 Read Result 呈现**（T023 方案 B：结论行 + 有界可滚动证据对话框的 CLASS-10 值表区域），**不新建独立页**、不复制 raw 数据。
 - raw DEC/HEX 列**恒显**；解码列在其旁（同表或紧邻区块），二者逐寄存器对齐、共享同一 PDU 地址。
-- 类型选择（Hex/Binary/UInt16/Int16/UInt32/Int32/Float32）与 word order（仅 2 寄存器类型启用）为**用户显式控件**；默认 = 无解码（或 UInt16，以 Human Review 裁定为准 —— 本契约标注〔待 Review〕）。
+- 类型选择（Hex/Binary/UInt16/Int16/UInt32/Int32/Float32）与 **ordering 控件**（byte order：全部类型适用；word order：仅 2 寄存器类型启用）为**用户显式控件**；默认 = 无解码（或 UInt16，以 Human Review 裁定为准 —— 本契约标注〔待 Review〕）。
 - decode status 非 `Ok` 时：解码单元格显示状态文案（如「字数不足」），**raw 列不受影响**。
 - **1000×700 约束**：新增控件不得把既有内容推出窗口（M10-F ISSUE-016/018 的教训）；实现轮必须以真实 windows QPA 几何门禁复测。
 
@@ -138,7 +138,9 @@
 ## 13. Hardware policy（§AB）
 
 - 纯确定性解码**可以且应该**用已知 raw words 自动测试（无需硬件）。
-- **Real hardware = OPTIONAL / NON-BLOCKING**：repo（§ZE14 惯例 + T023/M10 closure 边界）未把真实硬件定为 M11 硬门；本轮**不升级**为硬门。若 Human 要求真实设备验证 Float32 等，属后续 OPTIONAL 增补。
+- **Real hardware 在 M11 v1 中不作为 closure hard gate；如执行，属 supplementary / optional evidence。**
+- **来源定性（诚实边界）**：这是 **T024 新定义，待 Human Review 接受** —— **不是** M10-F §ZE14 的自动跨 milestone 继承。§ZE14 标题虽为「M10-F / M11 boundary」且明确「M11 = Register Readout & Decode，继续 HOLD；不得把 M10 的 0x10 write 与 M11 的 register decode 混成一个阶段」，但其 **OPTIONAL 硬件条款写在 M10-F 上下文中**；repo **未发现**「§ZE14 的 OPTIONAL 规则治理 M11 closure」或「M11 real hardware 为 required hard gate」的明文 —— 因此按「repo silent ⇒ 不升格、不发明」处理，由本契约显式定义。
+- 附注：§ZE14 写于读取功能码可编辑（T023 Part C）之前，其「M11 解码对象主要来自 successful FC03 raw registers」反映当时状态；现行 canonical = T023 Part C 后的 FC03 / FC04 / 自定义 register-read-compatible 结果（见 §11）。
 
 ## 14. Package / portable policy（§AC）
 
@@ -182,7 +184,13 @@ M11 实现轮与 exit criteria 必须保护（以 repo 现行等价物为准，�
 | A24 | 非成功不解码 | Timeout / Exception 等 | 任意 | 无解码区 | —（无 decode 资格） | 既有 READ-RX-5 行为 | ✅ | — | — |
 | A25 | 1000×700 | — | — | — | — | 新 UI 在 1000×700 可用、写区 C4 仍 PASS | ✅（真实 QPA） | ✅ | — |
 | A26 | M10 回归 | — | — | — | — | §15 全清单 | ✅ | ✅ | — |
-| A27 | OPTIONAL 真实设备 | 真实设备读取 | 任意 | 真实值 | Ok | 不变 | — | ✅ | OPTIONAL |
+| A27 | **OPTIONAL / SUPPLEMENTARY REAL-HARDWARE EVIDENCE（非 canonical mandatory gate）** | 真实设备读取 | 任意 | 真实值 | Ok | 不变 | — | ✅ | OPTIONAL / SUPPLEMENTARY |
+| A28 | UInt16 byte-swap（寄存器内） | [0x1234] | UInt16 + byte order = swapped | 13330（0x3412） | Ok | 不变 | ✅ | — | — |
+| A29 | Int16 byte-swap（寄存器内） | [0x0080] | Int16 + byte order = swapped | −32768（0x8000） | Ok | 不变 | ✅ | — | — |
+| A30 | Float32 byte-swap + big-endian word | [0x803F, 0x0000] | Float32 + byte order = swapped, word = big-endian | 1.0 | Ok | 不变 | ✅ | — | — |
+| A31 | Float32 byte-swap + little-endian word（工业 DCBA 全反序） | [0x0000, 0x803F] | Float32 + byte order = swapped, word = little-endian | 1.0 | Ok | 不变 | ✅ | — | — |
+
+（A28–A31 为 clarification round 新增：canonical §M11 逐字「含 byte/word order」同时点名两轴，byte order 与 word order 均为 REQUIRED；全部 byte-order 用例断言 raw DEC/HEX 逐字节不变。）
 
 ## 17. Implementation entry gate
 
@@ -190,17 +198,72 @@ M11 实现轮与 exit criteria 必须保护（以 repo 现行等价物为准，�
 2. 另起 implementation 轮：**先**重新 source audit（`TransactionAnalysis.values` 消费链、Read Result 呈现链、Communication 布局预算）**→ RED 证据 → 最小 implementation slice**（建议首切片 = 纯 core 解码函数 + 单元矩阵 A01–A20；UI 集成另切片）——**不是一次性实现整个 M11**。
 3. 每片独立 behavior-bearing commit + full regression + 停轮 Human Review。
 
-## 18. Exit criteria
+## 18. Exit criteria（provenance 已标注：A = PRE-EXISTING REPO REQUIREMENT / B = DERIVED FROM ACCEPTED M10 REGRESSION BASELINE / C = NEW T024 CONTRACT REQUIREMENT，subject to Human Review）
 
-REQUIRED 矩阵全绿；full Debug/Release regression 0 失败；QML 诊断 0/0/0；1000×700 可用（真实 windows QPA）；§15 M10 回归清单无回归；raw truth 未被改写的直接证明（A20 + wire result 不变性）；文档归档；独立 behavior-bearing commit；Human Review。**REAL HARDWARE = OPTIONAL（A27 不阻塞 exit）。**
+| exit criterion | 来源类型 |
+| --- | --- |
+| REQUIRED 解码矩阵全绿（A01–A26、A28–A31） | **C**（T024 新定义） |
+| full Debug / Release regression 0 失败 | **A**（AGENTS.md 工作纪律 3 + V2 Validation Rules：改动必须构建 + 全量测试） |
+| QML 诊断 0/0/0（ReferenceError / TypeError / Unable to assign） | **B**（M10-F / Read Correction 已验收基线） |
+| 1000×700 可用（真实 windows QPA） | **B**（M10-F ISSUE-016/018 修正基线） |
+| §15 M10 回归清单无回归 | **B**（由 accepted M10 baseline 派生） |
+| raw truth 未被改写的直接证明（A20 + wire result 不变性） | **B/C**（原则源自 T023 M11-B3/B4 + READ-RX-5 既有冻结【B】；A20 具体化 = T024【C】） |
+| 文档归档（T024 + 状态文档） | **A**（AGENTS.md 档案区规则） |
+| 独立 behavior-bearing commit | **A**（AGENTS.md Git 治理 + V2 protocol） |
+| Human Review | **A**（AGENTS.md V2 protocol / Human Review 环节） |
+| packaging / portable Final D | **未冻结** —— repo 对 M11 packaging 无明文（本轮复查确认）；是否必需由 Human 在 acceptance 阶段裁定，**不是本契约的 exit criterion** |
+| real hardware | **非 exit criterion** —— T024 新定义的 **supplementary / optional evidence**（【C】，subject to Human Review；A27 不阻塞 exit） |
+
+**REAL HARDWARE 不阻塞 exit**（见 §13 来源定性：T024 新定义，非 §ZE14 自动继承）。
 
 ## 19. Problems Encountered / 待 Human 裁定
 
 - 本轮无实现问题（docs-only）。
-- **〔待 Review〕**：① 解码视图默认状态（「无解码」还是默认 UInt16）；② 解码控件落位（值表内联下拉 vs 对话框头部）；③ byte-swap-within-register 是否提前出 DEFERRED 转 REQUIRED（repo 未点名，本契约按 DEFERRED）；④ acceptance matrix A14/A15 的 NaN/Inf 显示文案。
+- **〔待 Review〕**：① 解码视图默认状态（「无解码」还是默认 UInt16）；② 解码控件落位（值表内联下拉 vs 对话框头部）；③ acceptance matrix A14/A15 的 NaN/Inf 显示文案。（原第 3 项「byte-swap-within-register 是否转 REQUIRED」已由 canonical 重读解决：§M11 逐字「含 byte/word order」⇒ 双轴 REQUIRED，见 §4 R2 / §8 / §21。）
 - **同步台账要点（§N）**：16 项 handoff 声明中 15 项 VERIFIED_FROM_REPO（HEAD/LKGC/M10 states/M11 authorization/values 权威/FC04+custom/decode 非 FC03-only/排除项归属/无既有 M11 任务文档均实证；「M11 已获 START AUTHORIZATION」来源 = Human 原话，属授权事实而非 repo 内容）；1 项 UNKNOWN → 已按 §AB/§AC 处理为「repo silent ⇒ 不升级」（M11 的 hardware/package 硬门要求）。无 CONTRADICTED。
 - 教训（§C 编辑安全）：本轮全程使用精确锚点小步编辑 + 全量 diff 审查，未使用模糊替换。
 
 ## 20. Git Commit
 
 `M11: define decode acceptance contract`（docs-only；不 amend `fbb59b3`；不 rebase；不 push；不 tag；verified LKGC 保持 `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`）。
+
+## 21. Clarification Round log（2026-09-25，docs-only，commit `M11: clarify decode contract semantics`）
+
+> Human Review 提出 4 项 clarification（A/B/C/D）。本轮逐项解决；主体契约不推翻。
+
+### A. DecodeStatus cardinality
+
+- 矛盾：正文曾写「decode failure model 四值」却列出 5 个状态。
+- 裁定：**DecodeStatus 共 5 个** —— `Ok` = success；`InsufficientWords` / `OutOfRangeSelection` / `InvalidConfiguration` / `UnsupportedType` = **4 个 decode/configuration failure states**。未新增、未删除状态（§9 已改正）。
+
+### B. byte order / word order canonical source
+
+- 矛盾：上一轮报告同时声称「canonical 含 byte/word order」与「byte swap = DEFERRED（repo 未点名）」—— 二者冲突。
+- 逐字重读 `docs/11_V2_UPGRADE_PLAN.md` §M11（字节级验证）：`… Float32（含 byte/word order）。` —— canonical **同时点名 byte order 与 word order 两个轴**。
+- **CASE 1 适用**：byte order within register 与 word order across registers **均 REQUIRED**（§4 R2 / §7 / §8 / §10 / §16 A28–A31 已改正）；上一轮「byte swap = DEFERRED」的 DEFERRED 行**撤销**，相应报告表述更正为「canonical 原文确含 byte/word order，此前 DEFERRED 属转述错误」。术语纪律（§8）：`byte order`（寄存器内）/ `word order`（寄存器间）/ `endianness`（泛称）不得混用。
+
+### C. M11 hardware policy 来源
+
+- 事实：T022 §ZE14 标题为「M10-F / M11 boundary」，正文明确「M11 = Register Readout & Decode，继续 HOLD；不得把 M10 的 0x10 write 与 M11 的 register decode 混成一个阶段」，但其 **OPTIONAL 硬件条款写在 M10-F 上下文中**；repo **无**「§ZE14 治理 M11」或「M11 real hardware 为硬门」的明文。
+- 裁定：T024 v1 的「real hardware 不作为 closure hard gate；如执行属 supplementary / optional evidence」= **T024 新定义（subject to Human Review）**，**非 §ZE14 自动跨 milestone 继承**（§13 / §18 已改正；上一轮「延续 §ZE14」措辞撤回）。
+- A27 更名为 **OPTIONAL / SUPPLEMENTARY REAL-HARDWARE EVIDENCE（非 canonical mandatory gate）**。
+
+### D. one-time resync ledger 完整闭环（16 项）
+
+| 分类 | 数量 | 明细 |
+| --- | --- | --- |
+| VERIFIED_FROM_REPO | **13** | claims 1–6（HEAD / LKGC / M10 COMPLETE / M10-F CLOSED / Read Correction CLOSED / M11 曾 HOLD）、8（raw uint16 权威）、9（FC04 register-read-compatible）、10（custom FC）、11（decode 非 FC03-only 的事实基础 = 可编辑功能码 + 参数化分析器；规范表述即 T024 R3）、12（M10 排除项）、13（排除项归属为**部分指派**）、16（原无 M11 任务文档） |
+| CONTEXT_ONLY / HUMAN_AUTHORIZED | **1** | claim 7（Human「开始 M11」—— 授权事实来自对话上下文；本轮已按 AF 写入状态文档） |
+| UNKNOWN（resync 时）→ 处理 | **2** | claim 14（M11 hardware policy —— repo silent ⇒ T024 新定义，见 C）；claim 15（M11 package/portable policy —— repo silent ⇒ **保持未冻结**，由 Human 在 acceptance 裁定） |
+| CONTRADICTED | **0** | — |
+| **合计** | **16** | 13 + 1 + 2 = 16 |
+
+（上一轮报告「15 VERIFIED + 1 UNKNOWN」的口径错误在此更正：claim 7 应归 HUMAN_AUTHORIZED，claims 14/15 应分别计 UNKNOWN。）
+
+### E. Exit-criteria provenance
+
+见 §18 表：A = pre-existing repo requirement（AGENTS 治理与纪律）；B = derived from accepted M10/T023 baseline；C = new T024 requirement（subject to Human Review）。**packaging / portable 对 M11 仍无 repo 明文 —— 保持未冻结，未偷偷新增**；real hardware 为 C 级 supplementary evidence，非 exit criterion。
+
+### F. 本轮验证边界
+
+docs-only：未 build / 未 test / 未 package；未修改 src / tests / CMakeLists.txt / scripts / assets / samples；未 push / 未 tag / 未 amend；verified LKGC 保持 `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`。
