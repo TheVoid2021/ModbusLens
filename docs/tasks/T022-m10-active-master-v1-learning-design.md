@@ -11551,3 +11551,24 @@ M10 = **REOPENED / CORRECTION**；M10-F = **HOLD**；M11 = **HOLD / NOT STARTED*
 REAL MODBUS HARDWARE = NOT VERIFIED（证据边界未改变）
 唯一后继动作 = Human Review T023 → 认可后另起 Implementation Round（不得自动开始）
 ```
+
+
+## ZNA. M10 Read Correction Closure（T023 Part A–D，2026-09-24，docs-only governance）
+
+Human 对 Final D（`D013B12FEB1BAB1AD10FEE80761AD57C8F2EF76DF474CEFA47A64F77B3FFBC65`）
+checklist 明确回复「全部 PASS」⇒ M10 Read Correction（FC03 读取结果可观测 +
+读取功能码可编辑 + 文本输入 UX + 波特率扩展）正式收口：
+
+- **M10 Read Correction = CLOSED / ACCEPTED；M10-F = CLOSED；M10 = COMPLETE；M11 = HOLD / NOT STARTED。**
+- Real-device FC03 read regression = HUMAN PASS；optional full real-hardware
+  suite（FC03/FC06/FC16 + 值验证 + 写恢复）= NOT FULLY VERIFIED / NON-BLOCKING
+  （§ZE14 OPTIONAL 边界保持，显式披露）。
+- Proposed verified LKGC candidate = **`352b81c82d5efa9aac5418cccaaf1605a68cd9d3`**
+  （最后 behavior-bearing tree，对应 accepted Final D 与 Human PASS；
+  `a494d9c` = historical intermediate behavior commit；`13e5a13` 及本 closure
+  commit 均 docs-only）。
+- **verified LKGC 未推进**，保持 `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`；
+  推进须 Human 明确授权（§ZE17 line 7794–7795 + AGENTS.md line 130 +
+  acceptance matrix 第 14 项）。
+- 详见 T023 **Part D**（Human acceptance 逐项 / machine evidence / 行为清单 /
+  M11 边界 / hard-gate 复核）。

@@ -826,3 +826,96 @@ verified LKGC 未推进 = `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`；
 4. **`QString::arg(int, QString)` 不存在**：混合类型多参必须链式 .arg()。
 5. **`QString::arg(uint8_t, 2, 10)` 是十进制格式化**："FC41" 这类 HEX 标签
    必须先格式化 HEX 字符串再拼（0x41 被格式化成 FC65 的实测教训）。
+
+
+---
+
+# Part D — Human Final Acceptance Archive & M10 Read Correction Closure（2026-09-24，docs-only governance）
+
+> Human 对冻结的 Final D checklist 明确回复：「全部 PASS」。本 Part 只归档该验收与既有
+> machine evidence，并正式收口 M10 Read Correction。Part A/B/C 原文不变。
+> 措辞纪律：不记录 COM 编号、设备型号、slave/寄存器地址、读取值、截图、时间戳；
+> 不把 FC04 / 自定义 FC 的 UI·preview·feedback PASS 扩写成真实设备成功响应。
+
+## D1. Human Final Acceptance（逐项，仅记录实际收到的 PASS）
+
+
+| Final D SHA-256 checked (`D013B12F…B3FFBC65`) | PASS |
+| Five text fields keyboard editing（从站地址/读取功能码/起始地址/数量/超时） | PASS |
+| Row1 / Row2 layout | PASS |
+| FC03 real-device regression | PASS |
+| FC04 UI / preview / feedback | PASS |
+| Custom FC input / preview / feedback | PASS |
+| Invalid Function local rejection | PASS |
+| Baud options（1200/2400/4800/9600/19200/38400/57600/115200） | PASS |
+| 1000x700 layout | PASS |
+| Overall M10 editable-read-function Human Review | PASS |
+
+## D2. Real-hardware evidence boundary（依 T022 §ZE14 OPTIONAL contract）
+
+- **Real-device FC03 read regression = HUMAN PASS**（本次 checklist 明确项）。
+- **Optional full real-hardware suite（FC03 read / FC06 write / FC16 multi-write /
+  actual device value verification / write restoration）= NOT FULLY VERIFIED /
+  NON-BLOCKING** —— 本次 checklist 未包含、亦无新的独立真实证据；
+  与原 M10-F OPTIONAL contract（§ZE14：允许以 REAL HARDWARE NOT VERIFIED 收尾，
+  须显式披露）保持一致。
+- FC04 / 自定义 FC 的「UI / preview / feedback PASS」**仅指界面·预览·反馈链路**，
+  repo 中不存在其真实设备成功响应的独立证据，故不作该声明。
+
+## D3. 归档的 machine evidence（既有事实，本轮未重新执行）
+
+- Behavior commit：`352b81c82d5efa9aac5418cccaaf1605a68cd9d3`（Part C，最终行为树）。
+- Behavior 前历史中间提交：`a494d9c`（Part B）—— historical intermediate，非 LKGC candidate。
+- Human Review 前最后 docs archive：`13e5a13e4470c5eb593d5209410087c9341d59e0`。
+- Source-tree acceptance：Debug CTest **38/38**、Release CTest **38/38**（诊断
+  ReferenceError 0 / TypeError 0 / Unable to assign 0）；source-tree **Release binary**
+  windows-QPA gates **7/7**；负向对照（dispatch 恒发 03 → READ-FC2/FC5 FAIL + 门禁
+  7 READFAIL → 还原复绿）PASS。
+- Canonical package：PASS。Final D = size **4406582**，
+  SHA-256 **`D013B12FEB1BAB1AD10FEE80761AD57C8F2EF76DF474CEFA47A64F77B3FFBC65`**；
+  ZIP = size **41082750**，SHA-256 **`852266176C96E472BDF839B2A4E57D9353587971057D254CFA4989A2B3289BD9`**。
+- Final-D portable verification（Agent，clean child env / windows QPA）：A==B==C==D
+  identity PASS；**portable 七门禁 7/7 exit 0**；诊断 0/0/0；Read Result 回归 PASS
+  （八类 + 125 寄存器对话框）；R15/R16/R17 markers 9 条 PASS；1000x700 PASS；
+  package-local windows platform launch PASS。
+- 措辞修正：Part C 阶段运行的七门禁是 **source-tree Release binary 的 windows-QPA
+  gates**（非 portable gates）；portable 七门禁指本 D3 节对 Final D 的复跑。两者全部 PASS。
+
+## D4. 最终产品行为清单（M10 Read Correction 交付范围）
+
+A FC03 读取事务可观测 · B 可见终态结果 · C Actual TX · D Actual RX ·
+E TimeoutNoData · F Partial RX 保留 · G Modbus Exception · H CRC 失败 ·
+I 响应不匹配 · J 响应格式错误 · K Success + raw uint16 寄存器（DEC/HEX）·
+L 五个可编辑文本输入（Slave/Read Function/Start/Quantity/Timeout）·
+M 两行请求布局（Row1 = Slave+Read Function；Row2 = Start+Quantity+Timeout+Read 按钮）·
+N Read Function 默认 03 · O FC04 register-read 兼容路径 ·
+P 自定义 register-read 兼容 Function Code 路径 ·
+Q 动态 request/preview/TX/expected-response Function 恒等 ·
+R 动态异常 Function = F|0x80 · S 非法 Function 本地拒绝 ·
+T 波特率 1200/2400/4800/9600/19200/38400/57600/115200 ·
+U 1000x700 布局保持 · V FC06/FC16 回归保持。
+
+**仍不属于本范围（M11 边界，未实现）**：int16 语义解释、float32、word swap、
+scaling、工程单位、寄存器表、设备专属语义解码。
+
+## D5. Closure
+
+依 T022 §ZE17（Agent 不自行推进 LKGC）、§ZE14（optional 硬件 NON-BLOCKING）与
+T023 §12（实施 → 真实 windows QPA 门禁 → 人工验收）复核：**无未满足 hard gate**。
+
+- **M10 Read Correction（T023 Part A–D）= CLOSED / ACCEPTED**
+- **M10-F = CLOSED**（其原 acceptance 结论未被推翻；optional 硬件边界按 D2 披露）
+- **M10 = COMPLETE**
+- **M11 = HOLD / NOT STARTED**
+
+## D6. LKGC
+
+- Proposed verified LKGC candidate = **`352b81c82d5efa9aac5418cccaaf1605a68cd9d3`**
+  （Reason：它是对应最终 accepted `D013B12F…B3FFBC65` portable 与 Human PASS 的
+  最后 behavior-bearing tree；`13e5a13` 与本轮 closure commit 均 docs-only）。
+- **verified LKGC 本轮未推进**，仍为 `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`；
+  推进须 Human 明确授权（T022 §ZE17 + AGENTS.md line 130）。
+
+## D7. Git
+
+- closure commit：见本文件下方 Git Commit 记录（docs-only）。
