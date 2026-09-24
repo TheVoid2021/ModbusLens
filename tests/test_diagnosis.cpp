@@ -38,6 +38,7 @@ DiagnosisTransaction tx(
             .elapsed = ms{elapsedMs},
             .exceptionCode = exceptionCode,
             .issue = std::nullopt,
+            .values = {},
         },
         .requestIssues = std::move(requestIssues),
     };

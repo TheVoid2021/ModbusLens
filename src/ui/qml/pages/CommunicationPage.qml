@@ -370,6 +370,73 @@ Item {
                     font.pixelSize: DS.fontCaption
                     wrapMode: Text.Wrap
                 }
+
+                // ------------------------------------------------------------------
+                // T023 / M10 correction: FC03 READ RESULT.
+                //
+                // Human's discovery: a successful read said only 「成功」, so the
+                // result was uninterpretable — no values, no bytes, no parameters.
+                //
+                // Information architecture (frozen, T023 §7.2 option B): ONE
+                // always-visible conclusion line plus a reachable DETAILS entry
+                // point, with the long evidence (up to 255 RX bytes) living in
+                // the bounded, scrollable dialog below.
+                //
+                // WHY IT IS NESTED IN THIS COLUMN AND WHY IT IS A TEXT ROW:
+                // 1000x700 leaves the write panel ~25px of slack (measured), so
+                // the always-visible addition must cost ~one text line. Placing
+                // it inside the EXISTING preview column costs only this column's
+                // 2px spacing, and a 34px AppButton here would have cost 42px in
+                // total and pushed the write panel's bottom edge to 717 — past
+                // the window (the ISSUE-016 / ISSUE-018 defect form, reproduced
+                // and rejected during implementation). The details entry is
+                // therefore a compact clickable text row instead.
+                //
+                // Every fact shown here is a PROJECTION of the controller's
+                // canonical read-result snapshot; this file never decodes bytes,
+                // never decides a status and never counts registers.
+                // ------------------------------------------------------------------
+                RowLayout {
+                    objectName: "readResultPanel"
+                    Layout.fillWidth: true
+                    spacing: DS.spacingS
+
+                    // Layer 1: the always-visible conclusion (T023 READ-UI-6).
+                    Label {
+                        objectName: "readResultSummary"
+                        text: page.analysisController.readResultSummaryText
+                        color: page.analysisController.readResultTone === "success"
+                               ? DS.success
+                               : (page.analysisController.readResultTone === "error"
+                                  ? DS.error : DS.textSecondary)
+                        font.pixelSize: DS.fontCaption
+                        font.bold: page.analysisController.readResultTone !== "neutral"
+                    }
+                    Label {
+                        objectName: "readResultSummaryFact"
+                        Layout.fillWidth: true
+                        visible: page.analysisController.hasReadResult
+                        text: page.analysisController.readResultFactLine
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        elide: Text.ElideRight
+                    }
+                    // Details entry point: only offered when a result exists (an
+                    // empty state has nothing to expand into). A text row, not a
+                    // 34px button — the vertical budget is the whole reason.
+                    Label {
+                        objectName: "readResultDetailsButton"
+                        visible: page.analysisController.hasReadResult
+                        text: qsTr("查看详情")
+                        color: DS.primary
+                        font.pixelSize: DS.fontCaption
+                        font.underline: readResultDetailsHover.hovered
+                        HoverHandler { id: readResultDetailsHover }
+                        TapHandler {
+                            onTapped: readResultDialog.open()
+                        }
+                    }
+                }
             }
         }
 
@@ -422,6 +489,221 @@ Item {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+        }
+    }
+
+    // ----------------------------------------------------------------------
+    // T023 / M10 correction: FC03 READ RESULT DETAILS.
+    //
+    // Layer 2 of the frozen information architecture: a BOUNDED, SCROLLABLE
+    // evidence view. It is a Popup (not part of the page column) precisely so
+    // that its content can never push the write panel out of the 1000x700
+    // window — the defect form of ISSUE-016 / ISSUE-018.
+    //
+    // What it shows, in the frozen order (T023 §7):
+    //   1. request echo (unit / PDU start address DEC+HEX / quantity / timeout)
+    //   2. Actual TX bytes (the send-time descriptor wire) + disposition band
+    //   3. Actual RX bytes, or the honest 「未观测到任何字节」 statement
+    //   4. terminal fact + the class's deterministic basis
+    //   5. a labelled 「可能原因」 line (never a root-cause claim)
+    //   6. CLASS-10 only: the RAW uint16 register table (idle / address / DEC / HEX)
+    //
+    // No value is ever shown outside CLASS-10 (T023 READ-RX-5), and the bytes
+    // are already-decided facts — nothing is re-parsed here.
+    // ----------------------------------------------------------------------
+    Dialog {
+        id: readResultDialog
+        objectName: "readResultDialog"
+        anchors.centerIn: parent
+        width: Math.min(page.width - 2 * DS.spacingL, 720)
+        height: Math.min(page.height - 2 * DS.spacingL, 520)
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        title: qsTr("读取结果详情")
+
+        // Typed projections: the controller's optional keys must never be bound
+        // directly (an absent key would log "Unable to assign [undefined] to
+        // QString"). Empty text is the honest "not applicable" here.
+        function valuesModel() {
+            return page.analysisController.readResultValues
+        }
+
+        contentItem: ColumnLayout {
+            spacing: DS.spacingS
+
+            Label {
+                objectName: "readResultDetailTitle"
+                Layout.fillWidth: true
+                text: page.analysisController.readResultTitle
+                color: DS.textPrimary
+                font.pixelSize: DS.fontSection
+                font.bold: true
+            }
+
+            // The whole evidence block is bounded + scrollable: 125 registers
+            // must be fully reachable without ever growing the window.
+            ScrollView {
+                objectName: "readResultDetailScroll"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+
+                ColumnLayout {
+                    width: readResultDialog.width - 2 * DS.spacingM
+
+                    // ---- 1. request echo ----
+                    Label {
+                        objectName: "readResultRequestEcho"
+                        Layout.fillWidth: true
+                        visible: page.analysisController.readResultHasRequestEcho
+                        text: qsTr("请求：设备 %1 ｜ 起始地址 %2 (%3) ｜ 数量 %4 ｜ 超时 %5 ms")
+                                  .arg(page.analysisController.readResultUnitId)
+                                  .arg(page.analysisController.readResultStartAddress)
+                                  .arg(page.analysisController.readResultStartAddressHex)
+                                  .arg(page.analysisController.readResultQuantity)
+                                  .arg(page.analysisController.readResultTimeoutMs)
+                        color: DS.textPrimary
+                        font.pixelSize: DS.fontCaption
+                        wrapMode: Text.Wrap
+                    }
+
+                    // ---- 2. Actual TX ----
+                    Label {
+                        objectName: "readResultTxLabel"
+                        text: qsTr("实际发送（含 CRC）")
+                        color: DS.textMuted
+                        font.pixelSize: DS.fontCaption
+                    }
+                    Label {
+                        objectName: "readResultTxText"
+                        Layout.fillWidth: true
+                        text: page.analysisController.readResultTxLine
+                        color: DS.textPrimary
+                        font.pixelSize: DS.fontCaption
+                        font.family: "Consolas"
+                        wrapMode: Text.Wrap
+                    }
+
+                    // ---- 3. Actual RX ----
+                    Label {
+                        objectName: "readResultRxLabel"
+                        text: qsTr("实际接收（逐字节，未截断）")
+                        color: DS.textMuted
+                        font.pixelSize: DS.fontCaption
+                    }
+                    Label {
+                        objectName: "readResultRxText"
+                        Layout.fillWidth: true
+                        text: page.analysisController.readResultRxText
+                        color: DS.textPrimary
+                        font.pixelSize: DS.fontCaption
+                        font.family: "Consolas"
+                        wrapMode: Text.Wrap
+                    }
+                    Label {
+                        objectName: "readResultRxByteCount"
+                        Layout.fillWidth: true
+                        text: qsTr("接收字节数：%1")
+                                  .arg(page.analysisController.readResultRxByteCount)
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                    }
+
+                    // ---- 4. deterministic basis ----
+                    Label {
+                        objectName: "readResultBasis"
+                        Layout.fillWidth: true
+                        text: page.analysisController.readResultFactLine
+                        color: DS.textPrimary
+                        font.pixelSize: DS.fontCaption
+                        wrapMode: Text.Wrap
+                    }
+                    // Evidence availability: Simulator / Replay carry no wire
+                    // evidence, so the surface states that plainly instead of
+                    // showing empty hex (T023 READ-TXN-5).
+                    Label {
+                        objectName: "readResultNoEvidence"
+                        Layout.fillWidth: true
+                        visible: page.analysisController.readResultAwaitingEvidenceSource
+                        text: qsTr("当前数据源不提供收发字节（该源没有真实收发）。")
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        wrapMode: Text.Wrap
+                    }
+
+                    // ---- 5. possible causes (explicitly labelled) ----
+                    Label {
+                        objectName: "readResultPossibleCauses"
+                        Layout.fillWidth: true
+                        visible: page.analysisController.readResultHasPossibleCauses
+                        text: qsTr("可能原因：%1")
+                                  .arg(page.analysisController.readResultPossibleCauses)
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        wrapMode: Text.Wrap
+                    }
+
+                    // ---- 6. CLASS-10 raw register table ----
+                    Label {
+                        objectName: "readResultValuesHeader"
+                        visible: page.analysisController.readResultHasValues
+                        text: qsTr("原始寄存器值（uint16，未解释）：共 %1 个")
+                                  .arg(page.analysisController.readResultValueCount)
+                        color: DS.textPrimary
+                        font.pixelSize: DS.fontCaption
+                        font.bold: true
+                    }
+                    ListView {
+                        objectName: "readResultValuesList"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(contentHeight, 200)
+                        visible: page.analysisController.readResultHasValues
+                        clip: true
+                        model: page.analysisController.readResultValues
+                        delegate: Label {
+                            // Tolerant role reads (ISSUE-017): a model reset
+                            // re-evaluates every delegate binding once with an
+                            // invalid index, when EVERY role is undefined.
+                            required property var modelData
+                            required property int index
+                            readonly property int rowIndex:
+                                modelData && modelData.index !== undefined
+                                    ? modelData.index : (index + 1)
+                            readonly property int rowAddress:
+                                modelData && modelData.address !== undefined
+                                    ? modelData.address : 0
+                            readonly property string rowAddressHex:
+                                modelData && modelData.addressHex !== undefined
+                                    ? modelData.addressHex : ""
+                            readonly property int rowDec:
+                                modelData && modelData.dec !== undefined
+                                    ? modelData.dec : 0
+                            readonly property string rowHex:
+                                modelData && modelData.hex !== undefined
+                                    ? modelData.hex : ""
+                            text: qsTr("#%1  地址 %2 (%3)  值 %4 (%5)")
+                                      .arg(rowIndex)
+                                      .arg(rowAddress)
+                                      .arg(rowAddressHex)
+                                      .arg(rowDec)
+                                      .arg(rowHex)
+                            color: DS.textPrimary
+                            font.pixelSize: DS.fontCaption
+                            font.family: "Consolas"
+                        }
+                    }
+                }
+            }
+        }
+
+        footer: RowLayout {
+            spacing: DS.spacingS
+            Item { Layout.fillWidth: true }
+            AppButton {
+                objectName: "readResultDetailCloseButton"
+                text: qsTr("关闭")
+                onClicked: readResultDialog.close()
+            }
         }
     }
 }

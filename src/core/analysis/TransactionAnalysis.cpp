@@ -54,17 +54,24 @@ namespace {
 // Single funnel so the invariants hold on every return path: elapsed is the
 // caller-provided fact, exceptionCode exists only for Exception, and issue
 // exists only for ProtocolError (T014 I1/I2).
+//
+// T023: rawValues is the FC03 Success payload and is EMPTY on every other
+// path. It is the last parameter so the existing call sites (which never pass
+// it) keep their exact meaning — an omitted payload is an absent payload, and
+// "absent" is what every non-Success status must carry.
 TransactionAnalysis makeAnalysis(
     TransactionStatus status,
     std::chrono::milliseconds elapsed,
     std::optional<std::uint8_t> exceptionCode = std::nullopt,
-    std::optional<TransactionIssue> issue = std::nullopt)
+    std::optional<TransactionIssue> issue = std::nullopt,
+    std::vector<std::uint16_t> rawValues = {})
 {
     return TransactionAnalysis{
         .status = status,
         .elapsed = elapsed,
         .exceptionCode = std::move(exceptionCode),
         .issue = std::move(issue),
+        .values = std::move(rawValues),
     };
 }
 
@@ -179,7 +186,13 @@ TransactionAnalysis analyzeFunction03Transaction(
                 responseModel.values.size());
             return makeProtocolError(elapsed, std::move(issue));
         }
-        return makeAnalysis(TransactionStatus::Success, elapsed);
+        // T023: every gate above passed (address / function / decodability /
+        // count), so this Success now carries the RAW uint16 payload it was
+        // decided on. The decoded values were previously dropped here, which
+        // is exactly why a successful read could not be explained to the user.
+        // No interpretation is added — the words travel exactly as decoded.
+        return makeAnalysis(TransactionStatus::Success, elapsed, std::nullopt,
+                            std::nullopt, responseModel.values);
     }
 
     // 4. Any other function code (0x04, 0x84, 0x06, ...) cannot answer a

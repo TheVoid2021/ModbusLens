@@ -66,6 +66,11 @@ public:
     // core session recognizes a complete candidate (tests configure complete
     // responses; a partial configuration simply does not complete).
     void completeWithResponse();
+    // T023 READ-R2: deliver the configured response across MULTIPLE readyRead
+    // chunks so a real fragment boundary exists. The candidate closes on
+    // whichever chunk completes it, and the accumulated evidence is the
+    // concatenation of the chunks — a split must lose (or duplicate) nothing.
+    void completeWithResponseInChunks(const std::vector<std::size_t>& chunkSizes);
     // Close the transaction at its response timeout (no bytes observed unless
     // feedPartialBytes() was called first).
     void completeWithTimeout();

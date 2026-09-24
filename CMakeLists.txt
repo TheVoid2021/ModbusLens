@@ -708,6 +708,17 @@ if(BUILD_TESTING)
     add_test(NAME qml_production_write_check
         COMMAND modbuslens --qml-production-write-check)
 
+    # T023 / M10 correction read-result guard: the FC03 read-result surface
+    # (the Human discovery — a successful read said only 「成功」). Drives the
+    # SHIPPED QML with a harness transport that supplies exact observed bytes
+    # and asserts the summary/terminal states, the TX==preview==encoder
+    # identity, byte-for-byte RX fidelity, the CLASS-10 raw uint16 table, the
+    # frozen no-byte/disposition wording, the reachable bounded evidence
+    # dialog, and the 1000x700 geometry (incl. the 125-register table) that
+    # keeps the write panel inside the window.
+    add_test(NAME qml_read_result_check
+        COMMAND modbuslens --qml-read-result-check)
+
     # All QML gates above run under QT_QPA_PLATFORM=offscreen so they stay
     # headless-safe. Offscreen, however, does NOT use the shipped font
     # metrics: measured on the same binary, a line of text is 12px offscreen
@@ -739,7 +750,7 @@ if(BUILD_TESTING)
     # in the diagnostics text is invisible here while it still fails the
     # shipping gate (scripts/make_package.py minimal_path_run greps the
     # captured stdout+stderr of the extracted package).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
@@ -759,7 +770,7 @@ if(BUILD_TESTING)
     #   Unable to assign           : a failed binding assigning undefined to a
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_write_foundation_check_windows PROPERTIES
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign"
     )
 endif()

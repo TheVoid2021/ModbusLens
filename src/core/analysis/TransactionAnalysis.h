@@ -5,6 +5,7 @@
 #include <optional>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 #include "core/protocol/Function03.h"
 #include "core/protocol/ModbusRtuCodec.h"
@@ -140,6 +141,36 @@ struct TransactionAnalysis {
     // a ProtocolError WITHOUT an issue must be rendered by omitting the
     // detail — never by guessing a reason.
     std::optional<TransactionIssue> issue;
+
+    // -----------------------------------------------------------------------
+    // T023 / M10 correction (append-last): the RAW register payload of a
+    // SUCCESSFUL Function 0x03 read.
+    //
+    // Why it exists: a successful FC03 read is worth nothing to the user
+    // unless the values that came back can be observed. Until now the decoded
+    // values lived only inside analyzeFunction03Transaction and were destroyed
+    // on return, so "Success" was uninterpretable — the one real core-side gap
+    // the T023 audit found (§2.2 #5 / GAP-1).
+    //
+    // Production invariant (locked by tests): present IF AND ONLY IF
+    //   · the analyzed function is 0x03 (Read Holding Registers), AND
+    //   · the response frame passed EVERY pairing/decoding gate —
+    //     device address PASS, function 0x03 PASS, response decodable
+    //     (byteCount/length PASS), CRC already verified upstream, AND
+    //   · the decoded value count equals the request quantity, AND
+    //   · the final status is Success.
+    // Every other status (Pending / Timeout / CrcError / Exception /
+    // ProtocolError / ExpectedNoResponse) leaves it nullopt — no exception is
+    // ever made for a "looks like a number" byte pair (T023 READ-RX-5:
+    // presenting an unverified value would be fabricating device content).
+    //
+    // RAW ONLY. The values are the protocol-level uint16 words exactly as
+    // decoded from the wire (big-endian pairs). This field deliberately
+    // carries NO interpretation of any kind: no int16 / uint32 / float, no
+    // word or byte order, no scaling, no unit, no alias, no device register
+    // map. Those belong to M11 (Register Readout & Decode) and must never be
+    // folded in here (T023 §14 M11-B3/B4).
+    std::vector<std::uint16_t> values;
 
     bool operator==(const TransactionAnalysis&) const = default;
 };

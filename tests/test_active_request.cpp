@@ -390,7 +390,8 @@ void ActiveRequestTest::ac10_resultEvidenceAndDispositionTokens()
         .analysis = TransactionAnalysis{.status = TransactionStatus::CrcError,
                                         .elapsed = ms{25},
                                         .exceptionCode = std::nullopt,
-                                        .issue = std::nullopt},
+                                        .issue = std::nullopt,
+                                        .values = {}},
     };
 
     // Evidence is a pure projection of the result: exact request ADU (CRC

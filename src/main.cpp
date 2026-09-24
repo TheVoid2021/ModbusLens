@@ -4950,6 +4950,57 @@ public:
         }
     }
 
+    // ---- T023 `--qml-read-result-check`: exact-byte READ stimulus ----
+    // End the accepted FC03 read with EXACTLY these observed bytes. The
+    // observation is retained FIRST (the production adapter's order), then the
+    // SHIPPED session/analyzer decides everything: a complete candidate frame
+    // is judged on arrival, while an incomplete/oversized buffer is closed at
+    // the response timeout so the WHOLE observed byte run is decoded — never
+    // truncated, never discarded. The harness supplies the observation only.
+    void completeReadWithBytes(std::vector<std::uint8_t> response,
+                               std::chrono::milliseconds elapsed)
+    {
+        using modbuslens::core::ActiveTransactionResult;
+        using modbuslens::core::SerialTransactionError;
+        using modbuslens::core::SerialTransactionSession;
+        using modbuslens::core::TransactionAnalysis;
+
+        if (!pending_.has_value()
+            || pending_->intent.function
+                != modbuslens::core::ActiveFunction::ReadHoldingRegisters) {
+            return;
+        }
+        SerialTransactionSession session;
+        const auto begin = session.beginActiveRequest(*pending_);
+        if (std::get_if<SerialTransactionError>(&begin) != nullptr) {
+            return;
+        }
+        observed_ = response;
+        std::optional<TransactionAnalysis> analysis;
+        const auto fed = session.feedResponseBytes(response, elapsed);
+        if (const auto* landed = std::get_if<TransactionAnalysis>(&fed)) {
+            analysis = *landed;
+        } else {
+            // Not a complete candidate: close at the response timeout so the
+            // analyzer decodes the ENTIRE observed buffer (partial / oversized).
+            const auto closed = session.onResponseTimeout(elapsed);
+            if (const auto* landed = std::get_if<TransactionAnalysis>(&closed)) {
+                analysis = *landed;
+            }
+        }
+        if (!analysis.has_value()) {
+            return;
+        }
+        const auto finished = *pending_;
+        pending_.reset();
+        emit transactionCompleted(ActiveTransactionResult{
+            .request = finished,
+            .responseAdu = response,
+            .disposition = modbuslens::core::TransportDisposition::PossiblySent,
+            .analysis = *analysis,
+        });
+    }
+
     // ---- M10-E4: fatal LOCAL adapter removal ----
     // The USB serial adapter itself was unplugged. Same order and semantics as
     // the production adapter's fatal-port-error branch: a SUBMITTED request
@@ -9802,6 +9853,924 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
+// ===========================================================================
+// T023 / M10 correction `--qml-read-result-check`: the FC03 READ-RESULT
+// observability gate.
+//
+// WHY IT EXISTS: Human's discovery on the M10-F build was that a SUCCESSFUL
+// holding-register read said only 「成功」 — the values, the actual bytes and
+// the request parameters were all unobservable, so the result could not be
+// interpreted at all. T023 froze the contract; this gate is its runtime half.
+//
+// ARCHITECTURE: identical to the other QML harness modes — the real
+// application, the real shipped QML, and a harness-only transport that
+// supplies EXACTLY the observed bytes (or their absence). Every verdict still
+// comes from the shipped core session + analyzer; the harness never decides an
+// outcome and never fabricates one.
+//
+// Coverage (T023 §7 §10 §12 §19 §29):
+//   · summary state: 尚无 / 等待响应 / each terminal class, exactly one
+//   · detail accessibility: the entry point opens the bounded evidence dialog
+//   · TX projection: presented TX == the production preview encoder's bytes
+//   · RX projection: presented RX == the injected bytes, byte for byte
+//   · CLASS-10 raw registers: value table == request quantity, address/dec/hex
+//   · CLASS-01/02/03/04/05/06/07/08 terminals end to end
+//   · 1000x700 geometry incl. the 125-register evidence dialog
+//
+// CLASS-09 (无法识别的响应) is NOT reachable from any wire input: the shipped
+// FC03 analyzer attaches a deterministic issue to every ProtocolError it can
+// produce, so the unknown class exists only as a defensive/fallback branch
+// (T023 UNK-1/UNK-4). It is therefore NOT faked here — the contract is
+// asserted where it is real: `classifyFc03ReadResult` is driven directly with
+// the two documented defensive inputs (unit tests). Fabricating a wire
+// scenario for it would be exactly the "dead assertion" T023 READ-T-4 warns
+// about.
+// ===========================================================================
+int runReadResultCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *controller = qobject_cast<AnalysisController *>(
+        rootObj ? rootObj->findChild<QObject *>(QStringLiteral("analysisController"))
+                : nullptr);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    if (!controller || !window) {
+        qWarning() << "READFAIL: no controller/window";
+        return 1;
+    }
+
+    auto *transport = new HarnessWriteTransport(&app);
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &line) { qInfo().noquote() << line; };
+
+    auto itemOf = [&roots](const QString &name) {
+        return qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+    };
+    auto textOf = [&itemOf](const QString &name) {
+        auto *item = itemOf(name);
+        return item ? item->property("text").toString() : QStringLiteral("<none>");
+    };
+    auto visibleOf = [&itemOf](const QString &name, const char *prop = "visible") {
+        auto *item = itemOf(name);
+        return item ? item->property(prop).toBool() : false;
+    };
+    // The Dialog is a Popup (a QObject, not a QQuickItem) so it is reached
+    // through the QObject tree; its inner Labels ARE QQuickItems and are found
+    // by findNamedItem once it is open.
+    auto dialogOf = [rootObj]() -> QObject * {
+        return rootObj ? rootObj->findChild<QObject *>(QStringLiteral("readResultDialog"))
+                       : nullptr;
+    };
+    auto sceneRectOf = [&itemOf](const QString &name) -> QRectF {
+        auto *item = itemOf(name);
+        if (!item)
+            return QRectF();
+        return QRectF(item->mapToScene(QPointF(0.0, 0.0)),
+                      QSizeF(item->width(), item->height()));
+    };
+    auto windowRect = [window]() {
+        return QRectF(0.0, 0.0, qreal(window->width()), qreal(window->height()));
+    };
+    auto insideWindow = [&windowRect](const QRectF &r) {
+        return windowRect().adjusted(-0.5, -0.5, 0.5, 0.5).contains(r);
+    };
+    auto rectsIntersect = [](const QRectF &a, const QRectF &b) {
+        return a.isValid() && b.isValid() && a.intersects(b);
+    };
+    // A control is reachable at a size only if its scene rect lies inside the
+    // window's content rect (tolerance 0.5px = layout rounding, not a clip).
+    auto assertReachable = [&](const QString &label, const QString &name) {
+        auto *item = itemOf(name);
+        if (!item) {
+            fail(QStringLiteral("READFAIL geometry %1: %2 does not exist")
+                     .arg(label, name));
+            return;
+        }
+        if (!item->isVisible()) {
+            fail(QStringLiteral("READFAIL geometry %1: %2 is not visible")
+                     .arg(label, name));
+            return;
+        }
+        if (item->width() <= 1.0 || item->height() <= 1.0) {
+            fail(QStringLiteral("READFAIL geometry %1: %2 has no usable size "
+                                "(%3x%4)")
+                     .arg(label, name)
+                     .arg(item->width())
+                     .arg(item->height()));
+            return;
+        }
+        const QRectF r = sceneRectOf(name);
+        if (!insideWindow(r))
+            fail(QStringLiteral("READFAIL geometry %1: %2 is clipped by the "
+                                "window (scene %3,%4 %5x%6 vs window %7x%8)")
+                     .arg(label, name)
+                     .arg(qRound(r.x()))
+                     .arg(qRound(r.y()))
+                     .arg(qRound(r.width()))
+                     .arg(qRound(r.height()))
+                     .arg(window->width())
+                     .arg(window->height()));
+    };
+    // The read-result names are added to a dump of the whole request/write
+    // column so a regression is legible instead of a bare boolean.
+    auto dumpReadGeometry = [&](const QString &label) {
+        const QStringList names = {
+            QStringLiteral("communicationRequestSection"),
+            QStringLiteral("readResultPanel"),
+            QStringLiteral("readResultSummary"),
+            QStringLiteral("readResultSummaryFact"),
+            QStringLiteral("readResultDetailsButton"),
+            QStringLiteral("commReadButton"),
+            QStringLiteral("writeFoundationPanel"),
+            QStringLiteral("writeValidationError"),
+            QStringLiteral("writeActivateButton")};
+        QStringList parts;
+        for (const QString &n : names) {
+            auto *item = itemOf(n);
+            if (!item || !item->isVisible()) {
+                parts << n + QStringLiteral("=<hidden>");
+                continue;
+            }
+            const QPointF p = item->mapToScene(QPointF(0.0, 0.0));
+            parts << QStringLiteral("%1=(%2,%3 %4x%5)")
+                         .arg(n)
+                         .arg(qRound(p.x()))
+                         .arg(qRound(p.y()))
+                         .arg(qRound(item->width()))
+                         .arg(qRound(item->height()));
+        }
+        note(QStringLiteral("READ [geometry %1]: window=%2x%3 %4")
+                 .arg(label)
+                 .arg(window->width())
+                 .arg(window->height())
+                 .arg(parts.join(QStringLiteral(" "))));
+    };
+
+    // ---- read-result observation helpers (all read the shipped projection) ----
+    auto scanRead = [&](int unit, int start, int quantity, int timeoutMs) {
+        // Manual completion: the WAITING state must be observable before any
+        // terminal exists (T023 §19).
+        transport->setCompleteReadImmediately(false);
+        controller->readHoldingRegistersOnce(unit, start, quantity, timeoutMs);
+    };
+    auto assertSummary = [&](const QString &label,
+                             const QString &expectedSummary,
+                             const QString &expectedTitle) {
+        const QString summary = textOf(QStringLiteral("readResultSummary"));
+        const QString title = controller->readResultTitle();
+        if (summary != expectedSummary)
+            fail(QStringLiteral("READFAIL %1: summary is [%2], expected [%3]")
+                     .arg(label, summary, expectedSummary));
+        if (title != expectedTitle)
+            fail(QStringLiteral("READFAIL %1: title is [%2], expected [%3]")
+                     .arg(label, title, expectedTitle));
+    };
+    auto assertNoValues = [&](const QString &label) {
+        if (controller->readResultHasValues())
+            fail(QStringLiteral("READFAIL %1: a register value table is present "
+                                "outside CLASS-10").arg(label));
+        if (!controller->readResultValues().isEmpty())
+            fail(QStringLiteral("READFAIL %1: value rows exist outside "
+                                "CLASS-10").arg(label));
+        if (controller->readResultValueCount() != 0)
+            fail(QStringLiteral("READFAIL %1: value count is %2, expected 0")
+                     .arg(label)
+                     .arg(controller->readResultValueCount()));
+    };
+    auto assertRxBytes = [&](const QString &label,
+                             const std::vector<std::uint8_t> &injected) {
+        const QString expected = evidenceHexText(injected);
+        const QString actual = controller->readResultRxHex();
+        if (actual != expected)
+            fail(QStringLiteral("READFAIL %1: RX bytes are [%2], expected [%3]")
+                     .arg(label, actual, expected));
+        if (controller->readResultRxByteCount() != int(injected.size()))
+            fail(QStringLiteral("READFAIL %1: RX byte count is %2, expected %3")
+                     .arg(label)
+                     .arg(controller->readResultRxByteCount())
+                     .arg(injected.size()));
+    };
+
+    // The FC03 request frame for (unit, start, quantity) as the SHIPPED
+    // encoder produces it — the same encoder the preview and the dispatch use
+    // (T023 READ-R1: PREVIEW == WIRE by construction).
+    auto requestWire = [](int unit, int start, int quantity) {
+        return modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
+            .address = static_cast<std::uint8_t>(unit),
+            .functionCode = 0x03,
+            .data = {static_cast<std::uint8_t>(start >> 8),
+                     static_cast<std::uint8_t>(start & 0xFF),
+                     static_cast<std::uint8_t>(quantity >> 8),
+                     static_cast<std::uint8_t>(quantity & 0xFF)}});
+    };
+    // A conforming FC03 answer carrying `values` (big-endian pairs).
+    auto responseWith = [](int unit,
+                           const std::vector<std::uint16_t> &values) {
+        std::vector<std::uint8_t> data;
+        data.push_back(static_cast<std::uint8_t>(values.size() * 2));
+        for (const std::uint16_t value : values) {
+            data.push_back(static_cast<std::uint8_t>(value >> 8));
+            data.push_back(static_cast<std::uint8_t>(value & 0xFF));
+        }
+        return modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
+            .address = static_cast<std::uint8_t>(unit),
+            .functionCode = 0x03,
+            .data = std::move(data)});
+    };
+
+    controller->setSerialTransport(transport);
+    controller->connectSerial(QStringLiteral("COM_READ_HARNESS"), 9600);
+
+    // ---- staged walk (one stage per event-loop turn) ----
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+    auto settleMs = 100;
+
+    auto clickNamed = [&roots, &window = *window](const QString &name) {
+        auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window.mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global, Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global, Qt::LeftButton,
+                            Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &release);
+        return true;
+    };
+
+    // ---- setup ----
+    push([&]() {
+        if (!itemOf(QStringLiteral("readResultPanel"))) {
+            fail(QStringLiteral("READFAIL setup: readResultPanel does not exist "
+                                "on the Communication page"));
+            return;
+        }
+        if (!clickNamed(QStringLiteral("navItem_2")))
+            fail(QStringLiteral("READFAIL setup: the Communication rail entry is "
+                                "not clickable"));
+    });
+    push([&]() {
+        if (!controller->serialConnected())
+            fail(QStringLiteral("READFAIL setup: the harness transport is not "
+                                "connected"));
+        note(QStringLiteral("READ [setup]: Communication current, harness "
+                            "transport connected, session=%1")
+                 .arg(controller->activeSerialSessionId()));
+    });
+
+    // ---- A. empty state ----
+    push([&]() {
+        if (controller->hasReadResult())
+            fail(QStringLiteral("READFAIL A: a read result exists before any "
+                                "read"));
+        assertSummary(QStringLiteral("A empty"),
+                      QStringLiteral("读取结果：尚无"),
+                      QStringLiteral("尚无读取结果"));
+        if (visibleOf(QStringLiteral("readResultDetailsButton")))
+            fail(QStringLiteral("READFAIL A: the details entry is offered with "
+                                "no result to expand"));
+        assertNoValues(QStringLiteral("A empty"));
+        note(QStringLiteral("READ [A]: summary=[读取结果：尚无], details entry "
+                            "hidden, no value table"));
+    });
+
+    // ---- B. CLASS-01 请求未发送 (local validation guard) ----
+    push([&]() { controller->readHoldingRegistersOnce(0, 0, 2, 1000); });
+    push([&]() {
+        // T023 §29: a local rejection produces NO session record and NO
+        // terminal — the attempt never entered the transmission lifecycle.
+        if (controller->activeSerialRecordCount() != 0
+            || controller->activeSerialTerminalCount() != 0)
+            fail(QStringLiteral("READFAIL B: a local rejection produced %1 "
+                                "record(s) / %2 terminal(s)")
+                     .arg(controller->activeSerialRecordCount())
+                     .arg(controller->activeSerialTerminalCount()));
+        const auto klass = controller->readResultClass();
+        if (klass != ReadResultClass::LocalRejected)
+            fail(QStringLiteral("READFAIL B: class=%1, expected local_rejected")
+                     .arg(controller->readResultClassToken()));
+        assertSummary(QStringLiteral("B local rejection"),
+                      QStringLiteral("读取结果：请求未发送"),
+                      QStringLiteral("请求未发送"));
+        if (controller->readResultHasTx() || controller->readResultHasRx())
+            fail(QStringLiteral("READFAIL B: a locally rejected request has wire "
+                                "bytes"));
+        if (controller->readResultDispositionText() != QStringLiteral("未发送"))
+            fail(QStringLiteral("READFAIL B: disposition is [%1], expected [未发送]")
+                     .arg(controller->readResultDispositionText()));
+        if (controller->readResultFactLine().isEmpty())
+            fail(QStringLiteral("READFAIL B: the guard's own message is not "
+                                "presented"));
+        if (!controller->readResultHasPossibleCauses())
+            fail(QStringLiteral("READFAIL B: no 可能原因 line for a local "
+                                "rejection"));
+        assertNoValues(QStringLiteral("B"));
+        note(QStringLiteral("READ [B/CLASS-01]: [%1] / %2")
+                 .arg(controller->readResultFactLine(),
+                      controller->readResultDispositionText()));
+    });
+
+    // ---- C. §19 waiting state, then CLASS-10 success ----
+    push([&]() { scanRead(1, 1000, 2, 1000); });
+    push([&]() {
+        if (!controller->readResultWaiting())
+            fail(QStringLiteral("READFAIL C: the accepted read is not in the "
+                                "waiting state"));
+        assertSummary(QStringLiteral("C waiting"),
+                      QStringLiteral("读取结果：等待响应"),
+                      QStringLiteral("等待响应"));
+        if (controller->readResultHasValues())
+            fail(QStringLiteral("READFAIL C: a waiting state shows values"));
+        // T023 READ-R7: nothing observed yet is stated, never an empty string.
+        if (controller->readResultRxText() != QStringLiteral("未观测到任何字节"))
+            fail(QStringLiteral("READFAIL C: RX text is [%1], expected "
+                                "[未观测到任何字节]")
+                     .arg(controller->readResultRxText()));
+        if (controller->readResultRxByteCount() != 0)
+            fail(QStringLiteral("READFAIL C: a waiting state reports bytes"));
+        if (controller->readResultTone() != QStringLiteral("neutral"))
+            fail(QStringLiteral("READFAIL C: waiting tone is [%1], expected "
+                                "neutral").arg(controller->readResultTone()));
+        // READ-R1: the WAITING TX is the send-time descriptor wire, which is
+        // the same encoder output the preview shows (PREVIEW == WIRE).
+        const QString previewWire =
+            controller->previewReadRequest(1, 1000, 2, 1000)
+                .value(QStringLiteral("rtuHex")).toString();
+        const QString presentedTx = controller->readResultTxHex();
+        const QString expectedTx = evidenceHexText(requestWire(1, 1000, 2));
+        if (previewWire != expectedTx)
+            fail(QStringLiteral("READFAIL C: preview wire is [%1] but the "
+                                "encoder produces [%2]")
+                     .arg(previewWire, expectedTx));
+        if (presentedTx != expectedTx)
+            fail(QStringLiteral("READFAIL C: presented TX is [%1], expected [%2]")
+                     .arg(presentedTx, expectedTx));
+        note(QStringLiteral("READ [C waiting]: summary=[读取结果：等待响应], TX=[%1] "
+                            "(== preview == encoder), RX=[未观测到任何字节]")
+                 .arg(presentedTx));
+    });
+    push([&]() {
+        transport->completeReadWithBytes(responseWith(1, {0x0064, 0x00C8}),
+                                         std::chrono::milliseconds{25});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::ReadSuccess)
+            fail(QStringLiteral("READFAIL C: class=%1, expected read_success")
+                     .arg(controller->readResultClassToken()));
+        if (controller->readResultWaiting())
+            fail(QStringLiteral("READFAIL C: the waiting state survived the "
+                                "terminal"));
+        // T023 §29: exactly ONE terminal per read — one session record, one
+        // waiting→terminal replacement, no second capture.
+        if (controller->activeSerialRecordCount() != 1
+            || controller->activeSerialTerminalCount() != 0)
+            fail(QStringLiteral("READFAIL C: the read produced %1 record(s) / %2 "
+                                "terminal(s), expected exactly one terminal")
+                     .arg(controller->activeSerialRecordCount())
+                     .arg(controller->activeSerialTerminalCount()));
+        assertSummary(QStringLiteral("C success"),
+                      QStringLiteral("读取结果：读取成功"),
+                      QStringLiteral("读取成功"));
+        if (controller->readResultTone() != QStringLiteral("success"))
+            fail(QStringLiteral("READFAIL C: success tone is [%1]")
+                     .arg(controller->readResultTone()));
+        // Request echo (the parameter half of Human's discovery).
+        if (controller->readResultUnitId() != 1
+            || controller->readResultStartAddress() != 1000
+            || controller->readResultStartAddressHex() != QStringLiteral("0x03E8")
+            || controller->readResultQuantity() != 2
+            || controller->readResultTimeoutMs() != 1000)
+            fail(QStringLiteral("READFAIL C: request echo is %1 / %2 (%3) / %4 / "
+                                "%5 ms")
+                     .arg(controller->readResultUnitId())
+                     .arg(controller->readResultStartAddress())
+                     .arg(controller->readResultStartAddressHex())
+                     .arg(controller->readResultQuantity())
+                     .arg(controller->readResultTimeoutMs()));
+        // READ-R4: the value table is the RAW uint16 payload, index + address
+        // (DEC + HEX) + value (DEC + HEX). Both registers must be present.
+        if (!controller->readResultHasValues()
+            || controller->readResultValueCount() != 2)
+            fail(QStringLiteral("READFAIL C: value count is %1, expected 2")
+                     .arg(controller->readResultValueCount()));
+        else {
+            const QVariantList rows = controller->readResultValues();
+            const auto row = [&rows](int i) { return rows.at(i).toMap(); };
+            const auto checkRow = [&](int i, int index, int address,
+                                      const QString &addressHex, int dec,
+                                      const QString &hex) {
+                const QVariantMap r = row(i);
+                if (r.value(QStringLiteral("index")).toInt() != index
+                    || r.value(QStringLiteral("address")).toInt() != address
+                    || r.value(QStringLiteral("addressHex")).toString() != addressHex
+                    || r.value(QStringLiteral("dec")).toInt() != dec
+                    || r.value(QStringLiteral("hex")).toString() != hex)
+                    fail(QStringLiteral("READFAIL C: value row %1 is [%2], "
+                                        "expected idx=%3 addr=%4 (%5) dec=%6 (%7)")
+                             .arg(i + 1)
+                             .arg(r.value(QStringLiteral("addressHex")).toString())
+                             .arg(index)
+                             .arg(address)
+                             .arg(addressHex)
+                             .arg(dec)
+                             .arg(hex));
+            };
+            checkRow(0, 1, 1000, QStringLiteral("0x03E8"), 100,
+                     QStringLiteral("0x0064"));
+            checkRow(1, 2, 1001, QStringLiteral("0x03E9"), 200,
+                     QStringLiteral("0x00C8"));
+        }
+        // READ-R2: the RX bytes presented are the injected ones, byte for byte.
+        assertRxBytes(QStringLiteral("C"),
+                      responseWith(1, {0x0064, 0x00C8}));
+        if (controller->readResultFactLine()
+            != QStringLiteral("共 2 个寄存器（耗时 25 ms）。"))
+            fail(QStringLiteral("READFAIL C: success fact is [%1]")
+                     .arg(controller->readResultFactLine()));
+        // READ-R6: PossiblySent is never presented as 「已发送」.
+        if (controller->readResultDispositionText()
+                != QStringLiteral("已提交传输（设备是否收到不可证）"))
+            fail(QStringLiteral("READFAIL C: disposition is [%1]")
+                     .arg(controller->readResultDispositionText()));
+        if (controller->readResultTxLine().contains(QStringLiteral("已发送")))
+            fail(QStringLiteral("READFAIL C: the TX line claims 已发送 — "
+                                "PossiblySent cannot prove the device received "
+                                "anything"));
+        note(QStringLiteral("READ [C/CLASS-10]: [%1] 值=100/200 地址=1000/1001 "
+                            "RX=%2")
+                 .arg(controller->readResultFactLine(),
+                      controller->readResultRxHex()));
+    });
+
+    // ---- C2. detail accessibility (the second half of the frozen IA) ----
+    push([&]() {
+        if (!visibleOf(QStringLiteral("readResultDetailsButton")))
+            fail(QStringLiteral("READFAIL C2: the details entry is hidden while a "
+                                "result exists"));
+        if (!clickNamed(QStringLiteral("readResultDetailsButton")))
+            fail(QStringLiteral("READFAIL C2: the details entry is not clickable"));
+    });
+    push([&]() {
+        auto *dialog = dialogOf();
+        if (!dialog) {
+            fail(QStringLiteral("READFAIL C2: readResultDialog does not exist"));
+            return;
+        }
+        if (!dialog->property("visible").toBool())
+            fail(QStringLiteral("READFAIL C2: clicking 查看详情 did not open the "
+                                "evidence dialog"));
+        if (textOf(QStringLiteral("readResultDetailTitle"))
+            != QStringLiteral("读取成功"))
+            fail(QStringLiteral("READFAIL C2: dialog title is [%1]")
+                     .arg(textOf(QStringLiteral("readResultDetailTitle"))));
+        if (!visibleOf(QStringLiteral("readResultRequestEcho")))
+            fail(QStringLiteral("READFAIL C2: the request echo is not visible"));
+        if (!textOf(QStringLiteral("readResultRequestEcho"))
+                 .contains(QStringLiteral("1000")))
+            fail(QStringLiteral("READFAIL C2: the request echo does not carry the "
+                                "PDU start address: [%1]")
+                     .arg(textOf(QStringLiteral("readResultRequestEcho"))));
+        const QString txText = textOf(QStringLiteral("readResultTxText"));
+        if (!txText.contains(evidenceHexText(requestWire(1, 1000, 2))))
+            fail(QStringLiteral("READFAIL C2: the TX bytes shown are [%1]")
+                     .arg(txText));
+        const QString rxText = textOf(QStringLiteral("readResultRxText"));
+        if (rxText != evidenceHexText(responseWith(1, {0x0064, 0x00C8})))
+            fail(QStringLiteral("READFAIL C2: the RX bytes shown are [%1]")
+                     .arg(rxText));
+        if (!textOf(QStringLiteral("readResultRxByteCount"))
+                 .contains(QStringLiteral("9")))
+            fail(QStringLiteral("READFAIL C2: the RX byte count line is [%1]")
+                     .arg(textOf(QStringLiteral("readResultRxByteCount"))));
+        if (!visibleOf(QStringLiteral("readResultValuesHeader")))
+            fail(QStringLiteral("READFAIL C2: the value table header is hidden "
+                                "for a success"));
+        if (!textOf(QStringLiteral("readResultValuesHeader"))
+                 .contains(QStringLiteral("2")))
+            fail(QStringLiteral("READFAIL C2: the value header is [%1]")
+                     .arg(textOf(QStringLiteral("readResultValuesHeader"))));
+        auto *values = itemOf(QStringLiteral("readResultValuesList"));
+        if (!values || !values->isVisible())
+            fail(QStringLiteral("READFAIL C2: the value table is not visible"));
+        else if (values->property("count").toInt() != 2)
+            fail(QStringLiteral("READFAIL C2: the value table lists %1 rows, "
+                                "expected 2")
+                     .arg(values->property("count").toInt()));
+        // A modal evidence view must never carry the "(no wire evidence)"
+        // disclaimer on an Active Serial result (T023 READ-TXN-5).
+        if (visibleOf(QStringLiteral("readResultNoEvidence")))
+            fail(QStringLiteral("READFAIL C2: the no-evidence disclaimer is shown "
+                                "for an Active Serial result"));
+        assertReachable(QStringLiteral("C2 dialog"),
+                        QStringLiteral("readResultDetailTitle"));
+        assertReachable(QStringLiteral("C2 dialog"),
+                        QStringLiteral("readResultDetailScroll"));
+        assertReachable(QStringLiteral("C2 dialog"),
+                        QStringLiteral("readResultDetailCloseButton"));
+        note(QStringLiteral("READ [C2]: evidence dialog opened from 查看详情 — "
+                            "title/RX/TX/values all reachable"));
+    });
+    push([&]() { clickNamed(QStringLiteral("readResultDetailCloseButton")); });
+    push([&]() {
+        auto *dialog = dialogOf();
+        if (dialog && dialog->property("visible").toBool())
+            fail(QStringLiteral("READFAIL C2: the evidence dialog did not close"));
+    });
+
+    // ---- D. CLASS-03 响应超时 (zero bytes observed) ----
+    push([&]() { scanRead(1, 0, 2, 1000); });
+    push([&]() {
+        transport->completeReadWithBytes({}, std::chrono::milliseconds{1000});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::TimeoutNoData)
+            fail(QStringLiteral("READFAIL D: class=%1, expected timeout_no_data")
+                     .arg(controller->readResultClassToken()));
+        assertSummary(QStringLiteral("D timeout"),
+                      QStringLiteral("读取结果：响应超时"),
+                      QStringLiteral("响应超时"));
+        // READ-R7 (frozen wording): empty RX is stated, never "" or 「空响应」.
+        if (controller->readResultRxText() != QStringLiteral("未观测到任何字节"))
+            fail(QStringLiteral("READFAIL D: RX text is [%1]")
+                     .arg(controller->readResultRxText()));
+        assertRxBytes(QStringLiteral("D"), {});
+        if (!controller->readResultFactLine().contains(
+                QStringLiteral("未观测到任何字节")))
+            fail(QStringLiteral("READFAIL D: fact is [%1]")
+                     .arg(controller->readResultFactLine()));
+        if (!controller->readResultHasPossibleCauses())
+            fail(QStringLiteral("READFAIL D: no 可能原因 line for a timeout"));
+        assertNoValues(QStringLiteral("D"));
+        note(QStringLiteral("READ [D/CLASS-03]: [%1]").arg(
+            controller->readResultFactLine()));
+    });
+
+    // ---- E. CLASS-04 响应不完整 (bytes below the minimum frame) ----
+    push([&]() { scanRead(1, 0, 2, 1000); });
+    push([&]() {
+        // Two bytes, then the response timeout: the SHIPPED session decodes the
+        // WHOLE observed buffer and reports FrameTooShort.
+        transport->completeReadWithBytes({0x01, 0x03},
+                                         std::chrono::milliseconds{1000});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::IncompleteResponse)
+            fail(QStringLiteral("READFAIL E: class=%1, expected "
+                                "incomplete_response")
+                     .arg(controller->readResultClassToken()));
+        assertSummary(QStringLiteral("E incomplete"),
+                      QStringLiteral("读取结果：响应不完整"),
+                      QStringLiteral("响应不完整"));
+        // READ-R2: the partial bytes are preserved, never truncated away.
+        assertRxBytes(QStringLiteral("E"), {0x01, 0x03});
+        assertNoValues(QStringLiteral("E"));
+        note(QStringLiteral("READ [E/CLASS-04]: [%1] RX=[%2]")
+                 .arg(controller->readResultFactLine(),
+                      controller->readResultRxHex()));
+    });
+
+    // ---- F. CLASS-05 从站异常 ----
+    push([&]() { scanRead(1, 0, 2, 1000); });
+    push([&]() {
+        const auto exception =
+            modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
+                .address = 0x01, .functionCode = 0x83, .data = {0x02}});
+        transport->completeReadWithBytes(exception,
+                                         std::chrono::milliseconds{25});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::DeviceException)
+            fail(QStringLiteral("READFAIL F: class=%1, expected device_exception")
+                     .arg(controller->readResultClassToken()));
+        assertSummary(QStringLiteral("F exception"),
+                      QStringLiteral("读取结果：从站异常"),
+                      QStringLiteral("从站异常"));
+        const QString fact = controller->readResultFactLine();
+        if (!fact.contains(QStringLiteral("0x02"))
+            || !fact.contains(QStringLiteral("非法数据地址")))
+            fail(QStringLiteral("READFAIL F: the exception fact is [%1]").arg(fact));
+        if (!controller->readResultHasPossibleCauses())
+            fail(QStringLiteral("READFAIL F: no 可能原因 line for an exception"));
+        assertNoValues(QStringLiteral("F"));
+        note(QStringLiteral("READ [F/CLASS-05]: [%1]").arg(fact));
+    });
+
+    // ---- G. CLASS-06 CRC 校验失败 ----
+    push([&]() { scanRead(1, 1000, 2, 1000); });
+    push([&]() {
+        // A frame of the correct length whose CRC byte was flipped: the session
+        // closes at the candidate boundary and the analyzer reports CrcError.
+        std::vector<std::uint8_t> corrupted = responseWith(1, {0x0064, 0x00C8});
+        corrupted.back() = static_cast<std::uint8_t>(corrupted.back() ^ 0xFF);
+        transport->completeReadWithBytes(corrupted,
+                                         std::chrono::milliseconds{25});
+    });
+    push([&]() {
+        std::vector<std::uint8_t> corrupted = responseWith(1, {0x0064, 0x00C8});
+        corrupted.back() = static_cast<std::uint8_t>(corrupted.back() ^ 0xFF);
+        if (controller->readResultClass() != ReadResultClass::CrcFailure)
+            fail(QStringLiteral("READFAIL G: class=%1, expected crc_failure")
+                     .arg(controller->readResultClassToken()));
+        assertSummary(QStringLiteral("G crc"),
+                      QStringLiteral("读取结果：CRC 校验失败"),
+                      QStringLiteral("CRC 校验失败"));
+        // READ-R2: a corrupted frame keeps EVERY byte it arrived with.
+        assertRxBytes(QStringLiteral("G"), corrupted);
+        assertNoValues(QStringLiteral("G"));
+        note(QStringLiteral("READ [G/CLASS-06]: [%1] RX=[%2]")
+                 .arg(controller->readResultFactLine(),
+                      controller->readResultRxHex()));
+    });
+
+    // ---- H. CLASS-07 响应不匹配 (another device answered) ----
+    push([&]() { scanRead(1, 1000, 2, 1000); });
+    push([&]() {
+        // Address 2 while the request addressed unit 1: a well-formed reply
+        // that belongs to somebody else's transaction.
+        transport->completeReadWithBytes(
+            responseWith(2, {0x0064, 0x00C8}), std::chrono::milliseconds{25});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::ResponseMismatch)
+            fail(QStringLiteral("READFAIL H: class=%1, expected "
+                                "response_mismatch")
+                     .arg(controller->readResultClassToken()));
+        assertSummary(QStringLiteral("H mismatch"),
+                      QStringLiteral("读取结果：响应不匹配"),
+                      QStringLiteral("响应不匹配"));
+        assertNoValues(QStringLiteral("H"));
+        note(QStringLiteral("READ [H/CLASS-07]: [%1]")
+                 .arg(controller->readResultFactLine()));
+    });
+
+    // ---- H2. CLASS-07 响应不匹配 (a well-formed reply with the wrong count) ----
+    push([&]() { scanRead(1, 1000, 4, 1000); });
+    push([&]() {
+        // Quantity 4 requested, 2 answered: the frame itself is legal, so the
+        // mismatch is a cross-frame fact, not a malformed frame.
+        transport->completeReadWithBytes(
+            responseWith(1, {0x0064, 0x00C8}), std::chrono::milliseconds{25});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::ResponseMismatch)
+            fail(QStringLiteral("READFAIL H2: class=%1, expected "
+                                "response_mismatch")
+                     .arg(controller->readResultClassToken()));
+        assertSummary(QStringLiteral("H2 quantity mismatch"),
+                      QStringLiteral("读取结果：响应不匹配"),
+                      QStringLiteral("响应不匹配"));
+        // The decoy: the bytes DO look like a register pair — and are still not
+        // presented as values (T023 READ-RX-5).
+        assertNoValues(QStringLiteral("H2"));
+        note(QStringLiteral("READ [H2/CLASS-07 quantity]: [%1] (payload kept "
+                            "uninterpreted)").arg(controller->readResultFactLine()));
+    });
+
+    // ---- I. CLASS-08 响应格式错误 ----
+    push([&]() { scanRead(1, 1000, 2, 1000); });
+    push([&]() {
+        // fc 0x03 with an ODD byte count: the frame decodes, its shape does not.
+        transport->completeReadWithBytes(
+            modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
+                .address = 0x01,
+                .functionCode = 0x03,
+                .data = {0x03, 0x00, 0x64, 0x00}}),
+            std::chrono::milliseconds{1000});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::MalformedResponse)
+            fail(QStringLiteral("READFAIL I: class=%1, expected "
+                                "malformed_response")
+                     .arg(controller->readResultClassToken()));
+        assertSummary(QStringLiteral("I malformed"),
+                      QStringLiteral("读取结果：响应格式错误"),
+                      QStringLiteral("响应格式错误"));
+        assertNoValues(QStringLiteral("I"));
+        note(QStringLiteral("READ [I/CLASS-08]: [%1]")
+                 .arg(controller->readResultFactLine()));
+    });
+
+    // ---- J. CLASS-02 传输失败 (a submitted read that never got an answer) ----
+    push([&]() { scanRead(1, 0, 2, 1000); });
+    push([&]() {
+        transport->simulateAdapterRemoval(
+            QStringLiteral("测试夹具：适配器已移除"));
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::TransportFailed)
+            fail(QStringLiteral("READFAIL J: class=%1, expected transport_failed")
+                     .arg(controller->readResultClassToken()));
+        assertSummary(QStringLiteral("J transport failure"),
+                      QStringLiteral("读取结果：传输失败"),
+                      QStringLiteral("传输失败"));
+        // T023 §29: the abort produced exactly ONE terminal and NO record —
+        // a transport abort is not a Modbus diagnosis.
+        if (controller->activeSerialTerminalCount() != 1)
+            fail(QStringLiteral("READFAIL J: %1 terminal(s) recorded, expected "
+                                "exactly 1")
+                     .arg(controller->activeSerialTerminalCount()));
+        if (controller->activeSerialRecordCount() != 8)
+            fail(QStringLiteral("READFAIL J: %1 record(s) after 8 completed "
+                                "reads and one abort")
+                     .arg(controller->activeSerialRecordCount()));
+        assertNoValues(QStringLiteral("J"));
+        note(QStringLiteral("READ [J/CLASS-02]: [%1]")
+                 .arg(controller->readResultFactLine()));
+        // Re-sync the harness transport for the geometry stage below.
+        controller->connectSerial(QStringLiteral("COM_READ_HARNESS"), 9600);
+    });
+    push([&]() {
+        if (!controller->serialConnected())
+            fail(QStringLiteral("READFAIL J: the harness did not reconnect"));
+    });
+
+    // ---- K. geometry @1024x720, then the 1000x700 acceptance minimum ----
+    push([&]() {
+        window->resize(1024, 720);
+        scanRead(1, 0, 125, 1000);
+    });
+    push([&]() {
+        std::vector<std::uint16_t> values;
+        values.reserve(125);
+        for (int i = 0; i < 125; ++i)
+            values.push_back(static_cast<std::uint16_t>(0x1000 + i));
+        transport->completeReadWithBytes(responseWith(1, values),
+                                         std::chrono::milliseconds{25});
+    });
+    push([&]() {
+        if (controller->readResultValueCount() != 125)
+            fail(QStringLiteral("READFAIL K: value count is %1, expected 125")
+                     .arg(controller->readResultValueCount()));
+        dumpReadGeometry(QStringLiteral("1024x720 125-reg"));
+        assertReachable(QStringLiteral("1024x720"),
+                        QStringLiteral("readResultPanel"));
+        assertReachable(QStringLiteral("1024x720"),
+                        QStringLiteral("readResultSummary"));
+        assertReachable(QStringLiteral("1024x720"),
+                        QStringLiteral("readResultDetailsButton"));
+        assertReachable(QStringLiteral("1024x720"),
+                        QStringLiteral("commReadButton"));
+        assertReachable(QStringLiteral("1024x720"),
+                        QStringLiteral("writeFoundationPanel"));
+    });
+    push([&]() { window->resize(1000, 700); });
+    push([&]() {
+        if (window->width() != 1000 || window->height() != 700)
+            fail(QStringLiteral("READFAIL K geometry 1000x700: the window is "
+                                "%1x%2 — the harness must not rely on the window "
+                                "growing itself")
+                     .arg(window->width())
+                     .arg(window->height()));
+        dumpReadGeometry(QStringLiteral("1000x700 125-reg"));
+        // T023 R9 / M10 §6: the new conclusion line, its detail entry point,
+        // the read action, and the write panel must ALL be inside the window.
+        assertReachable(QStringLiteral("1000x700"),
+                        QStringLiteral("readResultPanel"));
+        assertReachable(QStringLiteral("1000x700"),
+                        QStringLiteral("readResultSummary"));
+        assertReachable(QStringLiteral("1000x700"),
+                        QStringLiteral("readResultSummaryFact"));
+        assertReachable(QStringLiteral("1000x700"),
+                        QStringLiteral("readResultDetailsButton"));
+        assertReachable(QStringLiteral("1000x700"),
+                        QStringLiteral("commReadButton"));
+        assertReachable(QStringLiteral("1000x700"),
+                        QStringLiteral("writeFoundationPanel"));
+        assertReachable(QStringLiteral("1000x700"),
+                        QStringLiteral("writeActivateButton"));
+        // The write panel's bottom edge is the ISSUE-016/018 regression line:
+        // the read-result row sits directly above it and must not push it out.
+        const QRectF writePanel =
+            sceneRectOf(QStringLiteral("writeFoundationPanel"));
+        if (writePanel.isValid()
+            && writePanel.bottom() > qreal(window->height()) + 0.5)
+            fail(QStringLiteral("READFAIL K geometry 1000x700: the write panel "
+                                "bottom is %1 > %2 (the read-result row pushed it "
+                                "out of the window)")
+                     .arg(qRound(writePanel.bottom()))
+                     .arg(window->height()));
+        // No overlap between the new row and the write validation message.
+        const QRectF readRow = sceneRectOf(QStringLiteral("readResultPanel"));
+        if (rectsIntersect(readRow,
+                           sceneRectOf(QStringLiteral("writeFoundationPanel"))))
+            fail(QStringLiteral("READFAIL K geometry 1000x700: the read-result "
+                                "row overlaps the write panel"));
+        if (visibleOf(QStringLiteral("writeValidationError"))
+            && rectsIntersect(
+                readRow, sceneRectOf(QStringLiteral("writeValidationError"))))
+            fail(QStringLiteral("READFAIL K geometry 1000x700: the read-result "
+                                "row overlaps the write validation message"));
+        note(QStringLiteral("READ [K geometry]: every read-result control and the "
+                            "write panel are inside 1000x700"));
+    });
+    // The 125-register evidence view at the acceptance minimum: the dialog is
+    // bounded and scrollable, so its content can never grow the page.
+    push([&]() { clickNamed(QStringLiteral("readResultDetailsButton")); });
+    push([&]() {
+        auto *dialog = dialogOf();
+        if (!dialog || !dialog->property("visible").toBool()) {
+            fail(QStringLiteral("READFAIL K: the evidence dialog did not open at "
+                                "1000x700"));
+            return;
+        }
+        assertReachable(QStringLiteral("1000x700 dialog"),
+                        QStringLiteral("readResultDetailTitle"));
+        assertReachable(QStringLiteral("1000x700 dialog"),
+                        QStringLiteral("readResultDetailScroll"));
+        assertReachable(QStringLiteral("1000x700 dialog"),
+                        QStringLiteral("readResultDetailCloseButton"));
+        auto *values = itemOf(QStringLiteral("readResultValuesList"));
+        if (!values || !values->isVisible())
+            fail(QStringLiteral("READFAIL K: the 125-register table is not "
+                                "visible at 1000x700"));
+        else if (values->property("count").toInt() != 125)
+            fail(QStringLiteral("READFAIL K: the table lists %1 rows, expected "
+                                "125").arg(values->property("count").toInt()));
+        else if (values->property("contentHeight").toReal()
+                 <= values->property("height").toReal() + 1.0)
+            fail(QStringLiteral("READFAIL K: the 125-register table is not "
+                                "scrollable (contentHeight=%1, height=%2)")
+                     .arg(values->property("contentHeight").toReal())
+                     .arg(values->property("height").toReal()));
+        // The evidence dialog must be bounded: the write panel keeps its
+        // geometry while it is open.
+        const QRectF writePanel =
+            sceneRectOf(QStringLiteral("writeFoundationPanel"));
+        if (writePanel.isValid()
+            && writePanel.bottom() > qreal(window->height()) + 0.5)
+            fail(QStringLiteral("READFAIL K: the write panel left the window "
+                                "while the evidence dialog was open (%1 > %2)")
+                     .arg(qRound(writePanel.bottom()))
+                     .arg(window->height()));
+        note(QStringLiteral("READ [K dialog]: 125-register evidence view reachable "
+                            "and scrollable at 1000x700"));
+    });
+    push([&]() { clickNamed(QStringLiteral("readResultDetailCloseButton")); });
+    push([&]() { window->resize(1024, 720); });
+
+    // ---- L. source identity: the result is never fabricated for a source
+    //         that has no wire evidence ----
+    push([&]() { controller->runDemoBatch(); });
+    push([&]() {
+        if (controller->hasReadResult())
+            fail(QStringLiteral("READFAIL L: an Active Serial read result survived "
+                                "the switch to the Simulator source"));
+        if (controller->readResultHasTx() || controller->readResultHasRx())
+            fail(QStringLiteral("READFAIL L: hex bytes exist under the Simulator "
+                                "source"));
+        if (!controller->readResultValues().isEmpty())
+            fail(QStringLiteral("READFAIL L: values exist under the Simulator "
+                                "source"));
+        if (!controller->readResultAwaitingEvidenceSource())
+            fail(QStringLiteral("READFAIL L: the projection does not report a "
+                                "source without wire evidence"));
+        if (textOf(QStringLiteral("readResultSummary"))
+            != QStringLiteral("读取结果：尚无"))
+            fail(QStringLiteral("READFAIL L: summary is [%1]")
+                     .arg(textOf(QStringLiteral("readResultSummary"))));
+        note(QStringLiteral("READ [L]: the read result is cleared with its source "
+                            "and no hex is fabricated for Simulator/Replay"));
+    });
+
+    // ---- driver ----
+    auto step = std::make_shared<int>(0);
+    auto schedule = std::make_shared<std::function<void()>>();
+    *schedule = [&]() {
+        if (*step >= steps->size()) {
+            if (failures->isEmpty())
+                qInfo() << "READ RESULT CHECK PASS (T023): summary states "
+                           "(尚无 / 等待响应 / CLASS-01..08 / CLASS-10); TX == "
+                           "preview == encoder; RX byte-for-byte fidelity "
+                           "(partial / corrupted / oversized); CLASS-10 raw "
+                           "uint16 table with index+address; no values outside "
+                           "CLASS-10; frozen wording (未观测到任何字节 / 未发送 / "
+                           "已提交传输, never 已发送); evidence dialog reachable and "
+                           "bounded; 1000x700 geometry incl. the 125-register "
+                           "table; no wire evidence fabricated for Simulator. "
+                           "CLASS-09 无法识别的响应 is a defensive/fallback class "
+                           "with NO reachable wire input, so it is asserted at "
+                           "the mapping layer (classifyFc03ReadResult) instead of "
+                           "being faked here.";
+            else
+                for (const QString &f : *failures)
+                    qWarning().noquote() << "READFAIL:" << f;
+            app.exit(failures->isEmpty() ? 0 : 1);
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
 // M9-F F1 `--qml-focus-check`: keyboard focus / traversal guard for the
 // shell. Same architecture as the other QML harness modes: the REAL app
 // loads its own shipped QML and drives it through the same synthetic event
@@ -10045,7 +11014,8 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 .status = status,
                 .elapsed = std::chrono::milliseconds{elapsedMs},
                 .exceptionCode = std::nullopt,
-                .issue = std::nullopt},
+                .issue = std::nullopt,
+                .values = {}},
         });
         return true;
     };
@@ -12549,6 +13519,13 @@ int main(int argc, char *argv[])
     // thing under test.
     if (app.arguments().contains(QStringLiteral("--qml-production-write-check"))) {
         return runProductionWriteCheck(engine, app);
+    }
+
+    // T023 READ-RESULT harness. Like the production-write harness it does NOT
+    // pass --qml-write-foundation-check: the read-result row and the write
+    // panel are measured in the configuration the product actually ships.
+    if (app.arguments().contains(QStringLiteral("--qml-read-result-check"))) {
+        return runReadResultCheck(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.

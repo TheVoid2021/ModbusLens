@@ -109,6 +109,196 @@ QString issueDetailText(const modbuslens::core::TransactionAnalysis& analysis)
     return QString();
 }
 
+QString readResultClassMachineToken(ReadResultClass resultClass)
+{
+    switch (resultClass) {
+    case ReadResultClass::LocalRejected:
+        return QStringLiteral("local_rejected");
+    case ReadResultClass::TransportFailed:
+        return QStringLiteral("transport_failed");
+    case ReadResultClass::TimeoutNoData:
+        return QStringLiteral("timeout_no_data");
+    case ReadResultClass::IncompleteResponse:
+        return QStringLiteral("incomplete_response");
+    case ReadResultClass::DeviceException:
+        return QStringLiteral("device_exception");
+    case ReadResultClass::CrcFailure:
+        return QStringLiteral("crc_failure");
+    case ReadResultClass::ResponseMismatch:
+        return QStringLiteral("response_mismatch");
+    case ReadResultClass::MalformedResponse:
+        return QStringLiteral("malformed_response");
+    case ReadResultClass::UnknownResponse:
+        return QStringLiteral("unknown_response");
+    case ReadResultClass::ReadSuccess:
+        return QStringLiteral("read_success");
+    }
+    return QStringLiteral("unknown_response");
+}
+
+// FROZEN user-visible titles (T023 DECISION 3). Verbatim contract.
+QString readResultClassTitle(ReadResultClass resultClass)
+{
+    switch (resultClass) {
+    case ReadResultClass::LocalRejected:
+        return QStringLiteral("请求未发送");
+    case ReadResultClass::TransportFailed:
+        return QStringLiteral("传输失败");
+    case ReadResultClass::TimeoutNoData:
+        return QStringLiteral("响应超时");
+    case ReadResultClass::IncompleteResponse:
+        return QStringLiteral("响应不完整");
+    case ReadResultClass::DeviceException:
+        return QStringLiteral("从站异常");
+    case ReadResultClass::CrcFailure:
+        return QStringLiteral("CRC 校验失败");
+    case ReadResultClass::ResponseMismatch:
+        return QStringLiteral("响应不匹配");
+    case ReadResultClass::MalformedResponse:
+        return QStringLiteral("响应格式错误");
+    case ReadResultClass::UnknownResponse:
+        return QStringLiteral("无法识别的响应");
+    case ReadResultClass::ReadSuccess:
+        return QStringLiteral("读取成功");
+    }
+    return QStringLiteral("无法识别的响应");
+}
+
+ReadResultClass classifyFc03ReadResult(
+    const modbuslens::core::TransactionStatus status,
+    const std::optional<modbuslens::core::TransactionIssue>& issue)
+{
+    using modbuslens::core::TransactionIssueCode;
+    using modbuslens::core::TransactionStatus;
+
+    switch (status) {
+    case TransactionStatus::Success:
+        return ReadResultClass::ReadSuccess;
+    case TransactionStatus::Exception:
+        return ReadResultClass::DeviceException;
+    case TransactionStatus::CrcError:
+        return ReadResultClass::CrcFailure;
+    case TransactionStatus::Timeout:
+        // Pure timeout: the analyzer only reaches Timeout through NoResponse,
+        // i.e. no byte was ever observed. Bytes-below-minimum-frame arrive as
+        // ProtocolError + ResponseFrameTooShort, which classifies as CLASS-04
+        // below — so the two are never conflated.
+        return ReadResultClass::TimeoutNoData;
+    case TransactionStatus::Pending:
+        // A transition state, never a terminal result (T023 MAT-4). Mapped to
+        // CLASS-03 for totality only; the caller must not present it as a
+        // finished result.
+        return ReadResultClass::TimeoutNoData;
+    case TransactionStatus::ExpectedNoResponse:
+        // Unreachable for an active FC03 read (a broadcast is rejected before
+        // submission). Mapped to CLASS-09 rather than inventing a class.
+        return ReadResultClass::UnknownResponse;
+    case TransactionStatus::ProtocolError:
+        break;
+    }
+
+    // ProtocolError is the ONLY status carrying an issue. An issue-less
+    // ProtocolError is the core's documented defensive case ("render by
+    // omitting the detail — never by guessing a reason"), and the
+    // UnknownProtocolError code is the explicit fallback branch: both are
+    // CLASS-09.
+    if (!issue.has_value()
+        || issue->code == TransactionIssueCode::UnknownProtocolError) {
+        return ReadResultClass::UnknownResponse;
+    }
+    switch (issue->code) {
+    case TransactionIssueCode::ResponseFrameTooShort:
+        return ReadResultClass::IncompleteResponse;
+    case TransactionIssueCode::ResponseAddressMismatch:
+    case TransactionIssueCode::UnexpectedResponseFunction:
+        return ReadResultClass::ResponseMismatch;
+    case TransactionIssueCode::MalformedExceptionResponse:
+    case TransactionIssueCode::MalformedNormalResponse:
+        return ReadResultClass::MalformedResponse;
+    case TransactionIssueCode::QuantityMismatch:
+        // A well-formed reply that answers with a different register count is
+        // a pairing mismatch of this request — CLASS-07, never a malformed
+        // frame (the frame itself decoded cleanly).
+        return ReadResultClass::ResponseMismatch;
+    case TransactionIssueCode::WriteSingleRegisterEchoMismatch:
+    case TransactionIssueCode::WriteMultipleRegistersEchoMismatch:
+    case TransactionIssueCode::UnexpectedResponseForBroadcast:
+        // Write-side codes can never appear on an FC03 read path; mapped to
+        // CLASS-09 instead of inventing a read class for them.
+        return ReadResultClass::UnknownResponse;
+    case TransactionIssueCode::UnknownProtocolError:
+        return ReadResultClass::UnknownResponse;
+    }
+    return ReadResultClass::UnknownResponse;
+}
+
+// Safe 「可能原因」 phrasing. Every string is a CHECK ITEM, never a root-cause
+// claim (no 接线不良 / 信号干扰 / 地址配错 / PLC 程序错误 / 设备老化 ...).
+QString readResultPossibleCausesFor(ReadResultClass resultClass)
+{
+    switch (resultClass) {
+    case ReadResultClass::LocalRejected:
+        return QStringLiteral("请求参数不满足本功能的合法范围。按提示修正参数后可重试。");
+    case ReadResultClass::TransportFailed:
+        return QStringLiteral("串口设备不可用或已被占用。确认串口设备状态后可重试。");
+    case ReadResultClass::TimeoutNoData:
+        return QStringLiteral("从站地址、串口参数（波特率/数据位/校验/停止位）"
+                              "与请求数量是否与设备一致。");
+    case ReadResultClass::IncompleteResponse:
+        return QStringLiteral("响应字节数少于最小帧长。核对串口参数与请求数量。");
+    case ReadResultClass::DeviceException:
+        return QStringLiteral("设备按异常码拒绝本次请求。按异常码含义核对请求内容。");
+    case ReadResultClass::CrcFailure:
+        return QStringLiteral("接收字节的 CRC 与帧内容不一致。核对串口参数。");
+    case ReadResultClass::ResponseMismatch:
+        return QStringLiteral("响应的从站地址/功能码/寄存器数量与本次请求不一致。"
+                              "核对该地址是否正确，以及总线上是否有其它主站。");
+    case ReadResultClass::MalformedResponse:
+        return QStringLiteral("响应帧结构不符合该功能码的格式。核对串口参数。");
+    case ReadResultClass::UnknownResponse:
+        return QString();
+    case ReadResultClass::ReadSuccess:
+        return QString();
+    }
+    return QString();
+}
+
+QString standardExceptionNameZh(std::uint8_t exceptionCode)
+{
+    // Only the four standard codes get a name; an unknown code returns empty
+    // and the caller shows the numeric code alone (never a guessed meaning).
+    switch (exceptionCode) {
+    case 0x01:
+        return QStringLiteral("非法功能（Illegal Function）");
+    case 0x02:
+        return QStringLiteral("非法数据地址（Illegal Data Address）");
+    case 0x03:
+        return QStringLiteral("非法数据值（Illegal Data Value）");
+    case 0x04:
+        return QStringLiteral("从站设备故障（Slave Device Failure）");
+    default:
+        return QString();
+    }
+}
+
+QString evidenceHexText(const std::vector<std::uint8_t>& bytes)
+{
+    // Uppercase byte pairs separated by a single space, e.g. "01 03 04 00 70".
+    // The width is 2 per byte (rightJustified) so a sub-0x10 byte can never
+    // print as a single digit and shift every following column.
+    QString hex;
+    hex.reserve(static_cast<int>(bytes.size()) * 3);
+    bool first = true;
+    for (const std::uint8_t byte : bytes) {
+        if (!first) {
+            hex += QLatin1Char(' ');
+        }
+        hex += QString::number(byte, 16).toUpper().rightJustified(2, QLatin1Char('0'));
+        first = false;
+    }
+    return hex;
+}
+
 QString singleRequestIssueText(const modbuslens::core::TransactionRequestIssue& requestIssue)
 {
     using modbuslens::core::TransactionRequestIssueCode;

@@ -30,7 +30,8 @@ core::TransactionAnalysis makeAnalysis(core::TransactionStatus status,
                                        std::optional<std::uint8_t> code = std::nullopt)
 {
     return core::TransactionAnalysis{.status = status, .elapsed = ms{elapsedMs},
-                                     .exceptionCode = code, .issue = std::nullopt};
+                                     .exceptionCode = code, .issue = std::nullopt,
+                                     .values = {}};
 }
 
 core::DiagnosisTransaction tx(core::TransactionStatus status, long long elapsedMs,

@@ -447,7 +447,8 @@ void ActiveMasterTest::ta12_appendProjectionApi()
                     .status = status,
                     .elapsed = ms{25},
                     .exceptionCode = std::nullopt,
-                    .issue = std::nullopt},
+                    .issue = std::nullopt,
+                    .values = {}},
             });
     };
 
@@ -558,7 +559,8 @@ void ActiveMasterTest::ta15_staleOrForeignCompletionIgnored()
                 .status = TransactionStatus::Success,
                 .elapsed = ms{25},
                 .exceptionCode = std::nullopt,
-                .issue = std::nullopt},
+                .issue = std::nullopt,
+                .values = {}},
         };
     };
     const auto someRequest = std::get<ActiveRequestDescriptor>(

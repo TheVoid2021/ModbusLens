@@ -948,6 +948,13 @@ void AnalysisController::connectSerial(const QString& portName, int baudRate)
     activeSerialTerminations_.clear();
     // A new Active Serial session: any notice about the previous one is stale.
     clearWriteDispatchNotice();
+    // T023: the read-result surface belongs to the session that produced it.
+    // A new session replaces the whole session history, so the previous
+    // session's evidence (its TX/RX bytes, its class) must not survive into it
+    // — the same rule the prepared-write snapshot already follows below
+    // (SessionChanged). Leaving it would show another session's bytes as if
+    // they were this one's.
+    clearReadResult();
     // M10-C1: a new Active Serial session invalidates any prepared snapshot
     // from the previous one (even with the same port and baud).
     if (preparedWriteStore_.invalidate(
@@ -986,26 +993,32 @@ void AnalysisController::readHoldingRegistersOnce(
     // frozen FC03 contract and stay verbatim.
     if (slaveAddress < 1 || slaveAddress > 247) {
         setSerialError(QStringLiteral("串口错误：从站地址须在 1..247 之间"));
+        captureReadResultLocalRejection(serialErrorMessage_);
         return;
     }
     if (startAddress < 0 || startAddress > 65535) {
         setSerialError(QStringLiteral("串口错误：起始地址须在 0..65535 之间"));
+        captureReadResultLocalRejection(serialErrorMessage_);
         return;
     }
     if (quantity < 1 || quantity > 125) {
         setSerialError(QStringLiteral("串口错误：寄存器数量须在 1..125 之间"));
+        captureReadResultLocalRejection(serialErrorMessage_);
         return;
     }
     if (timeoutMs <= 0) {
         setSerialError(QStringLiteral("串口错误：超时时间须大于 0 ms"));
+        captureReadResultLocalRejection(serialErrorMessage_);
         return;
     }
     if (!serialConnected_) {
         setSerialError(QStringLiteral("串口错误：串口未连接"));
+        captureReadResultLocalRejection(serialErrorMessage_);
         return;
     }
     if (serialBusy_) {
         setSerialError(QStringLiteral("串口错误：已有事务进行中"));
+        captureReadResultLocalRejection(serialErrorMessage_);
         return;
     }
 
@@ -1028,6 +1041,7 @@ void AnalysisController::readHoldingRegistersOnce(
         // this branch is unreachable with the current function set. A local
         // rejection sends NOTHING and fabricates no Modbus transaction.
         setSerialError(QStringLiteral("串口错误：请求无效"));
+        captureReadResultLocalRejection(serialErrorMessage_);
         return;
     }
     const auto& descriptor =
@@ -1037,7 +1051,15 @@ void AnalysisController::readHoldingRegistersOnce(
     // use the SAME helper, so busy/start-result/terminal bookkeeping cannot
     // fork into a write-only lifecycle. A failure drops us back with no
     // pending state at all.
-    (void)startActiveDescriptor(descriptor);
+    const auto start = startActiveDescriptor(descriptor);
+    // T023 §19 WAITING STATE: the moment the transport accepted the request we
+    // publish the non-terminal waiting result (its Actual TX is the descriptor
+    // wire just handed over). A rejection publishes nothing here — the local
+    // rejection path above owns that, and a submission-time terminal is
+    // captured by startActiveDescriptor itself.
+    if (start.accepted) {
+        enterReadResultWaiting(descriptor);
+    }
     // The previous completed result stays visible until the new analysis
     // replaces it (Reading... state).
 }
@@ -1059,6 +1081,20 @@ modbuslens::core::ActiveStartResult AnalysisController::startActiveDescriptor(
         // source-replacement contracts as every other terminal.
         if (start.terminatedDuringSubmission.has_value()) {
             activeSerialTerminations_.push_back(*start.terminatedDuringSubmission);
+            // T023 CLASS-02: a submission that ended during the write itself is
+            // a TRANSPORT terminal, not a Modbus verdict — the read-result
+            // surface must say so and keep the partial evidence.
+            if (descriptor.intent.function
+                == modbuslens::core::ActiveFunction::ReadHoldingRegisters) {
+                captureReadResultFromTerminal(*start.terminatedDuringSubmission);
+            }
+        } else if (descriptor.intent.function
+                   == modbuslens::core::ActiveFunction::ReadHoldingRegisters) {
+            // T023 CLASS-01 (transport-refused variant): the transport provably
+            // never entered the transmission lifecycle, so "请求未发送" is a
+            // supported statement. No fabricated Modbus outcome is created.
+            captureReadResultLocalRejection(
+                QStringLiteral("传输层未接受本次请求（未发送任何字节）。"));
         }
         // NOTHING entered flight: no pending request, no busy transition and
         // (deliberately) no snapshot invalidation — an attempt that never left
@@ -1160,6 +1196,12 @@ void AnalysisController::handleSerialTransactionTerminated(
     // No TransactionAnalysis is invented here — a transport abort is not a
     // Modbus response.
     activeSerialTerminations_.push_back(terminal);
+    // T023 CLASS-02: the same canonical terminal feeds the read-result surface
+    // (no second terminal history, no fabricated Modbus verdict).
+    if (terminal.request.intent.function
+        == modbuslens::core::ActiveFunction::ReadHoldingRegisters) {
+        captureReadResultFromTerminal(terminal);
+    }
 
     // The request is over (locally): the in-flight state ends, but nothing in
     // statistics / rows / mode / source is touched (a transport abort never
@@ -1991,6 +2033,454 @@ QString AnalysisController::writeDispatchNoticeTone() const
     return QString();
 }
 
+// ---------------------------------------------------------------------------
+// T023 / M10 correction: FC03 READ RESULT projection.
+//
+// The whole surface is a PROJECTION of canonical truth. Nothing is decided
+// here: the class comes from core's status + issue (pure mapping), the bytes
+// are the transport's own snapshots, and the raw register values are the ones
+// core retained in TransactionAnalysis (never re-decoded from the wire here —
+// T023 READ-RX-2 / READ-RX-4).
+// ---------------------------------------------------------------------------
+namespace {
+
+QString readResultHex16(std::uint16_t value)
+{
+    return QStringLiteral("0x")
+        + QString::number(value, 16).toUpper().rightJustified(4, QLatin1Char('0'));
+}
+
+} // namespace
+
+const AnalysisController::ReadResultSnapshot&
+AnalysisController::readResultSnapshot() const
+{
+    return readResult_;
+}
+
+void AnalysisController::announceReadResultChanged()
+{
+    emit readResultChanged();
+}
+
+void AnalysisController::clearReadResult()
+{
+    if (!readResult_.present && !readResult_.waiting) {
+        return;
+    }
+    readResult_ = ReadResultSnapshot{};
+    announceReadResultChanged();
+}
+
+void AnalysisController::enterReadResultWaiting(
+    const modbuslens::core::ActiveRequestDescriptor& descriptor)
+{
+    // Entered the moment the transport ACCEPTED the request: the user must be
+    // told a request is in flight and shown what was actually sent. This is a
+    // NON-terminal state — exactly one terminal result always replaces it
+    // (T023 READ-UI-1 / §19).
+    ReadResultSnapshot snapshot;
+    snapshot.present = false;   // no verdict yet
+    snapshot.waiting = true;
+    snapshot.evidenceAvailable = true; // Active Serial always has wire evidence
+    // Only an FC03 read owns the read-result surface: a write dispatch must
+    // not silently repurpose it.
+    if (descriptor.intent.function
+        != modbuslens::core::ActiveFunction::ReadHoldingRegisters) {
+        return;
+    }
+    const auto& intent = descriptor.intent;
+    snapshot.hasRequestEcho = true;
+    snapshot.unitId = intent.unitId;
+    snapshot.timeoutMs = static_cast<int>(intent.timeout.count());
+    if (const auto* payload =
+            std::get_if<modbuslens::core::ReadHoldingRegistersIntent>(
+                &intent.payload)) {
+        snapshot.startAddress = payload->startAddress;
+        snapshot.quantity = payload->quantity;
+    } else {
+        snapshot.hasRequestEcho = false;
+    }
+    // The TX bytes are the send-time descriptor's own wire — the exact bytes
+    // handed to the transport, never a re-encode.
+    snapshot.txBytes = descriptor.wire;
+    snapshot.analysis.status = modbuslens::core::TransactionStatus::Pending;
+    snapshot.resultClass = ReadResultClass::UnknownResponse; // not presented
+    readResult_ = std::move(snapshot);
+    announceReadResultChanged();
+}
+
+void AnalysisController::captureReadResultFromRecord(
+    const modbuslens::core::ActiveTransactionRecord& record)
+{
+    ReadResultSnapshot snapshot;
+    snapshot.present = true;
+    snapshot.waiting = false;
+    snapshot.evidenceAvailable = true;
+    snapshot.hasRequestEcho = true;
+    snapshot.unitId = record.unitId();
+    snapshot.timeoutMs = static_cast<int>(record.request.intent.timeout.count());
+    if (const auto* payload =
+            std::get_if<modbuslens::core::ReadHoldingRegistersIntent>(
+                &record.request.intent.payload)) {
+        snapshot.startAddress = payload->startAddress;
+        snapshot.quantity = payload->quantity;
+    } else {
+        snapshot.hasRequestEcho = false;
+    }
+    snapshot.txBytes = record.evidence.requestAdu;
+    snapshot.rxBytes = record.evidence.responseAdu;
+    snapshot.dispositionNotSent =
+        record.evidence.disposition == modbuslens::core::TransportDisposition::NotSent;
+    snapshot.analysis = record.analysis;
+    snapshot.resultClass =
+        classifyFc03ReadResult(record.analysis.status, record.analysis.issue);
+    readResult_ = std::move(snapshot);
+    announceReadResultChanged();
+}
+
+void AnalysisController::captureReadResultFromTerminal(
+    const modbuslens::core::ActiveTransportTerminal& terminal)
+{
+    ReadResultSnapshot snapshot;
+    snapshot.present = true;
+    snapshot.waiting = false;
+    snapshot.evidenceAvailable = true;
+    snapshot.hasRequestEcho = true;
+    snapshot.unitId = terminal.request.intent.unitId;
+    snapshot.timeoutMs = static_cast<int>(terminal.request.intent.timeout.count());
+    if (const auto* payload =
+            std::get_if<modbuslens::core::ReadHoldingRegistersIntent>(
+                &terminal.request.intent.payload)) {
+        snapshot.startAddress = payload->startAddress;
+        snapshot.quantity = payload->quantity;
+    } else {
+        snapshot.hasRequestEcho = false;
+    }
+    snapshot.txBytes = terminal.request.wire;
+    snapshot.rxBytes = terminal.responseAdu;
+    snapshot.dispositionNotSent = false; // PossiblySent by construction
+    // A transport termination carries NO TransactionAnalysis: inventing one
+    // would fabricate a Modbus verdict. The class is CLASS-02 and the analysis
+    // stays default (so no values, no issue, no exception code can leak in).
+    snapshot.resultClass = ReadResultClass::TransportFailed;
+    readResult_ = std::move(snapshot);
+    announceReadResultChanged();
+}
+
+void AnalysisController::captureReadResultLocalRejection(const QString& message)
+{
+    ReadResultSnapshot snapshot;
+    snapshot.present = true;
+    snapshot.waiting = false;
+    // Nothing was encoded or handed over, so there is no wire evidence at all.
+    // It is NOT "no evidence source" — it is a request that never existed.
+    snapshot.evidenceAvailable = true;
+    snapshot.hasRequestEcho = false;
+    snapshot.dispositionNotSent = true;
+    snapshot.resultClass = ReadResultClass::LocalRejected;
+    snapshot.localRejectionText = message;
+    readResult_ = std::move(snapshot);
+    announceReadResultChanged();
+}
+
+bool AnalysisController::hasReadResult() const
+{
+    return readResult_.present || readResult_.waiting;
+}
+
+bool AnalysisController::readResultWaiting() const
+{
+    return readResult_.waiting;
+}
+
+ReadResultClass AnalysisController::readResultClass() const
+{
+    return readResult_.resultClass;
+}
+
+const modbuslens::core::TransactionAnalysis&
+AnalysisController::readResultAnalysis() const
+{
+    return readResult_.analysis;
+}
+
+QString AnalysisController::readResultTitle() const
+{
+    // No result at all is NOT a class: the 10-class titles are frozen for
+    // results, and the empty state must not borrow one of them (it would
+    // surface 「无法识别的响应」 for a read that never happened).
+    if (!readResult_.present && !readResult_.waiting) {
+        return QStringLiteral("尚无读取结果");
+    }
+    if (readResult_.waiting) {
+        return QStringLiteral("等待响应");
+    }
+    return readResultClassTitle(readResult_.resultClass);
+}
+
+QString AnalysisController::readResultClassToken() const
+{
+    return readResultClassMachineToken(readResult_.resultClass);
+}
+
+QString AnalysisController::readResultSummaryText() const
+{
+    // The ALWAYS-VISIBLE compact line (T023 READ-UI-6 layer 1). It must answer
+    // "did this read work, and if not, in which class" without expanding.
+    if (!readResult_.present && !readResult_.waiting) {
+        return QStringLiteral("读取结果：尚无");
+    }
+    if (readResult_.waiting) {
+        return QStringLiteral("读取结果：等待响应");
+    }
+    switch (readResult_.resultClass) {
+    case ReadResultClass::ReadSuccess:
+        return QStringLiteral("读取结果：读取成功");
+    case ReadResultClass::UnknownResponse:
+        return QStringLiteral("读取结果：无法识别的响应");
+    default:
+        return QStringLiteral("读取结果：%1")
+            .arg(readResultClassTitle(readResult_.resultClass));
+    }
+}
+
+QString AnalysisController::readResultFactLine() const
+{
+    using modbuslens::core::TransactionIssueCode;
+    using modbuslens::core::TransactionStatus;
+
+    if (!readResult_.present) {
+        if (readResult_.waiting) {
+            return QStringLiteral("请求已提交传输，正在等待响应。");
+        }
+        return QStringLiteral("尚未发起读取。");
+    }
+
+    switch (readResult_.resultClass) {
+    case ReadResultClass::LocalRejected:
+        // The guard lane's own frozen wording, verbatim.
+        return readResult_.localRejectionText;
+    case ReadResultClass::TransportFailed: {
+        const int rx = static_cast<int>(readResult_.rxBytes.size());
+        return rx == 0
+            ? QStringLiteral("传输在提交后中止，未观测到任何响应字节。")
+            : QStringLiteral("传输在提交后中止，中止前观测到 %1 字节。").arg(rx);
+    }
+    case ReadResultClass::TimeoutNoData:
+        return QStringLiteral("在超时时间内未观测到任何字节（耗时 %1 ms，"
+                              "超时阈值 %2 ms）。")
+            .arg(readResult_.analysis.elapsed.count())
+            .arg(readResult_.timeoutMs);
+    case ReadResultClass::IncompleteResponse:
+        return QStringLiteral("观测到 %1 字节，少于 Modbus RTU 最小帧长（4 字节）"
+                              "（耗时 %2 ms）。")
+            .arg(static_cast<int>(readResult_.rxBytes.size()))
+            .arg(readResult_.analysis.elapsed.count());
+    case ReadResultClass::DeviceException: {
+        const auto& analysis = readResult_.analysis;
+        if (!analysis.exceptionCode.has_value()) {
+            // Defensive: an Exception without a code must not invent one.
+            return QStringLiteral("设备返回 Modbus 异常响应（异常码不可得）。");
+        }
+        const std::uint8_t code = *analysis.exceptionCode;
+        const QString name = standardExceptionNameZh(code);
+        return name.isEmpty()
+            ? QStringLiteral("设备返回 Modbus 异常响应：异常码 0x%1（耗时 %2 ms）。")
+                  .arg(QString::number(code, 16).toUpper().rightJustified(2, QLatin1Char('0')))
+                  .arg(analysis.elapsed.count())
+            : QStringLiteral("设备返回 Modbus 异常响应：异常码 0x%1（%2），耗时 %3 ms。")
+                  .arg(QString::number(code, 16).toUpper().rightJustified(2, QLatin1Char('0')))
+                  .arg(name)
+                  .arg(analysis.elapsed.count());
+    }
+    case ReadResultClass::CrcFailure:
+        return QStringLiteral("观测到 %1 字节，但其 CRC 与帧内容不一致（耗时 %2 ms）。")
+            .arg(static_cast<int>(readResult_.rxBytes.size()))
+            .arg(readResult_.analysis.elapsed.count());
+    case ReadResultClass::ResponseMismatch:
+    case ReadResultClass::MalformedResponse:
+        // The adapter's existing conservative text is the single wording for
+        // these two classes (never a second phrasing).
+        return issueDetailText(readResult_.analysis);
+    case ReadResultClass::UnknownResponse:
+        // Never explain further: the raw bytes are the whole message (T023
+        // UNK-2/UNK-3).
+        return QStringLiteral("响应无法判定（core 未给出确定性依据）；"
+                              "请对照下方原始字节自行判断。");
+    case ReadResultClass::ReadSuccess:
+        return QStringLiteral("共 %1 个寄存器（耗时 %2 ms）。")
+            .arg(static_cast<int>(readResult_.analysis.values.size()))
+            .arg(readResult_.analysis.elapsed.count());
+    }
+    return QString();
+}
+
+QString AnalysisController::readResultPossibleCauses() const
+{
+    if (!readResult_.present) {
+        return QString();
+    }
+    return readResultPossibleCausesFor(readResult_.resultClass);
+}
+
+bool AnalysisController::readResultHasPossibleCauses() const
+{
+    return !readResultPossibleCauses().isEmpty();
+}
+
+QString AnalysisController::readResultTone() const
+{
+    // Presentation token only. Waiting is neutral, success is success, and
+    // every other terminal is a failure tone (never "success").
+    if (readResult_.waiting) {
+        return QStringLiteral("neutral");
+    }
+    if (!readResult_.present) {
+        return QStringLiteral("neutral");
+    }
+    return readResult_.resultClass == ReadResultClass::ReadSuccess
+        ? QStringLiteral("success")
+        : QStringLiteral("error");
+}
+
+bool AnalysisController::readResultHasRequestEcho() const
+{
+    return readResult_.hasRequestEcho;
+}
+
+int AnalysisController::readResultUnitId() const
+{
+    return readResult_.unitId;
+}
+
+int AnalysisController::readResultStartAddress() const
+{
+    return readResult_.startAddress;
+}
+
+QString AnalysisController::readResultStartAddressHex() const
+{
+    return readResultHex16(static_cast<std::uint16_t>(readResult_.startAddress));
+}
+
+int AnalysisController::readResultQuantity() const
+{
+    return readResult_.quantity;
+}
+
+int AnalysisController::readResultTimeoutMs() const
+{
+    return readResult_.timeoutMs;
+}
+
+bool AnalysisController::readResultHasTx() const
+{
+    return !readResult_.txBytes.empty();
+}
+
+QString AnalysisController::readResultTxHex() const
+{
+    return evidenceHexText(readResult_.txBytes);
+}
+
+bool AnalysisController::readResultHasRx() const
+{
+    return !readResult_.rxBytes.empty();
+}
+
+QString AnalysisController::readResultRxHex() const
+{
+    return evidenceHexText(readResult_.rxBytes);
+}
+
+int AnalysisController::readResultRxByteCount() const
+{
+    return static_cast<int>(readResult_.rxBytes.size());
+}
+
+QString AnalysisController::readResultRxText() const
+{
+    // Empty RX is the HONEST "nothing was observed" statement — never an empty
+    // string and never fabricated zero bytes (T023 READ-RX-1 / READ-R7).
+    return readResult_.rxBytes.empty()
+        ? QStringLiteral("未观测到任何字节")
+        : evidenceHexText(readResult_.rxBytes);
+}
+
+QString AnalysisController::readResultDispositionText() const
+{
+    // Disposition is rendered in TWO distinct bands. PossiblySent may never be
+    // shown as 「已发送」: it only proves the transport API accepted the write
+    // (T023 READ-TX-4).
+    if (readResult_.dispositionNotSent) {
+        return QStringLiteral("未发送");
+    }
+    return QStringLiteral("已提交传输（设备是否收到不可证）");
+}
+
+QString AnalysisController::readResultTxLine() const
+{
+    const QString bytes = readResultHasTx()
+        ? readResultTxHex()
+        : QStringLiteral("未观测到任何字节");
+    return QStringLiteral("实际发送：%1 ｜ %2")
+        .arg(bytes, readResultDispositionText());
+}
+
+bool AnalysisController::readResultHasValues() const
+{
+    // CLASS-10 only. Any other class shows NO value, even if the bytes happen
+    // to contain plausible-looking pairs (T023 READ-RX-5).
+    return readResult_.resultClass == ReadResultClass::ReadSuccess
+        && !readResult_.analysis.values.empty();
+}
+
+int AnalysisController::readResultValueCount() const
+{
+    return readResultHasValues()
+        ? static_cast<int>(readResult_.analysis.values.size())
+        : 0;
+}
+
+QVariantList AnalysisController::readResultValues() const
+{
+    QVariantList rows;
+    if (!readResultHasValues()) {
+        return rows;
+    }
+    // index / PDU address (DEC + HEX) / raw uint16 value (DEC + HEX). The
+    // address column answers "did I read the registers I asked for?" — the
+    // exact question Human's discovery was about. No interpretation of any
+    // kind is added here (M11 owns that).
+    std::uint16_t address = static_cast<std::uint16_t>(readResult_.startAddress);
+    int index = 1;
+    for (const std::uint16_t value : readResult_.analysis.values) {
+        QVariantMap row;
+        row.insert(QStringLiteral("index"), index);
+        row.insert(QStringLiteral("address"), static_cast<int>(address));
+        row.insert(QStringLiteral("addressHex"), readResultHex16(address));
+        row.insert(QStringLiteral("dec"), static_cast<int>(value));
+        row.insert(QStringLiteral("hex"), readResultHex16(value));
+        rows.append(row);
+        ++index;
+        ++address;
+    }
+    return rows;
+}
+
+bool AnalysisController::readResultEvidenceAvailable() const
+{
+    // Simulator / Replay have no wire evidence at all; the surface must say so
+    // instead of rendering empty hex (T023 READ-TXN-5).
+    return readResult_.evidenceAvailable;
+}
+
+bool AnalysisController::readResultAwaitingEvidenceSource() const
+{
+    return sourceKind_ != modbuslens::core::TransactionSourceKind::ActiveSerial;
+}
+
 bool AnalysisController::hasWriteDraftError() const
 {
     return hasWriteDraftError_;
@@ -2351,6 +2841,13 @@ void AnalysisController::handleSerialTransactionCompleted(
         .evidence = result.evidence(),
         .analysis = result.analysis,
     });
+    // T023: the read-result surface is captured from the SAME canonical record
+    // that just joined the session history — one transaction truth, two UIs.
+    // A write completion leaves it untouched (the read surface is FC03's).
+    if (pendingRequest_->intent.function
+        == modbuslens::core::ActiveFunction::ReadHoldingRegisters) {
+        captureReadResultFromRecord(activeSerialRecords_.back());
+    }
     // M10-D4: a WRITE that ends with no trusted response leaves the device
     // mutation state UNKNOWN. The transaction row already reports the Modbus
     // status, but for a WRITE that status does not by itself tell the user
@@ -2551,6 +3048,10 @@ void AnalysisController::runDemoBatch()
     sourceKind_ = modbuslens::core::TransactionSourceKind::Simulator;
     activeSerialRecords_.clear();
     activeSerialTerminations_.clear();
+    // T023: the previous read result belonged to the previous (Active Serial)
+    // source; a Simulator batch carries no wire evidence, so keeping the old
+    // bytes on screen would misattribute them. Cleared with the rest.
+    clearReadResult();
     clearReplayError();
     clearReplayNotice();
     clearSerialError();
@@ -2580,6 +3081,9 @@ void AnalysisController::clearResults()
     // The dispatch notice is result state too (it describes a request whose
     // record is being cleared); the write DRAFT is deliberately untouched.
     clearWriteDispatchNotice();
+    // T023: the read-result surface is result state as well — Clear Results is
+    // the user's explicit clear (T023 READ-UI-5), never a silent wipe.
+    clearReadResult();
 }
 
 void AnalysisController::loadReplayFile(const QUrl& fileUrl)
@@ -2683,6 +3187,9 @@ void AnalysisController::loadReplayFile(const QUrl& fileUrl)
     sourceKind_ = modbuslens::core::TransactionSourceKind::Replay;
     activeSerialRecords_.clear();
     activeSerialTerminations_.clear();
+    // T023: same rule as the Simulator transition — a replay batch has no wire
+    // evidence, so the previous Active Serial read result must not survive it.
+    clearReadResult();
     clearReplayError();
     clearSerialError();
     emit statisticsChanged();

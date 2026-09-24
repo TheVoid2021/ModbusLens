@@ -112,6 +112,61 @@ class AnalysisController : public QObject
     Q_PROPERTY(QString writeDispatchNotice READ writeDispatchNotice NOTIFY writeDispatchNoticeChanged)
     Q_PROPERTY(QString writeDispatchNoticeTone READ writeDispatchNoticeTone NOTIFY writeDispatchNoticeChanged)
 
+    // ---- T023 / M10 correction: FC03 READ RESULT presentation ----
+    //
+    // The whole read-result surface is ONE read-only projection so QML never
+    // observes a half-updated frame and never has to combine two authorities.
+    // Every field is derived from the canonical Active Serial truth (the
+    // latest record / terminal + the request intent) — the projection owns no
+    // state and decides nothing that core already decided.
+    //
+    // hasReadResult       a terminal result (or a local rejection) exists
+    // title               the FROZEN class title (T023 DECISION 3)
+    // classToken          machine token (never rendered as prose)
+    // factLine            the evidence-driven single-line summary
+    // possibleCauses      explicitly-labelled speculation (may be empty)
+    // waiting             a request is in flight and no verdict exists yet
+    // summaryText         the always-visible compact line (waiting or terminal)
+    // detailVisible       whether a details entry point must be offered
+    Q_PROPERTY(bool hasReadResult READ hasReadResult NOTIFY readResultChanged)
+    Q_PROPERTY(bool readResultWaiting READ readResultWaiting NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultSummaryText READ readResultSummaryText NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultTitle READ readResultTitle NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultClassToken READ readResultClassToken NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultFactLine READ readResultFactLine NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultPossibleCauses READ readResultPossibleCauses NOTIFY readResultChanged)
+    Q_PROPERTY(bool readResultHasPossibleCauses READ readResultHasPossibleCauses NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultTone READ readResultTone NOTIFY readResultChanged)
+    // Request echo (unit / PDU start address DEC+HEX / quantity / timeout).
+    Q_PROPERTY(bool readResultHasRequestEcho READ readResultHasRequestEcho NOTIFY readResultChanged)
+    Q_PROPERTY(int readResultUnitId READ readResultUnitId NOTIFY readResultChanged)
+    Q_PROPERTY(int readResultStartAddress READ readResultStartAddress NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultStartAddressHex READ readResultStartAddressHex NOTIFY readResultChanged)
+    Q_PROPERTY(int readResultQuantity READ readResultQuantity NOTIFY readResultChanged)
+    Q_PROPERTY(int readResultTimeoutMs READ readResultTimeoutMs NOTIFY readResultChanged)
+    // Wire evidence. The TX/RX texts are HEX projections of the EXACT bytes
+    // the transport snapshot holds; empty RX is reported as no-bytes-observed,
+    // never as an empty string or as fabricated zero bytes.
+    Q_PROPERTY(bool readResultHasTx READ readResultHasTx NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultTxHex READ readResultTxHex NOTIFY readResultChanged)
+    Q_PROPERTY(bool readResultHasRx READ readResultHasRx NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultRxHex READ readResultRxHex NOTIFY readResultChanged)
+    Q_PROPERTY(int readResultRxByteCount READ readResultRxByteCount NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultRxText READ readResultRxText NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultDispositionText READ readResultDispositionText NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultTxLine READ readResultTxLine NOTIFY readResultChanged)
+    // CLASS-10 only: the RAW uint16 registers exactly as decoded from the same
+    // RX bytes (index / PDU address DEC + HEX / value DEC + HEX). Empty
+    // otherwise — an unverified value is never presented (T023 READ-RX-5).
+    Q_PROPERTY(bool readResultHasValues READ readResultHasValues NOTIFY readResultChanged)
+    Q_PROPERTY(int readResultValueCount READ readResultValueCount NOTIFY readResultChanged)
+    Q_PROPERTY(QVariantList readResultValues READ readResultValues NOTIFY readResultChanged)
+    // Source capability: Simulator / Replay carry NO wire evidence, so the
+    // result surface must state that plainly instead of showing empty hex
+    // (T023 READ-TXN-5).
+    Q_PROPERTY(bool readResultEvidenceAvailable READ readResultEvidenceAvailable NOTIFY readResultChanged)
+    Q_PROPERTY(bool readResultAwaitingEvidenceSource READ readResultAwaitingEvidenceSource NOTIFY readResultChanged)
+
     // ---- M10-D3: product write capability (structural, NOT availability) ----
     // True iff THIS build end-to-end owns 0x06: encoder + protocol/session
     // response support + the Controller's atomic confirm+dispatch operation +
@@ -418,6 +473,44 @@ public:
     [[nodiscard]] QString writeDispatchNotice() const;
     [[nodiscard]] QString writeDispatchNoticeTone() const;
 
+    // ---- T023 / M10 correction: FC03 read-result projection ----
+    // (Read-only; the whole surface is derived from one canonical snapshot so
+    // QML never combines two authorities.)
+    [[nodiscard]] bool hasReadResult() const;
+    [[nodiscard]] bool readResultWaiting() const;
+    [[nodiscard]] QString readResultSummaryText() const;
+    [[nodiscard]] QString readResultTitle() const;
+    [[nodiscard]] QString readResultClassToken() const;
+    [[nodiscard]] QString readResultFactLine() const;
+    [[nodiscard]] QString readResultPossibleCauses() const;
+    [[nodiscard]] bool readResultHasPossibleCauses() const;
+    [[nodiscard]] QString readResultTone() const;
+    [[nodiscard]] bool readResultHasRequestEcho() const;
+    [[nodiscard]] int readResultUnitId() const;
+    [[nodiscard]] int readResultStartAddress() const;
+    [[nodiscard]] QString readResultStartAddressHex() const;
+    [[nodiscard]] int readResultQuantity() const;
+    [[nodiscard]] int readResultTimeoutMs() const;
+    [[nodiscard]] bool readResultHasTx() const;
+    [[nodiscard]] QString readResultTxHex() const;
+    [[nodiscard]] bool readResultHasRx() const;
+    [[nodiscard]] QString readResultRxHex() const;
+    [[nodiscard]] int readResultRxByteCount() const;
+    [[nodiscard]] QString readResultRxText() const;
+    [[nodiscard]] QString readResultDispositionText() const;
+    [[nodiscard]] QString readResultTxLine() const;
+    [[nodiscard]] bool readResultHasValues() const;
+    [[nodiscard]] int readResultValueCount() const;
+    [[nodiscard]] QVariantList readResultValues() const;
+    [[nodiscard]] bool readResultEvidenceAvailable() const;
+    [[nodiscard]] bool readResultAwaitingEvidenceSource() const;
+
+    // C++ test seam: the current read-result class, so a test can assert the
+    // classification without string matching the presentation.
+    [[nodiscard]] ReadResultClass readResultClass() const;
+    // C++ test seam: the raw analysis backing the current read result.
+    [[nodiscard]] const modbuslens::core::TransactionAnalysis& readResultAnalysis() const;
+
     // M10-D3: STRUCTURAL product write capability (see the Q_PROPERTY note).
     // Derived from the core's compile-time product-capability constant, never
     // from runtime state.
@@ -465,6 +558,8 @@ signals:
     void preparedWriteChanged();
     void writeDraftErrorChanged();
     void writeDispatchNoticeChanged();
+    // T023: one notification for the whole FC03 read-result projection.
+    void readResultChanged();
 
 private slots:
     // Serial transport errors are NOT Modbus diagnoses: sync state from the
@@ -555,6 +650,53 @@ private:
     void setWriteDispatchNotice(WriteDispatchNoticeKind kind);
     void clearWriteDispatchNotice();
     WriteDispatchNoticeKind writeDispatchNoticeKind_ = WriteDispatchNoticeKind::None;
+
+    // ---- T023 / M10 correction: FC03 read-result snapshot ----
+    // ONE immutable snapshot of the last read outcome, captured when it
+    // becomes terminal (or locally rejected). It is a PROJECTION, not a new
+    // authority: every field is copied out of the canonical record / terminal
+    // / pending request at capture time, and nothing is re-derived later.
+    //
+    // Cached (rather than recomputed per getter) on purpose: QML reads ~25
+    // properties per repaint and re-deriving the class / text on every read
+    // would make the surface both slow and capable of drifting between two
+    // reads of the same frame.
+    struct ReadResultSnapshot {
+        bool present{false};
+        bool waiting{false};
+        // Evidence availability of the CURRENT source. Simulator / Replay have
+        // no wire evidence at all — the surface must say so rather than show
+        // empty hex.
+        bool evidenceAvailable{false};
+        // Request echo.
+        bool hasRequestEcho{false};
+        int unitId{0};
+        int startAddress{0};
+        int quantity{0};
+        int timeoutMs{0};
+        // Wire evidence (exact bytes; empty RX = nothing observed).
+        std::vector<std::uint8_t> txBytes;
+        std::vector<std::uint8_t> rxBytes;
+        bool dispositionNotSent{false};
+        // Verdict.
+        modbuslens::core::TransactionAnalysis analysis{};
+        ReadResultClass resultClass{ReadResultClass::UnknownResponse};
+        // Local-rejection text (CLASS-01 only), verbatim from the guard lane.
+        QString localRejectionText;
+    };
+    [[nodiscard]] const ReadResultSnapshot& readResultSnapshot() const;
+    // Capture helpers — the ONLY writers of the snapshot above.
+    void captureReadResultFromRecord(
+        const modbuslens::core::ActiveTransactionRecord& record);
+    void captureReadResultFromTerminal(
+        const modbuslens::core::ActiveTransportTerminal& terminal);
+    void captureReadResultLocalRejection(const QString& message);
+    // Waiting state: entered when a read enters flight (dispatch accepted),
+    // left the moment a terminal is captured. Never a terminal itself.
+    void enterReadResultWaiting(
+        const modbuslens::core::ActiveRequestDescriptor& descriptor);
+    void clearReadResult();
+    void announceReadResultChanged();
     // Emitted after every prepared-state transition (prepare/confirm/cancel/
     // invalidate) so the projection stays consistent in one step.
     void announcePreparedWriteChanged();
@@ -608,6 +750,9 @@ private:
     bool hasWriteDraftError_ = false;
     QString writeDraftError_;
     QString writeDraftErrorField_;
+
+    // T023 / M10 correction: the cached FC03 read-result projection.
+    ReadResultSnapshot readResult_;
 
     // T011 Part A: the STRUCTURED active batch for diagnosis — same source
     // as rows + statistics on every successful publish (never reconstructed

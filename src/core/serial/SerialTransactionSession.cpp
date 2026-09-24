@@ -319,6 +319,7 @@ TransactionAnalysis analyzeActiveResponse(
         .elapsed = elapsed,
         .exceptionCode = std::nullopt,
         .issue = defensiveIssue,
+        .values = {},
     };
 }
 

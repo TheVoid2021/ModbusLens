@@ -16,11 +16,20 @@
 #include "core/active/ActiveTransactionEvidence.h"
 #include "core/analysis/TransactionAnalysis.h"
 #include "core/active/ActiveRequestIntent.h"
+#include "core/protocol/Function03.h"
+#include "core/protocol/ModbusRtuCodec.h"
 #include "fake_chat_completions_server.h"
 #include "fake_serial_transport.h"
 #include "ui/AnalysisController.h"
 #include "core/active/ActiveRequestIntent.h"
 #include "ui/TransactionListModel.h"
+
+#include <QSet>
+
+#include <algorithm>
+#include <span>
+#include <string>
+#include <utility>
 
 namespace {
 
@@ -196,6 +205,17 @@ private slots:
     void pv2_write06PreviewDecHex();
     void pv3_write10PreviewQuantityByteCountAndTable();
     void pv4_previewRejectsInvalidDrafts();
+    // ---- T023 / M10 correction: FC03 read-result observability ----
+    // READ-R1..R8 (T023 §12). READ-R9 (geometry) is the QML gate
+    // (--qml-read-result-check) because it needs a real window.
+    void rr01_classificationMatrixCompleteness();
+    void rr02_txIdentityEqualsPreviewAndRecord();
+    void rr03_rxByteFidelity();
+    void rr04_valuesComeFromTheSameRxBytes();
+    void rr05_noValuesOutsideSuccess();
+    void rr06_dispositionWording();
+    void rr07_noBytesIsStatedHonestly();
+    void rr08_noWireEvidenceSourceIsNeverFaked();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -677,6 +697,7 @@ modbuslens::core::TransactionAnalysis makeAnalysis(
         .elapsed = ms{elapsedMs},
         .exceptionCode = exceptionCode,
         .issue = std::nullopt,
+        .values = {},
     };
 }
 
@@ -723,6 +744,49 @@ public:
 std::vector<std::uint8_t> goodFc03Response()
 {
     return {0x01, 0x03, 0x04, 0x00, 0x64, 0x00, 0xC8, 0xBA, 0x7A};
+}
+
+// T023: a conforming FC03 answer carrying `values` as big-endian pairs, built
+// by the SHIPPED encoder (so the CRC is the production CRC).
+std::vector<std::uint8_t> fc03Response(int unit,
+                                      const std::vector<std::uint16_t>& values)
+{
+    std::vector<std::uint8_t> data;
+    data.push_back(static_cast<std::uint8_t>(values.size() * 2));
+    for (const std::uint16_t value : values) {
+        data.push_back(static_cast<std::uint8_t>(value >> 8));
+        data.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    }
+    return modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
+        .address = static_cast<std::uint8_t>(unit),
+        .functionCode = 0x03,
+        .data = std::move(data)});
+}
+
+// T023 READ-R4: parse the DISPLAYED hex run back into bytes — the invariant is
+// about the bytes the user can actually see, not about the injected vector.
+std::vector<std::uint8_t> bytesFromHexText(const QString& hex)
+{
+    std::vector<std::uint8_t> bytes;
+    const QStringList parts =
+        hex.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    for (const QString& part : parts) {
+        bool ok = false;
+        const uint value = part.toUInt(&ok, 16);
+        if (!ok) {
+            return {};
+        }
+        bytes.push_back(static_cast<std::uint8_t>(value));
+    }
+    return bytes;
+}
+
+modbuslens::core::TransactionIssue issueWith(
+    modbuslens::core::TransactionIssueCode code)
+{
+    modbuslens::core::TransactionIssue issue;
+    issue.code = code;
+    return issue;
 }
 
 } // namespace
@@ -1932,6 +1996,445 @@ void UiBridgeTest::pv4_previewRejectsInvalidDrafts()
     QCOMPARE(map.value(QStringLiteral("ok")).toBool(), false);
     QVERIFY(map.value(QStringLiteral("error")).toString()
                 .contains(QStringLiteral("1..125")));
+}
+
+// ---------------------------------------------------------------------------
+// T023 / M10 correction: FC03 READ-RESULT observability (READ-R1 … READ-R8).
+//
+// The contract lives in docs/tasks/T023-*.md §10/§12. READ-R9 (the 1000x700
+// geometry) is the dedicated QML gate because it needs a real window.
+// ---------------------------------------------------------------------------
+
+// READ-R3: the 10-class mapping is TOTAL over the existing core facts, and
+// every class has exactly one frozen title and one unique machine token.
+void UiBridgeTest::rr01_classificationMatrixCompleteness()
+{
+    using modbuslens::core::TransactionIssueCode;
+    using modbuslens::core::TransactionStatus;
+
+    struct Row {
+        TransactionStatus status;
+        std::optional<modbuslens::core::TransactionIssue> issue;
+        ReadResultClass expected;
+        const char* label;
+    };
+    const auto proto = [](TransactionIssueCode code) {
+        return std::optional<modbuslens::core::TransactionIssue>(issueWith(code));
+    };
+    const std::vector<Row> matrix = {
+        // T023 §10 rows that reach a terminal status.
+        {TransactionStatus::Timeout, std::nullopt,
+         ReadResultClass::TimeoutNoData, "no bytes, elapsed >= threshold"},
+        {TransactionStatus::ProtocolError, proto(TransactionIssueCode::ResponseFrameTooShort),
+         ReadResultClass::IncompleteResponse, "below the minimum RTU frame"},
+        {TransactionStatus::CrcError, std::nullopt, ReadResultClass::CrcFailure,
+         "frame length decodable, CRC mismatch"},
+        {TransactionStatus::ProtocolError, proto(TransactionIssueCode::ResponseAddressMismatch),
+         ReadResultClass::ResponseMismatch, "another device's reply"},
+        {TransactionStatus::Exception, std::nullopt, ReadResultClass::DeviceException,
+         "0x83 with exactly one code byte"},
+        {TransactionStatus::ProtocolError, proto(TransactionIssueCode::MalformedExceptionResponse),
+         ReadResultClass::MalformedResponse, "0x83 with an illegal shape"},
+        {TransactionStatus::ProtocolError, proto(TransactionIssueCode::MalformedNormalResponse),
+         ReadResultClass::MalformedResponse, "0x03 with an illegal shape"},
+        {TransactionStatus::ProtocolError, proto(TransactionIssueCode::QuantityMismatch),
+         ReadResultClass::ResponseMismatch, "well-formed reply, wrong count"},
+        {TransactionStatus::Success, std::nullopt, ReadResultClass::ReadSuccess,
+         "fully paired normal response"},
+        {TransactionStatus::ProtocolError, proto(TransactionIssueCode::UnexpectedResponseFunction),
+         ReadResultClass::ResponseMismatch, "unexpected function code"},
+        // T023 UNK-4: the two CLASS-09 paths must both exist and must never be
+        // guessed into a more specific class.
+        {TransactionStatus::ProtocolError,
+         proto(TransactionIssueCode::UnknownProtocolError),
+         ReadResultClass::UnknownResponse, "defensive UnknownProtocolError"},
+        {TransactionStatus::ProtocolError, std::nullopt,
+         ReadResultClass::UnknownResponse, "issue-less ProtocolError"},
+        {TransactionStatus::ExpectedNoResponse, std::nullopt,
+         ReadResultClass::UnknownResponse, "broadcast-shaped, unreachable for FC03"},
+        // Totality: the transitional Pending maps somewhere (CLASS-03) but is
+        // never presentable (T023 MAT-4).
+        {TransactionStatus::Pending, std::nullopt, ReadResultClass::TimeoutNoData,
+         "transitional Pending (never a user-visible terminal)"},
+    };
+
+    for (const Row& row : matrix) {
+        const ReadResultClass actual =
+            classifyFc03ReadResult(row.status, row.issue);
+        if (actual != row.expected) {
+            QFAIL(qPrintable(QStringLiteral("row [%1] classified as %2, expected "
+                                            "%3")
+                                 .arg(QString::fromLatin1(row.label),
+                                      readResultClassMachineToken(actual),
+                                      readResultClassMachineToken(row.expected))));
+        }
+    }
+
+    // Every class: a non-empty frozen title, a unique snake_case token, and a
+    // 可能原因 line that never asserts a root cause (T023 READ-UI-4).
+    const std::vector<ReadResultClass> allClasses = {
+        ReadResultClass::LocalRejected,     ReadResultClass::TransportFailed,
+        ReadResultClass::TimeoutNoData,     ReadResultClass::IncompleteResponse,
+        ReadResultClass::DeviceException,   ReadResultClass::CrcFailure,
+        ReadResultClass::ResponseMismatch,  ReadResultClass::MalformedResponse,
+        ReadResultClass::UnknownResponse,   ReadResultClass::ReadSuccess,
+    };
+    const std::vector<QString> frozenTitles = {
+        QStringLiteral("请求未发送"), QStringLiteral("传输失败"),
+        QStringLiteral("响应超时"),   QStringLiteral("响应不完整"),
+        QStringLiteral("从站异常"),   QStringLiteral("CRC 校验失败"),
+        QStringLiteral("响应不匹配"), QStringLiteral("响应格式错误"),
+        QStringLiteral("无法识别的响应"), QStringLiteral("读取成功"),
+    };
+    const std::vector<QString> forbiddenRootCauseWords = {
+        QStringLiteral("接线不良"), QStringLiteral("信号干扰"),
+        QStringLiteral("地址配错"), QStringLiteral("PLC 程序"),
+        QStringLiteral("设备老化"), QStringLiteral("通信不稳定"),
+    };
+    QSet<QString> tokens;
+    QSet<QString> titles;
+    for (std::size_t i = 0; i < allClasses.size(); ++i) {
+        const ReadResultClass klass = allClasses.at(i);
+        const QString token = readResultClassMachineToken(klass);
+        const QString title = readResultClassTitle(klass);
+        QVERIFY2(!token.isEmpty(), "a class has no machine token");
+        QVERIFY2(!titles.contains(title),
+                 qPrintable(QStringLiteral("duplicate frozen title [%1]").arg(title)));
+        QVERIFY2(!tokens.contains(token),
+                 qPrintable(QStringLiteral("duplicate token [%1]").arg(token)));
+        QCOMPARE(title, frozenTitles.at(i));
+        // READ-MSG-2: the machine token is never human UI prose.
+        for (const QChar c : token) {
+            QVERIFY2(c.isLower() || c == QLatin1Char('_'),
+                     qPrintable(QStringLiteral("token [%1] is not "
+                                               "snake_case").arg(token)));
+        }
+        const QString causes = readResultPossibleCausesFor(klass);
+        for (const QString& word : forbiddenRootCauseWords) {
+            QVERIFY2(!causes.contains(word),
+                     qPrintable(QStringLiteral("class [%1] asserts the root "
+                                               "cause [%2]")
+                                    .arg(token, word)));
+        }
+        tokens.insert(token);
+        titles.insert(title);
+    }
+    // UNK-1/UNK-2: the unknown class is a LEGAL terminal with no speculation.
+    QCOMPARE(readResultPossibleCausesFor(ReadResultClass::UnknownResponse),
+             QString());
+    // A Success carries no 可能原因 either — the read simply worked.
+    QCOMPARE(readResultPossibleCausesFor(ReadResultClass::ReadSuccess),
+             QString());
+    // UNK-5: an enum value this build does not know still gets the fallback
+    // token, never a fabricated meaning. (A scoped enum has a fixed underlying
+    // type, so any int value is representable — no UB.)
+    QCOMPARE(QString::fromStdString(std::string(modbuslens::core::transactionIssueName(
+                 static_cast<TransactionIssueCode>(250)))),
+             QStringLiteral("unknown_protocol_error"));
+    // The standard exception names are the four documented codes only.
+    QCOMPARE(standardExceptionNameZh(0x01), QStringLiteral("非法功能（Illegal Function）"));
+    QCOMPARE(standardExceptionNameZh(0x02),
+             QStringLiteral("非法数据地址（Illegal Data Address）"));
+    QVERIFY(standardExceptionNameZh(0x7F).isEmpty());
+}
+
+// READ-R1: the presented TX is the send-time descriptor wire, which is the
+// same encoder output the preview shows (PREVIEW == WIRE, constructively).
+void UiBridgeTest::rr02_txIdentityEqualsPreviewAndRecord()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+
+    const QString previewWire =
+        controller.previewReadRequest(1, 0, 2, 1000)
+            .value(QStringLiteral("rtuHex")).toString();
+    QVERIFY(!previewWire.isEmpty());
+
+    f.request(1, 2);
+    QVERIFY(controller.readResultWaiting());
+    // The WAITING state already carries the TX evidence (§19).
+    QCOMPARE(controller.readResultTxHex(), previewWire);
+
+    f.completeWith(goodFc03Response(), 25);
+    QVERIFY(!controller.readResultWaiting());
+    QCOMPARE(controller.readResultTxHex(), previewWire);
+
+    // …and that is exactly the ADU the transport was asked to write.
+    QVERIFY(f.transport.sentAduLog().size() == 1);
+    QCOMPARE(evidenceHexText(f.transport.sentAduLog().front()),
+             previewWire);
+    // …and exactly the send-time snapshot archived with the record.
+    QCOMPARE(controller.activeSerialRecordCount(), 1);
+    QCOMPARE(evidenceHexText(
+                 controller.activeSerialRecords().back().evidence.requestAdu),
+             previewWire);
+}
+
+// READ-R2: the presented RX is the observed byte run, byte for byte, with no
+// truncation — for a CRC-damaged frame, a too-short buffer, an oversized
+// buffer and a fragmented arrival.
+void UiBridgeTest::rr03_rxByteFidelity()
+{
+    // (a) CRC-damaged frame of a decodable length.
+    {
+        ActiveSerialFixture f;
+        std::vector<std::uint8_t> corrupted = goodFc03Response();
+        corrupted.back() = static_cast<std::uint8_t>(corrupted.back() ^ 0xFF);
+        f.request(1, 2);
+        f.completeWith(corrupted, 25);
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::CrcFailure);
+        QCOMPARE(f.controller.readResultRxByteCount(), int(corrupted.size()));
+        QCOMPARE(f.controller.readResultRxHex(), evidenceHexText(corrupted));
+    }
+    // (b) Below the minimum RTU frame: the bytes are kept, not discarded.
+    {
+        ActiveSerialFixture f;
+        const std::vector<std::uint8_t> shortRun = {0x01, 0x03};
+        f.request(1, 2);
+        f.transport.setResponseBytes(shortRun);
+        f.transport.completeWithResponse();    // not a candidate yet
+        f.transport.completeWithTimeout();     // decode the whole buffer
+        QCOMPARE(f.controller.readResultClass(),
+                 ReadResultClass::IncompleteResponse);
+        QCOMPARE(f.controller.readResultRxByteCount(), int(shortRun.size()));
+        QCOMPARE(f.controller.readResultRxHex(), evidenceHexText(shortRun));
+    }
+    // (c) Oversized (> 255 bytes): never truncated, never closed early.
+    {
+        ActiveSerialFixture f;
+        std::vector<std::uint8_t> huge(260, 0x00);
+        huge[0] = 0x01;
+        huge[1] = 0x03;   // an unknown-length normal reply -> waits for timeout
+        huge[2] = 0x02;   // an illegal byte count -> never a candidate
+        f.request(1, 2);
+        f.transport.setResponseBytes(huge);
+        f.transport.setCompletionElapsed(std::chrono::milliseconds{25});
+        f.transport.completeWithResponse();  // oversized: no candidate closes
+        f.transport.completeWithTimeout();   // decode the ENTIRE buffer
+        QCOMPARE(f.controller.readResultRxByteCount(), int(huge.size()));
+        QCOMPARE(f.controller.readResultRxHex(), evidenceHexText(huge));
+        QVERIFY(f.controller.readResultClass() != ReadResultClass::ReadSuccess);
+    }
+    // (d) Fragmented arrival: the classification and the bytes are identical
+    // to the single-chunk case (MAT-2).
+    {
+        ActiveSerialFixture f;
+        const std::vector<std::uint8_t> whole = goodFc03Response();
+        f.request(1, 2);
+        f.transport.setResponseBytes(whole);
+        f.transport.setCompletionElapsed(std::chrono::milliseconds{25});
+        f.transport.completeWithResponseInChunks({5, 4});
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::ReadSuccess);
+        QCOMPARE(f.controller.readResultRxByteCount(), int(whole.size()));
+        QCOMPARE(f.controller.readResultRxHex(), evidenceHexText(whole));
+        // Split across the CRC itself: same outcome.
+        ActiveSerialFixture g;
+        g.request(1, 2);
+        g.transport.setResponseBytes(whole);
+        g.transport.setCompletionElapsed(std::chrono::milliseconds{25});
+        g.transport.completeWithResponseInChunks({7, 2});
+        QCOMPARE(g.controller.readResultClass(), ReadResultClass::ReadSuccess);
+        QCOMPARE(g.controller.readResultRxHex(), evidenceHexText(whole));
+    }
+}
+
+// READ-R4: the value table is the RAW uint16 payload of the SAME displayed RX
+// bytes, decoded by the production decoder, and its size equals the request
+// quantity (1 / 2 / 125 boundaries).
+void UiBridgeTest::rr04_valuesComeFromTheSameRxBytes()
+{
+    const std::vector<std::pair<int, std::vector<std::uint16_t>>> cases = {
+        {1, {0x0000}},
+        {2, {0x0064, 0x00C8}},
+        {125, [] {
+             std::vector<std::uint16_t> values;
+             for (int i = 0; i < 125; ++i)
+                 values.push_back(static_cast<std::uint16_t>(0x1000 + i));
+             return values;
+         }()},
+    };
+
+    for (const auto& [quantity, values] : cases) {
+        ActiveSerialFixture f;
+        AnalysisController& controller = f.controller;
+        f.request(1, static_cast<std::uint16_t>(quantity));
+        f.completeWith(fc03Response(1, values), 25);
+        QCOMPARE(controller.readResultClass(), ReadResultClass::ReadSuccess);
+        QCOMPARE(controller.readResultValueCount(), quantity);
+        QVERIFY(controller.readResultHasValues());
+
+        // Independent derivation: take the DISPLAYED hex run, run it through
+        // the production decoder, and require the presented table to equal it.
+        const std::vector<std::uint8_t> shown =
+            bytesFromHexText(controller.readResultRxHex());
+        QCOMPARE(int(shown.size()), int(values.size()) * 2 + 5);
+        const auto decoded = modbuslens::core::decodeRtuFrame(shown);
+        const auto* frame =
+            std::get_if<modbuslens::core::ModbusRtuFrame>(&decoded);
+        QVERIFY2(frame != nullptr, "the displayed bytes are not a decodable frame");
+        const auto model =
+            modbuslens::core::decodeReadHoldingRegistersResponse(*frame);
+        const auto* response =
+            std::get_if<modbuslens::core::ReadHoldingRegistersResponse>(&model);
+        QVERIFY2(response != nullptr, "the displayed bytes are not a legal FC03 reply");
+        QCOMPARE(response->values, values);
+
+        const QVariantList rows = controller.readResultValues();
+        QCOMPARE(int(rows.size()), quantity);
+        for (int i = 0; i < quantity; ++i) {
+            const QVariantMap row = rows.at(i).toMap();
+            QCOMPARE(row.value(QStringLiteral("index")).toInt(), i + 1);
+            // The address column answers Human's question: which registers did
+            // this read actually cover? (0-based PDU addresses from the
+            // request's own start address.)
+            QCOMPARE(row.value(QStringLiteral("address")).toInt(), i);
+            QCOMPARE(row.value(QStringLiteral("dec")).toInt(),
+                     int(response->values.at(static_cast<std::size_t>(i))));
+        }
+    }
+}
+
+// READ-R5: NO class other than Success may show a register value — not even
+// when the observed bytes happen to contain a convincing pair (T023
+// READ-RX-5: presenting an unverified value would fabricate device content).
+void UiBridgeTest::rr05_noValuesOutsideSuccess()
+{
+    // A decoy: a well-formed 2-register payload whose CRC byte was damaged.
+    {
+        ActiveSerialFixture f;
+        std::vector<std::uint8_t> decoy = goodFc03Response();
+        decoy.back() = static_cast<std::uint8_t>(decoy.back() ^ 0x01);
+        f.request(1, 2);
+        f.completeWith(decoy, 25);
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::CrcFailure);
+        QVERIFY(!f.controller.readResultHasValues());
+        QVERIFY(f.controller.readResultValues().isEmpty());
+        QCOMPARE(f.controller.readResultValueCount(), 0);
+    }
+    // A decoy that is a legal frame from another device.
+    {
+        ActiveSerialFixture f;
+        f.request(1, 2);
+        f.completeWith(fc03Response(2, {0x0064, 0x00C8}), 25);
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::ResponseMismatch);
+        QVERIFY(!f.controller.readResultHasValues());
+        QVERIFY(f.controller.readResultValues().isEmpty());
+    }
+    // A decoy whose register COUNT is wrong for this request.
+    {
+        ActiveSerialFixture f;
+        f.request(1, 4);
+        f.completeWith(fc03Response(1, {0x0064, 0x00C8}), 25);
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::ResponseMismatch);
+        QVERIFY(!f.controller.readResultHasValues());
+        QVERIFY(f.controller.readResultValues().isEmpty());
+    }
+    // A legal exception reply.
+    {
+        ActiveSerialFixture f;
+        f.request(1, 2);
+        f.completeWith(modbuslens::core::encodeRtuFrame(
+                           modbuslens::core::ModbusRtuFrame{
+                               .address = 1, .functionCode = 0x83, .data = {0x02}}),
+                       25);
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::DeviceException);
+        QVERIFY(!f.controller.readResultHasValues());
+        QVERIFY(f.controller.readResultValues().isEmpty());
+    }
+    // A timeout (no bytes at all).
+    {
+        ActiveSerialFixture f;
+        f.request(1, 2);
+        f.completeWithTimeout(1000);
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::TimeoutNoData);
+        QVERIFY(!f.controller.readResultHasValues());
+        QVERIFY(f.controller.readResultValues().isEmpty());
+    }
+}
+
+// READ-R6: the disposition is rendered in two distinct bands, and a
+// PossiblySent submission is never presented as 「已发送」.
+void UiBridgeTest::rr06_dispositionWording()
+{
+    // NotSent: the guard provably sent nothing (unit out of range).
+    AnalysisController rejected;
+    rejected.readHoldingRegistersOnce(0, 0, 2, 1000);
+    QCOMPARE(rejected.readResultClass(), ReadResultClass::LocalRejected);
+    QCOMPARE(rejected.readResultDispositionText(), QStringLiteral("未发送"));
+    QVERIFY(!rejected.readResultHasTx());
+
+    // PossiblySent: the transport API accepted the handover — which proves
+    // NOTHING about the device.
+    ActiveSerialFixture f;
+    f.request(1, 2);
+    QCOMPARE(f.controller.readResultDispositionText(),
+             QStringLiteral("已提交传输（设备是否收到不可证）"));
+    QVERIFY(!f.controller.readResultDispositionText().contains(
+        QStringLiteral("已发送")));
+    QVERIFY(!f.controller.readResultTxLine().contains(QStringLiteral("已发送")));
+    // READ-RX-3: with a trusted response present, the TX side must not fall
+    // back to a weaker claim either.
+    f.completeWith(goodFc03Response(), 25);
+    QCOMPARE(f.controller.readResultDispositionText(),
+             QStringLiteral("已提交传输（设备是否收到不可证）"));
+    QVERIFY(!f.controller.readResultTxLine().contains(QStringLiteral("可能已发送")));
+}
+
+// READ-R7: an empty RX is STATED — never an empty string, never 「空响应」,
+// never a fabricated 00 byte.
+void UiBridgeTest::rr07_noBytesIsStatedHonestly()
+{
+    ActiveSerialFixture f;
+    f.request(1, 2);
+    QCOMPARE(f.controller.readResultRxText(), QStringLiteral("未观测到任何字节"));
+    QVERIFY(!f.controller.readResultHasRx());
+    QVERIFY(f.controller.readResultRxHex().isEmpty());
+    QCOMPARE(f.controller.readResultRxByteCount(), 0);
+
+    f.completeWithTimeout(1000);
+    QCOMPARE(f.controller.readResultClass(), ReadResultClass::TimeoutNoData);
+    QCOMPARE(f.controller.readResultRxText(), QStringLiteral("未观测到任何字节"));
+    QVERIFY(!f.controller.readResultRxText().isEmpty());
+    QVERIFY(!f.controller.readResultRxText().contains(QStringLiteral("空响应")));
+    QVERIFY(f.controller.readResultRxHex().isEmpty());
+    QCOMPARE(f.controller.readResultRxByteCount(), 0);
+    QVERIFY(f.controller.readResultFactLine().contains(
+        QStringLiteral("未观测到任何字节")));
+}
+
+// READ-R8: a source with no wire evidence never gets fabricated bytes or
+// values, and the projection states that plainly.
+void UiBridgeTest::rr08_noWireEvidenceSourceIsNeverFaked()
+{
+    AnalysisController controller;
+    // Simulator is the initial source: no Active Serial session exists.
+    QVERIFY(controller.readResultAwaitingEvidenceSource());
+    QVERIFY(!controller.hasReadResult());
+    QVERIFY(controller.readResultTxHex().isEmpty());
+    QVERIFY(controller.readResultRxHex().isEmpty());
+    QVERIFY(controller.readResultValues().isEmpty());
+    controller.runDemoBatch();
+    QVERIFY(!controller.hasReadResult());
+    QVERIFY(controller.readResultTxHex().isEmpty());
+    QVERIFY(controller.readResultRxHex().isEmpty());
+    QVERIFY(controller.readResultValues().isEmpty());
+
+    // An Active Serial result is cleared with the session it belongs to: the
+    // previous session's bytes must never be shown as this session's.
+    ActiveSerialFixture f;
+    f.request(1, 2);
+    f.completeWith(goodFc03Response(), 25);
+    QVERIFY(!f.controller.readResultAwaitingEvidenceSource());
+    QVERIFY(f.controller.readResultHasTx());
+    QVERIFY(f.controller.readResultEvidenceAvailable());
+
+    f.controller.disconnectSerial();
+    f.controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+    QVERIFY2(!f.controller.hasReadResult(),
+             "a read result from the previous session survived into a new one");
+    QVERIFY(f.controller.readResultTxHex().isEmpty());
+    QVERIFY(f.controller.readResultRxHex().isEmpty());
+    QVERIFY(f.controller.readResultValues().isEmpty());
 }
 
 QTEST_GUILESS_MAIN(UiBridgeTest)

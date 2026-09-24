@@ -27,7 +27,9 @@ TransactionAnalysis makeAnalysis(TransactionStatus status, ms elapsed)
         .status = status,
         .elapsed = elapsed,
         .exceptionCode = std::nullopt,
-        .issue = std::nullopt};
+        .issue = std::nullopt,
+        // T023: no raw payload — this helper only builds the status axis.
+        .values = {}};
 }
 
 TransactionAnalysis makeException(std::uint8_t code, ms elapsed)
@@ -36,7 +38,8 @@ TransactionAnalysis makeException(std::uint8_t code, ms elapsed)
         .status = TransactionStatus::Exception,
         .elapsed = elapsed,
         .exceptionCode = code,
-        .issue = std::nullopt};
+        .issue = std::nullopt,
+        .values = {}};
 }
 
 class TransactionStatisticsTest : public QObject
@@ -265,6 +268,7 @@ void TransactionStatisticsTest::b09_issuePresenceDoesNotChangeSnapshot()
             .elapsed = analysis.elapsed,
             .exceptionCode = analysis.exceptionCode,
             .issue = std::nullopt,
+            .values = {},
         });
     }
 

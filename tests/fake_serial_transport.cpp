@@ -1,5 +1,8 @@
 #include "fake_serial_transport.h"
 
+#include <algorithm>
+#include <span>
+
 RecordingSerialTransport::RecordingSerialTransport(QObject* parent)
     : SerialTransport(parent)
 {
@@ -225,6 +228,35 @@ void RecordingSerialTransport::completeWithTimeout()
             std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
         emitCompletion(*analysis);
     }
+}
+
+void RecordingSerialTransport::completeWithResponseInChunks(
+    const std::vector<std::size_t>& chunkSizes)
+{
+    if (!hasPendingTransaction()) {
+        return;
+    }
+    std::size_t offset = 0;
+    for (const std::size_t size : chunkSizes) {
+        const std::size_t end = std::min(offset + size, responseBytes_.size());
+        if (end <= offset) {
+            continue;
+        }
+        const std::span<const std::uint8_t> chunk(responseBytes_.data() + offset,
+                                                 end - offset);
+        // Evidence accumulates exactly like the production adapter: every
+        // delivered byte, in order, before the session sees it.
+        deliveredBytes_.insert(deliveredBytes_.end(), chunk.begin(), chunk.end());
+        const auto result = session_.feedResponseBytes(chunk, completionElapsed_);
+        offset = end;
+        if (const auto* analysis =
+                std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
+            emitCompletion(*analysis);
+            return;
+        }
+    }
+    // The configured chunks never formed a complete candidate: that is a
+    // legitimate partial configuration, not an error.
 }
 
 void RecordingSerialTransport::feedPartialBytes()

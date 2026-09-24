@@ -55,6 +55,7 @@ AnalyzedObservedTransaction analyzed(
             .elapsed = elapsed,
             .exceptionCode = std::move(exceptionCode),
             .issue = std::move(issue),
+            .values = {},
         },
         .requestIssues = std::move(requestIssues),
     };
