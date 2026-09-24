@@ -144,6 +144,11 @@ class AnalysisController : public QObject
     Q_PROPERTY(QString readResultStartAddressHex READ readResultStartAddressHex NOTIFY readResultChanged)
     Q_PROPERTY(int readResultQuantity READ readResultQuantity NOTIFY readResultChanged)
     Q_PROPERTY(int readResultTimeoutMs READ readResultTimeoutMs NOTIFY readResultChanged)
+    // M10 correction: dynamic requested/expected function identity (from the
+    // transaction's own intent) and, when determinable, the received function.
+    Q_PROPERTY(QString readResultFunctionLabel READ readResultFunctionLabel NOTIFY readResultChanged)
+    Q_PROPERTY(bool readResultHasReceivedFunction READ readResultHasReceivedFunction NOTIFY readResultChanged)
+    Q_PROPERTY(QString readResultReceivedFunctionLabel READ readResultReceivedFunctionLabel NOTIFY readResultChanged)
     // Wire evidence. The TX/RX texts are HEX projections of the EXACT bytes
     // the transport snapshot holds; empty RX is reported as no-bytes-observed,
     // never as an empty string or as fabricated zero bytes.
@@ -214,10 +219,13 @@ public:
     // cancelled without a Modbus diagnosis; the last result and the Serial
     // source identity remain on the dashboard (Clear is the only clearer).
     Q_INVOKABLE void disconnectSerial();
-    // One FC03 read. Re-validates every range BEFORE any narrowing cast;
+    // One register read. Re-validates every range BEFORE any narrowing cast;
     // requires serialConnected && !serialBusy, otherwise serial error only.
+    // M10 correction: `functionCode` is the user-selectable wire function byte
+    // of the register-read schema (0x01..0x7F, default the historical 0x03).
     Q_INVOKABLE void readHoldingRegistersOnce(int slaveAddress, int startAddress,
-                                              int quantity, int timeoutMs);
+                                              int quantity, int timeoutMs,
+                                              int functionCode = 3);
 
     // ---- T011 Part A: deterministic baseline diagnosis ----
     // Diagnoses the CURRENT structured active batch through the rule core.
@@ -439,7 +447,8 @@ public:
     // Addresses/values are protocol truth: DEC for input, HEX as a display
     // projection only (never an input format).
     Q_INVOKABLE QVariantMap previewReadRequest(int slaveAddress, int startAddress,
-                                               int quantity, int timeoutMs);
+                                               int quantity, int timeoutMs,
+                                               int functionCode = 3);
     Q_INVOKABLE QVariantMap previewWrite06Draft(int unitId,
                                                 const QString& addressRaw,
                                                 const QString& valueRaw);
@@ -453,6 +462,24 @@ public:
 
     // QML projection getters (read-only; typed accessors above stay for C++).
     [[nodiscard]] bool hasPreparedWrite() const;
+    // M10 correction: the raw-text front door of the register-read path. The
+    // QML fields are presentation only; these wrappers parse through the CORE
+    // parsers and then run the SAME typed validation the harness/tests use.
+    Q_INVOKABLE void readRegisterRequest(const QString& slaveRaw,
+                                         const QString& functionRaw,
+                                         const QString& startRaw,
+                                         const QString& quantityRaw,
+                                         const QString& timeoutRaw);
+    // Raw-text preview of the register-read request (same parsers, same
+    // validation, ok=false + errorField instead of the serial error lane).
+    Q_INVOKABLE QVariantMap previewReadDraft(const QString& slaveRaw,
+                                             const QString& functionRaw,
+                                             const QString& startRaw,
+                                             const QString& quantityRaw,
+                                             const QString& timeoutRaw);
+    // Dynamic compact helper text for the function field ("FC03 (0x03) · Read
+    // Holding Registers · 读取保持寄存器" / 0x04 / the custom-code wording).
+    Q_INVOKABLE QString readFunctionLabel(const QString& functionRaw);
     [[nodiscard]] QString preparedWriteStateToken() const;
     [[nodiscard]] qulonglong preparedWriteTokenValue() const;
     [[nodiscard]] int preparedWriteFunction() const;
@@ -491,6 +518,9 @@ public:
     [[nodiscard]] QString readResultStartAddressHex() const;
     [[nodiscard]] int readResultQuantity() const;
     [[nodiscard]] int readResultTimeoutMs() const;
+    [[nodiscard]] QString readResultFunctionLabel() const;
+    [[nodiscard]] bool readResultHasReceivedFunction() const;
+    [[nodiscard]] QString readResultReceivedFunctionLabel() const;
     [[nodiscard]] bool readResultHasTx() const;
     [[nodiscard]] QString readResultTxHex() const;
     [[nodiscard]] bool readResultHasRx() const;
@@ -674,6 +704,11 @@ private:
         int startAddress{0};
         int quantity{0};
         int timeoutMs{0};
+        // M10 correction: the request's ACTUAL wire function code (the
+        // register-read schema's user-selected byte, default 0x03). The read
+        // result must never imply "expected = FC03" when the user asked for
+        // another function — this is transaction truth, not a label constant.
+        std::uint8_t functionCode{0x03};
         // Wire evidence (exact bytes; empty RX = nothing observed).
         std::vector<std::uint8_t> txBytes;
         std::vector<std::uint8_t> rxBytes;

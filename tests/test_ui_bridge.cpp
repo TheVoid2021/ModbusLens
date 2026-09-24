@@ -216,6 +216,18 @@ private slots:
     void rr06_dispositionWording();
     void rr07_noBytesIsStatedHonestly();
     void rr08_noWireEvidenceSourceIsNeverFaked();
+
+    // ---- M10 correction: the read function code is editable ----
+    // READ-FC1..FC8. FC9 (UI -> preview -> actual TX identity) lives in the
+    // --qml-read-result-check QML gate, which owns the real field widgets.
+    void fc1_readFc03CompatibilityIsUntouched();
+    void fc2_readFc04UsesTheSelectedFunctionByte();
+    void fc3_readCustomFc41UsesTheSelectedFunctionByte();
+    void fc4_dynamicExceptionFunctionForm();
+    void fc5_wrongResponseFunctionIsDynamic();
+    void fc6_invalidFunctionTextIsRejectedLocally();
+    void fc7_typedInputParsing();
+    void fc8_baudOptionsIncludeLowSpeedRates();
 };
 
 void UiBridgeTest::a01_controllerInitialCounts()
@@ -748,8 +760,11 @@ std::vector<std::uint8_t> goodFc03Response()
 
 // T023: a conforming FC03 answer carrying `values` as big-endian pairs, built
 // by the SHIPPED encoder (so the CRC is the production CRC).
-std::vector<std::uint8_t> fc03Response(int unit,
-                                      const std::vector<std::uint16_t>& values)
+// M10 correction: the reply builder takes the register-read function byte
+// (0x03 default) — one builder for FC03/FC04/custom-code fixtures.
+std::vector<std::uint8_t> fc03Response(
+    int unit, const std::vector<std::uint16_t>& values,
+    std::uint8_t readFunctionCode = 0x03)
 {
     std::vector<std::uint8_t> data;
     data.push_back(static_cast<std::uint8_t>(values.size() * 2));
@@ -759,7 +774,7 @@ std::vector<std::uint8_t> fc03Response(int unit,
     }
     return modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
         .address = static_cast<std::uint8_t>(unit),
-        .functionCode = 0x03,
+        .functionCode = readFunctionCode,
         .data = std::move(data)});
 }
 
@@ -1870,7 +1885,8 @@ void UiBridgeTest::pv1_readPreviewMatchesEncoder()
     QCOMPARE(map.value(QStringLiteral("functionHex")).toString(),
              QStringLiteral("0x03"));
     QCOMPARE(map.value(QStringLiteral("functionLabel")).toString(),
-             QStringLiteral("FC03 (0x03) Read Holding Registers 读取保持寄存器"));
+             QStringLiteral(
+                 "FC03 (0x03) · Read Holding Registers · 读取保持寄存器"));
     // The frozen FC03 PDU: fn=03, start=0001, qty=0002.
     QCOMPARE(map.value(QStringLiteral("pduHex")).toString(),
              QStringLiteral("03 00 01 00 02"));
@@ -2435,6 +2451,255 @@ void UiBridgeTest::rr08_noWireEvidenceSourceIsNeverFaked()
     QVERIFY(f.controller.readResultTxHex().isEmpty());
     QVERIFY(f.controller.readResultRxHex().isEmpty());
     QVERIFY(f.controller.readResultValues().isEmpty());
+}
+
+// ---------------------------------------------------------------------------
+// M10 correction: the read function code is editable (READ-FC1..FC8).
+// The register-read schema (start+quantity -> byteCount+uint16 words) is ONE
+// code path; the wire function byte is a user-selected fact of that schema.
+// ---------------------------------------------------------------------------
+
+// READ-FC1: function input 03 keeps the historical FC03 request bytes
+// byte-for-byte (the golden wire vector), through the typed API.
+void UiBridgeTest::fc1_readFc03CompatibilityIsUntouched()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    f.request(1, 2);
+    QCOMPARE(controller.readResultWaiting(), true);
+    // Golden FC03 request bytes: 01 03 00 00 00 02 + CRC.
+    QCOMPARE(controller.readResultTxHex(),
+             evidenceHexText(std::vector<std::uint8_t>{
+                 0x01, 0x03, 0x00, 0x00, 0x00, 0x02, 0xC4, 0x0B}));
+    f.completeWith(goodFc03Response(), 25);
+    QCOMPARE(controller.readResultClass(), ReadResultClass::ReadSuccess);
+    QCOMPARE(controller.readResultFunctionLabel(),
+             QStringLiteral("FC03 (0x03)"));
+    QVERIFY(controller.readResultHasReceivedFunction());
+    QCOMPARE(controller.readResultReceivedFunctionLabel(),
+             QStringLiteral("FC03 (0x03)"));
+}
+
+// READ-FC2: function input 04 puts 04 into the PDU function byte, the RTU
+// function byte and the expected response function — and a conforming FC04
+// reply still succeeds with raw uint16 registers (ONE schema, no copy).
+void UiBridgeTest::fc2_readFc04UsesTheSelectedFunctionByte()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    controller.readHoldingRegistersOnce(1, 0, 2, 1000, 4);
+    QCOMPARE(controller.readResultWaiting(), true);
+    // The wire function byte is 04; the expected bytes come from the
+    // production encoder itself (READ-R1: preview == wire, constructively).
+    const auto expectedFc04 = modbuslens::core::encodeRtuFrame(
+        modbuslens::core::ModbusRtuFrame{
+            .address = 0x01,
+            .functionCode = 0x04,
+            .data = {0x00, 0x00, 0x00, 0x02}});
+    QCOMPARE(controller.readResultTxHex(), evidenceHexText(expectedFc04));
+    // PREVIEW == WIRE for the selected function, constructively.
+    QCOMPARE(controller.previewReadRequest(1, 0, 2, 1000, 4)
+                 .value(QStringLiteral("rtuHex")).toString(),
+             controller.readResultTxHex());
+    QCOMPARE(controller.readResultFunctionLabel(),
+             QStringLiteral("FC04 (0x04)"));
+
+    f.completeWith(fc03Response(1, {0x0064, 0x00C8}, 4), 25);
+    QCOMPARE(controller.readResultClass(), ReadResultClass::ReadSuccess);
+    QCOMPARE(controller.readResultValueCount(), 2);
+    QCOMPARE(controller.readResultReceivedFunctionLabel(),
+             QStringLiteral("FC04 (0x04)"));
+    // The transaction's own intent carries the selected function byte.
+    QCOMPARE(modbuslens::core::activeRequestFunctionCode(
+                 controller.activeSerialRecords().back().request.intent),
+             std::uint8_t{4});
+}
+
+// READ-FC3: a custom register-read-compatible function code (0x41) flows
+// through the same dispatch, preview and read-result projection.
+void UiBridgeTest::fc3_readCustomFc41UsesTheSelectedFunctionByte()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    controller.readHoldingRegistersOnce(2, 0x0064, 3, 1000, 0x41);
+    QCOMPARE(controller.readResultWaiting(), true);
+    // 02 41 00 64 00 03 + CRC — the schema bytes are the user's; the CRC is
+    // the production encoder's (never a hand-computed constant).
+    const auto expectedFc41 = modbuslens::core::encodeRtuFrame(
+        modbuslens::core::ModbusRtuFrame{
+            .address = 0x02,
+            .functionCode = 0x41,
+            .data = {0x00, 0x64, 0x00, 0x03}});
+    QCOMPARE(controller.readResultTxHex(), evidenceHexText(expectedFc41));
+    QCOMPARE(controller.readResultFunctionLabel(),
+             QStringLiteral("FC41 (0x41)"));
+    f.completeWith(fc03Response(2, {0x0001, 0x0002, 0x0003}, 0x41), 25);
+    QCOMPARE(controller.readResultClass(), ReadResultClass::ReadSuccess);
+    QCOMPARE(controller.readResultValueCount(), 3);
+    // A custom code never claims a standard meaning.
+    QVERIFY(controller.readResultPossibleCauses().isEmpty());
+}
+
+// READ-FC4: the exception candidate is the REQUEST's own function | 0x80 —
+// 03->83, 04->84, 41->C1 — and it lands in 从站异常, never in mismatch.
+void UiBridgeTest::fc4_dynamicExceptionFunctionForm()
+{
+    struct Case {
+        int requestFunction;
+        std::uint8_t exceptionFunction;
+    };
+    const std::vector<Case> cases = {
+        {3, 0x83}, {4, 0x84}, {0x41, 0xC1}};
+    for (const Case& c : cases) {
+        ActiveSerialFixture f;
+        f.controller.readHoldingRegistersOnce(1, 0, 2, 1000, c.requestFunction);
+        f.completeWith(modbuslens::core::encodeRtuFrame(
+                           modbuslens::core::ModbusRtuFrame{
+                               .address = 1,
+                               .functionCode = c.exceptionFunction,
+                               .data = {0x02}}),
+                       25);
+        QCOMPARE(f.controller.readResultClass(),
+                 ReadResultClass::DeviceException);
+        QVERIFY(f.controller.readResultFactLine().contains(
+            QStringLiteral("0x02")));
+        QVERIFY(!f.controller.readResultHasValues());
+    }
+}
+
+// READ-FC5: a reply with the WRONG function is a dynamic pairing fact —
+// the surface shows the requested function from the transaction truth and
+// the received function from the core's actualFunctionCode.
+void UiBridgeTest::fc5_wrongResponseFunctionIsDynamic()
+{
+    ActiveSerialFixture f;
+    AnalysisController& controller = f.controller;
+    controller.readHoldingRegistersOnce(1, 0, 2, 1000, 0x41);
+    // A well-formed FC03 reply to an FC41 request: never decoded as values.
+    f.completeWith(goodFc03Response(), 25);
+    QCOMPARE(controller.readResultClass(), ReadResultClass::ResponseMismatch);
+    QCOMPARE(controller.readResultFunctionLabel(),
+             QStringLiteral("FC41 (0x41)"));
+    QVERIFY(controller.readResultHasReceivedFunction());
+    QCOMPARE(controller.readResultReceivedFunctionLabel(),
+             QStringLiteral("FC03 (0x03)"));
+    QVERIFY(!controller.readResultHasValues());
+    QVERIFY(controller.readResultValues().isEmpty());
+}
+
+// READ-FC6: an invalid function TEXT is rejected before anything is sent —
+// the raw-text front door parses through the core parser, never in QML.
+void UiBridgeTest::fc6_invalidFunctionTextIsRejectedLocally()
+{
+    for (const char* raw : {"", "GG", "0x", "123", "0x123", "-1", "1 2", "0xG"}) {
+        ActiveSerialFixture f;
+        f.controller.readRegisterRequest(QStringLiteral("1"),
+                                         QString::fromLatin1(raw),
+                                         QStringLiteral("0"),
+                                         QStringLiteral("2"),
+                                         QStringLiteral("1000"));
+        QCOMPARE(f.controller.hasSerialError(), true);
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::LocalRejected);
+        QCOMPARE(f.controller.readResultDispositionText(),
+                  QStringLiteral("未发送"));
+        QCOMPARE(f.transport.sentAduLog().size(), std::size_t{0});
+        QVERIFY2(f.controller.readResultTxHex().isEmpty(), raw);
+    }
+    // The legal spellings all parse to the same function code.
+    for (const char* raw : {"41", "0x41", "0X41", " 41 "}) {
+        ActiveSerialFixture f;
+        f.controller.readRegisterRequest(QStringLiteral("1"),
+                                         QString::fromLatin1(raw),
+                                         QStringLiteral("0"),
+                                         QStringLiteral("2"),
+                                         QStringLiteral("1000"));
+        QCOMPARE(f.controller.readResultWaiting(), true);
+        QCOMPARE(f.controller.readResultFunctionLabel(),
+                  QStringLiteral("FC41 (0x41)"));
+        QVERIFY(f.transport.sentAduLog().size() == 1);
+        QCOMPARE(f.transport.sentAduLog().front()[1], std::uint8_t{0x41});
+    }
+    // 0x80 (the exception space) parses as HEX but is rejected by the guard.
+    {
+        ActiveSerialFixture f;
+        f.controller.readRegisterRequest(QStringLiteral("1"),
+                                         QStringLiteral("80"),
+                                         QStringLiteral("0"),
+                                         QStringLiteral("2"),
+                                         QStringLiteral("1000"));
+        QCOMPARE(f.controller.hasSerialError(), true);
+        QVERIFY(f.controller.serialErrorMessage().contains(
+            QStringLiteral("0x01..0x7F")));
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::LocalRejected);
+    }
+}
+
+// READ-FC7: the four decimal text fields go through the SAME core decimal
+// parser the write drafts use — trim, digits-only, overflow, trailing garbage.
+void UiBridgeTest::fc7_typedInputParsing()
+{
+    struct Case {
+        const char* slave;
+        const char* start;
+        const char* quantity;
+        const char* timeout;
+        bool accepted;
+    };
+    const std::vector<Case> cases = {
+        {"1", "12x", "2", "1000", false},   // trailing garbage
+        {"1", "", "2", "1000", false},      // empty
+        {"1", "-1", "2", "1000", false},    // negative
+        {"1", "70000", "2", "1000", false}, // above the 16-bit address space
+        {"1", "1 2", "2", "1000", false},   // two values in one field
+        {"0", "0", "2", "1000", false},     // slave 0 -> range guard
+        {"1", "0", "126", "1000", false},   // quantity 126 -> range guard
+        {"1", "0", "2", "0", false},        // timeout 0 -> range guard
+        {" 1 ", " 10 ", " 2 ", " 1000 ", true}, // trimmed decimals are fine
+        {"1", "0x10", "2", "1000", false},  // decimal fields take no 0x input
+    };
+    for (const Case& c : cases) {
+        ActiveSerialFixture f;
+        f.controller.readRegisterRequest(QString::fromLatin1(c.slave),
+                                         QStringLiteral("03"),
+                                         QString::fromLatin1(c.start),
+                                         QString::fromLatin1(c.quantity),
+                                         QString::fromLatin1(c.timeout));
+        QCOMPARE(f.controller.readResultWaiting(), c.accepted);
+        // A waiting read has no completed record yet: the honest send count
+        // is the transport's accepted-ADU log.
+        QCOMPARE(f.transport.sentAduLog().size(),
+                 c.accepted ? std::size_t{1} : std::size_t{0});
+        if (c.accepted) {
+            QCOMPARE(f.controller.readResultStartAddress(), 10);
+        }
+    }
+}
+
+// READ-FC8: the baud list gained 1200/2400/4800; the default stays 9600 and
+// a selected low-speed value is REALLY used by the connect path.
+void UiBridgeTest::fc8_baudOptionsIncludeLowSpeedRates()
+{
+    for (const int baud : {1200, 2400, 4800}) {
+        ActiveSerialFixture f;
+        f.controller.connectSerial(QStringLiteral("COM_TEST"), baud);
+        QVERIFY2(f.controller.serialConnected(),
+                 qPrintable(QStringLiteral("baud %1 rejected: [%2]")
+                                .arg(baud)
+                                .arg(f.controller.serialErrorMessage())));
+        QCOMPARE(f.controller.sourceLabel(),
+                  QStringLiteral("COM_TEST @ %1").arg(baud));
+    }
+    // 9600 remains legal (through the injected transport, like every other
+    // connect here — the default transport would be the production adapter);
+    // an unsupported value is still rejected.
+    {
+        ActiveSerialFixture f;
+        f.controller.connectSerial(QStringLiteral("COM_TEST"), 9600);
+        QCOMPARE(f.controller.serialConnected(), true);
+        f.controller.disconnectSerial();
+        f.controller.connectSerial(QStringLiteral("COM_TEST"), 12345);
+        QCOMPARE(f.controller.serialConnected(), false);
+    }
 }
 
 QTEST_GUILESS_MAIN(UiBridgeTest)

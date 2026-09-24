@@ -123,8 +123,10 @@ Item {
                 ComboBox {
                     id: serialBaudCombo
                     objectName: "commBaudCombo"
-                    model: [9600, 19200, 38400, 57600, 115200]
-                    currentIndex: 0
+                    // M10 correction (Human): 1200/2400/4800 added; the
+                    // default stays 9600 (index 3).
+                    model: [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200]
+                    currentIndex: 3
                     enabled: !page.analysisController.serialConnected
                     Layout.preferredWidth: 110
                     // M9-F F1 correction (P1, focus visibility): same overlay
@@ -202,82 +204,107 @@ Item {
             objectName: "communicationRequestSection"
             Layout.fillWidth: true
 
-            // M10-F: the function code is a FIRST-CLASS request parameter and
-            // is always shown in the unified FCnn (0xNN) form. FC03 reads
-            // holding registers — a read request has NO register-value field.
-            Label {
-                text: qsTr("Function: FC03 (0x03) Read Holding Registers 读取保持寄存器")
-                color: DS.textSecondary
-                font.pixelSize: DS.fontCaption
-            }
-
-            // Controls verbatim from B3.1 / the Legacy workbench.
+            // M10 correction (Human): the Request area is PLAIN TEXT INPUT.
+            // Every parameter — slave, function code, start, quantity, timeout
+            // — is a keyboard-editable text field; there is no SpinBox and no
+            // up/down stepper here any more. The field component is the
+            // repository's reusable single-line raw-text field (DecimalField:
+            // presentation only — it never parses, never clamps and never
+            // converts), and the CORE parsers + the controller's typed guards
+            // stay the only authorities (the exact discipline the write
+            // drafts already follow). The function code is HEX ("03" / "04" /
+            // "41" / "0x41", case-insensitive) with default "03"; the four
+            // decimal fields keep their historical defaults.
             //
-            // TWO rows, not one. A RowLayout never wraps, so a single row must
-            // be at least as wide as the sum of its children; with the M10-F
-            // additions (the "起始地址（PDU / 0-based）" label and the HEX echo)
-            // that sum exceeds the 1000x700 minimum window, so the row
-            // overflowed the card and pushed `commReadButton` past the window
-            // edge — the page's primary action was unreachable by mouse at the
-            // supported minimum size. Splitting the parameters across two rows
-            // keeps every control, label, text and binding identical while
-            // staying inside the minimum width.
+            // The FIXED "Function: FC03 …" title is GONE on purpose: the
+            // function is no longer fixed, so a static FC03 claim would lie.
+            // The dynamic, compact helper text sits beside the function field
+            // (one row, never a full-width banner) and comes from the SAME
+            // controller mapping the preview uses.
+            //
+            // TWO rows, not one (a RowLayout never wraps; the M10-F overflow
+            // lesson): Row 1 = slave + function, Row 2 = start + quantity +
+            // timeout + the read action. The start-address HEX echo moved
+            // BELOW the rows and is now a projection of the controller's
+            // preview map — a QML-side Number() conversion of raw text would
+            // be a second parser, which the authority discipline forbids.
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: DS.spacingS
 
-                // Row 1 — target address and the PDU / 0-based HEX echo.
+                // Row 1 — target device and the editable function code.
                 RowLayout {
                     Layout.fillWidth: true
                     Label { text: qsTr("从站地址") }
-                    SpinBox {
-                        id: serialSlaveSpin
-                        objectName: "commSlaveSpin"
-                        from: 1
-                        to: 247
-                        value: 1
+                    DecimalField {
+                        id: serialSlaveField
+                        objectName: "commSlaveField"
+                        // Vertical budget: the 1000x700 minimum leaves the
+                        // write panel ~25px of slack; the previous SpinBox
+                        // rows were 24px tall, and 34px fields pushed
+                        // writeFoundationPanel past the window (real-Windows
+                        // QPA measured 711 > 700). Same height as the controls
+                        // this row replaces.
+                        implicitHeight: 24
+                        text: "1"
+                        fieldLabel: qsTr("从站地址")
+                        accessibleName: qsTr("从站地址")
                         enabled: !page.analysisController.serialBusy
                     }
-                    Label { text: qsTr("起始地址（PDU / 0-based）") }
-                    SpinBox {
-                        id: serialStartSpin
-                        objectName: "commStartSpin"
-                        from: 0
-                        to: 65535
-                        value: 0
+                    Label { text: qsTr("读取功能码") }
+                    DecimalField {
+                        id: serialFunctionField
+                        objectName: "commFunctionField"
+                        implicitHeight: 24
+                                                text: "03"
+                        fieldLabel: qsTr("读取功能码")
+                        accessibleName: qsTr("读取功能码")
                         enabled: !page.analysisController.serialBusy
                     }
+                    // Dynamic, compact (elided, same row) — never a static
+                    // FC03 title, never a full-line banner.
                     Label {
-                        text: qsTr("HEX %1").arg(
-                            "0x" + Number(serialStartSpin.value).toString(16)
-                                      .toUpperCase().padStart(4, "0"))
-                        color: DS.textSecondary
-                        font.pixelSize: 11
-                    }
-                    Item {
+                        objectName: "commFunctionHint"
                         Layout.fillWidth: true
+                        text: page.analysisController.readFunctionLabel(
+                                  serialFunctionField.text)
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        elide: Text.ElideRight
                     }
                 }
 
                 // Row 2 — transfer parameters and the action.
                 RowLayout {
                     Layout.fillWidth: true
-                    Label { text: qsTr("寄存器数量") }
-                    SpinBox {
-                        id: serialQuantitySpin
-                        objectName: "commQuantitySpin"
-                        from: 1
-                        to: 125
-                        value: 2
+                    Label { text: qsTr("起始地址") }
+                    DecimalField {
+                        id: serialStartField
+                        objectName: "commStartField"
+                        implicitHeight: 24
+                                                text: "0"
+                        fieldLabel: qsTr("起始地址")
+                        accessibleName: qsTr("起始地址")
                         enabled: !page.analysisController.serialBusy
                     }
-                    Label { text: qsTr("超时 (ms)") }
-                    SpinBox {
-                        id: serialTimeoutSpin
-                        objectName: "commTimeoutSpin"
-                        from: 100
-                        to: 10000
-                        value: 1000
+                    Label { text: qsTr("寄存器数量") }
+                    DecimalField {
+                        id: serialQuantityField
+                        objectName: "commQuantityField"
+                        implicitHeight: 24
+                                                text: "2"
+                        fieldLabel: qsTr("寄存器数量")
+                        accessibleName: qsTr("寄存器数量")
+                        enabled: !page.analysisController.serialBusy
+                    }
+                    Label { text: qsTr("超时(ms)") }
+                    DecimalField {
+                        id: serialTimeoutField
+                        objectName: "commTimeoutField"
+                        implicitHeight: 24
+                                                text: "1000"
+                        fieldLabel: qsTr("超时(ms)")
+                        accessibleName: qsTr("超时(ms)")
                         enabled: !page.analysisController.serialBusy
                     }
                     Item {
@@ -286,15 +313,30 @@ Item {
                     Button {
                         objectName: "commReadButton"
                         text: page.analysisController.serialBusy
-                              ? qsTr("读取中...") : qsTr("读取保持寄存器")
+                              ? qsTr("读取中...") : qsTr("读取寄存器")
                         enabled: page.analysisController.serialConnected
                                  && !page.analysisController.serialBusy
-                        onClicked: page.analysisController.readHoldingRegistersOnce(
-                            serialSlaveSpin.value,
-                            serialStartSpin.value,
-                            serialQuantitySpin.value,
-                            serialTimeoutSpin.value)
+                        onClicked: page.analysisController.readRegisterRequest(
+                            serialSlaveField.text,
+                            serialFunctionField.text,
+                            serialStartField.text,
+                            serialQuantityField.text,
+                            serialTimeoutField.text)
                     }
+                }
+
+                // HEX address echo: a projection of the controller's preview
+                // (single authority), shown only while the request parses.
+                Label {
+                    objectName: "commStartHexEcho"
+                    visible: requestPreviewPanel.previewOk
+                    text: qsTr("起始地址 HEX %1 ｜ %2").arg(
+                        requestPreviewPanel.previewStartHex,
+                        requestPreviewPanel.previewFunctionLabel)
+                    color: DS.textSecondary
+                    font.pixelSize: 11
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
                 }
             }
 
@@ -318,9 +360,10 @@ Item {
                     requestPreviewPanel.preview.ok === true
 
                 readonly property var preview:
-                    page.analysisController.previewReadRequest(
-                        serialSlaveSpin.value, serialStartSpin.value,
-                        serialQuantitySpin.value, serialTimeoutSpin.value)
+                    page.analysisController.previewReadDraft(
+                        serialSlaveField.text, serialFunctionField.text,
+                        serialStartField.text, serialQuantityField.text,
+                        serialTimeoutField.text)
 
                 // The controller's map carries pduHex/rtuHex only when the
                 // request is valid, and error only when it is not. Project the
@@ -336,6 +379,14 @@ Item {
                 readonly property string previewErrorText:
                     requestPreviewPanel.previewOk
                         ? "" : requestPreviewPanel.preview.error
+                // Typed projection of the optional startAddressHex key: a
+                // Label must never bind an absent map key (ISSUE-017 form).
+                readonly property string previewStartHex:
+                    requestPreviewPanel.previewOk
+                        ? requestPreviewPanel.preview.startAddressHex : ""
+                readonly property string previewFunctionLabel:
+                    requestPreviewPanel.previewOk
+                        ? requestPreviewPanel.preview.functionLabel : "" 
 
                 // One row, not two: at the 1000x700 minimum the page has ~627px
                 // of content height and every vertical line counts. PDU and
@@ -552,16 +603,33 @@ Item {
                     width: readResultDialog.width - 2 * DS.spacingM
 
                     // ---- 1. request echo ----
+                    // M10 correction: the function identity in this echo is
+                    // the request's OWN wire code (transaction truth) — the
+                    // evidence view must never imply "expected = FC03".
                     Label {
                         objectName: "readResultRequestEcho"
                         Layout.fillWidth: true
                         visible: page.analysisController.readResultHasRequestEcho
-                        text: qsTr("请求：设备 %1 ｜ 起始地址 %2 (%3) ｜ 数量 %4 ｜ 超时 %5 ms")
+                        text: qsTr("请求：设备 %1 ｜ 功能码 %2 ｜ 起始地址 %3 (%4) ｜ 数量 %5 ｜ 超时 %6 ms")
                                   .arg(page.analysisController.readResultUnitId)
+                                  .arg(page.analysisController.readResultFunctionLabel)
                                   .arg(page.analysisController.readResultStartAddress)
                                   .arg(page.analysisController.readResultStartAddressHex)
                                   .arg(page.analysisController.readResultQuantity)
                                   .arg(page.analysisController.readResultTimeoutMs)
+                        color: DS.textPrimary
+                        font.pixelSize: DS.fontCaption
+                        wrapMode: Text.Wrap
+                    }
+                    // Received function: shown only when it is determinable
+                    // from the transaction (schema-conforming success, or an
+                    // unexpected-function mismatch carrying the actual code).
+                    Label {
+                        objectName: "readResultReceivedFunction"
+                        Layout.fillWidth: true
+                        visible: page.analysisController.readResultHasReceivedFunction
+                        text: qsTr("响应功能码：%1")
+                                  .arg(page.analysisController.readResultReceivedFunctionLabel)
                         color: DS.textPrimary
                         font.pixelSize: DS.fontCaption
                         wrapMode: Text.Wrap

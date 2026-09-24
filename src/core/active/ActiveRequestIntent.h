@@ -48,6 +48,25 @@ enum class ActiveFunction : std::uint8_t {
 struct ReadHoldingRegistersIntent {
     std::uint16_t startAddress{}; // 0-based protocol address
     std::uint16_t quantity{};     // 1..125
+    // -------------------------------------------------------------------------
+    // M10 correction (Human: the read function code must be editable):
+    // the ACTUAL wire function code of this register-read request.
+    //
+    // WHY IT LIVES IN THE PAYLOAD: `ActiveFunction::ReadHoldingRegisters` is
+    // the SCHEMA discriminant — "a register read" (request data = start
+    // address + quantity; response data = byte count + uint16 words) — while
+    // the wire function byte is a user-selectable fact of that schema. The
+    // default is the historical 0x03, so every existing aggregate initializer
+    // keeps byte-for-byte identical semantics. The response analyzers derive
+    // the expected normal/exception function codes FROM THE REQUEST FRAME,
+    // so 0x04 / 0x41 / any 0x01..0x7F code flows through the same encoder,
+    // parser and read-result taxonomy — never a second copy.
+    //
+    // Range 0x01..0x7F (validated): 0x00 is not a request, and 0x80..0xFF is
+    // the exception-response function-bit space, never silently accepted as
+    // an ordinary request function.
+    // -------------------------------------------------------------------------
+    std::uint8_t functionCode{0x03};
 
     bool operator==(const ReadHoldingRegistersIntent&) const = default;
 };
@@ -92,10 +111,24 @@ enum class ActiveRequestValidationError {
     QuantityOutOfRange,   // outside the function's legal domain
     TimeoutNotPositive,
     PayloadFunctionMismatch, // payload alternative does not match `function`
+    // M10 correction (append-last): the register-read schema's wire function
+    // code is user-selectable but constrained to 0x01..0x7F — 0x00 is not a
+    // request and 0x80..0xFF is the exception-response function-bit space,
+    // which must never be silently accepted as an ordinary request function.
+    ReadFunctionCodeOutOfRange,
 };
 
 [[nodiscard]] std::optional<ActiveRequestValidationError>
 validateActiveRequestIntent(const ActiveRequestIntent& intent);
+
+// The ACTUAL wire function code an intent encodes to. For the register-read
+// schema this is the user-selected code carried by the payload (default
+// 0x03); for the write schemas it is the schema's own code. This is the ONE
+// authority for "what function byte will go on the wire" — the session's
+// descriptor-consistency check, the request preview and the framing rules all
+// read it instead of re-deriving from the schema enum.
+[[nodiscard]] std::uint8_t
+activeRequestFunctionCode(const ActiveRequestIntent& intent);
 
 // Function-specific legal domain helpers (single source shared by validation
 // and by tests; no duplicated magic numbers).
@@ -105,6 +138,12 @@ inline constexpr std::uint16_t kWriteMultipleRegistersMinQuantity = 1;
 inline constexpr std::uint16_t kWriteMultipleRegistersMaxQuantity = 123;
 inline constexpr std::uint8_t kMinUnicastUnitId = 1;
 inline constexpr std::uint8_t kMaxUnicastUnitId = 247;
+// M10 correction: the register-read schema's legal request-function domain.
+// 0x80..0xFF belongs to the exception-response function-bit space (the
+// analyzers derive exception codes as requestFunction | 0x80) and is never a
+// legal ordinary request function.
+inline constexpr std::uint8_t kMinReadFunctionCode = 0x01;
+inline constexpr std::uint8_t kMaxReadFunctionCode = 0x7F;
 
 // ---------------------------------------------------------------------------
 // Encoded request: the intent plus its TWO derived products — the semantic

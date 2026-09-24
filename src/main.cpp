@@ -2834,17 +2834,21 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         // ---- Scenario F: page-local drafts survive navigation ----
         case 33: {
             beginScenario(QStringLiteral("F"));
+            // M10 correction: the request parameters are TEXT fields (the raw
+            // text the user typed); the baud combo moved 38400 to index 5.
             struct DraftSpec {
                 const char *objectName;
                 const char *property;
-                int value;
+                const char *text;
+                int index;
             };
             const DraftSpec specs[] = {
-                { "commSlaveSpin", "value", 7 },
-                { "commStartSpin", "value", 10 },
-                { "commQuantitySpin", "value", 3 },
-                { "commTimeoutSpin", "value", 2500 },
-                { "commBaudCombo", "currentIndex", 2 },
+                { "commSlaveField", "text", "7", -1 },
+                { "commFunctionField", "text", "41", -1 },
+                { "commStartField", "text", "10", -1 },
+                { "commQuantityField", "text", "3", -1 },
+                { "commTimeoutField", "text", "2500", -1 },
+                { "commBaudCombo", "currentIndex", nullptr, 5 },
             };
             for (const auto &spec : specs) {
                 auto *item = findNamedItem(
@@ -2854,7 +2858,12 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                              .arg(QLatin1String(spec.objectName)));
                     continue;
                 }
-                item->setProperty(spec.property, spec.value);
+                if (spec.index >= 0) {
+                    item->setProperty(spec.property, spec.index);
+                } else {
+                    item->setProperty(spec.property,
+                                      QString::fromLatin1(spec.text));
+                }
                 draftValues->insert(QLatin1String(spec.objectName),
                                     item->property(spec.property));
             }
@@ -2887,7 +2896,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 const QString prop = (it.key() == QStringLiteral("commBaudCombo")
                                       || it.key() == QStringLiteral("commPortCombo"))
                                          ? QStringLiteral("currentIndex")
-                                         : QStringLiteral("value");
+                                         : QStringLiteral("text");
                 if (item->property(prop.toUtf8().constData()) != it.value())
                     fail(QStringLiteral("NAVFAIL scenario F: draft %1 changed "
                                         "(%2 -> %3)")
@@ -2959,10 +2968,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 auto *item = findNamedItem(roots, it.key());
                 if (!item)
                     continue;
+                // M10 correction: the request drafts are TEXT fields now.
                 const QString prop = (it.key() == QStringLiteral("commBaudCombo")
                                       || it.key() == QStringLiteral("commPortCombo"))
                                          ? QStringLiteral("currentIndex")
-                                         : QStringLiteral("value");
+                                         : QStringLiteral("text");
                 if (item->property(prop.toUtf8().constData()) != it.value())
                     fail(QStringLiteral("NAVFAIL scenario F (round trip): "
                                         "draft %1 changed").arg(it.key()));
@@ -10056,18 +10066,22 @@ int runReadResultCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // The FC03 request frame for (unit, start, quantity) as the SHIPPED
     // encoder produces it — the same encoder the preview and the dispatch use
     // (T023 READ-R1: PREVIEW == WIRE by construction).
-    auto requestWire = [](int unit, int start, int quantity) {
+    auto requestWire = [](int unit, int start, int quantity,
+                          int functionCode = 0x03) {
         return modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
             .address = static_cast<std::uint8_t>(unit),
-            .functionCode = 0x03,
+            .functionCode = static_cast<std::uint8_t>(functionCode),
             .data = {static_cast<std::uint8_t>(start >> 8),
                      static_cast<std::uint8_t>(start & 0xFF),
                      static_cast<std::uint8_t>(quantity >> 8),
                      static_cast<std::uint8_t>(quantity & 0xFF)}});
     };
-    // A conforming FC03 answer carrying `values` (big-endian pairs).
+    // A conforming register-read answer carrying `values` (big-endian pairs).
+    // M10 correction: the reply's function byte is the request's own code
+    // (0x03 default, FC04 / custom codes for the READ-FC oracles).
     auto responseWith = [](int unit,
-                           const std::vector<std::uint16_t> &values) {
+                           const std::vector<std::uint16_t> &values,
+                           std::uint8_t readFunctionCode = 0x03) {
         std::vector<std::uint8_t> data;
         data.push_back(static_cast<std::uint8_t>(values.size() * 2));
         for (const std::uint16_t value : values) {
@@ -10076,7 +10090,7 @@ int runReadResultCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         return modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
             .address = static_cast<std::uint8_t>(unit),
-            .functionCode = 0x03,
+            .functionCode = readFunctionCode,
             .data = std::move(data)});
     };
 
@@ -10713,6 +10727,164 @@ int runReadResultCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     });
     push([&]() { clickNamed(QStringLiteral("readResultDetailCloseButton")); });
     push([&]() { window->resize(1024, 720); });
+
+    // ---- M. READ-FC: the read function code is EDITABLE (UI -> preview ->
+    // actual TX -> expected response function, all one byte) ----
+    push([&]() {
+        // M1: function input 04. The request goes through the REAL text
+        // fields and the REAL button (readRegisterRequest raw-text path).
+        itemOf(QStringLiteral("commFunctionField"))
+            ->setProperty("text", QStringLiteral("04"));
+        itemOf(QStringLiteral("commStartField"))
+            ->setProperty("text", QStringLiteral("1000"));
+        if (!clickNamed(QStringLiteral("commReadButton")))
+            fail(QStringLiteral("READFAIL M1: the read button is not "
+                                "clickable"));
+    });
+    push([&]() {
+        if (!controller->readResultWaiting())
+            fail(QStringLiteral("READFAIL M1: the FC04 read is not in flight"));
+        const QString previewWire =
+            controller->previewReadRequest(1, 1000, 2, 1000, 4)
+                .value(QStringLiteral("rtuHex")).toString();
+        const QString presentedTx = controller->readResultTxHex();
+        // wire = slave 01 | FN 04 | start 03E8 | qty 0002 | crc
+        const QString expectedTx = evidenceHexText(requestWire(1, 1000, 2, 4));
+        if (previewWire != expectedTx)
+            fail(QStringLiteral("READFAIL M1: preview is [%1], expected [%2] — "
+                                "the preview did not follow the input function")
+                     .arg(previewWire, expectedTx));
+        if (presentedTx != expectedTx)
+            fail(QStringLiteral("READFAIL M1: the ACTUAL TX is [%1] but the "
+                                "input function was 04 (expected [%2]) — "
+                                "UI/preview/dispatch disagree")
+                     .arg(presentedTx, expectedTx));
+        if (controller->readResultFunctionLabel()
+            != QStringLiteral("FC04 (0x04)"))
+            fail(QStringLiteral("READFAIL M1: requested-function label is [%1]")
+                     .arg(controller->readResultFunctionLabel()));
+        transport->completeReadWithBytes(responseWith(1, {0x0064, 0x00C8}, 4),
+                                         std::chrono::milliseconds{25});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::ReadSuccess)
+            fail(QStringLiteral("READFAIL M1: an FC04 read with a conforming "
+                                "FC04 reply did not succeed (%1)")
+                     .arg(controller->readResultClassToken()));
+        if (controller->readResultValueCount() != 2)
+            fail(QStringLiteral("READFAIL M1: value count is %1")
+                     .arg(controller->readResultValueCount()));
+        if (!controller->readResultHasReceivedFunction()
+            || controller->readResultReceivedFunctionLabel()
+                != QStringLiteral("FC04 (0x04)"))
+            fail(QStringLiteral("READFAIL M1: received-function label is [%1]")
+                     .arg(controller->readResultReceivedFunctionLabel()));
+        note(QStringLiteral("READ [M1/READ-FC2]: function input 04 -> PDU/RTU/TX "
+                            "byte 04, expected response 04, registers decoded"));
+        itemOf(QStringLiteral("commFunctionField"))
+            ->setProperty("text", QStringLiteral("41"));
+    });
+    push([&]() {
+        if (!clickNamed(QStringLiteral("commReadButton")))
+            fail(QStringLiteral("READFAIL M2: the read button is not "
+                                "clickable"));
+    });
+    push([&]() {
+        const QString expectedTx = evidenceHexText(requestWire(1, 1000, 2, 0x41));
+        if (controller->readResultTxHex() != expectedTx)
+            fail(QStringLiteral("READFAIL M2: the ACTUAL TX is [%1], expected a "
+                                "custom 0x41 read [%2]")
+                     .arg(controller->readResultTxHex(), expectedTx));
+        if (controller->readResultFunctionLabel()
+            != QStringLiteral("FC41 (0x41)"))
+            fail(QStringLiteral("READFAIL M2: requested-function label is [%1]")
+                     .arg(controller->readResultFunctionLabel()));
+        transport->completeReadWithBytes(responseWith(1, {0x0064, 0x00C8}, 0x41),
+                                         std::chrono::milliseconds{25});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::ReadSuccess)
+            fail(QStringLiteral("READFAIL M2: a custom 0x41 read with a "
+                                "conforming reply did not succeed (%1)")
+                     .arg(controller->readResultClassToken()));
+        note(QStringLiteral("READ [M2/READ-FC3]: custom function 0x41 -> same "
+                            "register-read schema, conforming reply succeeds"));
+    });
+    // M3: an unparseable function text is a local rejection with zero sends.
+    push([&]() {
+        // Everything here is synchronous controller state (the raw-text front
+        // door parses BEFORE any transport call), so the oracle asserts in the
+        // SAME stage — deferring would run it after the later source-switch
+        // stage cleared the result.
+        const int readsBefore = transport->readStarts();
+        itemOf(QStringLiteral("commFunctionField"))
+            ->setProperty("text", QStringLiteral("GG"));
+        if (!clickNamed(QStringLiteral("commReadButton")))
+            fail(QStringLiteral("READFAIL M3: the read button is not "
+                                "clickable"));
+        if (transport->readStarts() != readsBefore)
+            fail(QStringLiteral("READFAIL M3: an unparseable function text "
+                                "reached the transport"));
+        if (controller->readResultClass() != ReadResultClass::LocalRejected)
+            fail(QStringLiteral("READFAIL M3: class=%1, expected "
+                                "local_rejected")
+                     .arg(controller->readResultClassToken()));
+        if (controller->readResultDispositionText()
+            != QStringLiteral("未发送"))
+            fail(QStringLiteral("READFAIL M3: disposition is [%1]")
+                     .arg(controller->readResultDispositionText()));
+        note(QStringLiteral("READ [M3/READ-FC6]: function text [GG] -> "
+                            "请求未发送, zero sends"));
+        itemOf(QStringLiteral("commFunctionField"))
+            ->setProperty("text", QStringLiteral("03"));
+    });
+    // M4: trailing garbage in a decimal field is rejected by the core parser.
+    push([&]() {
+        const int readsBefore = transport->readStarts();
+        itemOf(QStringLiteral("commStartField"))
+            ->setProperty("text", QStringLiteral("12x"));
+        if (!clickNamed(QStringLiteral("commReadButton")))
+            fail(QStringLiteral("READFAIL M4: the read button is not "
+                                "clickable"));
+        if (transport->readStarts() != readsBefore)
+            fail(QStringLiteral("READFAIL M4: [12x] reached the transport"));
+        if (controller->readResultClass() != ReadResultClass::LocalRejected)
+            fail(QStringLiteral("READFAIL M4: class=%1, expected "
+                                "local_rejected")
+                     .arg(controller->readResultClassToken()));
+        note(QStringLiteral("READ [M4/READ-FC7]: start text [12x] -> "
+                            "请求未发送, zero sends"));
+        itemOf(QStringLiteral("commStartField"))
+            ->setProperty("text", QStringLiteral("1000"));
+    });
+    // M5: the baud combo carries the low-speed rates; the default is 9600.
+    push([&]() {
+        auto *combo = itemOf(QStringLiteral("commBaudCombo"));
+        if (!combo) {
+            fail(QStringLiteral("READFAIL M5: commBaudCombo does not exist"));
+            return;
+        }
+        const QVariantList model = combo->property("model").toList();
+        QStringList shown;
+        for (const QVariant &v : model)
+            shown << v.toString();
+        for (const int baud : {1200, 2400, 4800, 9600}) {
+            if (!shown.contains(QString::number(baud)))
+                fail(QStringLiteral("READFAIL M5: the baud options do not "
+                                    "contain %1 (got [%2])")
+                         .arg(baud)
+                         .arg(shown.join(QLatin1Char(','))));
+        }
+        if (combo->property("currentIndex").toInt() != 3
+            || model.value(3).toInt() != 9600)
+            fail(QStringLiteral("READFAIL M5: the default baud is [%1] at "
+                                "index %2, expected 9600 at index 3")
+                     .arg(model.value(combo->property("currentIndex").toInt())
+                              .toString())
+                     .arg(combo->property("currentIndex").toInt()));
+        note(QStringLiteral("READ [M5/READ-FC8]: baud options [%1], default "
+                            "9600").arg(shown.join(QLatin1Char(','))));
+    });
 
     // ---- L. source identity: the result is never fabricated for a source
     //         that has no wire evidence ----
@@ -11492,8 +11664,10 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         else
             note(QStringLiteral("FOCUS [FK] PASS: ComboBox ring off after focus "
                                 "moved on"));
-        // SpinBox: the STYLE draws the indication; the machine asserts the
-        // focus state that drives it (zero source diff on this type).
+        // M10 correction: the read request fields are DecimalFields — the
+        // component root carries the objectName and the focus lands on its
+        // inner (deliberately unnamed) TextField, whose border IS the
+        // indication. Measured on the component, not on a widget type.
         selectWorkspace(2);
         anchorFocus();
     });
@@ -11501,16 +11675,25 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         bool reached = false;
         for (int i = 1; i <= 16 && !reached; ++i) {
             tab(true);
-            auto *spin = itemOf(QStringLiteral("commSlaveSpin"));
-            if (spin && propBool(spin, "activeFocus"))
-                reached = true;
+            auto *fieldRoot = itemOf(QStringLiteral("commSlaveField"));
+            auto *focused =
+                qobject_cast<QQuickItem *>(window->activeFocusItem());
+            if (!fieldRoot || !focused)
+                continue;
+            for (auto *p = focused; p; p = p->parentItem()) {
+                if (p == fieldRoot) {
+                    reached = true;
+                    break;
+                }
+            }
         }
         if (!reached)
-            fail(QStringLiteral("FOCUSFAIL FK: SpinBox never reported "
+            fail(QStringLiteral("FOCUSFAIL FK: the slave field never reported "
                                 "activeFocus during the walk"));
         else
-            note(QStringLiteral("FOCUS [FK] PASS: SpinBox activeFocus=true "
-                                "(style-owned indication, zero source diff)"));
+            note(QStringLiteral("FOCUS [FK] PASS: slave DecimalField "
+                                "activeFocus=true (component-owned focus "
+                                "border)"));
         // TabButton: border is the channel (custom background)
         selectWorkspace(4);
     });

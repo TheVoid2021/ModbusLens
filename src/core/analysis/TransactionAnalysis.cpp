@@ -126,7 +126,14 @@ TransactionAnalysis analyzeFunction03Transaction(
     }
 
     // 3. A decoded frame: pairing gates before any semantic interpretation.
+    //    M10 correction: the expected NORMAL and EXCEPTION function codes are
+    //    derived from the REQUEST FRAME's own function byte — the
+    //    register-read schema is function-code agnostic (0x03 -> 0x83,
+    //    0x04 -> 0x84, 0x41 -> 0xC1). No per-function copy of this analyzer.
     const auto& response = std::get<ModbusRtuFrame>(observation);
+    const std::uint8_t requestFunction = request.functionCode;
+    const std::uint8_t requestExceptionFunction =
+        static_cast<std::uint8_t>(requestFunction | 0x80);
 
     if (response.address != request.address) {
         // Another device's reply can never be this transaction's result.
@@ -138,11 +145,12 @@ TransactionAnalysis analyzeFunction03Transaction(
         return makeProtocolError(elapsed, std::move(issue));
     }
 
-    if (response.functionCode == 0x83) {
+    if (response.functionCode == requestExceptionFunction) {
         // Matching exception response: reuse the T004B decoder, keep the
         // numeric code, never map it to text here. A shape failure (data
         // length != 1) is MalformedExceptionResponse.
-        const auto exceptionDecode = decodeReadHoldingRegistersException(response);
+        const auto exceptionDecode =
+            decodeReadHoldingRegistersException(response, requestFunction);
         if (std::get_if<Function03DecodeError>(&exceptionDecode) != nullptr) {
             return makeProtocolError(
                 elapsed,
@@ -154,10 +162,11 @@ TransactionAnalysis analyzeFunction03Transaction(
             TransactionStatus::Exception, elapsed, exception.exceptionCode);
     }
 
-    if (response.functionCode == 0x03) {
+    if (response.functionCode == requestFunction) {
         // Normal response: reuse both T004B decoders, then run the first
         // true cross-frame check — quantity consistency.
-        const auto requestDecode = decodeReadHoldingRegistersRequest(request);
+        const auto requestDecode =
+            decodeReadHoldingRegistersRequest(request, requestFunction);
         if (std::holds_alternative<Function03DecodeError>(requestDecode)) {
             // The request contract says the request is valid; this branch is
             // a defensive mapping with no finer deterministic fact
@@ -165,7 +174,8 @@ TransactionAnalysis analyzeFunction03Transaction(
             return makeProtocolError(
                 elapsed, makeIssue(TransactionIssueCode::UnknownProtocolError));
         }
-        const auto responseDecode = decodeReadHoldingRegistersResponse(response);
+        const auto responseDecode =
+            decodeReadHoldingRegistersResponse(response, requestFunction);
         if (std::holds_alternative<Function03DecodeError>(responseDecode)) {
             return makeProtocolError(
                 elapsed,
@@ -195,10 +205,10 @@ TransactionAnalysis analyzeFunction03Transaction(
                             std::nullopt, responseModel.values);
     }
 
-    // 4. Any other function code (0x04, 0x84, 0x06, ...) cannot answer a
-    //    0x03 request — even exception-shaped ones like 0x84. The expected
-    //    codes {0x03, 0x83} are derivable from the request, so only the
-    //    actual code is carried.
+    // 4. Any other function code cannot answer this request — not the
+    //    request's own function, not its exception form, and not any other
+    //    code. The expected codes {F, F|0x80} are derivable from the request
+    //    frame, so only the actual code is carried.
     auto issue = makeIssue(TransactionIssueCode::UnexpectedResponseFunction);
     issue.actualFunctionCode = response.functionCode;
     return makeProtocolError(elapsed, std::move(issue));

@@ -35,6 +35,7 @@ add_library(modbuslens_core STATIC
     src/core/active/ActiveRequestIntent.cpp
     src/core/active/ActiveTransactionEvidence.cpp
     src/core/active/WriteDraftParsing.cpp
+    src/core/active/ReadRequestParsing.cpp
     src/core/active/WritePrepareValidation.cpp
     src/core/active/PreparedWriteSnapshot.cpp
     src/core/replay/ReplayLog.cpp

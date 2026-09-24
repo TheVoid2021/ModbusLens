@@ -1,6 +1,7 @@
 #include "ui/AnalysisController.h"
 
 #include "core/analysis/TransactionStatistics.h"
+#include "core/active/ReadRequestParsing.h"
 #include "core/active/WriteDraftParsing.h"
 #include "core/active/WritePrepareValidation.h"
 #include "core/active/ProductWriteCapability.h"
@@ -319,7 +320,13 @@ void AnalysisController::clearReplayNotice()
 
 namespace {
 
-constexpr std::array<int, 5> kSupportedSerialBauds = {9600, 19200, 38400, 57600, 115200};
+// M10 correction (Human: 1200/2400/4800 must be selectable): the supported
+// baud list gained the three low-speed rates. The list is the ONE authority —
+// connectSerial validates against it and the port combo renders exactly it,
+// so a value that connects here is a value the UI can select.
+constexpr std::array<int, 8> kSupportedSerialBauds = {1200, 2400, 4800, 9600,
+                                                      19200, 38400, 57600,
+                                                      115200};
 
 // T015: one deterministic secondary line combining the response-side issue
 // (T014) and the request-side issue (T015). Presentation-only; both facts
@@ -985,7 +992,8 @@ void AnalysisController::disconnectSerial()
 }
 
 void AnalysisController::readHoldingRegistersOnce(
-    int slaveAddress, int startAddress, int quantity, int timeoutMs)
+    int slaveAddress, int startAddress, int quantity, int timeoutMs,
+    int functionCode)
 {
     // Range validation BEFORE any narrowing cast: QML numbers arrive as int,
     // and a silent uint8_t/uint16_t wrap here would be undefined-behavior
@@ -1011,6 +1019,16 @@ void AnalysisController::readHoldingRegistersOnce(
         captureReadResultLocalRejection(serialErrorMessage_);
         return;
     }
+    // M10 correction (Human: the read function code must be editable): the
+    // wire function byte of the register-read schema is user-selectable but
+    // constrained to 0x01..0x7F — 0x00 is not a request and 0x80..0xFF is the
+    // exception-response function-bit space, never silently accepted.
+    if (functionCode < modbuslens::core::kMinReadFunctionCode
+        || functionCode > modbuslens::core::kMaxReadFunctionCode) {
+        setSerialError(QStringLiteral("串口错误：读取功能码须为 0x01..0x7F 的 HEX 值"));
+        captureReadResultLocalRejection(serialErrorMessage_);
+        return;
+    }
     if (!serialConnected_) {
         setSerialError(QStringLiteral("串口错误：串口未连接"));
         captureReadResultLocalRejection(serialErrorMessage_);
@@ -1024,7 +1042,9 @@ void AnalysisController::readHoldingRegistersOnce(
 
     // M10-A: the unified intent is the single request model. Encode ONCE —
     // the descriptor (intent + semantic frame + exact wire) is what travels,
-    // and the transport writes `wire` as-is.
+    // and the transport writes `wire` as-is. The function byte is the
+    // user-selected code; the SCHEMA (start + quantity -> byteCount + uint16
+    // words) stays one shared encoder/parser path.
     const modbuslens::core::ActiveRequestIntent intent{
         .function = modbuslens::core::ActiveFunction::ReadHoldingRegisters,
         .unitId = static_cast<std::uint8_t>(slaveAddress),
@@ -1032,6 +1052,7 @@ void AnalysisController::readHoldingRegistersOnce(
         .payload = modbuslens::core::ReadHoldingRegistersIntent{
             .startAddress = static_cast<std::uint16_t>(startAddress),
             .quantity = static_cast<std::uint16_t>(quantity),
+            .functionCode = static_cast<std::uint8_t>(functionCode),
         },
     };
     const auto encoded = modbuslens::core::encodeActiveRequest(intent);
@@ -1485,6 +1506,9 @@ QString previewFunctionLabel(modbuslens::core::ActiveFunction function)
 {
     using modbuslens::core::ActiveFunction;
     switch (function) {
+    // M10 correction: the READ entry is the register-read SCHEMA label and is
+    // only meaningful for the default 0x03 — a user-selected read function
+    // code gets its dynamic label from readFunctionLabelText() instead.
     case ActiveFunction::ReadHoldingRegisters:
         return QStringLiteral("FC03 (0x03) Read Holding Registers 读取保持寄存器");
     case ActiveFunction::WriteSingleRegister:
@@ -1493,6 +1517,43 @@ QString previewFunctionLabel(modbuslens::core::ActiveFunction function)
         return QStringLiteral("FC16 (0x10) Write Multiple Registers 写多个保持寄存器");
     }
     return QString();
+}
+
+// Compact function identity label: "FC03 (0x03)" / "FC41 (0x41)". ONE
+// formatter so the request echo, the read-result labels and the preview can
+// never drift into two spellings (HEX always upper-case, always prefixed).
+QString functionCodeLabel(std::uint8_t functionCode)
+{
+    // The label spells the code in HEX ("FC41" for 0x41) — the same digits
+    // the user typed into the field, upper-case, always two wide.
+    const QString hex = QString::number(functionCode, 16).toUpper()
+                            .rightJustified(2, QLatin1Char('0'));
+    return QStringLiteral("FC%1 (0x%2)").arg(hex, hex);
+}
+
+// M10 correction (Human: the read function code must be editable): the
+// dynamic, compact helper text for a register-read function code. ONE
+// mapping authority — the request preview, the read-result echo and the
+// field-side hint all render THIS string, never a second QML table.
+//   0x03 -> FC03 (0x03) · Read Holding Registers · 读取保持寄存器
+//   0x04 -> FC04 (0x04) · Read Input Registers · 读取输入寄存器
+//   else -> FCnn (0xnn) · 自定义读取功能码 · 按当前寄存器读取格式发送/解析
+// A custom code NEVER claims a standard meaning the repository has no
+// evidence for: the schema (start/quantity + byteCount/uint16 words) is the
+// only thing this tool knows about it.
+QString readFunctionLabelText(std::uint8_t functionCode)
+{
+    const QString label = functionCodeLabel(functionCode);
+    if (functionCode == 0x03) {
+        return QStringLiteral("%1 · Read Holding Registers · 读取保持寄存器")
+            .arg(label);
+    }
+    if (functionCode == 0x04) {
+        return QStringLiteral("%1 · Read Input Registers · 读取输入寄存器")
+            .arg(label);
+    }
+    return QStringLiteral("%1 · 自定义读取功能码 · 按当前寄存器读取格式发送/解析")
+        .arg(label);
 }
 
 // Same presentation mapping the prepare path uses (setWriteDraftErrorFrom):
@@ -1584,14 +1645,19 @@ QVariantMap previewFromDescriptor(
     QVariantMap out;
     out.insert(QStringLiteral("ok"), true);
     const auto& intent = descriptor.intent;
-    const auto code = modbuslens::core::activeFunctionCode(intent.function);
+    // M10 correction: the function identity comes from the intent's ACTUAL
+    // wire function code (register-read schema: user-selected, default 0x03)
+    // — never from the schema enum alone, so preview == wire by construction.
+    const auto code = modbuslens::core::activeRequestFunctionCode(intent);
     out.insert(QStringLiteral("functionCode"), static_cast<int>(code));
     out.insert(QStringLiteral("functionHex"),
                QStringLiteral("0x")
                    + QString::number(code, 16).rightJustified(2, QLatin1Char('0'))
                          .toUpper());
     out.insert(QStringLiteral("functionLabel"),
-               previewFunctionLabel(intent.function));
+               intent.function == ActiveFunction::ReadHoldingRegisters
+                   ? readFunctionLabelText(code)
+                   : previewFunctionLabel(intent.function));
     out.insert(QStringLiteral("unitId"), static_cast<int>(intent.unitId));
 
     // wire = [slave, fn, data..., crcLo, crcHi]; PDU = [fn, data...].
@@ -1659,7 +1725,7 @@ QVariantMap previewFromDescriptor(
 
 QVariantMap AnalysisController::previewReadRequest(int slaveAddress,
                                                    int startAddress, int quantity,
-                                                   int timeoutMs)
+                                                   int timeoutMs, int functionCode)
 {
     // Same wide validation as readHoldingRegistersOnce (frozen FC03 messages
     // stay there for the dispatch path); the preview reports ok=false instead
@@ -1686,6 +1752,13 @@ QVariantMap AnalysisController::previewReadRequest(int slaveAddress,
                        QStringLiteral("超时时间须大于 0 ms"));
         return invalid;
     }
+    if (functionCode < modbuslens::core::kMinReadFunctionCode
+        || functionCode > modbuslens::core::kMaxReadFunctionCode) {
+        invalid.insert(
+            QStringLiteral("error"),
+            QStringLiteral("读取功能码须为 0x01..0x7F 的 HEX 值"));
+        return invalid;
+    }
     const modbuslens::core::ActiveRequestIntent intent{
         .function = modbuslens::core::ActiveFunction::ReadHoldingRegisters,
         .unitId = static_cast<std::uint8_t>(slaveAddress),
@@ -1693,6 +1766,7 @@ QVariantMap AnalysisController::previewReadRequest(int slaveAddress,
         .payload = modbuslens::core::ReadHoldingRegistersIntent{
             .startAddress = static_cast<std::uint16_t>(startAddress),
             .quantity = static_cast<std::uint16_t>(quantity),
+            .functionCode = static_cast<std::uint8_t>(functionCode),
         },
     };
     const auto encoded = modbuslens::core::encodeActiveRequest(intent);
@@ -1704,6 +1778,151 @@ QVariantMap AnalysisController::previewReadRequest(int slaveAddress,
     auto out = previewFromDescriptor(
         std::get<modbuslens::core::ActiveRequestDescriptor>(encoded));
     return out;
+}
+
+namespace {
+
+// M10 correction (Human: the Request fields must be plain text inputs): the
+// RAW-TEXT front door of the register-read path. Mirrors the write path's
+// discipline — the QML field is presentation only and hands over the text the
+// user really typed; the CORE parsers (parseDecimalRegisterValue for the four
+// decimal fields, parseReadFunctionCode for the HEX function field) are the
+// ONLY text authorities, and the controller's typed validation stays the only
+// business-range authority. A parse failure is a frozen, field-scoped message
+// on the existing serial error lane — never a QML-side number conversion.
+struct ParsedReadDraft {
+    int slaveAddress{};
+    int functionCode{};
+    int startAddress{};
+    int quantity{};
+    int timeoutMs{};
+};
+
+std::optional<ParsedReadDraft> parseReadDraft(const QString& slaveRaw,
+                                              const QString& functionRaw,
+                                              const QString& startRaw,
+                                              const QString& quantityRaw,
+                                              const QString& timeoutRaw,
+                                              QString& errorOut,
+                                              QString& errorFieldOut)
+{
+    const auto fail = [&errorOut, &errorFieldOut](const char* field,
+                                                  const QString& message) {
+        errorFieldOut = QLatin1String(field);
+        errorOut = message;
+        return std::nullopt;
+    };
+    const auto decimal = [](const QString& raw) {
+        return modbuslens::core::parseDecimalRegisterValue(raw.toStdString());
+    };
+
+    const auto slave = decimal(slaveRaw);
+    if (const auto* e = std::get_if<modbuslens::core::ValuesParseError>(&slave)) {
+        Q_UNUSED(e);
+        return fail("slave", QStringLiteral("从站地址无法解析（须为十进制数值）"));
+    }
+    const auto function = modbuslens::core::parseReadFunctionCode(
+        functionRaw.toStdString());
+    if (const auto* e =
+            std::get_if<modbuslens::core::ValuesParseError>(&function)) {
+        Q_UNUSED(e);
+        return fail("function",
+                    QStringLiteral("读取功能码无法解析（须为 01..7F 的 HEX 值，"
+                                   "可带 0x 前缀）"));
+    }
+    const auto start = decimal(startRaw);
+    if (const auto* e = std::get_if<modbuslens::core::ValuesParseError>(&start)) {
+        Q_UNUSED(e);
+        return fail("start",
+                    QStringLiteral("起始地址无法解析（须为 0..65535 的十进制数值）"));
+    }
+    const auto quantity = decimal(quantityRaw);
+    if (const auto* e = std::get_if<modbuslens::core::ValuesParseError>(&quantity)) {
+        Q_UNUSED(e);
+        return fail("quantity", QStringLiteral("寄存器数量无法解析（须为十进制数值）"));
+    }
+    const auto timeout = decimal(timeoutRaw);
+    if (const auto* e = std::get_if<modbuslens::core::ValuesParseError>(&timeout)) {
+        Q_UNUSED(e);
+        return fail("timeout", QStringLiteral("超时时间无法解析（须为十进制数值）"));
+    }
+
+    ParsedReadDraft draft;
+    draft.slaveAddress =
+        static_cast<int>(std::get<modbuslens::core::SingleRegisterValue>(slave).value);
+    draft.functionCode = static_cast<int>(
+        std::get<modbuslens::core::ReadFunctionCode>(function).functionCode);
+    draft.startAddress =
+        static_cast<int>(std::get<modbuslens::core::SingleRegisterValue>(start).value);
+    draft.quantity =
+        static_cast<int>(std::get<modbuslens::core::SingleRegisterValue>(quantity).value);
+    draft.timeoutMs =
+        static_cast<int>(std::get<modbuslens::core::SingleRegisterValue>(timeout).value);
+    return draft;
+}
+
+} // namespace
+
+QVariantMap AnalysisController::previewReadDraft(const QString& slaveRaw,
+                                                 const QString& functionRaw,
+                                                 const QString& startRaw,
+                                                 const QString& quantityRaw,
+                                                 const QString& timeoutRaw)
+{
+    QString error;
+    QString errorField;
+    const auto draft = parseReadDraft(slaveRaw, functionRaw, startRaw,
+                                      quantityRaw, timeoutRaw, error,
+                                      errorField);
+    if (!draft.has_value()) {
+        QVariantMap invalid;
+        invalid.insert(QStringLiteral("ok"), false);
+        invalid.insert(QStringLiteral("errorField"), errorField);
+        invalid.insert(QStringLiteral("error"), error);
+        return invalid;
+    }
+    QVariantMap out = previewReadRequest(draft->slaveAddress, draft->startAddress,
+                                         draft->quantity, draft->timeoutMs,
+                                         draft->functionCode);
+    if (out.value(QStringLiteral("ok")).toBool()) {
+        out.insert(QStringLiteral("errorField"), errorField);
+    }
+    return out;
+}
+
+void AnalysisController::readRegisterRequest(const QString& slaveRaw,
+                                             const QString& functionRaw,
+                                             const QString& startRaw,
+                                             const QString& quantityRaw,
+                                             const QString& timeoutRaw)
+{
+    QString error;
+    QString errorField;
+    const auto draft = parseReadDraft(slaveRaw, functionRaw, startRaw,
+                                      quantityRaw, timeoutRaw, error,
+                                      errorField);
+    if (!draft.has_value()) {
+        // The field-scoped parse message is the frozen guard wording of this
+        // round; the read-result surface records CLASS-01 (请求未发送).
+        setSerialError(QStringLiteral("串口错误：%1").arg(error));
+        captureReadResultLocalRejection(serialErrorMessage_);
+        return;
+    }
+    readHoldingRegistersOnce(draft->slaveAddress, draft->startAddress,
+                             draft->quantity, draft->timeoutMs,
+                             draft->functionCode);
+}
+
+QString AnalysisController::readFunctionLabel(const QString& functionRaw)
+{
+    const auto function =
+        modbuslens::core::parseReadFunctionCode(functionRaw.toStdString());
+    if (const auto* value =
+            std::get_if<modbuslens::core::ReadFunctionCode>(&function)) {
+        return readFunctionLabelText(value->functionCode);
+    }
+    // Unparseable input: the neutral field label, never a guessed function.
+    return QStringLiteral("读取功能码");
 }
 
 QVariantMap AnalysisController::previewWrite06Draft(int unitId,
@@ -2098,6 +2317,9 @@ void AnalysisController::enterReadResultWaiting(
                 &intent.payload)) {
         snapshot.startAddress = payload->startAddress;
         snapshot.quantity = payload->quantity;
+        // M10 correction: the expected function is the request's OWN wire
+        // code, never a frozen FC03 label.
+        snapshot.functionCode = payload->functionCode;
     } else {
         snapshot.hasRequestEcho = false;
     }
@@ -2125,6 +2347,7 @@ void AnalysisController::captureReadResultFromRecord(
                 &record.request.intent.payload)) {
         snapshot.startAddress = payload->startAddress;
         snapshot.quantity = payload->quantity;
+        snapshot.functionCode = payload->functionCode;
     } else {
         snapshot.hasRequestEcho = false;
     }
@@ -2154,6 +2377,7 @@ void AnalysisController::captureReadResultFromTerminal(
                 &terminal.request.intent.payload)) {
         snapshot.startAddress = payload->startAddress;
         snapshot.quantity = payload->quantity;
+        snapshot.functionCode = payload->functionCode;
     } else {
         snapshot.hasRequestEcho = false;
     }
@@ -2372,6 +2596,41 @@ int AnalysisController::readResultQuantity() const
 int AnalysisController::readResultTimeoutMs() const
 {
     return readResult_.timeoutMs;
+}
+
+QString AnalysisController::readResultFunctionLabel() const
+{
+    // The EXPECTED function of THIS read — from the transaction's own intent,
+    // never a frozen FC03 label (T023 §12 must stay dynamic).
+    return functionCodeLabel(readResult_.functionCode);
+}
+
+bool AnalysisController::readResultHasReceivedFunction() const
+{
+    // The RECEIVED function is determinable exactly when the response paired
+    // with this request: a schema-conforming success (received == requested)
+    // or an unexpected-function mismatch (the core carried the actual code).
+    if (!readResult_.present) {
+        return false;
+    }
+    if (readResult_.resultClass == ReadResultClass::ReadSuccess) {
+        return true;
+    }
+    return readResult_.analysis.issue.has_value()
+        && readResult_.analysis.issue->code
+            == modbuslens::core::TransactionIssueCode::UnexpectedResponseFunction
+        && readResult_.analysis.issue->actualFunctionCode.has_value();
+}
+
+QString AnalysisController::readResultReceivedFunctionLabel() const
+{
+    if (!readResultHasReceivedFunction()) {
+        return QString();
+    }
+    if (readResult_.resultClass == ReadResultClass::ReadSuccess) {
+        return functionCodeLabel(readResult_.functionCode);
+    }
+    return functionCodeLabel(*readResult_.analysis.issue->actualFunctionCode);
 }
 
 bool AnalysisController::readResultHasTx() const

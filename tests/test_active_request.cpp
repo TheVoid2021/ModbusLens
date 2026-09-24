@@ -10,6 +10,7 @@
 #include "core/active/ActiveTransactionEvidence.h"
 #include "core/analysis/PassiveTransactionAnalysis.h"
 #include "core/analysis/TransactionProvenance.h"
+#include "core/protocol/Function03.h"
 #include "core/protocol/Function06.h"
 #include "core/protocol/Function16.h"
 #include "core/protocol/ModbusRtuCodec.h"
@@ -70,14 +71,16 @@ std::vector<std::uint8_t> wire(std::initializer_list<int> bytes)
 ActiveRequestIntent readIntent(std::uint8_t unit = 0x01,
                                std::uint16_t start = 0x0000,
                                std::uint16_t quantity = 0x0002,
-                               ms timeout = ms{1000})
+                               ms timeout = ms{1000},
+                               std::uint8_t readFunctionCode = 0x03)
 {
     return ActiveRequestIntent{
         .function = ActiveFunction::ReadHoldingRegisters,
         .unitId = unit,
         .timeout = timeout,
         .payload = ReadHoldingRegistersIntent{.startAddress = start,
-                                              .quantity = quantity},
+                                              .quantity = quantity,
+                                              .functionCode = readFunctionCode},
     };
 }
 
@@ -115,6 +118,13 @@ private slots:
     void ac13_fc10EchoMismatchRegression();
     void ac14_outcomeIssueOrthogonalityRegression();
     void ac15_broadcastUnitNeverSentActively();
+
+    // ---- M10 correction: the read function code is dynamic ----
+    // The register-read schema's wire function byte is user-selectable
+    // (0x01..0x7F); ONE encoder / parser / analyzer, never per-code copies.
+    void ac16_readFunctionCodeEncoderWritesSelectedByte();
+    void ac17_readFunctionCodeValidationRange();
+    void ac18_readFunctionCodeCustomFc41SessionEndToEnd();
 };
 
 void ActiveRequestTest::ac01_validationTable()
@@ -536,6 +546,121 @@ void ActiveRequestTest::ac15_broadcastUnitNeverSentActively()
     QCOMPARE(as<SerialTransactionError>(start)->code,
              SerialTransactionErrorCode::InvalidAddress);
     QCOMPARE(session.state(), SerialTransactionState::Idle);
+}
+
+// ---------------------------------------------------------------------------
+// M10 correction: the read function code is DYNAMIC (register-read schema).
+// The wire function byte is user-selectable 0x01..0x7F; the encoder writes
+// exactly that byte and the session/analyzer stay one shared path.
+// ---------------------------------------------------------------------------
+
+// The encoder writes the SELECTED byte into frame + wire; CRC and framing are
+// the production codec's, so a descriptor round-trip must reproduce it.
+void ActiveRequestTest::ac16_readFunctionCodeEncoderWritesSelectedByte()
+{
+    for (const std::uint8_t fn : {std::uint8_t{0x03}, std::uint8_t{0x04},
+                                  std::uint8_t{0x41}, std::uint8_t{0x7F}}) {
+        const auto intent = readIntent(0x11, 0x0064, 0x0002, ms{1000}, fn);
+        const auto encoded = encodeActiveRequest(intent);
+        const auto descriptor =
+            as<ActiveRequestDescriptor>(encoded);
+        QVERIFY2(descriptor.has_value(),
+                 qPrintable(QStringLiteral("fn=0x%1 was not encodable")
+                                .arg(QString::number(fn, 16))));
+        QCOMPARE(descriptor->frame.functionCode, fn);
+        QCOMPARE(descriptor->intent, intent);
+        QCOMPARE(descriptor->wire.size(), std::size_t{8});
+        // wire = [slave, fn, start hi/lo, qty hi/lo, crc lo/hi]
+        QCOMPARE(descriptor->wire[0], std::uint8_t{0x11});
+        QCOMPARE(descriptor->wire[1], fn);
+        QCOMPARE(descriptor->wire[2], std::uint8_t{0x00});
+        QCOMPARE(descriptor->wire[3], std::uint8_t{0x64});
+        QCOMPARE(descriptor->wire[4], std::uint8_t{0x00});
+        QCOMPARE(descriptor->wire[5], std::uint8_t{0x02});
+        // The CRC bytes are the production CRC over the first six bytes.
+        const auto frame = modbuslens::core::decodeRtuFrame(descriptor->wire);
+        const auto* decoded = std::get_if<ModbusRtuFrame>(&frame);
+        QVERIFY(decoded != nullptr);
+        QCOMPARE(*decoded, descriptor->frame);
+        // activeRequestFunctionCode is the ONE wire-code authority.
+        QCOMPARE(modbuslens::core::activeRequestFunctionCode(intent), fn);
+    }
+}
+
+// 0x00 is not a request and 0x80..0xFF is the exception-response function-bit
+// space: rejected by the intent validator (and therefore by the session gate)
+// instead of being silently accepted as an ordinary request function.
+void ActiveRequestTest::ac17_readFunctionCodeValidationRange()
+{
+    for (const std::uint8_t fn : {std::uint8_t{0x00}, std::uint8_t{0x80},
+                                  std::uint8_t{0x83}, std::uint8_t{0xFF}}) {
+        const auto verdict = validateActiveRequestIntent(
+            readIntent(0x01, 0, 2, ms{1000}, fn));
+        QVERIFY2(verdict.has_value(),
+                 qPrintable(QStringLiteral("fn=0x%1 was accepted")
+                                .arg(QString::number(fn, 16))));
+        QCOMPARE(*verdict,
+                 ActiveRequestValidationError::ReadFunctionCodeOutOfRange);
+        const auto encoded = encodeActiveRequest(
+            readIntent(0x01, 0, 2, ms{1000}, fn));
+        const auto encodeError = as<ActiveRequestEncodeError>(encoded);
+        QVERIFY(encodeError.has_value());
+        QCOMPARE(encodeError->code, ActiveRequestEncodeErrorCode::IntentInvalid);
+    }
+    // The legal domain boundaries are accepted.
+    for (const std::uint8_t fn : {std::uint8_t{0x01}, std::uint8_t{0x7F}}) {
+        QVERIFY(!validateActiveRequestIntent(
+                     readIntent(0x01, 0, 2, ms{1000}, fn))
+                     .has_value());
+    }
+}
+
+// End to end through the SHIPPED session: a custom 0x41 register read frames
+// its normal reply at the same 5+byteCount shape, pairs it, and decodes the
+// uint16 words; its exception form is 0xC1 and still lands in Exception.
+void ActiveRequestTest::ac18_readFunctionCodeCustomFc41SessionEndToEnd()
+{
+    // Encode the custom-code intent into its descriptor (the production
+    // path), then hand it to the shipped session.
+    const auto encoded =
+        encodeActiveRequest(readIntent(0x01, 0x0000, 0x0002, ms{1000}, 0x41));
+    const auto descriptor =
+        as<ActiveRequestDescriptor>(encoded);
+    QVERIFY(descriptor.has_value());
+    QCOMPARE(descriptor->frame.functionCode, std::uint8_t{0x41});
+
+    SerialTransactionSession session;
+    const auto begin = session.beginActiveRequest(*descriptor);
+    const auto* started = std::get_if<ActiveRequestDescriptor>(&begin);
+    QVERIFY(started != nullptr);
+    QCOMPARE(session.state(), SerialTransactionState::AwaitingResponse);
+
+    // A conforming 0x41 answer: byteCount 4 + two uint16 words. The session
+    // frames it at the SAME 5+byteCount shape a 0x03 reply uses.
+    const auto reply = encodeRtuFrame(ModbusRtuFrame{
+        .address = 0x01,
+        .functionCode = 0x41,
+        .data = {0x04, 0x00, 0x64, 0x00, 0xC8}});
+    const auto fed = session.feedResponseBytes(reply, ms{25});
+    const auto* analysis = std::get_if<TransactionAnalysis>(&fed);
+    QVERIFY(analysis != nullptr);
+    QCOMPARE(analysis->status, TransactionStatus::Success);
+    QCOMPARE(analysis->values,
+             (std::vector<std::uint16_t>{0x0064, 0x00C8}));
+
+    // The exception form of 0x41 is 0xC1 — and it is a Modbus exception, not
+    // a function mismatch.
+    SerialTransactionSession exceptionSession;
+    const auto beginException = exceptionSession.beginActiveRequest(*descriptor);
+    QVERIFY(std::holds_alternative<ActiveRequestDescriptor>(beginException));
+    const auto exceptionReply = encodeRtuFrame(ModbusRtuFrame{
+        .address = 0x01, .functionCode = 0xC1, .data = {0x02}});
+    const auto timed = exceptionSession.feedResponseBytes(exceptionReply, ms{25});
+    const auto* exceptionAnalysis = std::get_if<TransactionAnalysis>(&timed);
+    QVERIFY(exceptionAnalysis != nullptr);
+    QCOMPARE(exceptionAnalysis->status, TransactionStatus::Exception);
+    QCOMPARE(exceptionAnalysis->exceptionCode, std::uint8_t{0x02});
+    QVERIFY(!exceptionAnalysis->issue.has_value());
 }
 
 QTEST_GUILESS_MAIN(ActiveRequestTest)

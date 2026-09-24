@@ -24,6 +24,10 @@ std::optional<SerialTransactionErrorCode> mapValidationError(
         return SerialTransactionErrorCode::InvalidTimeout;
     case ActiveRequestValidationError::PayloadFunctionMismatch:
         return SerialTransactionErrorCode::InvalidRequestDescriptor;
+    case ActiveRequestValidationError::ReadFunctionCodeOutOfRange:
+        // M10 correction: a read function code outside 0x01..0x7F is a
+        // locally invalid descriptor — nothing is encoded, nothing is sent.
+        return SerialTransactionErrorCode::InvalidRequestDescriptor;
     }
     return SerialTransactionErrorCode::InvalidRequestDescriptor;
 }
@@ -40,7 +44,11 @@ bool descriptorIsConsistent(const ActiveRequestDescriptor& request)
     if (request.frame.address != request.intent.unitId) {
         return false;
     }
-    if (request.frame.functionCode != activeFunctionCode(request.intent.function)) {
+    // M10 correction: the descriptor must describe the intent's ACTUAL wire
+    // function code — for the register-read schema that is the user-selected
+    // code in the payload (0x03 by default), never just the schema enum.
+    if (request.frame.functionCode
+        != activeRequestFunctionCode(request.intent)) {
         return false;
     }
     const auto decoded = decodeRtuFrame(request.wire);
@@ -230,7 +238,20 @@ std::optional<std::size_t> SerialTransactionSession::candidateFrameLength() cons
     // Normal FC03 reply: Address | 03 | ByteCount | data | CRC(2) whose
     // total length is derived from the RESPONSE's own byteCount — never
     // from the request quantity (A16: the mismatch is the analyzer's verdict).
+    // M10 correction: the SAME rule applies to the pending request's own
+    // register-read function code (0x04 / a custom code) — the framing shape
+    // of a register-read reply does not depend on which function byte the
+    // request used.
     if (function == 0x03) {
+        if (buffer_.size() < 3) {
+            return std::nullopt; // byteCount not arrived yet
+        }
+        return static_cast<std::size_t>(5) + buffer_[2];
+    }
+    if (pending_.has_value()
+        && std::holds_alternative<ReadHoldingRegistersIntent>(
+            pending_->intent.payload)
+        && function == activeRequestFunctionCode(pending_->intent)) {
         if (buffer_.size() < 3) {
             return std::nullopt; // byteCount not arrived yet
         }

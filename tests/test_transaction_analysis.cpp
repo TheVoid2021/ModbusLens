@@ -32,11 +32,15 @@ std::optional<T> as(const Variant& result)
     return std::nullopt;
 }
 
-ModbusRtuFrame readRequest(std::uint8_t device, std::uint16_t start, std::uint16_t quantity)
+// M10 correction: the register-read schema's function byte is a parameter
+// (0x03 default) — the analyzer must be function-code agnostic.
+ModbusRtuFrame readRequest(std::uint8_t device, std::uint16_t start,
+                           std::uint16_t quantity,
+                           std::uint8_t readFunctionCode = 0x03)
 {
     return ModbusRtuFrame{
         .address = device,
-        .functionCode = 0x03,
+        .functionCode = readFunctionCode,
         .data = {
             static_cast<std::uint8_t>(start >> 8),
             static_cast<std::uint8_t>(start & 0xFF),
@@ -98,6 +102,14 @@ private slots:
     void a17_perCodePayloadInvariants();
     // T014-A18 (P1): stable machine serialization tokens.
     void a18_issueNameTokens();
+
+    // ---- M10 correction: the read function code is dynamic ----
+    // The register-read schema (start+quantity -> byteCount+uint16 words) is
+    // function-code agnostic: expected normal/exception codes derive from the
+    // REQUEST frame (0x03->0x83, 0x04->0x84, 0x41->0xC1).
+    void fc01_readSchemaIsFunctionCodeAgnostic();
+    void fc02_dynamicExceptionFunction();
+    void fc03_dynamicMismatchCarriesReceivedFunction();
 };
 
 void TransactionAnalysisTest::a01_success()
@@ -508,6 +520,75 @@ void TransactionAnalysisTest::a18_issueNameTokens()
 }
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// M10 correction: the read function code is DYNAMIC. A register read with
+// function 0x04 / a custom 0x41 must succeed through the SAME analyzer, and
+// its exception form must be F|0x80 — never a second per-code analyzer.
+// ---------------------------------------------------------------------------
+
+void TransactionAnalysisTest::fc01_readSchemaIsFunctionCodeAgnostic()
+{
+    for (const std::uint8_t fn : {std::uint8_t{0x04}, std::uint8_t{0x41}}) {
+        const auto request = readRequest(0x01, 0x0000, 2, fn);
+        const ModbusRtuFrame normalResponse{
+            .address = 0x01,
+            .functionCode = fn,
+            .data = {0x04, 0x00, 0x64, 0x00, 0xC8}};
+        const auto analysis = analyzeFunction03Transaction(
+            request, frameObservation(normalResponse), ms{25}, ms{1000});
+        QCOMPARE(analysis.status, TransactionStatus::Success);
+        QCOMPARE(analysis.elapsed, ms{25});
+        QCOMPARE(analysis.values, (std::vector<std::uint16_t>{0x0064, 0x00C8}));
+        QVERIFY(!analysis.issue.has_value());
+    }
+}
+
+void TransactionAnalysisTest::fc02_dynamicExceptionFunction()
+{
+    struct Case {
+        std::uint8_t requestFunction;
+        std::uint8_t exceptionFunction;
+    };
+    const std::vector<Case> cases = {
+        {0x03, 0x83}, {0x04, 0x84}, {0x41, 0xC1}, {0x7F, 0xFF}};
+    for (const Case& c : cases) {
+        const auto request = readRequest(0x01, 0x0000, 2, c.requestFunction);
+        const ModbusRtuFrame exceptionResponse{
+            .address = 0x01,
+            .functionCode = c.exceptionFunction,
+            .data = {0x02}};
+        const auto analysis = analyzeFunction03Transaction(
+            request, frameObservation(exceptionResponse), ms{30}, ms{1000});
+        QCOMPARE(analysis.status, TransactionStatus::Exception);
+        QVERIFY(analysis.exceptionCode.has_value());
+        QCOMPARE(analysis.exceptionCode.value(), std::uint8_t{0x02});
+        QVERIFY(!analysis.issue.has_value());
+    }
+}
+
+void TransactionAnalysisTest::fc03_dynamicMismatchCarriesReceivedFunction()
+{
+    // A register read with function 0x41 answered by a well-formed 0x03
+    // reply: the mismatch is a pairing fact and carries the RECEIVED byte.
+    // The expected side is the request's own function (0x41) — asserted by
+    // the controller-level READ-FC5 test, which owns the request identity.
+    const auto request = readRequest(0x01, 0x0000, 2, 0x41);
+    const ModbusRtuFrame fc03Reply{
+        .address = 0x01,
+        .functionCode = 0x03,
+        .data = {0x04, 0x00, 0x64, 0x00, 0xC8}};
+    const auto analysis = analyzeFunction03Transaction(
+        request, frameObservation(fc03Reply), ms{25}, ms{1000});
+    QCOMPARE(analysis.status, TransactionStatus::ProtocolError);
+    QVERIFY(analysis.issue.has_value());
+    QCOMPARE(analysis.issue->code, TransactionIssueCode::UnexpectedResponseFunction);
+    QVERIFY(analysis.issue->actualFunctionCode.has_value());
+    QCOMPARE(*analysis.issue->actualFunctionCode, std::uint8_t{0x03});
+    // The VALUES column stays empty: a mismatched reply is never decoded as
+    // if it belonged to this request (T023 READ-RX-5).
+    QVERIFY(analysis.values.empty());
+}
 
 QTEST_MAIN(TransactionAnalysisTest)
 #include "test_transaction_analysis.moc"

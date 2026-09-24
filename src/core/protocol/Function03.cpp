@@ -24,9 +24,10 @@ std::uint16_t readBigEndianUint16(std::uint8_t high, std::uint8_t low)
 } // namespace
 
 ReadHoldingRegistersRequestResult
-decodeReadHoldingRegistersRequest(const ModbusRtuFrame& frame)
+decodeReadHoldingRegistersRequest(const ModbusRtuFrame& frame,
+                                  std::uint8_t expectedFunctionCode)
 {
-    if (frame.functionCode != kReadHoldingRegistersFunction) {
+    if (frame.functionCode != expectedFunctionCode) {
         return Function03DecodeError{Function03DecodeErrorCode::WrongFunctionCode};
     }
     if (frame.data.size() != 4) {
@@ -48,9 +49,10 @@ decodeReadHoldingRegistersRequest(const ModbusRtuFrame& frame)
 }
 
 ReadHoldingRegistersResponseResult
-decodeReadHoldingRegistersResponse(const ModbusRtuFrame& frame)
+decodeReadHoldingRegistersResponse(const ModbusRtuFrame& frame,
+                                   std::uint8_t expectedFunctionCode)
 {
-    if (frame.functionCode != kReadHoldingRegistersFunction) {
+    if (frame.functionCode != expectedFunctionCode) {
         return Function03DecodeError{Function03DecodeErrorCode::WrongFunctionCode};
     }
     if (frame.data.empty()) {
@@ -78,9 +80,13 @@ decodeReadHoldingRegistersResponse(const ModbusRtuFrame& frame)
 }
 
 ModbusExceptionResponseResult
-decodeReadHoldingRegistersException(const ModbusRtuFrame& frame)
+decodeReadHoldingRegistersException(const ModbusRtuFrame& frame,
+                                    std::uint8_t expectedFunctionCode)
 {
-    if (frame.functionCode != (kReadHoldingRegistersFunction | kExceptionFlag)) {
+    // The exception candidate of WHATEVER register-read function the request
+    // used: requestFunction | 0x80 (0x03 -> 0x83, 0x04 -> 0x84, 0x41 -> 0xC1).
+    if (frame.functionCode
+        != static_cast<std::uint8_t>(expectedFunctionCode | kExceptionFlag)) {
         return Function03DecodeError{Function03DecodeErrorCode::WrongFunctionCode};
     }
     if (frame.data.size() != 1) {
@@ -103,18 +109,22 @@ readHoldingRegistersRequestQuantity(const ModbusRtuFrame& frame)
 }
 
 ReadHoldingRegistersEncodeResult encodeReadHoldingRegistersRequest(
-    std::uint8_t address, std::uint16_t startAddress, std::uint16_t quantity)
+    std::uint8_t address, std::uint16_t startAddress, std::uint16_t quantity,
+    std::uint8_t functionCode)
 {
     // T010 addition (T004 shipped decode-only): the symmetric encoder.
     // Quantity is validated HERE; unicast slave-address validation belongs
     // to the Serial session layer because a generic codec stays
     // address-agnostic. Wire bytes and CRC stay ModbusRtuCodec's job.
+    // M10 correction: `functionCode` is the actual wire function byte of the
+    // register-read schema (0x03 by default, user-selectable 0x01..0x7F) —
+    // ONE encoder for every read function, never a per-code copy.
     if (quantity < kMinQuantity || quantity > kMaxQuantity) {
         return Function03EncodeError{Function03EncodeErrorCode::InvalidQuantity};
     }
     return ModbusRtuFrame{
         .address = address,
-        .functionCode = kReadHoldingRegistersFunction,
+        .functionCode = functionCode,
         .data = {
             static_cast<std::uint8_t>(startAddress >> 8),
             static_cast<std::uint8_t>(startAddress & 0xFF),
