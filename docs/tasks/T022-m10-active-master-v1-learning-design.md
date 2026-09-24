@@ -6,6 +6,14 @@
 > verified LKGC = **`b7a6151`**（2026-09-20，M10-A Final Re-review PASS 后的最终 accepted behavior tree）；历史：`aa2f3db`（M9-F closure）→ `b7a6151`（M10-A）。M9 = ✅ COMPLETE（不重开）；**M10-A = COMPLETE**。
 > *（as-of 限定：本行是 M10-A 时点的历史快照，当时 LKGC = `b7a6151`；**当前** verified LKGC 见上方状态行与 `docs/PROJECT_STATUS.md`。）*
 >
+> **〔2026-09-23 追加批注 · FC03 Read Result Observability Contract —— 本区块的当前状态〕**
+> **M10 = REOPENED / CORRECTION**（Human 报告：FC03 成功读取只显示「成功」，寄存器值与收发字节均不可见
+> ⇒ 「成功」不可解释）；**M10-F = HOLD**；**M11 = HOLD / NOT STARTED**。
+> 本轮为 **docs-only 契约冻结**（T023，见 **§ZMA**）：只读审计 + 10 类结果分类法 + TX/RX 语义 +
+> UI 契约 + 1000×700 IA 策略 + 校验矩阵 + 缺口矩阵 + READ-R1…R9 测试契约 + UnknownResponse 策略 + M11 边界。
+> **本轮零代码改动**，**未推进 verified LKGC**（仍 = `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`）。
+> 唯一后继动作 = **Human Review T023 的三项裁定**（§ZMA4）→ 认可后另起 Implementation Round。
+
 > **〔2026-09-23 追加批注 · M10-F closure + LKGC advance —— 本区块的最终状态〕**
 > 上方状态行（`M10 overall = IN PROGRESS` / `M10-E4 = Review HOLD` / `verified LKGC = 9bdd99c`）**均为历史快照**，不重写。
 > **当前事实**：**M10 = ✅ COMPLETE**；**M10-F = ✅ CLOSED**（machine acceptance PASS · portable acceptance PASS ·
@@ -11448,4 +11456,98 @@ REAL MODBUS HARDWARE = NOT VERIFIED（证据边界未改变）
 · 保留（历史记录 / 当时证据）：docs/BACKLOG.md 既有 35 处、docs/devlog/* 既有条目、
   T022 既有 44 处章节正文、docs/INTERVIEW_NOTES.md 的历史问答、
   docs/issues/ISSUE-015 的历史记载、PROJECT_STATUS 中历史 handoff 块与历史叙述区。
+```
+
+## ZMA. M10 FC03 Read Result Taxonomy / UI Contract Freeze（2026-09-23，docs-only contract，NO CODE）
+
+```text
+章节标签唯一性：`ZMA` 在 docs/ 下 0 处既有引用（已 grep 实证）⇒ 安全用作本轮标签。
+性质：**只读架构审计 + 契约冻结（定义）**，不是实现文档。
+本轮零代码 / 零测试 / 零构建 / 零打包改动；未推进 verified LKGC。
+完整契约另立文档：`docs/tasks/T023-m10-fc03-read-result-observability-contract.md`。
+```
+
+### ZMA1. 触发（Human Discovery）
+
+```text
+Human 在 M10 收口后报告：用「读取保持寄存器」成功读取后，界面**只显示「成功」**，
+看不到返回的寄存器值，也看不到实际收发字节 ⇒ 「成功」**不可解释**。
+定性：**产品可用性缺陷**（不是崩溃 / 不是构建缺陷 / 不是分类逻辑错误）。
+```
+
+### ZMA2. 审计结论（12 问，全部源码实证）
+
+```text
+调用链（真实位置）：
+  CommunicationPage.qml:286–297 → AnalysisController.cpp:980 readHoldingRegistersOnce
+  → :1045 startActiveDescriptor → SerialPortAdapter.cpp:317 handleReadyRead
+  → SerialTransactionSession.cpp:275 analyzeAndReset → :280 analyzeActiveResponse
+  → TransactionAnalysis.cpp:83 analyzeFunction03Transaction
+  → AnalysisController.cpp:2329 handleSerialTransactionCompleted → :2265 appendActiveSerialTransaction
+  → :2278 makeSessionRow → TransactionListModel.cpp:175 data()（8 roles）→ QML 行
+
+关键事实：
+  · **TX 字节已保留**：ActiveTransactionEvidence.requestAdu = request.wire（cpp:19），
+    发送时快照逐字节复制，永不事后重编码。
+  · **RX 字节已保留**：responseAdu，来源 observedResponseBytes_（SerialPortAdapter.cpp:322–323
+    先存证据后喂 session）；完成 :338 / 超时 :361 / 断开 :309 / 端口丢失 :462；
+    残缺与损坏字节**永不丢弃**。
+  · **寄存器值未保留**：decodeReadHoldingRegistersResponse 的 values 只在
+    analyzeFunction03Transaction (:161–168) 内部用于 size() 一致校验，返回即销毁。
+    TransactionAnalysis 仅 {status, elapsed, exceptionCode, issue}，**无值字段**。
+  · **证据无出口**：8 个 role 无字节/参数/provenance；activeSerialProvenance 被填充
+    (:2291) 但无 role ⇒ **有结构无出口**；QML 零消费 requestAdu/responseAdu。
+  · Communication 页只有**请求预览**（PDU/RTU），**无响应区**。
+  · 本地参数守卫失败与传输失败**共用** setSerialError 通道（historically coupled，本轮只记录）。
+
+定性：**不是 backend 缺失，是 presentation 缺失 + 一处 core 派生缺失**。
+唯一真 backend 缺口 = 「已算出的解码结果未被保留」。
+```
+
+### ZMA3. 交付物（docs-only）
+
+```text
+新建 `docs/tasks/T023-m10-fc03-read-result-observability-contract.md`：
+  §1  4 条硬性语义规则（R-FACT / R-SRC / R-STRONG / R-HONEST）
+  §2  call chain + 12 问审计 + 缺口定性
+  §3  10 类结果分类法 CLASS-01…CLASS-10（纯映射既有 status/disposition/reason，非新 authority）
+  §4  TX 语义 5 条（READ-TX-1…5；PossiblySent 不得渲染为「已发送」）
+  §5  RX 语义 5 条（READ-RX-1…5；值必须来自 production decoder，非 Success 不显示值）
+  §6  UI 契约 7 条（READ-UI-1…7；结论行 + 有界可滚动证据区）
+  §7  IA 与 1000×700 预算（方案 B 采纳；A/C 否决；READ-IA-1…4；§7.3 冻结超越待裁定）
+  §8  Transactions 关系 READ-TXN-1…5（行结构不改；权威仍是 record）
+  §9  用户文案契约（逐字；新文案标〔待 Review〕；机器 token 不进 UI）
+  §10 响应校验矩阵 14 行（观测字节 → 分类）+ MAT-1…4
+  §11 Backend 缺口矩阵 GAP-1…3（唯一 core 派生缺口 + 三种可选方向待裁定）
+  §12 测试契约 READ-R1…R9 + READ-T-1…4（含真实 windows QPA 几何 + 负向对照要求）
+  §13 UnknownResponse 策略 UNK-1…5（CLASS-10 是合法终态，禁止编造原因）
+  §14 M11 边界 M11-B1…B5（值语义全属 M11，禁止本轮开始 M11）
+  §15 冻结范围 / 非目标
+  §16 本轮验证边界（未 build/test/package）
+  §17 下一步（唯一动作 = Human Review 三项裁定）
+  §18 知识问答 17 条
+```
+
+### ZMA4. 待 Human 裁定三项（不得由 Agent 自行决定）
+
+```text
+① **§7.3 冻结超越**：T019（M9-D）§611 曾把「无 raw-hex」写入 scope freeze。
+   本契约有意在「读取结果」路径上重新打开该边界（理由：该冻结属 M9-D 阶段边界，
+   非永久产品契约；且与 Human 发现直接冲突；且 M10 已把字节做成权威事实却无出口）。
+   ⇒ 需明确批准或否决。
+② **§11 GAP-1 实现方向**：(a) 扩 TransactionAnalysis 加 values /
+   (b) 新增 ActiveReadResult 派生类型 / (c) 呈现层按需调 core 解码器。
+   三者都满足 READ-RX-4 不变量；取舍属架构决策。
+③ **§9 新提出文案**（标〔待 Review〕者）是否逐字采纳。
+```
+
+### ZMA5. 本轮边界与状态
+
+```text
+本轮 = docs-only（未 build / 未 test / 未 package / 未 windeployqt / 未跑 QML 门禁）
+未修改 src / QML / tests / CMakeLists.txt / CMakePresets.json / scripts / assets / samples
+未 push；未 tag；未 amend 既有提交；**未推进 verified LKGC**（docs-only 永不作 LKGC）
+M10 = **REOPENED / CORRECTION**；M10-F = **HOLD**；M11 = **HOLD / NOT STARTED**（本轮未开始）
+REAL MODBUS HARDWARE = NOT VERIFIED（证据边界未改变）
+唯一后继动作 = Human Review T023 → 认可后另起 Implementation Round（不得自动开始）
 ```
