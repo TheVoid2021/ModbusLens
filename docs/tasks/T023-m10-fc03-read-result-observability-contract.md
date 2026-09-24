@@ -735,3 +735,94 @@ ProtocolError、`UnknownProtocolError`、越界枚举 fallback token 与 `Expect
 - 行为/测试提交：**`a494d9c`**（T023 implementation：core values + read-result
   projection + Communication read-result UI + rr01–rr08 + `qml_read_result_check`）
 - 文档归档提交：见本节下方（docs-only，永不作 LKGC）（本 Part B + T019 §40 批注 + PROJECT_STATUS/BACKLOG/devlog）
+---
+
+# Part C — Read Function Code Editable + Text-Input UX（2026-09-24，M10 correction）
+
+> Human 新发现（Part B 交付后）：Request 区不得再用 SpinBox/上下箭头输入，且
+> 「读取功能码」必须可直接键盘输入（默认 03）。本 Part 记录该轮实施；Part A/B 原文不变。
+
+## C1. 需求 → 设计
+
+- **语义/字节分离（§5）**：`ReadHoldingRegistersIntent` 追加 `functionCode`
+  （append-last，默认 0x03）—— 这条 UI 始终是 **register-read schema**
+  （请求 = Start+Quantity，响应 = ByteCount+uint16 字），wire function byte
+  是该 schema 的用户可选事实。`activeRequestFunctionCode()` 是 wire byte 的
+  唯一权威。FC01/FC02 不得被解释成 bit/coils —— schema 恒为 16-bit 寄存器。
+- **验证（§3）**：文本 parser 只做 trim/格式/溢出；十进制字段复用 core
+  `parseDecimalRegisterValue`，功能码字段新增 core `parseReadFunctionCode`
+  （1..2 位 HEX、可选 0x/0X、大小写均可；拒绝空/GG/0x/123/0x123/负数）。
+  业务范围仍由 controller typed guards + 新增 `ReadFunctionCodeOutOfRange`
+  （0x01..0x7F；0x80..0xFF 为异常位空间，不得静默接受）。
+- **动态异常（§11）**：分析器从 REQUEST FRAME 派生期望码 —— F、F|0x80
+  （03→83、04→84、41→C1），无 per-code 副本。
+- **Read Result 动态（§12）**：snapshot 携带请求功能码；证据对话框请求回显
+  含「功能码 FCnn (0xnn)」+ 新增「响应功能码」行（Success = 同码；
+  UnexpectedResponseFunction = core `actualFunctionCode`）。
+
+## C2. UI 布局（§1/§7/§13/§16）
+
+```text
+Row1 = 从站地址 [文本] ｜ 读取功能码 [文本] ｜ 动态紧凑说明（elide）
+Row2 = 起始地址 [文本] ｜ 寄存器数量 [文本] ｜ 超时(ms) [文本] ｜ [读取寄存器]
+然后 = 起始地址 HEX echo → PDU/RTU Preview → Read Result summary
+```
+
+HEX echo 改为 controller preview 投影（删除 QML `Number()` 二次解析）；静态
+「Function: FC03…」标题删除；按钮文案 → 「读取寄存器」。控件复用既有
+`DecimalField`（presentation-only raw-text，无 QML 校验器 —— 与 write drafts
+同一纪律）。
+
+## C3. 1000×700 预算（§17，真实 windows QPA 实测）
+
+初版字段沿用 DS 34px（`DS.controlHeight`）→ **writeFoundationPanel bottom
+711 > 700**（ISSUE-016/018 形态再次复现，本机真实平台门禁捕获）。修复 =
+五个字段 `implicitHeight: 24`（= 被替换 SpinBox 行高）→ 恢复 691 ≤ 700。
+最终测量（1000×700 生产模式）：
+`communicationRequestSection=(73,197 911x139) readResultPanel=(85,310 887x14)
+readResultDetailsButton=(928,310 44x14) commReadButton=(892,241 80x24)
+writeFoundationPanel=(73,372 911x151)`；写区双 Tab 最坏情形
+`writeFoundationPanel=(73,372 911x319)` → bottom 691。
+
+## C4. 测试（READ-FC1…FC9，§20）
+
+- core：`test_active_request` +ac16–ac18；`test_transaction_analysis` +fc01–fc03。
+- controller：`test_ui_bridge` +READ-FC1…FC8。
+- QML 门禁：`--qml-read-result-check` 扩展 M1–M5（READ-FC2/3/6/7/8 + FC9
+  UI→preview→actual TX 恒等，经真实字段与真实按钮驱动）。
+- **负向对照（READ-T-4）实测**：临时让 dispatch 忽略输入功能码恒发 0x03 →
+  READ-FC2/FC5 FAIL + 门禁 7 条 M1/M2 READFAIL → 还原后全部复绿。
+
+## C5. 验证（真实命令与输出）
+
+```text
+Debug CTest   → 100% tests passed, 0 tests failed out of 38（诊断 0/0/0）
+Release CTest → 100% tests passed, 0 tests failed out of 38（诊断 0/0/0）
+真实 windows QPA 七门禁（Release）：
+  qml-smoke-test=0  qml-production-write-check=0  qml-write-foundation-check=0
+  qml-focus-check=0 qml-nav-check=0 qml-geometry-check=0 qml-read-result-check=0
+  （合计 ReferenceError 0 / TypeError 0 / Unable to assign 0）
+R15/R16/R17 portable markers：9 条独立 marker 行全在；
+  R17: FC16 no-response dispatch -> exactly one Timeout + 写状态未知通知。
+```
+
+## C6. Result / 状态
+
+M10 = REOPENED/CORRECTION（Part C 实施完成，待 Human Review）；M10-F = HOLD；
+M11 = HOLD / NOT STARTED；REAL MODBUS HARDWARE = NOT VERIFIED；未 package
+（Human 将在 WorkBuddy 外 native PowerShell 重新 canonical package）；
+verified LKGC 未推进 = `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`；
+行为提交 = `352b81c`；未 push/tag/amend。
+
+## C7. Knowledge Learned
+
+1. **34px DS 控件 vs 24px 旧控件**：替换控件时必须以「被替换控件的实际行高」
+   而非设计系统默认值为预算基准 —— 1000×700 的 slack 只有 ~25px。
+2. **门禁 staged-walk 中阶段内再 push 是队尾追加**：断言会推迟到全部后续
+   阶段之后执行（中间的 runDemoBatch 清空了被断言状态）；同步控制器状态
+   必须同阶段断言。
+3. **QCOMPARE 与花括号初始化列表**：`QCOMPARE(x, std::vector<u16>{a,b})`
+   的逗号会被宏当参数分隔 —— 必须外加括号。
+4. **`QString::arg(int, QString)` 不存在**：混合类型多参必须链式 .arg()。
+5. **`QString::arg(uint8_t, 2, 10)` 是十进制格式化**："FC41" 这类 HEX 标签
+   必须先格式化 HEX 字符串再拼（0x41 被格式化成 FC65 的实测教训）。
