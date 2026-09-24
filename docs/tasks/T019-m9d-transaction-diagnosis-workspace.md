@@ -1590,3 +1590,31 @@ T019 §D5.2 长期保存六类 Legacy-reference 审计（category / count（144 
 
 - **M9-D Phase 1 Review（用户）**；批准后按 §33 从 **D1** 开始实施（每阶段独立 Review/提交）。
 - **M9-E（Branding/Icon/Packaging）**、**M9-F（Final Manual Visual Acceptance）** 未开始；**M9 整体 IN PROGRESS**。
+
+## 40. 〔2026-09-24 追加批注 · T023 limited supersession（有限超越）〕
+
+> 本节为**追加批注**（只增不改原则）。上文 line 91 / line 413 / line 611 / line 730 /
+> line 777 记录的「无 raw/hex 报文视图」冻结**保持历史原文不变**；本节只记录 Human 在
+> T023 实施轮（2026-09-24）对其中**一条路径**作出的**有限超越**裁定，不构成对冻结本身的
+> 撤销，也不构成对本文件其它任何冻结项的改动。
+
+**裁定（Human DECISION 1，2026-09-24）**：T019「不得做原始报文 / HEX 视图」冻结在
+**FC03 Read Result evidence** 这一条路径上被**有限超越**——Communication 页新增的
+「读取结果」证据视图允许呈现**实际收发的原始字节**（`evidence.requestAdu` /
+`evidence.responseAdu`，语义遵循 T023 READ-TX-1…5 / READ-RX-1…5）。
+
+**超越理由（如实记录）**：该冻结属 M9-D 阶段边界而非永久产品契约；Human 在 M10-F 后
+发现「成功读取不可解释」，而 M10 已把收发字节做成权威事实（`ActiveTransactionEvidence`
+发送时快照 / `observedResponseBytes_` 先存证据后喂 session）却没有呈现出口——
+冻结与产品可用性直接冲突。
+
+**边界（以下仍是冻结，本轮未打开）**：
+1. 该超越**仅限** FC03 读取结果证据面（Communication 页 read-result 结论行 + 其详情对话框）；
+2. **不得**推广为 Transactions 工作区的通用「原始报文 / HEX 视图」；
+3. **不得**为 `TransactionListEntry` / transaction model 增加字节 role
+   （T023 READ-TXN-2：行是摘要，255 字节会破坏 M9 冻结的行结构）；
+4. 寄存器**值**只呈现 RAW uint16（DEC + HEX）；int16 / uint32 / Float32 / byte order /
+   scale / unit / alias / 设备寄存器表**全属 M11**（T023 §14，本轮未开始）。
+
+**依据链**：T023 §7.3 显式披露超越意向 → Human Review 裁定批准（有限超越）→
+T023 实施轮落地 → 本批注归档（T023 Part B 引用本节）。

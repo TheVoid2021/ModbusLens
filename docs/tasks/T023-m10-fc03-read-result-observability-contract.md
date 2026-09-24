@@ -616,3 +616,122 @@ STEP-2 取得裁定后，**另起一轮** = Implementation Round：
 | 15 | 值解释（Float32 / byte order）属于哪一轮？ | M11（Register Readout & Decode），本轮只做原始 uint16 + index/地址。 |
 | 16 | 本轮改了代码吗？ | 没有。只读审计 + docs-only 契约冻结。 |
 | 17 | 本轮推进 LKGC 了吗？ | 没有。docs-only 提交永不作 LKGC。 |
+---
+
+# Part B — Implementation Round（2026-09-24，T023 实施）
+
+> 本节为 T023 契约**实施轮**的过程档案追加（§7 Human 三项裁定通过后执行；历史 Part A
+> 原文不变）。涉及 Human 三项裁定的落地方式：**DECISION 1**（有限超越 T019「无 raw-hex」
+> 冻结，仅限 FC03 Read Result evidence）→ 已归档为 **T019 §40** 追加批注；
+> **DECISION 2**（GAP-1 选 **(a) 扩展 canonical `TransactionAnalysis`**，两处 UI 共用同一
+> transaction truth）；**DECISION 3**（10 个用户可见主标题逐字冻结，并**改序**为
+> CLASS-01 请求未发送 … CLASS-10 读取成功 —— 本 Part 的编号一律为该新序）。
+
+## B1. 实施范围（按契约章节映射）
+
+| 契约条目 | 落地 |
+| --- | --- |
+| §5 GAP-1（core 派生缺口） | `TransactionAnalysis` 追加 `std::vector<std::uint16_t> values`（append-last，保持聚合兼容）；`analyzeFunction03Transaction` 的 Success 分支保留已解码 payload（RAW uint16，无任何解释） |
+| §8 READ-TXN（Transactions 关系） | **未**扩大 `TransactionListEntry` / model role（READ-TXN-2）；读取结果经 `AnalysisController` 的 canonical read-result projection 出口，与 session record 同源（`captureReadResultFromRecord` 直接取自刚归档的 record） |
+| §6 READ-UI（结果面两层） | Communication 页 `requestPreviewPanel` 列内新增恒显结论行（summary + fact + 紧凑「查看详情」文字入口）+ 页末有界可滚动 `readResultDialog`（请求回显 / Actual TX + 处置分档 / Actual RX / 接收字节数 / 确定性依据 / 可能原因 / CLASS-10 原始寄存器表） |
+| §3 分类法 | `ReadResultClass`（10 值）+ 纯映射 `classifyFc03ReadResult` + `readResultClassMachineToken` + `readResultClassTitle`（逐字冻结）+ `readResultPossibleCausesFor`（无根因词）+ `standardExceptionNameZh`（仅 0x01…0x04） |
+| §19 WAITING | 传输**接受**请求的瞬间进入等待态（非终态），终态出现即被**恰好一个** terminal 替换 |
+| §29 exactly-one-terminal | 本地拒绝产生 0 record / 0 terminal；完成 = 1 record；提交后中止 = 1 terminal + 0 record |
+| 源切换语义 | Simulator / Replay 切换与 `connectSerial` 新会话均清空读取结果（不得跨会话/跨源展示旧字节） |
+
+## B2. Files Changed（行为/测试提交）
+
+- `src/core/analysis/TransactionAnalysis.h/.cpp` — `values` 字段 + Success 分支保留 payload；
+- `src/ui/TransactionListModel.h/.cpp` — 10 类分类、机器 token、冻结标题、可能原因、HEX 投影；
+- `src/ui/AnalysisController.h/.cpp` — read-result snapshot（唯一写入点 = 3 个 capture helper）+ 28 个只读投影属性 + 等待态入口 + 本地拒绝/终端/记录三路捕获 + `connectSerial` 会话清空；
+- `src/ui/qml/pages/CommunicationPage.qml` — 结论行 + 详情对话框（有界滚动）；
+- `src/main.cpp` — 聚合初始化补 `.values = {}`；新增 harness 方法 `completeReadWithBytes`；新增门禁 `--qml-read-result-check`；
+- `src/core/analysis/PassiveTransactionAnalysis.cpp`、`src/core/serial/SerialTransactionSession.cpp`、`tests/*` — 聚合初始化补 `.values = {}`（消除 `-Wmissing-field-initializers`，零行为变化）；
+- `tests/fake_serial_transport.h/.cpp` — 新增 `completeWithResponseInChunks`（READ-R2 分片刺激）；
+- `tests/test_ui_bridge.cpp` — 新增 **rr01–rr08**（READ-R1…R8 断言层）；
+- `CMakeLists.txt` — 新增 CTest 条目 `qml_read_result_check`（**37 → 38**）。
+
+## B3. 1000×700 几何与布局决策（§7 / READ-UI-6）
+
+首版把结果区做成独立 `ColumnLayout` + 34px `AppButton`，真实 windows QPA 下
+`--qml-write-foundation-check` 复现 **ISSUE-016/018 形态**：
+`WRITEFAIL C4 geometry 1000x700 0x10: writeFoundationPanel is clipped by the window
+(scene 73,398 911x319 vs window 1000x700)`（bottom = 717 > 700）。
+**修复**：结果行并入既有预览列、详情入口降级为紧凑文字行（复用 T023 方案 B 的
+「恒显结论行 + 有界详情」），复测 `writeFoundationPanel=(73,372 911x319)`（bottom 691 ≤ 700）。
+该最坏情形（写区双 Tab 的 test-foundation 模式）由既有 `qml_write_foundation_check` +
+`qml_write_foundation_check_windows` 在真实平台持续把守；本轮新增的
+`--qml-read-result-check` 在**生产模式**（仅 0x06）下额外实测：
+
+```
+READ [geometry 1000x700 125-reg]: window=1000x700
+  communicationRequestSection=(73,182 911x131) readResultPanel=(85,290 887x11)
+  readResultSummary=(85,290 99x11) readResultSummaryFact=(192,290 728x11)
+  readResultDetailsButton=(928,290 44x11) commReadButton=(880,245 92x24)
+  writeFoundationPanel=(73,344 911x148) writeValidationError=<hidden>
+  writeActivateButton=(85,446 50x34)
+```
+
+## B4. Verification（真实命令与输出）
+
+```text
+# Debug 全量（真实 ctest，Windows 交互式会话）
+ctest -C Debug
+  → 100% tests passed, 0 tests failed out of 38        （37 → 38）
+  → Test Passed count: 38；ReferenceError 0 / TypeError 0 / Unable to assign 0
+  → qml_read_result_check PASS（约 5 s）
+  → ui_bridge 76 passed（含新增 rr01–rr08）
+
+# 新门禁（真实 app + 真实 QML）
+modbuslens --qml-read-result-check   → exit 0
+  READ [C waiting]: TX=[01 03 03 E8 00 02 44 7B] (== preview == encoder)
+  READ [C/CLASS-10]: 共 2 个寄存器… 值=100/200 地址=1000/1001 RX=01 03 04 00 64 00 C8 BA 7A
+  READ [D/CLASS-03]…[J/CLASS-02]：八类终端逐类 PASS
+  READ [K dialog]: 125-register evidence view reachable and scrollable at 1000x700
+```
+
+**负向对照（READ-T-4，实测）**：临时把 `readResultRxText()` 的空态文案改为
+`"NEGATIVE-CONTROL"` 后重建 → `rr07` **FAIL**（exit 1）且
+`--qml-read-result-check` **FAIL**（C/D 两处 READFAIL）→ 还原后二者复绿。
+证明断言不是死断言。
+
+## B5. CLASS-09（无法识别的响应）可达性结论（如实报告）
+
+按 §28/READ-T-4「若架构无法稳定构造 Unknown 分支则不得伪造测试」的要求，本轮**枚举了
+全部可达输入**：`analyzeFunction03Transaction` 对每一条 `ProtocolError` 路径都附加了
+确定性 issue（FrameTooShort / AddressMismatch / Malformed×2 / QuantityMismatch /
+UnexpectedResponseFunction）；两条 `UnknownProtocolError` 路径（请求帧不可解码的防御
+分支、`analyzeActiveResponse` 的防御尾部）在**受信任的主动 FC03 请求**下均不可达
+（请求恒由 `encodeActiveRequest` 产生并校验）。**结论：CLASS-09 在生产主动 FC03 线上
+不可达**。处理方式：**不伪造** wire 场景；契约在**映射层**断言——`rr01` 直接驱动
+production `classifyFc03ReadResult` 覆盖 §10 矩阵全部 14 行（含无 issue 的
+ProtocolError、`UnknownProtocolError`、越界枚举 fallback token 与 `ExpectedNoResponse`），
+并验证其标题/机器 token/可能原因契约。该结论属架构事实记录，**不是缺陷**（UNK-1）。
+
+## B6. Result / 状态
+
+- Debug CTest **38/38** PASS；诊断计数 **0/0/0**；`qml_read_result_check` 新增并 PASS；
+- M10 = **REOPENED / CORRECTION（实施完成，待 Human Review）**；M10-F = **HOLD**；
+  **M11 = HOLD / NOT STARTED**；REAL MODBUS HARDWARE = NOT VERIFIED；
+- **verified LKGC 未推进** = `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`
+  （行为提交仅为 **candidate**；推进需 Human 明确授权）；
+- 未 push / 未 tag / 未 amend；本轮**未做 package**（无 windeployqt / make_package.py）。
+
+## B7. Knowledge Learned
+
+1. **「同一提交里存在某能力」≠「结构性保证成立」**：portable 证据只能证明能力进入产物；
+   本轮 `TX==preview==encoder` 由**构造**保证（同一 `encodeActiveRequest`），并用
+   `rr02` 把它锁成断言。
+2. **QML 无限定名解析规则再次生效**：结果行并入既有 `requestPreviewPanel` 列内，读取全部
+   走 `page.analysisController.*` 显式限定，避免中间祖先属性不可见坑。
+3. **`Item` 根必须给 implicit 尺寸**：新增 RowLayout 挂在既有 ColumnLayout 内，
+   未新增根为 `Item` 的自定义组件，规避了 ISSUE-016 的 0 高度坑。
+4. **终态写入点的唯一性**是可测性的前提：snapshot 只有 3 个 capture helper 可写，
+   `rr01–rr08` 才能只断言投影而不必重新推导分类。
+5. **负向对照必须真的跑**：本轮实测注入文案缺陷后 rr07 与门禁同时变红，还原后复绿。
+
+## B8. Git Commit
+
+- 行为/测试提交：**`a494d9c`**（T023 implementation：core values + read-result
+  projection + Communication read-result UI + rr01–rr08 + `qml_read_result_check`）
+- 文档归档提交：见本节下方（docs-only，永不作 LKGC）（本 Part B + T019 §40 批注 + PROJECT_STATUS/BACKLOG/devlog）
