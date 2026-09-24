@@ -11572,3 +11572,22 @@ checklist 明确回复「全部 PASS」⇒ M10 Read Correction（FC03 读取结�
   acceptance matrix 第 14 项）。
 - 详见 T023 **Part D**（Human acceptance 逐项 / machine evidence / 行为清单 /
   M11 边界 / hard-gate 复核）。
+
+
+## ZNB. M10 LKGC ADVANCE — verified LKGC：`d08ab55c71f54211e35f6bcdf0c2ec026a1d185f` → `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`（2026-09-24，docs-only governance）
+
+Human 明确授权（授权原文：「批准推进 LKGC 到 352b81c」）⇒ 满足治理规则「verified LKGC
+的推进需 Human 授权」（§ZE17 line 7794–7795 + AGENTS.md line 130 + M10-F acceptance
+matrix 第 14 项；先例 = §ZMM）。
+
+- previous verified LKGC = `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`
+- new verified LKGC      = `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`
+- candidate 复核：`d08ab55..HEAD` 内 behavior-bearing 提交仅 `a494d9c`（Part B，
+  historical intermediate）与 `352b81c`（Part C，最后 behavior-bearing tree）；
+  `352b81c..HEAD` 零 src/tests/CMake/scripts/assets/samples 变化；`115f2a1` /
+  `63c483b` / `13e5a13` / `3c9b0b8` 均 docs-only。
+- 该 LKGC 对应：M10 COMPLETE · M10-F CLOSED · M10 Read Correction（T023 Part A–D）
+  CLOSED / ACCEPTED · Final accepted portable D
+  `D013B12FEB1BAB1AD10FEE80761AD57C8F2EF76DF474CEFA47A64F77B3FFBC65`。
+- 本 governance commit 为 docs-only，永不作 LKGC。
+- M11 = HOLD / NOT STARTED；本批注不构成 push / tag / release / M11 授权。

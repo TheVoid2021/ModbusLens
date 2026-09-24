@@ -919,3 +919,11 @@ T023 §12（实施 → 真实 windows QPA 门禁 → 人工验收）复核：**�
 ## D7. Git
 
 - closure commit：见本文件下方 Git Commit 记录（docs-only）。
+
+
+## D8. LKGC ADVANCE 补记（2026-09-24，docs-only）
+
+D6 所记 candidate 已由 Human 明确授权（授权原文：「批准推进 LKGC 到 352b81c」）⇒
+**verified LKGC = `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`**（前一 verified LKGC =
+`d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`；治理记录见 T022 §ZNB）。本 Part 及其前文
+中「candidate / 未推进」字样属当时事实，保留不改。
