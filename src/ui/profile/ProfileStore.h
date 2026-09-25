@@ -68,9 +68,12 @@ public:
     // <application user-data dir>/profiles — absolute, user-scoped, created on
     // demand by saveToFile (never at query time).
     [[nodiscard]] static QString defaultProfilesDirectory();
-    // defaultProfilesDirectory() + "/" + profileId + ".json". The profileId is
-    // expected to be a program-generated identity (e.g. a UUID); this helper
-    // does not sanitize it and is NOT a security boundary.
+    // <profiles dir>/profile-<sha256(profileId UTF-8)>.json (T027 §29.2,
+    // HUMAN-APPROVED persistence hardening). The profileId remains a LOGICAL
+    // identity: it is never written into the path, so "../", separators,
+    // Windows reserved names, ":" and Unicode cannot change the directory
+    // structure. The derived name contains only the fixed prefix, lowercase
+    // hex digits and ".json", and always stays inside defaultProfilesDirectory().
     [[nodiscard]] static QString defaultFilePathFor(const QString& profileId);
 
     // JSON contract encoding (T027 §25). Deterministic: every v1 key is always

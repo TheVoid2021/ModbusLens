@@ -86,7 +86,8 @@ enum class ProfileValidationCode {
     RegisterCountMismatch,      // registerCount != type word count
     AddressOutOfRange,          // address outside PDU 0..65535
     SpanOutOfRange,             // address + registerCount - 1 > 65535
-    DuplicateAddress,           // two entries share one address
+    DuplicateAddress,           // two entries share the exact same start address
+    OverlappingSpan,            // entry spans intersect (T027 29: forbidden in v1)
     InvalidByteOrder,           // byteOrder outside the M11 enum
     InvalidWordOrder,           // wordOrder outside the M11 enum
     NonFiniteScale,             // scale is NaN / +-Inf
@@ -116,5 +117,76 @@ struct ProfileValidationResult {
 // derived computation.
 [[nodiscard]] double profileSemanticValue(double decodedValue, double scale,
                                           double offset);
+
+// ---------------------------------------------------------------------------
+// Lookup / query foundation (M12-A second slice, T027 §29).
+//
+// The PDU / 0-based address is the ONLY lookup authority (never a 40001-style
+// presentation alias). Because a validated v1 profile forbids every
+// cross-entry span overlap (T027 §29: ONE PDU ADDRESS BELONGS TO AT MOST ONE
+// ENTRY SPAN), a lookup over a VALID profile is deterministic by construction.
+// Both entry points validate first: an invalid or overlapping profile returns
+// InvalidProfile instead of picking a winner.
+// ---------------------------------------------------------------------------
+
+enum class ProfileLookupStatus {
+    Found,
+    NotFound,
+    InvalidProfile, // the profile failed validateDeviceProfile
+    Ambiguous,      // defensive only: unreachable for validated v1 profiles
+};
+
+[[nodiscard]] std::string_view profileLookupStatusName(ProfileLookupStatus status);
+
+struct ProfileLookupResult {
+    ProfileLookupStatus status{ProfileLookupStatus::NotFound};
+    int entryIndex{-1};        // index into profile.registers when Found
+    int offsetWithinSpan{0};   // 0 for an exact-start hit, 0..count-1 otherwise
+
+    [[nodiscard]] bool found() const {
+        return status == ProfileLookupStatus::Found;
+    }
+    bool operator==(const ProfileLookupResult&) const = default;
+};
+
+// Matches ONLY the entry whose start address equals `address`.
+[[nodiscard]] ProfileLookupResult findProfileEntryByStartAddress(
+    const DeviceProfile& profile, std::uint16_t address);
+
+// Matches the entry whose span COVERS `address` (offsetWithinSpan tells where
+// inside that span the address lives).
+[[nodiscard]] ProfileLookupResult findProfileEntryCoveringAddress(
+    const DeviceProfile& profile, std::uint16_t address);
+
+// ---------------------------------------------------------------------------
+// Semantic projection foundation (pure; no UI, no wire, no M11 call).
+//
+// Input: a verified RegisterEntry and an ALREADY-DECODED numeric scalar (the
+// caller decides which M11 view produced that scalar — this layer never
+// decodes, never reads TX/RX and never rewrites the M11 result). Output: the
+// frozen formula result plus a NUMERIC class (never re-derived from text) and
+// the entry's unit verbatim.
+// ---------------------------------------------------------------------------
+
+enum class ProfileSemanticClass {
+    Finite,
+    NotANumber,
+    PositiveInfinity,
+    NegativeInfinity,
+};
+
+[[nodiscard]] std::string_view profileSemanticClassName(ProfileSemanticClass valueClass);
+[[nodiscard]] ProfileSemanticClass profileSemanticClassOf(double value);
+
+struct ProfileSemanticProjection {
+    ProfileSemanticClass valueClass{ProfileSemanticClass::Finite};
+    double semanticValue{0.0};
+    std::string unit; // verbatim copy of the entry's unit
+
+    bool operator==(const ProfileSemanticProjection&) const = default;
+};
+
+[[nodiscard]] ProfileSemanticProjection projectProfileSemanticValue(
+    const RegisterEntry& entry, double decodedValue);
 
 } // namespace modbuslens::core

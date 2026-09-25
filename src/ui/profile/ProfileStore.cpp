@@ -1,5 +1,6 @@
 #include "ui/profile/ProfileStore.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -190,8 +191,16 @@ QString ProfileStore::defaultProfilesDirectory()
 
 QString ProfileStore::defaultFilePathFor(const QString& profileId)
 {
-    return QDir(defaultProfilesDirectory())
-        .filePath(profileId + QStringLiteral(".json"));
+    // T027 §29.2: the default filename is DERIVED from the profileId (SHA-256
+    // of its UTF-8 bytes), never built from it — Qt does not remove ".."
+    // segments, so concatenation could escape the profiles root. The digest is
+    // hex-only, so the produced path cannot leave the profiles directory.
+    const QByteArray digest = QCryptographicHash::hash(
+        profileId.toUtf8(), QCryptographicHash::Sha256);
+    const QString fileName = QStringLiteral("profile-")
+                             + QString::fromLatin1(digest.toHex())
+                             + QStringLiteral(".json");
+    return QDir(defaultProfilesDirectory()).filePath(fileName);
 }
 
 QByteArray ProfileStore::serializeToJson(const DeviceProfile& profile)

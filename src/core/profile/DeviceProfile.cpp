@@ -1,7 +1,7 @@
 #include "core/profile/DeviceProfile.h"
 
 #include <cmath>
-#include <unordered_set>
+#include <utility>
 
 namespace modbuslens::core {
 
@@ -137,6 +137,8 @@ std::string_view profileValidationCodeName(ProfileValidationCode code)
         return "span_out_of_range";
     case ProfileValidationCode::DuplicateAddress:
         return "duplicate_address";
+    case ProfileValidationCode::OverlappingSpan:
+        return "overlapping_span";
     case ProfileValidationCode::InvalidByteOrder:
         return "invalid_byte_order";
     case ProfileValidationCode::InvalidWordOrder:
@@ -163,8 +165,12 @@ ProfileValidationResult validateDeviceProfile(const DeviceProfile& profile)
         return {ProfileValidationCode::UnsupportedSchemaVersion, -1};
     }
 
-    std::unordered_set<std::uint16_t> seenAddresses;
-    seenAddresses.reserve(profile.registers.size());
+    // Placed spans of the entries already accepted, as closed intervals
+    // [start, last]. Sizes are tiny (registerCount is validated to 1 or 2
+    // BEFORE this loop reaches the span checks), so int arithmetic cannot
+    // overflow here.
+    std::vector<std::pair<int, int>> placedSpans;
+    placedSpans.reserve(profile.registers.size());
     for (std::size_t i = 0; i < profile.registers.size(); ++i) {
         const RegisterEntry& entry = profile.registers[i];
         const int index = static_cast<int>(i);
@@ -192,16 +198,25 @@ ProfileValidationResult validateDeviceProfile(const DeviceProfile& profile)
         }
         // Span: the last covered register must stay inside PDU 0..65535.
         // address is uint16_t (always >= 0), so only the top edge can fail.
-        const int lastAddress = static_cast<int>(entry.address)
-                                + entry.registerCount - 1;
+        const int firstAddress = static_cast<int>(entry.address);
+        const int lastAddress = firstAddress + entry.registerCount - 1;
         if (lastAddress > 65535) {
             return {ProfileValidationCode::SpanOutOfRange, index};
         }
-        // Duplicate addresses: v1 requires a deterministic address -> entry
-        // mapping; overlapping spans are a future extension, never guessed.
-        if (!seenAddresses.insert(entry.address).second) {
-            return {ProfileValidationCode::DuplicateAddress, index};
+        // T027 29 (HUMAN-APPROVED): every cross-entry address-range overlap is
+        // forbidden - ONE PDU ADDRESS BELONGS TO AT MOST ONE ENTRY SPAN. The
+        // exact-start case keeps its own token; intersecting (but differently
+        // started) spans report OverlappingSpan. No priority / alias / winner
+        // resolution exists.
+        for (const auto& placed : placedSpans) {
+            if (placed.first == firstAddress) {
+                return {ProfileValidationCode::DuplicateAddress, index};
+            }
+            if (firstAddress <= placed.second && placed.first <= lastAddress) {
+                return {ProfileValidationCode::OverlappingSpan, index};
+            }
         }
+        placedSpans.emplace_back(firstAddress, lastAddress);
         if (!std::isfinite(entry.scale)) {
             return {ProfileValidationCode::NonFiniteScale, index};
         }
@@ -218,6 +233,119 @@ double profileSemanticValue(double decodedValue, double scale, double offset)
     // keeps NaN / +-Inf special values special — never disguised as ordinary
     // physical numbers.
     return decodedValue * scale + offset;
+}
+
+std::string_view profileLookupStatusName(ProfileLookupStatus status)
+{
+    switch (status) {
+    case ProfileLookupStatus::Found:
+        return "found";
+    case ProfileLookupStatus::NotFound:
+        return "not_found";
+    case ProfileLookupStatus::InvalidProfile:
+        return "invalid_profile";
+    case ProfileLookupStatus::Ambiguous:
+        return "ambiguous";
+    }
+    return "not_found";
+}
+
+namespace {
+
+ProfileLookupResult lookupInValidatedProfile(const DeviceProfile& profile,
+                                             std::uint16_t address,
+                                             bool covering)
+{
+    ProfileLookupResult result;
+    for (std::size_t i = 0; i < profile.registers.size(); ++i) {
+        const RegisterEntry& entry = profile.registers[i];
+        const int start = static_cast<int>(entry.address);
+        const int last = start + entry.registerCount - 1;
+        const int target = static_cast<int>(address);
+        const bool hit = covering ? (target >= start && target <= last)
+                                  : (target == start);
+        if (!hit) {
+            continue;
+        }
+        if (result.status == ProfileLookupStatus::Found) {
+            // Defensive only: a validated v1 profile cannot reach this (T027
+            // 29 forbids every overlap); kept so a caller that skips
+            // validation can never receive a silently picked winner.
+            result.status = ProfileLookupStatus::Ambiguous;
+            result.entryIndex = -1;
+            result.offsetWithinSpan = 0;
+            return result;
+        }
+        result.status = ProfileLookupStatus::Found;
+        result.entryIndex = static_cast<int>(i);
+        result.offsetWithinSpan = target - start;
+    }
+    return result;
+}
+
+} // namespace
+
+ProfileLookupResult findProfileEntryByStartAddress(const DeviceProfile& profile,
+                                                   std::uint16_t address)
+{
+    if (!validateDeviceProfile(profile).ok()) {
+        ProfileLookupResult result;
+        result.status = ProfileLookupStatus::InvalidProfile;
+        return result;
+    }
+    return lookupInValidatedProfile(profile, address, /*covering=*/false);
+}
+
+ProfileLookupResult findProfileEntryCoveringAddress(const DeviceProfile& profile,
+                                                    std::uint16_t address)
+{
+    if (!validateDeviceProfile(profile).ok()) {
+        ProfileLookupResult result;
+        result.status = ProfileLookupStatus::InvalidProfile;
+        return result;
+    }
+    return lookupInValidatedProfile(profile, address, /*covering=*/true);
+}
+
+std::string_view profileSemanticClassName(ProfileSemanticClass valueClass)
+{
+    switch (valueClass) {
+    case ProfileSemanticClass::Finite:
+        return "finite";
+    case ProfileSemanticClass::NotANumber:
+        return "not_a_number";
+    case ProfileSemanticClass::PositiveInfinity:
+        return "positive_infinity";
+    case ProfileSemanticClass::NegativeInfinity:
+        return "negative_infinity";
+    }
+    return "not_a_number";
+}
+
+ProfileSemanticClass profileSemanticClassOf(double value)
+{
+    if (std::isnan(value)) {
+        return ProfileSemanticClass::NotANumber;
+    }
+    if (std::isinf(value)) {
+        return value > 0.0 ? ProfileSemanticClass::PositiveInfinity
+                           : ProfileSemanticClass::NegativeInfinity;
+    }
+    return ProfileSemanticClass::Finite;
+}
+
+ProfileSemanticProjection projectProfileSemanticValue(
+    const RegisterEntry& entry, double decodedValue)
+{
+    // Pure projection over verified metadata: the frozen formula, then a
+    // NUMERIC class (never derived back from formatted text), plus the unit
+    // verbatim. No wire, no decode, no M11 call, no mutation of either input.
+    ProfileSemanticProjection projection;
+    projection.semanticValue =
+        profileSemanticValue(decodedValue, entry.scale, entry.offset);
+    projection.valueClass = profileSemanticClassOf(projection.semanticValue);
+    projection.unit = entry.unit;
+    return projection;
 }
 
 } // namespace modbuslens::core
