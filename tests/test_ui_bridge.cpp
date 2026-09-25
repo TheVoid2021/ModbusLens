@@ -216,6 +216,11 @@ private slots:
     void rr06_dispositionWording();
     void rr07_noBytesIsStatedHonestly();
     void rr08_noWireEvidenceSourceIsNeverFaked();
+    // ---- M11 first slice: single-register decode view (READ-D1..D4) ----
+    void d1_decodeDefaultsAreUInt16Normal();
+    void d2_decodedColumnFollowsConfiguration();
+    void d3_decodeNeverMutatesRawColumns();
+    void d4_fc04AndCustomSourcesAreDecodeEligible();
 
     // ---- M10 correction: the read function code is editable ----
     // READ-FC1..FC8. FC9 (UI -> preview -> actual TX identity) lives in the
@@ -2699,6 +2704,132 @@ void UiBridgeTest::fc8_baudOptionsIncludeLowSpeedRates()
         f.controller.disconnectSerial();
         f.controller.connectSerial(QStringLiteral("COM_TEST"), 12345);
         QCOMPARE(f.controller.serialConnected(), false);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// M11 first slice (T024 §22): the decode view is a DERIVED presentation over
+// the canonical raw words. READ-D1..D4 verify the projection boundary: the
+// raw columns never move, the decoded column follows the user's
+// configuration, and every register-read-compatible source is eligible.
+// ---------------------------------------------------------------------------
+
+void UiBridgeTest::d1_decodeDefaultsAreUInt16Normal()
+{
+    ActiveSerialFixture f;
+    // The frozen defaults (T024 §22 C1/C2): UInt16 + normal byte order. The
+    // fixture transport's FC03 answer carries 100 / 200, so the default
+    // decoded column equals the raw DEC column.
+    f.request(1, 2);
+    f.completeWith(goodFc03Response(), 25);
+    QCOMPARE(f.controller.readDecodeType(),
+             static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16));
+    QCOMPARE(f.controller.readDecodeByteOrder(),
+             static_cast<int>(modbuslens::core::RegisterByteOrder::Normal));
+    const QVariantList rows = f.controller.readResultValues();
+    QCOMPARE(int(rows.size()), 2);
+    const QVariantMap first = rows.at(0).toMap();
+    QCOMPARE(first.value(QStringLiteral("dec")).toInt(), 100);
+    QCOMPARE(first.value(QStringLiteral("hex")).toString(),
+             QStringLiteral("0x0064"));
+    QCOMPARE(first.value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("100"));
+    QCOMPARE(first.value(QStringLiteral("decodeStatus")).toString(),
+             QStringLiteral("ok"));
+}
+
+void UiBridgeTest::d2_decodedColumnFollowsConfiguration()
+{
+    ActiveSerialFixture f;
+    f.request(1, 2);
+    f.completeWith(goodFc03Response(), 25);
+    const int rawDec0 = 100;
+
+    // Hex view of the SAME raw word: the derived text changes, the raw
+    // DEC/HEX columns do not.
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Hex));
+    QVariantList rows = f.controller.readResultValues();
+    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("0x0064"));
+    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("dec")).toInt(), rawDec0);
+    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("hex")).toString(),
+             QStringLiteral("0x0064"));
+
+    // Int16 view of raw 200 is still 200; switch the byte order to swapped
+    // and the DERIVED value changes while raw stays 200 / 0x00C8.
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Int16));
+    f.controller.setReadDecodeByteOrder(
+        static_cast<int>(modbuslens::core::RegisterByteOrder::ByteSwapped));
+    rows = f.controller.readResultValues();
+    // Raw word 100 (0x0064) byte-swapped within the register is 0x6400 = 25600
+    // (derived value changes); the RAW DEC column stays 100 (never mutated).
+    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("25600"));
+    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("dec")).toInt(), rawDec0);
+}
+
+void UiBridgeTest::d3_decodeNeverMutatesRawColumns()
+{
+    ActiveSerialFixture f;
+    f.request(1, 2);
+    f.completeWith(goodFc03Response(), 25);
+
+    // Raw columns are recorded BEFORE any decode configuration change and
+    // must be byte-for-byte identical after cycling every configuration axis.
+    const QVariantList before = f.controller.readResultValues();
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Hex));
+    f.controller.setReadDecodeByteOrder(
+        static_cast<int>(modbuslens::core::RegisterByteOrder::ByteSwapped));
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Int16));
+    f.controller.setReadDecodeByteOrder(
+        static_cast<int>(modbuslens::core::RegisterByteOrder::Normal));
+    const QVariantList after = f.controller.readResultValues();
+    QCOMPARE(int(after.size()), int(before.size()));
+    for (int i = 0; i < before.size(); ++i) {
+        const QVariantMap b = before.at(i).toMap();
+        const QVariantMap a = after.at(i).toMap();
+        QCOMPARE(a.value(QStringLiteral("address")).toInt(),
+                 b.value(QStringLiteral("address")).toInt());
+        QCOMPARE(a.value(QStringLiteral("addressHex")).toString(),
+                 b.value(QStringLiteral("addressHex")).toString());
+        QCOMPARE(a.value(QStringLiteral("dec")).toInt(),
+                 b.value(QStringLiteral("dec")).toInt());
+        QCOMPARE(a.value(QStringLiteral("hex")).toString(),
+                 b.value(QStringLiteral("hex")).toString());
+    }
+}
+
+void UiBridgeTest::d4_fc04AndCustomSourcesAreDecodeEligible()
+{
+    // Decode eligibility follows the canonical raw words, not function == 0x03:
+    // the same register-read-compatible schema answers FC03 / FC04 / a custom
+    // function, and ALL of them produce decodable rows.
+    std::vector<std::vector<std::uint8_t>> responses;
+    std::vector<std::uint8_t> codes = {0x03, 0x04, 0x41};
+    for (const std::uint8_t code : codes) {
+        ActiveSerialFixture f;
+        // The function field takes the same text forms the UI accepts
+        // ("03" / "04" / "41" — two hex digits).
+        f.controller.readRegisterRequest(
+            QStringLiteral("1"),
+            QString::number(static_cast<int>(code), 16).rightJustified(2,
+                QLatin1Char('0')),
+            QStringLiteral("0"), QStringLiteral("2"), QStringLiteral("1000"));
+        QCOMPARE(f.controller.readResultWaiting(), true);
+        // A conforming reply with the SAME function byte (F echo).
+        f.completeWith(fc03Response(1, {0x0064, 0x00C8}, code), 25);
+        QCOMPARE(f.controller.readResultClass(), ReadResultClass::ReadSuccess);
+        QVERIFY(f.controller.readResultHasValues());
+        const QVariantList rows = f.controller.readResultValues();
+        QCOMPARE(int(rows.size()), 2);
+        QCOMPARE(rows.at(0).toMap().value(QStringLiteral("decoded")).toString(),
+                 QStringLiteral("100"));
+        QCOMPARE(rows.at(0).toMap().value(QStringLiteral("decodeStatus")).toString(),
+                 QStringLiteral("ok"));
     }
 }
 

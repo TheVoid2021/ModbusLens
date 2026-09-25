@@ -1,6 +1,7 @@
 #include "ui/AnalysisController.h"
 
 #include "core/analysis/TransactionStatistics.h"
+#include "core/analysis/RegisterDecode.h"
 #include "core/active/ReadRequestParsing.h"
 #include "core/active/WriteDraftParsing.h"
 #include "core/active/WritePrepareValidation.h"
@@ -2702,6 +2703,46 @@ int AnalysisController::readResultValueCount() const
         : 0;
 }
 
+int AnalysisController::readDecodeType() const
+{
+    return readDecodeType_;
+}
+
+void AnalysisController::setReadDecodeType(int type)
+{
+    using modbuslens::core::RegisterDecodeType;
+    // Out-of-range writes are ignored (a UI bug must not be able to put the
+    // decode configuration into an unrepresentable state).
+    if (type < static_cast<int>(RegisterDecodeType::Hex)
+        || type > static_cast<int>(RegisterDecodeType::Int16)) {
+        return;
+    }
+    if (readDecodeType_ == type) {
+        return;
+    }
+    readDecodeType_ = type;
+    emit readResultChanged();
+}
+
+int AnalysisController::readDecodeByteOrder() const
+{
+    return readDecodeByteOrder_;
+}
+
+void AnalysisController::setReadDecodeByteOrder(int byteOrder)
+{
+    using modbuslens::core::RegisterByteOrder;
+    if (byteOrder < static_cast<int>(RegisterByteOrder::Normal)
+        || byteOrder > static_cast<int>(RegisterByteOrder::ByteSwapped)) {
+        return;
+    }
+    if (readDecodeByteOrder_ == byteOrder) {
+        return;
+    }
+    readDecodeByteOrder_ = byteOrder;
+    emit readResultChanged();
+}
+
 QVariantList AnalysisController::readResultValues() const
 {
     QVariantList rows;
@@ -2714,6 +2755,14 @@ QVariantList AnalysisController::readResultValues() const
     // kind is added here (M11 owns that).
     std::uint16_t address = static_cast<std::uint16_t>(readResult_.startAddress);
     int index = 1;
+    // M11: the DERIVED decode view lives beside the raw columns. It is
+    // computed from the SAME canonical words per the user's decode
+    // configuration; a decode result can never feed back into `values` or
+    // rewrite the wire result (T024 §12 raw-truth ownership).
+    const auto decodeType =
+        static_cast<modbuslens::core::RegisterDecodeType>(readDecodeType_);
+    const auto decodeByteOrder =
+        static_cast<modbuslens::core::RegisterByteOrder>(readDecodeByteOrder_);
     for (const std::uint16_t value : readResult_.analysis.values) {
         QVariantMap row;
         row.insert(QStringLiteral("index"), index);
@@ -2721,6 +2770,16 @@ QVariantList AnalysisController::readResultValues() const
         row.insert(QStringLiteral("addressHex"), readResultHex16(address));
         row.insert(QStringLiteral("dec"), static_cast<int>(value));
         row.insert(QStringLiteral("hex"), readResultHex16(value));
+        const auto decoded = modbuslens::core::decodeRegisterWord(
+            value, decodeType, decodeByteOrder);
+        row.insert(QStringLiteral("decoded"),
+                   decoded.status == modbuslens::core::RegisterDecodeStatus::Ok
+                       ? QString::fromStdString(decoded.text)
+                       : QString());
+        row.insert(QStringLiteral("decodeStatus"),
+                   QString::fromStdString(std::string(
+                       modbuslens::core::registerDecodeStatusName(
+                           decoded.status))));
         rows.append(row);
         ++index;
         ++address;

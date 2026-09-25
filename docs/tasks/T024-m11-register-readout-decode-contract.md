@@ -297,3 +297,216 @@ docs-only：未 build / 未 test / 未 package；未修改 src / tests / CMakeLi
 
 - **entry gate = OPEN**。第一切片范围 = T024 §H/§I/§J/§K/§L/§M/§N（单寄存器可视垂直切片：Hex/Binary/UInt16/Int16 + 寄存器内 byte order + 既有 Read Result 详情集成 + raw/decoded 分离 + 默认 UInt16 + FC03/FC04/custom 不被功能码硬编码排除 + deterministic tests）。
 - 本节冻结**不**构成：M11 COMPLETE / acceptance complete / LKGC advanced / push / tag / release 授权。
+
+## 23. First Implementation Slice — Single-Register Decode View（2026-09-25，behavior-bearing）
+
+> **T025（M11 First Slice）实现完成，等待 Human 查看效果（非 Final D / 非 canonical package / 非 LKGC）。**
+> 范围 = §22 授权的**单寄存器可视垂直切片**；32-bit / Float32 / word order / scaling 等留待后续切片。
+
+### W0. Docs freeze 与 entry gate
+
+```text
+docs freeze commit = 2630909（M11: freeze decode UI defaults；docs-only）。
+Human Review = PASS（4 项裁定冻结于 §22）；entry gate = OPEN。
+```
+
+### W1. Source audit（§F 十问，全部 current tree 实证）
+
+```text
+F1  canonical raw words owner = TransactionAnalysis.values（RAW ONLY，append-last，
+    Success 才携带；AnalysisController 经 ReadResultSnapshot.analysis 持有）。
+F2  QML 的 raw DEC/HEX 来自 controller 的 readResultValues() 行投影
+    （index / address DEC+HEX / value DEC+HEX），不是 QML 自行解码。
+F3  Read Result 详情数据来自 ReadResultSnapshot（唯一写入点 = 3 个 capture helper）
+    + 28→30 个只读投影属性。
+F4  本轮新增的纯解码层 = core/analysis/RegisterDecode.{h,cpp}（Zero Qt，std::string
+    输出沿用 core 惯例）——derived presentation result 的 owner。
+F5  解码层位置 = core：输入只有 canonical raw words + decode configuration；
+    不见 RTU 字节 / 不解析 CRC / 不解析 byteCount / 不判定事务结果 ⇒
+    不形成第二套 wire truth，QML 也不做任何位运算/字节交换/重解释。
+F6  decode configuration = 派生呈现状态（readDecodeType / readDecodeByteOrder，
+    Q_PROPERTY WRITE + readResultChanged），**不是** transaction wire state；
+    越界写入被忽略（UI bug 不能把配置置为不可表达状态）。
+F7  TransactionAnalysis **未修改** —— decode 不写回 canonical raw 权威（§12）。
+F8  FC03 / FC04 / custom 经同一条 canonical 路径：captureReadResultFromRecord 从
+    intent payload 读取 functionCode（T023 Part C），analyzer 按 request frame
+    参数化 ⇒ 解码资格判定处**没有任何 function==0x03 硬编码**。
+F9/F10 详情 UI = readResultDialog（720×520 上限 + 有界 ScrollView）；解码控件置于
+    值表上方（对话框内部），主页面几何不受影响。
+```
+
+### W2. 实现
+
+```text
+core/analysis/RegisterDecode.{h,cpp}：
+  RegisterDecodeType{Hex=0, Binary=1, UInt16=2, Int16=3}（int 值 = QML combo 索引）
+  RegisterByteOrder{Normal=0, ByteSwapped=1}
+  RegisterDecodeStatus{Ok, InsufficientWords, OutOfRangeSelection,
+                       InvalidConfiguration, UnsupportedType}（T024 §9 全集）
+  decodeEffectiveWord(raw, byteOrder) / decodeRegisterWord(raw, type, byteOrder)
+  registerDecodeStatusName()（machine tokens）
+  Hex 格式复用 raw HEX 惯例（0x + 大写 4 位）；Binary 固定 16 位宽；
+  Int16 用显式阈值两补码（-0x10000），无 implementation-defined cast；
+  矩阵外类型 ⇒ UnsupportedType + 空文本（绝不猜测）。
+AnalysisController：
+  readDecodeType / readDecodeByteOrder（Q_PROPERTY WRITE，越界忽略，默认 = UInt16 + Normal）
+  readResultValues() 行投影新增 derived 列：decoded（Ok 才有文本）+ decodeStatus（machine token）。
+QML（CommunicationPage）：
+  readResultDialog 值表上方新增 readDecodeControls（解析类型 / 寄存器内字节顺序 两个
+  ComboBox，Accessible.name 齐备，索引直接镜像 core 枚举）；
+  值表 delegate 新增「解析 %6」列（Ok 显示派生值，非 Ok 显示 无法解析）；
+  控件置于**对话框内部**（主页面几何零改动）。
+```
+
+### W3. 测试与门禁（真实数量）
+
+```text
+register_decode（新目标）：19 passed —— UInt16/Int16/Hex/Binary × normal/byte-swapped、
+  边界（0 / max / 0x8000）、raw 保全（r1/r2：独立推导 helper 交叉验证）、
+  UnsupportedType（enum 99）、status tokens、swap 对合性。
+ui_bridge：88 passed（+4 = READ-D1 默认配置 / D2 配置跟随 / D3 raw 列零变化 /
+  D4 FC03+FC04+custom(0x41) 三来源全部可解码）。
+Debug ctest **39/39 PASS**、Release ctest **39/39 PASS**（38 → 39，新增 register_decode）。
+QML gates：read-result（含 M6–M9）/ write-foundation / focus / smoke / nav / geometry 全部 exit 0。
+诊断 0/0/0。新增代码零 warning（src/main.cpp 5 条 pre-existing 未动）。
+```
+
+### W4. RCA
+
+```text
+RCA-9（M9 前置状态）：gate M8 把解码类型留在 Hex，M9 未先恢复 UInt16 ⇒ 读到 Hex 视图的
+  0x3412。产品行为正确（byte order 只作用于该视图内），是**测试前置状态缺陷** ⇒
+  M9 先恢复 UInt16 再测 byte order。
+RCA-10（d2 期望值）：raw word 100（0x0064）byte-swapped = 0x6400 = 25600；初稿误写 256。
+RCA-11（d4 功能码文本）：功能码字段须传**两位十六进制文本**（"03"/"04"/"41"），单字节
+  char 会成为不可打印字符被 core parser 拒绝 —— 与 UI 真实输入形式一致后三来源全部通过。
+```
+
+### W5. Human visual candidate
+
+```text
+path = build/release/ModbusLens.exe（source-tree Release，非 Final D / 非 canonical package）
+size = 4476794 bytes
+SHA-256 = BEB295BC65B39A486ABC890C7D813DD53C9E83FE20DE68FC2D6D813DC6865128
+用途 = M11 first-slice Human visual candidate（查看解析控件 / 默认 UInt16 /
+  十六进制·二进制·有符号16位 切换 / 正常·字节交换 切换 / raw 列恒不变 / 1000×700）。
+```
+
+### W6. Files / Commit
+
+```text
+新增：src/core/analysis/RegisterDecode.{h,cpp}、tests/test_register_decode.cpp
+修改：src/core/analysis（CMake 注册）、src/ui/AnalysisController.{h,cpp}、
+      src/ui/qml/pages/CommunicationPage.qml、src/main.cpp（gate M6–M9 + summary）、
+      CMakeLists.txt（register_decode 目标）、tests/test_ui_bridge.cpp、docs（本节 + 状态文档）
+commit：`M11: add single-register decode view`（behavior-bearing；NO AMEND；不 push；不 tag）
+verified LKGC 保持 `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`。
+```
+__zcode_status=$?
+if [ "$__zcode_status" -eq 0 ]; then pwd -P > '/c/Users/付/AppData/Local/Temp/zcode-f3915b2f-6bef-4044-84c8-d4bf24de3f12-cwd'; fi
+exit "$__zcode_status"
+
+## 23. First Implementation Slice — Single-Register Decode View（2026-09-25，behavior-bearing）
+
+> **T025（M11 First Slice）实现完成，等待 Human 查看效果（非 Final D / 非 canonical package / 非 LKGC）。**
+> 范围 = §22 授权的**单寄存器可视垂直切片**；32-bit / Float32 / word order / scaling 等留待后续切片。
+
+### W0. Docs freeze 与 entry gate
+
+```text
+docs freeze commit = 2630909（M11: freeze decode UI defaults；docs-only）。
+Human Review = PASS（4 项裁定冻结于 §22）；entry gate = OPEN。
+```
+
+### W1. Source audit（§F 十问，全部 current tree 实证）
+
+```text
+F1  canonical raw words owner = TransactionAnalysis.values（RAW ONLY，append-last，
+    Success 才携带；AnalysisController 经 ReadResultSnapshot.analysis 持有）。
+F2  QML 的 raw DEC/HEX 来自 controller 的 readResultValues() 行投影
+    （index / address DEC+HEX / value DEC+HEX），不是 QML 自行解码。
+F3  Read Result 详情数据来自 ReadResultSnapshot（唯一写入点 = 3 个 capture helper）
+    + 30 个只读投影属性。
+F4  本轮新增的纯解码层 = core/analysis/RegisterDecode.{h,cpp}（Zero Qt，std::string
+    输出沿用 core 惯例）——derived presentation result 的 owner。
+F5  解码层位置 = core：输入只有 canonical raw words + decode configuration；
+    不见 RTU 字节 / 不解析 CRC / 不解析 byteCount / 不判定事务结果 ⇒
+    不形成第二套 wire truth，QML 也不做任何位运算/字节交换/重解释。
+F6  decode configuration = 派生呈现状态（readDecodeType / readDecodeByteOrder，
+    Q_PROPERTY WRITE + readResultChanged），**不是** transaction wire state；
+    越界写入被忽略（UI bug 不能把配置置为不可表达状态）。
+F7  TransactionAnalysis **未修改** —— decode 不写回 canonical raw 权威（§12）。
+F8  FC03 / FC04 / custom 经同一条 canonical 路径：captureReadResultFromRecord 从
+    intent payload 读取 functionCode（T023 Part C），analyzer 按 request frame
+    参数化 ⇒ 解码资格判定处**没有任何 function==0x03 硬编码**。
+F9/F10 详情 UI = readResultDialog（720×520 上限 + 有界 ScrollView）；解码控件置于
+    值表上方（对话框内部），主页面几何不受影响。
+```
+
+### W2. 实现
+
+```text
+core/analysis/RegisterDecode.{h,cpp}：
+  RegisterDecodeType{Hex=0, Binary=1, UInt16=2, Int16=3}（int 值 = QML combo 索引）
+  RegisterByteOrder{Normal=0, ByteSwapped=1}
+  RegisterDecodeStatus{Ok, InsufficientWords, OutOfRangeSelection,
+                       InvalidConfiguration, UnsupportedType}（T024 §9 全集）
+  decodeEffectiveWord(raw, byteOrder) / decodeRegisterWord(raw, type, byteOrder)
+  registerDecodeStatusName()（machine tokens）
+  Hex 格式复用 raw HEX 惯例（0x + 大写 4 位）；Binary 固定 16 位宽；
+  Int16 用显式阈值两补码（-0x10000），无 implementation-defined cast；
+  矩阵外类型 ⇒ UnsupportedType + 空文本（绝不猜测）。
+AnalysisController：
+  readDecodeType / readDecodeByteOrder（Q_PROPERTY WRITE，越界忽略，默认 = UInt16 + Normal）
+  readResultValues() 行投影新增 derived 列：decoded（Ok 才有文本）+ decodeStatus（machine token）。
+QML（CommunicationPage）：
+  readResultDialog 值表上方新增 readDecodeControls（解析类型 / 寄存器内字节顺序 两个
+  ComboBox，Accessible.name 齐备，索引直接镜像 core 枚举）；
+  值表 delegate 新增「解析 %6」列（Ok 显示派生值，非 Ok 显示 无法解析）；
+  控件置于**对话框内部**（主页面几何零改动）。
+```
+
+### W3. 测试与门禁（真实数量）
+
+```text
+register_decode（新目标）：19 passed —— UInt16/Int16/Hex/Binary × normal/byte-swapped、
+  边界（0 / max / 0x8000）、raw 保全（r1/r2：独立推导 helper 交叉验证）、
+  UnsupportedType（enum 99）、status tokens、swap 对合性。
+ui_bridge：88 passed（+4 = READ-D1 默认配置 / D2 配置跟随 / D3 raw 列零变化 /
+  D4 FC03+FC04+custom(0x41) 三来源全部可解码）。
+Debug ctest **39/39 PASS**、Release ctest **39/39 PASS**（38 → 39，新增 register_decode）。
+QML gates：read-result（含 M6–M9）/ write-foundation / focus / smoke / nav / geometry 全部 exit 0。
+诊断 0/0/0。新增代码零 warning（src/main.cpp 5 条 pre-existing 未动）。
+```
+
+### W4. RCA
+
+```text
+RCA-9（M9 前置状态）：gate M8 把解码类型留在 Hex，M9 未先恢复 UInt16 ⇒ 读到 Hex 视图的
+  0x3412。产品行为正确（byte order 只作用于该视图内），是**测试前置状态缺陷** ⇒
+  M9 先恢复 UInt16 再测 byte order。
+RCA-10（d2 期望值）：raw word 100（0x0064）byte-swapped = 0x6400 = 25600；初稿误写 256。
+RCA-11（d4 功能码文本）：功能码字段须传**两位十六进制文本**（"03"/"04"/"41"），单字节
+  char 会成为不可打印字符被 core parser 拒绝 —— 与 UI 真实输入形式一致后三来源全部通过。
+```
+
+### W5. Human visual candidate
+
+```text
+path = build/release/ModbusLens.exe（source-tree Release，非 Final D / 非 canonical package）
+size = 4476794 bytes
+SHA-256 = BEB295BC65B39A486ABC890C7D813DD53C9E83FE20DE68FC2D6D813DC6865128
+用途 = M11 first-slice Human visual candidate（查看解析控件 / 默认 UInt16 /
+  十六进制·二进制·有符号16位 切换 / 正常·字节交换 切换 / raw 列恒不变 / 1000×700）。
+```
+
+### W6. Files / Commit
+
+```text
+新增：src/core/analysis/RegisterDecode.{h,cpp}、tests/test_register_decode.cpp
+修改：src/ui/AnalysisController.{h,cpp}、src/ui/qml/pages/CommunicationPage.qml、
+      src/main.cpp（gate M6–M9 + summary）、CMakeLists.txt（RegisterDecode.cpp +
+      register_decode 目标）、tests/test_ui_bridge.cpp、docs（本节 + 状态文档）
+commit：`M11: add single-register decode view`（behavior-bearing；NO AMEND；不 push；不 tag）
+verified LKGC 保持 `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`。
+```

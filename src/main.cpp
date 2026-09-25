@@ -10886,6 +10886,171 @@ int runReadResultCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                             "9600").arg(shown.join(QLatin1Char(','))));
     });
 
+    // ---- M6-M9 (M11 first slice): the decode view inside the Read Result
+    // details dialog. The configuration is DERIVED presentation state; the
+    // raw columns must never move, and every check runs against the REAL
+    // dialog controls the Human will use.
+    push([&]() {
+        // A fresh conforming FC03 read so the dialog has values to decode.
+        itemOf(QStringLiteral("commFunctionField"))
+            ->setProperty("text", QStringLiteral("03"));
+        itemOf(QStringLiteral("commStartField"))
+            ->setProperty("text", QStringLiteral("0"));
+        itemOf(QStringLiteral("commQuantityField"))
+            ->setProperty("text", QStringLiteral("2"));
+        if (!clickNamed(QStringLiteral("commReadButton")))
+            fail(QStringLiteral("READFAIL M6: the read button is not "
+                                "clickable"));
+    });
+    push([&]() {
+        transport->completeReadWithBytes(
+            responseWith(1, {0x1234, 0x0064}, 0x03),
+            std::chrono::milliseconds{25});
+    });
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::ReadSuccess)
+            fail(QStringLiteral("READFAIL M6: the read did not succeed (%1)")
+                     .arg(controller->readResultClassToken()));
+        // M6: the decode configuration exists and carries the frozen
+        // defaults (UInt16 + normal byte order, T024 §22 C1).
+        if (controller->readDecodeType()
+            != static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16))
+            fail(QStringLiteral("READFAIL M6: default decode type is %1, "
+                                "expected UInt16")
+                     .arg(controller->readDecodeType()));
+        if (controller->readDecodeByteOrder() != 0)
+            fail(QStringLiteral("READFAIL M6: default byte order is %1, "
+                                "expected Normal")
+                     .arg(controller->readDecodeByteOrder()));
+        const QVariantList rows = controller->readResultValues();
+        if (rows.size() != 2)
+            fail(QStringLiteral("READFAIL M6: %1 rows, expected 2")
+                     .arg(rows.size()));
+        else {
+            // Default view: decoded == raw DEC for UInt16 + normal.
+            const QVariantMap row = rows.at(0).toMap();
+            if (row.value(QStringLiteral("decoded")).toString()
+                != QStringLiteral("4660"))
+                fail(QStringLiteral("READFAIL M6: decoded=[%1], expected 4660")
+                         .arg(row.value(QStringLiteral("decoded")).toString()));
+            if (row.value(QStringLiteral("dec")).toInt() != 0x1234)
+                fail(QStringLiteral("READFAIL M6: raw DEC moved to %1")
+                         .arg(row.value(QStringLiteral("dec")).toInt()));
+            if (row.value(QStringLiteral("hex")).toString()
+                != QStringLiteral("0x1234"))
+                fail(QStringLiteral("READFAIL M6: raw HEX moved to [%1]")
+                         .arg(row.value(QStringLiteral("hex")).toString()));
+        }
+        note(QStringLiteral("READ [M6/M11]: default decode = UInt16 + normal; "
+                            "raw 0x1234 -> derived 4660, raw columns intact"));
+    });
+    push([&]() {
+        // Open the details dialog and verify the REAL controls exist with the
+        // frozen defaults and labels.
+        if (!clickNamed(QStringLiteral("readResultDetailsButton")))
+            fail(QStringLiteral("READFAIL M7: the details entry is not "
+                                "clickable"));
+    });
+    push([&]() {
+        auto *typeCombo = itemOf(QStringLiteral("readDecodeTypeCombo"));
+        auto *orderCombo = itemOf(QStringLiteral("readDecodeByteOrderCombo"));
+        if (!typeCombo || !orderCombo) {
+            fail(QStringLiteral("READFAIL M7: the decode controls do not exist "
+                                "in the details dialog"));
+            return;
+        }
+        if (!typeCombo->isVisible() || !orderCombo->isVisible())
+            fail(QStringLiteral("READFAIL M7: the decode controls are not "
+                                "visible"));
+        const QVariantList typeModel = typeCombo->property("model").toList();
+        QStringList typeTexts;
+        for (const QVariant &v : typeModel)
+            typeTexts << v.toString();
+        for (const QString &required : {QStringLiteral("十六进制"),
+                                        QStringLiteral("二进制"),
+                                        QStringLiteral("无符号16位整数"),
+                                        QStringLiteral("有符号16位整数")}) {
+            if (!typeTexts.contains(required))
+                fail(QStringLiteral("READFAIL M7: the type options lack [%1] "
+                                    "(got [%2])")
+                         .arg(required)
+                         .arg(typeTexts.join(QLatin1Char(','))));
+        }
+        if (typeCombo->property("currentIndex").toInt() != 2)
+            fail(QStringLiteral("READFAIL M7: the type combo defaults to index "
+                                "%1, expected 2 (UInt16)")
+                     .arg(typeCombo->property("currentIndex").toInt()));
+        if (orderCombo->property("currentIndex").toInt() != 0)
+            fail(QStringLiteral("READFAIL M7: the byte-order combo defaults to "
+                                "index %1, expected 0 (正常)")
+                     .arg(orderCombo->property("currentIndex").toInt()));
+        note(QStringLiteral("READ [M7/M11]: decode controls present; defaults "
+                            "= UInt16 / 正常"));
+    });
+    push([&]() {
+        // M8: switching the decode TYPE re-derives the visible value while
+        // the raw columns stay byte-for-byte identical.
+        auto *values = itemOf(QStringLiteral("readResultValuesList"));
+        if (!values) {
+            fail(QStringLiteral("READFAIL M8: the value table is gone"));
+            return;
+        }
+        const QVariantMap rawRow =
+            controller->readResultValues().at(0).toMap();
+        controller->setReadDecodeType(
+            static_cast<int>(modbuslens::core::RegisterDecodeType::Hex));
+        const QVariantMap derivedRow =
+            controller->readResultValues().at(0).toMap();
+        if (derivedRow.value(QStringLiteral("decoded")).toString()
+            != QStringLiteral("0x1234"))
+            fail(QStringLiteral("READFAIL M8: the Hex view shows [%1], expected "
+                                "0x1234")
+                     .arg(derivedRow.value(QStringLiteral("decoded")).toString()));
+        if (derivedRow.value(QStringLiteral("dec")).toInt()
+                != rawRow.value(QStringLiteral("dec")).toInt()
+            || derivedRow.value(QStringLiteral("hex")).toString()
+                   != rawRow.value(QStringLiteral("hex")).toString())
+            fail(QStringLiteral("READFAIL M8: the raw columns moved when the "
+                                "decode type changed"));
+        note(QStringLiteral("READ [M8/M11]: Hex view = derived 0x1234; raw "
+                            "columns unchanged"));
+    });
+    push([&]() {
+        // M9: the byte-order switch re-derives the value (0x1234 swapped is
+        // 0x3412 = 13330) while the raw columns still never move — and the
+        // decode status stays "ok" (a byte-order view is not an error).
+        // M8 left the type on Hex; restore UInt16 first so the byte-order
+        // case is measured on the SAME view it claims to measure.
+        controller->setReadDecodeType(
+            static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16));
+        controller->setReadDecodeByteOrder(
+            static_cast<int>(modbuslens::core::RegisterByteOrder::ByteSwapped));
+        const QVariantList rows = controller->readResultValues();
+        const QVariantMap row = rows.at(0).toMap();
+        if (row.value(QStringLiteral("decoded")).toString()
+            != QStringLiteral("13330"))
+            fail(QStringLiteral("READFAIL M9: the byte-swapped view shows [%1], "
+                                "expected 13330")
+                     .arg(row.value(QStringLiteral("decoded")).toString()));
+        if (row.value(QStringLiteral("decodeStatus")).toString()
+            != QStringLiteral("ok"))
+            fail(QStringLiteral("READFAIL M9: decode status is [%1]")
+                     .arg(row.value(QStringLiteral("decodeStatus")).toString()));
+        if (row.value(QStringLiteral("hex")).toString()
+            != QStringLiteral("0x1234"))
+            fail(QStringLiteral("READFAIL M9: the raw HEX column moved to [%1] "
+                                "— a byte-order view must never rewrite the "
+                                "device's answer")
+                     .arg(row.value(QStringLiteral("hex")).toString()));
+        note(QStringLiteral("READ [M9/M11]: byte-swapped view = 13330; raw HEX "
+                            "still 0x1234 (device answer untouched)"));
+        // Restore the defaults so later stages start clean.
+        controller->setReadDecodeType(
+            static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16));
+        controller->setReadDecodeByteOrder(
+            static_cast<int>(modbuslens::core::RegisterByteOrder::Normal));
+    });
+
     // ---- L. source identity: the result is never fabricated for a source
     //         that has no wire evidence ----
     push([&]() { controller->runDemoBatch(); });

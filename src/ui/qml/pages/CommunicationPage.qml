@@ -721,6 +721,54 @@ Item {
                         font.pixelSize: DS.fontCaption
                         font.bold: true
                     }
+                    // ---- 6b. M11 decode configuration (T024 §22 C1/C2) ----
+                    // A DERIVED view over the same canonical raw words:
+                    // changing it never mutates the raw columns (raw stays the
+                    // device's actual answer, T024 §22 C4). The controls live
+                    // inside the details dialog on purpose — the main page
+                    // must stay inside 1000x700 (T024 §22 C2).
+                    RowLayout {
+                        objectName: "readDecodeControls"
+                        visible: page.analysisController.readResultHasValues
+                        spacing: DS.spacingM
+
+                        Label {
+                            text: qsTr("解析类型：")
+                            color: DS.textSecondary
+                            font.pixelSize: DS.fontCaption
+                        }
+                        ComboBox {
+                            objectName: "readDecodeTypeCombo"
+                            Accessible.name: qsTr("解析类型")
+                            editable: false
+                            // Index order mirrors core::RegisterDecodeType
+                            // (Hex / Binary / UInt16 / Int16); UInt16 is the
+                            // frozen default (T024 §22 C1).
+                            model: [qsTr("十六进制"), qsTr("二进制"),
+                                    qsTr("无符号16位整数"), qsTr("有符号16位整数")]
+                            currentIndex: page.analysisController.readDecodeType
+                            onActivated:
+                                page.analysisController.readDecodeType = currentIndex
+                            font.pixelSize: DS.fontCaption
+                        }
+                        Label {
+                            text: qsTr("寄存器内字节顺序：")
+                            color: DS.textSecondary
+                            font.pixelSize: DS.fontCaption
+                        }
+                        ComboBox {
+                            objectName: "readDecodeByteOrderCombo"
+                            Accessible.name: qsTr("寄存器内字节顺序")
+                            editable: false
+                            // Index order mirrors core::RegisterByteOrder.
+                            model: [qsTr("正常"), qsTr("字节交换")]
+                            currentIndex:
+                                page.analysisController.readDecodeByteOrder
+                            onActivated:
+                                page.analysisController.readDecodeByteOrder = currentIndex
+                            font.pixelSize: DS.fontCaption
+                        }
+                    }
                     ListView {
                         objectName: "readResultValuesList"
                         Layout.fillWidth: true
@@ -749,12 +797,25 @@ Item {
                             readonly property string rowHex:
                                 modelData && modelData.hex !== undefined
                                     ? modelData.hex : ""
-                            text: qsTr("#%1  地址 %2 (%3)  值 %4 (%5)")
+                            // M11: the DERIVED decode view (empty unless the
+                            // decode succeeded — an empty cell never fakes a
+                            // value, and the raw columns stay untouched).
+                            readonly property string rowDecoded:
+                                modelData && modelData.decoded !== undefined
+                                    ? modelData.decoded : ""
+                            readonly property string rowDecodeStatus:
+                                modelData && modelData.decodeStatus !== undefined
+                                    ? modelData.decodeStatus : ""
+                            readonly property string decodedDisplay:
+                                rowDecodeStatus === "ok" && !rowDecoded.isEmpty
+                                    ? rowDecoded : qsTr("无法解析")
+                            text: qsTr("#%1  地址 %2 (%3)  值 %4 (%5)  解析 %6")
                                       .arg(rowIndex)
                                       .arg(rowAddress)
                                       .arg(rowAddressHex)
                                       .arg(rowDec)
                                       .arg(rowHex)
+                                      .arg(decodedDisplay)
                             color: DS.textPrimary
                             font.pixelSize: DS.fontCaption
                             font.family: "Consolas"

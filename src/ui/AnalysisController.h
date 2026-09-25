@@ -14,6 +14,7 @@
 #include "core/active/ActiveTransactionEvidence.h"
 #include "core/active/PreparedWriteSnapshot.h"
 #include "core/analysis/TransactionProvenance.h"
+#include "core/analysis/RegisterDecode.h"
 #include "core/analysis/TransactionStatistics.h"
 #include "core/diagnosis/DiagnosisContext.h"
 #include "core/diagnosis/RuleBasedDiagnosis.h"
@@ -166,6 +167,13 @@ class AnalysisController : public QObject
     Q_PROPERTY(bool readResultHasValues READ readResultHasValues NOTIFY readResultChanged)
     Q_PROPERTY(int readResultValueCount READ readResultValueCount NOTIFY readResultChanged)
     Q_PROPERTY(QVariantList readResultValues READ readResultValues NOTIFY readResultChanged)
+    // M11: decode configuration is DERIVED PRESENTATION state — a view over
+    // the canonical raw uint16 words, never transaction/wire state. It is
+    // user-set (Read Result details) and survives navigation like every
+    // other presentation preference; changing it never mutates the raw
+    // evidence and never touches the wire result.
+    Q_PROPERTY(int readDecodeType READ readDecodeType WRITE setReadDecodeType NOTIFY readResultChanged)
+    Q_PROPERTY(int readDecodeByteOrder READ readDecodeByteOrder WRITE setReadDecodeByteOrder NOTIFY readResultChanged)
     // Source capability: Simulator / Replay carry NO wire evidence, so the
     // result surface must state that plainly instead of showing empty hex
     // (T023 READ-TXN-5).
@@ -532,6 +540,13 @@ public:
     [[nodiscard]] bool readResultHasValues() const;
     [[nodiscard]] int readResultValueCount() const;
     [[nodiscard]] QVariantList readResultValues() const;
+    // M11 decode configuration (ints mirror core::RegisterDecodeType /
+    // core::RegisterByteOrder; out-of-range writes are ignored so the state
+    // stays decodable).
+    [[nodiscard]] int readDecodeType() const;
+    void setReadDecodeType(int type);
+    [[nodiscard]] int readDecodeByteOrder() const;
+    void setReadDecodeByteOrder(int byteOrder);
     [[nodiscard]] bool readResultEvidenceAvailable() const;
     [[nodiscard]] bool readResultAwaitingEvidenceSource() const;
 
@@ -788,6 +803,10 @@ private:
 
     // T023 / M10 correction: the cached FC03 read-result projection.
     ReadResultSnapshot readResult_;
+    // M11 decode view configuration (presentation only; defaults frozen in
+    // T024 §22: UInt16 + normal byte order).
+    int readDecodeType_ = static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16);
+    int readDecodeByteOrder_ = static_cast<int>(modbuslens::core::RegisterByteOrder::Normal);
 
     // T011 Part A: the STRUCTURED active batch for diagnosis — same source
     // as rows + statistics on every successful publish (never reconstructed

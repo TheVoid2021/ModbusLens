@@ -29,6 +29,7 @@ add_library(modbuslens_core STATIC
     src/core/simulator/SimulatedSlave.cpp
     src/core/simulator/SimulationFault.cpp
     src/core/analysis/TransactionAnalysis.cpp
+    src/core/analysis/RegisterDecode.cpp
     src/core/analysis/PassiveTransactionAnalysis.cpp
     src/core/analysis/TransactionProvenance.cpp
     src/core/analysis/TransactionStatistics.cpp
@@ -427,6 +428,18 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME fc06_active COMMAND modbuslens_fc06_active_tests)
+
+    # M11 first slice: the single-register decode view (pure core decode layer
+    # over the canonical raw uint16 words; independent derivations in the test).
+    add_executable(modbuslens_register_decode_tests tests/test_register_decode.cpp)
+    target_link_libraries(modbuslens_register_decode_tests PRIVATE
+        modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_register_decode_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME register_decode COMMAND modbuslens_register_decode_tests)
 
     # M10-E2: the FC16/0x10 ACTIVE response suite (shared analyzer, framing,
     # error classes, single in-flight, support matrix). Kept as its own target
