@@ -305,3 +305,98 @@ First implementation slice（M12-A）= BLOCKED ON REMAINING P0 CONTRACT DECISION
 - **Files Changed**：本文件（新增）；`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、`docs/devlog/2026-09-25.md`（状态同步）。
 - **Verification**：docs-only 轮——无 build / 无 ctest / 无 package；`git diff --check` PASS；改动路径全部 `docs/`。
 - **Git Commit**：`M12: define device-profile acceptance contract`（docs-only；full hash 见提交报告）。
+## 24. P0 Freeze — Human-Approved Contract Decisions（2026-09-25，docs-only，本轮追加）
+
+> **Human 明确回复（原文）：「三组都同意」⇒ P0-a / P0-b / P0-c 全部冻结。**
+> 以下全部定性 = **HUMAN-APPROVED M12 CONTRACT DECISION**（**非** pre-existing canonical requirement）。
+> 本节关闭 §19 的三项 P0 ⇒ **M12-A IMPLEMENTATION ENTRY GATE = OPEN**（§20 更新见 §25）。
+
+### 24.1 P0-A Profile identity（HUMAN-APPROVED）
+
+- **REQUIRED**：`profileId`、`displayName`。
+- **OPTIONAL**：`manufacturer`、`model`、`revision`、`description`。
+- 语义：`profileId` = 程序生成的唯一稳定标识；`displayName` = Human 可见名称，必填；其它字段可空，不阻塞建立 Profile。
+- 工程实现允许使用标准 UUID，但 **UUID 方案属于 implementation detail，不是 canonical §M12 原文**。
+
+### 24.2 P0-B JSON persistence（HUMAN-APPROVED）
+
+- **一个 JSON 文件 = 一个 Device Profile**。
+- `schemaVersion` **必须存在**，v1 = **1**。
+- `schemaVersion > 当前支持版本` ⇒ **拒绝加载**，返回 version-too-new 类错误。v1 **不做 schema migration**。
+- **默认持久化位置 = 应用的用户数据目录**（下含 `profiles` 子目录）；**不得**硬编码用户名、写安装目录、依赖当前工作目录；优先使用 Qt 标准用户数据目录 API（source audit 后选择）。
+- **保存策略 = MANUAL SAVE**；v1 **不做 autosave**。
+- **Malformed JSON ⇒ 拒绝加载**；**加载失败时不得覆盖当前已经有效的 Profile**。
+- **Unknown fields**：同 schemaVersion 下**不能因未知字段拒绝整个 Profile**；v1 **可忽略未知字段**。**不承诺**未知字段 round-trip preservation。
+- **Import / Export**：v1 不做额外数据库体系——**JSON 文件本身就是可携带 Profile**。**不引入** SQLite / cloud sync / database server。
+
+### 24.3 P0-C Scaling / offset / unit（HUMAN-APPROVED）
+
+- **公式冻结**：`semanticValue = decodedValue * scale + offset`。
+- **严格顺序**：M10/M11 raw truth → M11 generic decoded value → **multiply scale** → **add offset** → attach unit for presentation。
+- 默认：`scale = 1`、`offset = 0`、`unit = ""`。**`scale = 0` 合法**。`unit` = **自由文本**。允许只有 unit（scale/offset 用默认值）。
+- **不做自动单位换算**（禁止自动 °C↔°F / bar↔psi / rpm↔rad/s）。
+- M11 decoded 为 **NaN / +Inf / −Inf** 时，M12 **不得伪装成普通 physical number**——继续特殊值语义（IEEE 自然传播）。
+- Profile scaling **永远不得改写**：Actual TX / Actual RX / `TransactionAnalysis.values` / raw DEC / raw HEX / M11 generic decoded value——**只生成 derived semantic value**。
+
+## 25. Minimal JSON v1 shape（M12 IMPLEMENTATION CONTRACT DETAIL，本轮冻结）
+
+> 定性 = **M12 IMPLEMENTATION CONTRACT DETAIL**（**非** canonical §M12 原文）。shape 遵循 Human 冻结的 §24
+> 与 source audit 结论（无 JSON helper 先例；dataType/byteOrder/wordOrder 值直接引用 M11 语义，
+> 拼写采用 enum 名本身；既有 snake_case token（`registerWordOrderName` 等）服务其它层，保持不变）。
+
+顶层（v1）：
+
+```json
+{
+  "schemaVersion": 1,
+  "profileId": "...",
+  "displayName": "...",
+  "manufacturer": "...",
+  "model": "...",
+  "revision": "...",
+  "description": "...",
+  "registers": [ ... ]
+}
+```
+
+register entry（v1）：
+
+```json
+{
+  "address": 1000,
+  "name": "...",
+  "description": "...",
+  "dataType": "UInt16",
+  "registerCount": 1,
+  "byteOrder": "Normal",
+  "wordOrder": "HighWordFirst",
+  "scale": 1.0,
+  "offset": 0.0,
+  "unit": "Hz"
+}
+```
+
+- **JSON key 命名稳定**（v1 冻结）。
+- `dataType` ∈ {Hex, Binary, UInt16, Int16, UInt32, Int32, Float32}；`byteOrder` ∈ {Normal, ByteSwapped}；`wordOrder` ∈ {HighWordFirst, LowWordFirst} —— 全部**引用现有 M11 semantics**，不实现第二套 decoder。
+- 未列出的字段（read/write、FC、40001 alias、bit definitions、vendor）**不得**出现在 v1 REQUIRED shape（维持 §9 P1）。
+
+## 26. Validation rules v1（冻结）
+
+- 必验：`profileId` 非空；`displayName` 非空；`schemaVersion == 1`；register `address` 在 PDU/0-based 合法范围（0..65535）；register `name` 非空；`dataType` 是 M11 支持类型；**`registerCount` 与类型 word count 一致**（Hex/Binary/UInt16/Int16 = 1；UInt32/Int32/Float32 = 2）；`byteOrder`/`wordOrder` 合法；`scale`/`offset` 是**有限数值**；`unit`/`description`/`manufacturer`/`model`/`revision` 可空。
+- **不自动修正 `registerCount`**、不静默纠正、不改变 M11 decoder 语义——不一致即 **validation FAIL**。
+- **重复 address = validation error**（register map v1 需要地址到 entry 的确定性映射；重叠 span 待 Human 后续单独扩展）。
+- 2-register entry：**`address + registerCount − 1` 不得越出 PDU 0..65535**（即 address ≤ 65534）。
+
+## 27. Entry gate 更新（本轮）
+
+```text
+M12 = STARTED — M12-A IMPLEMENTATION（contract 冻结完成，进入实现）
+M12-A IMPLEMENTATION ENTRY GATE = OPEN（P0-a/b/c 已由 Human「三组都同意」冻结，§24–§26）
+First slice scope（hard boundary，§7）：
+  DeviceProfile domain model + RegisterEntry domain model + validation
+  + JSON serialize/deserialize + save file + load file + default storage path helper
+  + deterministic unit tests
+明确不做：Profile Editor QML / Read Result overlay / 新 workspace / AI / manual import /
+  Q&A / OCR / network / 40001 alias / read·write metadata / FC metadata / bit fields /
+  Float64 / String decode / auto inference / unit conversion / writeback / M11 redesign。
+```
