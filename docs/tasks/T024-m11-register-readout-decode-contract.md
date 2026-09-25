@@ -816,3 +816,71 @@ M11 overall      = IN PROGRESS
 verified LKGC    = 352b81c82d5efa9aac5418cccaaf1605a68cd9d3（不变）
 REAL HARDWARE    = NOT VERIFIED（不变）
 ```
+
+## 27. Human Contract Ratification — 2-register Alignment = Sliding Window per Raw Row（2026-09-25，docs-only）
+
+> **Human / ChatGPT 在审计轮后正式追认：M11 v1 的 2-register alignment policy = SLIDING WINDOW PER RAW ROW。自本节起为 canonical M11 v1 contract。**
+
+### 27.1 追认的规则（冻结表述）
+
+对 canonical raw values `words[0], words[1], … words[n-1]`：
+
+- 第 i 行的 32-bit decode 使用 **words[i] + words[i+1]**，其中 **0 ≤ i < n−1**；
+- 最后一行 i = n−1 在选择 UInt32 / Int32 / Float32 时 `DecodeStatus = InsufficientWords`，**不得伪造第二个 word**；
+- UI 必须显示派生值的来源地址范围（如 **1000-1001**）；
+- raw rows **不得重排、不得改写、不得隐藏**（raw DEC / raw HEX / 地址恒显恒不变）。
+
+### 27.2 Provenance（冻结，禁止事后改写历史）
+
+- **pre-implementation T024（`d5438fc847a45b4ab0d63fe83553e5cb12a85ac1` 版）没有逐字冻结该算法**——审计轮全文检索确认：仅有「所选起点」（§9）、「逐寄存器对齐」（§10）、`decodeRegisterView(words, type, wordOrder, start, count)` API 形状（§12）、A17/A18 向量等**约束性**条文，无任何「row i 使用 words[i] 与 words[i+1]」或等价的滑动窗口逐字条款；
+- 该策略是 **implementation-time decision**，在 behavior `bc99e6ea871628a3a685b9cf80cf3840e7b3b171` 实现时作出（代码注释与测试同落地）；
+- 契约化文本（§26 W1）**首次出现于 docs archive `2f767d141ea36425e3276425bc1bf1b41ceb187c`**（`git log -S "滑动窗口"` 唯一命中；`git blame` 同证）；
+- **Human 于 2026-09-25 审计轮后正式追认（本节）**，追认后始成 canonical M11 v1 contract。**不得改写旧章节制造"早已冻结"的假象。**
+
+### 27.3 Demo32 数据集与 Human 可见值（审计更正后的权威口径）
+
+数据集（当前源码 `--qml-read-result-demo32`）：unit 1 / FC 03 / **start 1000** / **quantity 6** / timeout 1000；
+words = `0x3F80, 0x0000, 0xC0A0, 0x0000, 0x4049, 0x0FDB`（地址 1000–1005），默认 Normal + HighWordFirst。
+
+| 地址范围 | bits32 | UInt32 | Int32 | Float32 |
+|---|---|---|---|---|
+| 1000-1001 | 0x3F800000 | 1065353216 | 1065353216 | **1.0** |
+| 1001-1002 | 0x0000C0A0 | 49312 | 49312 | 次正规值（位型往返） |
+| 1002-1003 | 0xC0A00000 | 3231711232 | **−1063256064** | **−5.0** |
+| 1003-1004 | 0x00004049 | 16457 | 16457 | 次正规值（位型往返） |
+| 1004-1005 | 0x40490FDB | 1078530011 | 1078530011 | **π（≈3.1415927）** |
+| 1005（末行） | — | InsufficientWords | InsufficientWords | InsufficientWords |
+
+- **305419896（0x12345678，A07）与 −200（0xFFFFFF38，A09）不属于 demo32 数据集**——它们是 automated acceptance matrix / unit / bridge 测试向量（保持有效）；此前 PROJECT_STATUS Next Action 与上轮报告把它们列为 demo32 Human 可见值属**转述错误**，本轮已更正。切换 LowWordFirst 后行 0 = 0x00003F80 = 16256、行 1 = 0xC0A00000 = 3231711232、行 2 = 0x0000C0A0 = 49312。
+
+### 27.4 Demo32 自动证据边界（如实划定）
+
+- **已覆盖**：可见编辑器字段 == 请求（1/03/1000/6/1000）；read_success + 6 raw 行 DEC；默认 UInt16/Normal/HighWordFirst；word-order 控件使能门（UInt16 关 / UInt32 开）；UInt32 滑窗值 + `decodeSpan`（1000-1001 … 1004-1005）+ 末行 insufficient；LowWordFirst 翻转值 + raw HEX 不动；Float32 1.0 / −5.0 / π 位型往返；Int32 负值；raw DEC 恒不变；details 入口可达。
+- **未由 demo32 覆盖**（由其它门承担，勿混引）：`previewReadDraft` PDU/RTU 预览 == Actual TX 的等式断言属 **first-slice demo 与 `--qml-read-result-check`**（两者在本轮两层证据中均 PASS）；1000×700 几何断言属 **`--qml-geometry-check` / `qml_write_foundation_check_windows`**。demo32 窗口内的 1000×700 目视结论仍需 Human 确认。
+
+### 27.5 Evidence Completion（2026-09-25 本轮，全部真实 exit code——直接重定向取得，非管道值）
+
+**Clean-env（new staging `build/m11-visual-candidate`，PATH 仅 Windows system dirs）**：
+
+| 门 | exe exit code | 诊断（4 模式） | FAIL marker |
+|---|---|---|---|
+| --qml-smoke-test | 0 | 0 | 0 |
+| --qml-read-result-check | 0 | 0 | 0 |
+| --qml-read-result-demo --demo-exit-after-ready | 0 | 0 | 0 |
+| --qml-read-result-demo32 --demo-exit-after-ready | 0 | 0 | 0 |
+| --qml-production-write-check | 0 | 0 | 0 |
+
+**Windows QPA（显式 `QT_QPA_PLATFORM=windows`，同一 staging）**：smoke = 0；read-result = 0；first demo = 0；demo32 = 0；production-write = 0；write-foundation = 0；focus = 0；nav = 0；geometry = 0（九门全 0 诊断、0 FAIL）。
+
+**R15 / R16 / R17 staging clean-env 证据**：`--qml-production-write-check` 输出含 R15×5（open / silent-slave Timeout / adapter removal / reconnect）/ R16×2 / R17×3 marker + `PRODUCTION WRITE CHECK PASS` 收尾（windows QPA 层同 PASS）——**自此"staging clean-env R15/R16/R17 PASS"有本层直接证据，不再引用 offscreen ctest 代证**。
+
+**identity**：source 与 staging `ModbusLens.exe` 均 = 4564623 B / SHA-256 `aef74296e3be70150f7fa2f386c9f1b5a56f81ab90f7ccef2984948519814639`（cmp 逐字节一致；staging 未重建）。
+
+### 27.6 状态
+
+```text
+M11 second slice = IMPLEMENTED / AUTOMATED EVIDENCE COMPLETE / HUMAN REVIEW PENDING
+alignment policy = RATIFIED（本节，2026-09-25）
+package          = NOT CREATED
+verified LKGC    = 352b81c82d5efa9aac5418cccaaf1605a68cd9d3（不变）
+```
