@@ -510,3 +510,60 @@ SHA-256 = BEB295BC65B39A486ABC890C7D813DD53C9E83FE20DE68FC2D6D813DC6865128
 commit：`M11: add single-register decode view`（behavior-bearing；NO AMEND；不 push；不 tag）
 verified LKGC 保持 `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`。
 ```
+
+### W7. Visual Candidate Superseded — Runtime Deployment RCA & Self-Contained Staging（2026-09-25，docs-only 更正）
+
+> **Human 实测失败（failure evidence，非 UI FAIL）**：双击 `build
+elease\ModbusLens.exe` 无法启动，
+> 三个 Windows loader 错误 —— `_ZSt28__throw_bad_array_new_lengthv` / `_ZSt21__glibcxx_assert_failPKciS0_S0_`
+> （涉及 `D:\QT.11.1\mingw_64in\Qt6Qml.dll`）、`_ZNSt3pmr20get_default_resourceEv`（涉及
+> `D:\QT.11.1\mingw_64in\Qt6Gui.dll`）。Human **尚未进入 UI**，故不构成 UI FAIL。
+> 上节 W5 的「visual candidate = build/release/ModbusLens.exe」**由本节更正为 INVALID / NOT LAUNCHABLE**。
+
+**RCA（全部实测证据）**：
+
+```text
+工具链（CMakeCache 实证）：CMAKE_CXX_COMPILER = D:/QT/Tools/mingw1310_64/bin/g++.exe
+  （GCC 13.1.0，MinGW-Builds）；Qt6_DIR = D:/QT/6.11.1/mingw_64；Release。
+build
+elease：**无任何运行时 DLL**（非 deployed tree）。
+exe 导入表：libstdc++-6.dll / libgcc_s_seh-1.dll + Qt6{Core,Gui,Qml,Quick,QuickControls2,
+  SerialPort,Network}.dll；Qt6Qml.dll 导入 2 个、Qt6Gui.dll 导入全部 3 个缺失符号。
+PATH 候选（where.exe）：D:\Git\mingw64in、D:\mingw64in、D:\QT.11.1\mingw_64in
+  —— **匹配工具链 D:\QT\Tools\mingw1310_64in 不在 ambient PATH 上**。
+符号比对：D:\Git\mingw64（新 runtime）与 D:\QT.11.1\mingw_64in（2,243,072 B）
+  **均有**三符号；**D:\mingw64in（1,420,800 B，GCC 8/9 时代）三符号全缺**。
+受控复现：PATH = mingw64in 先于 Qt bin ⇒ **exit 127（精确复现 Human 三错误）**；
+  PATH = 匹配工具链 + Qt bin ⇒ exit 0。
+```
+
+**分类 = B（ambient PATH 上存在不匹配的旧 libstdc++-6.dll）+ A（build
+elease 非 deployed tree）**；
+**非 M11 decode 产品代码缺陷；b95de54 无需回滚。**
+
+**Staging（self-contained，非 canonical package / 非 Final D / 非 LKGC）**：
+
+```text
+path   = build/m11-visual-candidate/（独立、可删除；build/release 未被污染）
+exe    = 4,476,794 B  SHA-256 BEB295BC65B39A486ABC890C7D813DD53C9E83FE20DE68FC2D6D813DC6865128
+         （与源候选 byte-identical）
+部署    = D:\QT.11.1\mingw_64in\windeployqt.exe（qtpaths --qt-version = 6.11.1 实证）
+         --release --compiler-runtime --qmldir src/ui/qml；进程级 PATH 显式使用
+         匹配工具链（未改系统 PATH；未继承 WorkBuddy blocker）
+runtime：libstdc++-6.dll 2,243,072 B / libgcc_s_seh-1.dll 109,056 B /
+         libwinpthread-1.dll 53,248 B —— 全部与验证工具链 byte-identical
+QML     = qml/（QtQuick/QtQml/Qt/… 全量 imports）+ platforms/qwindows.dll +
+         ModbusLens/（**qt_add_qml_module 文件系统模块目录** —— windeployqt 只部署
+         imports，不部署 app 自身模块目录；缺失即
+         "Module ModbusLens contains no type named Main"，本节发现并补齐）
+```
+
+**Clean-env 验证（PATH = System32;Windows，无任何 Qt/MinGW）**：smoke exit 0；
+`--qml-read-result-check` PASS（M6–M9 全绿，诊断 0/0/0）；`--qml-production-write-check`
+PASS（**R15/R16/R17 全在**，诊断 0/0/0）。无「无法定位程序输入点」/ missing DLL /
+platform plugin failure。
+
+**新发现的既有缺陷（本轮不修，报告待裁）**：`CommunicationPage.qml:333`
+`commStartHexEcho` 的 `.arg(a, b)` 双参形式在 QML 引擎报
+`String.arg(): Invalid arguments`（自 `352b81c` T023 Part C 起存在于每次启动）；
+诊断三分类 0/0/0 未覆盖该 Error 类别。建议后续 correction 轮改为链式 `.arg()`。
