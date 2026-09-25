@@ -690,3 +690,32 @@ ctest 新增 qml_read_result_demo 目标：
 · REAL MODBUS HARDWARE = NOT VERIFIED（demo PASS ≠ real FC03 device PASS）。
 · verified LKGC 保持 352b81c…（不推进）。
 ```
+
+## 25. First-Slice Human Visual Acceptance Archive（2026-09-25，docs-only）
+
+> **Human 对 M11 first-slice visual demo 的实际确认（逐项记录）：**
+>
+> 1. Demo 正常启动（`--qml-read-result-demo` → DEMODECODE READY → GUI 打开）。
+> 2. Demo request / editor / preview / Actual TX **视觉一致**
+>    （slave=1 / function=03 / start=1000 / quantity=3 / timeout=1000 ms）。
+> 3. 默认解析类型 = **UInt16**、byte order = **Normal** —— 正确。
+> 4. **Hex / Binary / UInt16 / Int16** 四种解析均正确。
+> 5. **Normal / ByteSwapped** 切换正确。
+> 6. **raw DEC / raw HEX** 在解析设置变化时保持不变。
+> 7. **1000×700 正常**（Human 明确确认）。
+> 8. **synthetic deterministic demo evidence** —— Human 未使用真实设备完成本轮
+>    decode demo，该 PASS 不是新增 real-hardware evidence。
+
+### 状态
+
+```text
+M11 first slice = ACCEPTED
+M11 overall     = IN PROGRESS
+M11 second slice = AUTHORIZED / STARTING
+verified LKGC    = 352b81c82d5efa9aac5418cccaaf1605a68cd9d3（不变）
+REAL HARDWARE    = NOT VERIFIED（不变）
+```
+
+### First-slice docs commit
+
+本节归档 = docs-only commit（行为代码无改动；下一行为提交 = M11 second slice）。
