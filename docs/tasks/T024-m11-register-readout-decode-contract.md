@@ -603,3 +603,90 @@ platform plugin failure。
 source == staging byte-identical）；三个 MinGW runtime 仍与 GCC 13.1.0 工具链
 byte-identical；clean-env（PATH=System32;Windows）smoke / read-result（M6–M9）/
 production-write（R15/R16/R17）全部 exit 0 且 **String.arg errors = 0、0/0/0**。
+
+## 24. Demo Harness — First-Slice Human Visual Demo（2026-09-25，behavior-bearing）
+
+> **Human 无真实 Modbus 设备**，无法触发真实 FC03 成功读取来查看 M11 解码 UI。
+> 本节新增一个 **TEST-ONLY / DEMO-ONLY** 隐藏 CLI 入口 `--qml-read-result-demo`，
+> 通过与 `--qml-read-result-check` 相同的 production request → session → analyzer →
+> ReadResultSnapshot 路径注入一个**固定合成 FC03 成功**，然后保持 GUI 打开供 Human 操作
+> M11 解码控件。**不打开真实串口；不产生真实 serial I/O；synthetic success ≠ real hardware evidence。**
+
+### X1. Source audit（§4 七问，全部 current tree 实证）
+
+```
+Q1 现有 read-result gate 怎样制造 Success transaction？
+   scanRead（setCompleteReadImmediately(false) + readHoldingRegistersOnce）→
+   transport->completeReadWithBytes(responseWith(unit, values, fc), 25) →
+   production session/analyzer/Snapshot 全链路（0 bypass）。
+Q2 复用路径：demo 调用 controller->readHoldingRegistersOnce（production dispatch）
+   + transport->completeReadWithBytes（production byte injection）。
+Q3 demo 不直接赋值 decoded result：decode 由 readResultValues() 的行构造
+   从 TransactionAnalysis.values 派生（M11 已有代码），demo 只触发读取。
+Q4 demo 不重新解析 RTU bytes：response 由 encodeRtuFrame 构建（含 CRC），
+   session/analyzer 解析；QML 无位运算。
+Q5 demo 不打开真实 COM：transport = HarnessWriteTransport（harness double），
+   connectSerial("COM_DEMO_HARNESS", 9600) 走 seam 不触碰真实串口。
+```
+
+### X2. Demo dataset 与期望值
+
+```
+Slave=1  Function=03  Start=1000  Quantity=3  Timeout=1000 ms
+Raw words = 0x1234 / 0xFFFF / 0x0080
+UInt16 Normal:  4660 / 65535 / 128
+UInt16 Swapped: 13330 / 65535 / 128（0x3412 / 0xFFFF / 0x8000）
+Int16 Normal:   4660 / -1 / 128
+Int16 Swapped:  13330 / -1 / -32768（0x8000 两补码）
+Hex Normal:     0x1234 / 0xFFFF / 0x0080
+Hex Swapped:    0x3412 / 0xFFFF / 0x8000
+Binary Normal:  0b0001001000110100 / 0b1111111111111111 / 0b0000000010000000
+```
+
+### X3. Demo harness 实现
+
+```
+入口：main.cpp 新增 runReadResultDemo(engine, app) + dispatch --qml-read-result-demo
+      （紧跟 --qml-read-result-check 的 dispatch 之后）。
+辅助：本地 clickNamed lambda（同 gate 模式，用 findNamedItem + qobject_cast）；
+      本地 responseWith lambda（同 gate 模式，用 SHIPPED encodeRtuFrame）。
+阶段：
+  0  navigate to Communication workspace（clickNamed("navItem_2")）；
+  1  controller->readHoldingRegistersOnce(1, 1000, 3, 1000)（production dispatch）；
+  2  transport->completeReadWithBytes(responseWith(1, {0x1234,0xFFFF,0x0080}, 0x03), 25)
+     （production byte injection → session/analyzer → Snapshot）；
+  3  DEMODECODE assertions + demo title + keep-or-exit。
+     断言：ReadSuccess；values count=3；raw words = 0x1234/0xFFFF/0x0080；
+           readDecodeType=UInt16；readDecodeByteOrder=Normal；
+           readResultDetailsButton 可见（Human 可打开 M11 decode controls）。
+     成功：window->setTitle("ModbusLens — M11 解码演示（模拟数据）")
+           + note("DEMODECODE: READY: synthetic register-read success; "
+                  "values=0x1234,0xFFFF,0x0080; no real serial I/O")
+           + if (--demo-exit-after-ready) window->close() / app.exit(0)；
+           else 保持 GUI 运行。
+     失败：DEMODECODE FAIL + exit 1。
+```
+
+### X4. 自动化保护（§15）
+
+```
+ctest 新增 qml_read_result_demo 目标：
+  COMMAND modbuslens --qml-read-result-demo --demo-exit-after-ready
+  ENVIRONMENT offscreen + stderr console（同 QML 门禁组）
+  FAIL_REGULAR_EXPRESSION 包含 DEMODECODE FAIL + 三诊断 + String.arg 模式
+  ⇒ 39 → 40 tests。
+负向完整性检查（§16）：临时把 dataset 0x1234 → 0x1235 ⇒ 重建 ⇒
+  DEMODECODE FAIL: word 0: raw DEC=4661, expected 4660 ⇒ 还原。
+  证明 demo 值来自 production path，不是 QML 写死。
+```
+
+### X5. 边界
+
+```
+· 正常启动行为不变（title 仍为 ModbusLens；demo 标题仅在 --qml-read-result-demo 路径设置）。
+· 不新增正式产品按钮 / 菜单项 / 主页面 UI。
+· 不打开任何真实 COM；不产生 FC06/FC16 真实写入。
+· 32-bit / Float32 / word order / scaling 等仍属后续切片。
+· REAL MODBUS HARDWARE = NOT VERIFIED（demo PASS ≠ real FC03 device PASS）。
+· verified LKGC 保持 352b81c…（不推进）。
+```
