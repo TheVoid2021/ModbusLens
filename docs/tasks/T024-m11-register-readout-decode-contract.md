@@ -902,7 +902,7 @@ verified LKGC    = 352b81c82d5efa9aac5418cccaaf1605a68cd9d3（不变）
 | exit criterion（§18） | 结果 | 证据 |
 | --- | --- | --- |
 | REQUIRED 解码矩阵全绿（A01–A26、A28–A31） | **PASS** | core `register_decode` 50/50（A07–A17、A28–A31 + 失败模式 + NaN/±Inf 冻结文案 + view 入口）；`ui_bridge` 95/95（READ-D1..D11 含 FC03/FC04/custom 资格）；负向对照 A/B/C（19/4/3 FAIL→恢复）；demo32 五 stage |
-| full Debug / Release regression 0 失败 | **PASS**（含一次已查瞬态，见 28.3） | Debug：build 0 error + ctest **41/41**；Release：build 0 error + 全量 41/41 ×2 连续 + #41 单独 5 连绿 |
+| full Debug / Release regression 0 失败 | **PASS**（含一次未复现的历史失败，root cause UNKNOWN，见 28.3） | Debug：build 0 error + ctest **41/41**；Release：build 0 error + 全量 41/41（closure ×2 + 证据修正轮稳定性 ×3）+ #41 targeted **20/20** |
 | QML 诊断 0/0/0（+String.arg 模式） | **PASS** | clean-env 5 门 + windows-QPA 9 门共 **14 份日志**：ReferenceError=0、TypeError=0、Unable to assign=0、String.arg() Invalid=0、全部 FAIL marker=0 |
 | 1000×700 可用（真实 windows QPA） | **PASS** | `qml_geometry_check` / `qml_write_foundation_check_windows` exit 0（两层）+ Human 目视确认（§25 + §28.1） |
 | §15 M10 回归清单无回归 | **PASS** | editable read FC（FC03/FC04/custom）+ 五字段键盘编辑 + baud + Actual TX/RX + 10 类分类 + FC06/FC16 + R15/R16/R17（两层各 9 marker + `PRODUCTION WRITE CHECK PASS`）+ preview + write path：全量 41/41（Debug/Release）+ staging clean-env 五门 + windows-QPA 九门全 0 |
@@ -913,15 +913,23 @@ verified LKGC    = 352b81c82d5efa9aac5418cccaaf1605a68cd9d3（不变）
 | packaging / portable Final D | **NOT CREATED**（非 exit criterion，§18 明文） | 未创建 ZIP / Final D；`build/m11-visual-candidate` 仅为 visual/verification staging，不是 canonical package / release artifact / Final D / LKGC |
 | real hardware | **OPTIONAL / NOT PERFORMED / NOT VERIFIED**（非 exit criterion，§18 明文） | Human 无设备；不写 PASS/FAIL；不阻塞 closure |
 
-### 28.3 Release 瞬态失败记录（V2 Debug Trace，如实入档）
+### 28.3 Release 首次运行历史失败记录（V2 Debug Trace；2026-09-25 证据修正轮改写）
 
-- **Observed**：closure 轮 Release 全量 ctest 第 1 次运行 40/41——失败 = `41:qml_write_foundation_check_windows`（该次输出被第 2 次运行覆盖，`Testing/Temporary/LastTestsFailed.log` 留名；失败日志正文未留存）。
+> **修正 provenance**：本节初版曾写"瞬态/桌面时序（推定）/非产品缺陷"等机制性表述；因**首次失败的
+> 具体 stdout/stderr 未留存**，任何失败机制断言均无直接证据。2026-09-25 证据修正轮（Human 指令）
+> 撤回全部机制断言，改为以下纯事实记录。**后续连续 PASS 不构成对首次失败根因的反向证明。**
+
+- **Observed**：closure 轮 Release 全量 ctest 第 1 次运行 **40/41**——失败 = `41:qml_write_foundation_check_windows`。
 - **Expected**：41/41。
-- **Evidence**：`LastTestsFailed.log`（名字级）；随后全量连续 2 次 41/41 + 该门单独 5 连绿（**累计 8 连绿**，单次 11–13s 正常时长）。
-- **Root Cause（推定，未证实）**：该门是唯一运行于真实 Windows 桌面 QPA 的测试（依赖 interactive desktop 的窗口/焦点时序）；attempt 1 紧随 Debug 全量 ctest 的同门运行，属桌面环境瞬态类。**非产品行为缺陷、非 M11 新增面缺陷。**
+- **Evidence**：`build/release/Testing/Temporary/LastTestsFailed.log` 仅留测试名一行（`41:qml_write_foundation_check_windows`）；该次失败的具体输出**被后续运行覆盖，未留存**。
+- **First-failure detailed output = NOT RETAINED。Root cause = UNKNOWN**（不推断机制；禁止仅凭测试名归因）。
 - **Fix**：无产品改动（零代码变更；不降低门禁标准）。
-- **Verification**：全量 2 连绿 + 单门 5 连绿（本节 28.2 所引）。
-- **Regression Protection**：该门在 `qml_write_foundation_check_windows` 持续运行于 Debug/Release 全量回归中；如再现则按 V2 Debug Trace 另行建档排查（不因本记录视为已解）。
+- **Verification（closure 轮原始复跑）**：全量 2 次连续 41/41 + 该门单独 5 次 PASS（合计 6 连绿）。
+- **Verification（2026-09-25 证据修正轮新增稳定性数据）**：
+  - targeted：`ctest -R qml_write_foundation_check_windows`（真实 Windows QPA，显式 `QT_QPA_PLATFORM=windows`）**20/20 PASS**（每次独立日志 + 真实 exit code 0 ×20；四类诊断 ReferenceError/TypeError/Unable to assign/String.arg() Invalid 与全部 FAIL marker 计数 = 0）；
+  - Release 全量：**3/3 = 41/41**（exit 0 ×3，日志零诊断零 FAIL）。
+- **解释边界**：以上只能支持「closure 首次 Release run 曾观察到 `qml_write_foundation_check_windows` 单次失败；首次失败具体输出未留存，root cause UNKNOWN；closure 轮原始复跑与本轮 targeted 20/20、全量 3/3 均未复现；现有最终 acceptance gates 稳定通过」。**不得**写"证明是 timing""证明是 harness-only""证明不是产品问题"。
+- **Regression Protection**：该门持续运行于 Debug/Release 全量回归；如再现按 V2 Debug Trace 另行建档排查（不因本记录视为已解）。
 
 ### 28.4 Scope guard 终检（closure 轮零临时实现）
 
