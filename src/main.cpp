@@ -11176,6 +11176,19 @@ int runReadResultDemo(QQmlApplicationEngine &engine, QGuiApplication &app)
     // Presentation-only navigation to the Communication workspace: the
     // read-result panel and the decode controls live there. Same rail-click
     // pattern the other gates use.
+    auto itemOf = [&roots](const QString &name) {
+        return qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+    };
+    const auto requestWire = [](int unit, int start, int quantity,
+                                int functionCode = 0x03) {
+        return modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
+            .address = static_cast<std::uint8_t>(unit),
+            .functionCode = static_cast<std::uint8_t>(functionCode),
+            .data = {static_cast<std::uint8_t>(start >> 8),
+                     static_cast<std::uint8_t>(start & 0xFF),
+                     static_cast<std::uint8_t>(quantity >> 8),
+                     static_cast<std::uint8_t>(quantity & 0xFF)}});
+    };
     const auto clickNamed = [&roots, window](const QString &name) {
         auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
         if (!item || !item->isVisible())
@@ -11205,10 +11218,35 @@ int runReadResultDemo(QQmlApplicationEngine &engine, QGuiApplication &app)
                                     "clickable"));
     });
 
-    // Stage 1: dispatch the read through the production path.
+    // Stage 1: set the QML request editor fields to the demo dataset values
+    // (slave=1, function=03, start=1000, quantity=3, timeout=1000) so the
+    // VISIBLE editor matches the transaction the demo is about to dispatch.
+    push([&]() {
+        const QPair<const char *, const char *> fields[] = {
+            {"commSlaveField", "1"},
+            {"commFunctionField", "03"},
+            {"commStartField", "1000"},
+            {"commQuantityField", "3"},
+            {"commTimeoutField", "1000"}};
+        for (const auto &field : fields) {
+            auto *item = itemOf(QString::fromLatin1(field.first));
+            if (!item) {
+                demoFail(QStringLiteral("field %1 not found")
+                             .arg(field.first));
+                continue;
+            }
+            item->setProperty("text", QVariant(field.second).toString());
+        }
+    });
+    // Stage 2: dispatch the read through the production raw-text front door
+    // (readRegisterRequest parses the same texts the visible fields show and
+    // delegates to the SAME typed validation + dispatch chain).
     push([&]() {
         transport->setCompleteReadImmediately(false);
-        controller->readHoldingRegistersOnce(1, 1000, 3, 1000);
+        controller->readRegisterRequest(
+            QStringLiteral("1"), QStringLiteral("03"),
+            QStringLiteral("1000"), QStringLiteral("3"),
+            QStringLiteral("1000"));
     });
     // Stage 2: inject the synthetic observation (the harness supplies only
     // the bytes; the SHIPPED session / analyzer decides everything).
@@ -11251,6 +11289,66 @@ int runReadResultDemo(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (!details || !details->isVisible())
             demoFail(QStringLiteral("the read-result details entry is not "
                                     "reachable"));
+
+        // ---- VISUAL CONSISTENCY: the VISIBLE request editor must match the
+        // ACTUAL transaction. Human's screenshot showed editor 0/2 while the
+        // transaction was 1000/3 — this block proves the fix. ----
+        const struct {
+            const char *name;
+            const char *expected;
+        } fieldChecks[] = {
+            {"commSlaveField", "1"},
+            {"commFunctionField", "03"},
+            {"commStartField", "1000"},
+            {"commQuantityField", "3"},
+            {"commTimeoutField", "1000"}};
+        for (const auto &fc : fieldChecks) {
+            auto *item = itemOf(QString::fromLatin1(fc.name));
+            const QString actual =
+                item ? item->property("text").toString() : QStringLiteral("<none>");
+            if (actual != QString::fromLatin1(fc.expected))
+                demoFail(QStringLiteral("VISIBLE %1=[%2], expected [%3] — "
+                                        "the editor and the transaction "
+                                        "diverged")
+                             .arg(QString::fromLatin1(fc.name),
+                                  actual,
+                                  QString::fromLatin1(fc.expected)));
+        }
+
+        // The read-result projections must also carry the same request.
+        if (controller->readResultStartAddress() != 1000)
+            demoFail(QStringLiteral("readResultStartAddress=%1, expected 1000")
+                         .arg(controller->readResultStartAddress()));
+        if (controller->readResultQuantity() != 3)
+            demoFail(QStringLiteral("readResultQuantity=%1, expected 3")
+                         .arg(controller->readResultQuantity()));
+
+        // The preview PDU/RTU must match the demo request (production
+        // encoder is the single authority; the values are NOT hardcoded in
+        // QML).
+        const auto preview = controller->previewReadDraft(
+            QStringLiteral("1"), QStringLiteral("03"),
+            QStringLiteral("1000"), QStringLiteral("3"),
+            QStringLiteral("1000"));
+        if (preview.value(QStringLiteral("ok")).toBool()) {
+            const QString pduHex =
+                preview.value(QStringLiteral("pduHex")).toString();
+            const QString rtuHex =
+                preview.value(QStringLiteral("rtuHex")).toString();
+            if (pduHex != QStringLiteral("03 03 E8 00 03"))
+                demoFail(QStringLiteral("preview PDU=[%1], expected "
+                                        "03 03 E8 00 03").arg(pduHex));
+            const auto wire = requestWire(1, 1000, 3, 0x03);
+            QString expectedRtu;
+            for (const std::uint8_t b : wire)
+                expectedRtu += QStringLiteral("%1 ")
+                                   .arg(b, 2, 16, QLatin1Char('0'))
+                                   .toUpper();
+            expectedRtu = expectedRtu.trimmed();
+            if (rtuHex != expectedRtu)
+                demoFail(QStringLiteral("preview RTU=[%1], expected [%2]")
+                             .arg(rtuHex, expectedRtu));
+        }
 
         if (failures->isEmpty()) {
             // Demo-mode window title (Human safety: unmistakable).
