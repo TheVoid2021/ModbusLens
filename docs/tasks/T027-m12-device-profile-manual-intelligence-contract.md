@@ -400,3 +400,53 @@ First slice scope（hard boundary，§7）：
   Q&A / OCR / network / 40001 alias / read·write metadata / FC metadata / bit fields /
   Float64 / String decode / auto inference / unit conversion / writeback / M11 redesign。
 ```
+
+## 28. M12-A First Slice — Implementation Archive（2026-09-25，behavior-bearing）
+
+> **M12-A first slice = IMPLEMENTED / AUTOMATED PASS。** 行为提交 =
+> `1c42aaf45d4c209cf3580b3d0d383bad8197b164`（「M12: add device-profile JSON foundation」；
+> docs-freeze 提交先行 = `bea3c55d657684352b1186f42d7369fbe2365b4e`）。
+> **Human visual review = NOT REQUIRED**（本切片零 UI，不制造 Human PASS）。
+
+### 28.1 Scope 实现（严格 §27 hard boundary）
+
+- **core（Zero-Qt，`src/core/profile/DeviceProfile.{h,cpp}`）**：`DeviceProfile{ schemaVersion, profileId,
+  displayName, manufacturer, model, revision, description, registers }` + `RegisterEntry{ address(PDU/0-based),
+  name, description, dataType, registerCount, byteOrder, wordOrder, scale, offset, unit }`；dataType/byteOrder/
+  wordOrder **直接复用 M11 enums**（`RegisterDecodeType`/`RegisterByteOrder`/`RegisterWordOrder` +
+  `registerDecodeTypeWordCount`），零第二套 decoder；JSON 契约 token（`Hex…Float32` / `Normal·ByteSwapped` /
+  `HighWordFirst·LowWordFirst`，§25 拼写）双向映射（严格，未知 token 拒绝）；`ProfileValidationCode` 13 值
+  + `profileValidationCodeName` machine token；`validateDeviceProfile`（§26 全规则）；`profileSemanticValue`
+  = 冻结公式 `decoded * scale + offset`（顺序严格，IEEE 特殊值自然传播）。
+- **Qt 侧（`src/ui/profile/ProfileStore.{h,cpp}`）**：`serializeToJson`（v1 shape，全 key 恒写，QJsonObject
+  键序确定 → save→load→save 字节稳定）；`parseFromJson`（strict int 抽取——小数地址绝不静默截断；
+  schemaVersion 缺失 / >1 / ≠1 分别 `missing_schema_version` / `schema_version_too_new` /
+  `unsupported_schema_version`；未知字段忽略；parse→validate→return，**无部分应用状态**）；
+  `saveToFile`（先 validate——非法 profile 拒绝写入；mkpath；**QSaveFile 原子提交**，失败保旧文件）；
+  `loadFromFile`（不存在 → `file_not_found`；读失败 → `read_failed`）；`defaultProfilesDirectory()` =
+  `QStandardPaths::AppDataLocation` + `/profiles`（绝不 cwd / 安装树 / 硬编码用户名）；
+  `defaultFilePathFor(profileId)`。
+- **CMake**：core 库 + app SOURCES + 新测试 target `device_profile`（源码直编 ProfileStore，ui_bridge 模式）。
+
+### 28.2 测试与负向对照
+
+- `tests/test_device_profile.cpp` → ctest `device_profile`：**33 passed**（P01–P29 全矩阵 +
+  validation token + save-refusal；含 p24 真值保持证明——raw words 与 M11 `decodeRegisterView` 结果
+  在 profile 全操作前后逐字节一致；p23 拒绝加载不改动既有有效对象；p29 NaN/±Inf 保持）。
+- **负向对照（真实 mutate → FAIL → 恢复）**：NC1 loader 接受 schemaVersion 2 → `p20` FAIL；NC2 跳过
+  registerCount/type 一致性 → `p07` FAIL；NC3 公式反序 `(decoded+offset)*scale` → `p27`+`p28` FAIL。
+  全部恢复，无 mutation 提交。
+- **回归**：Debug build 0 error + ctest **42/42**；Release build 0 error + ctest **42/42**（含全部
+  M10/M11 回归与 QML gates；QML 零改动）。
+
+### 28.3 边界与状态
+
+```text
+M12-A first slice = IMPLEMENTED / AUTOMATED PASS（behavior 1c42aaf）
+本切片未做（按 §27）：Editor / overlay / AI / import / Q&A / OCR / 40001 alias /
+  read·write·FC metadata / bit fields / Float64 / string / auto inference /
+  unit conversion / writeback / M11 redesign
+未 package（§14：M11 final package 保持历史 VERIFIED，不刷新）
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不推进；本行为提交仅为 M12 candidate）
+M12-B / C / D = NOT STARTED
+```
