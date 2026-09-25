@@ -1015,3 +1015,20 @@ M11 real-hardware supplementary verification = **NOT PERFORMED / NOT VERIFIED（
 ——package PASS 不构成 hardware PASS。canonical naming 保持（未改名 M11 专用 ZIP）。
 打包命令 canonical 档案 = `docs/ENVIRONMENT.md` §4b。本节归档 = docs-only commit，
 不改变 verified LKGC = `bc99e6ea871628a3a685b9cf80cf3840e7b3b171`。
+
+## 30. M11 Final-D Human Visual Acceptance — Binary / Int16（2026-09-25，docs-only append）
+
+> **Human 已完成正式 Final D 的 Binary / Int16 人工验收。Human 原始结论（逐字）：**
+> 「**Final D Binary / Int16 全部 PASS，raw 不变**」
+>
+> - **最终状态**：M11 FINAL PORTABLE PACKAGE = **VERIFIED**（visual 缺口已由本节关闭；此前
+>   "Binary/Int16 Final-D direct assertion 缺失 ⇒ HOLD FOR HUMAN FINAL-D VISUAL EVIDENCE"
+>   的判定**仅存在于聊天记录，从未写入仓库**——本节的追加使其在 canonical docs 内闭合）。
+> - **验收对象 = 正式 Final D**：`build\package-extract\ModbusLens-2.0.0-windows-x64\ModbusLens.exe`
+>   （SHA-256 `aef74296e3be70150f7fa2f386c9f1b5a56f81ab90f7ccef2984948519814639`）。
+> - **Human 实际确认三项**：Binary = PASS；Int16 = PASS；raw DEC / HEX unchanged = PASS。
+> - **证据边界（不得扩写）**：本验收为**合成数据 fixture**（`--qml-read-result-demo`，
+>   words 0x1234/0xFFFF/0x0080）上的 UI 视觉确认；**不是**真实硬件证据——无截图、无 COM、
+>   无真实设备；REAL HARDWARE 仍 = **NOT PERFORMED / NOT VERIFIED（NON-BLOCKING）**。
+> - 自动化层的对应缺口（Final-D gate 内无 Binary/Int16 derived-value 断言，见 §29.4 记录）
+>   由此 Human 视觉证据补齐；后续如需机器化，属未来任务（不因本节自动立项）。
