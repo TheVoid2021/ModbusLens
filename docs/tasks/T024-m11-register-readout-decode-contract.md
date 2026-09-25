@@ -955,3 +955,63 @@ M12 = NOT STARTED
 > 永不作 LKGC）。§28.2/§28.3 的证据边界不变：real hardware = NOT PERFORMED /
 > NOT VERIFIED（NON-BLOCKING）；Release 历史异常 = ONE NON-REPRODUCED HISTORICAL
 > FAILURE / root cause UNKNOWN。
+
+## 29. M11 Final Portable Package Archive（2026-09-25，docs-only archive）
+
+> **M11 FINAL PORTABLE PACKAGE = VERIFIED。** 打包于 M11 governance closure 之后（HEAD 系 =
+> `bc99e6e` + 5 个 docs-only 提交；`bc99e6e..HEAD` 实测仅 docs/ 5 文件 ⇒ 打包 tree 与
+> behavior tree `bc99e6e` 行为同一）。canonical 流水线全绿，零语义改动。
+
+### 29.1 Identity（本轮独立重算，不采信历史 hash）
+
+| 路 | 路径 | size | SHA-256 |
+|---|---|---|---|
+| A | `build/release/ModbusLens.exe` | 4564623 | `aef74296e3be70150f7fa2f386c9f1b5a56f81ab90f7ccef2984948519814639` |
+| B | `build/release/deploy/ModbusLens.exe` | 4564623 | 同上 |
+| C | `build/package/ModbusLens-2.0.0-windows-x64/ModbusLens.exe` | 4564623 | 同上 |
+| D | `build/package-extract/ModbusLens-2.0.0-windows-x64/ModbusLens.exe` | 4564623 | 同上 |
+
+**A == B == C == D（cmp byte-identical）**。
+**ZIP = `build/package/ModbusLens-2.0.0-windows-x64.zip`：41139738 B / SHA-256
+`10783914547fed26f2d3539126ef51238213280cf892fa8c434628ef789563d5`**（1499 entries =
+1498 payload 含 README.txt + 1 manifest）。
+
+### 29.2 流水线记录（全部真实 exit code）
+
+工具链实测（CMakeCache）：Qt `D:/QT/6.11.1/mingw_64`（6.11.1）/ GCC
+`D:/QT/Tools/mingw1310_64/bin/g++.exe` 13.1.0 / Release。环境门禁：qtpaths --qt-version =
+6.11.1、qtpaths -query、windeployqt --version = 6.11.1 全 exit 0（**历史 ISSUE-015 的
+qtpaths pipe 阻塞在本会话未出现**）。Release build：0 error（no work to do，tree 与 LKGC
+行为同一）。Release CTest：**41/41**。freshness oracle：PASS（含 RED 用例）。retention：
+`E:\desktop\ModbusLens\build\retention-m11-final-20260925-165545\{release-deploy, package,
+package-extract}`（旧 M10 产物整目录保留）。make_package：stem = `ModbusLens-2.0.0-windows-x64`，
+structural / credential-config negative scan / absolute-path audit / manifest 1498 payload /
+ZIP entries 1499 / fresh extraction / minimal-PATH（smoke·nav·geometry）/ external-CWD 全 PASS。
+
+### 29.3 Final D portable gates（clean PATH = 仅 Windows 系统目录 + QT_QPA_PLATFORM=windows）
+
+九门全部 **exit 0**（真实 exe exit code，直接重定向）：smoke / read-result / first demo /
+demo32 / production-write / write-foundation / focus / nav / geometry。诊断四模式
+（ReferenceError / TypeError / Unable to assign / String.arg() Invalid）与全部 FAIL marker
+（READFAIL/PRODWRITEFAIL/WRITEFAIL/GEOFAIL/NAVFAIL/FOCUSFAIL/SMOKEFAIL）**= 0**。
+external-CWD smoke（从 D 目录外、clean PATH）exit 0。runtime version = **2.0.0**。
+
+### 29.4 M11 portable evidence（全部来自 Final D，非 source-tree 混层）
+
+- **First slice**：read-result gate M6（UInt16+Normal 默认、raw 0x1234→4660、raw intact）/
+  M7（类型下拉含 全部四种 + 默认 index）/ M8（Hex 视图 0x1234、raw 不动）/ M9（ByteSwapped
+  13330、raw HEX 不动）+ first demo READY（0x1234/0xFFFF/0x0080）。
+- **Second slice**（demo32 五 stage + READY，words=0x3F80,0x0000,0xC0A0,0x0000,0x4049,0x0FDB，
+  start 1000 / quantity 6）：默认 UInt16/Normal/HighWordFirst + word-order 控件门；
+  UInt32 滑窗 + spans + 末行 insufficient_words；LowWordFirst 翻转且 raw 不动；
+  Float32 1.0 / −5.0 / π；Int32 负值。
+- **M10 回归**：R15×4 / R16×2 / R17×3 marker + `PRODUCTION WRITE CHECK PASS`；
+  read-result check PASS（TX == preview == encoder；10 类 taxonomy）。
+- **1000×700**：geometry / write-foundation gates exit 0（真 windows QPA）。
+
+### 29.5 边界
+
+M11 real-hardware supplementary verification = **NOT PERFORMED / NOT VERIFIED（NON-BLOCKING）**
+——package PASS 不构成 hardware PASS。canonical naming 保持（未改名 M11 专用 ZIP）。
+打包命令 canonical 档案 = `docs/ENVIRONMENT.md` §4b。本节归档 = docs-only commit，
+不改变 verified LKGC = `bc99e6ea871628a3a685b9cf80cf3840e7b3b171`。

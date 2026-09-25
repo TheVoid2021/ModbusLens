@@ -82,6 +82,43 @@ ctest --preset debug-local
 
 **不要通过修改全局 PATH 让 build/debug 的 exe 变成"部署版"**——那是开发环境问题，不是部署（ISSUE-002 的教训）。
 
+### 4b. Canonical Packaging（正式便携 ZIP —— M11 FINAL PACKAGE 轮实测命令，2026-09-25）
+
+> **本节 = 正式打包命令的 canonical 档案**（Human 要求永久保存，未来直接复制运行）。
+> 产物：`build\package\ModbusLens-2.0.0-windows-x64.zip`（stem 由 Release 构建的
+> version authority 自动派生，勿手改名称）。以下命令按顺序执行，全部实测 exit 0。
+
+```bat
+:: ① 临时环境前置（仅当前 shell，不改系统 PATH）
+set PATH=D:\QT.11.1\mingw_64in;D:\QT\Tools\mingw1310_64in;D:\QT\Tools\CMake_64in;%PATH%
+
+:: ② 环境门禁（三项必须 exit 0；出现 "Unable to query qtpaths pipe:" 停止勿绕过）
+D:\QT.11.1\mingw_64in\qtpaths.exe --qt-version
+D:\QT.11.1\mingw_64in\qtpaths.exe -query
+D:\QT.11.1\mingw_64in\windeployqt.exe --version
+
+:: ③ Release 构建（canonical preset）
+cmake --build build/release
+
+:: ④ 打包前全量回归（必须全绿才允许打包）
+ctest --test-dir build/release
+
+:: ⑤ freshness oracle（必须 PASS）
+python scripts	est_make_package_freshness.py
+
+:: ⑥ canonical 打包（deploy → staging → 结构/凭据/绝对路径检查 → manifest →
+::    ZIP → fresh extraction 校验 → minimal-PATH 三模式 → external-CWD）
+python scripts\make_package.py build/release build/release/deploy
+
+:: ⑦（可选）打包前把旧 canonical outputs 整目录移入 retention（勿逐文件删除）
+::    buildetention-m11-final-<timestamp>\{release-deploy, package, package-extract}
+```
+
+注意：`make_package.py` 自行从 `build/release/CMakeCache.txt` 派生 Qt/MinGW bin 并传给
+`scripts/deploy_windows.bat`；打包产物 identity 用 A/B/C/D 四路 exe SHA-256 与 ZIP SHA-256
+复核（方法见 T024 §29）。maintainer Python 依赖仅 `pefile`（PE Machine/version 校验用），
+包内不含 Python。
+
 ## 5. 换电脑 / 换 AI 平台时重新建立环境的清单
 
 1. 安装 Git 与 Qt（<https://www.qt.io/download-qt-installer>，勾选 Desktop/MinGW kit——安装器自带 CMake、Ninja、MinGW，一步到位）。
