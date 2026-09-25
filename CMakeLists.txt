@@ -30,6 +30,7 @@ add_library(modbuslens_core STATIC
     src/core/simulator/SimulationFault.cpp
     src/core/analysis/TransactionAnalysis.cpp
     src/core/analysis/RegisterDecode.cpp
+    src/core/profile/DeviceProfile.cpp
     src/core/analysis/PassiveTransactionAnalysis.cpp
     src/core/analysis/TransactionProvenance.cpp
     src/core/analysis/TransactionStatistics.cpp
@@ -120,6 +121,8 @@ qt_add_qml_module(modbuslens
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp
         src/ui/TransactionListModel.h
         src/ui/TransactionListModel.cpp
         src/ui/serial/SerialTransport.h
@@ -440,6 +443,20 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME register_decode COMMAND modbuslens_register_decode_tests)
+
+    # M12-A first slice: device-profile model + validation (core, Zero Qt) and
+    # the JSON persistence layer (Qt side) share one deterministic target.
+    add_executable(modbuslens_device_profile_tests tests/test_device_profile.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_link_libraries(modbuslens_device_profile_tests PRIVATE
+        modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_device_profile_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME device_profile COMMAND modbuslens_device_profile_tests)
 
     # M10-E2: the FC16/0x10 ACTIVE response suite (shared analyzer, framing,
     # error classes, single in-flight, support matrix). Kept as its own target
@@ -781,7 +798,7 @@ if(BUILD_TESTING)
     # in the diagnostics text is invisible here while it still fails the
     # shipping gate (scripts/make_package.py minimal_path_run greps the
     # captured stdout+stderr of the extracted package).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge register_decode device_profile replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
