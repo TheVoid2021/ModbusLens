@@ -884,3 +884,56 @@ alignment policy = RATIFIED（本节，2026-09-25）
 package          = NOT CREATED
 verified LKGC    = 352b81c82d5efa9aac5418cccaaf1605a68cd9d3（不变）
 ```
+
+## 28. M11 Final Acceptance / Closure（2026-09-25，docs-only closure）
+
+> **M11 = ✅ COMPLETE。** 依据 §18 exit criteria 全部满足（下表），且 Human 第一/第二切片视觉验收均 PASS。
+> 本节归档 = docs-only closure commit（行为代码零改动；M11 behavior-bearing candidate = `bc99e6ea871628a3a685b9cf80cf3840e7b3b171`，**仅为候选、不构成 verified LKGC 推进**）。
+
+### 28.1 Human Second-Slice Visual Acceptance Archive（逐字归档，不扩写）
+
+- **Human 原始结论（逐字）**：「M11 第二切片全部 PASS，raw 不变，word order/byte order 正常，1000×700 正常」⇒ **M11 SECOND SLICE HUMAN VISUAL ACCEPTANCE = PASS**。
+- 该 PASS 覆盖：UInt32 / Int32 / Float32、word order、byte order、raw-preservation、1000×700。第二切片不再处于 HUMAN REVIEW PENDING。
+- **边界（不得扩写）**：Human 当前无真实设备——该 PASS **不是** real-hardware 证据；本结论不声称任何物理 PLC / slave 验证。
+- First-slice Human PASS = §25（2026-09-25 12:40 归档，`bceb5a2`）；本节 = second slice 归档。
+
+### 28.2 Exit criteria 终表（对照 §18）
+
+| exit criterion（§18） | 结果 | 证据 |
+| --- | --- | --- |
+| REQUIRED 解码矩阵全绿（A01–A26、A28–A31） | **PASS** | core `register_decode` 50/50（A07–A17、A28–A31 + 失败模式 + NaN/±Inf 冻结文案 + view 入口）；`ui_bridge` 95/95（READ-D1..D11 含 FC03/FC04/custom 资格）；负向对照 A/B/C（19/4/3 FAIL→恢复）；demo32 五 stage |
+| full Debug / Release regression 0 失败 | **PASS**（含一次已查瞬态，见 28.3） | Debug：build 0 error + ctest **41/41**；Release：build 0 error + 全量 41/41 ×2 连续 + #41 单独 5 连绿 |
+| QML 诊断 0/0/0（+String.arg 模式） | **PASS** | clean-env 5 门 + windows-QPA 9 门共 **14 份日志**：ReferenceError=0、TypeError=0、Unable to assign=0、String.arg() Invalid=0、全部 FAIL marker=0 |
+| 1000×700 可用（真实 windows QPA） | **PASS** | `qml_geometry_check` / `qml_write_foundation_check_windows` exit 0（两层）+ Human 目视确认（§25 + §28.1） |
+| §15 M10 回归清单无回归 | **PASS** | editable read FC（FC03/FC04/custom）+ 五字段键盘编辑 + baud + Actual TX/RX + 10 类分类 + FC06/FC16 + R15/R16/R17（两层各 9 marker + `PRODUCTION WRITE CHECK PASS`）+ preview + write path：全量 41/41（Debug/Release）+ staging clean-env 五门 + windows-QPA 九门全 0 |
+| raw truth 未被改写的直接证明 | **PASS** | A20 族 + 负向对照 C（raw 改写 ⇒ 3 测试真实 FAIL→恢复）+ 架构 grep（`RegisterDecodeStatus`/解码 API 在 core 内零外泄；`TransactionAnalysis` 与 decode 零耦合；QML 零 wire 解析） |
+| 文档归档 | **PASS** | 本节 + PROJECT_STATUS / BACKLOG / devlog 同步（closure commit） |
+| 独立 behavior-bearing commit | **PASS** | `bc99e6e`（第一切片 `b95de54`→`de58019` 演进链已归档） |
+| Human Review | **PASS** | first slice §25 + second slice §28.1（双 PASS） |
+| packaging / portable Final D | **NOT CREATED**（非 exit criterion，§18 明文） | 未创建 ZIP / Final D；`build/m11-visual-candidate` 仅为 visual/verification staging，不是 canonical package / release artifact / Final D / LKGC |
+| real hardware | **OPTIONAL / NOT PERFORMED / NOT VERIFIED**（非 exit criterion，§18 明文） | Human 无设备；不写 PASS/FAIL；不阻塞 closure |
+
+### 28.3 Release 瞬态失败记录（V2 Debug Trace，如实入档）
+
+- **Observed**：closure 轮 Release 全量 ctest 第 1 次运行 40/41——失败 = `41:qml_write_foundation_check_windows`（该次输出被第 2 次运行覆盖，`Testing/Temporary/LastTestsFailed.log` 留名；失败日志正文未留存）。
+- **Expected**：41/41。
+- **Evidence**：`LastTestsFailed.log`（名字级）；随后全量连续 2 次 41/41 + 该门单独 5 连绿（**累计 8 连绿**，单次 11–13s 正常时长）。
+- **Root Cause（推定，未证实）**：该门是唯一运行于真实 Windows 桌面 QPA 的测试（依赖 interactive desktop 的窗口/焦点时序）；attempt 1 紧随 Debug 全量 ctest 的同门运行，属桌面环境瞬态类。**非产品行为缺陷、非 M11 新增面缺陷。**
+- **Fix**：无产品改动（零代码变更；不降低门禁标准）。
+- **Verification**：全量 2 连绿 + 单门 5 连绿（本节 28.2 所引）。
+- **Regression Protection**：该门在 `qml_write_foundation_check_windows` 持续运行于 Debug/Release 全量回归中；如再现则按 V2 Debug Trace 另行建档排查（不因本记录视为已解）。
+
+### 28.4 Scope guard 终检（closure 轮零临时实现）
+
+scaling / offset / engineering units / 40001·4xxxx alias / register map / device profile / vendor semantic interpretation / Float64 / string decode / automatic device inference / automatic retry / writeback / M12 功能——**全部未实现，维持 DEFERRED / OUT OF SCOPE**（源码与本轮行为树零新增）。
+
+### 28.5 Closure decision 与治理状态
+
+```text
+M11 = ✅ COMPLETE（contract required set + 双 Human PASS + Debug/Release + 两层证据 + scope clean，无 blocker）
+M11 behavior-bearing LKGC candidate = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（PROPOSED，等待 Human 批准）
+verified LKGC = 352b81c82d5efa9aac5418cccaaf1605a68cd9d3（本轮不推进）
+REAL HARDWARE = NOT PERFORMED / NOT VERIFIED（NON-BLOCKING）
+package = NOT CREATED（非必需）
+M12 = NOT STARTED
+```
