@@ -719,3 +719,100 @@ REAL HARDWARE    = NOT VERIFIED（不变）
 ### First-slice docs commit
 
 本节归档 = docs-only commit（行为代码无改动；下一行为提交 = M11 second slice）。
+
+## 26. Second Implementation Slice — 32-bit Decode Views + Word Order（2026-09-25，behavior-bearing）
+
+> **M11 second slice 实现完成，等待 Human 查看效果（非 Final D / 非 canonical package / 非 LKGC）。**
+> 行为提交 = `bc99e6e`（M11: add the 32-bit decode views and word order）；
+> First-slice Human PASS 归档 = docs-only commit `bceb5a2`（§25，先于本切片实现提交）。
+
+### W1. 2-register 对齐裁定（§4 audit 的回答，冻结）
+
+- **裁定 = 滑动窗口逐行对齐（sliding window per row）**：对 2 寄存器类型，**第 i 行解码 words[i] 与 words[i+1]**；解码列与 raw 列保持 §10 的"逐寄存器对齐、共享同一 PDU 地址"；**最后一个寄存器单独报告 `InsufficientWords`**（§9 逐字「如末寄存器取 UInt32」的直接落地）。
+- **备选被否**：固定不重叠配对（0+1/2+3）违背"每个寄存器行都可成为解码起点"的 §9 语义；独立 start-index 控件违背 §22 C2（1000×700 约束、最小 UI）。
+- **地址范围可见性**：成功的 2 寄存器行新增 `decodeSpan` 字段（如 `1000-1001`），UI 以「范围 1000-1001」后缀呈现——Human 永远能看到派生值用了哪两个地址；1 寄存器类型不携带该字段；`InsufficientWords` 行不携带（没有任何字被消费）。
+- **OutOfRangeSelection**：滑动窗口模型下 UI 永远不会产生该状态（行号天然在范围内）；它作为 core API 的防御状态保留（`decodeRegisterView(start >= size)`、空数据），由 core 测试直接冻结。
+
+### W2. 实现（全部落在共享层，三种数据源共用）
+
+- **core（`RegisterDecode.h/.cpp`，纯 C++20 零 Qt）**：`RegisterDecodeType` 扩展 `UInt32=4 / Int32=5 / Float32=6`（既有 Hex/Binary/UInt16/Int16 数值不变）；新增 `RegisterWordOrder{HighWordFirst=0, LowWordFirst=1}`（AB CD 默认 / CD AB）；`registerDecodeTypeWordCount()`（1/2/越界 0）；`registerWordOrderName()`（`high_word_first`/`low_word_first` token）；`decodeRegisterPair(w0, w1, type, byteOrder, wordOrder)` —— 冻结管线 = 寄存器内字节交换 → word order 组合 → 类型重解释；`decodeRegisterView(words, start, type, byteOrder, wordOrder)` —— §12 命名的单一入口，承载 §9 五状态完整映射（start<0 或类型越界 → `InvalidConfiguration`；start≥size → `OutOfRangeSelection`；起点在数据内但剩余字不足 → `InsufficientWords`）。Int32 two's complement 不依赖实现定义转换（与 Int16 同纪律）；Float32 经 memcpy 位重解释 + `std::to_chars`（规范保证 locale 无关、最短往返）。
+- **controller（`AnalysisController`）**：`readDecodeType` 有效范围扩至 0..6（越界写仍忽略）；新增 `readDecodeWordOrder`（int，默认 0=HighWordFirst，越界写忽略）与只读 `readDecodeWordOrderEnabled`（= 类型消耗 2 寄存器，§22 C2 的控件使能门）；`readResultValues()` 按 word count 分流：**1 寄存器路径逐字节保持 first-slice 已验收代码不动**（回归保护），2 寄存器路径走 `decodeRegisterView` 滑动窗口并附加 `decodeSpan`。
+- **QML（`CommunicationPage.qml` 详情对话框，未新增主页控件）**：解析类型下拉 = 7 项（新增 无符号32位整数 / 有符号32位整数 / 32位浮点数）；新增 `32位寄存器顺序` 下拉（`高字在前（AB CD）` / `低字在前（CD AB）`，`enabled` 绑定 `readDecodeWordOrderEnabled`，禁用时 opacity 0.4 —— §22 C2"仅多寄存器类型时有意义"）；值表 delegate 新增「范围 1000-1001」后缀。**现有 Hex/Binary/UInt16/Int16 全部保持**。
+- **Float32 特殊值（§22 C3 逐字落地）**：`非数字（NaN）` / `正无穷大（+Inf）` / `负无穷大（−Inf）`（U+2212 减号以显式 UTF-8 转义写入 core，测试以 `QChar(0x2212)` 构造期望串防同形字符）；status 恒为 `Ok`；有限值最短往返 + 整数值补 `.0`（A11–A13 的 `1.0`/`0.0`/`-2.0`）。
+
+### W3. 测试（deterministic，oracle 全部独立于被测实现）
+
+- **core（`test_register_decode.cpp` 19 → 50）**：新增 31 用例 —— word count 表（含越界 0）、word order token、pair 入口拒绝 1 寄存器类型、UInt32 A07/A08/max/byte-swap 双轴（A28/A29 同构）、Int32 A09/A10/max/−1、Float32 A11/A12/A13/A14/A15/−Inf/A16/A30/A31/0.1 往返/π 位型往返、`decodeRegisterView` 全部失败模式（A17 + OutOfRange + InvalidConfig×2 + 空数据 + 单字直通 + word order 轴）。32 位组合 oracle 独立重写（`combineWords`/`int32Value`/`bitsToFloat`）。
+- **bridge（`test_ui_bridge.cpp` 88 → 95，READ-D5..D11）**：类型边界扩至 4..6 且 7/−1/99 被拒；word order 默认/边界/越界忽略；`readDecodeWordOrderEnabled` 门（UInt16 关、三 32 位类型开、Int16 关）；UInt32 滑动窗口投影（A07 = 305419896、行 1 滑窗、行 2 insufficient、span `0-1`/`1-2`、raw 列逐行相等）；Float32 投影（1.0/−5.0/次正规值位型往返/insufficient/raw 不动）；Int32 投影（−200/INT32_MIN/0xFFFF 仍显示 65535）；word order 翻转改变派生值（1065353216→16256）而 raw DEC/HEX 与 span 不动。
+- **demo32（`--qml-read-result-demo32`，ctest `qml_read_result_demo` 之外新增 `qml_read_result_demo32`，40 → 41）**：TEST-ONLY/DEMO-ONLY，与 first-slice demo 同安全边界（窗口标题「M11 32位解码演示（模拟数据）」；`--demo-exit-after-ready` 供 ctest headless）。数据集 = unit 1 / FC03 / start 1000 / quantity 6 / timeout 1000 / words `0x3F80,0x0000,0xC0A0,0x0000,0x4049,0x0FDB`——一份响应同时呈现 Float32 1.0（1000-1001）/−5.0（1002-1003）/π 位型（1004-1005）、UInt32 `0x3F800000`/`0xC0A00000`、Int32 负值、word order 翻转（`0x00003F80`）。9 个 stage 全部经 production path（字段文本 → `readRegisterRequest` 派发 → 会话/分析器/Snapshot），断言 token `DEMODECODE32`，期望值由 harness 内独立 oracle（uint32/int32 文本 + π 位型往返）计算，非手算常量。stage 4 还断言：字段可见值与事务一致（quantity=6）、`readDecodeWordOrderEnabled` 在 UInt16 为 false / UInt32 为 true、1 寄存器行无 decodeSpan。
+
+### W4. 负向对照（真实 mutate → FAIL → restore，全部恢复后全量回归绿）
+
+- **A（word order 组合反向）**：`decodeRegisterPair` 高/低字选择翻转 → core **31 用例中 19 个 FAIL**（u32_1/2/4/5、i32_1/2/3、f32_1/3/4/5/6/7/8/9/10/11、v2/v8）→ 恢复。
+- **B（byte swap 被跳过）**：pair 解码改用原始字 → 恰好 4 个 byte-swap 用例 FAIL（u32_4/5、f32_8/9 = A28–A31 同构）→ 恢复。
+- **C（解码改写 raw）**：2 寄存器行把 raw DEC 覆写为 0 → 恰好 3 个 raw-preservation 用例 FAIL（d8/d9/d10）→ 恢复。
+- 结论：ordering 双轴、byte swap、raw 权威分别被独立测试钉死，静默回归不可能溜过门禁。
+
+### W5. Verification（真实命令与结果）
+
+```text
+构建（Debug 与 Release 各一次，全量）：cmake --build build/debug | build/release
+  → 0 error（既有 2 处无害 unused-variable 告警原样保留，无新增）
+targeted：modbuslens_register_decode_tests → 50 passed, 0 failed
+          modbuslens_ui_bridge_tests      → 95 passed, 0 failed
+full ctest：build/debug  → 41/41 PASS（含 qml_read_result_demo32）
+            build/release → 41/41 PASS（含 qml_write_foundation_check_windows 真 windows QPA 几何门）
+QML 诊断卫生：FAIL_REGULAR_EXPRESSION（ReferenceError/TypeError/Unable to assign/
+  String.arg Invalid arguments）覆盖 demo32，两轮全 0 命中
+git diff --check → PASS
+负向对照 A/B/C → FAIL 复现并恢复（见 W4）
+```
+
+### W6. Problems / RCA（V2 Debug Trace 字段齐全）
+
+**RCA-1（harness-only，非产品行为）`--qml-read-result-demo32` 首跑 details 入口不可达。**
+- **Observed**：`DEMODECODE32 FAIL: the read-result details entry is not reachable`；祖先链 dump 显示 `communicationWorkspace visible=0 w=0`（StackLayout 从未切到 Communication）。
+- **Expected**：stage 0 的 rail 点击应切到 Communication（first-slice demo 同结构 PASS）。
+- **Evidence**：临时插桩 `found=1 visible=0 hasResult=1` + 祖先可见性逐级 dump（现文件无残留）。
+- **Root Cause**：demo32 新写的 `clickNamed` 中 QMouseEvent press 的 **buttons 实参误传 `Qt::NoButton`**（`Qt::LeftButton, Qt::NoButton, Qt::NoModifier`）——buttons=NoButton 的 press 是畸形事件，TapHandler 丢弃，页面从未切换；first-slice demo 的同函数正确传 `Qt::LeftButton, Qt::LeftButton`。
+- **Fix**：press 改为 `Qt::LeftButton, Qt::LeftButton, Qt::NoModifier`，并加注释冻结该陷阱（press 必须同时携带 button 与 buttons 状态）。
+- **Verification**：`ctest -R qml_read_result_demo` → demo 与 demo32 双 PASS。
+- **Regression Protection**：demo32 的 9 个 stage 持续断言 details 入口与页面可见字段（fieldChecks），同形回归会在 ctest 中复现为可见断言失败；陷阱以代码注释冻结。
+
+**RCA-2（API 陷阱复用既有认知）**：harness 内 `.arg(int, QString, QString)` 多参混用再次触发 Qt6 无此重载（QStringTest 同坑在案）；改链式 `.arg(i).arg(a, b)`。FAIL_REGULAR_EXPRESSION 已含 `String.arg..: Invalid arguments` 作为 QML 层防护（本例发生在 C++ 层，由编译器直接拦截）。
+
+### W7. Files Changed（行为提交 bc99e6e）
+
+```text
+src/core/analysis/RegisterDecode.h   | +62  （类型/枚举/三 API/契约注释）
+src/core/analysis/RegisterDecode.cpp | +156 （pair/view 解码 + Float32 文案）
+src/ui/AnalysisController.h          | +15  （2 Q_PROPERTY + 3 方法 + 成员）
+src/ui/AnalysisController.cpp        | +84  （范围扩展 + word order + 滑动窗口投影）
+src/ui/qml/pages/CommunicationPage.qml | 类型下拉 7 项 + word order 下拉 + 范围后缀
+src/main.cpp                         | runReadResultDemo32（9 stage）+ 派发项
+tests/test_register_decode.cpp       | +31 用例
+tests/test_ui_bridge.cpp             | +7 用例（READ-D5..D11）
+CMakeLists.txt                       | qml_read_result_demo32 + 两组 test properties
+共 9 文件，+1495 / −11
+```
+
+### W8. 边界（本轮明确不做什么）
+
+```text
+· scaling / offset / engineering units / 40001 别名 / Float64 / String —— 仍 DEFERRED（T024 §3）
+· register map / device profile / 厂商语义 —— M12；本轮零设备语义声称
+· 写回 / 写权限 —— 无任何 write 路径变化；Agent 无新增能力
+· REAL MODBUS HARDWARE = NOT VERIFIED（demo32 为 synthetic 证据）
+· verified LKGC 保持 352b81c…（不推进）；未 push / 未 tag / 未 amend
+· 现有 Hex/Binary/UInt16/Int16 视图与 first-slice 1 寄存器投影路径逐字节保持
+```
+
+### W9. 状态
+
+```text
+M11 first slice  = ACCEPTED（§25）
+M11 second slice = IMPLEMENTED / awaiting Human visual review（demo32）
+M11 overall      = IN PROGRESS
+verified LKGC    = 352b81c82d5efa9aac5418cccaaf1605a68cd9d3（不变）
+REAL HARDWARE    = NOT VERIFIED（不变）
+```

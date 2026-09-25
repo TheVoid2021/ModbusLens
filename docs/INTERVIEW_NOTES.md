@@ -1038,3 +1038,45 @@
   已知探针口径瑕疵：它被计入 `errorEvents` / `errorOccurredFired`，已入 BACKLOG 追踪；
   正确读法：`errorOccurred` **触发 1 次但携带 `NoError(0)`** ⇒ **没有 fatal / non-NoError 错误事件**，
   仅一次良性通知。
+
+---
+
+## M11 Second Slice — 32-bit 解码视图与 word order（T026，2026-09-25）
+
+- **Q：Modbus 里一个 32-bit 值（UInt32/Float32）怎么存？为什么需要 word order？** A：Modbus 的数据模型
+  就是 16-bit 寄存器序列，协议本身只保证**寄存器内**字节是大端（高字节在前）。一个 32-bit 值必须占用
+  两个连续寄存器，而协议**不定义**哪个寄存器是高 16 位——设备厂商各有约定。于是出现两根轴：
+  **byte order**（寄存器内高/低字节）、**word order**（寄存器之间谁当高字，AB CD vs CD AB）。
+  术语纪律：`word order` 指寄存器间，`byte order` 指 16-bit 字内部，`endianness` 只是泛称，三者不混用。
+- **Q：解码的组合管线是什么？** A：冻结的三段管线（T024 §7）：
+  raw words →（可选的寄存器内 byte swap）→（word order 组合，2 字类型）→ 按目标类型重解释。
+  默认 `Normal + HighWordFirst` = 协议标准直通（words[0] 做高 16 位）。raw 在任何一步都不可变。
+- **Q：为什么解码列选"滑动窗口"而不是固定配对（0+1/2+3）？** A：滑动窗口（第 i 行解码 words[i..i+1]）
+  让解码列与 raw 列保持**逐寄存器对齐**（同一张表、同一 PDU 地址），也正好落在契约 §9 的语义上——
+  「如末寄存器取 UInt32」⇒ 最后一行报告 `insufficient_words`，raw 恒在。固定配对要么破坏对齐，
+  要么需要一个独立的起点选择控件，违背 1000×700 约束下的最小 UI 裁定。
+- **Q：怎么让用户看懂一个 32-bit 值用了哪两个寄存器？** A：每个成功的 2 寄存器行携带 `decodeSpan`
+  （如 `1000-1001`），UI 渲染为「范围 1000-1001」后缀；`insufficient_words` 行不携带（没有任何字被消费）。
+- **Q：Float32 的 NaN / ±Inf 怎么处理？** A：它们是**合法的 IEEE-754 结果**，`DecodeStatus = Ok`，
+  绝不映射为通信失败或解码失败；显示采用冻结中文文案（非数字（NaN）/正无穷大（+Inf）/负无穷大（−Inf），
+  减号是 U+2212 而非 ASCII 连字符）。有限值用 `std::to_chars`（规范保证 locale 无关、最短往返表示），
+  整数值补 `.0`，让 `1.0` 读起来像浮点数。
+- **Q：C++ 里怎么把 32 位整数位型重解释成 float 而不 UB？** A：`std::memcpy` 位重解释
+  （编译器会优化掉拷贝），配 `static_assert(sizeof(float)==sizeof(uint32_t))`；
+  用 `float*` 直接 punning 违反严格别名规则。Int32 的 two's complement 也避免实现定义转换：
+  高半区先减 0x80000000（落在 int32 正区间）再减两次 0x40000000。
+- **Q：这些视图怎么保证不会污染 raw 事实？** A：三条防线：① 架构上解码是 core 纯函数
+  （输入 `const vector<uint16_t>&`，输出新结构），raw 权威 `TransactionAnalysis.values` 不可达；
+  ② 投影层 1 寄存器路径逐字节复用已验收代码，2 寄存器路径是新增分支；③ **负向对照**——
+  真实把 raw DEC 覆写为 0，恰好 3 个 raw-preservation 测试 FAIL，证明断言真的在盯 raw。
+- **Q：word order 的正确性怎么证明？** A：测试 oracle **独立重写**组合定义（`combineWords`），
+  不和生产解码器共享代码；再叠一层**变异验证**——把高/低字选择翻转，19 个用例立刻 FAIL
+  （A07/A08 互换、1.0 变次正规值等），说明 ordering 矩阵真被钉死。
+- **Q：demo32 的合成演示怎么自证"值来自生产路径"？** A：与 first-slice demo 同一构造：
+  harness 只设置可见字段文本 → 走 `readRegisterRequest`（production 派发入口）→ SHIPPED 编码器发请求 →
+  合成响应字节注入传输层 → SHIPPED 会话/分析器/Snapshot 决定一切；harness 只做断言（DEMODECODE32）。
+  窗口标题带「（模拟数据）」后缀防混淆。
+- **Q：这轮踩过什么真实的坑？** A：① QMouseEvent press 的 `buttons` 实参误传 `Qt::NoButton`——
+  buttons=NoButton 的 press 是畸形事件，TapHandler 直接丢弃，导航静默失效；根因定位靠
+  "祖先可见性逐级 dump"，修复后注释冻结该陷阱。② Qt6 `QString::arg(int, QString, QString)` 混参无此重载，
+  C++ 层编译器拦截、QML 层已有 `FAIL_REGULAR_EXPRESSION` 防护——同一坑在两个语言层各有一道门。
