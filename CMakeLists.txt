@@ -742,6 +742,14 @@ if(BUILD_TESTING)
     add_test(NAME qml_read_result_demo
         COMMAND modbuslens --qml-read-result-demo --demo-exit-after-ready)
 
+    # M11 second-slice demo gate: the 32-bit views (UInt32 / Int32 / Float32 +
+    # word order) driven through the SAME production path, with DEMODECODE32
+    # assertions on the projected rows at every stage (sliding window, spans,
+    # last-register insufficient_words, raw preservation, order flip). Same
+    # headless contract as the first-slice demo above.
+    add_test(NAME qml_read_result_demo32
+        COMMAND modbuslens --qml-read-result-demo32 --demo-exit-after-ready)
+
     # All QML gates above run under QT_QPA_PLATFORM=offscreen so they stay
     # headless-safe. Offscreen, however, does NOT use the shipped font
     # metrics: measured on the same binary, a line of text is 12px offscreen
@@ -773,7 +781,7 @@ if(BUILD_TESTING)
     # in the diagnostics text is invisible here while it still fails the
     # shipping gate (scripts/make_package.py minimal_path_run greps the
     # captured stdout+stderr of the extracted package).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
@@ -793,7 +801,7 @@ if(BUILD_TESTING)
     #   Unable to assign           : a failed binding assigning undefined to a
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_write_foundation_check_windows PROPERTIES
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign;String.arg..: Invalid arguments"
     )
 endif()

@@ -11393,7 +11393,381 @@ int runReadResultDemo(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
-// M9-F F1 `--qml-focus-check`: keyboard focus / traversal guard for the
+// ---------------------------------------------------------------------------
+// M11 second-slice `--qml-read-result-demo32`: the Human visual demo for the
+// 32-bit views (UInt32 / Int32 / Float32 + word order). Same architecture and
+// the same safety boundary as the first-slice demo above: a FIXED synthetic
+// FC03 success flows through the production request → session → analyzer →
+// ReadResultSnapshot chain (nothing bypasses the canonical path), the harness
+// asserts the projected decode rows at every stage, then leaves the REAL UI
+// open so Human can operate the decode controls. No real serial I/O.
+//
+// Demo dataset (T024 second-slice archive): unit 1 / FC 03 / start 1000 /
+// quantity 6 / timeout 1000 ms; raw words 0x3F80 / 0x0000 / 0xC0A0 / 0x0000 /
+// 0x4049 / 0x0FDB — chosen so the 2-register sliding window covers, from one
+// response: Float32 1.0 (1000-1001) and −5.0 (1002-1003) and π's binary32
+// pattern (1004-1005); UInt32 0x3F800000 / 0xC0A00000; Int32 −1063256064;
+// and the word-order flip re-combines the same words (0x00003F80).
+// ---------------------------------------------------------------------------
+int runReadResultDemo32(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *controller = qobject_cast<AnalysisController *>(
+        rootObj ? rootObj->findChild<QObject *>(QStringLiteral("analysisController"))
+                : nullptr);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    if (!controller || !window) {
+        qWarning().noquote()
+            << QStringLiteral("DEMODECODE32 FAIL: no controller/window");
+        return 1;
+    }
+
+    const bool exitAfterReady =
+        app.arguments().contains(QStringLiteral("--demo-exit-after-ready"));
+
+    auto *transport = new HarnessWriteTransport(&app);
+    controller->setSerialTransport(transport);
+    controller->connectSerial(QStringLiteral("COM_DEMO_HARNESS"), 9600);
+
+    auto failures = std::make_shared<QStringList>();
+    auto demoFail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &m) {
+        qInfo().noquote() << QStringLiteral("DEMODECODE32: %1").arg(m);
+    };
+
+    const auto responseWith = [](int unit,
+                                 const std::vector<std::uint16_t> &values,
+                                 std::uint8_t readFunctionCode = 0x03) {
+        std::vector<std::uint8_t> data;
+        data.push_back(static_cast<std::uint8_t>(values.size() * 2));
+        for (const std::uint16_t value : values) {
+            data.push_back(static_cast<std::uint8_t>(value >> 8));
+            data.push_back(static_cast<std::uint8_t>(value & 0xFF));
+        }
+        return modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
+            .address = static_cast<std::uint8_t>(unit),
+            .functionCode = readFunctionCode,
+            .data = std::move(data)});
+    };
+
+    // Presentation-only navigation to the Communication workspace. Same
+    // rail-click pattern the other gates use: the PRESS event must carry
+    // Qt::LeftButton as BOTH the button and the buttons state (a press with
+    // buttons=NoButton is malformed and TapHandler ignores it).
+    auto itemOf = [&roots](const QString &name) {
+        return qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+    };
+    const auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+
+    const std::vector<std::uint16_t> demoValues = {0x3F80, 0x0000, 0xC0A0,
+                                                   0x0000, 0x4049, 0x0FDB};
+    // Independent 32-bit oracles for the harness assertions (the demo must
+    // not trust the production decoder it is demonstrating).
+    const auto uint32Text = [](std::uint32_t bits) {
+        return QString::number(bits);
+    };
+    const auto int32Text = [](std::uint32_t bits) {
+        std::int32_t value = 0;
+        std::memcpy(&value, &bits, sizeof(value));
+        return QString::number(value);
+    };
+    // Row check: decoded text + status token + optional span ("1000-1001").
+    const auto checkRow = [failures](const QVariantList &rows, int i,
+                                     const QString &decoded,
+                                     const QString &status,
+                                     const QString &span) {
+        if (i >= rows.size()) {
+            *failures << QStringLiteral("row %1 missing").arg(i);
+            return;
+        }
+        const QVariantMap row = rows.at(i).toMap();
+        if (row.value(QStringLiteral("decoded")).toString() != decoded)
+            *failures << QStringLiteral("row %1 decoded=[%2], expected [%3]")
+                             .arg(i)
+                             .arg(row.value(QStringLiteral("decoded"))
+                                      .toString(),
+                                  decoded);
+        if (row.value(QStringLiteral("decodeStatus")).toString() != status)
+            *failures << QStringLiteral("row %1 status=[%2], expected [%3]")
+                             .arg(i)
+                             .arg(row.value(QStringLiteral("decodeStatus"))
+                                      .toString(),
+                                  status);
+        const QString actualSpan =
+            row.contains(QStringLiteral("decodeSpan"))
+                ? row.value(QStringLiteral("decodeSpan")).toString()
+                : QString();
+        if (actualSpan != span)
+            *failures << QStringLiteral("row %1 span=[%2], expected [%3]")
+                             .arg(i)
+                             .arg(actualSpan, span);
+        if (!decoded.isEmpty() && decoded != status) {
+            // The raw columns must be present and untouched on every row.
+            if (!row.contains(QStringLiteral("dec"))
+                || !row.contains(QStringLiteral("hex")))
+                *failures << QStringLiteral("row %1 lost a raw column").arg(i);
+        }
+    };
+
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // Stage 0: navigate to the Communication workspace.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("navItem_2")))
+            demoFail(QStringLiteral("the Communication rail entry is not "
+                                    "clickable"));
+    });
+    // Stage 1: set the QML request editor fields to the demo dataset values
+    // (slave=1, function=03, start=1000, quantity=6, timeout=1000) so the
+    // VISIBLE editor matches the transaction the demo is about to dispatch.
+    push([&]() {
+        const QPair<const char *, const char *> fields[] = {
+            {"commSlaveField", "1"},
+            {"commFunctionField", "03"},
+            {"commStartField", "1000"},
+            {"commQuantityField", "6"},
+            {"commTimeoutField", "1000"}};
+        for (const auto &field : fields) {
+            auto *item = itemOf(QString::fromLatin1(field.first));
+            if (!item) {
+                demoFail(QStringLiteral("field %1 not found")
+                             .arg(field.first));
+                continue;
+            }
+            item->setProperty("text", QVariant(field.second).toString());
+        }
+    });
+    // Stage 2: dispatch the read through the production raw-text front door
+    // (readRegisterRequest parses the same texts the visible fields show and
+    // delegates to the SAME typed validation + dispatch chain).
+    push([&]() {
+        transport->setCompleteReadImmediately(false);
+        controller->readRegisterRequest(
+            QStringLiteral("1"), QStringLiteral("03"),
+            QStringLiteral("1000"), QStringLiteral("6"),
+            QStringLiteral("1000"));
+    });
+    // Stage 3: inject the synthetic observation.
+    push([&]() {
+        transport->completeReadWithBytes(
+            responseWith(1, demoValues, 0x03), std::chrono::milliseconds{25});
+    });
+    // Stage 4: defaults — UInt16 + Normal + HighWordFirst, 6 raw rows, the
+    // word-order control DISABLED for a 1-register type, visible request
+    // fields consistent with the actual transaction.
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::ReadSuccess)
+            demoFail(QStringLiteral("class=%1, expected read_success")
+                         .arg(controller->readResultClassToken()));
+        if (controller->readResultValueCount() != 6)
+            demoFail(QStringLiteral("value count=%1, expected 6")
+                         .arg(controller->readResultValueCount()));
+        if (controller->readDecodeType()
+            != static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16))
+            demoFail(QStringLiteral("default decode type is not UInt16"));
+        if (controller->readDecodeWordOrder()
+            != static_cast<int>(
+                modbuslens::core::RegisterWordOrder::HighWordFirst))
+            demoFail(QStringLiteral(
+                "default word order is not HighWordFirst"));
+        if (controller->readDecodeWordOrderEnabled())
+            demoFail(QStringLiteral(
+                "the word-order control must be disabled for UInt16"));
+        const QVariantList rows = controller->readResultValues();
+        for (int i = 0; i < int(demoValues.size()); ++i) {
+            const QVariantMap row = rows.at(i).toMap();
+            if (row.value(QStringLiteral("dec")).toInt()
+                != int(demoValues[std::size_t(i)]))
+                demoFail(QStringLiteral("word %1 raw DEC moved").arg(i));
+            if (row.contains(QStringLiteral("decodeSpan")))
+                demoFail(QStringLiteral(
+                             "a 1-register row carries a decodeSpan (row %1)")
+                             .arg(i));
+        }
+        auto *details = qobject_cast<QQuickItem *>(
+            findNamedItem(roots, QStringLiteral("readResultDetailsButton")));
+        if (!details || !details->isVisible())
+            demoFail(QStringLiteral("the read-result details entry is not "
+                                    "reachable"));
+        const struct {
+            const char *name;
+            const char *expected;
+        } fieldChecks[] = {
+            {"commSlaveField", "1"},
+            {"commFunctionField", "03"},
+            {"commStartField", "1000"},
+            {"commQuantityField", "6"},
+            {"commTimeoutField", "1000"}};
+        for (const auto &fc : fieldChecks) {
+            auto *item = itemOf(QString::fromLatin1(fc.name));
+            const QString actual =
+                item ? item->property("text").toString() : QStringLiteral("<none>");
+            if (actual != QString::fromLatin1(fc.expected))
+                demoFail(QStringLiteral("VISIBLE %1=[%2], expected [%3]")
+                             .arg(QString::fromLatin1(fc.name), actual,
+                                  QString::fromLatin1(fc.expected)));
+        }
+        note(QStringLiteral("stage 4: defaults UInt16/Normal/HighWordFirst; "
+                           "6 raw rows; word-order control disabled"));
+    });
+    // Stage 5: UInt32 — the sliding window plus the address-range span; the
+    // LAST register reports insufficient words; the raw columns never move.
+    push([&]() {
+        controller->setReadDecodeType(
+            static_cast<int>(modbuslens::core::RegisterDecodeType::UInt32));
+        if (!controller->readDecodeWordOrderEnabled())
+            demoFail(QStringLiteral(
+                "the word-order control must be enabled for UInt32"));
+        const QVariantList rows = controller->readResultValues();
+        checkRow(rows, 0, uint32Text(0x3F800000u),
+                 QStringLiteral("ok"), QStringLiteral("1000-1001"));
+        checkRow(rows, 1, uint32Text(0x0000C0A0u),
+                 QStringLiteral("ok"), QStringLiteral("1001-1002"));
+        checkRow(rows, 2, uint32Text(0xC0A00000u),
+                 QStringLiteral("ok"), QStringLiteral("1002-1003"));
+        checkRow(rows, 3, uint32Text(0x00004049u),
+                 QStringLiteral("ok"), QStringLiteral("1003-1004"));
+        checkRow(rows, 4, uint32Text(0x40490FDBu),
+                 QStringLiteral("ok"), QStringLiteral("1004-1005"));
+        checkRow(rows, 5, QString(), QStringLiteral("insufficient_words"),
+                 QString());
+        if (rows.at(0).toMap().value(QStringLiteral("dec")).toInt() != 0x3F80)
+            demoFail(QStringLiteral("raw DEC moved under UInt32"));
+        note(QStringLiteral("stage 5: UInt32 big-endian window + spans; "
+                           "last register insufficient_words"));
+    });
+    // Stage 6: word order → LowWordFirst (CD AB): the SAME words recombine.
+    push([&]() {
+        controller->setReadDecodeWordOrder(
+            static_cast<int>(modbuslens::core::RegisterWordOrder::LowWordFirst));
+        const QVariantList rows = controller->readResultValues();
+        checkRow(rows, 0, uint32Text(0x00003F80u),
+                 QStringLiteral("ok"), QStringLiteral("1000-1001"));
+        checkRow(rows, 1, uint32Text(0xC0A00000u),
+                 QStringLiteral("ok"), QStringLiteral("1001-1002"));
+        checkRow(rows, 2, uint32Text(0x0000C0A0u),
+                 QStringLiteral("ok"), QStringLiteral("1002-1003"));
+        if (rows.at(0).toMap().value(QStringLiteral("hex")).toString()
+            != QStringLiteral("0x3F80"))
+            demoFail(QStringLiteral("raw HEX moved under LowWordFirst"));
+        note(QStringLiteral("stage 6: LowWordFirst recombines the same "
+                           "words; raw columns untouched"));
+    });
+    // Stage 7: Float32 (word order back to big-endian) — 1.0 / −5.0 / π,
+    // NaN-free by dataset; the last row still reports insufficient words.
+    push([&]() {
+        controller->setReadDecodeWordOrder(
+            static_cast<int>(
+                modbuslens::core::RegisterWordOrder::HighWordFirst));
+        controller->setReadDecodeType(
+            static_cast<int>(modbuslens::core::RegisterDecodeType::Float32));
+        const QVariantList rows = controller->readResultValues();
+        checkRow(rows, 0, QStringLiteral("1.0"), QStringLiteral("ok"),
+                 QStringLiteral("1000-1001"));
+        checkRow(rows, 2, QStringLiteral("-5.0"), QStringLiteral("ok"),
+                 QStringLiteral("1002-1003"));
+        // π's binary32 pattern: text round-trips back to the same bits.
+        const QVariantMap pi = rows.at(4).toMap();
+        bool ok = false;
+        const float parsed =
+            static_cast<float>(pi.value(QStringLiteral("decoded"))
+                                   .toString()
+                                   .toFloat(&ok));
+        if (!ok)
+            demoFail(QStringLiteral("pi text [%1] does not parse")
+                         .arg(pi.value(QStringLiteral("decoded")).toString()));
+        else {
+            std::uint32_t bits = 0;
+            std::memcpy(&bits, &parsed, sizeof(bits));
+            if (bits != 0x40490FDBu)
+                demoFail(QStringLiteral("pi round-trip bits=%1").arg(bits));
+        }
+        checkRow(rows, 5, QString(), QStringLiteral("insufficient_words"),
+                 QString());
+        note(QStringLiteral("stage 7: Float32 1.0 / -5.0 / pi; windows and "
+                           "spans correct"));
+    });
+    // Stage 8: Int32 — the negative branch of the two's-complement view.
+    push([&]() {
+        controller->setReadDecodeType(
+            static_cast<int>(modbuslens::core::RegisterDecodeType::Int32));
+        const QVariantList rows = controller->readResultValues();
+        checkRow(rows, 0, uint32Text(0x3F800000u), QStringLiteral("ok"),
+                 QStringLiteral("1000-1001"));
+        checkRow(rows, 2, int32Text(0xC0A00000u), QStringLiteral("ok"),
+                 QStringLiteral("1002-1003"));
+        if (rows.at(0).toMap().value(QStringLiteral("dec")).toInt() != 0x3F80)
+            demoFail(QStringLiteral("raw DEC moved under Int32"));
+        note(QStringLiteral("stage 8: Int32 negative branch correct"));
+    });
+    // Stage 9: READY — demo title + keep-or-exit.
+    push([&]() {
+        // Restore the frozen defaults so Human starts from the standard view.
+        controller->setReadDecodeType(
+            static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16));
+        controller->setReadDecodeWordOrder(
+            static_cast<int>(
+                modbuslens::core::RegisterWordOrder::HighWordFirst));
+        if (failures->isEmpty()) {
+            // Demo-mode window title (Human safety: unmistakable).
+            window->setTitle(
+                QStringLiteral("ModbusLens — M11 32位解码演示（模拟数据）"));
+            note(QStringLiteral(
+                "READY: synthetic register-read success; "
+                "words=0x3F80,0x0000,0xC0A0,0x0000,0x4049,0x0FDB; "
+                "UInt32/Int32/Float32 + word order verified; no real "
+                "serial I/O"));
+            if (exitAfterReady)
+                window->close();
+        } else {
+            for (const QString &f : *failures)
+                qWarning().noquote()
+                    << QStringLiteral("DEMODECODE32 FAIL: %1").arg(f);
+        }
+    });
+
+    const int settleMs = 60;
+    auto step = std::make_shared<int>(0);
+    auto schedule = std::make_shared<std::function<void()>>();
+    *schedule = [&, step, schedule]() {
+        if (*step >= steps->size()) {
+            if (!failures->isEmpty()) {
+                app.exit(1);
+                return;
+            }
+            if (exitAfterReady) {
+                // The window->close() in the READY stage already ended the
+                // event loop; this is a safety net.
+                app.exit(0);
+                return;
+            }
+            // Human mode: keep the GUI running until Human closes the
+            // window.
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
 // shell. Same architecture as the other QML harness modes: the REAL app
 // loads its own shipped QML and drives it through the same synthetic event
 // seams the manual flow uses (mouse delivered through the window, key events
@@ -14166,6 +14540,12 @@ int main(int argc, char *argv[])
     // safety boundary.
     if (app.arguments().contains(QStringLiteral("--qml-read-result-demo"))) {
         return runReadResultDemo(engine, app);
+    }
+
+    // M11 second-slice Human visual demo: the 32-bit views (UInt32 / Int32 /
+    // Float32 + word order), same TEST-ONLY / DEMO-ONLY boundary.
+    if (app.arguments().contains(QStringLiteral("--qml-read-result-demo32"))) {
+        return runReadResultDemo32(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.

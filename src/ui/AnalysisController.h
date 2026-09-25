@@ -174,6 +174,13 @@ class AnalysisController : public QObject
     // evidence and never touches the wire result.
     Q_PROPERTY(int readDecodeType READ readDecodeType WRITE setReadDecodeType NOTIFY readResultChanged)
     Q_PROPERTY(int readDecodeByteOrder READ readDecodeByteOrder WRITE setReadDecodeByteOrder NOTIFY readResultChanged)
+    // M11 second slice: word order ACROSS registers (2-register types only).
+    // HighWordFirst (0, AB CD) is the frozen default; LowWordFirst (1) is
+    // little-endian word order (CD AB). Out-of-range writes are ignored.
+    Q_PROPERTY(int readDecodeWordOrder READ readDecodeWordOrder WRITE setReadDecodeWordOrder NOTIFY readResultChanged)
+    // Whether the word-order control is meaningful for the CURRENT decode
+    // type (true iff the type consumes 2 registers: UInt32/Int32/Float32).
+    Q_PROPERTY(bool readDecodeWordOrderEnabled READ readDecodeWordOrderEnabled NOTIFY readResultChanged)
     // Source capability: Simulator / Replay carry NO wire evidence, so the
     // result surface must state that plainly instead of showing empty hex
     // (T023 READ-TXN-5).
@@ -541,12 +548,15 @@ public:
     [[nodiscard]] int readResultValueCount() const;
     [[nodiscard]] QVariantList readResultValues() const;
     // M11 decode configuration (ints mirror core::RegisterDecodeType /
-    // core::RegisterByteOrder; out-of-range writes are ignored so the state
-    // stays decodable).
+    // core::RegisterByteOrder / core::RegisterWordOrder; out-of-range writes
+    // are ignored so the state stays decodable).
     [[nodiscard]] int readDecodeType() const;
     void setReadDecodeType(int type);
     [[nodiscard]] int readDecodeByteOrder() const;
     void setReadDecodeByteOrder(int byteOrder);
+    [[nodiscard]] int readDecodeWordOrder() const;
+    void setReadDecodeWordOrder(int wordOrder);
+    [[nodiscard]] bool readDecodeWordOrderEnabled() const;
     [[nodiscard]] bool readResultEvidenceAvailable() const;
     [[nodiscard]] bool readResultAwaitingEvidenceSource() const;
 
@@ -807,6 +817,7 @@ private:
     // T024 §22: UInt16 + normal byte order).
     int readDecodeType_ = static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16);
     int readDecodeByteOrder_ = static_cast<int>(modbuslens::core::RegisterByteOrder::Normal);
+    int readDecodeWordOrder_ = static_cast<int>(modbuslens::core::RegisterWordOrder::HighWordFirst);
 
     // T011 Part A: the STRUCTURED active batch for diagnosis — same source
     // as rows + statistics on every successful publish (never reconstructed

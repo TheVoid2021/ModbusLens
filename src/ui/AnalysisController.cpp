@@ -2712,9 +2712,11 @@ void AnalysisController::setReadDecodeType(int type)
 {
     using modbuslens::core::RegisterDecodeType;
     // Out-of-range writes are ignored (a UI bug must not be able to put the
-    // decode configuration into an unrepresentable state).
+    // decode configuration into an unrepresentable state). The valid range
+    // now spans the full v1 matrix (T024 §7): the 16-bit views AND the
+    // second-slice 32-bit views.
     if (type < static_cast<int>(RegisterDecodeType::Hex)
-        || type > static_cast<int>(RegisterDecodeType::Int16)) {
+        || type > static_cast<int>(RegisterDecodeType::Float32)) {
         return;
     }
     if (readDecodeType_ == type) {
@@ -2743,6 +2745,35 @@ void AnalysisController::setReadDecodeByteOrder(int byteOrder)
     emit readResultChanged();
 }
 
+int AnalysisController::readDecodeWordOrder() const
+{
+    return readDecodeWordOrder_;
+}
+
+void AnalysisController::setReadDecodeWordOrder(int wordOrder)
+{
+    using modbuslens::core::RegisterWordOrder;
+    // Out-of-range writes are ignored, same discipline as the other decode
+    // configuration properties.
+    if (wordOrder < static_cast<int>(RegisterWordOrder::HighWordFirst)
+        || wordOrder > static_cast<int>(RegisterWordOrder::LowWordFirst)) {
+        return;
+    }
+    if (readDecodeWordOrder_ == wordOrder) {
+        return;
+    }
+    readDecodeWordOrder_ = wordOrder;
+    emit readResultChanged();
+}
+
+bool AnalysisController::readDecodeWordOrderEnabled() const
+{
+    // The word-order axis exists only for 2-register types (T024 §22 C2).
+    const auto type =
+        static_cast<modbuslens::core::RegisterDecodeType>(readDecodeType_);
+    return modbuslens::core::registerDecodeTypeWordCount(type) == 2;
+}
+
 QVariantList AnalysisController::readResultValues() const
 {
     QVariantList rows;
@@ -2763,6 +2794,55 @@ QVariantList AnalysisController::readResultValues() const
         static_cast<modbuslens::core::RegisterDecodeType>(readDecodeType_);
     const auto decodeByteOrder =
         static_cast<modbuslens::core::RegisterByteOrder>(readDecodeByteOrder_);
+
+    // ---- M11 second slice: 2-register types (UInt32 / Int32 / Float32) ----
+    // Sliding window (T024 §9/§10 alignment decision): row i decodes
+    // words[i] and words[i+1], so the decode column stays per-register
+    // aligned with the raw rows and the LAST register alone reports
+    // InsufficientWords. A successful 2-register row carries `decodeSpan`
+    // ("1000-1001") so Human can always see WHICH two addresses the derived
+    // value consumed; the raw columns never move.
+    if (modbuslens::core::registerDecodeTypeWordCount(decodeType) == 2) {
+        const auto decodeWordOrder =
+            static_cast<modbuslens::core::RegisterWordOrder>(
+                readDecodeWordOrder_);
+        const std::vector<std::uint16_t>& words =
+            readResult_.analysis.values;
+        for (std::size_t i = 0; i < words.size(); ++i) {
+            QVariantMap row;
+            row.insert(QStringLiteral("index"), index);
+            row.insert(QStringLiteral("address"), static_cast<int>(address));
+            row.insert(QStringLiteral("addressHex"), readResultHex16(address));
+            row.insert(QStringLiteral("dec"),
+                       static_cast<int>(words[i]));
+            row.insert(QStringLiteral("hex"), readResultHex16(words[i]));
+            const auto view = modbuslens::core::decodeRegisterView(
+                words, static_cast<int>(i), decodeType, decodeByteOrder,
+                decodeWordOrder);
+            row.insert(QStringLiteral("decoded"),
+                       view.status
+                                   == modbuslens::core::RegisterDecodeStatus::Ok
+                           ? QString::fromStdString(view.text)
+                           : QString());
+            row.insert(QStringLiteral("decodeStatus"),
+                       QString::fromStdString(std::string(
+                           modbuslens::core::registerDecodeStatusName(
+                               view.status))));
+            if (view.status == modbuslens::core::RegisterDecodeStatus::Ok
+                && view.wordCount == 2) {
+                row.insert(QStringLiteral("decodeSpan"),
+                           QStringLiteral("%1-%2")
+                               .arg(static_cast<int>(address))
+                               .arg(static_cast<int>(address) + 1));
+            }
+            rows.append(row);
+            ++index;
+            ++address;
+        }
+        return rows;
+    }
+
+    // ---- 1-register types: the accepted first-slice path (unchanged) ----
     for (const std::uint16_t value : readResult_.analysis.values) {
         QVariantMap row;
         row.insert(QStringLiteral("index"), index);

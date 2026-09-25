@@ -10,6 +10,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 
 #include "core/active/ActiveRequestIntent.h"
@@ -221,6 +222,14 @@ private slots:
     void d2_decodedColumnFollowsConfiguration();
     void d3_decodeNeverMutatesRawColumns();
     void d4_fc04AndCustomSourcesAreDecodeEligible();
+    // ---- M11 second slice: 32-bit decode + word order (READ-D5..D11) ----
+    void d5_decodeTypeBoundsExtendTo32Bit();
+    void d6_wordOrderDefaultsAndBounds();
+    void d7_wordOrderEnabledGate();
+    void d8_uint32SlidingWindowProjection();
+    void d9_float32Projection();
+    void d10_int32Projection();
+    void d11_wordOrderFlipChangesDerivedNotRaw();
 
     // ---- M10 correction: the read function code is editable ----
     // READ-FC1..FC8. FC9 (UI -> preview -> actual TX identity) lives in the
@@ -2831,6 +2840,239 @@ void UiBridgeTest::d4_fc04AndCustomSourcesAreDecodeEligible()
         QCOMPARE(rows.at(0).toMap().value(QStringLiteral("decodeStatus")).toString(),
                  QStringLiteral("ok"));
     }
+}
+
+// ---------------------------------------------------------------------------
+// M11 second slice (T024 §7/§16): the 2-register views (UInt32 / Int32 /
+// Float32) + the word-order axis. The projection keeps the per-register
+// sliding window (row i decodes words[i] and words[i+1]; the LAST register
+// alone reports insufficient_words) and tags each successful 2-register row
+// with `decodeSpan` so the consumed address range is always visible. The raw
+// columns never move, on ANY axis.
+// ---------------------------------------------------------------------------
+
+void UiBridgeTest::d5_decodeTypeBoundsExtendTo32Bit()
+{
+    ActiveSerialFixture f;
+    f.request(1, 2);
+    f.completeWith(goodFc03Response(), 25);
+    // The valid type range now spans the whole v1 matrix (T024 §7).
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::UInt32));
+    QCOMPARE(f.controller.readDecodeType(),
+             static_cast<int>(modbuslens::core::RegisterDecodeType::UInt32));
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Int32));
+    QCOMPARE(f.controller.readDecodeType(),
+             static_cast<int>(modbuslens::core::RegisterDecodeType::Int32));
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Float32));
+    QCOMPARE(f.controller.readDecodeType(),
+             static_cast<int>(modbuslens::core::RegisterDecodeType::Float32));
+    // Out-of-range writes are STILL ignored: the state keeps its last valid
+    // value (Float32), never an unrepresentable one.
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Float32) + 1);
+    f.controller.setReadDecodeType(-1);
+    f.controller.setReadDecodeType(99);
+    QCOMPARE(f.controller.readDecodeType(),
+             static_cast<int>(modbuslens::core::RegisterDecodeType::Float32));
+}
+
+void UiBridgeTest::d6_wordOrderDefaultsAndBounds()
+{
+    ActiveSerialFixture f;
+    f.request(1, 2);
+    f.completeWith(goodFc03Response(), 25);
+    // The frozen default is HighWordFirst (big-endian AB CD, T024 §7).
+    QCOMPARE(f.controller.readDecodeWordOrder(),
+             static_cast<int>(modbuslens::core::RegisterWordOrder::HighWordFirst));
+    f.controller.setReadDecodeWordOrder(
+        static_cast<int>(modbuslens::core::RegisterWordOrder::LowWordFirst));
+    QCOMPARE(f.controller.readDecodeWordOrder(),
+             static_cast<int>(modbuslens::core::RegisterWordOrder::LowWordFirst));
+    // Out-of-range writes are ignored (same discipline as the other axes).
+    f.controller.setReadDecodeWordOrder(2);
+    f.controller.setReadDecodeWordOrder(-1);
+    QCOMPARE(f.controller.readDecodeWordOrder(),
+             static_cast<int>(modbuslens::core::RegisterWordOrder::LowWordFirst));
+}
+
+void UiBridgeTest::d7_wordOrderEnabledGate()
+{
+    ActiveSerialFixture f;
+    f.request(1, 2);
+    f.completeWith(goodFc03Response(), 25);
+    // The word-order axis exists only for 2-register types (T024 §22 C2).
+    QCOMPARE(f.controller.readDecodeWordOrderEnabled(), false);
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::UInt32));
+    QCOMPARE(f.controller.readDecodeWordOrderEnabled(), true);
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Int32));
+    QCOMPARE(f.controller.readDecodeWordOrderEnabled(), true);
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Float32));
+    QCOMPARE(f.controller.readDecodeWordOrderEnabled(), true);
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Int16));
+    QCOMPARE(f.controller.readDecodeWordOrderEnabled(), false);
+}
+
+void UiBridgeTest::d8_uint32SlidingWindowProjection()
+{
+    ActiveSerialFixture f;
+    f.request(1, 3);
+    f.completeWith(fc03Response(1, {0x1234, 0x5678, 0xC000}), 25);
+    QCOMPARE(f.controller.readResultClass(), ReadResultClass::ReadSuccess);
+
+    // Baseline raw columns (UInt16 default), recorded BEFORE the switch.
+    const QVariantList baseline = f.controller.readResultValues();
+    QCOMPARE(int(baseline.size()), 3);
+
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::UInt32));
+    const QVariantList rows = f.controller.readResultValues();
+    QCOMPARE(int(rows.size()), 3);
+
+    // Row 0 decodes words[0..1] big-endian: 0x12345678 (acceptance A07).
+    const QVariantMap r0 = rows.at(0).toMap();
+    QCOMPARE(r0.value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("305419896"));
+    QCOMPARE(r0.value(QStringLiteral("decodeStatus")).toString(),
+             QStringLiteral("ok"));
+    // The span names the consumed address range (start 0): 0-1.
+    QCOMPARE(r0.value(QStringLiteral("decodeSpan")).toString(),
+             QStringLiteral("0-1"));
+
+    // Row 1 is the SLIDING window: words[1..2] = 0x5678C000.
+    const QVariantMap r1 = rows.at(1).toMap();
+    QCOMPARE(r1.value(QStringLiteral("decoded")).toString(),
+             QString::number(0x5678C000u));
+    QCOMPARE(r1.value(QStringLiteral("decodeSpan")).toString(),
+             QStringLiteral("1-2"));
+
+    // Row 2 is the LAST register: insufficient words, no fabricated value,
+    // no span (nothing was consumed).
+    const QVariantMap r2 = rows.at(2).toMap();
+    QCOMPARE(r2.value(QStringLiteral("decodeStatus")).toString(),
+             QStringLiteral("insufficient_words"));
+    QVERIFY(r2.value(QStringLiteral("decoded")).toString().isEmpty());
+    QVERIFY(!r2.contains(QStringLiteral("decodeSpan")));
+
+    // The raw columns are identical to the UInt16 baseline on EVERY row.
+    for (int i = 0; i < rows.size(); ++i) {
+        const QVariantMap b = baseline.at(i).toMap();
+        const QVariantMap a = rows.at(i).toMap();
+        QCOMPARE(a.value(QStringLiteral("dec")).toInt(),
+                 b.value(QStringLiteral("dec")).toInt());
+        QCOMPARE(a.value(QStringLiteral("hex")).toString(),
+                 b.value(QStringLiteral("hex")).toString());
+        QCOMPARE(a.value(QStringLiteral("address")).toInt(),
+                 b.value(QStringLiteral("address")).toInt());
+    }
+}
+
+void UiBridgeTest::d9_float32Projection()
+{
+    ActiveSerialFixture f;
+    f.request(1, 4);
+    // words chosen so rows 0 and 2 are clean IEEE values (1.0 and -5.0).
+    f.completeWith(fc03Response(1, {0x3F80, 0x0000, 0xC0A0, 0x0000}), 25);
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Float32));
+    const QVariantList rows = f.controller.readResultValues();
+    QCOMPARE(int(rows.size()), 4);
+
+    const QVariantMap r0 = rows.at(0).toMap();
+    QCOMPARE(r0.value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("1.0"));
+    QCOMPARE(r0.value(QStringLiteral("decodeStatus")).toString(),
+             QStringLiteral("ok"));
+    QCOMPARE(r0.value(QStringLiteral("decodeSpan")).toString(),
+             QStringLiteral("0-1"));
+
+    const QVariantMap r2 = rows.at(2).toMap();
+    QCOMPARE(r2.value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("-5.0"));
+    QCOMPARE(r2.value(QStringLiteral("decodeSpan")).toString(),
+             QStringLiteral("2-3"));
+
+    // Row 1 decodes words[1..2] = 0x0000C0A0 (a subnormal float — a legal
+    // value, status ok). Its exact text is not frozen here (the core tests
+    // own the text format); it must round-trip back to the same bits.
+    const QVariantMap r1 = rows.at(1).toMap();
+    QCOMPARE(r1.value(QStringLiteral("decodeStatus")).toString(),
+             QStringLiteral("ok"));
+    const QString subnormalText =
+        r1.value(QStringLiteral("decoded")).toString();
+    QVERIFY(!subnormalText.isEmpty());
+    bool ok = false;
+    const float parsed = static_cast<float>(subnormalText.toFloat(&ok));
+    QVERIFY(ok);
+    float oracle = 0.0f;
+    const std::uint32_t bits = 0x0000C0A0u;
+    static_assert(sizeof(float) == sizeof(std::uint32_t));
+    std::memcpy(&oracle, &bits, sizeof(oracle));
+    QCOMPARE(parsed, oracle);
+
+    // Row 3 is the last register: insufficient words.
+    QCOMPARE(rows.at(3).toMap()
+                 .value(QStringLiteral("decodeStatus"))
+                 .toString(),
+             QStringLiteral("insufficient_words"));
+
+    // Raw DEC column of row 0 is the raw word 0x3F80 = 16128, unchanged.
+    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("dec")).toInt(), 0x3F80);
+}
+
+void UiBridgeTest::d10_int32Projection()
+{
+    ActiveSerialFixture f;
+    f.request(1, 4);
+    f.completeWith(fc03Response(1, {0xFFFF, 0xFF38, 0x8000, 0x0000}), 25);
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::Int32));
+    const QVariantList rows = f.controller.readResultValues();
+    QCOMPARE(int(rows.size()), 4);
+    // 0xFFFFFF38 big-endian = −200 (acceptance A09).
+    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("-200"));
+    // 0x80000000 = INT32_MIN (acceptance A10).
+    QCOMPARE(rows.at(2).toMap().value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("-2147483648"));
+    QCOMPARE(rows.at(3).toMap().value(QStringLiteral("decodeStatus")).toString(),
+             QStringLiteral("insufficient_words"));
+    // The raw DEC columns never moved (0xFFFF stays 65535, not -1).
+    QCOMPARE(rows.at(0).toMap().value(QStringLiteral("dec")).toInt(), 0xFFFF);
+}
+
+void UiBridgeTest::d11_wordOrderFlipChangesDerivedNotRaw()
+{
+    ActiveSerialFixture f;
+    f.request(1, 2);
+    f.completeWith(fc03Response(1, {0x3F80, 0x0000}), 25);
+    f.controller.setReadDecodeType(
+        static_cast<int>(modbuslens::core::RegisterDecodeType::UInt32));
+
+    // Big-endian (default): 0x3F800000.
+    QVariantMap r0 = f.controller.readResultValues().at(0).toMap();
+    QCOMPARE(r0.value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("1065353216"));
+    const int rawDec = r0.value(QStringLiteral("dec")).toInt();
+
+    // Flip the word order: the DERIVED value flips (0x00003F80 = 16256),
+    // the raw column does not move, and the span stays the same range.
+    f.controller.setReadDecodeWordOrder(
+        static_cast<int>(modbuslens::core::RegisterWordOrder::LowWordFirst));
+    r0 = f.controller.readResultValues().at(0).toMap();
+    QCOMPARE(r0.value(QStringLiteral("decoded")).toString(),
+             QStringLiteral("16256"));
+    QCOMPARE(r0.value(QStringLiteral("decodeSpan")).toString(),
+             QStringLiteral("0-1"));
+    QCOMPARE(r0.value(QStringLiteral("dec")).toInt(), rawDec);
+    QCOMPARE(r0.value(QStringLiteral("hex")).toString(),
+             QStringLiteral("0x3F80"));
 }
 
 QTEST_GUILESS_MAIN(UiBridgeTest)

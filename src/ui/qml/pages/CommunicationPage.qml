@@ -747,10 +747,13 @@ Item {
                             Accessible.name: qsTr("解析类型")
                             editable: false
                             // Index order mirrors core::RegisterDecodeType
-                            // (Hex / Binary / UInt16 / Int16); UInt16 is the
-                            // frozen default (T024 §22 C1).
+                            // (Hex / Binary / UInt16 / Int16 / UInt32 /
+                            // Int32 / Float32); UInt16 is the frozen default
+                            // (T024 §22 C1).
                             model: [qsTr("十六进制"), qsTr("二进制"),
-                                    qsTr("无符号16位整数"), qsTr("有符号16位整数")]
+                                    qsTr("无符号16位整数"), qsTr("有符号16位整数"),
+                                    qsTr("无符号32位整数"), qsTr("有符号32位整数"),
+                                    qsTr("32位浮点数")]
                             currentIndex: page.analysisController.readDecodeType
                             onActivated:
                                 page.analysisController.readDecodeType = currentIndex
@@ -771,6 +774,33 @@ Item {
                                 page.analysisController.readDecodeByteOrder
                             onActivated:
                                 page.analysisController.readDecodeByteOrder = currentIndex
+                            font.pixelSize: DS.fontCaption
+                        }
+                        Label {
+                            // Meaningful only for 2-register types (T024
+                            // §22 C2): the label stays visible so Human can
+                            // see the axis exists, while the combo below is
+                            // disabled until a 32-bit type is selected.
+                            text: qsTr("32位寄存器顺序：")
+                            color: DS.textSecondary
+                            font.pixelSize: DS.fontCaption
+                        }
+                        ComboBox {
+                            objectName: "readDecodeWordOrderCombo"
+                            Accessible.name: qsTr("32位寄存器顺序")
+                            editable: false
+                            // Index order mirrors core::RegisterWordOrder.
+                            // Enabled only when the selected type consumes
+                            // 2 registers (UInt32 / Int32 / Float32).
+                            enabled:
+                                page.analysisController.readDecodeWordOrderEnabled
+                            opacity: enabled ? 1.0 : 0.4
+                            model: [qsTr("高字在前（AB CD）"),
+                                    qsTr("低字在前（CD AB）")]
+                            currentIndex:
+                                page.analysisController.readDecodeWordOrder
+                            onActivated:
+                                page.analysisController.readDecodeWordOrder = currentIndex
                             font.pixelSize: DS.fontCaption
                         }
                     }
@@ -811,9 +841,20 @@ Item {
                             readonly property string rowDecodeStatus:
                                 modelData && modelData.decodeStatus !== undefined
                                     ? modelData.decodeStatus : ""
+                            // M11 second slice: for a 2-register decode this
+                            // carries the consumed address range ("1000-1001")
+                            // so Human can always see WHICH registers a
+                            // derived 32-bit value used; empty for 1-register
+                            // types.
+                            readonly property string rowDecodeSpan:
+                                modelData && modelData.decodeSpan !== undefined
+                                    ? modelData.decodeSpan : ""
                             readonly property string decodedDisplay:
                                 rowDecodeStatus === "ok" && !rowDecoded.isEmpty
                                     ? rowDecoded : qsTr("无法解析")
+                            readonly property string spanSuffix:
+                                rowDecodeSpan !== ""
+                                    ? qsTr("  范围 %1").arg(rowDecodeSpan) : ""
                             text: qsTr("#%1  地址 %2 (%3)  值 %4 (%5)  解析 %6")
                                       .arg(rowIndex)
                                       .arg(rowAddress)
@@ -821,6 +862,7 @@ Item {
                                       .arg(rowDec)
                                       .arg(rowHex)
                                       .arg(decodedDisplay)
+                                  + spanSuffix
                             color: DS.textPrimary
                             font.pixelSize: DS.fontCaption
                             font.family: "Consolas"
