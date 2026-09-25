@@ -122,7 +122,7 @@
 
 - 解码视图**并入既有 Read Result 呈现**（T023 方案 B：结论行 + 有界可滚动证据对话框的 CLASS-10 值表区域），**不新建独立页**、不复制 raw 数据。
 - raw DEC/HEX 列**恒显**；解码列在其旁（同表或紧邻区块），二者逐寄存器对齐、共享同一 PDU 地址。
-- 类型选择（Hex/Binary/UInt16/Int16/UInt32/Int32/Float32）与 **ordering 控件**（byte order：全部类型适用；word order：仅 2 寄存器类型启用）为**用户显式控件**；默认 = 无解码（或 UInt16，以 Human Review 裁定为准 —— 本契约标注〔待 Review〕）。
+- 类型选择（Hex/Binary/UInt16/Int16/UInt32/Int32/Float32）与 **ordering 控件**（byte order：全部类型适用；word order：仅 2 寄存器类型启用）为**用户显式控件**；默认类型与控件落位已经 Human 裁定冻结（§22：默认 **UInt16**；控件位于 **Read Result 详情区域/详情对话框**，不新增主页一排控件）。
 - decode status 非 `Ok` 时：解码单元格显示状态文案（如「字数不足」），**raw 列不受影响**。
 - **1000×700 约束**：新增控件不得把既有内容推出窗口（M10-F ISSUE-016/018 的教训）；实现轮必须以真实 windows QPA 几何门禁复测。
 
@@ -219,7 +219,7 @@ M11 实现轮与 exit criteria 必须保护（以 repo 现行等价物为准，�
 ## 19. Problems Encountered / 待 Human 裁定
 
 - 本轮无实现问题（docs-only）。
-- **〔待 Review〕**：① 解码视图默认状态（「无解码」还是默认 UInt16）；② 解码控件落位（值表内联下拉 vs 对话框头部）；③ acceptance matrix A14/A15 的 NaN/Inf 显示文案。（原第 3 项「byte-swap-within-register 是否转 REQUIRED」已由 canonical 重读解决：§M11 逐字「含 byte/word order」⇒ 双轴 REQUIRED，见 §4 R2 / §8 / §21。）
+- **〔已全部裁定 — 2026-09-25 Human Review PASS，裁定冻结见 §22〕**：① 解码视图默认状态；② 解码控件落位；③ acceptance matrix A14/A15 的 NaN/Inf 显示文案。（原第 3 项「byte-swap-within-register 是否转 REQUIRED」已由 canonical 重读解决：§M11 逐字「含 byte/word order」⇒ 双轴 REQUIRED，见 §4 R2 / §8 / §21。）
 - **同步台账要点（§N）**：16 项 handoff 声明中 15 项 VERIFIED_FROM_REPO（HEAD/LKGC/M10 states/M11 authorization/values 权威/FC04+custom/decode 非 FC03-only/排除项归属/无既有 M11 任务文档均实证；「M11 已获 START AUTHORIZATION」来源 = Human 原话，属授权事实而非 repo 内容）；1 项 UNKNOWN → 已按 §AB/§AC 处理为「repo silent ⇒ 不升级」（M11 的 hardware/package 硬门要求）。无 CONTRADICTED。
 - 教训（§C 编辑安全）：本轮全程使用精确锚点小步编辑 + 全量 diff 审查，未使用模糊替换。
 
@@ -267,3 +267,33 @@ M11 实现轮与 exit criteria 必须保护（以 repo 现行等价物为准，�
 ### F. 本轮验证边界
 
 docs-only：未 build / 未 test / 未 package；未修改 src / tests / CMakeLists.txt / scripts / assets / samples；未 push / 未 tag / 未 amend；verified LKGC 保持 `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`。
+
+## 22. Human Review Resolution & Implementation Entry（2026-09-25，docs-only freeze）
+
+> **T024 Human Review = PASS。** Human 对 4 项〔待 Review〕/clarification 事项明确裁决（原文：「可以，开始吧，我先看看效果」）⇒ **implementation entry gate = OPEN；M11 implementation = AUTHORIZED（FIRST SLICE STARTING）**。以下裁定自本节起为**冻结契约**（不再是〔待 Review〕）：
+
+### C1. 默认解析类型 = UInt16（无符号16位整数）
+
+- 最接近 M10 已验收的 canonical raw uint16 register truth；不默认引入 signed / 32-bit / float 语义假设。
+- **不代表只支持 UInt16**：M11 v1 仍按 §4 REQUIRED 类型全集实现。
+
+### C2. Decode 控件落位 = 现有 Read Result 详情区域 / 详情对话框
+
+- **不得**向 Communication 主页面新增一整排 decode controls（保护 1000×700，避免复现 M10 纵向 geometry regression）。
+- 详情区控件文案（冻结）：`解析类型`（默认 无符号16位整数）、`寄存器内字节顺序`（默认 正常）、`32位寄存器顺序`（**仅** UInt32 / Int32 / Float32 等多寄存器类型时有意义）。
+- **第一 implementation slice 不实现 32-bit 类型**，因此本轮**不得**为「看起来完整」提前提供未经测试的 32-bit word-order 控件（如需预留必须 disabled + 明确不可用，优先最小 UI）。
+
+### C3. Float32 特殊值显示（未来 slice 冻结行为，本 slice 不实现）
+
+- NaN / +Infinity / −Infinity 都是合法 IEEE-754 binary32 结果 ⇒ `DecodeStatus = Ok`；**不得**映射为通信失败 / CRC 错误 / 响应格式错误 / Timeout / TransportError / ModbusException / decode failure。
+- 中文 UI 文案冻结：**非数字（NaN）**、**正无穷大（+Inf）**、**负无穷大（−Inf）**。
+
+### C4. Raw 与 Decoded 明确分离
+
+- 永远区分**原始值**与**解析后的派生值**：设备 canonical raw word `0x1234` 在用户选择寄存器内字节交换后，raw 仍必须是 `0x1234`，derived decode 可为 `0x3412`；UI **不得**把 `0x3412` 冒充设备实际返回值。
+- 中文概念命名：**原始十六进制 / 解析后十六进制**；**原始十进制 / 解析结果**。Raw 列永远保留。
+
+### Implementation entry
+
+- **entry gate = OPEN**。第一切片范围 = T024 §H/§I/§J/§K/§L/§M/§N（单寄存器可视垂直切片：Hex/Binary/UInt16/Int16 + 寄存器内 byte order + 既有 Read Result 详情集成 + raw/decoded 分离 + 默认 UInt16 + FC03/FC04/custom 不被功能码硬编码排除 + deterministic tests）。
+- 本节冻结**不**构成：M11 COMPLETE / acceptance complete / LKGC advanced / push / tag / release 授权。
