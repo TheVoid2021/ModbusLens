@@ -11108,6 +11108,193 @@ int runReadResultCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
+
+// ---------------------------------------------------------------------------
+// M11 first-slice `--qml-read-result-demo`: a TEST-ONLY / DEMO-ONLY Human
+// visual entry point. It feeds a FIXED synthetic FC03 success through the
+// production request → session → analyzer → ReadResultSnapshot chain (the
+// same path the product uses), then leaves the REAL UI open so Human can
+// operate the M11 decode controls WITHOUT any real serial I/O.
+//
+// Demo dataset (T024 §23): unit 1 / FC 03 / start 1000 / quantity 3 /
+// timeout 1000 ms; raw words 0x1234 / 0xFFFF / 0x0080 — chosen so every
+// decode view shows a distinct value:
+//   UInt16: 4660 / 65535 / 128
+//   Int16:  4660 / -1 / 128 (byte-swapped 0x8000 → -32768)
+//   Hex:    0x1234 / 0xFFFF / 0x0080 (byte-swapped 0x3412 / 0xFFFF / 0x8000)
+//
+// This is NOT real-hardware evidence: the transport is a harness double and
+// the response is synthetic. The window title carries a DEMO suffix so Human
+// can never confuse this with a production run.
+// ---------------------------------------------------------------------------
+int runReadResultDemo(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *controller = qobject_cast<AnalysisController *>(
+        rootObj ? rootObj->findChild<QObject *>(QStringLiteral("analysisController"))
+                : nullptr);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    if (!controller || !window) {
+        qWarning().noquote() << QStringLiteral("DEMODECODE FAIL: no controller/window");
+        return 1;
+    }
+
+    const bool exitAfterReady =
+        app.arguments().contains(QStringLiteral("--demo-exit-after-ready"));
+
+    auto *transport = new HarnessWriteTransport(&app);
+    controller->setSerialTransport(transport);
+    controller->connectSerial(QStringLiteral("COM_DEMO_HARNESS"), 9600);
+
+    auto failures = std::make_shared<QStringList>();
+    auto demoFail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &m) {
+        qInfo().noquote() << QStringLiteral("DEMODECODE: %1").arg(m);
+    };
+
+    // The SHIPPED encoder builds the request wire (PREVIEW == WIRE by
+    // construction); the SHIPPED response builder produces a conforming FC03
+    // answer (valid function / byteCount / CRC). The harness injects the
+    // observation; the production session / analyzer / Snapshot chain does
+    // the rest — nothing bypasses the canonical path.
+    const auto responseWith = [](int unit,
+                                 const std::vector<std::uint16_t> &values,
+                                 std::uint8_t readFunctionCode = 0x03) {
+        std::vector<std::uint8_t> data;
+        data.push_back(static_cast<std::uint8_t>(values.size() * 2));
+        for (const std::uint16_t value : values) {
+            data.push_back(static_cast<std::uint8_t>(value >> 8));
+            data.push_back(static_cast<std::uint8_t>(value & 0xFF));
+        }
+        return modbuslens::core::encodeRtuFrame(modbuslens::core::ModbusRtuFrame{
+            .address = static_cast<std::uint8_t>(unit),
+            .functionCode = readFunctionCode,
+            .data = std::move(data)});
+    };
+
+    // Presentation-only navigation to the Communication workspace: the
+    // read-result panel and the decode controls live there. Same rail-click
+    // pattern the other gates use.
+    const auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = qobject_cast<QQuickItem *>(findNamedItem(roots, name));
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+
+    const std::vector<std::uint16_t> demoValues = {0x1234, 0xFFFF, 0x0080};
+
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // Stage 0: navigate to the Communication workspace so the read-result
+    // panel and the M11 decode controls are visible.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("navItem_2")))
+            demoFail(QStringLiteral("the Communication rail entry is not "
+                                    "clickable"));
+    });
+
+    // Stage 1: dispatch the read through the production path.
+    push([&]() {
+        transport->setCompleteReadImmediately(false);
+        controller->readHoldingRegistersOnce(1, 1000, 3, 1000);
+    });
+    // Stage 2: inject the synthetic observation (the harness supplies only
+    // the bytes; the SHIPPED session / analyzer decides everything).
+    push([&]() {
+        transport->completeReadWithBytes(
+            responseWith(1, demoValues, 0x03), std::chrono::milliseconds{25});
+    });
+    // Stage 3: DEMODECODE assertions + demo title + keep-or-exit.
+    push([&]() {
+        if (controller->readResultClass() != ReadResultClass::ReadSuccess)
+            demoFail(QStringLiteral("class=%1, expected read_success")
+                         .arg(controller->readResultClassToken()));
+        if (!controller->readResultHasValues())
+            demoFail(QStringLiteral("no value table"));
+        if (controller->readResultValueCount() != 3)
+            demoFail(QStringLiteral("value count=%1, expected 3")
+                         .arg(controller->readResultValueCount()));
+        if (controller->readDecodeType()
+            != static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16))
+            demoFail(QStringLiteral("default decode type is not UInt16"));
+        if (controller->readDecodeByteOrder() != 0)
+            demoFail(QStringLiteral("default byte order is not Normal"));
+
+        const QVariantList rows = controller->readResultValues();
+        const std::vector<std::uint16_t> expectedWords = {0x1234, 0xFFFF, 0x0080};
+        for (int i = 0;
+             i < int(expectedWords.size()) && i < rows.size(); ++i) {
+            const QVariantMap row = rows.at(i).toMap();
+            const int expectedDec = int(expectedWords[std::size_t(i)]);
+            if (row.value(QStringLiteral("dec")).toInt() != expectedDec)
+                demoFail(QStringLiteral("word %1: raw DEC=%2, expected %3")
+                             .arg(i)
+                             .arg(row.value(QStringLiteral("dec")).toInt())
+                             .arg(expectedDec));
+        }
+        // The details entry button must be reachable so Human can open the
+        // M11 decode controls.
+        auto *details = qobject_cast<QQuickItem *>(
+            findNamedItem(roots, QStringLiteral("readResultDetailsButton")));
+        if (!details || !details->isVisible())
+            demoFail(QStringLiteral("the read-result details entry is not "
+                                    "reachable"));
+
+        if (failures->isEmpty()) {
+            // Demo-mode window title (Human safety: unmistakable).
+            window->setTitle(
+                QStringLiteral("ModbusLens — M11 解码演示（模拟数据）"));
+            note(QStringLiteral(
+                "READY: synthetic register-read success; "
+                "values=0x1234,0xFFFF,0x0080; no real serial I/O"));
+            if (exitAfterReady)
+                window->close();
+        } else {
+            for (const QString &f : *failures)
+                qWarning().noquote()
+                    << QStringLiteral("DEMODECODE FAIL: %1").arg(f);
+        }
+    });
+
+    const int settleMs = 60;
+    auto step = std::make_shared<int>(0);
+    auto schedule = std::make_shared<std::function<void()>>();
+    *schedule = [&, step, schedule]() {
+        if (*step >= steps->size()) {
+            if (!failures->isEmpty()) {
+                app.exit(1);
+                return;
+            }
+            if (exitAfterReady) {
+                // The window->close() in stage 3 already ended the event
+                // loop; this is a safety net.
+                app.exit(0);
+                return;
+            }
+            // Human mode: keep the GUI running until Human closes the
+            // window. No further scheduled steps; the event loop stays alive.
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
 // M9-F F1 `--qml-focus-check`: keyboard focus / traversal guard for the
 // shell. Same architecture as the other QML harness modes: the REAL app
 // loads its own shipped QML and drives it through the same synthetic event
@@ -13874,6 +14061,13 @@ int main(int argc, char *argv[])
     // panel are measured in the configuration the product actually ships.
     if (app.arguments().contains(QStringLiteral("--qml-read-result-check"))) {
         return runReadResultCheck(engine, app);
+    }
+
+    // M11 first-slice Human visual demo: TEST-ONLY / DEMO-ONLY synthetic
+    // decode view (no real serial I/O). See runReadResultDemo for the
+    // safety boundary.
+    if (app.arguments().contains(QStringLiteral("--qml-read-result-demo"))) {
+        return runReadResultDemo(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.
