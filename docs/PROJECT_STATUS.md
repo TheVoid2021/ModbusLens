@@ -28,6 +28,8 @@ Human 明确授权（授权原文：「批准推进 LKGC 到 352b81c」）⇒ �
 acceptance matrix 第 14 项）。
 **当前 verified LKGC = `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`**（2026-09-24 由
 Human 明确授权推进；历史链 `fc86dcc` → `9bdd99c` → `d08ab55` → `352b81c`）。
+**〔2026-09-25 追加批注〕本行「当前 verified LKGC」已由 M11 LKGC ADVANCE 更新为
+`bc99e6ea871628a3a685b9cf80cf3840e7b3b171`（见顶部以本块为准批注）；本行转为历史链一环，原文保留。**
 该 LKGC 对应：**M10 COMPLETE · M10-F CLOSED · M10 Read Correction（T023 Part A–D）
 CLOSED / ACCEPTED** · Final accepted portable D =
 `D013B12FEB1BAB1AD10FEE80761AD57C8F2EF76DF474CEFA47A64F77B3FFBC65`（size 4406582；
@@ -96,7 +98,7 @@ Communication 页恒显结论行 + 有界可滚动证据对话框、`connectSeri
 REAL MODBUS HARDWARE = NOT VERIFIED；本轮未 package（无 windeployqt / make_package.py）；
 未 push / 未 tag / 未 amend；verified LKGC（当时未推进）—— 其后已由 Human 授权推进为
 `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`（见顶部 LKGC ADVANCE 批注）。**
-**〔已由上方 LKGC ADVANCE 批注更新〕当前 verified LKGC = `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`**（2026-09-24 由 Human 明确授权推进；历史链 `fc86dcc` → `9bdd99c` → `d08ab55` → `352b81c`；docs-only 提交永不作 LKGC）。本行此前记载的 `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`（2026-09-23 授权）转为历史链一环。历史原文保留不删（只增不改原则）。
+**〔已由上方 LKGC ADVANCE 批注更新〕当前 verified LKGC = `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`**（2026-09-24 由 Human 明确授权推进；历史链 `fc86dcc` → `9bdd99c` → `d08ab55` → `352b81c`；docs-only 提交永不作 LKGC）。本行此前记载的 `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`（2026-09-23 授权）转为历史链一环。历史原文保留不删（只增不改原则）。**〔2026-09-25 追加批注〕本行「当前 verified LKGC」已由 M11 LKGC ADVANCE 更新为 `bc99e6ea871628a3a685b9cf80cf3840e7b3b171`（见顶部以本块为准批注）；本行转为历史链一环，原文保留。**
 **〔2026-09-24 追加批注 · M11 START（CONTRACT DEFINITION · 以本块为准）〕**
 Human 明确授权（原文：「开始 M11」）⇒ **M11 = Register Readout & Decode 获得 START AUTHORIZATION**；本轮执行 M11 第一阶段 = **canonical scope / boundary / acceptance contract（docs-only）**，产品实现未开始。
 canonical contract = **`docs/tasks/T024-m11-register-readout-decode-contract.md`**（21 节，含 clarification log：canonical objective / repo basis / M10-M11 边界 / REQUIRED v1 / DEFERRED / OUT OF SCOPE / 数据类型矩阵 / byte·word order 术语 / decode failure model / UI 边界 / Function Code 边界 / raw-truth ownership / hardware policy / package policy / M10 regression contract / acceptance matrix A01–A31 / implementation entry gate / exit criteria / 待 Human 裁定项）。
