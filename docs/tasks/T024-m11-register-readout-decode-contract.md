@@ -945,3 +945,13 @@ REAL HARDWARE = NOT PERFORMED / NOT VERIFIED（NON-BLOCKING）
 package = NOT CREATED（非必需）
 M12 = NOT STARTED
 ```
+
+> **〔2026-09-25 治理批注 · LKGC ADVANCED〕** 上块中的 PROPOSED candidate 已由 Human
+> 明确批准（授权原文：「批准推进 LKGC 到
+> bc99e6ea871628a3a685b9cf80cf3840e7b3b171」）⇒ **verified LKGC =
+> bc99e6ea871628a3a685b9cf80cf3840e7b3b171**（前一 verified = 352b81c…；ancestry
+> 双向实测 exit 0；bc99e6e..HEAD 实测仅 docs/ 5 文件 ⇒ bc99e6e = FINAL M11
+> BEHAVIOR-BEARING TREE；其后 2f767d1 / cc9193d / 6550ca9 / 30332d2 均 docs-only，
+> 永不作 LKGC）。§28.2/§28.3 的证据边界不变：real hardware = NOT PERFORMED /
+> NOT VERIFIED（NON-BLOCKING）；Release 历史异常 = ONE NON-REPRODUCED HISTORICAL
+> FAILURE / root cause UNKNOWN。

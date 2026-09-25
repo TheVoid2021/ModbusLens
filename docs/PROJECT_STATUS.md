@@ -4,6 +4,24 @@
 **〔2026-09-23 追加批注 · 当前 verified LKGC〕** 下表首行为 M10-C closure 时点的**历史快照**（当时 = `fc86dcc`）。
 **〔2026-09-24 追加批注 · T023 Part B 实施轮（当前状态）〕** T023 契约已经 Human Review 三项裁定
 **〔2026-09-24 追加批注 · T023 Part C 实施轮（当前状态 · 以本块为准）〕** Human 新发现
+**〔2026-09-25 追加批注 · M11 LKGC ADVANCE（当前 verified LKGC 已推进 · 以本块为准）〕**
+Human 明确授权（授权原文：「批准推进 LKGC 到
+bc99e6ea871628a3a685b9cf80cf3840e7b3b171」）⇒ verified LKGC：
+`352b81c82d5efa9aac5418cccaaf1605a68cd9d3` →
+**`bc99e6ea871628a3a685b9cf80cf3840e7b3b171`**
+（历史链 `fc86dcc` → `9bdd99c` → `d08ab55` → `352b81c` → `bc99e6e`；
+ancestry 双向实测：352b81c ∈ bc99e6e 与 bc99e6e ∈ HEAD 均 exit 0）。
+candidate 复核（修改文档前，按实际 diff path）：`bc99e6e..HEAD` 仅 docs/ 5 文件
+（BACKLOG / INTERVIEW_NOTES / PROJECT_STATUS / devlog 2026-09-25 / T024；+324/−6），
+零 src / tests / CMakeLists.txt / qml / scripts 变化 ⇒ **bc99e6e = FINAL M11
+BEHAVIOR-BEARING TREE**；其后 4 提交（`2f767d1` / `cc9193d` / `6550ca9` / `30332d2`）
+均 docs-only，永不作 LKGC。该 LKGC 对应：M10 COMPLETE · **M11 = ✅ COMPLETE**
+（T024 §28 closure；alignment 滑动窗口逐行已追认 §27；Release 历史异常 =
+ONE NON-REPRODUCED HISTORICAL FAILURE / root cause UNKNOWN，§28.3 证据修正版）·
+M11 real-hardware = NOT PERFORMED / NOT VERIFIED（NON-BLOCKING）·
+M11 package = NOT CREATED / NOT REQUIRED · M12 = NOT STARTED。
+下方 2026-09-24 LKGC ADVANCE 批注自本批注起转为历史链一环
+（其「当前 verified LKGC = 352b81c…」为当时事实，保留不删）。
 **〔2026-09-24 追加批注 · LKGC ADVANCE（当前 verified LKGC 已推进 · 以本块为准）〕**
 Human 明确授权（授权原文：「批准推进 LKGC 到 352b81c」）⇒ 满足治理规则「verified LKGC
 的推进需 Human 授权」（T022 §ZE17 line 7794–7795 + AGENTS.md line 130 + M10-F
@@ -18,6 +36,7 @@ ZIP `852266176C96E472BDF839B2A4E57D9353587971057D254CFA4989A2B3289BD9` / 4108275
 `a494d9c` = historical intermediate behavior commit。**M11 = HOLD / NOT STARTED**。
 本批注仅记录 LKGC advancement authorization，不构成 push / tag / release / M11 授权。
 历史原文保留不删（只增不改原则）。
+**〔2026-09-25 追加批注〕上方「当前 verified LKGC」已再度由 M11 LKGC ADVANCE 更新为 `bc99e6ea871628a3a685b9cf80cf3840e7b3b171`（见顶部以本块为准批注）；本行转为历史链一环。**
 
 **〔2026-09-24 追加批注 · M10 Read Correction FINAL CLOSURE（当前状态 · 以本块为准）〕**
 Human 对 Final D（`D013B12FEB1BAB1AD10FEE80761AD57C8F2EF76DF474CEFA47A64F77B3FFBC65`，
@@ -85,7 +104,7 @@ canonical contract = **`docs/tasks/T024-m11-register-readout-decode-contract.md`
 **REAL HARDWARE 不作为 M11 closure hard gate；如执行属 supplementary / optional evidence（T024 新定义，subject to Human Review —— §ZE14 的 OPTIONAL 条款属 M10-F 上下文，未跨 milestone 继承）**；canonical package / portable Final D 是否为 M11 必需 = **repo 无明文**，由 Human 在 M11 acceptance 阶段裁定（本轮不执行任何 build/test/package）。
 **状态：M10 = COMPLETE；M10-F = CLOSED；M11 = STARTED（CONTRACT DEFINITION，Implementation = NOT STARTED，AWAITING HUMAN REVIEW OF CONTRACT）；verified LKGC = `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`（不变）。** 本批注不构成 push / tag / release / LKGC 授权。
 
-| Last Known Good Commit | **〔as-of 2026-09-24 · 当前〕** **V2 verified LKGC = `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`**（2026-09-24 Human 授权「批准推进 LKGC 到 352b81c」；对应 M10 COMPLETE / M10-F CLOSED / M10 Read Correction CLOSED-ACCEPTED / Final accepted portable D `D013B12F…B3FFBC65`；历史链 `fc86dcc` → `9bdd99c` → `d08ab55` → `352b81c`；`ed7625a`/`13e5a13`/本 governance commit 等 docs-only 提交永不作 LKGC）。历史快照如下：**〔as-of 2026-09-20 · 历史快照〕** **V2 verified LKGC = `fc86dcc`**（2026-09-20，M10-C closure：M10-C 的最后一个 fully accepted behavior-bearing tree —— Write Safety Foundation Final Acceptance；M10-C4 Final Re-review = PASS）。其行为树通过：`write_prepare` 32 passed、`active_request` 17 passed、`active_master` 54 passed、`ui_bridge` 59 passed；`qml_write_foundation_check` PASS（C01–C37 + E1/E2 + C4 geometry / scroll / boundary / keyboard，**zero write dispatch + zero write transaction**）、`qml_focus_check` PASS（prod-hidden 终证：675 对象扫描无 write 控件/无障碍节点/Tab 停靠点、startup 无 snapshot）、`qml_smoke` / `qml_nav_check` / `qml_geometry_check` PASS；**Debug ctest 31/31 PASS**、**Release ctest 31/31 PASS**。M10-C behavior chain = `7562678`（C1）→ `447e346`（C2）→ `0d5c219`（C3）→ `c50dbfe`（C3 correction）→ `fc86dcc`（C4 final acceptance），全部经 `git show --name-only` 实证为 behavior-bearing；**REAL HARDWARE NOT VERIFIED**（不阻塞软件范围 COMPLETE）。历史值：`ef71244`（M10-B closure）、`b7a6151`（M10-A closure）、`aa2f3db`（M9-F F3 closure）、`4cb6e9d`（M9-E E3 correction）、`07561d9`（M9-D D6 keyboard correction）、`bc754be`（M9-C C5）、`6cc84c3`、`207ae96`、`382ecfb`、`53685d5`、`189c62c`、`6562dd3`、`ae067ab`、`02ce302`、`cc8393a`、`99f17d6`、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`。docs/evidence-only commits（`2640556` / `0498d6c` / `3e7aaeb` / `86e88ed` / M10-A closure / M10-B closure / M10-C closure）**不作 LKGC**。**V1 tag `v1.0.0` = `ae067ab`（object `2cee626`；永久不变；V1 与 V2 的 LKGC 是两个概念）**。 |
+| Last Known Good Commit | **〔as-of 2026-09-25 · 当前〕** **V2 verified LKGC = `bc99e6ea871628a3a685b9cf80cf3840e7b3b171`**（2026-09-25 Human 授权「批准推进 LKGC 到 bc99e6ea871628a3a685b9cf80cf3840e7b3b171」；对应 M10 COMPLETE / **M11 COMPLETE** / M12 NOT STARTED；历史链 `fc86dcc` → `9bdd99c` → `d08ab55` → `352b81c` → `bc99e6e`；其后 `2f767d1`/`cc9193d`/`6550ca9`/`30332d2` 均 docs-only 永不作 LKGC）。**〔as-of 2026-09-24 · 历史快照〕** **V2 verified LKGC = `352b81c82d5efa9aac5418cccaaf1605a68cd9d3`**（2026-09-24 Human 授权「批准推进 LKGC 到 352b81c」；对应 M10 COMPLETE / M10-F CLOSED / M10 Read Correction CLOSED-ACCEPTED / Final accepted portable D `D013B12F…B3FFBC65`；历史链 `fc86dcc` → `9bdd99c` → `d08ab55` → `352b81c`；`ed7625a`/`13e5a13`/本 governance commit 等 docs-only 提交永不作 LKGC）。历史快照如下：**〔as-of 2026-09-20 · 历史快照〕** **V2 verified LKGC = `fc86dcc`**（2026-09-20，M10-C closure：M10-C 的最后一个 fully accepted behavior-bearing tree —— Write Safety Foundation Final Acceptance；M10-C4 Final Re-review = PASS）。其行为树通过：`write_prepare` 32 passed、`active_request` 17 passed、`active_master` 54 passed、`ui_bridge` 59 passed；`qml_write_foundation_check` PASS（C01–C37 + E1/E2 + C4 geometry / scroll / boundary / keyboard，**zero write dispatch + zero write transaction**）、`qml_focus_check` PASS（prod-hidden 终证：675 对象扫描无 write 控件/无障碍节点/Tab 停靠点、startup 无 snapshot）、`qml_smoke` / `qml_nav_check` / `qml_geometry_check` PASS；**Debug ctest 31/31 PASS**、**Release ctest 31/31 PASS**。M10-C behavior chain = `7562678`（C1）→ `447e346`（C2）→ `0d5c219`（C3）→ `c50dbfe`（C3 correction）→ `fc86dcc`（C4 final acceptance），全部经 `git show --name-only` 实证为 behavior-bearing；**REAL HARDWARE NOT VERIFIED**（不阻塞软件范围 COMPLETE）。历史值：`ef71244`（M10-B closure）、`b7a6151`（M10-A closure）、`aa2f3db`（M9-F F3 closure）、`4cb6e9d`（M9-E E3 correction）、`07561d9`（M9-D D6 keyboard correction）、`bc754be`（M9-C C5）、`6cc84c3`、`207ae96`、`382ecfb`、`53685d5`、`189c62c`、`6562dd3`、`ae067ab`、`02ce302`、`cc8393a`、`99f17d6`、`3572cf7`、`b322cc3`、`01841b1`、`9e79558`、`bb3f3b4`、`85699ff`、`06ef801`。docs/evidence-only commits（`2640556` / `0498d6c` / `3e7aaeb` / `86e88ed` / M10-A closure / M10-B closure / M10-C closure）**不作 LKGC**。**V1 tag `v1.0.0` = `ae067ab`（object `2cee626`；永久不变；V1 与 V2 的 LKGC 是两个概念）**。 |
 
 ## 状态面板
 
