@@ -785,6 +785,6 @@ if(BUILD_TESTING)
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
     set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_write_foundation_check_windows PROPERTIES
-        FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign"
+        FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign;String.arg..: Invalid arguments"
     )
 endif()

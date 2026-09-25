@@ -567,3 +567,39 @@ platform plugin failure。
 `commStartHexEcho` 的 `.arg(a, b)` 双参形式在 QML 引擎报
 `String.arg(): Invalid arguments`（自 `352b81c` T023 Part C 起存在于每次启动）；
 诊断三分类 0/0/0 未覆盖该 Error 类别。建议后续 correction 轮改为链式 `.arg()`。
+
+### W8. Correction — commStartHexEcho `.arg(a, b)` 运行时错误 + 门禁回归保护（behavior commit）
+
+> **Human Review 前置 blocker（§0–§4 确认）**：clean-env staging smoke 输出
+> `CommunicationPage.qml:333: Error: String.arg(): Invalid arguments`。逐字源文本（§3 七问）：
+> 表达式 = `qsTr("起始地址 HEX %1 ｜ %2").arg(previewStartHex, previewFunctionLabel)`（2 个占位符、
+> 2 个 string 参数）；求值时机 = **CommunicationPage 组件创建时**（text 绑定急切求值，与 visible 无关）；
+> **production-reachable = YES**（正常页面加载即触发；非 test-only synthetic state）。
+> 用户可见后果：`commStartHexEcho` 标签（起始地址 HEX 行）绑定失败、文本不渲染。
+> **根因**：QML 引擎的 `String.arg()` 仅支持**单参**调用（QTBUG-63263 一族）；
+> 多参形式在 Qt 6.11.1 运行时抛 `Invalid arguments`。
+> **修复（最小）**：改为链式 `.arg(a).arg(b)`（两参值均不含 %n，替换顺序无污染）；
+> 用户文案语义不变。
+
+**回归保护（§6）**：现有 ctest 诊断三分类（ReferenceError / TypeError / Unable to assign）
+通过 `FAIL_REGULAR_EXPRESSION` 实现；本轮把 `String.arg..: Invalid arguments`
+（无转义依赖的正则，两个 `.` 匹配字面括号）加入**同一**属性组（8 个 QML 门禁测试全部生效）。
+**负向对照（§7）**：临时恢复 `.arg(a, b)` 双参形式并重建 ⇒
+直接运行 gate 出现 **13 条** String.arg 错误；`ctest -R qml_read_result_check`
+**FAIL**（38 Failed / regex 命中）⇒ 还原修复后同一测试 **PASS**、错误计数 **0**。
+（教训：CMake 双引号串会把 `\(\)` 消费成 `()`，正则改用 escape-free 形式。）
+
+
+### W9. RCA 证据语义收紧 + staging 刷新（docs-only）
+
+**措辞更正（§11）**：上一节（W7）对 `D:\mingw64\bin\libstdc++-6.dll` 的描述收紧为——
+该 stale runtime 是**与 Human 三个 loader 错误完全吻合、且已在受控复现中（PATH 优先序）
+精确复现同一失败）的 offending candidate**；**Human 当次 Explorer 启动的 loaded-module path
+未被直接捕获**（无 loaded-module trace），故不断言它就是当次实际加载的那一份。
+
+**staging 刷新**：W8 行为修复改变 exe ⇒ 旧 staging（exe SHA BEB295BC…5128）**STALE 已废弃**；
+按 §13/§14 同法重新部署：新 exe = `build/m11-visual-candidate/ModbusLens.exe`
+（4,476,794 B，SHA-256 `5D38EB094AA6C3CEFC6F13C73BC62F7C606CE4A27AF9693224E03512BC1DD7EC`，
+source == staging byte-identical）；三个 MinGW runtime 仍与 GCC 13.1.0 工具链
+byte-identical；clean-env（PATH=System32;Windows）smoke / read-result（M6–M9）/
+production-write（R15/R16/R17）全部 exit 0 且 **String.arg errors = 0、0/0/0**。

@@ -330,9 +330,14 @@ Item {
                 Label {
                     objectName: "commStartHexEcho"
                     visible: requestPreviewPanel.previewOk
-                    text: qsTr("起始地址 HEX %1 ｜ %2").arg(
-                        requestPreviewPanel.previewStartHex,
-                        requestPreviewPanel.previewFunctionLabel)
+                    // The QML engine's String.arg() accepts only ONE argument
+                    // per call (multi-arg form throws "Invalid arguments" at
+                    // runtime), so the two placeholders are chained. The
+                    // chained values never contain %n, so the substitution
+                    // order cannot corrupt the second placeholder.
+                    text: qsTr("起始地址 HEX %1 ｜ %2")
+                              .arg(requestPreviewPanel.previewStartHex)
+                              .arg(requestPreviewPanel.previewFunctionLabel)
                     color: DS.textSecondary
                     font.pixelSize: 11
                     elide: Text.ElideRight
