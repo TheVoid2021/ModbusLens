@@ -562,3 +562,137 @@ M12-A second slice = IMPLEMENTED / AUTOMATED PASS（behavior 5d4d9c2）
 verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不推进；本行为提交仅为 M12 candidate）
 M12-B / C / D = NOT STARTED
 ```
+
+## 31. M12-B UI / Interaction Contract Freeze（2026-09-25，docs-only）
+
+> **Human 明确回复（原文）：「可以」⇒ 批准上一轮提出的 B1–B5 五项方向。**
+> 全部定性 = **HUMAN-APPROVED M12-B CONTRACT DECISIONS**（**非** pre-existing canonical requirement）。
+> 本轮 = docs-only contract round；**M12-B Implementation = NOT STARTED**。
+
+### 31.1 UI 架构审计（当前 HEAD 只读事实）
+
+| 项 | 事实 |
+| --- | --- |
+| 一级 workspace | rail 6 条目：事务(0) / 总览(1) / 通信(2) / 回放(3) / 诊断(4) / **设备(5)＝disabled 占位**（`Main.qml` `workspaceDeviceIndex: 5` 已预留；`workspaceHost` StackLayout 索引 5 无页面） |
+| 新 workspace 挂点 | **`workspaceHost` 索引 5**（既有常量 + rail 条目 + T017 已记录 Device 页任务模型）——无需新增导航概念 |
+| Communication 轻量 selector 位置候选 | Request PanelCard 或 `readResultPanel`（结论行）附近；未冻结，属候选 |
+| Read Result 现状 | `readResultPanel`（结论行 + 「查看详情」入口）→ `readResultDialog`（Popup）内含 `readDecodeControls`（解析类型 / 寄存器内字节顺序 / 32位寄存器顺序）与 `readResultValuesList`（每行 = `#n 地址(0xHEX) 值 DEC(HEX) 解析 <decoded> [范围 span]`）——**raw 与 generic decode 已同排两层** |
+| 现有 selector 先例 | `commPortCombo` / `commBaudCombo` / `readDecodeTypeCombo` 等非 editable ComboBox 模式可直接复用 |
+| session-state 先例 | `currentWorkspaceIndex`（rail 现值）；`readDecodeType/ByteOrder/WordOrder`（controller int 属性、越界写忽略、变更通知）——非持久化的 session 级状态模式 |
+| 1000×700 | 详情对话框已有可滚动值表（K gate：125 寄存器可滚动验证）；semantic 层必须沿用既有 dialog/可滚动区域，**不得**向主页新增整行控件 |
+
+### 31.2 Human-approved M12-B decisions（B1–B5）
+
+**B1 — Profile Editor IS A SEPARATE WORKSPACE（HUMAN-APPROVED）**
+- M12-B v1 Profile Editor 放在**独立的「Device Profile / 设备档案」workspace/page**；**不得**把完整 Profile Editor 塞进 Communication page；Communication 只允许轻量使用/选择 Profile。
+- 具体 navigation **label / icon / 排序位置** = repo 未冻结 ⇒ 可提候选，但**不得**升级为 Human-approved（见 §31.8 候选）。
+
+**B2 — Communication page has a LIGHTWEIGHT profile selector（HUMAN-APPROVED）**
+- 允许轻量「当前设备档案：[Profile ▼]」；语义冻结 = **用户人工选择当前 Profile**；**此处不是 Profile Editor**。
+- **不得**在 Communication page 堆 register map CRUD / JSON schema controls / AI candidate editor / manual import controls；Profile 的创建/编辑/删除属独立 Device Profile workspace。
+
+**B3 — RAW / GENERIC DECODE / PROFILE SEMANTIC REMAIN VISUALLY DISTINCT（HUMAN-APPROVED）**
+- 三层必须保留：Layer 1 Raw truth（raw DEC/HEX **必须继续可见**）→ Layer 2 M11 generic decode（**必须继续可见**）→ Layer 3 M12 profile semantic interpretation（**额外**解释层）。
+- **Semantic 不得替换 Raw；不得替换 M11 generic decoded value**；示例语义：Address 1000 → Raw `466 / 0x01D2` → Generic `UInt16 = 466` → Profile「输出频率」→ Semantic `46.6 Hz`。
+- **不得**让 QML 重新解码 wire bytes；**不得**让 Profile 改写 `TransactionAnalysis.values`。
+
+**B4 — UNMATCHED ADDRESS MUST BE EXPLICIT（HUMAN-APPROVED）**
+- 当前 selected Profile 未匹配某 PDU address 时：**不得**猜测 / 自动寻找其它 Profile / 自动 40001 转换 / 隐藏 raw row / 制造 semantic value。
+- 必须明确呈现「**未匹配设备档案**」或最终冻结的等价文案；本轮冻结语义 = **NO PROFILE MAPPING**；**精确中文 UI 文案为候选**（见 §31.8），**不得**伪装成 Human 逐字批准。
+
+**B5 — PROFILE SELECTION IS SESSION-LEVEL ONLY IN V1（HUMAN-APPROVED）**
+- 当前运行期间**记住**当前 selected Profile；人工选择。
+- v1 暂不做：COM port ↔ Profile 永久绑定 / 自动设备识别 / 自动按串口选 Profile / 自动按 response 猜 Profile。
+- **CROSS-RESTART RESTORE POLICY = NOT YET FROZEN**（既不实现 restore-last，也不冻结 always-none；HUMAN DECISION REQUIRED，见 P1-9）。
+
+### 31.3 Active Profile 语义（交互层冻结；service 不实现）
+
+- **Active Profile** = Human 在当前应用运行期间人工选择用于 semantic interpretation 的一个 Device Profile。
+- 概念状态必须支持：**No Profile Selected** / **Profile Selected** / **Selected Profile Missing/Unavailable**（如文件后来消失）。**具体 runtime service 本轮不实现**。
+- **禁止**任何自动化绑定：COM / Slave Address / FC / register response / manufacturer·model。
+
+### 31.4 Profile matching authority（沿用已冻结）
+
+- **PDU / 0-based address = 唯一内部地址权威**（M11/M12-A 已冻结）；合法 Profile span 无 overlap（§29）⇒ semantic mapping **deterministic**。
+- **禁止**自动 `40001 → 0` / `40002 → 1` 或任何 4xxxx alias mapping；**40001 manual display alias 保持 P1 / HUMAN DECISION REQUIRED**（§5/§24 出处），本轮不实现、不偷偷冻结。
+
+### 31.5 Read Result semantic matching（**未冻结项，突出**）
+
+- **`semantic result attaches to start row`（2-word entry 的 semantic value 挂在 start address 行、row 1001 只显示 raw + source-span indication）= 当前 T027 并未冻结** ⇒ 列为 **M12-B HUMAN DECISION REQUIRED（P1-1）**，**不得**写成 Human-approved。
+- 已冻结的只有 §29 的 lookup API 语义（`findProfileEntryByStartAddress` 精确 start；`findProfileEntryCoveringAddress` 覆盖 + `offsetWithinSpan`）；未来 UI 用哪种（或两者）由 P1-1 裁定。
+- 无论裁定如何：row 1001 **不得**伪装成另一个独立 Float32 semantic start；可显示「属于 1000–1001 的第二个 word」或等价 source-span indication（**文案/视觉形式未冻结**）。
+
+### 31.6 Profile Editor v1 capability（provenance 分层）
+
+- **Canonical** 要求 Profile Editor（`11_V2_UPGRADE_PLAN` §M12-B）；**Human 已批准独立 workspace**（B1）。
+- T027 §13 已冻结的**能力句**（引用原文）：「必须能由 Human 查看 / 新增 / 编辑 / 删除 profile metadata / register entries；必须能 Accept / Edit / Reject AI candidate（此项在 C 后接入）」。
+- 由此推导的最小 CRUD 清单（查看 Profile / 创建 / 编辑 identity / 删除 / 查看·新增·编辑·删除 register entry / 保存 / 加载打开 / 看到 validation error）= **PROPOSED M12-B V1 CAPABILITY — HUMAN REVIEW REQUIRED**（canonical「Profile Editor」的合理解释，非逐条 Human 批准）。
+- Register entry 编辑字段 = M12-A §9 REQUIRED 字段（address / name / description / dataType / registerCount·span / defaultByteOrder / defaultWordOrder / scale / offset / unit）；**不得**新增 40001 alias / read·write access / function-code metadata / bit definitions / vendor 字段（除非 Human 后续批准）。
+
+### 31.7 Editor UI 决策点（未冻结，HUMAN DECISION REQUIRED）
+
+- **registerCount 编辑方式**：A 用户可编辑但必须验证 vs B 由 dataType 自动派生（只读显示）——**不自行决定**（P1-2）。
+- **1-word 类型的 wordOrder control**：A 显示但 disabled/N-A vs B 隐藏 vs C 仍可编辑但无实际效果——**不自行决定**（P1-3）。
+- byteOrder 继续有效；Editor **不得**重新定义 M11 order semantics（只选择现有 `RegisterByteOrder` / `RegisterWordOrder`）。
+- scale / offset / unit：Editor 最终必须允许 Human 明确编辑三 metadata（§24.3 已冻结公式与默认值：scale=1 / offset=0 / unit=""；scale=0 legal；unit 自由文本；无 unit conversion）；**NaN/Inf 不得作为 JSON scale/offset**（M12-A 有限数值要求，不改变）。
+
+### 31.8 Selector / 文案候选（NOT FROZEN）
+
+- Selector 候选状态：`未选择设备档案` / `<displayName>`。**内部身份必须用 profileId**；同名 displayName 的消歧方式（如 displayName + model / secondary text）未冻结（P1-10）。Selector **不得**把 filename/hash 当主要 Human-visible 名称。
+- B4 文案候选：`未匹配设备档案` / `无设备档案映射`；Navigation label 候选：`设备档案`（rail 现为「设备」）；icon / 排序位置均未冻结。
+
+### 31.9 File management / 未保存改动 / 生命周期（未冻结清单）
+
+- 文件管理（P1-4/P1-5）：New / Open / Save 之外是否需要 **Save As / Export**；**删除** = 删除 Profile 文件 vs 仅从当前列表移除 + 是否需要确认——均未冻结。**不实现** filesystem picker。
+- 未保存改动（P1-6）：MANUAL SAVE 已冻结（§24.2）⇒ 切换 Profile / 关闭 Editor / 退出程序时的 **Save / Discard / Cancel** 行为未冻结。
+- 生命周期（P1-7/P1-8/P1-9）：打开/编辑 Profile 是否自动成为 active；删除当前 active Profile 后 active selection 处理；app restart 是否恢复 last active——均未冻结（B5 明确不实现 restore、也不冻结 always-none）。跨 workspace 是否保持：**建议保持**（session 级），但同样待 Human 确认。
+
+### 31.10 M12-B acceptance matrix — **DRAFT / PENDING HUMAN REVIEW**
+
+> 以下全部 = **DRAFT**；**不得**写成 implementation PASS。
+
+| ID | 场景 |
+| --- | --- |
+| B01 | Device Profile workspace reachable（rail index 5） |
+| B02 | create profile |
+| B03 | edit identity |
+| B04 | register entry add |
+| B05 | register entry edit |
+| B06 | register entry delete |
+| B07 | validation visible |
+| B08 | manual save |
+| B09 | load / open |
+| B10 | Communication Profile selector 存在 |
+| B11 | No Profile Selected state |
+| B12 | manual Profile selection |
+| B13 | selected profile session persistence（process 生命周期内、跨 workspace） |
+| B14 | no automatic device inference |
+| B15 | raw remains visible |
+| B16 | M11 generic decode remains visible |
+| B17 | semantic layer separate（三层视觉区分） |
+| B18 | matched register semantic name / value / unit |
+| B19 | unmatched address explicit（NO PROFILE MAPPING） |
+| B20 | profile never changes raw / decode |
+| B21 | 2-word source span represented honestly（挂行规则待 P1-1） |
+| B22 | no automatic 40001 mapping |
+| B23 | 1000×700 |
+| B24 | QML diagnostics clean |
+| B25 | M10 / M11 regression protected |
+
+### 31.11 Remaining P1（压缩；表述 = HUMAN DECISION REQUIRED）
+
+| ID | 问题 | 出处 |
+| --- | --- | --- |
+| P1-1 | 2-word semantic value 挂哪一行？建议 start row（**未冻结**） | §31.5 |
+| P1-2 | registerCount：editable+validation vs derived/read-only？ | §31.7 |
+| P1-3 | 1-word 类型 wordOrder control：disabled / hidden / editable？ | §31.7 |
+| P1-4 | 文件 UX 是否需要 Save As / Export？ | §31.9 |
+| P1-5 | 删除 Profile 的语义与确认机制？ | §31.9 |
+| P1-6 | unsaved changes：Save / Discard / Cancel？ | §31.9 |
+| P1-7 | 打开/编辑 Profile 是否自动成为 active？ | §31.9 |
+| P1-8 | 删除 active Profile 后 active selection 怎么办？ | §31.9 |
+| P1-9 | app restart 是否恢复 last active Profile？ | §31.2 B5 |
+| P1-10 | 同名 displayName selector 怎么区分？ | §31.8 |
+| P1-11 | 40001 manual display alias 是否进入 M12-B v1？（contract 已标 P1） | §5/§24 |
+| P1-12 | read/write access metadata 是否进入 v1？（contract 已标 P1） | §9 |
+| P1-13 | function-code / register-family metadata 是否进入 v1？（contract 已标 P1） | §9 |
