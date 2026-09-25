@@ -500,3 +500,65 @@ M12-B / C / D = NOT STARTED
 - 与 T027 §24.3 冻结原文「**IEEE 自然传播**」逐字一致 ⇒ **本轮不重写 `profileSemanticValue` 数学规则**；
 - **FUTURE PRESENTATION POLICY**（未冻结）：将来 presentation 必须基于**数值 classification**（Finite /
   NaN / PositiveInfinity / NegativeInfinity），不得把 special 格式化成普通 finite number；本轮不做 UI。
+
+## 30. M12-A Second Slice — Lookup / Query Foundation Archive（2026-09-25，behavior-bearing）
+
+> **M12-A second slice = IMPLEMENTED / AUTOMATED PASS。** 行为提交 =
+> `5d4d9c28b0904610eaacd3dbd27a9281328c2b86`（「M12: harden profile lookup foundation」；
+> docs-freeze 先行 = `aff67a7c0afa0d2a7892015fafb499f3942bf8f2`）。
+> **Human visual review = NOT REQUIRED**（零 UI，不制造 Human PASS）。
+
+### 30.1 Span overlap 实现（§29.1 落地）
+
+- `validateDeviceProfile` 维护已接受 entry 的闭区间 `[start, start+count−1]`，逐条与新 entry 比较：
+  **同 start → `duplicate_address`**（保持）；**区间相交（不同 start）→ 新错误码 `overlapping_span`**；
+  均携带可定位 `registerIndex`。计算在 `registerCount` 已校验为 1/2 之后进行（int 无溢出面）。
+- 验证：OV01–OV08（含 JSON load 拒绝整个 profile、无部分应用）、L17；实现侧无 priority / alias / winner。
+
+### 30.2 Path-safety hardening 实现（§29.2 落地）
+
+- `ProfileStore::defaultFilePathFor(profileId)` = `profile-<sha256(profileId UTF-8) 64 位小写 hex>.json`
+  （`QCryptographicHash`，零第三方库）；**profileId 语义不变**（无字符集限制/不强制 UUID；JSON 内保持原值——
+  PS08 证明 `"../escape"` round-trip 原样）。
+- 验证：PS01–PS10（含 `../escape`、`..\escape`、`a/b\c`、`CON`/`NUL`/`COM1`/`a:b`/`*?<>|`、Unicode、
+  `C:/evil`、`..\..\escape` 全部 containment 通过；文件名形状 regex `^profile-[0-9a-f]{64}\.json$`）。
+
+### 30.3 Lookup / Query foundation 实现（§8–§10 落地）
+
+- core 纯函数：`findProfileEntryByStartAddress`（仅精确 start）/ `findProfileEntryCoveringAddress`
+  （span 覆盖 + `offsetWithinSpan`）；两者**先 validation**——无效或重叠 profile 返回 `InvalidProfile`
+  （绝不随机选一个，L19）；`Ambiguous` 保留为 defensive-only 状态（合法 v1 profile 不可达，L18 扫描证明）。
+- 验证：L01–L19（含 empty profile、0/65535 边界、不改 profile、不碰 M11 decode、确定性、metadata 保真）。
+
+### 30.4 Semantic projection foundation 实现（§11 落地）
+
+- `projectProfileSemanticValue(entry, decodedScalar)`：冻结公式 + **数值分类**
+  （`Finite` / `NotANumber` / `PositiveInfinity` / `NegativeInfinity`，绝不从文本反推）+ unit 原样拷贝；
+  纯函数——无 RTU/CRC/TX/RX/M11 调用、不改 raw/decoded/entry。
+- 验证：S01–S12（含 46.6、205、scale=0、负值/负 scale、unit 空/自由文本、NaN/±Inf 分类、
+  Inf×0 → NaN 的 IEEE 行为、双不变性）。
+
+### 30.5 测试 / 负向对照 / 回归（真实数字）
+
+```text
+device_profile = 82 passed（P01–P29 + OV01–08 + PS01–10 + L01–L19 + S01–S12 + v1/v2 + init/cleanup）
+负向对照（真实 mutate → FAIL → 恢复，无 mutation 提交）：
+  NC-O（移除 overlap 检查）→ OV01/02/06/07/08、L17、L19（7 FAIL）
+  NC-P（恢复 raw filename）→ PS01/02/04/05/08/09/10（7 FAIL，含真实 ../escape 逃逸）
+  NC-L1（covering 只比 start）→ L05/L06/L18（3 FAIL）
+  NC-L2（公式反序）→ p27/p28/S02/S03（4 FAIL）
+Debug build 0 error + ctest 42/42；Release build 0 error + ctest 42/42（M10/M11 与 QML gates 全绿）
+NaN/±Inf：接受 audit 结论，未重写 profileSemanticValue 数学规则（§29.3）
+```
+
+### 30.6 状态
+
+```text
+M12-A second slice = IMPLEMENTED / AUTOMATED PASS（behavior 5d4d9c2）
+未做（按范围）：QML / Editor / overlay / active-profile selector / AI / manual import / Q&A /
+  40001 alias / access·function metadata / bit fields / Float64 / String / unit conversion /
+  device inference / writeback
+未 package（M11 final package 保持历史 VERIFIED）
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不推进；本行为提交仅为 M12 candidate）
+M12-B / C / D = NOT STARTED
+```
