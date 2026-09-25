@@ -450,3 +450,53 @@ M12-A first slice = IMPLEMENTED / AUTOMATED PASS（behavior 1c42aaf）
 verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不推进；本行为提交仅为 M12 candidate）
 M12-B / C / D = NOT STARTED
 ```
+
+## 29. Span-Overlap Decision + Path-Safety Hardening（2026-09-25，HUMAN-APPROVED，docs-only freeze）
+
+### 29.1 Human decision：M12 v1 rejects every cross-entry address-range overlap
+
+> **Human 明确裁定（HUMAN-APPROVED M12 CONTRACT DECISION）：M12 v1 禁止任何 Register Entry span overlap。**
+>
+> **Provenance（诚实记录，不重写历史原文）**：此前 T027 §26 只逐字写了「重复 address = validation
+> error（…；**重叠 span 待 Human 后续单独扩展**）」——即 overlap 当时是**显式 deferral**，既未冻结为
+> 拒绝也未冻结为允许（审计轮 §3 结论）。**本轮 Human 才正式裁定**：M12 v1 rejects every cross-entry
+> address-range overlap。§26 原句按只增不改原则保留于上文。
+
+**冻结规则**：
+
+- 每个 `RegisterEntry` 占用闭区间 **[startAddress, startAddress + registerCount − 1]**；
+- **任意两个合法 entry 的上述闭区间不得有任何交集**（例：`UInt32@1000`（1000–1001）+ `UInt16@1001` = **validation FAIL**；`UInt32@1000` + `UInt32@1001` = **FAIL**；`UInt32@1000`（1000–1001）+ `UInt16@1002` = **PASS**）；
+- **duplicate start address 自然仍为 FAIL**；
+- 核心不变式：**ONE PDU ADDRESS BELONGS TO AT MOST ONE ENTRY SPAN**；
+- **不得**自行增加 priority / alias resolution / multiple-match selection / ambiguous winner；
+- 未来如需「同址多视图」：**另立 Alias / Alternative View contract**，不在 M12 v1 普通 RegisterEntry 中实现。
+
+**错误码（冻结）**：`duplicate_address` 继续表示**精确 start address 重复**；**cross-span overlap 使用新
+错误码 `overlapping_span`**（不复用 duplicate_address 隐藏两种原因）；错误至少携带可定位的 entry index。
+
+### 29.2 Path-safety hardening（Human 同意 = persistence hardening，非产品语义变更）
+
+> **背景（审计轮 §5 只读结论）**：`defaultFilePathFor(profileId)` 曾直接拼接 `profileId + ".json"`；
+> Qt 官方文档逐字：「Redundant multiple separators or "." and ".." directories in fileName are
+> **not removed**」⇒ `profileId = "../escape"` 可令默认目标逃出 `profiles` 根目录（API 层潜伏缺陷，
+> 当时无生产调用链）。
+
+**Human 批准的最小修复（不改变 profileId 产品语义）**：
+
+- `profileId` **仍是逻辑身份字符串**（不新增字符集限制、不强制 UUID-only、不改 JSON 内 profileId 值）；
+- **默认 persistence filename** = `profileId` **UTF-8 字节的稳定 SHA-256** 派生：
+  `profile-<64 位小写 hex>.json`（例：逻辑 `profileId="任意非空字符串"` → 内部默认文件名
+  `profile-<sha256>.json`）；实现用 Qt `QCryptographicHash`（Sha256），无第三方库；
+- 要求：same profileId → same filename；different ids → different filename；filename 只能包含
+  固定 prefix + hex digits + `.json` ⇒ `../`、`\`、`/`、`CON`、`NUL`、`:`、Unicode 均**不能**改变目录结构；
+- **防御性 containment assertion/test**：最终默认目标必须位于 `QStandardPaths::AppDataLocation/profiles` 之下；
+- **不得**把 hash 当作新的 profileId、不得改 JSON 内 profileId、不得引入第三方库；
+- 定性 = **M12 IMPLEMENTATION CONTRACT DETAIL（persistence hardening）**；错误码与 validation 语义不变。
+
+### 29.3 NaN / ±Inf 审计结论（接受，不重写数学规则）
+
+- CORE IEEE behavior = **PASS**（audit 轮矩阵：special in → special out 成立，10 例无一得到有限结果）；
+- `NaN → NaN`（全 scale）；`±Inf × 1/2 → ±Inf`；`Inf × 0 → NaN`（IEEE）；负 scale 可翻转 infinity sign；
+- 与 T027 §24.3 冻结原文「**IEEE 自然传播**」逐字一致 ⇒ **本轮不重写 `profileSemanticValue` 数学规则**；
+- **FUTURE PRESENTATION POLICY**（未冻结）：将来 presentation 必须基于**数值 classification**（Finite /
+  NaN / PositiveInfinity / NegativeInfinity），不得把 special 格式化成普通 finite number；本轮不做 UI。
