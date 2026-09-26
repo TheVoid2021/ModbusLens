@@ -62,11 +62,66 @@ ApplicationWindow {
     palette.mid: root.border
     background: Rectangle { color: root.pageBackground }
 
+    // M12-B (T027 §33.2): closing the app with an unsaved profile draft must
+    // offer Save / Discard / Cancel. Cancel and a failed Save genuinely block
+    // the close (close.accepted = false); Discard proceeds. Other pages have
+    // no unsaved state, so they never intercept closing.
+    onClosing: function(close) {
+        if (profileController.hasOpenProfile && profileController.dirty) {
+            close.accepted = false
+            profileExitDialog.open()
+        }
+    }
+
+    Dialog {
+        id: profileExitDialog
+        objectName: "profileExitDialog"
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        anchors.centerIn: parent
+        width: 380
+        title: qsTr("未保存修改")
+
+        ColumnLayout {
+            width: parent.width
+            Label {
+                text: qsTr("设备档案有未保存修改。退出前要如何处理？")
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+        }
+        footer: DialogButtonBox {
+            AppButton {
+                objectName: "profileExitSaveButton"
+                text: qsTr("保存")
+                onClicked: {
+                    if (profileController.saveCurrent())
+                        root.close()
+                }
+            }
+            AppButton {
+                objectName: "profileExitDiscardButton"
+                text: qsTr("放弃修改")
+                onClicked: root.close()
+            }
+            AppButton {
+                objectName: "profileExitCancelButton"
+                text: qsTr("取消")
+                onClicked: profileExitDialog.close()
+            }
+        }
+    }
+
     AnalysisController {
         id: analysisController
         // Test seam (nav check reads authoritative properties/calls
         // existing invokable commands through this name).
         objectName: "analysisController"
+    }
+
+    ProfileController {
+        id: profileController
+        objectName: "profileController"
     }
 
     // ------------------------------------------------------------------
@@ -267,6 +322,14 @@ ApplicationWindow {
                     enabled: workspaceHost.currentIndex === workspaceDiagnosisIndex
                 }
 
+                // Device Profile workspace (M12-B first slice, T027 §31/§33):
+                // profile identity + file lifecycle. Index 5 = the reserved
+                // 设备 rail entry, which this slice enables.
+                DeviceProfilePage {
+                    objectName: "deviceProfileWorkspace"
+                    profileController: profileController
+                    enabled: workspaceHost.currentIndex === workspaceDeviceIndex
+                }
             }
         }
     }

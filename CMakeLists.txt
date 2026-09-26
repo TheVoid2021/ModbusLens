@@ -77,6 +77,10 @@ configure_file(
     "${MODBUSLENS_GENERATED_DIR}/modbuslens_version.h"
 )
 target_include_directories(modbuslens PRIVATE "${MODBUSLENS_GENERATED_DIR}")
+# M12-B: the qmltyperegistrar generates <ProfileController.h> for the
+# QML_ELEMENT type in this subdirectory; without this include path the
+# generated __has_include fails and the type is never registered.
+target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/profile")
 if(WIN32)
     set(MODBUSLENS_ICO_PATH
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/brand/windows/ModbusLens.ico")
@@ -118,11 +122,14 @@ qt_add_qml_module(modbuslens
         src/ui/qml/pages/ReplayPage.qml
         src/ui/qml/pages/DiagnosisPage.qml
         src/ui/qml/pages/TransactionsPage.qml
+        src/ui/qml/pages/DeviceProfilePage.qml
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
         src/ui/TransactionListModel.h
         src/ui/TransactionListModel.cpp
         src/ui/serial/SerialTransport.h
@@ -458,6 +465,26 @@ if(BUILD_TESTING)
 
     add_test(NAME device_profile COMMAND modbuslens_device_profile_tests)
 
+    # M12-B first slice: the UI-layer profile controller (catalog + identity
+    # draft + dirty state + file lifecycle), driven against an injected
+    # temporary managed root (never the real user data directory).
+    add_executable(modbuslens_profile_controller_tests
+        tests/test_profile_controller.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp)
+    target_link_libraries(modbuslens_profile_controller_tests PRIVATE
+        modbuslens_core Qt6::Qml Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_profile_controller_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME profile_controller
+             COMMAND modbuslens_profile_controller_tests)
+
     # M10-E2: the FC16/0x10 ACTIVE response suite (shared analyzer, framing,
     # error classes, single in-flight, support matrix). Kept as its own target
     # so the FC06 suite stays readable.
@@ -767,6 +794,11 @@ if(BUILD_TESTING)
     add_test(NAME qml_read_result_demo32
         COMMAND modbuslens --qml-read-result-demo32 --demo-exit-after-ready)
 
+    # M12-B first slice gate: the Device Profile workspace (rail index 5)
+    # driven end to end against an injected temporary managed root.
+    add_test(NAME qml_profile_editor_check
+        COMMAND modbuslens --qml-profile-editor-check)
+
     # All QML gates above run under QT_QPA_PLATFORM=offscreen so they stay
     # headless-safe. Offscreen, however, does NOT use the shipped font
     # metrics: measured on the same binary, a line of text is 12px offscreen
@@ -798,7 +830,7 @@ if(BUILD_TESTING)
     # in the diagnostics text is invisible here while it still fails the
     # shipping gate (scripts/make_package.py minimal_path_run greps the
     # captured stdout+stderr of the extracted package).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge register_decode device_profile replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge register_decode device_profile profile_controller replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
@@ -818,7 +850,7 @@ if(BUILD_TESTING)
     #   Unable to assign           : a failed binding assigning undefined to a
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_write_foundation_check_windows PROPERTIES
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign;String.arg..: Invalid arguments"
     )
 endif()

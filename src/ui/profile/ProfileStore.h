@@ -65,10 +65,22 @@ struct ProfileLoadResult {
 class ProfileStore
 {
 public:
+    // M12-B test/automation injection (T027 §36): when non-empty, ALL managed
+    // directory/file resolution uses this root instead of the platform
+    // user-data location, so automated tests and QML gates can never touch a
+    // real user's profiles. Empty (the default) restores production behavior.
+    static void setManagedRootOverride(const QString &dir);
+    [[nodiscard]] static QString managedRootOverride();
+
     // <application user-data dir>/profiles — absolute, user-scoped, created on
     // demand by saveToFile (never at query time).
     [[nodiscard]] static QString defaultProfilesDirectory();
-    // <profiles dir>/profile-<sha256(profileId UTF-8)>.json (T027 §29.2,
+
+    // The directory managed persistence actually uses right now: the override
+    // when set, otherwise defaultProfilesDirectory().
+    [[nodiscard]] static QString managedProfilesDirectory();
+    // <managed profiles dir>/profile-<sha256(profileId UTF-8)>.json (T027
+    // §29.2,
     // HUMAN-APPROVED persistence hardening). The profileId remains a LOGICAL
     // identity: it is never written into the path, so "../", separators,
     // Windows reserved names, ":" and Unicode cannot change the directory

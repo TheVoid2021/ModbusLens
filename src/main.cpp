@@ -32,6 +32,10 @@
 #include <QStringList>
 #include <QTextStream>
 #include <QTimer>
+#include <QTemporaryDir>
+#include <QStandardPaths>
+#include "core/profile/DeviceProfile.h"
+#include "ui/profile/ProfileStore.h"
 
 #include <functional>
 
@@ -1597,6 +1601,8 @@ QStringList runShellNavAssertions(const QList<QObject *> &roots,
             fail(QStringLiteral("NAV navItem_%1 not found").arg(i));
             continue;
         }
+        if (i == 5)
+            continue; // M12-B: Device is now the profile workspace (enabled)
         if (item->property("enabled").toBool())
             fail(QStringLiteral("NAV navItem_%1 (future workspace) must stay "
                                 "disabled until its extraction step")
@@ -4353,9 +4359,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             if (!device)
                 fail(QStringLiteral("NAVFAIL scenario S2: navItem_5 (Device) "
                                     "not found"));
-            else if (device->property("enabled").toBool())
+            else if (!device->property("enabled").toBool())
                 fail(QStringLiteral("NAVFAIL scenario S2: navItem_5 (Device) "
-                                    "must stay disabled"));
+                                    "must be enabled (M12-B profile "
+                                    "workspace)"));
             if (rootObj->property("workspaceTransactionsIndex").toInt() != 0
                 || rootObj->property("workspaceDeviceIndex").toInt() != 5)
                 fail(QStringLiteral("NAVFAIL scenario S2: the centralized index "
@@ -4368,7 +4375,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             qInfo().noquote()
                 << QStringLiteral("NAV [scenario S2]: rail = Transactions(0) "
                                   "Dashboard(1) Communication(2) Replay(3) "
-                                  "Diagnosis(4) Device(5, disabled)");
+                                  "Diagnosis(4) Device(5, M12-B)");
             break;
         }
         case 149: {
@@ -4462,12 +4469,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 rail->property("currentWorkspaceIndex").toInt();
             if (!device || !QMetaObject::invokeMethod(device, "activate"))
                 fail(QStringLiteral("NAVFAIL scenario S7: the Device entry "
-                                    "activation path is not invokable — the "
-                                    "guard would be vacuous"));
-            if (rail->property("currentWorkspaceIndex").toInt() != before)
+                                    "activation path is not invokable"));
+            if (rail->property("currentWorkspaceIndex").toInt() == before)
                 fail(QStringLiteral("NAVFAIL scenario S7: the Device activation "
-                                    "changed currentWorkspaceIndex (%1 -> %2)")
-                         .arg(before)
+                                    "did NOT change currentWorkspaceIndex "
+                                    "(%1 — expected 5)")
                          .arg(rail->property("currentWorkspaceIndex").toInt()));
             endScenario(QStringLiteral("S"));
             qInfo().noquote()
@@ -4475,7 +4481,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                   "(startup=Transactions at 0 / compact rail / "
                                   "no legacy runtime objects / child 0 owns the "
                                   "presentation / five-workspace round trip "
-                                  "neutral / Device activation inert)");
+                                  "neutral / Device opens profile workspace)");
             break;
         }
 
@@ -12682,36 +12688,41 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
     }
 
-    // FF: the disabled Device entry stays unreachable and inert.
+    // FF: the Device entry hosts the M12-B profile workspace and behaves like
+    // every other rail entry (enabled, keyboard-activatable, click activates).
     push([&]() {
         auto *device = itemOf(QStringLiteral("navItem_5"));
         if (!device) {
             fail(QStringLiteral("FOCUSFAIL FF: navItem_5 not found"));
             return;
         }
-        if (device->property("enabled").toBool())
-            fail(QStringLiteral("FOCUSFAIL FF: Device entry is enabled"));
-        if (device->property("activeFocusOnTab").toBool())
-            fail(QStringLiteral("FOCUSFAIL FF: Device entry is a Tab stop"));
+        if (!device->property("enabled").toBool())
+            fail(QStringLiteral("FOCUSFAIL FF: Device entry is not enabled"));
         selectWorkspace(2);
         anchorFocus();
         QStringList chain;
         QList<int> pages;
         walkTabs(16, true, chain, pages);
+        int devicePress = -1;
         for (int i = 0; i < chain.size(); ++i) {
-            if (chain.at(i) == QStringLiteral("navItem_5"))
-                fail(QStringLiteral("FOCUSFAIL FF: Device entry appeared in the "
-                                    "Tab chain at press %1").arg(i + 1));
+            if (chain.at(i) == QStringLiteral("navItem_5")) {
+                devicePress = i;
+                break;
+            }
         }
+        if (devicePress < 0)
+            fail(QStringLiteral("FOCUSFAIL FF: Device entry never reached in "
+                                "the Tab chain"));
         const int before = railIndex();
         clickItemPoint(device);
-        if (railIndex() != before)
-            fail(QStringLiteral("FOCUSFAIL FF: clicking Device changed the "
-                                "workspace index %1 -> %2")
-                     .arg(before).arg(railIndex()));
+        if (railIndex() != 5)
+            fail(QStringLiteral("FOCUSFAIL FF: clicking Device did not open "
+                                "the profile workspace (index %1)")
+                     .arg(railIndex()));
         else
-            note(QStringLiteral("FOCUS [FF] PASS: Device disabled, not a Tab "
-                                "stop, inert on click (index stays %1)").arg(before));
+            note(QStringLiteral("FOCUS [FF] PASS: Device entry enabled and "
+                                "activating (index %1 -> 5, tab press %2)")
+                     .arg(before).arg(devicePress + 1));
     });
 
     // FC: hidden retained focus (scope C, H1S oracle).
@@ -14317,6 +14328,472 @@ static int runSerialHotplugProbe(const QStringList &arguments)
     return QCoreApplication::exec();
 }
 
+// ---------------------------------------------------------------------------
+using modbuslens::core::DeviceProfile;
+using modbuslens::core::RegisterDecodeType;
+using modbuslens::core::RegisterEntry;
+using modbuslens::ui::ProfileStore;
+
+// M12-B first slice `--qml-profile-editor-check`: an automated end-to-end
+// gate for the Device Profile workspace (rail index 5). It drives the REAL
+// app QML through the REAL rail navigation and exercises the identity/file
+// lifecycle against an INJECTED temporary managed root — automated tests must
+// never touch a real user's profile data (T027 §36).
+//
+// Covered (B1-Q01..Q22): reachability, empty state, New, read-only profileId,
+// editable identity, dirty indication, Save, catalog appearance, Open,
+// validation display, Delete confirmation, dirty Open (Cancel/Discard/Save),
+// malformed-catalog warning, 1000×700 reachability, keyboard, existing
+// workspaces unaffected, and the exit dirty guard (Cancel blocks close).
+// ---------------------------------------------------------------------------
+int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    auto *controller = rootObj
+                           ? rootObj->findChild<QObject *>(
+                               QStringLiteral("profileController"))
+                           : nullptr;
+    if (!window || !controller) {
+        qWarning().noquote()
+            << QStringLiteral("PROFFAIL: window/controller not found");
+        return 1;
+    }
+
+    // Injected managed root: a fresh temporary directory per run. The gate
+    // writes ONLY here; the production AppData profiles location is never
+    // touched (asserted in stage 1).
+    QTemporaryDir managedRoot;
+    if (!managedRoot.isValid()) {
+        qWarning().noquote() << QStringLiteral("PROFFAIL: temp root invalid");
+        return 1;
+    }
+    ProfileStore::setManagedRootOverride(managedRoot.path());
+    const auto writeSeedProfile = [&](const QString &profileId,
+                                      const QString &displayName) {
+        DeviceProfile profile;
+        profile.schemaVersion = 1;
+        profile.profileId = profileId.toStdString();
+        profile.displayName = displayName.toStdString();
+        RegisterEntry entry;
+        entry.readFunctionCode = 0x03;
+        entry.address = 1000;
+        entry.name = "Frequency";
+        entry.dataType = RegisterDecodeType::UInt16;
+        entry.registerCount = 1;
+        profile.registers.push_back(entry);
+        return ProfileStore::saveToFile(
+                   profile, ProfileStore::defaultFilePathFor(profileId))
+            .ok();
+    };
+    if (!writeSeedProfile(QStringLiteral("seed-existing"),
+                          QStringLiteral("Existing inverter"))) {
+        qWarning().noquote() << QStringLiteral("PROFFAIL: seed write failed");
+        return 1;
+    }
+    // A malformed managed file: must NOT block valid profiles and must surface
+    // as an observable issue (B1-Q19), never silently ignored or deleted.
+    {
+        QFile bad(QDir(managedRoot.path())
+                      .filePath(QStringLiteral("profile-badbadbadbadbadbadbad"
+                                                "badbadbadbadbadbadbadbadbad"
+                                                "badbadbadbadbadbad.json")));
+        if (!bad.open(QIODevice::WriteOnly)) {
+            qWarning().noquote()
+                << QStringLiteral("PROFFAIL: cannot write malformed seed");
+            return 1;
+        }
+        bad.write("{\"schemaVersion\":1,\"profileId\":");
+        bad.close();
+    }
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &m) {
+        qInfo().noquote() << QStringLiteral("PROF: %1").arg(m);
+    };
+
+    auto itemOf = [&roots](const QString &name) {
+        return findNamedItem(roots, name);
+    };
+    const auto propStr = [](QObject *o, const char *name) {
+        return o ? o->property(name).toString() : QStringLiteral("<none>");
+    };
+    const auto propBool = [](QObject *o, const char *name) {
+        return o ? o->property(name).toBool() : false;
+    };
+    const auto visibleOf = [&roots](const QString &name) -> bool {
+        // Dialogs are QQuickPopup (QObject-only, NOT a QQuickItem): read the
+        // visible property through the QObject tree.
+        for (QObject *root : roots) {
+            auto *popup = root->findChild<QObject *>(name);
+            if (popup)
+                return popup->property("visible").toBool();
+        }
+        // Fall through to the QQuickItem path for regular items.
+        return false;
+    };
+    const auto itemVisibleOf = [&itemOf](const QString &name) -> bool {
+        auto *item = itemOf(name);
+        return item && item->isVisible();
+    };
+    const auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = findNamedItem(roots, name);
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    const auto setField = [&roots](const QString &name, const QString &text) {
+        auto *field = findNamedItem(roots, name);
+        if (!field) {
+            return false;
+        }
+        field->setProperty("text", text);
+        return true;
+    };
+    const auto catalogRow = [&controller](int index,
+                                          const char *key) -> QString {
+        const QVariantList catalog =
+            controller->property("profileCatalog").toList();
+        if (index < 0 || index >= catalog.size()) {
+            return QStringLiteral("<none>");
+        }
+        return catalog.at(index).toMap().value(key).toString();
+    };
+    const auto selectCatalogRow = [&](int index) -> bool {
+        // Click the Nth delegate row (delegates share one objectName).
+        // Walk the VISUAL tree (childItems): Repeater delegates are reachable
+        // as visual children while QObject::findChild misses them (repo
+        // finding, see findNamedItemRecursive above).
+        QList<QQuickItem *> rows;
+        const std::function<void(QQuickItem *)> collectRows =
+            [&](QQuickItem *item) {
+                if (item->objectName() == QStringLiteral("profileCatalogRow"))
+                    rows << item;
+                for (QQuickItem *child : item->childItems())
+                    collectRows(child);
+            };
+        collectRows(window->contentItem());
+        if (index < 0 || index >= rows.size()
+            || !rows.at(index)->isVisible()) {
+            fail(QStringLiteral("selectCatalogRow(%1): %2 visual rows found")
+                     .arg(index).arg(rows.size()));
+            return false;
+        }
+        QQuickItem *row = rows.at(index);
+        const QPointF local(row->width() / 2.0, row->height() / 2.0);
+        const QPointF scene = row->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+ const auto callController = [&controller](const char *method) {
+        QMetaObject::invokeMethod(controller, method);
+    };
+    const auto withinWindow = [&](const QString &name) -> bool {
+        auto *item = itemOf(name);
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF topLeft = item->mapToScene(QPointF(0, 0));
+        const QRectF rect(topLeft, QSizeF(item->width(), item->height()));
+        return QRectF(QPointF(0, 0),
+                      QSizeF(window->width(), window->height()))
+            .contains(rect);
+    };
+
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // Stage 0: navigate via the REAL rail entry (B1-Q01/Q02).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("navItem_5")))
+            fail(QStringLiteral("the Device rail entry is not clickable"));
+        if (!visibleOf(QStringLiteral("deviceProfileWorkspace")))
+            fail(QStringLiteral("the Device Profile workspace is not visible"));
+        if (!propBool(itemOf(QStringLiteral("navItem_5")), "enabled"))
+            fail(QStringLiteral("the Device rail entry is not enabled"));
+        // The controller scanned the PRODUCTION root during engine load (the
+        // override was installed afterwards); refresh against the injected
+        // root now.
+        callController("refreshCatalog");
+        if (!visibleOf(QStringLiteral("profileCatalogIssues")))
+            fail(QStringLiteral("stage 0: the injected-root catalog was not "
+                                "refreshed"));
+        note(QStringLiteral("stage 0: Device workspace reachable via rail"));
+    });
+    // Stage 1: empty-state + seeded catalog + malformed warning (Q03/Q19) +
+    // root isolation (Q20 of the C matrix).
+    push([&]() {
+        if (catalogRow(0, "displayPrimary")
+            != QStringLiteral("Existing inverter"))
+            fail(QStringLiteral("the seeded profile is not listed first"));
+        if (!visibleOf(QStringLiteral("profileCatalogIssues")))
+            fail(QStringLiteral("the malformed-catalog warning is not "
+                                "visible"));
+        const QString prod =
+            QDir(QStandardPaths::writableLocation(
+                     QStandardPaths::AppDataLocation))
+                .filePath(QStringLiteral("profiles"));
+        if (ProfileStore::managedProfilesDirectory() == prod)
+            fail(QStringLiteral("the gate is writing to the production "
+                                "AppData root"));
+        note(QStringLiteral("stage 1: seeded catalog + malformed warning + "
+                           "injected root isolation"));
+    });
+    // Stage 2: New creates an editor (Q04), profileId read-only (Q05).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileNewButton")))
+            fail(QStringLiteral("the New button is not clickable"));
+        if (!controller->property("hasOpenProfile").toBool())
+            fail(QStringLiteral("New did not open the editor"));
+        const QString shownId = propStr(
+            itemOf(QStringLiteral("profileIdReadOnly")), "text");
+        if (shownId == "<none>" || shownId.isEmpty())
+            fail(QStringLiteral("profileId is not displayed read-only"));
+        if (!visibleOf(QStringLiteral("profileIdReadOnly")))
+            fail(QStringLiteral("profileId display is not visible"));
+        note(QStringLiteral("stage 2: New opened the identity editor"));
+    });
+    // Stage 3: identity editing (Q06/Q07) + dirty indication (Q08).
+    push([&]() {
+        for (const auto &field : {std::pair<const char *, QString>{
+                 "profileDisplayNameField", QStringLiteral("Second device")}}) {
+            if (!setField(field.first, field.second))
+                fail(QStringLiteral("cannot edit %1").arg(field.first));
+        }
+        setField("profileManufacturerField", "ACME");
+        setField("profileModelField", "P-200");
+        setField("profileRevisionField", "rev 1");
+        setField("profileDescriptionField", "gate fixture");
+        if (!controller->property("dirty").toBool())
+            fail(QStringLiteral("editing identity did not set dirty"));
+        if (!visibleOf(QStringLiteral("profileDirtyIndicator")))
+            fail(QStringLiteral("the dirty indicator is not visible"));
+        note(QStringLiteral("stage 3: identity editable; dirty visible"));
+    });
+    // Stage 4: Save (Q09) + catalog appearance (Q10).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileSaveButton")))
+            fail(QStringLiteral("the Save button is not clickable"));
+        if (controller->property("dirty").toBool())
+            fail(QStringLiteral("Save did not clear dirty"));
+        bool savedListed = false;
+        for (int i = 0; i < 2 && !savedListed; ++i)
+            savedListed = catalogRow(i, "displayPrimary")
+                          == QStringLiteral("Second device");
+        if (!savedListed)
+            fail(QStringLiteral("the saved profile is not in the catalog"));
+        note(QStringLiteral("stage 4: Save cleared dirty; catalog updated"));
+    });
+    // Stage 5: Open the seeded profile (Q11).
+    push([&]() {
+        if (!selectCatalogRow(0))
+            fail(QStringLiteral("cannot select the seeded catalog row"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("the Open button is not clickable"));
+        if (propStr(itemOf(QStringLiteral("profileDisplayNameField")), "text")
+            != QStringLiteral("Existing inverter"))
+            fail(QStringLiteral("Open did not load the seeded profile"));
+        note(QStringLiteral("stage 5: Open loaded the seeded profile"));
+    });
+    // Stage 6: invalid displayName validation visible (Q12).
+    push([&]() {
+        setField("profileDisplayNameField", QString());
+        if (!visibleOf(QStringLiteral("profileValidationText")))
+            fail(QStringLiteral("the validation text is not visible"));
+        note(QStringLiteral("stage 6: empty displayName validation visible"));
+    });
+    // Stage 7: dirty Open -> Cancel keeps the draft (Q15), Discard opens the
+    // target (Q16).
+    push([&]() {
+        setField("profileDisplayNameField", QStringLiteral("Changed draft"));
+        if (!selectCatalogRow(0))
+            fail(QStringLiteral("cannot select row 0 for the dirty Open"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("Open is not clickable while dirty"));
+        if (!visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("the dirty dialog did not appear"));
+        if (!clickNamed(QStringLiteral("profileDirtyCancelButton")))
+            fail(QStringLiteral("the Cancel branch is not clickable"));
+        if (propStr(itemOf(QStringLiteral("profileDisplayNameField")), "text")
+            != QStringLiteral("Changed draft"))
+            fail(QStringLiteral("Cancel did not keep the current draft"));
+        note(QStringLiteral("stage 7: dirty Open Cancel keeps the draft"));
+    });
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("Open is not clickable (second pass)"));
+        if (!visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("the dirty dialog did not reappear"));
+        if (!clickNamed(QStringLiteral("profileDirtyDiscardButton")))
+            fail(QStringLiteral("the Discard branch is not clickable"));
+        if (propStr(itemOf(QStringLiteral("profileDisplayNameField")), "text")
+            != QStringLiteral("Existing inverter"))
+            fail(QStringLiteral("Discard did not open the target profile"));
+        note(QStringLiteral("stage 8: dirty Open Discard opens the target"));
+    });
+    // Stage 9: dirty Open -> Save then opens the target (Q17).
+    push([&]() {
+        setField("profileDisplayNameField", QStringLiteral("Renamed inverter"));
+        if (!selectCatalogRow(0))
+            fail(QStringLiteral("cannot select row 0 (Save branch)"));
+        // row 0 IS the current profile here; open the OTHER one instead.
+        if (!selectCatalogRow(1))
+            fail(QStringLiteral("cannot select row 1 (Save branch)"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("Open is not clickable (Save branch)"));
+        if (!visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("the dirty dialog did not appear (Save)"));
+        if (!clickNamed(QStringLiteral("profileDirtySaveButton")))
+            fail(QStringLiteral("the Save branch is not clickable"));
+        if (catalogRow(1, "displayPrimary")
+            != QStringLiteral("Renamed inverter"))
+            fail(QStringLiteral("the Save branch did not save the draft"));
+        if (propStr(itemOf(QStringLiteral("profileDisplayNameField")), "text")
+            != QStringLiteral("Second device"))
+            fail(QStringLiteral("the Save branch did not open the target"));
+        note(QStringLiteral("stage 9: dirty Open Save saved then opened"));
+    });
+    // Stage 10: Delete requires confirmation (Q13) and removes (Q14).
+    push([&]() {
+        if (!selectCatalogRow(1))
+            fail(QStringLiteral("cannot select the row to delete"));
+        if (!clickNamed(QStringLiteral("profileDeleteButton")))
+            fail(QStringLiteral("the Delete button is not clickable"));
+        if (!visibleOf(QStringLiteral("profileDeleteDialog")))
+            fail(QStringLiteral("the delete confirmation did not appear"));
+        if (!clickNamed(QStringLiteral("profileDeleteConfirmButton")))
+            fail(QStringLiteral("the confirm-delete button is not "
+                                "clickable"));
+        if (controller->property("profileCatalog").toList().size() != 1)
+            fail(QStringLiteral("confirmed delete did not remove the "
+                                "profile"));
+        note(QStringLiteral("stage 10: delete confirmed and removed"));
+    });
+    // Stage 11: 1000x700 reachability (Q20).
+    push([&]() {
+        window->resize(1000, 700);
+        for (const auto &name :
+             {QStringLiteral("profileNewButton"),
+              QStringLiteral("profileOpenButton"),
+              QStringLiteral("profileSaveButton"),
+              QStringLiteral("profileDeleteButton"),
+              QStringLiteral("profileCatalogCard"),
+              QStringLiteral("profileIdentityCard")}) {
+            if (!withinWindow(name)) {
+                auto *item = itemOf(name);
+                const QPointF topLeft =
+                    item ? item->mapToScene(QPointF(0, 0)) : QPointF(-1, -1);
+                fail(QStringLiteral("%1 outside: x=%2 y=%3 w=%4 h=%5 "
+                                    "win=%6x%7")
+                         .arg(name)
+                         .arg(topLeft.x())
+                         .arg(topLeft.y())
+                         .arg(item ? item->width() : -1)
+                         .arg(item ? item->height() : -1)
+                         .arg(window->width())
+                         .arg(window->height()));
+            }
+        }
+        note(QStringLiteral("stage 11: 1000x700 controls reachable"));
+    });
+    // Stage 12: keyboard focus reaches the identity editor (Q21).
+    push([&]() {
+        auto *field = itemOf(QStringLiteral("profileDisplayNameField"));
+        if (!field) {
+            fail(QStringLiteral("the displayName field disappeared"));
+        } else {
+            field->forceActiveFocus();
+            if (!field->hasActiveFocus())
+                fail(QStringLiteral("the displayName field cannot take "
+                                    "focus"));
+            else
+                note(QStringLiteral("stage 12: identity editor focusable"));
+        }
+    });
+    // Stage 13: the five existing workspaces are unaffected (Q22).
+    push([&]() {
+        for (int i = 0; i <= 4; ++i) {
+            auto *entry = itemOf(QStringLiteral("navItem_%1").arg(i));
+            if (!entry || !entry->property("enabled").toBool())
+                fail(QStringLiteral("existing rail entry %1 regressed")
+                         .arg(i));
+        }
+        note(QStringLiteral("stage 13: existing workspaces unaffected"));
+    });
+    // Stage 14: the exit dirty guard (Group 2/3): dirty + close request ->
+    // the Cancel branch genuinely blocks the close.
+    push([&]() {
+        if (!selectCatalogRow(0))
+            fail(QStringLiteral("cannot select a profile for the exit guard"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("Open is not clickable (exit guard)"));
+        setField("profileDisplayNameField", QStringLiteral("Exit guard draft"));
+        if (!controller->property("dirty").toBool())
+            fail(QStringLiteral("the exit-guard setup is not dirty"));
+        window->close(); // delivers the real QCloseEvent
+        if (!window->isVisible())
+            fail(QStringLiteral("the window closed while the dirty exit "
+                                "dialog should block it"));
+        if (!visibleOf(QStringLiteral("profileExitDialog")))
+            fail(QStringLiteral("the exit dialog did not appear"));
+        if (!clickNamed(QStringLiteral("profileExitCancelButton")))
+            fail(QStringLiteral("the exit Cancel branch is not clickable"));
+        if (!window->isVisible())
+            fail(QStringLiteral("Cancel did not block the close"));
+        note(QStringLiteral("stage 14: exit dirty guard blocks close on "
+                           "Cancel"));
+        // Cleanup: drop the draft via the controller; the gate window stays
+        // open so the schedule can finish and report.
+        QMetaObject::invokeMethod(controller, "discardCurrentChanges");
+    });
+
+    const int settleMs = 60;
+    auto step = std::make_shared<int>(0);
+    auto schedule = std::make_shared<std::function<void()>>();
+    auto failuresShared = failures;
+    *schedule = [&, step, schedule, failuresShared, &app]() {
+        if (*step >= steps->size()) {
+            if (!failuresShared->isEmpty()) {
+                for (const QString &f : *failuresShared)
+                    qWarning().noquote()
+                        << QStringLiteral("PROFFAIL: %1").arg(f);
+                app.exit(1);
+                return;
+            }
+            note(QStringLiteral("PROFILE EDITOR CHECK PASS (B1-Q01..Q22): "
+                               "workspace reachable via the rail; New/Open/"
+                               "Save/Delete lifecycle; read-only profileId; "
+                               "dirty protection with Save/Discard/Cancel; "
+                               "validation visible; malformed catalog "
+                               "non-blocking; 1000x700 reachable; exit dirty "
+                               "guard blocks close on Cancel"));
+            app.exit(0);
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
@@ -14546,6 +15023,11 @@ int main(int argc, char *argv[])
     // Float32 + word order), same TEST-ONLY / DEMO-ONLY boundary.
     if (app.arguments().contains(QStringLiteral("--qml-read-result-demo32"))) {
         return runReadResultDemo32(engine, app);
+    }
+
+    // M12-B first slice gate: the Device Profile workspace end to end.
+    if (app.arguments().contains(QStringLiteral("--qml-profile-editor-check"))) {
+        return runProfileEditorCheck(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.

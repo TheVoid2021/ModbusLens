@@ -196,12 +196,33 @@ QString profileStoreErrorName(ProfileStoreError error)
     return QStringLiteral("malformed_json");
 }
 
+namespace {
+// Test/automation injection (empty = production location).
+QString g_managedRootOverride;
+} // namespace
+
+void ProfileStore::setManagedRootOverride(const QString &dir)
+{
+    g_managedRootOverride = dir;
+}
+
+QString ProfileStore::managedRootOverride()
+{
+    return g_managedRootOverride;
+}
+
 QString ProfileStore::defaultProfilesDirectory()
 {
     // Platform application user-data location (never cwd / install tree).
     const QString base =
         QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     return QDir(base).filePath(QStringLiteral("profiles"));
+}
+
+QString ProfileStore::managedProfilesDirectory()
+{
+    return g_managedRootOverride.isEmpty() ? defaultProfilesDirectory()
+                                           : g_managedRootOverride;
 }
 
 QString ProfileStore::defaultFilePathFor(const QString& profileId)
@@ -215,7 +236,7 @@ QString ProfileStore::defaultFilePathFor(const QString& profileId)
     const QString fileName = QStringLiteral("profile-")
                              + QString::fromLatin1(digest.toHex())
                              + QStringLiteral(".json");
-    return QDir(defaultProfilesDirectory()).filePath(fileName);
+    return QDir(managedProfilesDirectory()).filePath(fileName);
 }
 
 QByteArray ProfileStore::serializeToJson(const DeviceProfile& profile)
