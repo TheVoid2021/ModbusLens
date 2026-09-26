@@ -1089,3 +1089,26 @@
   （T024 §27），追认后才算 canonical 契约。教训：约束性条文 ≠ 冻结算法；把实现期决策
   反向写成"早已冻结"是篡改 provenance。工程上正确做法就是本轮这样：审计发现 → 只报告
   → Human 裁决 → 追认成文 → 保留完整决策链。
+
+- **Q：C++ 单元测试全绿，为什么 QML 门禁还是红的？** A：因为缺陷在**通知**而不在**计算**。
+  ProfileController 的 `dirty()`/`validationText()` 是按需计算的 getter——C++ 测试读到
+  的永远是新值；但 `setDisplayName()` 漏发 `editorChanged`，QML 绑定（dirty 指示、
+  validation 标签）就不会刷新，界面呈现旧状态。修复后用 QSignalSpy 把"通知恰好一次/
+  幂等写零次"写进测试（b1c21/b1c22）。教训：QObject 属性契约 = getter + NOTIFY 两件事，
+  只测 getter 是测了一半。
+- **Q：负向对照（mutation testing）为什么必须做"真实"的？这轮有什么教训？** A：两个教训。
+  其一：NC-B1 的变异（临时删 emit）做完忘了还原，被提交进行为提交——还带注释
+  `// NC-B1: dirty not set`，`git show` 里直接可 grep；负向对照必须有"还原后复绿"的闭环证据。
+  其二：NC-B4 第一次 mutation（Cancel 追加 root.close()）门禁仍绿——因为 onClosing 守卫
+  本身会拦下一切 dirty close 并重开对话框，两个行为等价实现区分不开；补上"Cancel 后
+  exit 对话框必须关闭"断言后 mutation 才真实 FAIL。负向对照的价值就在它同时检验
+  测试本身的有效性。
+- **Q：模态对话框"分支后必须关闭"为什么值得 gate 断言？** A：`closePolicy: NoAutoClose`
+  的 Dialog 只要不显式 close，其模态 overlay 会吞掉应用后续**所有**鼠标点击——
+  症状是"后面每个交互都失败"，与真正的根因隔了几个 stage。修复：Save/Discard 分支在
+  执行 pending action 前显式关闭对话框（顺序有讲究：先关再开删除确认，避免 popup 堆叠），
+  gate 对每个分支断言对话框关闭。
+- **Q：geometry 断言被 `clip: true` 遮蔽是什么意思？怎么改的？** A：同 stage 内
+  `resize(1000,700)` 后立即测量，读到的是 resize 前的布局，产生了假的 16px 溢出；
+  修复分两步：① resize/measure 拆成两个事件循环步；② 移除页根 `clip: true`，
+  让 containment 断言度量真实可见区域（列表 Flickable 的 clip 属设计内）。

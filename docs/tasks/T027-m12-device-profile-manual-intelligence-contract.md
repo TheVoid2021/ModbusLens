@@ -1016,3 +1016,102 @@ M12-B remaining = Register Map Editor / Communication selector / Semantic overla
 M12-C / M12-D = NOT STARTED
 verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变）
 ```
+
+## 37. Automated Acceptance Correction — 7 项失败逐项 RCA + 修复 + 真实负向对照（2026-09-26，behavior `b502ea8` + 本 docs commit）
+
+> **本节是对 §36 的追加纠正（append-correction），不覆盖 §36 原文。**
+> Human 指令：在门禁真正转绿前不得写 AUTOMATED PASS；禁止先假设
+> "QQuickPopup = automation limitation"；`clip: true` 不得作为 geometry
+> PASS 的唯一理由；NC-B4 必须做真实 mutation。
+
+### 37.1 状态纠正（对 §36.5 的显式更正）
+
+§36.5 写的 `M12-B first slice = IMPLEMENTED / AUTOMATED PASS` 在当时是**错的**：
+`qml_profile_editor_check` 实际 7 项 FAIL（Debug/Release 43/43→43/44 ctest）。
+当时正确状态应为 **IMPLEMENTED / AUTOMATED ACCEPTANCE HOLD**。本节归档后
+（修复 + 全绿证据齐全），状态才升级为 AUTOMATED PASS（见 37.6）。
+
+### 37.2 §36.3 两个 "gate 限制" 结论均被推翻
+
+| §36.3 原结论 | 本轮证据 | 实际分类 |
+| --- | --- | --- |
+| "Dialog 按钮点击无法通过合成 QMouseEvent 驱动（automation 限制）" | stage 7/8/9/10/11c/11d 的对话框按钮全部由 `clickNamed`（真实 press/release 到 window）驱动成功 | **harness 缺陷（B）+ 产品缺陷（A）叠加**：真正堵住后续点击的是 dirty dialog 从不关闭的模态 overlay，不是"无法点击" |
+| "卡片 16px 溢出，用 clip: true 防视觉溢出" | 11a/11b 拆分后实测：卡片 bottom=696 < 700，无溢出 | **harness 缺陷（B）**：同一 stage 内 resize+measure 读到 resize 前的布局 |
+
+### 37.3 7 项失败逐项分类（A=真实产品缺陷 B=harness 缺陷 C=不可自动化 D=oracle 错误）
+
+| # | 失败（修复前 PROFFAIL） | 分类 | 根因（证据） | 修复 |
+| --- | --- | --- | --- | --- |
+| 1 | the validation text is not visible | **A**（ISSUE-019） | `setDisplayName()` 无 `emitEditorChanged()`——NC-B1 负向对照变异被提交进行为提交 `da07f43`；getter 按需计算使 23 个 C++ 测试全绿 | 恢复 emit + 删除变异注释；新增 b1c21/b1c22 QSignalSpy 通知契约测试 |
+| 2 | the Save branch did not save the draft | **D**（oracle 错）| stage 9 断言 `catalogRow(1)=="Renamed inverter"`，但保存后目录按 displayName 重排，Renamed 落到 row 0（`catalog=[Renamed inverter\|Second device]` 实测） | 改为 index-independent 的 `catalogContains()` |
+| 3 | the Save branch did not open the target | **A**（对话框不关闭）| stage 8 Discard 分支不关 dirtyDialog，模态 overlay 吞掉 stage 9 的 Open 点击 → pendingAction 为空 → 只保存未打开（`dirtyDlg=1` 贯穿 9→10 实测） | Save/Discard 分支在 runPendingAction 前显式 `dirtyDialog.close()`；gate 新增"分支后对话框必须关闭"断言 |
+| 4 | the delete confirmation did not appear | **A**（同上链式）| 同 #3：stage 10 的 Delete 点击被未关闭的模态 overlay 吞掉 | 同 #3 |
+| 5 | the confirm-delete button is not clickable | **A**（同上链式）| deleteDialog 从未打开（#4），其按钮不可见 | 同 #3 |
+| 6 | confirmed delete did not remove the profile | **A**（同上链式）| deleteProfile 从未被调用 | 同 #3 + 确认后清空选中（Open/Delete 禁用，防越界索引 TypeError） |
+| 7 | profileCatalogCard/IdentityCard outside（16px 溢出） | **B** | 同一 stage 内 `resize(1000,700)` 后立即 measure，读到旧窗口布局 | 11a（resize）/11b（measure）拆分；实测无溢出；**移除页根 `clip: true`**，geometry 断言度量的是真实可见性（列表 Flickable 的 clip 属设计内） |
+
+附加（未在 7 项内、由 §6 要求补齐）：**Save 失败必须阻断 pending action**
+（新 stage 9b：对话框保持打开 + lastActionError 非空 + 目标未打开）与
+**exit + Save 失败必须拒绝关闭**（新 stage 15）。
+
+### 37.4 NC 状态
+
+- **NC-B1（真实 mutation + 还原闭环）**：本轮发现的残留变异本身就是 NC-B1
+  的真实红色证据（stage 6 FAIL）；还原（恢复 emit）后转绿。详见 ISSUE-019。
+- **NC-B2**（open 失败保 draft）/ **NC-B3**（profileId 稳定）：b1c16 /
+  b1c09-b1c10 在 35/35 全绿中复验通过。
+- **NC-B4（本轮真实执行）**：mutation = Cancel 分支追加 `root.close()`。
+  - 第一次尝试：门禁**仍 PASS** —— 负向对照本身暴露 stage 14 盲区：onClosing
+    守卫（dirty ⇒ close.accepted=false）把 Cancel 触发的 close 也拦下并
+    重开对话框，两个行为等价实现无法区分。
+  - 加强断言（"Cancel 后 exit 对话框必须关闭"）→ **mutation 下真实 FAIL**
+    （`PROFFAIL: the exit dialog did not close on Cancel`）→ 还原 → PASS。
+  - mutation 未提交（Main.qml 净 diff 为 0，git status 证实）。
+
+### 37.5 §6 dirty 状态机 C++ 覆盖（b1c21–b1c32，12 个新测试）
+
+通知契约：b1c21（displayName 编辑通知恰 1 次/幂等 0 次）、b1c22（5 setter）。
+状态机：b1c23 dirty+Cancel 全保持（磁盘未写）、b1c24 Discard→打开目标且废弃
+编辑不上盘、b1c25 Save 成功→先落盘再打开、b1c26 保存失败（校验）阻断、
+b1c27 保存失败（IO）保 draft 与文件、b1c28 精确 id 才可删、b1c29 删除成功
+清文件清编辑器、b1c30 删除失败保留档案、b1c31 exit+Cancel 维持拒绝谓词、
+b1c32 exit+Save 失败维持拒绝谓词。`profile_controller`：23→**35 passed**。
+
+### 37.6 最终验证（真实命令与输出口径）
+
+```text
+profile_controller            35 passed, 0 failed
+Debug  full ctest             100% tests passed, 0 failed out of 44
+Release full ctest            100% tests passed, 0 failed out of 44
+qml_profile_editor_check      PASS（16 阶段，含 9b/15/11c/11d）
+windows-QPA（windows 平台，真实 PIPESTATUS 退出码）
+  smoke/nav/geometry/read-result/production-write/write-foundation/
+  focus/profile-editor        全部 exit=0；诊断计数 0/0/0/0/0/0/0/0；
+  qrc: 警告行 0
+staging 重建                  source==staging byte-identical (cmp)
+  size=4,915,758 B  SHA-256=cccba339b5a02d605f45fdbfef57c0a4ec136806751f2d550258e67c413ab8a2
+clean-env（PATH=System32;Windows）smoke / profile-editor / nav / geometry
+                              全部 exit=0 且含 PASS 标记
+```
+
+1000×700 实测几何（stage 11b PROFGEO）：workspace 943×659@(57,41)、
+actions row 4 按钮 y=72 h=34、catalogCard 340×555@(61,141)、
+catalogList 316×489、identityCard 583×555@(413,141)、displayName 字段
+492×24@(492,358)、description 字段 @(492,486)；两对话框 380×94@(339,324)
+（经 popup background 度量）——全部 contained。
+
+### 37.7 提交与状态
+
+- behavior/test commit：**`b502ea8`**（4 文件：ProfileController.cpp /
+  DeviceProfilePage.qml / main.cpp / test_profile_controller.cpp；无 docs）
+- docs-only commit：本节 + ISSUE-019 + PROJECT_STATUS + BACKLOG + devlog
+- 状态：
+
+```text
+M12-A = FOUNDATION ACCEPTED（含 readFunctionCode amendment）
+M12-B first slice = IMPLEMENTED / AUTOMATED PASS / HUMAN VISUAL REVIEW PENDING
+visual candidate = READY FOR HUMAN VISUAL REVIEW（staging 全绿）
+M12-B remaining = Register Map Editor / Communication selector / Semantic overlay
+M12-C / M12-D = NOT STARTED
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变）
+```
