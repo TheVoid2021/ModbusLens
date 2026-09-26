@@ -49,6 +49,12 @@ namespace modbuslens::core {
 // D2 fields; the formula is frozen (see profileSemanticValue) but the values
 // themselves are pure metadata here.
 struct RegisterEntry {
+    // Register-space identity (T027 32): the REQUESTED read function code this
+    // entry belongs to. Legal domain 0x01..0x7F mirrors the M10 validator
+    // (kMinReadFunctionCode / kMaxReadFunctionCode); the in-memory default is
+    // the INVALID sentinel 0 so a freshly constructed entry can never silently
+    // become FC03 - callers must assign the space explicitly.
+    std::uint8_t readFunctionCode{0};
     std::uint16_t address{0};
     std::string name;
     std::string description;
@@ -86,8 +92,9 @@ enum class ProfileValidationCode {
     RegisterCountMismatch,      // registerCount != type word count
     AddressOutOfRange,          // address outside PDU 0..65535
     SpanOutOfRange,             // address + registerCount - 1 > 65535
-    DuplicateAddress,           // two entries share the exact same start address
-    OverlappingSpan,            // entry spans intersect (T027 29: forbidden in v1)
+    DuplicateAddress,           // same FC: exact same start address
+    OverlappingSpan,            // same FC: entry spans intersect (T027 29/32)
+    InvalidReadFunctionCode,    // readFunctionCode outside 0x01..0x7F
     InvalidByteOrder,           // byteOrder outside the M11 enum
     InvalidWordOrder,           // wordOrder outside the M11 enum
     NonFiniteScale,             // scale is NaN / +-Inf
@@ -149,14 +156,24 @@ struct ProfileLookupResult {
     bool operator==(const ProfileLookupResult&) const = default;
 };
 
-// Matches ONLY the entry whose start address equals `address`.
-[[nodiscard]] ProfileLookupResult findProfileEntryByStartAddress(
-    const DeviceProfile& profile, std::uint16_t address);
+// Both lookups search ONLY the requested readFunctionCode register space
+// (T027 32): an FC04 query must never return an FC03 entry, and there is no
+// cross-function fallback. The profile is validated first (invalid or
+// overlapping profiles return InvalidProfile). An invalid requested function
+// code (0x00 / 0x80..0xFF) yields NotFound: no entry of a validated profile
+// can carry it.
 
-// Matches the entry whose span COVERS `address` (offsetWithinSpan tells where
-// inside that span the address lives).
+// Matches ONLY the entry in the requested FC space whose start address equals
+// `address`.
+[[nodiscard]] ProfileLookupResult findProfileEntryByStartAddress(
+    const DeviceProfile& profile, std::uint8_t readFunctionCode,
+    std::uint16_t address);
+
+// Matches the entry in the requested FC space whose span COVERS `address`
+// (offsetWithinSpan tells where inside that span the address lives).
 [[nodiscard]] ProfileLookupResult findProfileEntryCoveringAddress(
-    const DeviceProfile& profile, std::uint16_t address);
+    const DeviceProfile& profile, std::uint8_t readFunctionCode,
+    std::uint16_t address);
 
 // ---------------------------------------------------------------------------
 // Semantic projection foundation (pure; no UI, no wire, no M11 call).
@@ -182,6 +199,8 @@ struct ProfileSemanticProjection {
     ProfileSemanticClass valueClass{ProfileSemanticClass::Finite};
     double semanticValue{0.0};
     std::string unit; // verbatim copy of the entry's unit
+    // Source metadata (T027 32): which register space produced this value.
+    std::uint8_t readFunctionCode{0};
 
     bool operator==(const ProfileSemanticProjection&) const = default;
 };

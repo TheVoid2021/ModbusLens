@@ -63,7 +63,8 @@ ProfileLoadResult parseRegisterEntry(const QJsonObject& object,
     // Required keys: address, name, dataType, registerCount, byteOrder,
     // wordOrder (v1 shape, T027 §25). Optional: description, scale, offset,
     // unit. Wrong types / unknown enum tokens are structural violations.
-    if (!object.contains(QStringLiteral("address"))
+    if (!object.contains(QStringLiteral("readFunctionCode"))
+        || !object.contains(QStringLiteral("address"))
         || !object.contains(QStringLiteral("name"))
         || !object.contains(QStringLiteral("dataType"))
         || !object.contains(QStringLiteral("registerCount"))
@@ -71,6 +72,20 @@ ProfileLoadResult parseRegisterEntry(const QJsonObject& object,
         || !object.contains(QStringLiteral("wordOrder"))) {
         return malformed();
     }
+
+    // Register-space identity (T027 32): REQUIRED integer in 0x01..0x7F.
+    // Missing / fractional / string values are structural violations; integers
+    // outside the M10 read-function domain are validation refusals. There is
+    // no silent default to FC03.
+    int readFunctionCode = 0;
+    if (!strictInt(object.value(QStringLiteral("readFunctionCode")),
+                   readFunctionCode)) {
+        return malformed();
+    }
+    if (readFunctionCode < 0x01 || readFunctionCode > 0x7F) {
+        return invalid(ProfileValidationCode::InvalidReadFunctionCode);
+    }
+    out.readFunctionCode = static_cast<std::uint8_t>(readFunctionCode);
 
     int address = 0;
     if (!strictInt(object.value(QStringLiteral("address")), address)) {
@@ -222,6 +237,8 @@ QByteArray ProfileStore::serializeToJson(const DeviceProfile& profile)
     QJsonArray registers;
     for (const RegisterEntry& entry : profile.registers) {
         QJsonObject object;
+        object.insert(QStringLiteral("readFunctionCode"),
+                      static_cast<int>(entry.readFunctionCode));
         object.insert(QStringLiteral("address"),
                       static_cast<int>(entry.address));
         object.insert(QStringLiteral("name"), QString::fromStdString(entry.name));

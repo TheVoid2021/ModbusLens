@@ -40,6 +40,7 @@ DeviceProfile makeValidProfile()
     profile.revision = "rev A";
     profile.description = "fixture profile";
     RegisterEntry entry;
+    entry.readFunctionCode = 0x03; // explicit: never a silent FC03 default
     entry.address = 1000;
     entry.name = "Frequency";
     entry.description = "output frequency";
@@ -80,11 +81,13 @@ DeviceProfile makeOverlappingProfile()
     profile.profileId = "overlap-case";
     profile.displayName = "overlap";
     RegisterEntry wide;
+    wide.readFunctionCode = 0x03; // both entries share ONE FC space
     wide.address = 1000;
     wide.name = "wide";
     wide.dataType = RegisterDecodeType::UInt32;
     wide.registerCount = 2;
     RegisterEntry narrow;
+    narrow.readFunctionCode = 0x03;
     narrow.address = 1001;
     narrow.name = "narrow";
     narrow.dataType = RegisterDecodeType::UInt16;
@@ -212,6 +215,44 @@ private slots:
     void s10_negInfClassified();
     void s11_projectionDoesNotMutateDecoded();
     void s12_projectionDoesNotMutateEntry();
+
+    // ---- RF: readFunctionCode schema amendment (T027 32) ----
+    void rf01_fc03RoundTrip();
+    void rf02_fc04RoundTrip();
+    void rf03_fc41RoundTrip();
+    void rf04_fc01Valid();
+    void rf05_fc127Valid();
+    void rf06_fc00Invalid();
+    void rf07_fc128Invalid();
+    void rf08_fc255Invalid();
+    void rf09_missingFieldRejected();
+    void rf10_fractionalRejected();
+    void rf11_stringRejected();
+    void rf12_serializationAlwaysWrites();
+    void rf13_oldPreReleaseJsonRejected();
+
+    // ---- RS: function-scoped spaces ----
+    void rs01_crossFcSameAddressPass();
+    void rs02_crossFcSpanOverlapPass();
+    void rs03_crossFcCustomPass();
+    void rs04_sameFcDuplicateFails();
+    void rs05_sameFcOverlapFails();
+    void rs06_sameFcAdjacentPass();
+    void rs07_differentFcSameFullSpanPass();
+    void rs08_orderReversalSameVerdict();
+
+    // ---- RL: FC-scoped lookup ----
+    void rl01_fc03ExactStart();
+    void rl02_fc04DoesNotReturnFc03();
+    void rl03_fc41CustomLookup();
+    void rl04_coexistingSpaces();
+    void rl05_coveringRespectsFc();
+    void rl06_twoWordCoveringFound();
+    void rl07_fc04MustNotReturnFc03Covering();
+    void rl08_noCrossFcFallback();
+    void rl09_invalidRequestedFc();
+    void rl10_lookupDoesNotMutateProfile();
+    void rl11_lookupDoesNotTouchM11Decode();
 };
 
 void DeviceProfileTest::p01_profileIdentityRequired()
@@ -243,6 +284,7 @@ void DeviceProfileTest::p03_registerEntryConstruction()
 {
     DeviceProfile profile = makeValidProfile();
     RegisterEntry second;
+    second.readFunctionCode = 0x03;
     second.address = 1001;
     second.name = "Current";
     second.dataType = RegisterDecodeType::Int16;
@@ -270,6 +312,7 @@ void DeviceProfileTest::p04_allM11DataTypesAccepted()
         profile.profileId = "id";
         profile.displayName = "name";
         RegisterEntry entry;
+        entry.readFunctionCode = 0x03;
         entry.address = 100;
         entry.name = "reg";
         entry.dataType = type;
@@ -288,6 +331,7 @@ void DeviceProfileTest::p04_allM11DataTypesAccepted()
     broken.profileId = "id";
     broken.displayName = "name";
     RegisterEntry entry;
+    entry.readFunctionCode = 0x03;
     entry.name = "reg";
     entry.dataType = static_cast<RegisterDecodeType>(99);
     broken.registers.push_back(entry);
@@ -305,6 +349,7 @@ void DeviceProfileTest::p05_wordCountOneWordTypes()
         profile.profileId = "id";
         profile.displayName = "name";
         RegisterEntry entry;
+        entry.readFunctionCode = 0x03;
         entry.address = 0;
         entry.name = "reg";
         entry.dataType = type;
@@ -324,6 +369,7 @@ void DeviceProfileTest::p06_wordCountTwoWordTypes()
         profile.profileId = "id";
         profile.displayName = "name";
         RegisterEntry entry;
+        entry.readFunctionCode = 0x03;
         entry.address = 100;
         entry.name = "reg";
         entry.dataType = type;
@@ -425,8 +471,8 @@ void DeviceProfileTest::p13_offsetDefault()
     // also falls back to 0.
     const QByteArray json =
         "{\"schemaVersion\":1,\"profileId\":\"id\",\"displayName\":\"n\","
-        "\"registers\":[{\"address\":10,\"name\":\"r\",\"dataType\":\"Int16\","
-        "\"registerCount\":1,\"byteOrder\":\"Normal\","
+        "\"registers\":[{\"readFunctionCode\":3,\"address\":10,\"name\":\"r\","
+        "\"dataType\":\"Int16\",\"registerCount\":1,\"byteOrder\":\"Normal\","
         "\"wordOrder\":\"HighWordFirst\"}]}";
     const ProfileLoadResult loaded = parse(json);
     QVERIFY(loaded.ok());
@@ -440,8 +486,8 @@ void DeviceProfileTest::p14_unitDefault()
     QVERIFY(entry.unit.empty());
     const ProfileLoadResult loaded = parse(
         "{\"schemaVersion\":1,\"profileId\":\"id\",\"displayName\":\"n\","
-        "\"registers\":[{\"address\":10,\"name\":\"r\",\"dataType\":\"UInt16\","
-        "\"registerCount\":1,\"byteOrder\":\"Normal\","
+        "\"registers\":[{\"readFunctionCode\":3,\"address\":10,\"name\":\"r\","
+        "\"dataType\":\"UInt16\",\"registerCount\":1,\"byteOrder\":\"Normal\","
         "\"wordOrder\":\"HighWordFirst\"}]}");
     QVERIFY(loaded.ok());
     QVERIFY(loaded.profile.registers.at(0).unit.empty());
@@ -751,6 +797,7 @@ void DeviceProfileTest::ov02_twoWideEntriesOverlap()
     profile.displayName = "n";
     for (int i = 0; i < 2; ++i) {
         RegisterEntry entry;
+        entry.readFunctionCode = 0x03;
         entry.address = static_cast<std::uint16_t>(1000 + i);
         entry.name = "wide";
         entry.dataType = RegisterDecodeType::UInt32;
@@ -767,9 +814,11 @@ void DeviceProfileTest::ov03_sameStartIsDuplicate()
     profile.profileId = "id";
     profile.displayName = "n";
     RegisterEntry narrow;
+    narrow.readFunctionCode = 0x03;
     narrow.address = 1000;
     narrow.name = "narrow";
     RegisterEntry wide;
+    wide.readFunctionCode = 0x03;
     wide.address = 1000;
     wide.name = "wide";
     wide.dataType = RegisterDecodeType::UInt32;
@@ -796,9 +845,11 @@ void DeviceProfileTest::ov05_unitSpansPass()
     profile.profileId = "id";
     profile.displayName = "n";
     RegisterEntry first;
+    first.readFunctionCode = 0x03;
     first.address = 0;
     first.name = "a";
     RegisterEntry second;
+    second.readFunctionCode = 0x03;
     second.address = 1;
     second.name = "b";
     profile.registers = {first, second};
@@ -811,11 +862,13 @@ void DeviceProfileTest::ov06_topEdgeOverlapRejected()
     profile.profileId = "id";
     profile.displayName = "n";
     RegisterEntry wide;
+    wide.readFunctionCode = 0x03;
     wide.address = 65534; // span 65534-65535
     wide.name = "wide";
     wide.dataType = RegisterDecodeType::UInt32;
     wide.registerCount = 2;
     RegisterEntry top;
+    top.readFunctionCode = 0x03;
     top.address = 65535;
     top.name = "top";
     profile.registers = {wide, top};
@@ -965,10 +1018,10 @@ void DeviceProfileTest::l01_emptyProfileNotFound()
     profile.profileId = "empty";
     profile.displayName = "empty";
     QVERIFY(modbuslens::core::validateDeviceProfile(profile).ok());
-    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 1000)
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000)
                  .status,
              ProfileLookupStatus::NotFound);
-    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 1000)
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1000)
                  .status,
              ProfileLookupStatus::NotFound);
 }
@@ -977,7 +1030,7 @@ void DeviceProfileTest::l02_oneWordExactStart()
 {
     DeviceProfile profile = makeValidProfile(); // UInt16 @1000
     const auto result =
-        modbuslens::core::findProfileEntryByStartAddress(profile, 1000);
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
     QCOMPARE(result.status, ProfileLookupStatus::Found);
     QCOMPARE(result.entryIndex, 0);
     QCOMPARE(result.offsetWithinSpan, 0);
@@ -990,7 +1043,7 @@ void DeviceProfileTest::l03_twoWordExactStart()
     profile.registers.at(0).registerCount = 2;
     QVERIFY(modbuslens::core::validateDeviceProfile(profile).ok());
     const auto result =
-        modbuslens::core::findProfileEntryByStartAddress(profile, 1000);
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
     QCOMPARE(result.status, ProfileLookupStatus::Found);
     QCOMPARE(result.entryIndex, 0);
     QCOMPARE(result.offsetWithinSpan, 0);
@@ -1001,7 +1054,7 @@ void DeviceProfileTest::l04_twoWordSecondAddressByStartIsNotFound()
     DeviceProfile profile = makeValidProfile();
     profile.registers.at(0).dataType = RegisterDecodeType::UInt32;
     profile.registers.at(0).registerCount = 2;
-    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 1001)
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1001)
                  .status,
              ProfileLookupStatus::NotFound);
 }
@@ -1012,7 +1065,7 @@ void DeviceProfileTest::l05_twoWordSecondAddressCoveringFound()
     profile.registers.at(0).dataType = RegisterDecodeType::UInt32;
     profile.registers.at(0).registerCount = 2;
     const auto result =
-        modbuslens::core::findProfileEntryCoveringAddress(profile, 1001);
+        modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1001);
     QCOMPARE(result.status, ProfileLookupStatus::Found);
     QCOMPARE(result.entryIndex, 0);
 }
@@ -1022,10 +1075,10 @@ void DeviceProfileTest::l06_offsetWithinSpan()
     DeviceProfile profile = makeValidProfile();
     profile.registers.at(0).dataType = RegisterDecodeType::UInt32;
     profile.registers.at(0).registerCount = 2;
-    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 1000)
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1000)
                  .offsetWithinSpan,
              0);
-    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 1001)
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1001)
                  .offsetWithinSpan,
              1);
 }
@@ -1034,10 +1087,10 @@ void DeviceProfileTest::l07_addressZero()
 {
     DeviceProfile profile = makeValidProfile();
     profile.registers.at(0).address = 0;
-    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0)
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 0)
                  .status,
              ProfileLookupStatus::Found);
-    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0)
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 0)
                  .status,
              ProfileLookupStatus::Found);
 }
@@ -1047,7 +1100,7 @@ void DeviceProfileTest::l08_address65535()
     DeviceProfile profile = makeValidProfile();
     profile.registers.at(0).address = 65535;
     const auto result =
-        modbuslens::core::findProfileEntryByStartAddress(profile, 65535);
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 65535);
     QCOMPARE(result.status, ProfileLookupStatus::Found);
     QCOMPARE(result.entryIndex, 0);
 }
@@ -1055,13 +1108,13 @@ void DeviceProfileTest::l08_address65535()
 void DeviceProfileTest::l09_unknownAddressNotFound()
 {
     const DeviceProfile profile = makeValidProfile();
-    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 2000)
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 2000)
                  .status,
              ProfileLookupStatus::NotFound);
-    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 2000)
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 2000)
                  .status,
              ProfileLookupStatus::NotFound);
-    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 999)
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 999)
                  .status,
              ProfileLookupStatus::NotFound);
 }
@@ -1070,9 +1123,9 @@ void DeviceProfileTest::l10_lookupDoesNotMutateProfile()
 {
     const DeviceProfile profile = makeValidProfile();
     const DeviceProfile before = profile;
-    (void)modbuslens::core::findProfileEntryByStartAddress(profile, 1000);
-    (void)modbuslens::core::findProfileEntryCoveringAddress(profile, 1000);
-    (void)modbuslens::core::findProfileEntryCoveringAddress(profile, 9999);
+    (void)modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
+    (void)modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1000);
+    (void)modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 9999);
     QCOMPARE(profile, before);
 }
 
@@ -1083,8 +1136,8 @@ void DeviceProfileTest::l11_lookupDoesNotTouchM11Decode()
         rawWords, 0, RegisterDecodeType::UInt32, RegisterByteOrder::Normal,
         RegisterWordOrder::HighWordFirst);
     const DeviceProfile profile = makeValidProfile();
-    (void)modbuslens::core::findProfileEntryByStartAddress(profile, 1000);
-    (void)modbuslens::core::findProfileEntryCoveringAddress(profile, 1001);
+    (void)modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
+    (void)modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1001);
     const auto after = modbuslens::core::decodeRegisterView(
         rawWords, 0, RegisterDecodeType::UInt32, RegisterByteOrder::Normal,
         RegisterWordOrder::HighWordFirst);
@@ -1097,7 +1150,7 @@ void DeviceProfileTest::l12_metadataPreserved()
 {
     const DeviceProfile profile = makeValidProfile();
     const auto result =
-        modbuslens::core::findProfileEntryByStartAddress(profile, 1000);
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
     QVERIFY(result.found());
     const RegisterEntry& entry = profile.registers.at(result.entryIndex);
     QCOMPARE(entry.name, std::string("Frequency"));
@@ -1108,7 +1161,7 @@ void DeviceProfileTest::l13_scalingMetadataUnchanged()
 {
     const DeviceProfile profile = makeValidProfile();
     const auto result =
-        modbuslens::core::findProfileEntryByStartAddress(profile, 1000);
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
     QVERIFY(result.found());
     const RegisterEntry& entry = profile.registers.at(result.entryIndex);
     QCOMPARE(entry.scale, 0.1);
@@ -1124,7 +1177,7 @@ void DeviceProfileTest::l14_typeAndOrderMetadata()
     profile.registers.at(0).byteOrder = RegisterByteOrder::ByteSwapped;
     profile.registers.at(0).wordOrder = RegisterWordOrder::LowWordFirst;
     const auto result =
-        modbuslens::core::findProfileEntryByStartAddress(profile, 1000);
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
     QVERIFY(result.found());
     const RegisterEntry& entry = profile.registers.at(result.entryIndex);
     QCOMPARE(entry.dataType, RegisterDecodeType::Float32);
@@ -1137,10 +1190,10 @@ void DeviceProfileTest::l15_invalidProfileReturnsInvalid()
 {
     DeviceProfile profile = makeValidProfile();
     profile.displayName.clear();
-    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 1000)
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000)
                  .status,
              ProfileLookupStatus::InvalidProfile);
-    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 1000)
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1000)
                  .status,
              ProfileLookupStatus::InvalidProfile);
 }
@@ -1149,9 +1202,9 @@ void DeviceProfileTest::l16_deterministic()
 {
     const DeviceProfile profile = makeValidProfile();
     const auto first =
-        modbuslens::core::findProfileEntryByStartAddress(profile, 1000);
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
     const auto second =
-        modbuslens::core::findProfileEntryByStartAddress(profile, 1000);
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
     QCOMPARE(first, second);
 }
 
@@ -1168,6 +1221,7 @@ void DeviceProfileTest::l18_validatedProfileNeverAmbiguous()
     profile.registers.at(0).dataType = RegisterDecodeType::UInt32;
     profile.registers.at(0).registerCount = 2;
     RegisterEntry second;
+    second.readFunctionCode = 0x03;
     second.address = 1100;
     second.name = "second";
     profile.registers.push_back(second);
@@ -1175,7 +1229,7 @@ void DeviceProfileTest::l18_validatedProfileNeverAmbiguous()
     int foundCount = 0;
     for (int address = 900; address <= 1200; ++address) {
         const auto result = modbuslens::core::findProfileEntryCoveringAddress(
-            profile, static_cast<std::uint16_t>(address));
+            profile, 0x03, static_cast<std::uint16_t>(address));
         QVERIFY2(result.status != ProfileLookupStatus::Ambiguous,
                  qPrintable(QString::number(address)));
         if (result.found()) {
@@ -1191,10 +1245,10 @@ void DeviceProfileTest::l19_invalidOverlapNeverPicksAWinner()
     const DeviceProfile profile = makeOverlappingProfile();
     // The address is covered by both entries; an unvalidated query must refuse
     // rather than silently pick one.
-    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 1001)
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1001)
                  .status,
              ProfileLookupStatus::InvalidProfile);
-    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 1001)
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1001)
                  .status,
              ProfileLookupStatus::InvalidProfile);
 }
@@ -1327,6 +1381,388 @@ void DeviceProfileTest::s12_projectionDoesNotMutateEntry()
     const RegisterEntry before = entry;
     (void)modbuslens::core::projectProfileSemanticValue(entry, 466.0);
     QCOMPARE(entry, before);
+}
+
+// ===========================================================================
+// RF: readFunctionCode schema amendment (T027 32; PRE-RELEASE AMENDMENT).
+// ===========================================================================
+
+void DeviceProfileTest::rf01_fc03RoundTrip()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).readFunctionCode = 0x03;
+    const ProfileLoadResult loaded = parse(ProfileStore::serializeToJson(profile));
+    QVERIFY(loaded.ok());
+    QCOMPARE(int(loaded.profile.registers.at(0).readFunctionCode), 0x03);
+    QCOMPARE(loaded.profile, profile);
+}
+
+void DeviceProfileTest::rf02_fc04RoundTrip()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).readFunctionCode = 0x04;
+    const ProfileLoadResult loaded = parse(ProfileStore::serializeToJson(profile));
+    QVERIFY(loaded.ok());
+    QCOMPARE(int(loaded.profile.registers.at(0).readFunctionCode), 0x04);
+}
+
+void DeviceProfileTest::rf03_fc41RoundTrip()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).readFunctionCode = 0x41;
+    const ProfileLoadResult loaded = parse(ProfileStore::serializeToJson(profile));
+    QVERIFY(loaded.ok());
+    QCOMPARE(int(loaded.profile.registers.at(0).readFunctionCode), 0x41);
+}
+
+void DeviceProfileTest::rf04_fc01Valid()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).readFunctionCode = 0x01;
+    QVERIFY(modbuslens::core::validateDeviceProfile(profile).ok());
+    QVERIFY(parse(ProfileStore::serializeToJson(profile)).ok());
+}
+
+void DeviceProfileTest::rf05_fc127Valid()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).readFunctionCode = 0x7F;
+    QVERIFY(modbuslens::core::validateDeviceProfile(profile).ok());
+    QVERIFY(parse(ProfileStore::serializeToJson(profile)).ok());
+}
+
+void DeviceProfileTest::rf06_fc00Invalid()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).readFunctionCode = 0x00;
+    QCOMPARE(modbuslens::core::validateDeviceProfile(profile).code,
+             ProfileValidationCode::InvalidReadFunctionCode);
+    QCOMPARE(parse(ProfileStore::serializeToJson(profile)).error,
+             ProfileStoreError::InvalidProfile);
+}
+
+void DeviceProfileTest::rf07_fc128Invalid()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).readFunctionCode = 0x80;
+    QCOMPARE(modbuslens::core::validateDeviceProfile(profile).code,
+             ProfileValidationCode::InvalidReadFunctionCode);
+}
+
+void DeviceProfileTest::rf08_fc255Invalid()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).readFunctionCode = 0xFF;
+    QCOMPARE(modbuslens::core::validateDeviceProfile(profile).code,
+             ProfileValidationCode::InvalidReadFunctionCode);
+    QCOMPARE(parse(ProfileStore::serializeToJson(profile)).validationCode,
+             ProfileValidationCode::InvalidReadFunctionCode);
+}
+
+void DeviceProfileTest::rf09_missingFieldRejected()
+{
+    QByteArray json = validJson();
+    json.replace("\"readFunctionCode\":3,", "");
+    QVERIFY(!json.contains("readFunctionCode"));
+    const ProfileLoadResult loaded = parse(json);
+    QVERIFY(!loaded.ok());
+    QCOMPARE(loaded.error, ProfileStoreError::MalformedJson);
+    QVERIFY(loaded.profile.profileId.empty());
+}
+
+void DeviceProfileTest::rf10_fractionalRejected()
+{
+    QByteArray json = validJson();
+    json.replace("\"readFunctionCode\":3", "\"readFunctionCode\":3.5");
+    QCOMPARE(parse(json).error, ProfileStoreError::MalformedJson);
+}
+
+void DeviceProfileTest::rf11_stringRejected()
+{
+    QByteArray json = validJson();
+    json.replace("\"readFunctionCode\":3", "\"readFunctionCode\":\"03\"");
+    QCOMPARE(parse(json).error, ProfileStoreError::MalformedJson);
+}
+
+void DeviceProfileTest::rf12_serializationAlwaysWrites()
+{
+    const QByteArray json = validJson();
+    QVERIFY(json.contains("\"readFunctionCode\":3"));
+    DeviceProfile profile = makeValidProfile();
+    RegisterEntry second;
+    second.readFunctionCode = 0x04;
+    second.address = 1001;
+    second.name = "second";
+    second.dataType = RegisterDecodeType::UInt16;
+    second.registerCount = 1;
+    profile.registers.push_back(second);
+    const QByteArray both = ProfileStore::serializeToJson(profile);
+    QVERIFY(both.contains("\"readFunctionCode\":3"));
+    QVERIFY(both.contains("\"readFunctionCode\":4"));
+}
+
+void DeviceProfileTest::rf13_oldPreReleaseJsonRejected()
+{
+    // A pre-amendment internal document lacks the key: refused, with NO
+    // silent FC03 inference from address / profile / response.
+    const QByteArray oldJson =
+        "{\"schemaVersion\":1,\"profileId\":\"legacy\","
+        "\"displayName\":\"old\",\"registers\":[{\"address\":1000,"
+        "\"name\":\"r\",\"dataType\":\"UInt16\",\"registerCount\":1,"
+        "\"byteOrder\":\"Normal\",\"wordOrder\":\"HighWordFirst\","
+        "\"scale\":1,\"offset\":0,\"unit\":\"\"}]}";
+    const ProfileLoadResult loaded = parse(oldJson);
+    QVERIFY(!loaded.ok());
+    QCOMPARE(loaded.error, ProfileStoreError::MalformedJson);
+    QVERIFY(loaded.profile.registers.empty());
+}
+
+// ===========================================================================
+// RS: function-scoped register spaces (T027 32.4).
+// ===========================================================================
+
+namespace {
+
+DeviceProfile makeTwoSpaceProfile(std::uint8_t fcA, std::uint16_t addressA,
+                                  RegisterDecodeType typeA,
+                                  std::uint8_t fcB, std::uint16_t addressB,
+                                  RegisterDecodeType typeB)
+{
+    DeviceProfile profile;
+    profile.profileId = "spaces";
+    profile.displayName = "spaces";
+    RegisterEntry a;
+    a.readFunctionCode = fcA;
+    a.address = addressA;
+    a.name = "a";
+    a.dataType = typeA;
+    a.registerCount = modbuslens::core::registerDecodeTypeWordCount(typeA);
+    RegisterEntry b;
+    b.readFunctionCode = fcB;
+    b.address = addressB;
+    b.name = "b";
+    b.dataType = typeB;
+    b.registerCount = modbuslens::core::registerDecodeTypeWordCount(typeB);
+    profile.registers = {a, b};
+    return profile;
+}
+
+} // namespace
+
+void DeviceProfileTest::rs01_crossFcSameAddressPass()
+{
+    QVERIFY(modbuslens::core::validateDeviceProfile(
+                makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt16,
+                                    0x04, 1000, RegisterDecodeType::UInt16))
+                .ok());
+}
+
+void DeviceProfileTest::rs02_crossFcSpanOverlapPass()
+{
+    QVERIFY(modbuslens::core::validateDeviceProfile(
+                makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt32,
+                                    0x04, 1001, RegisterDecodeType::UInt16))
+                .ok());
+}
+
+void DeviceProfileTest::rs03_crossFcCustomPass()
+{
+    QVERIFY(modbuslens::core::validateDeviceProfile(
+                makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt32,
+                                    0x41, 1001, RegisterDecodeType::UInt16))
+                .ok());
+}
+
+void DeviceProfileTest::rs04_sameFcDuplicateFails()
+{
+    DeviceProfile profile =
+        makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt16,
+                            0x03, 1000, RegisterDecodeType::UInt16);
+    QCOMPARE(modbuslens::core::validateDeviceProfile(profile).code,
+             ProfileValidationCode::DuplicateAddress);
+}
+
+void DeviceProfileTest::rs05_sameFcOverlapFails()
+{
+    DeviceProfile profile =
+        makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt32,
+                            0x03, 1001, RegisterDecodeType::UInt16);
+    QCOMPARE(modbuslens::core::validateDeviceProfile(profile).code,
+             ProfileValidationCode::OverlappingSpan);
+}
+
+void DeviceProfileTest::rs06_sameFcAdjacentPass()
+{
+    QVERIFY(modbuslens::core::validateDeviceProfile(
+                makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt32,
+                                    0x03, 1002, RegisterDecodeType::UInt16))
+                .ok());
+}
+
+void DeviceProfileTest::rs07_differentFcSameFullSpanPass()
+{
+    QVERIFY(modbuslens::core::validateDeviceProfile(
+                makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt32,
+                                    0x04, 1000, RegisterDecodeType::UInt32))
+                .ok());
+}
+
+void DeviceProfileTest::rs08_orderReversalSameVerdict()
+{
+    DeviceProfile profile =
+        makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt32,
+                            0x03, 1001, RegisterDecodeType::UInt16);
+    QCOMPARE(modbuslens::core::validateDeviceProfile(profile).code,
+             ProfileValidationCode::OverlappingSpan);
+    std::reverse(profile.registers.begin(), profile.registers.end());
+    QCOMPARE(modbuslens::core::validateDeviceProfile(profile).code,
+             ProfileValidationCode::OverlappingSpan);
+}
+
+// ===========================================================================
+// RL: FC-scoped lookup (T027 32.5).
+// ===========================================================================
+
+void DeviceProfileTest::rl01_fc03ExactStart()
+{
+    const DeviceProfile profile = makeValidProfile(); // FC03 UInt16@1000
+    const auto result = modbuslens::core::findProfileEntryByStartAddress(
+        profile, 0x03, 1000);
+    QCOMPARE(result.status, ProfileLookupStatus::Found);
+    QCOMPARE(result.entryIndex, 0);
+}
+
+void DeviceProfileTest::rl02_fc04DoesNotReturnFc03()
+{
+    const DeviceProfile profile = makeValidProfile();
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x04, 1000)
+                 .status,
+             ProfileLookupStatus::NotFound);
+}
+
+void DeviceProfileTest::rl03_fc41CustomLookup()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).readFunctionCode = 0x41;
+    const auto result = modbuslens::core::findProfileEntryByStartAddress(
+        profile, 0x41, 1000);
+    QCOMPARE(result.status, ProfileLookupStatus::Found);
+    QCOMPARE(result.entryIndex, 0);
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000)
+                 .status,
+             ProfileLookupStatus::NotFound);
+}
+
+void DeviceProfileTest::rl04_coexistingSpaces()
+{
+    DeviceProfile profile =
+        makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt16,
+                            0x04, 1000, RegisterDecodeType::UInt16);
+    profile.registers.at(0).name = "fc03-entry";
+    profile.registers.at(1).name = "fc04-entry";
+    const auto via03 =
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
+    const auto via04 =
+        modbuslens::core::findProfileEntryByStartAddress(profile, 0x04, 1000);
+    QCOMPARE(via03.status, ProfileLookupStatus::Found);
+    QCOMPARE(via04.status, ProfileLookupStatus::Found);
+    QCOMPARE(profile.registers.at(via03.entryIndex).name,
+             std::string("fc03-entry"));
+    QCOMPARE(profile.registers.at(via04.entryIndex).name,
+             std::string("fc04-entry"));
+}
+
+void DeviceProfileTest::rl05_coveringRespectsFc()
+{
+    DeviceProfile profile =
+        makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt32,
+                            0x04, 1001, RegisterDecodeType::UInt16);
+    const auto fc03 = modbuslens::core::findProfileEntryCoveringAddress(
+        profile, 0x03, 1001);
+    const auto fc04 = modbuslens::core::findProfileEntryCoveringAddress(
+        profile, 0x04, 1001);
+    QCOMPARE(fc03.status, ProfileLookupStatus::Found);
+    QCOMPARE(fc03.entryIndex, 0);
+    QCOMPARE(fc03.offsetWithinSpan, 1);
+    QCOMPARE(fc04.status, ProfileLookupStatus::Found);
+    QCOMPARE(fc04.entryIndex, 1);
+    QCOMPARE(fc04.offsetWithinSpan, 0);
+}
+
+void DeviceProfileTest::rl06_twoWordCoveringFound()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).dataType = RegisterDecodeType::UInt32;
+    profile.registers.at(0).registerCount = 2;
+    const auto result = modbuslens::core::findProfileEntryCoveringAddress(
+        profile, 0x03, 1001);
+    QCOMPARE(result.status, ProfileLookupStatus::Found);
+    QCOMPARE(result.offsetWithinSpan, 1);
+}
+
+void DeviceProfileTest::rl07_fc04MustNotReturnFc03Covering()
+{
+    DeviceProfile profile = makeValidProfile();
+    profile.registers.at(0).dataType = RegisterDecodeType::UInt32;
+    profile.registers.at(0).registerCount = 2; // FC03 span 1000-1001
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x04, 1001)
+                 .status,
+             ProfileLookupStatus::NotFound);
+}
+
+void DeviceProfileTest::rl08_noCrossFcFallback()
+{
+    DeviceProfile profile =
+        makeTwoSpaceProfile(0x03, 1000, RegisterDecodeType::UInt16,
+                            0x04, 1000, RegisterDecodeType::UInt16);
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x41, 1000)
+                 .status,
+             ProfileLookupStatus::NotFound);
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0x41, 1000)
+                 .status,
+             ProfileLookupStatus::NotFound);
+}
+
+void DeviceProfileTest::rl09_invalidRequestedFc()
+{
+    const DeviceProfile profile = makeValidProfile();
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x00, 1000)
+                 .status,
+             ProfileLookupStatus::NotFound);
+    QCOMPARE(modbuslens::core::findProfileEntryByStartAddress(profile, 0x80, 1000)
+                 .status,
+             ProfileLookupStatus::NotFound);
+    QCOMPARE(modbuslens::core::findProfileEntryCoveringAddress(profile, 0xFF, 1000)
+                 .status,
+             ProfileLookupStatus::NotFound);
+}
+
+void DeviceProfileTest::rl10_lookupDoesNotMutateProfile()
+{
+    const DeviceProfile profile = makeValidProfile();
+    const DeviceProfile before = profile;
+    (void)modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
+    (void)modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1001);
+    (void)modbuslens::core::findProfileEntryByStartAddress(profile, 0x04, 1000);
+    QCOMPARE(profile, before);
+}
+
+void DeviceProfileTest::rl11_lookupDoesNotTouchM11Decode()
+{
+    const std::vector<std::uint16_t> rawWords = {0x1234, 0xFFFF, 0x0080};
+    const auto before = modbuslens::core::decodeRegisterView(
+        rawWords, 0, RegisterDecodeType::UInt32, RegisterByteOrder::Normal,
+        RegisterWordOrder::HighWordFirst);
+    const DeviceProfile profile = makeValidProfile();
+    (void)modbuslens::core::findProfileEntryByStartAddress(profile, 0x03, 1000);
+    (void)modbuslens::core::findProfileEntryCoveringAddress(profile, 0x03, 1001);
+    (void)modbuslens::core::findProfileEntryByStartAddress(profile, 0x04, 1000);
+    const auto after = modbuslens::core::decodeRegisterView(
+        rawWords, 0, RegisterDecodeType::UInt32, RegisterByteOrder::Normal,
+        RegisterWordOrder::HighWordFirst);
+    QCOMPARE(after.status, before.status);
+    QCOMPARE(after.text, before.text);
+    QCOMPARE(int(rawWords.at(0)), 0x1234);
 }
 
 QTEST_GUILESS_MAIN(DeviceProfileTest)

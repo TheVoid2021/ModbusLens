@@ -139,6 +139,8 @@ std::string_view profileValidationCodeName(ProfileValidationCode code)
         return "duplicate_address";
     case ProfileValidationCode::OverlappingSpan:
         return "overlapping_span";
+    case ProfileValidationCode::InvalidReadFunctionCode:
+        return "invalid_read_function_code";
     case ProfileValidationCode::InvalidByteOrder:
         return "invalid_byte_order";
     case ProfileValidationCode::InvalidWordOrder:
@@ -165,11 +167,17 @@ ProfileValidationResult validateDeviceProfile(const DeviceProfile& profile)
         return {ProfileValidationCode::UnsupportedSchemaVersion, -1};
     }
 
-    // Placed spans of the entries already accepted, as closed intervals
-    // [start, last]. Sizes are tiny (registerCount is validated to 1 or 2
-    // BEFORE this loop reaches the span checks), so int arithmetic cannot
-    // overflow here.
-    std::vector<std::pair<int, int>> placedSpans;
+    // Placed spans of the entries already accepted, per readFunctionCode
+    // space (T027 32): closed intervals [start, last]. Sizes are tiny
+    // (registerCount is validated to 1 or 2 BEFORE this loop reaches the span
+    // checks), so int arithmetic cannot overflow here. Different FC spaces
+    // never interact - FC03@1000 and FC04@1000 coexist legally.
+    struct PlacedSpan {
+        std::uint8_t readFunctionCode;
+        int first;
+        int last;
+    };
+    std::vector<PlacedSpan> placedSpans;
     placedSpans.reserve(profile.registers.size());
     for (std::size_t i = 0; i < profile.registers.size(); ++i) {
         const RegisterEntry& entry = profile.registers[i];
@@ -177,6 +185,12 @@ ProfileValidationResult validateDeviceProfile(const DeviceProfile& profile)
 
         if (entry.name.empty()) {
             return {ProfileValidationCode::RegisterNameMissing, index};
+        }
+        // Register-space identity (T027 32): the same domain as the M10
+        // validator (0x01..0x7F); 0x00 and the 0x80..0xFF exception-bit space
+        // are never accepted, and there is no silent default to FC03.
+        if (entry.readFunctionCode < 0x01 || entry.readFunctionCode > 0x7F) {
+            return {ProfileValidationCode::InvalidReadFunctionCode, index};
         }
         // RegisterCount must equal the type's word count — never auto-fixed.
         const int requiredWords = registerDecodeTypeWordCount(entry.dataType);
@@ -209,14 +223,18 @@ ProfileValidationResult validateDeviceProfile(const DeviceProfile& profile)
         // started) spans report OverlappingSpan. No priority / alias / winner
         // resolution exists.
         for (const auto& placed : placedSpans) {
+            if (placed.readFunctionCode != entry.readFunctionCode) {
+                continue; // different register spaces never interact
+            }
             if (placed.first == firstAddress) {
                 return {ProfileValidationCode::DuplicateAddress, index};
             }
-            if (firstAddress <= placed.second && placed.first <= lastAddress) {
+            if (firstAddress <= placed.last && placed.first <= lastAddress) {
                 return {ProfileValidationCode::OverlappingSpan, index};
             }
         }
-        placedSpans.emplace_back(firstAddress, lastAddress);
+        placedSpans.push_back(
+            {entry.readFunctionCode, firstAddress, lastAddress});
         if (!std::isfinite(entry.scale)) {
             return {ProfileValidationCode::NonFiniteScale, index};
         }
@@ -253,12 +271,16 @@ std::string_view profileLookupStatusName(ProfileLookupStatus status)
 namespace {
 
 ProfileLookupResult lookupInValidatedProfile(const DeviceProfile& profile,
+                                             std::uint8_t readFunctionCode,
                                              std::uint16_t address,
                                              bool covering)
 {
     ProfileLookupResult result;
     for (std::size_t i = 0; i < profile.registers.size(); ++i) {
         const RegisterEntry& entry = profile.registers[i];
+        if (entry.readFunctionCode != readFunctionCode) {
+            continue; // requested FC space only - never cross-function
+        }
         const int start = static_cast<int>(entry.address);
         const int last = start + entry.registerCount - 1;
         const int target = static_cast<int>(address);
@@ -286,6 +308,7 @@ ProfileLookupResult lookupInValidatedProfile(const DeviceProfile& profile,
 } // namespace
 
 ProfileLookupResult findProfileEntryByStartAddress(const DeviceProfile& profile,
+                                                   std::uint8_t readFunctionCode,
                                                    std::uint16_t address)
 {
     if (!validateDeviceProfile(profile).ok()) {
@@ -293,10 +316,12 @@ ProfileLookupResult findProfileEntryByStartAddress(const DeviceProfile& profile,
         result.status = ProfileLookupStatus::InvalidProfile;
         return result;
     }
-    return lookupInValidatedProfile(profile, address, /*covering=*/false);
+    return lookupInValidatedProfile(profile, readFunctionCode, address,
+                                    /*covering=*/false);
 }
 
 ProfileLookupResult findProfileEntryCoveringAddress(const DeviceProfile& profile,
+                                                    std::uint8_t readFunctionCode,
                                                     std::uint16_t address)
 {
     if (!validateDeviceProfile(profile).ok()) {
@@ -304,7 +329,8 @@ ProfileLookupResult findProfileEntryCoveringAddress(const DeviceProfile& profile
         result.status = ProfileLookupStatus::InvalidProfile;
         return result;
     }
-    return lookupInValidatedProfile(profile, address, /*covering=*/true);
+    return lookupInValidatedProfile(profile, readFunctionCode, address,
+                                    /*covering=*/true);
 }
 
 std::string_view profileSemanticClassName(ProfileSemanticClass valueClass)
@@ -345,6 +371,7 @@ ProfileSemanticProjection projectProfileSemanticValue(
         profileSemanticValue(decodedValue, entry.scale, entry.offset);
     projection.valueClass = profileSemanticClassOf(projection.semanticValue);
     projection.unit = entry.unit;
+    projection.readFunctionCode = entry.readFunctionCode;
     return projection;
 }
 
