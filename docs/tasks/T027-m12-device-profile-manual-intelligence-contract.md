@@ -1464,3 +1464,151 @@ verified LKGC     = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，不自�
 ```
 
 M12-B Slice 4（Read Result Semantic Overlay）= NOT STARTED。
+
+## 43. M12-B Slice 4 (FINAL) — Read Result Semantic Overlay Archive
+（2026-09-26，behavior `f1567a5`）
+
+> 范围（Human 指令 §4）：Active persisted Device Profile 接入 Read Result
+> detail/dialog，形成冻结三层展示（Raw / M11 Generic Decode / M12 Profile
+> Semantic）。**未实现**：AI / Manual Import / Manual Q&A / M12-C / M12-D /
+> canonical package / LKGC advance。Human Slice-3 Acceptance 已先行归档
+> （§42，commit `5cbcbe9`）。
+
+### 43.1 源码审计回答（§3 A–I，repo 当前文字为准）
+
+- **A. raw rows owner** = `AnalysisController::readResult_`（snapshot：
+  requested FC / startAddress / analysis.values）+ `readResultValues()` 投影。
+- **B. requested readFunctionCode** = `readResult_.functionCode`
+  （"the request's ACTUAL wire function code"，transaction truth；非
+  response/exception/inferred/硬编码）。
+- **C. 每行 PDU address** = `readResult_.startAddress` 起逐行 +1。
+- **D. M11 generic decode 执行处** = `readResultValues()` 内
+  `decodeRegisterView`（sliding window per row）。
+- **E. generic UI 选择传入** = `readDecodeType_ / readDecodeByteOrder_ /
+  readDecodeWordOrder_`（Q_PROPERTY WRITE，readDecodeControls 绑定）。
+- **F. numeric scalar 可得性** = decodeRegisterView 仅暴露格式化 text；
+  数值中间量（effective word / bits / 重解释）存在于冻结管线内 ⇒ 以
+  **纯新增 accessor** 暴露（§4 允许的非破坏性 projection），未改任何既有
+  函数/状态映射/文本。
+- **G. Hex/Binary numeric 语义** = **明确定义且非新发明**：M11 的 Hex text =
+  `toHex16(effective)`、Binary text = `toBinary16(effective)` ⇒ numeric =
+  位模式本身（effective）；Int16 = two's complement；UInt32/Int32/Float32 =
+  bits 的既有重解释。**无契约缺口，未触发 §4 STOP。**
+- **H. 签名** = `findProfileEntryByStartAddress(profile, uint8 fc, uint16 addr)
+  → ProfileLookupResult{status, entryIndex, offsetWithinSpan}`；
+  `findProfileEntryCoveringAddress` 同形；`projectProfileSemanticValue(entry,
+  decodedValue) → ProfileSemanticProjection{valueClass, semanticValue, unit,
+  readFunctionCode}`。
+- **I. semantic owner** = **AnalysisController**（拥有 readResult snapshot 的
+  同一 controller；注入 ActiveProfileController 指针；`activeChanged` →
+  `announceReadResultChanged()` 重投影）。
+
+### 43.2 语义语义（全部自动验证）
+
+- **lookup key** = (requested FC, PDU/0-based address)；无 cross-FC
+  fallback（FC04 读取绝不使用 FC03 entry：b4c07/b4c09/b4c36、NC-B4-1）。
+- **profile-vs-generic decode 独立**：generic 跟随 UI controls，semantic 跟随
+  **profile metadata**（dataType/byteOrder/wordOrder/scale/offset/unit）；
+  二者允许不同且互不影响（b4c10/b4c11/b4c30/b4c31/b4c37、gate stage 6、
+  NC-B4-2/NC-B4-6）。
+- **2-word start-row rule**：semantic 值只挂 start row（b4c15）；continuation
+  row 保留 raw + M11 generic（滑窗不变，b4c17）并显示 membership
+  （semanticName/span/startAddress，无第二份 semantic value，b4c16/b4c19、
+  gate stage 7、NC-B4-3）。
+- **partial span**：窗口只含 start word ⇒ `insufficient_words`，不补零/不猜
+  /不越界（b4c18）。
+- **scale/offset/unit**：冻结公式 decoded×scale+offset（顺序敏感，b4c05；
+  scale=0 合法 b4c06；offset 后置）；unit 自由文本（空 b4c20、Unicode b4c21）；
+  unit 仅附于 finite 值。
+- **special values**：NaN/+Inf/−Inf 保持 IEEE 传播，按**数值分类**
+  （projectProfileSemanticClassOf，非字符串推断，b4c25）并以 M11 既有
+  wording 呈现（b4c22-24、gate stage 11）。
+- **状态模型**：no_active_profile / unmapped / mapped_start /
+  mapped_continuation / insufficient_words / decode_error（stable token，
+  tests 不依赖中文串断言状态；中文只做 Human 呈现）。
+- **persisted-only**：unsaved editor draft 不进入 semantic（b4c26、
+  NC-B4-5）；save active → 同 identity 内容刷新（b4c27、gate stage 13）；
+  delete/clear active → 立即 no_active_profile（b4c28、gate stage 14）。
+- **零改面**：raw/HEX 不变（b4c29）、generic decoded 不变（b4c30）、source
+  range 不变（b4c31）、TransactionAnalysis/wire truth 零 diff、DeviceProfile
+  schema 零 diff、readFunctionCode/overlap 语义零 diff。
+- **三层 UI**：`readResultLayerLegend`（"每行三层：原始值（DEC/HEX）→
+  通用解析 → 设备档案语义"）+ 每行固定 `readSemanticCell` 前缀"档案语义"；
+  不靠颜色区分；dialog 内完成（未膨胀 Communication 主页面）。
+  no-active → "未选择设备档案"；unmapped → "未匹配设备档案"；continuation →
+  "属于 <name>（起始地址 <n>）；语义值显示在起始地址行"。
+
+### 43.3 实现清单
+
+- `RegisterDecode.{h,cpp}`：`decodeRegisterNumeric`（**+100 行 / −0 行**，
+  `git diff --numstat` 证明纯新增；呈现语义 ZERO CHANGE）。
+- `ActiveProfileController`：`activeCoreProfile()`（persisted core profile，
+  永不 editor draft）。
+- `AnalysisController`：注入 + 语义列（additive fields）+ 状态 token。
+- `CommunicationPage.qml`：legend + `readSemanticCell`（delegate 由单 Label
+  改为 ColumnLayout；width 用 `ListView.view.width` 修正一处新增的
+  ReferenceError）。
+- `main.cpp`：`--qml-profile-semantic-check`（17 stages，B4-Q01..Q32）+
+  `--qml-profile-semantic-demo`（Scenario A+B，`--demo-exit-after-ready`
+  供 ctest）。
+- 关键修复（迭代中，未进入提交前的中间态）：① harness transport
+  `completeReadImmediately` 默认 true 会用固定响应抢先完成 read → 显式关；
+  ② `connectSerial` 异步 → 首个 read 前加 settle stage；③ special 值误附
+  unit → unit 仅 finite；④ delegate width ReferenceError。
+
+### 43.4 测试 / 负向对照 / 回归（真实数字）
+
+```text
+profile_semantic = 40 passed（B4-C01..C38）
+device_profile = 114 passed；profile_controller = 65 passed；
+active_profile_controller = 27 passed
+qml_profile_semantic_check = PASS（17 stages，B4-Q01..Q32）
+Debug full ctest = 49/49；Release full ctest = 49/49
+windows-QPA 11 门全部 exit=0；诊断
+  （ReferenceError/TypeError/Unable to assign/String.arg Invalid）= 0；
+  qrc 警告 = 0
+负向对照（真实 mutate → FAIL → 精确逆向 patch → 复绿；未提交）：
+  NC-B4-1 lookup 忽略 FC            → b4c07+b4c09+b4c36 FAIL
+  NC-B4-2 用 generic UI 配置        → b4c10+b4c11+b4c37 FAIL
+  NC-B4-3 continuation 重复 start   → b4c15+b4c16+b4c19 FAIL
+  NC-B4-4 (decoded+offset)*scale    → b4c05+b4c06 FAIL
+  NC-B4-5 unsaved draft scale 泄漏  → b4c26 FAIL
+  NC-B4-6 semantic 覆盖 generic 列  → b4c30+b4c10+b4c31 FAIL
+```
+
+### 43.5 1000×700 实测几何（SEMGEO）
+
+```text
+readResultDialog        x=169 y=111 w=720 h=520（真实 popup background）
+readResultDetailScroll / readResultDetailCloseButton 全 contained
+lastSemanticCell（滚动到底后）= "档案语义 输出频率 = 46.6 Hz（1000-1000）"
+滚动可达性：contentY 置底断言通过；无 clip 隐藏 semantic 内容
+```
+
+### 43.6 提交与状态
+
+```text
+Human slice-3 acceptance commit = 5cbcbe9（M12: accept active-profile selector slice）
+behavior commit                 = f1567a54784593ed76282dbd6f1e89a1f24db6c3
+                                  （M12: add profile semantic readout；11 文件，无 docs）
+docs archive commit             = 本 commit（M12: archive profile semantic readout slice）
+staging = build/m12b-visual-candidate/ModbusLens.exe
+  size = 5,481,141 B
+  SHA-256 = ec3d50f2e92edc5104f48d1116c5fe8f286f58f89329105e58d2867db2bb7082
+  source == staging（cmp byte-identical）
+  launchers = Run-M12-Profile-Editor.cmd / Run-M12-Semantic-Demo.cmd
+clean-env（PATH=System32;Windows）：smoke / profile-semantic / active-profile /
+  profile-editor / register-map / read-result / nav / geometry 全 exit=0；
+  semantic demo（--demo-exit-after-ready）exit=0 且 READY 标记在
+visual candidate ≠ canonical package；未覆盖 M11 final package
+
+M10 = COMPLETE；M11 = COMPLETE；M11 FINAL PORTABLE PACKAGE = VERIFIED
+M12-A = FOUNDATION ACCEPTED
+M12-B Slice 1/2/3 = HUMAN ACCEPTED；Slice 4 = IMPLEMENTED / AUTOMATED PASS
+  / HUMAN VISUAL REVIEW PENDING
+M12-B overall = HUMAN CLOSURE PENDING
+M12-C / M12-D = NOT STARTED
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，NO advance）
+
+真实硬件状态：NOT VERIFIED（本切片全部为无硬件确定性演示；不得声称
+REAL MODBUS HARDWARE VERIFIED）。
