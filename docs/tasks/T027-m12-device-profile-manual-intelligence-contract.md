@@ -1439,3 +1439,28 @@ M12-B remaining = Read Result semantic overlay
 M12-C / M12-D = NOT STARTED
 verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，NO advance）
 ```
+
+## 42. M12-B Third Slice — HUMAN ACCEPTED（2026-09-26，docs-only）
+
+Human 原文（逐字归档）：
+
+> “M12-B 第三切片全部 PASS，Active Profile 和 Communication selector 正常，1000×700 正常。”
+
+Human 明确验证（仅限原文提及范围，不做外推）：
+
+- Active Profile 正常
+- Communication selector 正常
+- 1000×700 正常
+
+未声称 Human 验证了原文未提及的逐项结论（duplicate displayName 下拉呈现、
+删除 active 后的 selector 状态等细节仅由自动化门禁覆盖）。
+
+状态变更：
+
+```text
+M12-B Third Slice = IMPLEMENTED / AUTOMATED PASS / HUMAN VISUAL REVIEW PENDING
+                  ⇒ IMPLEMENTED / AUTOMATED PASS / HUMAN ACCEPTED
+verified LKGC     = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，不自动推进）
+```
+
+M12-B Slice 4（Read Result Semantic Overlay）= NOT STARTED。
