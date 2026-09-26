@@ -1292,3 +1292,150 @@ verified LKGC      = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，不自�
 
 M12-B Third Slice（Session Active Profile + Communication Profile Selector）
 = NOT STARTED。
+
+## 41. M12-B Third Slice — Session Active Profile + Communication Selector Archive
+（2026-09-26，behavior `6802d18`）
+
+> 范围（Human 指令 §4）：会话级 Active Profile 状态 + Communication 页轻量
+> 「当前设备档案」selector。**未实现**：Read Result semantic overlay、semantic
+> value display、Register Map Editor 新功能、AI、Manual Import、Manual Q&A、
+> M12-C/D、canonical package、LKGC advance。Human Second-Slice Acceptance 已
+> 先行归档（§40，commit `229fa51`）。
+
+### 41.1 源码审计回答（§3 A–E，repo 当前文字为准）
+
+- **A. catalog authoritative owner** = `ProfileController`（`m_catalog`；
+  `refreshCatalog()` 是唯一扫描入口；catalog 只列 valid profiles，
+  malformed 文件进 issue 计数，从不进入可选列表）。
+- **B. CommunicationPage 接收方式** = `required property var …` 由 Main.qml
+  注入（T017 ownership：页面不创建/不复制业务状态）。
+- **C. Active state 归属** = **独立 `ActiveProfileController`**（§4 优先独立；
+  由 Main 注入 `profileController` 引用并监听其 `catalogChanged` 做失效与
+  内容刷新；Editor 与 Active 双向零耦合）。
+- **D. 复用 catalog** = 是：selector 列表来自 `ProfileController.profileCatalog`
+  （无第二次文件系统扫描）；内容解析用
+  `ProfileStore.loadFromFile(defaultFilePathFor(id))`。
+- **E. delete 成功后的 catalog refresh** = `ProfileController::deleteProfile`
+  成功路径内部 `refreshCatalog()` → `emit catalogChanged()`；失败路径不发射
+  catalogChanged —— 天然满足「删除失败保持 active」。
+
+### 41.2 Active Profile 语义（全部实现并自动验证）
+
+- **identity = 完整 profileId**（永不 displayName / filename hash / list
+  index）；**content = 当前 persisted Profile**（经 catalog 存在性 + 文件
+  load + validation 双重确认）；未保存的 Editor draft 永不泄漏进 active
+  （b3c11、NC-B3-4）。
+- **save active**：identity 不变、persisted content 刷新到新保存版本
+  （b3c13/b3c14/b3c20、gate stage 11 selector 标签随 catalog refresh 更新）。
+- **失效**：catalog refresh 后 activeProfileId 不存在/unloadable ⇒ 清空 →
+  No Profile Selected（b3c18/b3c19）；无 stale cache、无 fallback、无自动
+  选第一个。
+- **delete active**：只有 delete **实际成功**（发 catalogChanged）才清空；
+  失败保持（b3c16/b3c17、NC-B3-3）。
+- **startup/restart**：每次启动 = No Profile Selected；无 QSettings / state
+  JSON / lastActiveProfileId（b3c01/b3c23、NC-B3-5）。
+- **Editor/Active 分离**：open-for-edit B / new C / 修改 B 未保存 / save B /
+  delete B 全部不改变 active A（b3c09-b3c15、NC-B3-1）。
+- **自动绑定**：无 COM / Slave / FC / response / manufacturer·model 绑定 ——
+  metaobject 白名单测试证明（b3c24/b3c25：property/method 面恰为冻结名单）。
+- **accessor**：`activeProfile` 提供完整 persisted DeviceProfile 投影（含
+  registers 全字段），与 persisted 逐字段一致（b3c21/b3c22，FC03+FC04 同址
+  保留）；**本轮无任何 semantic lookup/展示**（gate stage 13 断言页面无
+  semantic 对象）。
+- **notify**：hasActiveProfile / activeProfileId / activeProfile 全部
+  NOTIFY activeChanged；QML selector 在 active/catalog 变化后重断言权威
+  位置（见 41.4 的 ComboBox model-reset 发现）。
+
+### 41.3 Communication selector（actual layout）
+
+- 位置：连接 PanelCard 与请求区之间，独立轻量行
+  `communicationProfileSelectorRow`（Label「当前设备档案」+ ComboBox 260×24
+  + 提示 Label「用于后续寄存器语义解读（会话内有效）」）；**未嵌入完整
+  Editor**、未新增大卡。
+- 第一项 = 「未选择设备档案」（profileId 空串 sentinel → clearActive）；
+  选择 valid Profile → `selectProfile(profileId)`；QML handler 读
+  **profileId role**，绝不使用 index 当 identity。
+- 下拉两行 delegate：primary=displayPrimary、secondary=displaySecondary ——
+  **逐字复用 catalog 已冻结的 duplicate displayName 消歧**（§33.4），
+  未重新实现算法（gate stage 7/8：两个「Alpha」可区分且独立可选）。
+- 空 catalog：只剩 sentinel 行，显示「未选择设备档案」，不 crash；
+  malformed 文件不进可选列表且不阻塞其它选择（gate stage 2）。
+
+### 41.4 过程记录（诚实档案）
+
+- **C4 布局回归被真实 windows gate 抓住**：selector 加入后
+  `qml_write_foundation_check_windows`（1000×700 FC10 展开态）报
+  writeFoundationPanel 被裁 15px —— selector 行把页面内容整体下推。修复 =
+  selector 用 24px 控件高度（与 identity 编辑器字段一致）+ 页面 gap 8→6px +
+  页面上下 margin 16→4px（左右 margin 不动，避免跨页内容错位）→ C4 恢复绿
+  （382+319=701→≤700 的最后 1px 由 margin 4 收敛）。全程无 clip 掩盖。
+- **QML ComboBox model-reset 陷阱（本轮新发现）**：selector 的
+  `currentIndex` 绑定 `selectedProfileChoice`；catalog refresh 替换
+  model 数组时 ComboBox **内部重置 currentIndex**，而 QML 绑定在重估值
+  不变时不再发通知 → 控件停留在重置位（save-active-rename 后 selector 显示
+  「未选择设备档案」即此因）。修复 = `Connections`（activeChanged /
+  catalogChanged）显式重断言权威位置（直接调用，非 Qt.callLater ——
+  callLater 晚于同 stage 断言；重断言写 currentIndex 会重发 activated，
+  handler 读 profileId 幂等，链一次收敛无循环）。
+- **NC mutation 事故（未遂，无损失）**：NC-B3-1 首次 patch 误把 include 插进
+  openProfile 函数体中段（python replace 匹配点错误），立即精确逆向还原，
+  基线复绿后改用 ActiveProfileController 内部 connect 的最小 patch 完成
+  mutation。全程未使用 `git checkout -- <file>`。
+
+### 41.5 测试 / 负向对照 / 回归（真实数字）
+
+```text
+active_profile_controller = 27 passed（B3-C01..C25 + init/cleanup）
+profile_controller        = 65 passed（未动）
+device_profile            = 114 passed（未动）
+qml_active_profile_check  = PASS（19 stages，B3-Q01..Q22）
+Debug  full ctest         = 47/47（45 + active_profile_controller
+                                    + qml_active_profile_check）
+Release full ctest        = 47/47
+RegisterDecode.{h,cpp}    = ZERO DIFF；DeviceProfile schema/JSON/
+  readFunctionCode/same-FC overlap/M10 wire truth/M11 raw 全部零改动
+windows-QPA（真实 windows 平台）10 门全 exit=0；诊断
+  （ReferenceError/TypeError/Unable to assign/String.arg Invalid）= 0；
+  qrc 警告 = 0
+负向对照（真实 mutate → 观察 FAIL → 精确逆向 patch → 复绿；未提交）：
+  NC-B3-1 open-for-edit 自动 setActive        → b3c09 FAIL（gate 同红）
+  NC-B3-2 identity 用 displayName             → b3c03+b3c07 FAIL
+  NC-B3-3 delete 失败也清空 active            → b3c17 FAIL
+  NC-B3-4 未保存 draft 泄漏进 active 内容     → b3c11 FAIL
+  NC-B3-5 恢复 lastActiveProfileId            → b3c23 FAIL
+```
+
+### 41.6 1000×700 实测几何（ACTGEO）
+
+```text
+communicationProfileSelectorRow x=73  y=141 w=554 h=24
+commProfileSelector             x=157 y=141 w=260 h=24   （键盘可达）
+communicationConnectionSection  x=73  y=87  w=911 h=48
+commStartField / commReadButton y=236（请求字段与 Read 按钮未被挤压）
+readResultPanel                 x=85  y=300（未被遮挡）
+writeFoundationPanel（C4 gate） 1000×700 FC10 展开态 = 窗内 PASS
+无 clip 隐藏 overflow
+```
+
+### 41.7 提交与状态
+
+```text
+Human second-slice acceptance commit = 229fa51（M12: accept register-map editor slice）
+behavior commit                      = 6802d182a9de80246723e160a4fc47720b31b1c5
+                                       （M12: add active profile selection；7 文件，无 docs）
+docs archive commit                  = 本 commit（M12: archive active-profile selector slice）
+staging = build/m12b-visual-candidate/ModbusLens.exe
+  size = 5,343,027 B  SHA-256 = ef060abc34bd7a66042eb33c297c1b4a1e0745907f72d4dfe2389046f4644041
+  source == staging（cmp byte-identical）
+clean-env（PATH=System32;Windows）: smoke / active-profile / profile-editor /
+  register-map / nav / geometry 全 exit=0 且含 PASS 标记
+visual candidate ≠ canonical package
+
+M10 = COMPLETE；M11 = COMPLETE；M11 FINAL PORTABLE PACKAGE = VERIFIED
+M12-A = FOUNDATION ACCEPTED
+M12-B Slice 1 = HUMAN ACCEPTED；M12-B Slice 2 = HUMAN ACCEPTED
+M12-B Slice 3 = IMPLEMENTED / AUTOMATED PASS / HUMAN VISUAL REVIEW PENDING
+M12-B remaining = Read Result semantic overlay
+M12-C / M12-D = NOT STARTED
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，NO advance）
+```
