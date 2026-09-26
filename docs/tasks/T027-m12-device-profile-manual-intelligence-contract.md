@@ -696,3 +696,128 @@ M12-B / C / D = NOT STARTED
 | P1-11 | 40001 manual display alias 是否进入 M12-B v1？（contract 已标 P1） | §5/§24 |
 | P1-12 | read/write access metadata 是否进入 v1？（contract 已标 P1） | §9 |
 | P1-13 | function-code / register-family metadata 是否进入 v1？（contract 已标 P1） | §9 |
+
+## 32. Function-Code Register-Space Decision + Schema Compatibility Audit（2026-09-25，docs-only）
+
+### 32.1 Human decision（HUMAN-APPROVED M12 CONTRACT DECISION）
+
+> **Human 明确回复（原文）：「同意」**——批准方案：Profile `RegisterEntry` 增加
+> **readFunctionCode**；semantic lookup 以 **(readFunctionCode, PDU address)** 为身份；
+> span overlap 禁令**只在同一 readFunctionCode register space 内**生效；不同
+> readFunctionCode 允许使用相同 PDU address。
+> **不得写成 pre-existing canonical requirement**——这是本轮 Human 才批准的 contract decision。
+
+### 32.2 RegisterSpaceKey（冻结）
+
+```text
+RegisterSpaceKey = readFunctionCode + PDU / 0-based address
+readFunctionCode = 发送请求时的读取功能码（REQUESTED read function code）
+不是：response exception function（requestFunction | 0x80）
+不是：response function 推断值
+不是：自动设备识别结果
+```
+
+- Semantic Profile matching 必须以 **REQUESTED read function code** 为功能码上下文：请求 `FC03 / address 1000` 只能匹配 `readFunctionCode = 0x03` 且 span 包含 1000 的 entry；**不得** fallback 到 FC04 / FC41 / 其它 custom FC（No match ⇒ `NotFound`，无 cross-function fallback）。
+
+### 32.3 Custom read function codes remain first-class（M10 域源码审计，逐字取证）
+
+- **M10 read-function 合法域 = `0x01..0x7F`**：`src/core/active/ActiveRequestIntent.h:145-146`
+  `kMinReadFunctionCode = 0x01` / `kMaxReadFunctionCode = 0x7F`；校验 =
+  `ActiveRequestIntent.cpp:62-65`（越界 → `ActiveRequestValidationError::ReadFunctionCodeOutOfRange`）。
+- 逐字理由（`ActiveRequestIntent.h:140-143`）：「0x80..0xFF belongs to the exception-response
+  function-bit space (the analyzers derive exception codes as requestFunction | 0x80) and is
+  never a legal ordinary request function」；0x00 不是请求。
+- `ReadRequestParsing::parseReadFunctionCode` 仅做文本→字节（两位 hex），范围规则归 intent validator——
+  M12 Profile 的 `readFunctionCode` 域 = **复用同一 `0x01..0x7F` 域与现有 error 语义**；custom FC
+  （0x41 等）保持 first-class（M10 correction 既有 Human 接受域）。
+- **域无冲突 ⇒ §20 STOP 条件未触发**。
+
+### 32.4 Function-scoped overlap rule（冻结；对 §29 的作用域精化）
+
+- §29 的 overlap 禁令作用域**精化**为：**within the same readFunctionCode space**。
+- 例：`FC03 UInt32 @1000`（1000–1001）+ `FC03 UInt16 @1001` → **FAIL `overlapping_span`**；
+  但 `FC03 UInt16 @1000` + `FC04 UInt16 @1000` → **PASS**；`FC03 UInt32 @1000–1001` +
+  `FC41 UInt16 @1001` → **PASS**（不同 readFunctionCode = 不同 register space）。
+- 不变量更新：**ONE PDU ADDRESS BELONGS TO AT MOST ONE ENTRY SPAN, PER readFunctionCode space**。
+- 仍**不得**引入 priority / fallback / cross-function alias / winner selection。
+
+### 32.5 Lookup future semantics（冻结；实现待后续切片）
+
+- 旧无上下文签名 `findByStartAddress(address)` / `findCoveringAddress(address)` **不足以**作为最终
+  semantic lookup authority。冻结未来语义：`findByStartAddress(readFunctionCode, address)` /
+  `findCoveringAddress(readFunctionCode, address)`（或架构等价 API——**具体函数名非 Human contract**，
+  由 source architecture 决定）。
+- **必须保证**：`FC04 / address 1000` 绝不返回 `FC03 / address 1000` entry；No match ⇒ `NotFound`；
+  无 cross-function fallback。
+
+### 32.6 Read Result matching context（冻结；实现待 M12-B）
+
+- 未来 semantic overlay 必须从**当前真实请求/事务上下文**取得 requested read function code + PDU
+  address；**不能只用 address**；不得从 Profile displayName / COM port / Slave address / response
+  bytes 猜 register space。Profile selection 仍由 Human session-level 手工选择（§31 B5），随后在
+  Selected Profile 内部按 (requestedFunctionCode, PDU address) 匹配。
+
+### 32.7 JSON register entry contract change（PRE-RELEASE CONTRACT AMENDMENT）
+
+- **Schema 兼容性审计（§8 证据 A–F，只读实测）**：
+  - A/C/D = **NO**：M11 Final Package ZIP（`10783914…563d5`）建于 `bc99e6e` tree，`git ls-tree
+    bc99e6e -- src/core/profile/` = **0 文件** ⇒ M12-A 特性不在包内；M12-A 从未进 canonical package /
+    Final D（打包后各轮明令 NO package）。
+  - B = **NO**：repo 无任何 committed profile JSON（`git ls-files` 仅 CMake presets；测试 fixture 全在
+    QTemporaryDir）⇒ 无 Human-created/accepted production Profile file。
+  - E = **YES**：`test_device_profile.cpp` 是唯一已有 JSON consumer。
+  - F = **NO** 外部兼容性承诺：T027 §24.2 的 schemaVersion=1 是 **pre-release 内部 contract freeze**；
+    无外部用户 / 无外部承诺记载。
+- **裁定（按 §9 规则的推荐分支）**：**KEEP schemaVersion = 1**；`readFunctionCode` 以
+  **PRE-RELEASE CONTRACT AMENDMENT** 加入**尚未发布的 v1 schema**——**这不是 migration**；
+  旧 internal/test fixtures 同步更新；**不承诺**兼容尚未发布的中间开发格式。
+- **目标 entry shape（v1 修订，实现待后续切片）**：在 §25 shape 的 entry 中新增
+  `"readFunctionCode": <int>`（键序：`readFunctionCode` 置于 `address` 之前）。
+- **missing `readFunctionCode` policy（冻结）**：修订后的 v1 schema 中 **readFunctionCode = REQUIRED**；
+  **缺失 ⇒ load validation FAIL**；**禁止** silent default 0x03（M12 支持 FC03/FC04/custom，
+  silent 03 会制造错误语义）；与 §9 裁定一致（schema 本身修订，缺字段即非 conforming v1 文档）。
+- 合法域 = `0x01..0x7F`（§32.3）；范围校验进入未来实现的 validation（本轮不实现）。
+
+### 32.8 RegisterEntry REQUIRED fields（更新后）
+
+```text
+readFunctionCode        ← 新增 REQUIRED（register-space identity；0x01..0x7F）
+address / name / description / dataType / registerCount·span /
+defaultByteOrder / defaultWordOrder / scale / offset / unit   ← 原 REQUIRED 不变
+```
+
+- **readFunctionCode ≠ read/write access metadata**：它是 semantic register-space identity。
+- **P1 拆分**：原「function-code/register-family metadata」问题中——`readFunctionCode` 部分 =
+  **APPROVED / REQUIRED**；**其它 register-family metadata = 仍未冻结（P1-13-remnant）**；
+  read/write access metadata = 仍 P1 / DEFER candidate（P1-12）。
+
+### 32.9 Profile Editor consequence（M12-B，实现待后续）
+
+- Editor RegisterEntry UI 必须允许 Human **看到/编辑 读取功能码**；支持 custom code（复用 M10 已接受
+  语义与 `0x01..0x7F` 域）；**不得**只提供 FC03/FC04 两个固定 option。具体输入控件形态
+  （text input / editable selector）留待 M12-B implementation contract。
+
+### 32.10 不变项
+
+- **2-word semantic start-row 规则仍未冻结**（P1-1 保持；Human 本轮只批准 function-code decision，
+  未批准 start-row——不得越权）。
+- M12-B Implementation = NOT STARTED；M12-C/D = NOT STARTED。
+- verified LKGC = `bc99e6ea871628a3a685b9cf80cf3840e7b3b171`（不变）。
+
+### 32.11 Remaining P1（更新后）
+
+```text
+P1-1   2-word semantic value 挂行（仍未冻结）
+P1-2   registerCount UI（editable+validate vs derived/read-only）
+P1-3   1-word 类型 wordOrder control（disabled/hidden/editable）
+P1-4   Save As / Export
+P1-5   删除语义与确认
+P1-6   unsaved changes（Save/Discard/Cancel）
+P1-7   Editor-open 自动 active？
+P1-8   删除 active Profile 后 active selection
+P1-9   app restart 恢复 last active
+P1-10  同名 displayName 消歧
+P1-11  40001 manual display alias（保持 P1）
+P1-12  read/write access metadata（保持 P1）
+P1-13-remnant  其它 register-family metadata（readFunctionCode 部分已批准移出）
+```
