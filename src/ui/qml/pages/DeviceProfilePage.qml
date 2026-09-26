@@ -17,8 +17,11 @@ import ModbusLens
 Item {
     id: deviceProfileRoot
 
+    // No clip: the 1000x700 reachability contract is measured on real scene
+    // geometry (see --qml-profile-editor-check stage 11), never hidden by
+    // clipping. The only intentional clip in this page is the catalog
+    // Flickable's own viewport.
     objectName: "deviceProfileWorkspace"
-    clip: true
 
     required property ProfileController profileController
 
@@ -33,6 +36,14 @@ Item {
     property string pendingProfileId: ""
     // Flickable has no currentIndex: track the selected catalog row here.
     property int selectedCatalogIndex: -1
+    // Out-of-range-safe selection: the catalog shrinks on delete, so a stale
+    // index must read as "nothing selected" instead of evaluating
+    // profileCatalog[index].profileId on an empty slot (a QML TypeError).
+    readonly property var selectedCatalogEntry:
+        selectedCatalogIndex >= 0
+        && selectedCatalogIndex < profileController.profileCatalog.length
+        ? profileController.profileCatalog[selectedCatalogIndex]
+        : null
 
     function requestOpen(profileId) {
         pendingAction = "open"
@@ -78,11 +89,16 @@ Item {
     }
 
     // Save-before-continue used by the dirty dialog's Save branch. A failed
-    // save keeps the dialog state visible and blocks the pending action.
+    // save keeps the dialog open (blocking the pending action and keeping the
+    // reason visible via lastActionError); a successful save closes it BEFORE
+    // running the pending action, so the pending action's own dialog (the
+    // delete confirmation) is never stacked under an open modal.
     function saveThenRunPendingAction() {
         if (!profileController.saveCurrent())
-            return
+            return false
+        dirtyDialog.close()
         runPendingAction()
+        return true
     }
 
     ColumnLayout {
@@ -110,11 +126,9 @@ Item {
                 objectName: "profileOpenButton"
                 Accessible.name: qsTr("打开设备档案")
                 text: qsTr("打开")
-                enabled: deviceProfileRoot.selectedCatalogIndex >= 0
+                enabled: deviceProfileRoot.selectedCatalogEntry !== null
                 onClicked: deviceProfileRoot.requestOpen(
-                               profileController.profileCatalog[
-                                   deviceProfileRoot.selectedCatalogIndex
-                               ].profileId)
+                               deviceProfileRoot.selectedCatalogEntry.profileId)
             }
             AppButton {
                 objectName: "profileSaveButton"
@@ -127,11 +141,9 @@ Item {
                 objectName: "profileDeleteButton"
                 Accessible.name: qsTr("删除设备档案")
                 text: qsTr("删除")
-                enabled: deviceProfileRoot.selectedCatalogIndex >= 0
+                enabled: deviceProfileRoot.selectedCatalogEntry !== null
                 onClicked: deviceProfileRoot.requestDelete(
-                               profileController.profileCatalog[
-                                   deviceProfileRoot.selectedCatalogIndex
-                               ].profileId)
+                               deviceProfileRoot.selectedCatalogEntry.profileId)
             }
             Label {
                 objectName: "profileDirtyIndicator"
@@ -444,6 +456,7 @@ Item {
                 text: qsTr("放弃修改")
                 onClicked: {
                     profileController.discardCurrentChanges()
+                    dirtyDialog.close()
                     deviceProfileRoot.runPendingAction()
                 }
             }
@@ -490,6 +503,9 @@ Item {
                 onClicked: {
                     profileController.deleteProfile(
                         deviceProfileRoot.pendingProfileId)
+                    // The deleted row no longer exists: drop the selection so
+                    // Open/Delete cannot act on a stale index.
+                    deviceProfileRoot.selectedCatalogIndex = -1
                     deleteDialog.close()
                 }
             }

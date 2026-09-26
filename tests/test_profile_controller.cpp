@@ -357,6 +357,237 @@ private slots:
                 QStringList{QStringLiteral("profile-*.json")}, QDir::Files);
         QCOMPARE(int(productionFiles.size()), 0);
     }
+
+    // ------------------------------------------------------------------
+    // Notification contract. The QML workspace binds the dirty cue, the
+    // validation label and the editor fields directly to these properties,
+    // so a state change without its NOTIFY signal is invisible in the UI even
+    // though every getter already returns the new value. This group is the
+    // automated regression protection for exactly that failure mode (the
+    // committed first slice shipped setDisplayName() without its emit; only
+    // the QML gate could see it).
+    // ------------------------------------------------------------------
+    void b1c21_displayNameEditNotifiesEditorChanged()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        QSignalSpy spy(&controller, &ProfileController::editorChanged);
+        controller.setDisplayName(QStringLiteral("Named"));
+        QCOMPARE(spy.count(), 1);
+        // Idempotent write: no notification, no spurious binding refresh.
+        controller.setDisplayName(QStringLiteral("Named"));
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void b1c22_everyIdentitySetterNotifies()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        QSignalSpy spy(&controller, &ProfileController::editorChanged);
+        controller.setDisplayName(QStringLiteral("n"));
+        controller.setManufacturer(QStringLiteral("m"));
+        controller.setModel(QStringLiteral("mo"));
+        controller.setRevision(QStringLiteral("r"));
+        controller.setDescription(QStringLiteral("d"));
+        QCOMPARE(spy.count(), 5);
+        // Lifecycle commands notify too (the fields must follow the new
+        // profile after New/Open/Discard).
+        controller.discardCurrentChanges();
+        controller.newProfile();
+        QVERIFY(spy.count() >= 7);
+    }
+
+    // ------------------------------------------------------------------
+    // Dirty-action state machine (T027 §33.2). The QML dialog resolves
+    // Save / Discard / Cancel through exactly these controller calls; the UI
+    // wiring is gated by --qml-profile-editor-check, the semantics below are
+    // gated here, deterministically and headless.
+    // ------------------------------------------------------------------
+    void b1c23_dirtyOpenCancelKeepsDraft()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-cancel", "Target")).isEmpty());
+        ProfileController controller;
+        QVERIFY(controller.openProfile(QStringLiteral("id-cancel")));
+        controller.setDisplayName(QStringLiteral("Edited draft"));
+        QVERIFY(controller.dirty());
+        // Cancel performs NO controller call: everything the user typed is
+        // still there and nothing was written.
+        QCOMPARE(controller.displayName(), QStringLiteral("Edited draft"));
+        QCOMPARE(controller.currentProfileId(), QStringLiteral("id-cancel"));
+        QVERIFY(controller.dirty());
+        const auto onDisk = ProfileStore::loadFromFile(
+            ProfileStore::defaultFilePathFor(QStringLiteral("id-cancel")));
+        QVERIFY(onDisk.ok());
+        QCOMPARE(QString::fromStdString(onDisk.profile.displayName),
+                 QStringLiteral("Target"));
+    }
+
+    void b1c24_dirtyOpenDiscardOpensTarget()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-a", "First")).isEmpty());
+        QVERIFY(!writeManaged(makeValidProfile("id-b", "Second")).isEmpty());
+        ProfileController controller;
+        QVERIFY(controller.openProfile(QStringLiteral("id-a")));
+        controller.setDisplayName(QStringLiteral("Discarded edit"));
+        QVERIFY(controller.dirty());
+        controller.discardCurrentChanges();
+        QVERIFY(controller.openProfile(QStringLiteral("id-b")));
+        QCOMPARE(controller.currentProfileId(), QStringLiteral("id-b"));
+        QCOMPARE(controller.displayName(), QStringLiteral("Second"));
+        QVERIFY(!controller.dirty());
+        // Discard is not Save: the abandoned edit never reached disk.
+        const auto first = ProfileStore::loadFromFile(
+            ProfileStore::defaultFilePathFor(QStringLiteral("id-a")));
+        QVERIFY(first.ok());
+        QCOMPARE(QString::fromStdString(first.profile.displayName),
+                 QStringLiteral("First"));
+    }
+
+    void b1c25_dirtyOpenSaveSuccessSavesThenOpensTarget()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-a", "First")).isEmpty());
+        QVERIFY(!writeManaged(makeValidProfile("id-b", "Second")).isEmpty());
+        ProfileController controller;
+        QVERIFY(controller.openProfile(QStringLiteral("id-a")));
+        controller.setDisplayName(QStringLiteral("Renamed"));
+        QVERIFY(controller.dirty());
+        // Save branch: the save must land BEFORE the pending action runs.
+        QVERIFY(controller.saveCurrent());
+        QVERIFY(!controller.dirty());
+        const auto saved = ProfileStore::loadFromFile(
+            ProfileStore::defaultFilePathFor(QStringLiteral("id-a")));
+        QVERIFY(saved.ok());
+        QCOMPARE(QString::fromStdString(saved.profile.displayName),
+                 QStringLiteral("Renamed"));
+        QVERIFY(controller.openProfile(QStringLiteral("id-b")));
+        QCOMPARE(controller.displayName(), QStringLiteral("Second"));
+        QVERIFY(controller.profileCatalog().size() == 2);
+    }
+
+    void b1c26_dirtyOpenSaveFailureBlocksPendingAction()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-a", "First")).isEmpty());
+        QVERIFY(!writeManaged(makeValidProfile("id-b", "Second")).isEmpty());
+        ProfileController controller;
+        QVERIFY(controller.openProfile(QStringLiteral("id-a")));
+        // Invalid draft (required displayName empty): the save cannot succeed.
+        controller.setDisplayName(QString());
+        QVERIFY(controller.dirty());
+        QVERIFY(!controller.saveCurrent());
+        QVERIFY(!controller.lastActionError().isEmpty());
+        // The pending action is blocked: still on the dirty original profile.
+        QCOMPARE(controller.currentProfileId(), QStringLiteral("id-a"));
+        QVERIFY(controller.dirty());
+        QVERIFY(controller.hasOpenProfile());
+        const auto untouched = ProfileStore::loadFromFile(
+            ProfileStore::defaultFilePathFor(QStringLiteral("id-a")));
+        QVERIFY(untouched.ok());
+        QCOMPARE(QString::fromStdString(untouched.profile.displayName),
+                 QStringLiteral("First"));
+    }
+
+    void b1c27_saveIoFailureKeepsDraftAndFile()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-a", "First")).isEmpty());
+        ProfileController controller;
+        QVERIFY(controller.openProfile(QStringLiteral("id-a")));
+        controller.setDisplayName(QStringLiteral("Not written"));
+        QVERIFY(controller.dirty());
+        // A valid draft that cannot be written: the managed root's parent is
+        // now a regular file, so mkpath/save fail.
+        const QString root = ProfileStore::managedProfilesDirectory();
+        const QString blocker = root + QStringLiteral(".blockedfile");
+        QVERIFY(QFile(blocker).open(QIODevice::WriteOnly));
+        ProfileStore::setManagedRootOverride(blocker);
+        QVERIFY(!controller.saveCurrent());
+        ProfileStore::setManagedRootOverride(root);
+        QVERIFY(controller.dirty());
+        QVERIFY(!controller.lastActionError().isEmpty());
+        QCOMPARE(controller.displayName(), QStringLiteral("Not written"));
+        const auto onDisk = ProfileStore::loadFromFile(
+            ProfileStore::defaultFilePathFor(QStringLiteral("id-a")));
+        QVERIFY(onDisk.ok());
+        QCOMPARE(QString::fromStdString(onDisk.profile.displayName),
+                 QStringLiteral("First"));
+    }
+
+    void b1c28_deleteRequiresExactExistingId()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-a", "First")).isEmpty());
+        QVERIFY(!writeManaged(makeValidProfile("id-b", "Second")).isEmpty());
+        ProfileController controller;
+        QVERIFY(controller.openProfile(QStringLiteral("id-a")));
+        QCOMPARE(controller.profileCatalog().size(), 2);
+        // The confirmation dialog passes the EXACT selected id; anything else
+        // must fail loudly and delete nothing.
+        QVERIFY(!controller.deleteProfile(QStringLiteral("id-a ")));
+        QVERIFY(!controller.lastActionError().isEmpty());
+        QCOMPARE(controller.profileCatalog().size(), 2);
+        QVERIFY(controller.hasOpenProfile());
+    }
+
+    void b1c29_deleteSuccessRemovesFileAndClearsEditor()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-a", "First")).isEmpty());
+        QVERIFY(!writeManaged(makeValidProfile("id-b", "Second")).isEmpty());
+        const QString path = ProfileStore::defaultFilePathFor(
+            QStringLiteral("id-a"));
+        ProfileController controller;
+        QVERIFY(controller.openProfile(QStringLiteral("id-a")));
+        QVERIFY(controller.deleteProfile(QStringLiteral("id-a")));
+        QVERIFY(!QFile::exists(path));
+        QCOMPARE(controller.profileCatalog().size(), 1);
+        // Deleting the open profile returns the editor to "No Profile Opened".
+        QVERIFY(!controller.hasOpenProfile());
+        QVERIFY(controller.lastActionError().isEmpty());
+    }
+
+    void b1c30_deleteFailureKeepsProfile()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-a", "First")).isEmpty());
+        // A managed entry that cannot be removed: the path is a directory.
+        const QString blocked =
+            ProfileStore::defaultFilePathFor(QStringLiteral("id-dir"));
+        QVERIFY(QDir().mkpath(blocked));
+        ProfileController controller;
+        QVERIFY(!controller.deleteProfile(QStringLiteral("id-dir")));
+        QVERIFY(!controller.lastActionError().isEmpty());
+        QVERIFY(QFileInfo(blocked).isDir());
+        // The valid profile is untouched by the failed delete.
+        QCOMPARE(controller.profileCatalog().size(), 1);
+        QVERIFY(QFile::exists(ProfileStore::defaultFilePathFor(
+            QStringLiteral("id-a"))));
+    }
+
+    void b1c31_exitGuardCancelKeepsDenial()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-a", "First")).isEmpty());
+        ProfileController controller;
+        QVERIFY(controller.openProfile(QStringLiteral("id-a")));
+        controller.setDisplayName(QStringLiteral("Exit draft"));
+        // The Main.qml onClosing guard predicate.
+        QVERIFY(controller.hasOpenProfile() && controller.dirty());
+        // Cancel performs no controller call: a second close request is still
+        // denied.
+        QVERIFY(controller.hasOpenProfile() && controller.dirty());
+        // Only Discard (or a successful Save) releases the guard.
+        controller.discardCurrentChanges();
+        QVERIFY(!(controller.hasOpenProfile() && controller.dirty()));
+    }
+
+    void b1c32_exitGuardSaveFailureKeepsDenial()
+    {
+        QVERIFY(!writeManaged(makeValidProfile("id-a", "First")).isEmpty());
+        ProfileController controller;
+        QVERIFY(controller.openProfile(QStringLiteral("id-a")));
+        controller.setDisplayName(QString());
+        QVERIFY(controller.hasOpenProfile() && controller.dirty());
+        // A failed save must NOT release the exit guard.
+        QVERIFY(!controller.saveCurrent());
+        QVERIFY(!controller.lastActionError().isEmpty());
+        QVERIFY(controller.hasOpenProfile() && controller.dirty());
+        QVERIFY(controller.profileCatalog().size() == 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(ProfileControllerTest)

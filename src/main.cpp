@@ -14360,6 +14360,10 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             << QStringLiteral("PROFFAIL: window/controller not found");
         return 1;
     }
+    // The exit-guard stages deliberately attempt window->close(); a broken
+    // guard must be REPORTABLE, not end the process through quit-on-last-
+    // window-closed before the failure list is printed.
+    app.setQuitOnLastWindowClosed(false);
 
     // Injected managed root: a fresh temporary directory per run. The gate
     // writes ONLY here; the production AppData profiles location is never
@@ -14434,10 +14438,6 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         // Fall through to the QQuickItem path for regular items.
         return false;
     };
-    const auto itemVisibleOf = [&itemOf](const QString &name) -> bool {
-        auto *item = itemOf(name);
-        return item && item->isVisible();
-    };
     const auto clickNamed = [&roots, window](const QString &name) {
         auto *item = findNamedItem(roots, name);
         if (!item || !item->isVisible())
@@ -14469,6 +14469,47 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             return QStringLiteral("<none>");
         }
         return catalog.at(index).toMap().value(key).toString();
+    };
+    const auto catalogContains = [&controller](const QString &displayPrimary) {
+        // Index-independent membership: saving re-sorts the catalog by
+        // displayName, so a row index captured before the save is not stable
+        // (acceptance-round RCA: the old index-based oracle was wrong).
+        const QVariantList catalog =
+            controller->property("profileCatalog").toList();
+        for (const QVariant &row : catalog) {
+            if (row.toMap().value("displayPrimary").toString()
+                == displayPrimary) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto sceneRectOf = [&itemOf](const QString &name) -> QRectF {
+        auto *item = itemOf(name);
+        if (!item) {
+            return QRectF();
+        }
+        const QPointF topLeft = item->mapToScene(QPointF(0, 0));
+        return QRectF(topLeft, QSizeF(item->width(), item->height()));
+    };
+    // Dialogs are QQuickPopup (QObject-only): their frame geometry is read
+    // through the background item (the popup's full frame incl. header and
+    // footer chrome); contentItem alone is the inner content.
+    const auto popupRectOf = [&roots](const QString &name) -> QRectF {
+        for (QObject *root : roots) {
+            auto *popup = root->findChild<QObject *>(name);
+            if (!popup) {
+                continue;
+            }
+            auto *frame =
+                popup->property("background").value<QQuickItem *>();
+            if (!frame) {
+                return QRectF();
+            }
+            const QPointF topLeft = frame->mapToScene(QPointF(0, 0));
+            return QRectF(topLeft, QSizeF(frame->width(), frame->height()));
+        }
+        return QRectF();
     };
     const auto selectCatalogRow = [&](int index) -> bool {
         // Click the Nth delegate row (delegates share one objectName).
@@ -14514,6 +14555,24 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         return QRectF(QPointF(0, 0),
                       QSizeF(window->width(), window->height()))
             .contains(rect);
+    };
+    const auto requireInsideWindow = [&](const QString &name) {
+        auto *item = itemOf(name);
+        if (!item || !item->isVisible()) {
+            fail(QStringLiteral("%1 is not visible at measure time").arg(name));
+            return;
+        }
+        if (!withinWindow(name)) {
+            const QRectF rect = sceneRectOf(name);
+            fail(QStringLiteral("%1 outside: x=%2 y=%3 w=%4 h=%5 win=%6x%7")
+                     .arg(name)
+                     .arg(rect.x())
+                     .arg(rect.y())
+                     .arg(rect.width())
+                     .arg(rect.height())
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
     };
 
     auto steps = std::make_shared<QList<std::function<void()>>>();
@@ -14611,15 +14670,40 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("Open did not load the seeded profile"));
         note(QStringLiteral("stage 5: Open loaded the seeded profile"));
     });
-    // Stage 6: invalid displayName validation visible (Q12).
+    // Stage 6: displayName-only edits drive the dirty cue and the validation
+    // label (Q12). Regression protection for a state change without its
+    // NOTIFY signal: every getter on the controller is computed on demand, so
+    // only live bindings can catch a missing editorChanged emission.
     push([&]() {
+        setField("profileDisplayNameField", QStringLiteral("Validation probe"));
+        if (!controller->property("dirty").toBool())
+            fail(QStringLiteral("a displayName-only edit did not set dirty"));
+        if (!visibleOf(QStringLiteral("profileDirtyIndicator")))
+            fail(QStringLiteral("the dirty cue did not follow a "
+                                "displayName-only edit"));
+        if (visibleOf(QStringLiteral("profileValidationText")))
+            fail(QStringLiteral("the validation label is visible for a valid "
+                                "draft"));
         setField("profileDisplayNameField", QString());
         if (!visibleOf(QStringLiteral("profileValidationText")))
             fail(QStringLiteral("the validation text is not visible"));
-        note(QStringLiteral("stage 6: empty displayName validation visible"));
+        if (propStr(itemOf(QStringLiteral("profileValidationText")), "text")
+                .isEmpty())
+            fail(QStringLiteral("the validation label text did not update"));
+        if (!visibleOf(QStringLiteral("profileDirtyIndicator")))
+            fail(QStringLiteral("the dirty cue is hidden while the draft is "
+                                "invalid"));
+        setField("profileDisplayNameField",
+                 QStringLiteral("Existing inverter"));
+        if (visibleOf(QStringLiteral("profileValidationText")))
+            fail(QStringLiteral("the validation label stayed visible after "
+                                "the draft became valid"));
+        note(QStringLiteral("stage 6: displayName-only edits drive the dirty "
+                           "cue and the validation label"));
     });
-    // Stage 7: dirty Open -> Cancel keeps the draft (Q15), Discard opens the
-    // target (Q16).
+    // Stage 7: dirty Open -> Cancel keeps the draft AND closes the dialog
+    // (Q15). A dialog left open keeps its modal overlay swallowing every
+    // later click, so the close is part of the contract.
     push([&]() {
         setField("profileDisplayNameField", QStringLiteral("Changed draft"));
         if (!selectCatalogRow(0))
@@ -14630,10 +14714,13 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("the dirty dialog did not appear"));
         if (!clickNamed(QStringLiteral("profileDirtyCancelButton")))
             fail(QStringLiteral("the Cancel branch is not clickable"));
+        if (visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("the dirty dialog stayed open after Cancel"));
         if (propStr(itemOf(QStringLiteral("profileDisplayNameField")), "text")
             != QStringLiteral("Changed draft"))
             fail(QStringLiteral("Cancel did not keep the current draft"));
-        note(QStringLiteral("stage 7: dirty Open Cancel keeps the draft"));
+        note(QStringLiteral("stage 7: dirty Open Cancel keeps the draft and "
+                           "closes the dialog"));
     });
     push([&]() {
         if (!clickNamed(QStringLiteral("profileOpenButton")))
@@ -14642,17 +14729,19 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("the dirty dialog did not reappear"));
         if (!clickNamed(QStringLiteral("profileDirtyDiscardButton")))
             fail(QStringLiteral("the Discard branch is not clickable"));
+        if (visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("the dirty dialog stayed open after Discard"));
         if (propStr(itemOf(QStringLiteral("profileDisplayNameField")), "text")
             != QStringLiteral("Existing inverter"))
             fail(QStringLiteral("Discard did not open the target profile"));
         note(QStringLiteral("stage 8: dirty Open Discard opens the target"));
     });
-    // Stage 9: dirty Open -> Save then opens the target (Q17).
+    // Stage 9: dirty Open -> Save then opens the target (Q17). The catalog
+    // oracle is index-independent: saving re-sorts the catalog by
+    // displayName, so the renamed row's index is not stable (acceptance-round
+    // RCA: the old row-1 oracle was wrong, not the save).
     push([&]() {
         setField("profileDisplayNameField", QStringLiteral("Renamed inverter"));
-        if (!selectCatalogRow(0))
-            fail(QStringLiteral("cannot select row 0 (Save branch)"));
-        // row 0 IS the current profile here; open the OTHER one instead.
         if (!selectCatalogRow(1))
             fail(QStringLiteral("cannot select row 1 (Save branch)"));
         if (!clickNamed(QStringLiteral("profileOpenButton")))
@@ -14661,17 +14750,53 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("the dirty dialog did not appear (Save)"));
         if (!clickNamed(QStringLiteral("profileDirtySaveButton")))
             fail(QStringLiteral("the Save branch is not clickable"));
-        if (catalogRow(1, "displayPrimary")
-            != QStringLiteral("Renamed inverter"))
+        if (visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("the dirty dialog stayed open after the Save "
+                                "branch"));
+        if (!catalogContains(QStringLiteral("Renamed inverter")))
             fail(QStringLiteral("the Save branch did not save the draft"));
         if (propStr(itemOf(QStringLiteral("profileDisplayNameField")), "text")
             != QStringLiteral("Second device"))
             fail(QStringLiteral("the Save branch did not open the target"));
         note(QStringLiteral("stage 9: dirty Open Save saved then opened"));
     });
-    // Stage 10: Delete requires confirmation (Q13) and removes (Q14).
+    // Stage 9b: a FAILED save keeps the dialog open and blocks the pending
+    // action (T027 §33.2 Group 2): the user stays on the unsaved draft with
+    // the failure reason visible, and the target is NOT opened.
     push([&]() {
+        setField("profileDisplayNameField", QString());
         if (!selectCatalogRow(1))
+            fail(QStringLiteral("cannot select row 1 (Save failure)"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("Open is not clickable (Save failure)"));
+        if (!visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("the dirty dialog did not appear (Save "
+                                "failure)"));
+        if (!clickNamed(QStringLiteral("profileDirtySaveButton")))
+            fail(QStringLiteral("the Save branch is not clickable (Save "
+                                "failure)"));
+        if (!visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("a failed save closed the dirty dialog"));
+        if (controller->property("lastActionError").toString().isEmpty())
+            fail(QStringLiteral("a failed save did not surface an action "
+                                "error"));
+        if (!propStr(itemOf(QStringLiteral("profileDisplayNameField")), "text")
+                 .isEmpty())
+            fail(QStringLiteral("a failed save replaced the draft"));
+        if (!clickNamed(QStringLiteral("profileDirtyCancelButton")))
+            fail(QStringLiteral("the Cancel branch is not clickable after a "
+                                "failed save"));
+        if (visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("Cancel did not close the dialog after a "
+                                "failed save"));
+        setField("profileDisplayNameField", QStringLiteral("Second device"));
+        note(QStringLiteral("stage 9b: failed save blocks the pending action"));
+    });
+    // Stage 10: delete requires confirmation (Q13) and removes (Q14). The
+    // confirmed path must close its dialog and drop the deleted row's
+    // selection, so Open/Delete cannot act on a stale index.
+    push([&]() {
+        if (!selectCatalogRow(0))
             fail(QStringLiteral("cannot select the row to delete"));
         if (!clickNamed(QStringLiteral("profileDeleteButton")))
             fail(QStringLiteral("the Delete button is not clickable"));
@@ -14680,37 +14805,148 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (!clickNamed(QStringLiteral("profileDeleteConfirmButton")))
             fail(QStringLiteral("the confirm-delete button is not "
                                 "clickable"));
+        if (visibleOf(QStringLiteral("profileDeleteDialog")))
+            fail(QStringLiteral("the delete dialog stayed open after "
+                                "confirm"));
         if (controller->property("profileCatalog").toList().size() != 1)
             fail(QStringLiteral("confirmed delete did not remove the "
                                 "profile"));
+        if (propBool(itemOf(QStringLiteral("profileOpenButton")), "enabled"))
+            fail(QStringLiteral("Open stayed enabled without a selection"));
+        if (propBool(itemOf(QStringLiteral("profileDeleteButton")), "enabled"))
+            fail(QStringLiteral("Delete stayed enabled without a selection"));
         note(QStringLiteral("stage 10: delete confirmed and removed"));
     });
-    // Stage 11: 1000x700 reachability (Q20).
+    // Stage 11a: resize to the 1000x700 contract size. Measuring in the SAME
+    // step reads the PREVIOUS window's layout (acceptance-round harness RCA),
+    // so the measurement is a separate step.
     push([&]() {
         window->resize(1000, 700);
+        note(QStringLiteral("stage 11a: window resized to 1000x700"));
+    });
+    // Stage 11b: the 1000x700 reachability contract on real scene geometry.
+    // Nothing is hidden by a clip: the page root does not clip (only the
+    // catalog Flickable viewport does, by design), so a passed containment
+    // assert IS the visible-area proof for these interactive controls.
+    push([&]() {
+        if (window->width() != 1000 || window->height() != 700)
+            fail(QStringLiteral("the window is not at the 1000x700 contract "
+                                "size: %1x%2")
+                     .arg(window->width())
+                     .arg(window->height()));
         for (const auto &name :
-             {QStringLiteral("profileNewButton"),
+             {QStringLiteral("deviceProfileWorkspace"),
+              QStringLiteral("deviceProfileActions"),
+              QStringLiteral("profileNewButton"),
               QStringLiteral("profileOpenButton"),
               QStringLiteral("profileSaveButton"),
               QStringLiteral("profileDeleteButton"),
               QStringLiteral("profileCatalogCard"),
-              QStringLiteral("profileIdentityCard")}) {
-            if (!withinWindow(name)) {
-                auto *item = itemOf(name);
-                const QPointF topLeft =
-                    item ? item->mapToScene(QPointF(0, 0)) : QPointF(-1, -1);
-                fail(QStringLiteral("%1 outside: x=%2 y=%3 w=%4 h=%5 "
-                                    "win=%6x%7")
-                         .arg(name)
-                         .arg(topLeft.x())
-                         .arg(topLeft.y())
-                         .arg(item ? item->width() : -1)
-                         .arg(item ? item->height() : -1)
-                         .arg(window->width())
-                         .arg(window->height()));
+              QStringLiteral("profileCatalogList"),
+              QStringLiteral("profileIdentityCard"),
+              QStringLiteral("profileDisplayNameField"),
+              QStringLiteral("profileDescriptionField")}) {
+            auto *item = itemOf(name);
+            if (!item) {
+                fail(QStringLiteral("%1 disappeared before the geometry "
+                                    "measure")
+                         .arg(name));
+                continue;
             }
+            const QRectF rect = sceneRectOf(name);
+            qInfo().noquote()
+                << QStringLiteral("PROFGEO %1: x=%2 y=%3 w=%4 h=%5")
+                       .arg(name)
+                       .arg(rect.x())
+                       .arg(rect.y())
+                       .arg(rect.width())
+                       .arg(rect.height());
+            requireInsideWindow(name);
         }
-        note(QStringLiteral("stage 11: 1000x700 controls reachable"));
+        note(QStringLiteral("stage 11b: 1000x700 controls reachable"));
+    });
+    // Stage 11c: the dirty dialog's own geometry at 1000x700 — opened for
+    // real through a dirty Open (no controller bypass), measured, cancelled.
+    push([&]() {
+        setField("profileDisplayNameField", QStringLiteral("Dialog probe"));
+        if (!selectCatalogRow(0))
+            fail(QStringLiteral("cannot select a row for the dialog probe"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("Open is not clickable (dialog probe)"));
+        if (!visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("the dirty dialog did not appear (dialog "
+                                "probe)"));
+        const QRectF dialogRect =
+            popupRectOf(QStringLiteral("profileDirtyDialog"));
+        qInfo().noquote()
+            << QStringLiteral("PROFGEO profileDirtyDialog: x=%1 y=%2 w=%3 "
+                              "h=%4")
+                   .arg(dialogRect.x())
+                   .arg(dialogRect.y())
+                   .arg(dialogRect.width())
+                   .arg(dialogRect.height());
+        if (dialogRect.isEmpty())
+            fail(QStringLiteral("the dirty dialog has no measurable "
+                                "geometry"));
+        else if (!QRectF(QPointF(0, 0),
+                         QSizeF(window->width(), window->height()))
+                      .contains(dialogRect))
+            fail(QStringLiteral("the dirty dialog is outside the window"));
+        for (const auto &name :
+             {QStringLiteral("profileDirtySaveButton"),
+              QStringLiteral("profileDirtyDiscardButton"),
+              QStringLiteral("profileDirtyCancelButton")})
+            requireInsideWindow(name);
+        if (!clickNamed(QStringLiteral("profileDirtyCancelButton")))
+            fail(QStringLiteral("the Cancel branch is not clickable (dialog "
+                                "probe)"));
+        if (visibleOf(QStringLiteral("profileDirtyDialog")))
+            fail(QStringLiteral("the dirty dialog stayed open (dialog "
+                                "probe)"));
+        setField("profileDisplayNameField", QStringLiteral("Second device"));
+        note(QStringLiteral("stage 11c: dirty dialog reachable at 1000x700"));
+    });
+    // Stage 11d: the delete confirmation's own geometry, and its Cancel
+    // deletes nothing.
+    push([&]() {
+        if (!selectCatalogRow(0))
+            fail(QStringLiteral("cannot select a row for the delete probe"));
+        if (!clickNamed(QStringLiteral("profileDeleteButton")))
+            fail(QStringLiteral("the Delete button is not clickable (delete "
+                                "probe)"));
+        if (!visibleOf(QStringLiteral("profileDeleteDialog")))
+            fail(QStringLiteral("the delete dialog did not appear (delete "
+                                "probe)"));
+        const QRectF dialogRect =
+            popupRectOf(QStringLiteral("profileDeleteDialog"));
+        qInfo().noquote()
+            << QStringLiteral("PROFGEO profileDeleteDialog: x=%1 y=%2 w=%3 "
+                              "h=%4")
+                   .arg(dialogRect.x())
+                   .arg(dialogRect.y())
+                   .arg(dialogRect.width())
+                   .arg(dialogRect.height());
+        if (dialogRect.isEmpty())
+            fail(QStringLiteral("the delete dialog has no measurable "
+                                "geometry"));
+        else if (!QRectF(QPointF(0, 0),
+                         QSizeF(window->width(), window->height()))
+                      .contains(dialogRect))
+            fail(QStringLiteral("the delete dialog is outside the window"));
+        for (const auto &name :
+             {QStringLiteral("profileDeleteConfirmButton"),
+              QStringLiteral("profileDeleteCancelButton")})
+            requireInsideWindow(name);
+        if (!clickNamed(QStringLiteral("profileDeleteCancelButton")))
+            fail(QStringLiteral("the delete Cancel branch is not clickable"));
+        if (visibleOf(QStringLiteral("profileDeleteDialog")))
+            fail(QStringLiteral("the delete dialog stayed open (delete "
+                                "probe)"));
+        if (controller->property("profileCatalog").toList().size() != 1)
+            fail(QStringLiteral("cancelling the delete confirmation removed "
+                                "a profile"));
+        note(QStringLiteral("stage 11d: delete dialog reachable; Cancel "
+                           "deletes nothing"));
     });
     // Stage 12: keyboard focus reaches the identity editor (Q21).
     push([&]() {
@@ -14756,11 +14992,42 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("the exit Cancel branch is not clickable"));
         if (!window->isVisible())
             fail(QStringLiteral("Cancel did not block the close"));
+        if (visibleOf(QStringLiteral("profileExitDialog")))
+            fail(QStringLiteral("the exit dialog did not close on Cancel"));
         note(QStringLiteral("stage 14: exit dirty guard blocks close on "
                            "Cancel"));
         // Cleanup: drop the draft via the controller; the gate window stays
         // open so the schedule can finish and report.
         QMetaObject::invokeMethod(controller, "discardCurrentChanges");
+    });
+    // Stage 15: exit request with an UNSAVABLE draft: the Save branch must
+    // neither close the window nor close the exit dialog (the close stays
+    // denied until the draft is resolved another way).
+    push([&]() {
+        setField("profileDisplayNameField", QString());
+        window->close(); // delivers the real QCloseEvent
+        if (!window->isVisible())
+            fail(QStringLiteral("the window closed although the draft cannot "
+                                "be saved"));
+        if (!visibleOf(QStringLiteral("profileExitDialog")))
+            fail(QStringLiteral("the exit dialog did not appear for the "
+                                "failed-save path"));
+        if (!clickNamed(QStringLiteral("profileExitSaveButton")))
+            fail(QStringLiteral("the exit Save branch is not clickable"));
+        if (!window->isVisible())
+            fail(QStringLiteral("a failed save still closed the window"));
+        if (!visibleOf(QStringLiteral("profileExitDialog")))
+            fail(QStringLiteral("the exit dialog closed although the save "
+                                "failed"));
+        if (!clickNamed(QStringLiteral("profileExitCancelButton")))
+            fail(QStringLiteral("the exit Cancel branch is not clickable "
+                                "(failed-save path)"));
+        // Cleanup: restore a valid draft and drop it; the gate window stays
+        // open so the schedule can finish and report.
+        setField("profileDisplayNameField", QStringLiteral("Second device"));
+        QMetaObject::invokeMethod(controller, "discardCurrentChanges");
+        note(QStringLiteral("stage 15: exit + failed save keeps the window "
+                           "and the dialog"));
     });
 
     const int settleMs = 60;
@@ -14779,10 +15046,14 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             note(QStringLiteral("PROFILE EDITOR CHECK PASS (B1-Q01..Q22): "
                                "workspace reachable via the rail; New/Open/"
                                "Save/Delete lifecycle; read-only profileId; "
-                               "dirty protection with Save/Discard/Cancel; "
-                               "validation visible; malformed catalog "
-                               "non-blocking; 1000x700 reachable; exit dirty "
-                               "guard blocks close on Cancel"));
+                               "dirty protection with Save/Discard/Cancel "
+                               "(each branch closes the dialog); failed save "
+                               "blocks the pending action; validation and "
+                               "dirty cues follow displayName-only edits; "
+                               "malformed catalog non-blocking; 1000x700 "
+                               "reachable incl. both dialogs; exit dirty "
+                               "guard denies close on Cancel and on a failed "
+                               "save"));
             app.exit(0);
             return;
         }

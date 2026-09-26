@@ -72,7 +72,7 @@ void ProfileController::setDisplayName(const QString &value)
         return;
     }
     m_draft.displayName = converted;
-    // NC-B1: dirty not set
+    emitEditorChanged();
 }
 
 QString ProfileController::manufacturer() const
