@@ -910,3 +910,55 @@ P1-13-remnant  其它 register-family metadata（readFunctionCode 部分已批�
   P1-11 / P1-12 / P1-13-remnant = DEFER（非阻塞的 v1 外延功能）。
 - **本轮随之执行的行为 = T027 §32 的 readFunctionCode PRE-RELEASE AMENDMENT**（M12-A latest
   contract amendment，PENDING IMPLEMENTATION → IMPLEMENTED，见 §35）。
+
+## 35. readFunctionCode Amendment — Implementation Archive（2026-09-26，behavior-bearing）
+
+> **M12-A readFunctionCode PRE-RELEASE AMENDMENT = IMPLEMENTED / AUTOMATED PASS。**
+> 行为提交 = `ec9823c51e1a552438483ec85163129b65de5295`（「M12: scope profile data by read function」；
+> docs-freeze 先行 = `ed3b2e59412eb343b36c83c1e7c38b61fd2c9183`）。
+> **Human visual review = NOT REQUIRED**（零 UI，不制造 Human PASS）。
+
+### 35.1 实现内容（§32 落地）
+
+- **模型**：`RegisterEntry.readFunctionCode`（`std::uint8_t`）——**内存默认 = 无效 sentinel 0**
+  （新建 entry 不可能静默成为 FC03；调用者必须显式赋值）；合法域 `0x01..0x7F`（镜像 M10
+  `kMinReadFunctionCode` / `kMaxReadFunctionCode`）。
+- **验证**：新错误码 `InvalidReadFunctionCode`（token `invalid_read_function_code`）；entry 级检查
+  （`registerIndex` 可定位）；0x00 与 0x80..0xFF（异常响应位空间）全拒。
+- **Function-scoped validation**：placed spans 以 `(readFunctionCode, [first, last])` 键控——
+  `duplicate_address` / `overlapping_span` 仅在同 FC space 内触发；跨 FC 同地址合法。
+- **JSON**：serialize **恒写** `"readFunctionCode"`（integer）；parse **必需**（missing / fractional /
+  string → 结构性拒绝 `malformed_json`；integer 但 0 或 ≥128 → `invalid_profile` +
+  `invalid_read_function_code`）；**无 silent default 03**；schemaVersion **保持 1**（PRE-RELEASE
+  CONTRACT AMENDMENT，非 migration——§32.7 证据 A–F）。
+- **Lookup API（替换，无生产兼容义务——源码审计证实仅测试消费）**：
+  `findProfileEntryByStartAddress(profile, readFunctionCode, address)` /
+  `findProfileEntryCoveringAddress(profile, readFunctionCode, address)`；先 validation；仅搜索 requested
+  FC space；无效 requested FC ⇒ `NotFound`；无 cross-function fallback；`Ambiguous` defensive-only。
+- **Projection**：`ProfileSemanticProjection.readFunctionCode` 作为 source metadata；公式与 IEEE 特殊值
+  行为零改动。
+
+### 35.2 测试 / 负向对照 / 回归（真实数字）
+
+```text
+device_profile = 114 passed（原 82 + RF01–13 + RS01–08 + RL01–11；旧 fixture 全部补显式 FC——
+  sentinel 0 被拒绝正是「无 silent FC03」设计的直接验证）
+负向对照（真实 mutate → FAIL → 恢复，无 mutation 提交）：
+  NC-RF1（missing FC 默认 03）→ RF09 + RF13 FAIL
+  NC-RF2（global overlap 不按 FC 分组）→ RS01/02/03/07 + RL04 FAIL
+  NC-RF3（lookup 忽略 FC）→ RL02/03/04/05/07/08 FAIL
+Debug build 0 error + ctest 42/42；Release build 0 error + ctest 42/42（M10/M11 与 QML gates 全绿）
+RegisterDecode.{h,cpp} = ZERO DIFF（M11 sliding-window 语义未被触碰，§33.5 声明兑现）
+```
+
+### 35.3 状态
+
+```text
+M12-A latest contract amendment（readFunctionCode）= IMPLEMENTED / AUTOMATED PASS
+M12-A FOUNDATION = ACCEPTED INCLUDING readFunctionCode PRE-RELEASE AMENDMENT
+M12-B = CONTRACT / UI DEFINITION（Group 1–4 已冻结；P1-1..10 RESOLVED、P1-11/12/13-remnant DEFER；
+  阻塞 first slice 的 Human P1 = 0）
+M12-B Implementation / M12-C / M12-D = NOT STARTED
+未 package（M11 final package 保持历史 VERIFIED）
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不推进；本行为提交仅为 M12 candidate）
+```
