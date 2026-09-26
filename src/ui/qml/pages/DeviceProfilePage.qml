@@ -417,7 +417,6 @@ Item {
     Dialog {
         id: dirtyDialog
         objectName: "profileDirtyDialog"
-        Accessible.name: qsTr("未保存修改")
         modal: true
         closePolicy: Popup.NoAutoClose
         anchors.centerIn: parent
@@ -465,7 +464,6 @@ Item {
     Dialog {
         id: deleteDialog
         objectName: "profileDeleteDialog"
-        Accessible.name: qsTr("删除设备档案确认")
         modal: true
         closePolicy: Popup.NoAutoClose
         anchors.centerIn: parent
