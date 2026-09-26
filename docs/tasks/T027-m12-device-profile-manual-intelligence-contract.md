@@ -1115,3 +1115,29 @@ M12-B remaining = Register Map Editor / Communication selector / Semantic overla
 M12-C / M12-D = NOT STARTED
 verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变）
 ```
+
+## 38. M12-B First Slice — HUMAN ACCEPTED（2026-09-26，docs-only）
+
+Human 原文（逐字归档）：
+
+> “M12-B 第一切片全部 PASS，1000×700 正常，保存/放弃/取消和删除正常”
+
+Human verified（仅限原文明确提及的范围，不做外推）：
+
+- Device Profile workspace（第一切片整体 = 全部 PASS）
+- 1000×700 显示正常
+- 保存 / 放弃 / 取消（dirty 三路）正常
+- 删除正常
+
+**未声称 Human 验证了原文未提及的其它细节**（accessibility、exit guard、
+malformed catalog 提示等仅由自动化门禁覆盖）。
+
+状态变更：
+
+```text
+M12-B First Slice = IMPLEMENTED / AUTOMATED PASS / HUMAN VISUAL REVIEW PENDING
+                  ⇒ IMPLEMENTED / AUTOMATED PASS / HUMAN ACCEPTED
+verified LKGC     = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，不自动推进）
+```
+
+M12-B Second Slice（Register Map Editor）= NOT STARTED。
