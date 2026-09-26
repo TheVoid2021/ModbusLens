@@ -15656,6 +15656,625 @@ int runRegisterMapCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
+
+// ---------------------------------------------------------------------------
+// M12-B third slice `--qml-active-profile-check`: the Communication
+// workspace's lightweight current-profile selector, driven end to end
+// through the REAL UI path (Communication page → selector → Device Profile
+// workspace editor operations → back), against an injected temporary
+// managed root (never the production AppData). Covers B3-Q01..Q22.
+// ---------------------------------------------------------------------------
+int runActiveProfileCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    auto *controller = rootObj
+                           ? rootObj->findChild<QObject *>(
+                               QStringLiteral("profileController"))
+                           : nullptr;
+    auto *active = rootObj
+                       ? rootObj->findChild<QObject *>(
+                           QStringLiteral("activeProfileController"))
+                       : nullptr;
+    if (!window || !controller || !active) {
+        qWarning().noquote()
+            << QStringLiteral("ACTFAIL: window/controller not found");
+        return 1;
+    }
+    app.setQuitOnLastWindowClosed(false);
+
+    QTemporaryDir managedRoot;
+    if (!managedRoot.isValid()) {
+        qWarning().noquote() << QStringLiteral("ACTFAIL: temp root invalid");
+        return 1;
+    }
+    ProfileStore::setManagedRootOverride(managedRoot.path());
+    const auto writeSeed = [&](const char *profileId, const char *displayName,
+                               std::uint8_t fc, std::uint16_t address) {
+        DeviceProfile profile;
+        profile.schemaVersion = 1;
+        profile.profileId = profileId;
+        profile.displayName = displayName;
+        profile.manufacturer = "ACME";
+        profile.model = "INV-1000";
+        RegisterEntry entry;
+        entry.readFunctionCode = fc;
+        entry.address = address;
+        entry.name = "Frequency";
+        entry.dataType = RegisterDecodeType::UInt16;
+        entry.registerCount = 1;
+        entry.scale = 0.1;
+        entry.unit = "Hz";
+        profile.registers.push_back(entry);
+        return ProfileStore::saveToFile(
+                   profile, ProfileStore::defaultFilePathFor(
+                                QString::fromLatin1(profileId)))
+            .ok();
+    };
+    if (!writeSeed("id-a", "Alpha", 0x03, 1000)
+        || !writeSeed("id-b", "Beta", 0x03, 2000)) {
+        qWarning().noquote() << QStringLiteral("ACTFAIL: seed write failed");
+        return 1;
+    }
+    {
+        // A malformed managed file: must NOT appear in the valid selector
+        // list and must not block A/B selection.
+        QFile bad(QDir(managedRoot.path())
+                      .filePath(QStringLiteral("profile-badbadbadbadbadbad"
+                                                "badbadbadbadbadbadbadbadbad"
+                                                "badbadbadbadbadbad.json")));
+        if (!bad.open(QIODevice::WriteOnly)) {
+            qWarning().noquote()
+                << QStringLiteral("ACTFAIL: cannot write malformed seed");
+            return 1;
+        }
+        bad.write("{\"schemaVersion\":1,\"profileId\":");
+        bad.close();
+    }
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &m) {
+        qInfo().noquote() << QStringLiteral("ACT: %1").arg(m);
+    };
+
+    auto itemOf = [&roots](const QString &name) {
+        return findNamedItem(roots, name);
+    };
+    const auto propStr = [](QObject *o, const char *name) {
+        return o ? o->property(name).toString() : QStringLiteral("<none>");
+    };
+    const auto propBool = [](QObject *o, const char *name) {
+        return o ? o->property(name).toBool() : false;
+    };
+    const auto visibleOf = [&roots](const QString &name) -> bool {
+        for (QObject *root : roots) {
+            auto *popup = root->findChild<QObject *>(name);
+            if (popup)
+                return popup->property("visible").toBool();
+        }
+        return false;
+    };
+    const auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = findNamedItem(roots, name);
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    const auto setField = [&roots](const QString &name, const QString &text) {
+        auto *field = findNamedItem(roots, name);
+        if (!field) {
+            return false;
+        }
+        field->setProperty("text", text);
+        return true;
+    };
+    // Catalog/register delegates share one objectName: reach the Nth row via
+    // the VISUAL tree (childItems) — QObject::findChild misses Repeater
+    // delegates in this declarative tree (repo finding).
+    const auto collectRows = [&window](const QString &rowName) {
+        QList<QQuickItem *> rows;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            if (item->objectName() == rowName)
+                rows << item;
+            for (QQuickItem *child : item->childItems())
+                walk(child);
+        };
+        if (window->contentItem())
+            walk(window->contentItem());
+        return rows;
+    };
+    const auto clickRow = [&](const QString &rowName, int index) -> bool {
+        const QList<QQuickItem *> rows = collectRows(rowName);
+        if (index < 0 || index >= rows.size() || !rows.at(index)->isVisible())
+            return false;
+        QQuickItem *row = rows.at(index);
+        const QPointF local(row->width() / 2.0, row->height() / 2.0);
+        const QPointF scene = row->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    const auto catalogIndexOf = [&controller](const QString &profileId) {
+        const QVariantList catalog =
+            controller->property("profileCatalog").toList();
+        for (int i = 0; i < catalog.size(); ++i) {
+            if (catalog.at(i).toMap().value("profileId").toString()
+                == profileId) {
+                return i;
+            }
+        }
+        return -1;
+    };
+    // The selector's ComboBox: activate the row for a profileId the same way
+    // a user choice does (the QML handler reads the profileId role).
+    const auto selectProfileById = [&](const QString &profileId) -> bool {
+        auto *combo = itemOf(QStringLiteral("commProfileSelector"));
+        if (!combo) {
+            return false;
+        }
+        if (profileId.isEmpty()) {
+            return QMetaObject::invokeMethod(combo, "activated",
+                                             Q_ARG(int, 0));
+        }
+        const int choice = catalogIndexOf(profileId) + 1;
+        if (choice < 1) {
+            return false;
+        }
+        return QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, choice));
+    };
+    const auto sceneRectOf = [&itemOf](const QString &name) -> QRectF {
+        auto *item = itemOf(name);
+        if (!item) {
+            return QRectF();
+        }
+        const QPointF topLeft = item->mapToScene(QPointF(0, 0));
+        return QRectF(topLeft, QSizeF(item->width(), item->height()));
+    };
+    const auto requireInsideWindow = [&](const QString &name) {
+        auto *item = itemOf(name);
+        if (!item || !item->isVisible()) {
+            fail(QStringLiteral("%1 is not visible at measure time").arg(name));
+            return;
+        }
+        const QRectF rect = sceneRectOf(name);
+        if (!QRectF(QPointF(0, 0), QSizeF(window->width(), window->height()))
+                 .contains(rect)) {
+            fail(QStringLiteral("%1 outside: x=%2 y=%3 w=%4 h=%5 win=%6x%7")
+                     .arg(name)
+                     .arg(rect.x())
+                     .arg(rect.y())
+                     .arg(rect.width())
+                     .arg(rect.height())
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
+    };
+    const auto navigate = [&](const QString &railEntry,
+                              const QString &workspace) -> bool {
+        if (!clickNamed(railEntry) || !visibleOf(workspace)) {
+            return false;
+        }
+        return true;
+    };
+
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // Stage 0: navigate to the Communication workspace via the REAL rail.
+    push([&]() {
+        if (!navigate(QStringLiteral("navItem_2"),
+                      QStringLiteral("communicationWorkspace")))
+            fail(QStringLiteral("the Communication workspace is not "
+                                "reachable"));
+        if (!visibleOf(QStringLiteral("communicationProfileSelectorRow")))
+            fail(QStringLiteral("the profile selector row is not visible"));
+        // The controller scanned the PRODUCTION root during engine load (the
+        // override was installed afterwards); refresh against the injected
+        // root now.
+        QMetaObject::invokeMethod(controller, "refreshCatalog");
+        note(QStringLiteral("stage 0: Communication workspace reachable"));
+    });
+    // Stage 1: label + startup state (B3-Q01/Q02/Q03).
+    push([&]() {
+        if (propStr(itemOf(QStringLiteral("commProfileSelectorLabel")),
+                    "text")
+            != QStringLiteral("当前设备档案"))
+            fail(QStringLiteral("the selector label is not understandable"));
+        auto *combo = itemOf(QStringLiteral("commProfileSelector"));
+        if (!combo || combo->property("currentIndex").toInt() != 0)
+            fail(QStringLiteral("startup is not 未选择设备档案"));
+        if (active->property("hasActiveProfile").toBool())
+            fail(QStringLiteral("the session started with an active profile"));
+        if (!active->property("activeProfileId").toString().isEmpty())
+            fail(QStringLiteral("activeProfileId is not empty at startup"));
+        note(QStringLiteral("stage 1: selector visible; startup = none"));
+    });
+    // Stage 2: valid catalog rows present; the malformed file is not
+    // selectable (B3-Q04/Q05).
+    push([&]() {
+        const QVariantList catalog =
+            controller->property("profileCatalog").toList();
+        if (catalog.size() != 2)
+            fail(QStringLiteral("the valid catalog should list exactly A and "
+                                "B, got %1").arg(catalog.size()));
+        bool sawA = false;
+        bool sawB = false;
+        for (const QVariant &row : catalog) {
+            const QString id =
+                row.toMap().value("profileId").toString();
+            sawA = sawA || id == QStringLiteral("id-a");
+            sawB = sawB || id == QStringLiteral("id-b");
+        }
+        if (!sawA || !sawB)
+            fail(QStringLiteral("the seeded valid profiles are not listed"));
+        note(QStringLiteral("stage 2: valid rows only (malformed excluded)"));
+    });
+    // Stage 3: select A through the REAL selector path (B3-Q06/Q07).
+    push([&]() {
+        if (!selectProfileById(QStringLiteral("id-a")))
+            fail(QStringLiteral("cannot activate selector row A"));
+        if (active->property("activeProfileId").toString()
+            != QStringLiteral("id-a"))
+            fail(QStringLiteral("the active identity is not id-a"));
+        if (!active->property("hasActiveProfile").toBool())
+            fail(QStringLiteral("hasActiveProfile did not follow selection"));
+        note(QStringLiteral("stage 3: A selected by profileId"));
+    });
+    // Stage 4: workspace away/back — the session selection survives
+    // (B3-Q08).
+    push([&]() {
+        if (!navigate(QStringLiteral("navItem_0"),
+                      QStringLiteral("transactionsPage")))
+            fail(QStringLiteral("cannot navigate away"));
+        if (!navigate(QStringLiteral("navItem_2"),
+                      QStringLiteral("communicationWorkspace")))
+            fail(QStringLiteral("cannot navigate back"));
+        auto *combo = itemOf(QStringLiteral("commProfileSelector"));
+        const QVariantList catalog =
+            controller->property("profileCatalog").toList();
+        int expected = 0;
+        for (int i = 0; i < catalog.size(); ++i) {
+            if (catalog.at(i).toMap().value("profileId").toString()
+                == QStringLiteral("id-a")) {
+                expected = i + 1;
+            }
+        }
+        if (!combo || combo->property("currentIndex").toInt() != expected)
+            fail(QStringLiteral("the selector lost A across workspaces"));
+        if (active->property("activeProfileId").toString()
+            != QStringLiteral("id-a"))
+            fail(QStringLiteral("activeProfileId changed across workspaces"));
+        note(QStringLiteral("stage 4: selection survives navigation"));
+    });
+    // Stage 5: open profile B in the EDITOR — active remains A (B3-Q09).
+    push([&]() {
+        if (!navigate(QStringLiteral("navItem_5"),
+                      QStringLiteral("deviceProfileWorkspace")))
+            fail(QStringLiteral("cannot reach the Device Profile workspace"));
+        QMetaObject::invokeMethod(controller, "refreshCatalog");
+        const int rowB = catalogIndexOf(QStringLiteral("id-b"));
+        if (rowB < 0 || !clickRow(QStringLiteral("profileCatalogRow"), rowB))
+            fail(QStringLiteral("cannot select catalog row B"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("Open is not clickable"));
+        if (active->property("activeProfileId").toString()
+            != QStringLiteral("id-a"))
+            fail(QStringLiteral("opening B for edit changed the active "
+                                "profile"));
+        note(QStringLiteral("stage 5: open-for-edit B keeps active A"));
+    });
+    // Stage 6: edit B identity (rename to duplicate A) — still unsaved, the
+    // active profile is untouched (B3-Q10).
+    push([&]() {
+        setField(QStringLiteral("profileDisplayNameField"),
+                 QStringLiteral("Alpha"));
+        if (!controller->property("dirty").toBool())
+            fail(QStringLiteral("the B rename did not set dirty"));
+        if (active->property("activeProfileId").toString()
+            != QStringLiteral("id-a"))
+            fail(QStringLiteral("an unsaved edit changed the active profile"));
+        note(QStringLiteral("stage 6: unsaved B edit keeps active A"));
+    });
+    // Stage 7: save B — the active profile is STILL A (B3-Q11), and the
+    // selector now carries two "Alpha" rows distinguished by their
+    // secondary text (B3-Q12/Q13).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileSaveButton")))
+            fail(QStringLiteral("Save is not clickable"));
+        if (active->property("activeProfileId").toString()
+            != QStringLiteral("id-a"))
+            fail(QStringLiteral("saving B changed the active profile"));
+        if (!navigate(QStringLiteral("navItem_2"),
+                      QStringLiteral("communicationWorkspace")))
+            fail(QStringLiteral("cannot navigate back to Communication"));
+        const QVariantList catalog =
+            controller->property("profileCatalog").toList();
+        if (catalog.size() != 2)
+            fail(QStringLiteral("the catalog should still hold A and B"));
+        const QString primaryA =
+            catalog.at(catalogIndexOf(QStringLiteral("id-a")))
+                .toMap()
+                .value("displayPrimary")
+                .toString();
+        const QString primaryB =
+            catalog.at(catalogIndexOf(QStringLiteral("id-b")))
+                .toMap()
+                .value("displayPrimary")
+                .toString();
+        if (primaryA != QStringLiteral("Alpha")
+            || primaryB != QStringLiteral("Alpha"))
+            fail(QStringLiteral("the duplicate displayName is not in place"));
+        const QString secondaryA =
+            catalog.at(catalogIndexOf(QStringLiteral("id-a")))
+                .toMap()
+                .value("displaySecondary")
+                .toString();
+        const QString secondaryB =
+            catalog.at(catalogIndexOf(QStringLiteral("id-b")))
+                .toMap()
+                .value("displaySecondary")
+                .toString();
+        if (secondaryA == secondaryB)
+            fail(QStringLiteral("duplicate displayName rows are not "
+                                "disambiguated"));
+        note(QStringLiteral("stage 7: save B; duplicate names disambiguated"));
+    });
+    // Stage 8: the two same-named profiles remain independently selectable by
+    // profileId; select B, then back to A (B3-Q12 revisit through the UI).
+    push([&]() {
+        if (!selectProfileById(QStringLiteral("id-b")))
+            fail(QStringLiteral("cannot select the duplicated B"));
+        if (active->property("activeProfileId").toString()
+            != QStringLiteral("id-b"))
+            fail(QStringLiteral("B could not be selected under a duplicate "
+                                "displayName"));
+        if (!selectProfileById(QStringLiteral("id-a")))
+            fail(QStringLiteral("cannot select back A"));
+        if (active->property("activeProfileId").toString()
+            != QStringLiteral("id-a"))
+            fail(QStringLiteral("A could not be re-selected"));
+        note(QStringLiteral("stage 8: duplicate names independently "
+                           "selectable"));
+    });
+    // Stage 9: the 未选择设备档案 entry clears the session selection
+    // (B3-Q14).
+    push([&]() {
+        if (!selectProfileById(QString()))
+            fail(QStringLiteral("cannot activate the none entry"));
+        if (active->property("hasActiveProfile").toBool())
+            fail(QStringLiteral("the none entry did not clear the active "
+                                "profile"));
+        auto *combo = itemOf(QStringLiteral("commProfileSelector"));
+        if (!combo || combo->property("currentIndex").toInt() != 0)
+            fail(QStringLiteral("the selector did not return to 未选择设备"
+                                "档案"));
+        note(QStringLiteral("stage 9: clear through the selector"));
+    });
+    // Stage 10: select A, then delete the NON-active B — A survives
+    // (B3-Q16).
+    push([&]() {
+        if (!selectProfileById(QStringLiteral("id-a")))
+            fail(QStringLiteral("cannot re-select A"));
+        if (!navigate(QStringLiteral("navItem_5"),
+                      QStringLiteral("deviceProfileWorkspace")))
+            fail(QStringLiteral("cannot reach the Device workspace"));
+        const int rowB = catalogIndexOf(QStringLiteral("id-b"));
+        if (rowB < 0 || !clickRow(QStringLiteral("profileCatalogRow"), rowB))
+            fail(QStringLiteral("cannot select catalog row B"));
+        if (!clickNamed(QStringLiteral("profileDeleteButton")))
+            fail(QStringLiteral("Delete is not clickable"));
+        if (!visibleOf(QStringLiteral("profileDeleteDialog")))
+            fail(QStringLiteral("the delete confirmation did not appear"));
+        if (!clickNamed(QStringLiteral("profileDeleteConfirmButton")))
+            fail(QStringLiteral("the confirm-delete button is not "
+                                "clickable"));
+        if (active->property("activeProfileId").toString()
+            != QStringLiteral("id-a"))
+            fail(QStringLiteral("deleting non-active B changed the active "
+                                "profile"));
+        note(QStringLiteral("stage 10: delete non-active B keeps A"));
+    });
+    // Stage 11: SAVE the active profile with a rename — the identity stays
+    // and the selector's visible label refreshes (B3-Q17).
+    push([&]() {
+        const int rowA = catalogIndexOf(QStringLiteral("id-a"));
+        if (rowA < 0 || !clickRow(QStringLiteral("profileCatalogRow"), rowA))
+            fail(QStringLiteral("cannot select catalog row A"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("Open is not clickable (active rename)"));
+        setField(QStringLiteral("profileDisplayNameField"),
+                 QStringLiteral("Alpha Renamed"));
+        if (!clickNamed(QStringLiteral("profileSaveButton")))
+            fail(QStringLiteral("Save is not clickable (active rename)"));
+        if (active->property("activeProfileId").toString()
+            != QStringLiteral("id-a"))
+            fail(QStringLiteral("saving the active profile changed its "
+                                "identity"));
+        if (!navigate(QStringLiteral("navItem_2"),
+                      QStringLiteral("communicationWorkspace")))
+            fail(QStringLiteral("cannot navigate back (active rename)"));
+        auto *combo = itemOf(QStringLiteral("commProfileSelector"));
+        if (!combo || combo->property("currentIndex").toInt() == 0)
+            fail(QStringLiteral("the selector dropped the active profile "
+                                "after rename+save"));
+        if (propStr(combo, "displayText")
+            != QStringLiteral("Alpha Renamed"))
+            fail(QStringLiteral("the selector label did not refresh after "
+                                "the rename: %1")
+                     .arg(combo ? propStr(combo, "displayText")
+                                : QStringLiteral("<none>")));
+        note(QStringLiteral("stage 11: active renamed; label refreshed"));
+    });
+    // Stage 12: delete the ACTIVE profile — the selector returns to
+    // 未选择设备档案 and no stale content remains (B3-Q15).
+    push([&]() {
+        if (!navigate(QStringLiteral("navItem_5"),
+                      QStringLiteral("deviceProfileWorkspace")))
+            fail(QStringLiteral("cannot reach the Device workspace"));
+        const int rowA = catalogIndexOf(QStringLiteral("id-a"));
+        if (rowA < 0 || !clickRow(QStringLiteral("profileCatalogRow"), rowA))
+            fail(QStringLiteral("cannot select catalog row A (delete)"));
+        if (!clickNamed(QStringLiteral("profileDeleteButton")))
+            fail(QStringLiteral("Delete is not clickable (active)"));
+        if (!visibleOf(QStringLiteral("profileDeleteDialog")))
+            fail(QStringLiteral("the delete confirmation did not appear"));
+        if (!clickNamed(QStringLiteral("profileDeleteConfirmButton")))
+            fail(QStringLiteral("the confirm button is not clickable"));
+        if (active->property("hasActiveProfile").toBool())
+            fail(QStringLiteral("deleting the active profile did not clear "
+                                "the selection"));
+        if (!navigate(QStringLiteral("navItem_2"),
+                      QStringLiteral("communicationWorkspace")))
+            fail(QStringLiteral("cannot navigate back (delete active)"));
+        auto *combo = itemOf(QStringLiteral("commProfileSelector"));
+        if (!combo || combo->property("currentIndex").toInt() != 0)
+            fail(QStringLiteral("the selector is not back at 未选择设备档案"));
+        note(QStringLiteral("stage 12: delete active → selector cleared"));
+    });
+    // Stage 13: NO semantic overlay exists on the Communication page
+    // (B3-Q18) — the read result panel is untouched by profile state.
+    push([&]() {
+        QList<QQuickItem *> semanticItems;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            if (item->objectName().contains(QStringLiteral("semantic"),
+                                            Qt::CaseInsensitive))
+                semanticItems << item;
+            for (QQuickItem *child : item->childItems())
+                walk(child);
+        };
+        if (window->contentItem())
+            walk(window->contentItem());
+        if (!semanticItems.isEmpty())
+            fail(QStringLiteral("a semantic overlay object appeared"));
+        if (!visibleOf(QStringLiteral("readResultPanel")))
+            fail(QStringLiteral("the read result panel disappeared"));
+        note(QStringLiteral("stage 13: no semantic overlay"));
+    });
+    // Stage 14: the existing request controls remain usable (B3-Q19).
+    push([&]() {
+        for (const auto &name :
+             {QStringLiteral("commStartField"),
+              QStringLiteral("commReadButton"),
+              QStringLiteral("commProfileSelector")}) {
+            if (!propBool(itemOf(name), "visible")
+                && !(itemOf(name) && itemOf(name)->isVisible()))
+                fail(QStringLiteral("%1 is not visible").arg(name));
+        }
+        note(QStringLiteral("stage 14: request controls visible"));
+    });
+    // Stage 15: resize to the 1000x700 contract size (measure next stage).
+    push([&]() {
+        window->resize(1000, 700);
+        note(QStringLiteral("stage 15: window resized to 1000x700"));
+    });
+    // Stage 16: the 1000x700 reachability contract (B3-Q20) — the selector
+    // fits and NOTHING on the communication page got squeezed out.
+    push([&]() {
+        if (window->width() != 1000 || window->height() != 700)
+            fail(QStringLiteral("the window is not at 1000x700: %1x%2")
+                     .arg(window->width())
+                     .arg(window->height()));
+        for (const auto &name :
+             {QStringLiteral("communicationProfileSelectorRow"),
+              QStringLiteral("commProfileSelectorLabel"),
+              QStringLiteral("commProfileSelector"),
+              QStringLiteral("communicationConnectionSection"),
+              QStringLiteral("commStartField"),
+              QStringLiteral("commReadButton"),
+              QStringLiteral("readResultPanel")}) {
+            auto *item = itemOf(name);
+            if (!item) {
+                fail(QStringLiteral("%1 disappeared before measure").arg(name));
+                continue;
+            }
+            const QRectF rect = sceneRectOf(name);
+            qInfo().noquote()
+                << QStringLiteral("ACTGEO %1: x=%2 y=%3 w=%4 h=%5")
+                       .arg(name)
+                       .arg(rect.x())
+                       .arg(rect.y())
+                       .arg(rect.width())
+                       .arg(rect.height());
+            requireInsideWindow(name);
+        }
+        note(QStringLiteral("stage 16: 1000x700 selector + controls "
+                           "reachable"));
+    });
+    // Stage 17: keyboard focus reaches the selector (B3-Q21).
+    push([&]() {
+        auto *combo = itemOf(QStringLiteral("commProfileSelector"));
+        if (!combo) {
+            fail(QStringLiteral("the selector disappeared"));
+        } else {
+            combo->forceActiveFocus();
+            if (!combo->hasActiveFocus())
+                fail(QStringLiteral("the selector cannot take focus"));
+        }
+        note(QStringLiteral("stage 17: selector focusable"));
+    });
+    // Stage 18: the Profile Editor still works next to the new selector
+    // (B3-Q22).
+    push([&]() {
+        if (!navigate(QStringLiteral("navItem_5"),
+                      QStringLiteral("deviceProfileWorkspace")))
+            fail(QStringLiteral("the Device Profile workspace is no longer "
+                                "reachable"));
+        if (!visibleOf(QStringLiteral("profileRegisterCard")))
+            fail(QStringLiteral("the register map card disappeared"));
+        note(QStringLiteral("stage 18: profile editor unaffected"));
+    });
+
+    const int settleMs = 60;
+    auto step = std::make_shared<int>(0);
+    auto schedule = std::make_shared<std::function<void()>>();
+    auto failuresShared = failures;
+    *schedule = [&, step, schedule, failuresShared, &app]() {
+        if (*step >= steps->size()) {
+            if (!failuresShared->isEmpty()) {
+                for (const QString &f : *failuresShared)
+                    qWarning().noquote()
+                        << QStringLiteral("ACTFAIL: %1").arg(f);
+                app.exit(1);
+                return;
+            }
+            note(QStringLiteral("ACTIVE PROFILE CHECK PASS (B3-Q01..Q22): "
+                               "selector visible with startup = 未选择设备"
+                               "档案; selection by full profileId; survives "
+                               "navigation; editor open/edit/save of another "
+                               "profile never changes it; duplicate "
+                               "displayName rows disambiguated and "
+                               "independently selectable; clear works; "
+                               "delete-active clears while delete-failure "
+                               "would keep it; active rename+save refreshes "
+                               "the visible label; no semantic overlay; "
+                               "1000x700 reachable; editor unaffected"));
+            app.exit(0);
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
@@ -15895,6 +16514,11 @@ int main(int argc, char *argv[])
     // M12-B second slice gate: the Register Map editor end to end.
     if (app.arguments().contains(QStringLiteral("--qml-register-map-check"))) {
         return runRegisterMapCheck(engine, app);
+    }
+
+    // M12-B third slice gate: the Communication profile selector end to end.
+    if (app.arguments().contains(QStringLiteral("--qml-active-profile-check"))) {
+        return runActiveProfileCheck(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.

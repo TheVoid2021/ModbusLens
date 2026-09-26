@@ -124,6 +124,16 @@ ApplicationWindow {
         objectName: "profileController"
     }
 
+    // M12-B third slice (T027 §31.3/§33.3): session Active Profile. A
+    // SEPARATE owner from the editor on purpose — selecting/creating/editing
+    // profiles in the editor never changes this state, and this state never
+    // touches the editor. Session-only: startup = No Profile Selected.
+    ActiveProfileController {
+        id: activeProfileController
+        objectName: "activeProfileController"
+        profileController: profileController
+    }
+
     // ------------------------------------------------------------------
     // Application Shell (M9-B1): AppBar + compact NavigationRail +
     // WorkspaceHost (StackLayout) -> LegacyWorkspace.
@@ -294,6 +304,8 @@ ApplicationWindow {
                 CommunicationPage {
                     objectName: "communicationWorkspace"
                     analysisController: analysisController
+                    profileController: profileController
+                    activeProfileController: activeProfileController
                     enabled: workspaceHost.currentIndex === workspaceCommunicationIndex
                 }
 

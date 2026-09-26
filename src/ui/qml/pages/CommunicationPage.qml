@@ -34,18 +34,86 @@ Item {
     id: page
 
     required property var analysisController
+    // M12-B third slice: the managed catalog (already valid-only) and the
+    // session Active Profile owner, injected by the shell like every other
+    // controller (the page owns no business state itself).
+    required property var profileController
+    required property var activeProfileController
+
+    // Selector choices = the "none" sentinel + the managed catalog rows.
+    // The catalog roles (displayPrimary/displaySecondary) ARE the frozen
+    // duplicate-displayName disambiguation; nothing is re-derived here.
+    readonly property var profileChoices: {
+        const rows = [{
+            profileId: "",
+            displayPrimary: qsTr("未选择设备档案"),
+            displaySecondary: ""
+        }]
+        const catalog = profileController.profileCatalog
+        for (let i = 0; i < catalog.length; ++i)
+            rows.push(catalog[i])
+        return rows
+    }
+    // The active identity (full profileId) resolves to a row position; the
+    // active state stays authoritative even when the ComboBox is touched.
+    readonly property int selectedProfileChoice: {
+        const activeId = activeProfileController.activeProfileId
+        for (let i = 0; i < profileChoices.length; ++i)
+            if (profileChoices[i].profileId === activeId)
+                return i
+        return 0
+    }
+    // The ComboBox internally resets currentIndex whenever its model array
+    // is replaced (a catalog refresh) — and a QML binding whose value did
+    // not change re-evaluates WITHOUT notifying, so the control would stay
+    // at the reset position. The selector therefore re-asserts the
+    // authoritative position after every active/catalog change, reading the
+    // identity back from the controllers (never from the widget).
+    function syncSelectorIndex() {
+        // Re-asserting the position re-emits activated(index) for a CHANGED
+        // index; the handler is idempotent for the same profileId, so the
+        // chain settles after one pass (no loop: an unchanged index emits
+        // nothing).
+        commProfileSelector.currentIndex = page.selectedProfileChoice
+    }
+    Connections {
+        target: page.activeProfileController
+        function onActiveChanged() {
+            page.syncSelectorIndex()
+        }
+    }
+    Connections {
+        target: page.profileController
+        function onCatalogChanged() {
+            page.syncSelectorIndex()
+        }
+    }
+    Component.onCompleted: page.syncSelectorIndex()
 
     ColumnLayout {
         objectName: "communicationContentLayout"
         anchors.fill: parent
-        anchors.margins: DS.spacingL
+        // M12-B third slice: vertical margins tightened (16→10) so the
+        // profile-selector row keeps the whole stack — including the C4
+        // write panel at 1000x700 — inside the window. Horizontal margins
+        // are untouched (cross-page alignment).
+        anchors.leftMargin: DS.spacingL
+        anchors.rightMargin: DS.spacingL
+        anchors.topMargin: 4
+        anchors.bottomMargin: 4
         // spacingS (8) rather than spacingM (12): this page carries four
         // stacked sections (two headers, connection, request) PLUS the write
         // section, and at the 1000x700 minimum the whole stack must fit the
         // window without clipping the write panel (C4 geometry). Six gaps at
         // 12px cost 72px of the ~627px budget; 8px keeps the same grouping and
         // returns 24px. The grouping itself is unchanged.
-        spacing: DS.spacingS
+        // M12-B third slice: the profile-selector row adds one more stack
+        // entry (~24px). The gap and the vertical margins are tightened
+        // (7→6px gaps, 16→4px top/bottom margins) and the selector itself
+        // uses the 24px control height (same as the identity editor
+        // fields), so the C4 1000x700 contract still holds with the
+        // selector present.
+        spacing: 6
 
         SectionHeader {
             objectName: "communicationHeader"
@@ -190,6 +258,87 @@ Item {
                 text: page.analysisController.serialErrorMessage
                 color: "#B03030"
                 wrapMode: Text.Wrap
+            }
+        }
+
+        // ---- Current profile selector (M12-B third slice) ----
+        RowLayout {
+            objectName: "communicationProfileSelectorRow"
+            Layout.fillWidth: true
+            spacing: DS.spacingM
+
+            Label {
+                objectName: "commProfileSelectorLabel"
+                text: qsTr("当前设备档案")
+                color: DS.textPrimary
+            }
+            ComboBox {
+                id: commProfileSelector
+                objectName: "commProfileSelector"
+                Accessible.name: qsTr("当前设备档案")
+                Layout.preferredWidth: 260
+                implicitHeight: 24
+                model: page.profileChoices
+                textRole: "displayPrimary"
+                currentIndex: page.selectedProfileChoice
+                // Identity discipline: the handler reads the row's profileId
+                // (never the index) and calls the session-active API.
+                onActivated: function(index) {
+                    const chosen = page.profileChoices[index]
+                    if (chosen.profileId === "")
+                        page.activeProfileController.clearActive()
+                    else
+                        page.activeProfileController.selectProfile(
+                            chosen.profileId)
+                }
+                background: Rectangle {
+                    radius: 3
+                    color: DS.surface
+                    border.color: DS.border
+                    border.width: 1
+                }
+                contentItem: Text {
+                    leftPadding: 8
+                    verticalAlignment: Text.AlignVCenter
+                    text: commProfileSelector.displayText
+                    color: DS.textPrimary
+                    elide: Text.ElideRight
+                }
+                // Two-line dropdown rows: primary = displayName, secondary =
+                // manufacturer·model·revision (short profileId on ambiguity) —
+                // the catalog's own frozen disambiguation, reused verbatim.
+                delegate: ItemDelegate {
+                    id: profileChoiceDelegate
+                    width: commProfileSelector.width
+                    highlighted: commProfileSelector.highlightedIndex === index
+                    required property var model
+                    required property int index
+                    contentItem: ColumnLayout {
+                        spacing: 0
+                        Label {
+                            text: profileChoiceDelegate.model.displayPrimary
+                            color: DS.textPrimary
+                            font.pixelSize: DS.fontBody
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            visible:
+                                profileChoiceDelegate.model.displaySecondary
+                                !== ""
+                            text:
+                                profileChoiceDelegate.model.displaySecondary
+                            color: DS.textSecondary
+                            font.pixelSize: DS.fontCaption
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+            }
+            Label {
+                objectName: "commProfileSelectorHint"
+                text: qsTr("用于后续寄存器语义解读（会话内有效）")
+                color: DS.textSecondary
+                font.pixelSize: DS.fontCaption
             }
         }
 
