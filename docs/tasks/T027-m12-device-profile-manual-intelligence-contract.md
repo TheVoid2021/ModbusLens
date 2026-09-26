@@ -1267,3 +1267,28 @@ verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，NO advance�
   （头文件/测试/QML/gate 均未受影响），重建后 65/65 + 双 gate 复绿，无净损失；
   其余三个 mutation 改用精确逆向 patch 还原。教训：负向对照的还原必须是精确
   逆向 patch，`git checkout` 只能用于无未提交工作的文件。
+
+## 40. M12-B Second Slice — HUMAN ACCEPTED（2026-09-26，docs-only）
+
+Human 原文（逐字归档）：
+
+> “M12-B 第二切片全部 PASS，Register Map Editor 正常，1000×700 正常。”
+
+Human 明确验证（仅限原文提及范围，不做外推）：
+
+- Register Map Editor 正常（第二切片整体 = 全部 PASS）
+- 1000×700 正常
+
+未声称 Human 验证了原文未提及的逐字段结论（FC 输入习惯、scale/offset/unit
+编辑细节等仅由自动化门禁覆盖）。
+
+状态变更：
+
+```text
+M12-B Second Slice = IMPLEMENTED / AUTOMATED PASS / HUMAN VISUAL REVIEW PENDING
+                   ⇒ IMPLEMENTED / AUTOMATED PASS / HUMAN ACCEPTED
+verified LKGC      = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，不自动推进）
+```
+
+M12-B Third Slice（Session Active Profile + Communication Profile Selector）
+= NOT STARTED。
