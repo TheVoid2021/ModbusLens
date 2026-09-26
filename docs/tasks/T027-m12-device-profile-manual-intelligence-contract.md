@@ -1612,3 +1612,82 @@ verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，NO advance�
 
 真实硬件状态：NOT VERIFIED（本切片全部为无硬件确定性演示；不得声称
 REAL MODBUS HARDWARE VERIFIED）。
+
+## 44. Demo Lifetime RCA / Correction（2026-09-26，behavior `13799d6`）
+
+> 现象：`Run-M12-Semantic-Demo.cmd` 启动后约 2 秒窗口自动关闭。
+> 范围：只修 demo 生命周期；semantic 功能 / Raw / Generic / Profile
+> projection 零改动；M12-C 未开始。
+
+### 44.1 取证（逐项）
+
+1. **launcher**：`"%~dp0ModbusLens.exe" --qml-profile-semantic-demo`
+   —— **未携带任何 auto-exit 参数**（不是 launcher 参数问题）。
+2. **dispatch**：`--qml-profile-semantic-check` 与
+   `--qml-profile-semantic-demo` 都进 `runProfileSemanticCheck`。
+3. **函数内退出/定时逻辑**：
+   - `app.setQuitOnLastWindowClosed(false)`（函数顶部，无条件）；
+   - `exitAfterReady = args.contains("--demo-exit-after-ready")`；
+   - `if (exitAfterReady) { …断言 A+B…; app.exit(0); return 0; }`（test-only
+     分支，正确）；
+   - **fall-through**：非 exit-after-ready 时继续执行 check 的 17-stage
+     流水线（每 stage `QTimer::singleShot(60ms)`），schedule 末端
+     **`app.exit(0)`**（唯一出口）。
+4. **CTest**：当时只注册 `--qml-profile-semantic-check`；demo 的 test-only
+   模式没有持久覆盖。
+
+### 44.2 根因
+
+**不是 launcher 参数问题，也不是"写死的定时器"**：`--qml-profile-semantic-demo`
+（无 `--demo-exit-after-ready`）落入 **check 模式的 stage 流水线**，而该流水线
+的唯一终点是 `app.exit(0)` ⇒ 约 17×60ms ≈ **2 秒后自动退出**（与现象吻合）。
+即：**demo 复用了 check 的流水线，而 Human 模式缺少一个"保持运行"的分支**。
+
+### 44.3 Exact fix（T027 §44，commit `13799d6`）
+
+三种生命周期显式拆分：
+
+```text
+--qml-profile-semantic-check                         → 断言流水线（不变，末段 exit 0/1）
+--qml-profile-semantic-demo --demo-exit-after-ready  → TEST-ONLY 自动化 demo（断言 A+B → exit 0；
+                                                        本轮同时注册 ctest qml_profile_semantic_demo）
+--qml-profile-semantic-demo                          → HUMAN VISUAL：导航 Communication →
+                                                       展示 Scenario A → 打开详情 dialog →
+                                                       读 Scenario B（dialog 内容随绑定刷新）→
+                                                       return app.exec()，**保持运行**
+```
+
+- `quitOnLastWindowClosed = humanDemo`（**仅** Human 模式为 true）：Human 手工
+  关窗 = 正常退出 0；断言模式不会被误关窗打断。
+- Human launcher 不含任何 auto-exit 参数；normal product launch 未改动。
+
+### 44.4 验证（生命周期矩阵，`build/verify_demo_lifetime.py`）
+
+```text
+automated demo: exit=0 + "PROFILE SEMANTIC DEMO READY"
+human demo:     alive@12s=True  alive@18s=True（无定时自动关闭）
+human demo:     exit-after-graceful-close(WM_CLOSE)=0
+clean-env launcher（PATH=System32;Windows）: alive@12s/18s=True；
+                优雅关闭 exit=0
+回归: smoke + profile-semantic check/demo gates PASS；
+      Debug full CTest 50/50；Release full CTest 50/50
+```
+
+### 44.5 staging 与状态
+
+```text
+behavior commit = 13799d633291abd69b66ab1c324699ac5014143a（M12: keep the human
+                  semantic demo alive until closed；2 文件，无 docs）
+staging = build/m12b-visual-candidate/ModbusLens.exe（重新刷新）
+  size = 5,491,340 B
+  SHA-256 = 5dc6be4e0104b4cd9e4e9915ee1bf862055d8c4f601f03dad52dd711f0ce6a5d
+  source == staging（cmp byte-identical）
+  launchers = Run-M12-Semantic-Demo.cmd（Human visual，无 auto-exit 参数）
+            / Run-M12-Profile-Editor.cmd
+clean-env staging 门禁: smoke / profile-semantic / active-profile /
+  profile-editor / register-map / read-result / nav / geometry 全 exit=0；
+  automated demo exit=0
+
+M12-B Slice 4 = IMPLEMENTED / AUTOMATED PASS / HUMAN VISUAL REVIEW PENDING
+M12-B overall = HUMAN CLOSURE PENDING；M12-C/D = NOT STARTED
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变）
