@@ -45,6 +45,115 @@ Item {
         ? profileController.profileCatalog[selectedCatalogIndex]
         : null
 
+    // ---- Register Map editor (second slice) ----
+    // The selected register row (display order) and its DRAFT index — the
+    // draft index is the only stable locator across re-sorts (T027 §17).
+    property int selectedRegisterIndex: -1
+    readonly property var selectedRegisterRow:
+        selectedRegisterIndex >= 0
+        && selectedRegisterIndex < registerMapRepeater.model.length
+        ? registerMapRepeater.model[selectedRegisterIndex] : null
+    // What the entry dialog is doing: "" (closed), "add" or the draft index
+    // being edited (kept as a number in a string-tolerant var).
+    property var entryEditorMode: ""
+    readonly property bool entryEditorAdding: entryEditorMode === "add"
+    // The entry editor's temporary draft: raw field texts exactly as typed.
+    // Apply goes through profileController.add/editRegisterEntry (candidate +
+    // full validation); a refused apply keeps every field as typed.
+    property string entryFcText: ""
+    property string entryAddressText: ""
+    property string entryNameText: ""
+    property string entryDescriptionText: ""
+    property int entryDataTypeIndex: 2 // UInt16 (visible combo default)
+    property int entryByteOrderIndex: 0
+    property int entryWordOrderIndex: 0
+    property string entryScaleText: ""
+    property string entryOffsetText: ""
+    property string entryUnitText: ""
+    // The M11 seven-type matrix (T027 §8: no second type enum anywhere).
+    readonly property var dataTypeChoices:
+        ["HEX", "BIN", "UInt16", "Int16", "UInt32", "Int32", "Float32"]
+    readonly property var byteOrderChoices:
+        ["Normal 正序", "ByteSwapped 交换"]
+    readonly property var wordOrderChoices:
+        ["HighWordFirst 高字在前", "LowWordFirst 低字在前"]
+    // Group 1-B: registerCount is DERIVED — Hex/Binary/16-bit → 1, 32-bit → 2.
+    readonly property int entryDerivedRegisterCount:
+        entryDataTypeIndex >= 4 ? 2 : 1
+    readonly property bool entryIsTwoWord: entryDerivedRegisterCount === 2
+
+    function openEntryAdd() {
+        // No silent FC03: the function-code field starts EMPTY and the user
+        // must type it (T027 §32/§35 no-silent-default discipline).
+        profileController.clearActionError()
+        entryFcText = ""
+        entryAddressText = ""
+        entryNameText = ""
+        entryDescriptionText = ""
+        entryDataTypeIndex = 2
+        entryByteOrderIndex = 0
+        entryWordOrderIndex = 0
+        entryScaleText = ""
+        entryOffsetText = ""
+        entryUnitText = ""
+        entryEditorMode = "add"
+        entryEditorDialog.open()
+    }
+
+    function openEntryEdit(draftIndex) {
+        const entry = profileController.registerEntryAt(draftIndex)
+        if (!entry || entry.name === undefined) {
+            return
+        }
+        profileController.clearActionError()
+        entryFcText = Number(entry.readFunctionCode)
+                          .toString(16).toUpperCase()
+        entryAddressText = String(entry.address)
+        entryNameText = entry.name
+        entryDescriptionText = entry.description
+        entryDataTypeIndex = entry.dataType
+        entryByteOrderIndex = entry.byteOrder
+        entryWordOrderIndex = entry.wordOrder
+        entryScaleText = String(entry.scale)
+        entryOffsetText = String(entry.offset)
+        entryUnitText = entry.unit
+        entryEditorMode = draftIndex
+        entryEditorDialog.open()
+    }
+
+    function entryEditorFields() {
+        return {
+            "readFunctionCode": entryFcText,
+            "address": entryAddressText,
+            "name": entryNameText,
+            "description": entryDescriptionText,
+            "dataType": String(entryDataTypeIndex),
+            "byteOrder": String(entryByteOrderIndex),
+            // 1-word types keep the disabled control's -1: "not applicable"
+            // must never pollute the data (controller keeps the M11 default).
+            "wordOrder": entryIsTwoWord ? String(entryWordOrderIndex) : "-1",
+            "scale": entryScaleText,
+            "offset": entryOffsetText,
+            "unit": entryUnitText
+        }
+    }
+
+    function applyEntryEditor() {
+        let ok = false
+        if (entryEditorAdding) {
+            ok = profileController.addRegisterEntry(entryEditorFields())
+        } else {
+            ok = profileController.editRegisterEntry(
+                     Number(entryEditorMode), entryEditorFields())
+        }
+        if (ok) {
+            entryEditorDialog.close()
+            entryEditorMode = ""
+        }
+        // A refused apply keeps the dialog and EVERY typed value visible;
+        // the error label shows the controller's human-readable reason.
+    }
+
     function requestOpen(profileId) {
         pendingAction = "open"
         pendingProfileId = profileId
@@ -175,7 +284,7 @@ Item {
             PanelCard {
                 objectName: "profileCatalogCard"
                 Layout.fillHeight: true
-                Layout.preferredWidth: 340
+                Layout.preferredWidth: 250
 
                 SectionHeader {
                     objectName: "profileCatalogHeader"
@@ -264,19 +373,10 @@ Item {
                             }
                         }
                     }
-
-                    Label {
-                        objectName: "profileRegisterMapPlaceholder"
-                        text: qsTr("寄存器映射编辑将在后续版本提供")
-                        color: DS.textSecondary
-                        font.pixelSize: DS.fontCaption
-                        Layout.fillWidth: true
-                        wrapMode: Text.Wrap
-                    }
                 }
             }
 
-            // ---- right: identity editor ----
+            // ---- middle: identity editor ----
             PanelCard {
                 objectName: "profileIdentityCard"
                 Layout.fillWidth: true
@@ -422,6 +522,157 @@ Item {
                     }
                 }
             }
+
+            // ---- right: Register Map (M12-B second slice) ----
+            PanelCard {
+                objectName: "profileRegisterCard"
+                Layout.fillHeight: true
+                Layout.preferredWidth: 330
+
+                SectionHeader {
+                    objectName: "profileRegisterHeader"
+                    Layout.fillWidth: true
+                    title: qsTr("寄存器映射")
+                }
+
+                ColumnLayout {
+                    spacing: DS.spacingS
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    Label {
+                        objectName: "profileRegisterEmpty"
+                        visible: profileController.registerMap.length === 0
+                        text: profileController.hasOpenProfile
+                              ? qsTr("尚无寄存器条目。点击「添加」创建第一个条目。")
+                              : qsTr("未打开设备档案。")
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                    }
+
+                    RowLayout {
+                        objectName: "profileRegisterActions"
+                        spacing: DS.spacingS
+
+                        AppButton {
+                            objectName: "profileRegisterAddButton"
+                            Accessible.name: qsTr("添加寄存器条目")
+                            text: qsTr("添加")
+                            enabled: profileController.hasOpenProfile
+                            onClicked: deviceProfileRoot.openEntryAdd()
+                        }
+                        AppButton {
+                            objectName: "profileRegisterEditButton"
+                            Accessible.name: qsTr("编辑寄存器条目")
+                            text: qsTr("编辑")
+                            enabled: deviceProfileRoot.selectedRegisterRow
+                                     !== null
+                            onClicked: deviceProfileRoot.openEntryEdit(
+                                           deviceProfileRoot
+                                               .selectedRegisterRow.draftIndex)
+                        }
+                        AppButton {
+                            objectName: "profileRegisterDeleteButton"
+                            Accessible.name: qsTr("删除寄存器条目")
+                            text: qsTr("删除")
+                            enabled: deviceProfileRoot.selectedRegisterRow
+                                     !== null
+                            onClicked: {
+                                // Draft-only mutation (T027 §16): the JSON
+                                // changes only through Save; Discard restores.
+                                profileController.removeRegisterEntry(
+                                    deviceProfileRoot
+                                        .selectedRegisterRow.draftIndex)
+                                deviceProfileRoot.selectedRegisterIndex = -1
+                            }
+                        }
+                    }
+
+                    Label {
+                        objectName: "profileRegisterHint"
+                        // Address authority reminder (T027 §5): the PDU /
+                        // 0-based integer is the ONLY truth; no 40001 alias.
+                        text: qsTr("地址为 PDU / 0-based（十进制输入）")
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        Layout.fillWidth: true
+                    }
+
+                    Flickable {
+                        id: profileRegisterList
+                        objectName: "profileRegisterList"
+                        Accessible.name: qsTr("寄存器映射列表")
+                        visible: profileController.registerMap.length > 0
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        contentWidth: width
+                        contentHeight: profileRegisterColumn.height
+
+                        ColumnLayout {
+                            id: profileRegisterColumn
+                            width: profileRegisterList.width
+                            spacing: DS.spacingXS
+
+                            Repeater {
+                                id: registerMapRepeater
+                                model: profileController.registerMap
+
+                                delegate: ItemDelegate {
+                                    id: registerDelegate
+                                    objectName: "profileRegisterRow"
+
+                                    readonly property var rowData:
+                                        modelData !== undefined ? modelData : {}
+
+                                    width: profileRegisterList.width
+                                    highlighted:
+                                        deviceProfileRoot
+                                            .selectedRegisterIndex === index
+                                    onClicked:
+                                        deviceProfileRoot
+                                            .selectedRegisterIndex = index
+
+                                    contentItem: RowLayout {
+                                        spacing: DS.spacingS
+
+                                        Label {
+                                            // FC + PDU address summary.
+                                            text: registerDelegate
+                                                  .rowData.fcLabel + " @"
+                                                  + registerDelegate
+                                                  .rowData.address
+                                            color: DS.textSecondary
+                                            font.pixelSize: DS.fontCaption
+                                            Layout.preferredWidth: 96
+                                        }
+                                        Label {
+                                            text: registerDelegate
+                                                      .rowData.name
+                                            color: DS.textPrimary
+                                            font.pixelSize: DS.fontBody
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                        }
+                                        Label {
+                                            // dataType + derived span.
+                                            text: registerDelegate
+                                                  .rowData.dataType + " "
+                                                  + registerDelegate
+                                                  .rowData.span
+                                            color: DS.textSecondary
+                                            font.pixelSize: DS.fontCaption
+                                            Layout.preferredWidth: 110
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -516,6 +767,276 @@ Item {
                 onClicked: {
                     deviceProfileRoot.pendingProfileId = ""
                     deleteDialog.close()
+                }
+            }
+        }
+    }
+
+    // ---- Register Entry editor (Add / Edit share one bounded dialog) ----
+    // The dialog is the temporary entry draft holder; Apply goes through the
+    // controller's candidate + full-validation discipline, so a refused apply
+    // leaves the profile draft untouched and keeps every typed value.
+    Dialog {
+        id: entryEditorDialog
+        objectName: "entryEditorDialog"
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        anchors.centerIn: parent
+        width: 480
+        title: deviceProfileRoot.entryEditorAdding
+               ? qsTr("添加寄存器条目") : qsTr("编辑寄存器条目")
+
+        onClosed: {
+            if (deviceProfileRoot.entryEditorMode !== "")
+                deviceProfileRoot.entryEditorMode = ""
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: DS.spacingS
+
+            GridLayout {
+                columns: 2
+                columnSpacing: DS.spacingM
+                rowSpacing: DS.spacingS
+                Layout.fillWidth: true
+
+                Label {
+                    text: qsTr("读取功能码：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                TextField {
+                    objectName: "regFcField"
+                    Accessible.name: qsTr("读取功能码")
+                    Layout.fillWidth: true
+                    implicitHeight: 24
+                    // REQUIRED, keyboard-editable, accepts the M10 input
+                    // conventions (03 / 41 / 0x41); starts EMPTY for Add —
+                    // never a silent FC03 (T027 §32/§35).
+                    placeholderText: qsTr("03 / 41 / 0x41（必填）")
+                    text: deviceProfileRoot.entryFcText
+                    onTextChanged: deviceProfileRoot.entryFcText = text
+                }
+
+                Label {
+                    text: qsTr("寄存器地址：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                ColumnLayout {
+                    spacing: 0
+                    Layout.fillWidth: true
+                    DecimalField {
+                        objectName: "regAddressField"
+                        accessibleName: qsTr("寄存器地址")
+                        Layout.fillWidth: true
+                        implicitHeight: 24
+                        fieldLabel: qsTr("寄存器地址（PDU / 0-based）")
+                        placeholderText: "0..65535"
+                        text: deviceProfileRoot.entryAddressText
+                        onTextChanged:
+                            deviceProfileRoot.entryAddressText = text
+                    }
+                    Label {
+                        // Display-only reminder of the address authority.
+                        text: qsTr("PDU / 0-based，十进制（无 40001 别名）")
+                        color: DS.textSecondary
+                        font.pixelSize: 10
+                    }
+                }
+
+                Label {
+                    text: qsTr("名称：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                TextField {
+                    objectName: "regNameField"
+                    Accessible.name: qsTr("寄存器名称")
+                    Layout.fillWidth: true
+                    implicitHeight: 24
+                    text: deviceProfileRoot.entryNameText
+                    onTextChanged: deviceProfileRoot.entryNameText = text
+                }
+
+                Label {
+                    text: qsTr("描述：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                TextField {
+                    objectName: "regDescField"
+                    Accessible.name: qsTr("寄存器描述")
+                    Layout.fillWidth: true
+                    implicitHeight: 24
+                    text: deviceProfileRoot.entryDescriptionText
+                    onTextChanged:
+                        deviceProfileRoot.entryDescriptionText = text
+                }
+
+                Label {
+                    text: qsTr("数据类型：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                ComboBox {
+                    id: regDataTypeCombo
+                    objectName: "regDataTypeCombo"
+                    Accessible.name: qsTr("数据类型")
+                    Layout.fillWidth: true
+                    model: deviceProfileRoot.dataTypeChoices
+                    currentIndex: deviceProfileRoot.entryDataTypeIndex
+                    onActivated: deviceProfileRoot.entryDataTypeIndex =
+                                     currentIndex
+                    // setCurrentIndex from C++ (the automated gate) fires
+                    // currentIndexChanged but never activated.
+                    onCurrentIndexChanged:
+                        deviceProfileRoot.entryDataTypeIndex = currentIndex
+                }
+
+                Label {
+                    text: qsTr("寄存器数量：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                TextField {
+                    objectName: "regCountField"
+                    Accessible.name: qsTr("寄存器数量")
+                    Layout.fillWidth: true
+                    implicitHeight: 24
+                    // Group 1-B: DERIVED from dataType, read-only; the schema
+                    // validation keeps checking it strictly.
+                    readOnly: true
+                    text: String(deviceProfileRoot.entryDerivedRegisterCount)
+                }
+
+                Label {
+                    text: qsTr("字节序：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                ComboBox {
+                    id: regByteOrderCombo
+                    objectName: "regByteOrderCombo"
+                    Accessible.name: qsTr("字节序")
+                    Layout.fillWidth: true
+                    model: deviceProfileRoot.byteOrderChoices
+                    currentIndex: deviceProfileRoot.entryByteOrderIndex
+                    onActivated: deviceProfileRoot.entryByteOrderIndex =
+                                     currentIndex
+                    onCurrentIndexChanged:
+                        deviceProfileRoot.entryByteOrderIndex = currentIndex
+                }
+
+                Label {
+                    text: qsTr("字序：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                RowLayout {
+                    spacing: DS.spacingS
+                    Layout.fillWidth: true
+                    ComboBox {
+                        id: regWordOrderCombo
+                        objectName: "regWordOrderCombo"
+                        Accessible.name: qsTr("字序")
+                        Layout.fillWidth: true
+                        model: deviceProfileRoot.wordOrderChoices
+                        // Group 1-C: SHOWN but disabled for 1-word types —
+                        // never hidden, never removed from persistence.
+                        enabled: deviceProfileRoot.entryIsTwoWord
+                        currentIndex: deviceProfileRoot.entryWordOrderIndex
+                        opacity: enabled ? 1.0 : 0.5
+                        onActivated:
+                            deviceProfileRoot.entryWordOrderIndex = currentIndex
+                        onCurrentIndexChanged:
+                            deviceProfileRoot.entryWordOrderIndex = currentIndex
+                    }
+                    Label {
+                        objectName: "regWordOrderNaLabel"
+                        // The Human-visible "not applicable" expression.
+                        visible: !deviceProfileRoot.entryIsTwoWord
+                        text: qsTr("不适用（1-word 类型）")
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                    }
+                }
+
+                Label {
+                    text: qsTr("缩放 scale：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                TextField {
+                    objectName: "regScaleField"
+                    Accessible.name: qsTr("缩放系数")
+                    Layout.fillWidth: true
+                    implicitHeight: 24
+                    placeholderText: qsTr("默认 1；0 合法")
+                    text: deviceProfileRoot.entryScaleText
+                    onTextChanged: deviceProfileRoot.entryScaleText = text
+                }
+
+                Label {
+                    text: qsTr("偏移 offset：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                TextField {
+                    objectName: "regOffsetField"
+                    Accessible.name: qsTr("偏移量")
+                    Layout.fillWidth: true
+                    implicitHeight: 24
+                    placeholderText: qsTr("默认 0")
+                    text: deviceProfileRoot.entryOffsetText
+                    onTextChanged: deviceProfileRoot.entryOffsetText = text
+                }
+
+                Label {
+                    text: qsTr("单位 unit：")
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                }
+                TextField {
+                    objectName: "regUnitField"
+                    Accessible.name: qsTr("单位")
+                    Layout.fillWidth: true
+                    implicitHeight: 24
+                    placeholderText: qsTr("自由文本，如 Hz")
+                    text: deviceProfileRoot.entryUnitText
+                    onTextChanged: deviceProfileRoot.entryUnitText = text
+                }
+            }
+
+            Label {
+                objectName: "regEditorErrorLabel"
+                // Human-readable rejection reason (T027 §24): the controller
+                // produces the text; the stable token stays in
+                // lastActionErrorToken for the tests.
+                visible: profileController.lastActionError !== ""
+                text: profileController.lastActionError
+                color: DS.error
+                font.pixelSize: DS.fontCaption
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+            }
+        }
+
+        footer: DialogButtonBox {
+            AppButton {
+                objectName: "regApplyButton"
+                Accessible.name: qsTr("应用寄存器条目")
+                text: qsTr("应用")
+                onClicked: deviceProfileRoot.applyEntryEditor()
+            }
+            AppButton {
+                objectName: "regCancelButton"
+                Accessible.name: qsTr("取消编辑寄存器条目")
+                text: qsTr("取消")
+                onClicked: {
+                    deviceProfileRoot.entryEditorMode = ""
+                    entryEditorDialog.close()
                 }
             }
         }

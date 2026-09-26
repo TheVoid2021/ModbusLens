@@ -15065,6 +15065,597 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
+// ---------------------------------------------------------------------------
+// M12-B second slice `--qml-register-map-check`: the Register Map editor
+// driven end to end through the REAL UI path (Device rail → Device Profile
+// workspace → Profile → Register Map UI → entry editor dialog), against an
+// injected temporary managed root (never the production AppData).
+// Covers B2-Q01..B2-Q30 (T027 §37 user instruction §23).
+// ---------------------------------------------------------------------------
+int runRegisterMapCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    auto *controller = rootObj
+                           ? rootObj->findChild<QObject *>(
+                               QStringLiteral("profileController"))
+                           : nullptr;
+    if (!window || !controller) {
+        qWarning().noquote()
+            << QStringLiteral("REGFAIL: window/controller not found");
+        return 1;
+    }
+    app.setQuitOnLastWindowClosed(false);
+
+    QTemporaryDir managedRoot;
+    if (!managedRoot.isValid()) {
+        qWarning().noquote() << QStringLiteral("REGFAIL: temp root invalid");
+        return 1;
+    }
+    ProfileStore::setManagedRootOverride(managedRoot.path());
+    {
+        // Seed: one valid profile with a single FC03 UInt16 @1000 entry
+        // (scale 0.1, unit Hz) — the same shape the save/open round-trip
+        // must preserve.
+        DeviceProfile profile;
+        profile.schemaVersion = 1;
+        profile.profileId = "seed-register";
+        profile.displayName = "Register seed";
+        RegisterEntry entry;
+        entry.readFunctionCode = 0x03;
+        entry.address = 1000;
+        entry.name = "Frequency";
+        entry.description = "seed entry";
+        entry.dataType = RegisterDecodeType::UInt16;
+        entry.registerCount = 1;
+        entry.scale = 0.1;
+        entry.unit = "Hz";
+        profile.registers.push_back(entry);
+        if (!ProfileStore::saveToFile(
+                profile, ProfileStore::defaultFilePathFor(
+                             QStringLiteral("seed-register")))
+                 .ok()) {
+            qWarning().noquote()
+                << QStringLiteral("REGFAIL: seed write failed");
+            return 1;
+        }
+    }
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &m) {
+        qInfo().noquote() << QStringLiteral("REG: %1").arg(m);
+    };
+
+    auto itemOf = [&roots](const QString &name) {
+        return findNamedItem(roots, name);
+    };
+    const auto propStr = [](QObject *o, const char *name) {
+        return o ? o->property(name).toString() : QStringLiteral("<none>");
+    };
+    const auto propBool = [](QObject *o, const char *name) {
+        return o ? o->property(name).toBool() : false;
+    };
+    const auto visibleOf = [&roots](const QString &name) -> bool {
+        for (QObject *root : roots) {
+            auto *popup = root->findChild<QObject *>(name);
+            if (popup)
+                return popup->property("visible").toBool();
+        }
+        return false;
+    };
+    const auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = findNamedItem(roots, name);
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    const auto setField = [&roots](const QString &name, const QString &text) {
+        auto *field = findNamedItem(roots, name);
+        if (!field) {
+            return false;
+        }
+        field->setProperty("text", text);
+        return true;
+    };
+    // Catalog/register delegates share one objectName: reach the Nth row by
+    // walking the VISUAL tree (childItems) — QObject::findChild misses
+    // Repeater delegates in this declarative tree (repo finding).
+    const auto collectRows = [&window](const QString &rowName) {
+        QList<QQuickItem *> rows;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            if (item->objectName() == rowName)
+                rows << item;
+            for (QQuickItem *child : item->childItems())
+                walk(child);
+        };
+        if (window->contentItem())
+            walk(window->contentItem());
+        return rows;
+    };
+    const auto clickRow = [&](const QString &rowName, int index) -> bool {
+        const QList<QQuickItem *> rows = collectRows(rowName);
+        if (index < 0 || index >= rows.size() || !rows.at(index)->isVisible())
+            return false;
+        QQuickItem *row = rows.at(index);
+        const QPointF local(row->width() / 2.0, row->height() / 2.0);
+        const QPointF scene = row->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    const auto rowsOf = [&controller](const char *key) -> QStringList {
+        QStringList values;
+        const QVariantList map = controller->property("registerMap").toList();
+        for (const QVariant &row : map)
+            values << row.toMap().value(QLatin1String(key)).toString();
+        return values;
+    };
+    // Set a ComboBox selection through its property (presentation write only;
+    // the business value the controller receives is the INDEX the dialog
+    // forwards in its fields map).
+    const auto selectCombo = [&itemOf](const QString &name, int index) {
+        auto *combo = itemOf(name);
+        if (!combo || index < 0) {
+            return false;
+        }
+        return combo->setProperty("currentIndex", index);
+    };
+    const auto sceneRectOf = [&itemOf](const QString &name) -> QRectF {
+        auto *item = itemOf(name);
+        if (!item) {
+            return QRectF();
+        }
+        const QPointF topLeft = item->mapToScene(QPointF(0, 0));
+        return QRectF(topLeft, QSizeF(item->width(), item->height()));
+    };
+    // Dialogs are QQuickPopup: measure the frame through the background item.
+    const auto popupRectOf = [&roots](const QString &name) -> QRectF {
+        for (QObject *root : roots) {
+            auto *popup = root->findChild<QObject *>(name);
+            if (!popup) {
+                continue;
+            }
+            auto *frame = popup->property("background").value<QQuickItem *>();
+            if (!frame) {
+                return QRectF();
+            }
+            const QPointF topLeft = frame->mapToScene(QPointF(0, 0));
+            return QRectF(topLeft, QSizeF(frame->width(), frame->height()));
+        }
+        return QRectF();
+    };
+    const auto requireInsideWindow = [&](const QString &name) {
+        auto *item = itemOf(name);
+        if (!item || !item->isVisible()) {
+            fail(QStringLiteral("%1 is not visible at measure time").arg(name));
+            return;
+        }
+        const QRectF rect = sceneRectOf(name);
+        if (!QRectF(QPointF(0, 0), QSizeF(window->width(), window->height()))
+                 .contains(rect)) {
+            fail(QStringLiteral("%1 outside: x=%2 y=%3 w=%4 h=%5 win=%6x%7")
+                     .arg(name)
+                     .arg(rect.x())
+                     .arg(rect.y())
+                     .arg(rect.width())
+                     .arg(rect.height())
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
+    };
+
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // Stage 0: navigate via the REAL rail entry (B2-Q01 pre-condition).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("navItem_5")))
+            fail(QStringLiteral("the Device rail entry is not clickable"));
+        if (!visibleOf(QStringLiteral("deviceProfileWorkspace")))
+            fail(QStringLiteral("the Device Profile workspace is not visible"));
+        QMetaObject::invokeMethod(controller, "refreshCatalog");
+        note(QStringLiteral("stage 0: Device workspace reachable"));
+    });
+    // Stage 1: open the seeded profile (clean open, no dirty dialog).
+    push([&]() {
+        if (!clickRow(QStringLiteral("profileCatalogRow"), 0))
+            fail(QStringLiteral("cannot select the seeded catalog row"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("the Open button is not clickable"));
+        if (propStr(itemOf(QStringLiteral("profileDisplayNameField")), "text")
+            != QStringLiteral("Register seed"))
+            fail(QStringLiteral("Open did not load the seeded profile"));
+        note(QStringLiteral("stage 1: seeded profile open"));
+    });
+    // Stage 2: Register Map area visible with the seeded row (B2-Q01/Q19).
+    push([&]() {
+        if (!visibleOf(QStringLiteral("profileRegisterCard")))
+            fail(QStringLiteral("the register map card is not visible"));
+        if (!visibleOf(QStringLiteral("profileRegisterList")))
+            fail(QStringLiteral("the register map list is not visible"));
+        const QStringList names = rowsOf("name");
+        if (names.size() != 1 || names.first() != QStringLiteral("Frequency"))
+            fail(QStringLiteral("the seeded register row is not listed"));
+        if (!propBool(itemOf(QStringLiteral("profileRegisterAddButton")),
+                      "enabled"))
+            fail(QStringLiteral("Add is not enabled with an open profile"));
+        note(QStringLiteral("stage 2: register map visible with seed row"));
+    });
+    // Stage 3: Add opens the editor; FC starts EMPTY (no silent FC03);
+    // UInt16 default derives registerCount=1 read-only (B2-Q03/Q04/Q08/Q09).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+            fail(QStringLiteral("Add is not clickable"));
+        if (!visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("the entry editor dialog did not open"));
+        if (!propStr(itemOf(QStringLiteral("regFcField")), "text").isEmpty())
+            fail(QStringLiteral("the FC field is not empty for a new entry "
+                                "(silent default FC03)"));
+        if (propStr(itemOf(QStringLiteral("regCountField")), "text") != "1")
+            fail(QStringLiteral("UInt16 did not derive registerCount=1"));
+        if (!propBool(itemOf(QStringLiteral("regCountField")), "readOnly"))
+            fail(QStringLiteral("registerCount is editable (Group 1-B)"));
+        note(QStringLiteral("stage 3: editor opens; FC empty; count=1"));
+    });
+    // Stage 4: 1-word wordOrder shown but disabled with 不适用; byteOrder
+    // enabled (B2-Q11/Q12/Q14).
+    push([&]() {
+        if (propBool(itemOf(QStringLiteral("regWordOrderCombo")), "enabled"))
+            fail(QStringLiteral("1-word wordOrder is enabled"));
+        if (!visibleOf(QStringLiteral("regWordOrderNaLabel")))
+            fail(QStringLiteral("the wordOrder 不适用 expression is hidden"));
+        if (!propBool(itemOf(QStringLiteral("regByteOrderCombo")), "enabled"))
+            fail(QStringLiteral("byteOrder is disabled"));
+        note(QStringLiteral("stage 4: 1-word wordOrder N/A; byteOrder on"));
+    });
+    // Stage 5: Float32 derives registerCount=2 and enables wordOrder
+    // (B2-Q07/Q10/Q13).
+    push([&]() {
+        if (!selectCombo(QStringLiteral("regDataTypeCombo"), 6))
+            fail(QStringLiteral("cannot select Float32"));
+        if (propStr(itemOf(QStringLiteral("regCountField")), "text") != "2")
+            fail(QStringLiteral("Float32 did not derive registerCount=2"));
+        if (!propBool(itemOf(QStringLiteral("regWordOrderCombo")), "enabled"))
+            fail(QStringLiteral("2-word wordOrder is not enabled"));
+        if (visibleOf(QStringLiteral("regWordOrderNaLabel")))
+            fail(QStringLiteral("the 不适用 label stayed for a 2-word type"));
+        note(QStringLiteral("stage 5: Float32 → count=2; wordOrder on"));
+    });
+    // Stage 6: back to UInt16 (index 2) for the add below.
+    push([&]() {
+        if (!selectCombo(QStringLiteral("regDataTypeCombo"), 2))
+            fail(QStringLiteral("cannot select UInt16"));
+        if (propStr(itemOf(QStringLiteral("regCountField")), "text") != "1")
+            fail(QStringLiteral("UInt16 did not re-derive registerCount=1"));
+        note(QStringLiteral("stage 6: back to UInt16"));
+    });
+    // Stage 7: add a VALID cross-FC entry at the SAME address: FC04 @1000
+    // with scale/unit metadata; the dialog closes, the row appears and the
+    // profile goes dirty (B2-Q02..Q06/Q15..Q19/Q23/Q25).
+    push([&]() {
+        setField(QStringLiteral("regFcField"), QStringLiteral("04"));
+        setField(QStringLiteral("regAddressField"), QStringLiteral("1000"));
+        setField(QStringLiteral("regNameField"), QStringLiteral("Ambient"));
+        setField(QStringLiteral("regDescField"), QStringLiteral("added by gate"));
+        setField(QStringLiteral("regScaleField"), QStringLiteral("1"));
+        setField(QStringLiteral("regUnitField"),
+                 QStringLiteral("\u00B0C"));
+        if (!clickNamed(QStringLiteral("regApplyButton")))
+            fail(QStringLiteral("Apply is not clickable"));
+        if (visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("the dialog stayed open for a valid entry: "
+                                "%1 / %2")
+                     .arg(controller->property("lastActionError").toString(),
+                          controller->property("lastActionErrorToken")
+                              .toString()));
+        if (controller->property("lastActionErrorToken").toString().isEmpty()
+            == false)
+            fail(QStringLiteral("a valid add left an error token: %1")
+                     .arg(controller->property("lastActionErrorToken")
+                              .toString()));
+        const QStringList fcs = rowsOf("readFunctionCode");
+        const QStringList names = rowsOf("name");
+        if (fcs.size() != 2 || !fcs.contains(QStringLiteral("4")))
+            fail(QStringLiteral("the FC04 entry did not appear"));
+        if (!names.contains(QStringLiteral("Ambient")))
+            fail(QStringLiteral("the added entry name is missing"));
+        if (!controller->property("dirty").toBool())
+            fail(QStringLiteral("adding an entry did not make the profile "
+                                "dirty"));
+        note(QStringLiteral("stage 7: FC04@1000 added; profile dirty"));
+    });
+    // Stage 8: same-FC duplicate at the same start is REFUSED with a
+    // Human-readable reason; the dialog stays open with the input intact
+    // (B2-Q22), and the draft is unchanged (B2-C27 twin at the UI layer).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+            fail(QStringLiteral("Add is not clickable (duplicate probe)"));
+        setField(QStringLiteral("regFcField"), QStringLiteral("03"));
+        setField(QStringLiteral("regAddressField"), QStringLiteral("1000"));
+        setField(QStringLiteral("regNameField"), QStringLiteral("Dup"));
+        if (!clickNamed(QStringLiteral("regApplyButton")))
+            fail(QStringLiteral("Apply is not clickable (duplicate probe)"));
+        if (!visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("a refused apply closed the dialog"));
+        if (!visibleOf(QStringLiteral("regEditorErrorLabel")))
+            fail(QStringLiteral("no validation error is shown for the "
+                                "duplicate"));
+        const QString errorText =
+            propStr(itemOf(QStringLiteral("regEditorErrorLabel")), "text");
+        if (!errorText.contains(QStringLiteral("重复地址")))
+            fail(QStringLiteral("the duplicate error is not human-readable"));
+        if (rowsOf("name").size() != 2)
+            fail(QStringLiteral("a refused add mutated the register map"));
+        if (!clickNamed(QStringLiteral("regCancelButton")))
+            fail(QStringLiteral("the editor Cancel is not clickable"));
+        if (visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("the editor Cancel did not close the dialog"));
+        note(QStringLiteral("stage 8: same-FC duplicate refused"));
+    });
+    // Stage 9: same-FC OVERLAPPING span refused (999..1000 crosses 1000).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+            fail(QStringLiteral("Add is not clickable (overlap probe)"));
+        setField(QStringLiteral("regFcField"), QStringLiteral("03"));
+        setField(QStringLiteral("regAddressField"), QStringLiteral("999"));
+        setField(QStringLiteral("regNameField"), QStringLiteral("Overlap"));
+        if (!selectCombo(QStringLiteral("regDataTypeCombo"), 4))
+            fail(QStringLiteral("cannot select UInt32"));
+        if (!clickNamed(QStringLiteral("regApplyButton")))
+            fail(QStringLiteral("Apply is not clickable (overlap probe)"));
+        if (!visibleOf(QStringLiteral("regEditorErrorLabel")))
+            fail(QStringLiteral("no validation error is shown for the "
+                                "overlap"));
+        const QString errorText =
+            propStr(itemOf(QStringLiteral("regEditorErrorLabel")), "text");
+        if (!errorText.contains(QStringLiteral("重叠")))
+            fail(QStringLiteral("the overlap error is not human-readable"));
+        if (rowsOf("name").size() != 2)
+            fail(QStringLiteral("a refused add mutated the register map"));
+        if (!clickNamed(QStringLiteral("regCancelButton")))
+            fail(QStringLiteral("the editor Cancel is not clickable"));
+        note(QStringLiteral("stage 9: same-FC overlap refused"));
+    });
+    // Stage 10: an invalid read function code (0x80) is refused, the typed
+    // value STAYS in the field, and the profile draft is unchanged (B2-Q24).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+            fail(QStringLiteral("Add is not clickable (FC probe)"));
+        setField(QStringLiteral("regFcField"), QStringLiteral("80"));
+        setField(QStringLiteral("regAddressField"), QStringLiteral("2000"));
+        setField(QStringLiteral("regNameField"), QStringLiteral("BadFc"));
+        if (!clickNamed(QStringLiteral("regApplyButton")))
+            fail(QStringLiteral("Apply is not clickable (FC probe)"));
+        if (!visibleOf(QStringLiteral("regEditorErrorLabel")))
+            fail(QStringLiteral("no validation error is shown for FC 0x80"));
+        if (propStr(itemOf(QStringLiteral("regFcField")), "text")
+            != QStringLiteral("80"))
+            fail(QStringLiteral("a refused apply cleared the typed FC"));
+        if (rowsOf("name").size() != 2)
+            fail(QStringLiteral("a refused add mutated the register map"));
+        if (!clickNamed(QStringLiteral("regCancelButton")))
+            fail(QStringLiteral("the editor Cancel is not clickable"));
+        note(QStringLiteral("stage 10: invalid FC refused; input kept"));
+    });
+    // Stage 11: Edit the FC04 entry (row 1 in display order): pre-filled,
+    // renamed, applied (B2-Q20).
+    push([&]() {
+        clickRow(QStringLiteral("profileRegisterRow"), 1);
+        if (!clickNamed(QStringLiteral("profileRegisterEditButton")))
+            fail(QStringLiteral("Edit is not clickable"));
+        if (!visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("the editor did not open for Edit"));
+        if (propStr(itemOf(QStringLiteral("regFcField")), "text") != QStringLiteral("4"))
+            fail(QStringLiteral("Edit did not pre-fill the function code"));
+        if (propStr(itemOf(QStringLiteral("regNameField")), "text")
+            != QStringLiteral("Ambient"))
+            fail(QStringLiteral("Edit did not pre-fill the entry metadata"));
+        setField(QStringLiteral("regNameField"),
+                 QStringLiteral("Ambient Temp"));
+        if (!clickNamed(QStringLiteral("regApplyButton")))
+            fail(QStringLiteral("Apply is not clickable (Edit)"));
+        if (visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("the dialog stayed open after a valid edit"));
+        if (!rowsOf("name").contains(QStringLiteral("Ambient Temp")))
+            fail(QStringLiteral("the edited name did not appear"));
+        note(QStringLiteral("stage 11: entry edited in place"));
+    });
+    // Stage 12: Save persists the register map; dirty clears (B2-Q26).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileSaveButton")))
+            fail(QStringLiteral("Save is not clickable"));
+        if (controller->property("dirty").toBool())
+            fail(QStringLiteral("Save did not clear dirty"));
+        if (rowsOf("name").size() != 2)
+            fail(QStringLiteral("Save changed the register map"));
+        note(QStringLiteral("stage 12: save persisted the register map"));
+    });
+    // Stage 13: re-open the same profile from disk: the map round-trips
+    // (B2-Q27).
+    push([&]() {
+        if (!clickRow(QStringLiteral("profileCatalogRow"), 0))
+            fail(QStringLiteral("cannot select the catalog row (reopen)"));
+        if (!clickNamed(QStringLiteral("profileOpenButton")))
+            fail(QStringLiteral("Open is not clickable (reopen)"));
+        const QStringList names = rowsOf("name");
+        if (names.size() != 2
+            || !names.contains(QStringLiteral("Frequency"))
+            || !names.contains(QStringLiteral("Ambient Temp")))
+            fail(QStringLiteral("the reopened profile lost register "
+                                "metadata"));
+        if (controller->property("lastActionErrorToken").toString().isEmpty()
+            == false)
+            fail(QStringLiteral("a clean reopen reported an error"));
+        note(QStringLiteral("stage 13: open restored the register map"));
+    });
+    // Stage 14: Delete the FC04 entry (B2-Q21): draft-only, dirty, and the
+    // persisted truth returns through Save.
+    push([&]() {
+        clickRow(QStringLiteral("profileRegisterRow"), 1);
+        if (!clickNamed(QStringLiteral("profileRegisterDeleteButton")))
+            fail(QStringLiteral("Delete is not clickable"));
+        if (rowsOf("name").size() != 1)
+            fail(QStringLiteral("the deleted entry is still listed"));
+        if (!controller->property("dirty").toBool())
+            fail(QStringLiteral("deleting an entry did not make the profile "
+                                "dirty"));
+        if (!clickNamed(QStringLiteral("profileSaveButton")))
+            fail(QStringLiteral("Save is not clickable (after delete)"));
+        if (controller->property("dirty").toBool())
+            fail(QStringLiteral("Save did not clear dirty after delete"));
+        note(QStringLiteral("stage 14: entry deleted; save persists"));
+    });
+    // Stage 15: resize to the 1000x700 contract size (measure in the NEXT
+    // stage — a same-stage measurement reads the previous layout).
+    push([&]() {
+        window->resize(1000, 700);
+        note(QStringLiteral("stage 15: window resized to 1000x700"));
+    });
+    // Stage 16: the 1000x700 reachability contract (B2-Q28): no clip hides
+    // anything — containment asserts measure real scene geometry.
+    push([&]() {
+        if (window->width() != 1000 || window->height() != 700)
+            fail(QStringLiteral("the window is not at 1000x700: %1x%2")
+                     .arg(window->width())
+                     .arg(window->height()));
+        for (const auto &name :
+             {QStringLiteral("profileRegisterCard"),
+              QStringLiteral("profileRegisterList"),
+              QStringLiteral("profileRegisterAddButton"),
+              QStringLiteral("profileRegisterEditButton"),
+              QStringLiteral("profileRegisterDeleteButton")}) {
+            auto *item = itemOf(name);
+            if (!item) {
+                fail(QStringLiteral("%1 disappeared before measure").arg(name));
+                continue;
+            }
+            const QRectF rect = sceneRectOf(name);
+            qInfo().noquote()
+                << QStringLiteral("REGGEO %1: x=%2 y=%3 w=%4 h=%5")
+                       .arg(name)
+                       .arg(rect.x())
+                       .arg(rect.y())
+                       .arg(rect.width())
+                       .arg(rect.height());
+            requireInsideWindow(name);
+        }
+        // The entry editor dialog (opened for real) with ALL fields reachable.
+        if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+            fail(QStringLiteral("Add is not clickable (geometry probe)"));
+        if (!visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("the entry dialog did not open (geometry "
+                                "probe)"));
+        const QRectF dialogRect = popupRectOf(QStringLiteral("entryEditorDialog"));
+        qInfo().noquote()
+            << QStringLiteral("REGGEO entryEditorDialog: x=%1 y=%2 w=%3 h=%4")
+                   .arg(dialogRect.x())
+                   .arg(dialogRect.y())
+                   .arg(dialogRect.width())
+                   .arg(dialogRect.height());
+        if (dialogRect.isEmpty())
+            fail(QStringLiteral("the entry dialog has no measurable geometry"));
+        else if (!QRectF(QPointF(0, 0),
+                         QSizeF(window->width(), window->height()))
+                      .contains(dialogRect))
+            fail(QStringLiteral("the entry dialog is outside the window"));
+        for (const auto &name :
+             {QStringLiteral("regFcField"),
+              QStringLiteral("regAddressField"),
+              QStringLiteral("regNameField"),
+              QStringLiteral("regDescField"),
+              QStringLiteral("regDataTypeCombo"),
+              QStringLiteral("regCountField"),
+              QStringLiteral("regByteOrderCombo"),
+              QStringLiteral("regWordOrderCombo"),
+              QStringLiteral("regScaleField"),
+              QStringLiteral("regOffsetField"),
+              QStringLiteral("regUnitField"),
+              QStringLiteral("regApplyButton"),
+              QStringLiteral("regCancelButton")})
+            requireInsideWindow(name);
+        if (!clickNamed(QStringLiteral("regCancelButton")))
+            fail(QStringLiteral("the editor Cancel is not clickable"));
+        note(QStringLiteral("stage 16: 1000x700 reachable incl. dialog"));
+    });
+    // Stage 17: keyboard focus reaches the entry editor fields (B2-Q29).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+            fail(QStringLiteral("Add is not clickable (focus probe)"));
+        auto *field = itemOf(QStringLiteral("regFcField"));
+        if (!field) {
+            fail(QStringLiteral("the FC field disappeared"));
+        } else {
+            field->forceActiveFocus();
+            if (!field->hasActiveFocus())
+                fail(QStringLiteral("the FC field cannot take focus"));
+        }
+        if (!clickNamed(QStringLiteral("regCancelButton")))
+            fail(QStringLiteral("the editor Cancel is not clickable"));
+        note(QStringLiteral("stage 17: editor fields focusable"));
+    });
+    // Stage 18: the FIRST-slice identity editor still works next to the new
+    // card (B2-Q30).
+    push([&]() {
+        setField(QStringLiteral("profileDisplayNameField"),
+                 QStringLiteral("Register seed renamed"));
+        if (!controller->property("dirty").toBool())
+            fail(QStringLiteral("identity editing no longer sets dirty"));
+        if (!visibleOf(QStringLiteral("profileDirtyIndicator")))
+            fail(QStringLiteral("the dirty cue no longer follows edits"));
+        setField(QStringLiteral("profileDisplayNameField"),
+                 QStringLiteral("Register seed"));
+        note(QStringLiteral("stage 18: identity editor unaffected"));
+    });
+
+    const int settleMs = 60;
+    auto step = std::make_shared<int>(0);
+    auto schedule = std::make_shared<std::function<void()>>();
+    auto failuresShared = failures;
+    *schedule = [&, step, schedule, failuresShared, &app]() {
+        if (*step >= steps->size()) {
+            if (!failuresShared->isEmpty()) {
+                for (const QString &f : *failuresShared)
+                    qWarning().noquote()
+                        << QStringLiteral("REGFAIL: %1").arg(f);
+                app.exit(1);
+                return;
+            }
+            note(QStringLiteral("REGISTER MAP CHECK PASS (B2-Q01..Q30): "
+                               "map visible; add/edit/delete through the "
+                               "bounded dialog; FC keyboard-editable with no "
+                               "silent default; cross-FC same-address valid; "
+                               "same-FC duplicate/overlap refused with "
+                               "human-readable errors; derived read-only "
+                               "registerCount; 1-word wordOrder N/A shown "
+                               "disabled; 1000x700 incl. dialog reachable; "
+                               "dirty integration and save/open round-trip"));
+            app.exit(0);
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
@@ -15299,6 +15890,11 @@ int main(int argc, char *argv[])
     // M12-B first slice gate: the Device Profile workspace end to end.
     if (app.arguments().contains(QStringLiteral("--qml-profile-editor-check"))) {
         return runProfileEditorCheck(engine, app);
+    }
+
+    // M12-B second slice gate: the Register Map editor end to end.
+    if (app.arguments().contains(QStringLiteral("--qml-register-map-check"))) {
+        return runRegisterMapCheck(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.
