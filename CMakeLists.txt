@@ -588,6 +588,14 @@ if(BUILD_TESTING)
     add_test(NAME qml_profile_semantic_check
         COMMAND modbuslens --qml-profile-semantic-check)
 
+    # The deterministic visual demo in its TEST-ONLY mode (--demo-exit-after-
+    # ready): asserts Scenario A (466 -> 46.6 Hz) and Scenario B (Float32
+    # 2-word start/continuation) and exits by itself. The bare
+    # --qml-profile-semantic-demo (no such flag) is the HUMAN mode and
+    # deliberately never exits on its own.
+    add_test(NAME qml_profile_semantic_demo
+        COMMAND modbuslens --qml-profile-semantic-demo --demo-exit-after-ready)
+
     # M10-E2: the FC16/0x10 ACTIVE response suite (shared analyzer, framing,
     # error classes, single in-flight, support matrix). Kept as its own target
     # so the FC06 suite stays readable.
@@ -963,7 +971,7 @@ if(BUILD_TESTING)
     # in the diagnostics text is invisible here while it still fails the
     # shipping gate (scripts/make_package.py minimal_path_run greps the
     # captured stdout+stderr of the extracted package).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge register_decode device_profile profile_controller active_profile_controller profile_semantic replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_profile_semantic_check PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge register_decode device_profile profile_controller active_profile_controller profile_semantic replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_profile_semantic_check qml_profile_semantic_demo PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
@@ -983,7 +991,7 @@ if(BUILD_TESTING)
     #   Unable to assign           : a failed binding assigning undefined to a
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_profile_semantic_check qml_write_foundation_check_windows PROPERTIES
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign;String.arg..: Invalid arguments"
     )
 endif()

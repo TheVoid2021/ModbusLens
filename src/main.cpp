@@ -16310,10 +16310,25 @@ int runProfileSemanticCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             << QStringLiteral("SEMFAIL: window/controller not found");
         return 1;
     }
-    app.setQuitOnLastWindowClosed(false);
-
+    // Three explicit lifetimes (RCA correction, T027 §44):
+    //   · --qml-profile-semantic-check                      → assertion
+    //     pipeline, exits 0/1 when it finishes (ctest).
+    //   · --qml-profile-semantic-demo --demo-exit-after-ready → TEST-ONLY
+    //     automated demo: asserts Scenario A+B then exits 0 (ctest).
+    //   · --qml-profile-semantic-demo                       → HUMAN VISUAL
+    //     demo: shows both scenarios and KEEPS RUNNING until the Human
+    //     closes the window (closing the window exits the process).
+    // The previous build let the Human demo fall through into the check
+    // pipeline, whose final step calls app.exit(0) — the window closed by
+    // itself after ~2s. Quit-on-last-window-closed is therefore TRUE only
+    // in the Human demo mode (the assertion modes must not be interrupted
+    // by an incidental window close).
+    const bool demoMode =
+        app.arguments().contains(QStringLiteral("--qml-profile-semantic-demo"));
     const bool exitAfterReady =
         app.arguments().contains(QStringLiteral("--demo-exit-after-ready"));
+    const bool humanDemo = demoMode && !exitAfterReady;
+    app.setQuitOnLastWindowClosed(humanDemo);
 
     QTemporaryDir managedRoot;
     if (!managedRoot.isValid()) {
@@ -16599,6 +16614,70 @@ int runProfileSemanticCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             << QStringLiteral("SEM: PROFILE SEMANTIC DEMO READY");
         app.exit(0);
         return 0;
+    }
+
+    if (humanDemo) {
+        // HUMAN VISUAL MODE: present both deterministic scenarios through
+        // the production projection + UI and then KEEP RUNNING. No
+        // app.exit, no stage pipeline, no timer that closes anything; the
+        // Human closes the window when done (quitOnLastWindowClosed=true
+        // makes that a normal exit 0).
+        if (!clickNamed(QStringLiteral("navItem_2"))
+            || !visibleOf(QStringLiteral("communicationWorkspace"))) {
+            qWarning().noquote()
+                << QStringLiteral("SEMFAIL: cannot reach the Communication "
+                                  "workspace");
+            return 1;
+        }
+        readAndComplete(QStringLiteral("03"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {466}, 0x03);
+        const QVariantList rowsA = controller->readResultValues();
+        const QVariantMap rowA0 = rowsA.value(0).toMap();
+        if (rowA0.value("semanticStatus").toString()
+                != QStringLiteral("mapped_start")
+            || rowA0.value("semanticText").toString()
+                != QStringLiteral("46.6 Hz")) {
+            qWarning().noquote()
+                << QStringLiteral("SEMFAIL: demo scenario A mismatch");
+            return 1;
+        }
+        note(QStringLiteral("SCENARIO A: FC03 @1000 raw 466 (0x01D2) → "
+                           "generic 466 → semantic 46.6 Hz — Raw/Generic/"
+                           "Semantic layers visible in 读取结果详情"));
+        if (!openDialog()) {
+            qWarning().noquote()
+                << QStringLiteral("SEMFAIL: the read result dialog did not "
+                                  "open");
+            return 1;
+        }
+        // Scenario B is read SECOND so it is the content on screen; the
+        // Human can re-open the detail dialog at any time (the panel keeps
+        // the latest result). Reading it after A also demonstrates the
+        // start-row/continuation rule live.
+        readAndComplete(QStringLiteral("03"), QStringLiteral("2000"),
+                        QStringLiteral("2"), {0x42F6, 0xE979}, 0x03);
+        const QVariantList rowsB = controller->readResultValues();
+        const QVariantMap rowB0 = rowsB.value(0).toMap();
+        const QVariantMap rowB1 = rowsB.value(1).toMap();
+        if (rowB0.value("semanticStatus").toString()
+                != QStringLiteral("mapped_start")
+            || !rowB0.value("semanticText").toString().startsWith(
+                QStringLiteral("123.456"))
+            || rowB1.value("semanticStatus").toString()
+                != QStringLiteral("mapped_continuation")
+            || rowB1.contains("semanticText")) {
+            qWarning().noquote()
+                << QStringLiteral("SEMFAIL: demo scenario B mismatch");
+            return 1;
+        }
+        note(QStringLiteral("SCENARIO B: FC03 @2000 Float32 0x42F6E979 → "
+                           "semantic 123.456 °C on the start row; row 2001 "
+                           "shows continuation only"));
+        qInfo().noquote()
+            << QStringLiteral("SEM: PROFILE SEMANTIC DEMO VISUAL MODE — "
+                              "窗口保持打开，由 Human 手工关闭（关闭即正常退出）");
+        // Keep the event loop alive until the Human closes the window.
+        return app.exec();
     }
 
     auto steps = std::make_shared<QList<std::function<void()>>>();
