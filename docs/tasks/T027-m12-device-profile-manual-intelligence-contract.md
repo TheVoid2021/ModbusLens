@@ -821,3 +821,92 @@ P1-11  40001 manual display alias（保持 P1）
 P1-12  read/write access metadata（保持 P1）
 P1-13-remnant  其它 register-family metadata（readFunctionCode 部分已批准移出）
 ```
+
+## 33. M12-B Final P1 Contract Freeze（2026-09-26，HUMAN-APPROVED，docs-only）
+
+> **Human 明确回复（原文）：「这四组都同意」⇒ Group 1–4 全部为 HUMAN-APPROVED M12-B CONTRACT
+> DECISIONS（非 pre-existing canonical requirement）。本轮 = docs-only freeze；M12-B Implementation
+> 仍 NOT STARTED。**
+
+### 33.1 Group 1 — 2-word semantic + editor field behavior（冻结）
+
+- **A. 2-word Profile semantic value 挂在 RegisterEntry 的 start row**（例：FC03 Float32@1000，
+  span 1000–1001 ⇒ semantic value 只挂 row 1000）。**row 1001 仍保留该 row 原本的 raw truth 与
+  M11 generic decode behavior**——**M11 已冻结的 sliding-window decode 不得被 M12 改写**（words[i] +
+  words[i+1] 照旧）。「row 1001 属于 Profile span 1000–1001 的第二个 word」**不得**解释成「M11 row
+  1001 不再 generic decode」；M12 只允许**额外**表示 Profile span membership / source span；row 1001
+  **不得**生成第二份同一 entry 的 semantic value。
+- **B. registerCount 在 Profile Editor 中由 dataType 自动派生（UI read-only/derived，不得手工编辑）**；
+  规则不变（Hex/Binary/UInt16/Int16 → 1；UInt32/Int32/Float32 → 2）；**底层 schema 仍保留 registerCount**
+  用于 persistence/validation，**loader 仍必须验证一致**——不得因 UI derived 删除 schema validation。
+- **C. 1-word 类型：wordOrder control 仍显示但 disabled，显示「不适用」或现有风格等价表达**（不隐藏，
+  避免布局跳动）；2-word：enabled。byteOrder 全类型继续正常可编辑。
+
+### 33.2 Group 2 — file / save / dirty state（冻结）
+
+- M12-B v1 支持 **New / Open / Save / Delete**；**暂不提供**独立 Save As / Export（JSON 本身仍是
+  portable Profile format）。**Open = 打开应用 managed Profile store 中的既有 Profile**——**不是**
+  任意外部 JSON import（外部导入属后续 import UX，不得借 Open 实现）。MANUAL SAVE 保持冻结。
+- **DIRTY STATE**：当前编辑 Profile 有未保存修改时，在（切换编辑对象 / 关闭当前编辑对象 / 退出程序 /
+  删除当前 Profile）之前必须提供 **Save / Discard / Cancel** 三路决策：Cancel = 中止原动作；Discard =
+  放弃未保存修改继续；Save = 先尝试保存，**Save 失败 ⇒ 原动作不得继续**，保持当前编辑状态并显示保存失败。
+- **DELETE**：destructive operation——dirty-state resolution 完成后**仍须显式删除确认**（概念：
+  「确定删除设备档案"<displayName>"吗？」；精确文案按现有中文风格实现，语义 = explicit confirmation）；
+  确认后删除 managed Profile 对应 JSON；**删除失败不得伪装成功**。
+
+### 33.3 Group 3 — editor vs active profile（冻结）
+
+- **正在编辑的 Profile（Editor）与 Active Profile（Communication semantic interpretation 用）是两个
+  独立状态**；打开 Editor **不得**自动把该 Profile 设为 Active；编辑另一个 Profile **不得**自动改变
+  Active。
+- **Active Profile lifecycle**：application process 期间人工选择；**跨 workspace 保持**；**应用重启：
+  M12-B v1 不恢复上次 Active Profile（启动后 = No Profile Selected）**——本条由前轮「NOT YET FROZEN」
+  正式转为冻结；**禁止** restore last / 按 COM / 按 Slave / 按 FC / 按 response / 按 manufacturer·model
+  自动选择。
+- **DELETE ACTIVE PROFILE**：删除成功后**立即清空 Active Profile**（→ No Profile Selected）；raw truth
+  与 M11 generic decode **继续可用**；M12 semantic **不得**继续使用已删除 Profile 的缓存解释。
+
+### 33.4 Group 4 — v1 metadata boundary（冻结）
+
+- M12-B v1 **DEFER**：40001 / 4xxxx manual display alias；read/write access metadata；除
+  readFunctionCode 外的其它 register-family metadata；独立 Save As / Export UX——**不得**在第一版偷偷加入。
+- **readFunctionCode = REQUIRED register-space identity，不属于 DEFER**（T027 §32 已批准）。
+- **DUPLICATE displayName**：selector / profile list 内部 identity 永远使用完整 **profileId**；
+  Human-visible primary text = **displayName**；secondary text = **manufacturer / model / revision**
+  （存在的字段）；仍同名 ⇒ 增加**短 profileId** 消歧（缩短算法 = implementation detail，但最终 UI 必须
+  能区分两个不同 profileId；短形式仍碰撞 ⇒ 扩展显示长度，必要时完整 profileId）；**不得**因显示字符串
+  相同而视为同一 identity；**filename/hash 不得**作为主要 Human-visible 名称。
+
+### 33.5 M11 non-regression（本轮冻结声明）
+
+- **M11 sliding-window semantics 不被 M12 start-row rule 修改**：raw row i 的 generic 32-bit decode
+  仍按 words[i] + words[i+1]；M12 只决定 semantic mapping 属于哪个 Profile entry start row；不得修改
+  `RegisterDecode` / M11 word-order / M11 byte-order / raw rows。本轮实现目标：**RegisterDecode.{h,cpp}
+  ZERO DIFF**（如必须修改 ⇒ STOP）。
+
+## 34. P1 Accounting Correction（BEFORE / AFTER，逐项核对 T027）
+
+- **账目更正**：上一轮报告顶部「14 项 P1」为**计数笔误**——正式编号列表 = **P1-1..P1-13（13 项）**。
+  未为凑数新增任何 P1。
+- **BEFORE（上轮冻结时点）**：P1-1 .. P1-13 全部 = HUMAN DECISION REQUIRED。
+
+| ID | 主题 | AFTER（本轮四组后） |
+| --- | --- | --- |
+| P1-1 | 2-word semantic 挂行 | **RESOLVED（Group 1-A）**：挂 start row；M11 sliding-window 不变 |
+| P1-2 | registerCount UI | **RESOLVED（Group 1-B）**：dataType 派生、UI read-only；schema validation 保留 |
+| P1-3 | 1-word wordOrder control | **RESOLVED（Group 1-C）**：显示但 disabled（「不适用」）；不隐藏 |
+| P1-4 | Save As / Export | **RESOLVED（Group 2）**：v1 = New/Open/Save/Delete，无 Save As/Export ⇒ **DEFER** |
+| P1-5 | 删除语义与确认 | **RESOLVED（Group 2）**：dirty resolution + 显式确认 + 删 managed JSON + 失败不伪装 |
+| P1-6 | unsaved changes | **RESOLVED（Group 2）**：Save/Discard/Cancel 三路；Save 失败阻断原动作 |
+| P1-7 | Editor-open 自动 active | **RESOLVED（Group 3）**：不自动；Editor 与 Active 为独立状态 |
+| P1-8 | 删除 active Profile 后 | **RESOLVED（Group 3）**：清空 → No Profile Selected；semantic 缓存不沿用 |
+| P1-9 | restart 恢复 | **RESOLVED（Group 3）**：v1 不恢复，启动 = No Profile Selected（原 NOT YET FROZEN 转冻结） |
+| P1-10 | 同名 displayName | **RESOLVED（Group 4）**：profileId 内部 + displayName 主 + manufacturer/model/revision 次 + 短 profileId 消歧 |
+| P1-11 | 40001 manual alias | **DEFER**（Group 4） |
+| P1-12 | read/write access metadata | **DEFER**（Group 4） |
+| P1-13-remnant | 其它 register-family metadata | **DEFER**（Group 4；readFunctionCode 已批准移出） |
+
+- **结论（诚实判断，非人为清零）**：**真正阻塞 M12-B first implementation slice 的 Human P1 = 0**；
+  P1-11 / P1-12 / P1-13-remnant = DEFER（非阻塞的 v1 外延功能）。
+- **本轮随之执行的行为 = T027 §32 的 readFunctionCode PRE-RELEASE AMENDMENT**（M12-A latest
+  contract amendment，PENDING IMPLEMENTATION → IMPLEMENTED，见 §35）。
