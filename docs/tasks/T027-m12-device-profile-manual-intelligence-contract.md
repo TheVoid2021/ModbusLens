@@ -1141,3 +1141,129 @@ verified LKGC     = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，不自�
 ```
 
 M12-B Second Slice（Register Map Editor）= NOT STARTED。
+
+## 39. M12-B Second Slice — Register Map Editor Archive（2026-09-26，behavior `becadc5`）
+
+> 范围（Human 指令 §4 硬边界）：Register Map list + Add/Edit/Delete Entry +
+> entry validation UI + dirty integration + 11 字段编辑（readFunctionCode /
+> address / name / description / dataType / registerCount / byteOrder /
+> wordOrder / scale / offset / unit）。**未实现**：Active Profile、
+> Communication selector、semantic overlay、register live read、wire dispatch、
+> 40001 alias、access metadata、Save As/Export（全部 NOT STARTED / DEFER）。
+> Human First-Slice Acceptance 已先行归档（§38，commit `0d146f2b`）。
+
+### 39.1 实现形态（actual layout + field behavior）
+
+- **布局**：Device Profile workspace 三卡（catalog 250 | identity fillWidth |
+  register 330）；register 卡 = 摘要行列表（`FC03 @1000 ｜ 名称 ｜ UInt16 @1000`）
+  + Add/Edit/Delete 按钮行 + 「地址为 PDU / 0-based（十进制输入）」authority 提示。
+- **Entry editor**：有界 Dialog（480×436 @1000×700，popup background 实测）承载
+  全部 11 字段；Add/Edit 共用，Add 时 FC 字段**初始为空**（no silent FC03，
+  §32/§35 纪律）。
+- **readFunctionCode**：keyboard-editable TextField；复用 core
+  `parseReadFunctionCode`（M10 输入习惯：`03`/`3`/`41`/`0x41`，1..2 位 HEX，
+  0x 前缀可选）；域 0x01..0x7F（00/80/FF 拒绝，token
+  `invalid_read_function_code`）；**无 silent default 03**（gate stage 3 断言）。
+- **address**：PDU / 0-based 十进制输入（复用 core
+  `parseDecimalRegisterValue`，与 M10 Start Address 输入一致）；HEX 仅为
+  显示辅助（列表行），canonical truth 始终是 0-based 整数；无 40001。
+- **dataType**：直接引用 M11 七类型枚举（index = enum value；无第二套 enum）；
+  ComboBox 七项 HEX/BIN/UInt16/Int16/UInt32/Int32/Float32。
+- **registerCount**：UI read-only，由 `registerDecodeTypeWordCount(dataType)`
+  派生（1-word → 1 / 2-word → 2，Group 1-B）；persistence 保留该字段、
+  validation 仍严格校验；切换 dataType 立即重派生。
+- **byteOrder**：全类型可编辑（Normal / ByteSwapped，M11 枚举）。
+- **wordOrder**：2-word enabled（HighWordFirst / LowWordFirst）；1-word
+  **显示但 disabled + 「不适用（1-word 类型）」标签**（Group 1-C，不隐藏）；
+  1-word 时 UI 传 -1，controller 保持 M11 默认 —— disabled 控件永不污染数据。
+- **scale / offset / unit**：可编辑；空 scale/offset = 冻结默认 1 / 0；
+  scale=0 合法；NaN / ±Inf / 非数字文本拒绝（`non_finite_scale` /
+  `non_finite_offset`）；unit 自由文本（round-trip 含 `°C`）；无任何自动换算。
+
+### 39.2 语义（Add / Edit / Delete / dirty）
+
+- **candidate 纪律**：Add/Edit 构造 candidate entry → 复制整个 draft → 替换/
+  追加 → 跑**完整** profile validation → 仅 valid 才提交回 draft。
+  失败 = draft 逐字节不变 + entry editor 保留全部输入 + 明确错误。
+- **错误呈现（§24）**：human 文本（点名冲突条目：「同一功能码 FC03 空间内地址
+  1000 已被「Frequency」占用（重复地址）」）+ 稳定 token
+  （`lastActionErrorToken`：duplicate_address / overlapping_span /
+  invalid_read_function_code / register_name_missing / non_finite_scale /
+  non_finite_offset / register_entry_missing / save_failed / delete_failed）。
+- **Delete entry**：draft-only（T027 §16），JSON 只经 Save 落盘；Discard
+  完整恢复 persisted register map（b2c14）；无新增 destructive FS 语义。
+- **dirty**：register 变更与 identity 共用同一 dirty 真值（draft !=
+  persisted；无第二 dirty flag）；Save 成功 → dirty false；Save 失败 →
+  dirty true 且 register 变更保留（b2c30）。
+- **排序/选择**：display 投影按 (readFunctionCode, address) 确定性排序；
+  编辑定位用 draftIndex（对重排稳定）；不新增 entryId/UUID。
+
+### 39.3 测试 / 负向对照 / 回归（真实数字）
+
+```text
+profile_controller = 65 passed（35 + B2-C01..B2-C30）
+  B2-C01..C30 覆盖：空表 / FC03+FC41 添加 / FC00·FC80 拒绝 / cross-FC 同址 /
+  same-FC duplicate·overlap 拒绝 / cross-FC overlap 合法 / edit / 失败 edit
+  不变 / delete / delete→dirty / discard 恢复 / registerCount 派生（1·2）/
+  scale=0 / NaN·Inf scale·offset 拒绝 / unit·byteOrder·wordOrder round-trip /
+  save+load 全字段（含 FC03@1000+FC04@1000 共存）/ profileId 稳定 /
+  M11 decode 黑盒不变 / 确定性排序 / 无效 candidate 不改 draft ×2 /
+  dirty guard 参与感 / save 失败保留 dirty
+新 QML gate qml_register_map_check（--qml-register-map-check，19 stages）：
+  B2-Q01..Q30 全覆盖；REGISTER MAP CHECK PASS
+负向对照（真实 mutate → 观察 FAIL → 精确还原 → 复绿；无 mutation 提交）：
+  NC-B2-1 validation 忽略 FC 分组        → b2c06 + b2c09 FAIL
+  NC-B2-2 registerCount 派生固定为 1     → b2c16 FAIL
+  NC-B2-3 add 路径伪造 clean（不 dirty）  → b2c02 + b2c29 FAIL
+  NC-B2-4 edit 先 commit 后 validation   → b2c11 + b2c28 FAIL
+Debug  full ctest = 45/45（新增 qml_register_map_check）
+Release full ctest = 45/45
+RegisterDecode.{h,cpp} = ZERO DIFF（§33.5 兑现；git diff --stat 为空）
+windows-QPA（真实 windows 平台）：9 门（8 原有 + register-map）全 exit=0，
+  诊断（ReferenceError/TypeError/Unable to assign/String.arg Invalid）= 0，
+  qrc 警告行 = 0
+```
+
+### 39.4 1000×700 实测几何（REGGEO，resize 与 measure 分 stage）
+
+```text
+profileRegisterCard    x=666 y=118 w=330 h=578   （bottom=696 ≤ 700）
+profileRegisterList    x=678 y=214 w=306 h=470
+Add/Edit/Delete 按钮   y=153 h=34
+entryEditorDialog      x=289 y=153 w=480 h=436   （真实打开后 popup background 度量；
+                                                  11 字段 + Apply/Cancel 全部 contained）
+无 clip 隐藏 overflow（first slice 已移除页根 clip）
+```
+
+### 39.5 提交与状态
+
+```text
+Human first-slice acceptance commit = 0d146f2b（M12: accept profile workspace slice）
+behavior commit                     = becadc5f6b77878188fcc41cc2980a865361f580
+                                      （M12: add register-map editor；6 文件，无 docs）
+docs archive commit                 = 本 commit（M12: archive register-map editor slice）
+staging = build/m12b-visual-candidate/ModbusLens.exe
+  size = 5,129,023 B  SHA-256 = 29c05471f69b4671b3a09c260d7b6fea1870e8ee956b2586b79fe9c3dd446c8b
+  source == staging（cmp byte-identical）
+clean-env（PATH=System32;Windows）: smoke / profile-editor / register-map / nav
+  / geometry 全 exit=0 且含 PASS 标记；visual candidate ≠ canonical package
+
+M10 = COMPLETE；M11 = COMPLETE；M11 FINAL PORTABLE PACKAGE = VERIFIED
+M12-A = FOUNDATION ACCEPTED；M12-B First Slice = HUMAN ACCEPTED
+M12-B Second Slice = IMPLEMENTED / AUTOMATED PASS / HUMAN VISUAL REVIEW PENDING
+M12-B remaining = Communication selector / Active Profile state / semantic overlay
+M12-C / M12-D = NOT STARTED
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，NO advance）
+```
+
+### 39.6 过程记录（诚实档案）
+
+- 实现中一个真实缺陷在迭代中被自家 gate 抓住并修复：controller 对空
+  scale/offset 的默认分支先写了 `x = empty ? default : toDouble(&ok)` 再统一
+  判 `!ok`，导致空串（走默认）也被拒（non_finite_offset）；修复为分支内各自
+  判定。该缺陷只存在于未提交的工作树中，未进入任何提交。
+- 负向对照还原操作事故：NC-B2-1 首次还原误用 `git checkout -- <file>`，把
+  本轮未提交的 ProfileController.cpp 实现一并回退。处置：立即以全量重写重建
+  （头文件/测试/QML/gate 均未受影响），重建后 65/65 + 双 gate 复绿，无净损失；
+  其余三个 mutation 改用精确逆向 patch 还原。教训：负向对照的还原必须是精确
+  逆向 patch，`git checkout` 只能用于无未提交工作的文件。
