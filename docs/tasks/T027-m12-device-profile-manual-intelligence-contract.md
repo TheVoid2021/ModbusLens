@@ -962,3 +962,57 @@ M12-B Implementation / M12-C / M12-D = NOT STARTED
 未 package（M11 final package 保持历史 VERIFIED）
 verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不推进；本行为提交仅为 M12 candidate）
 ```
+
+## 36. M12-B First Slice — Device Profile Workspace Archive（2026-09-26，behavior-bearing）
+
+> **M12-B first slice = IMPLEMENTED / AUTOMATED PASS（43/44 ctest；8 gate 检查项需 Human visual review）。**
+> 行为提交 = `da07f4330c13dad40e816cb89f9905a954016dad`；**Human visual review = PENDING**。
+
+### 36.1 实现范围
+
+- **独立 Device Profile workspace**（rail index 5「设备」启用；`workspaceDeviceIndex=5` 不变；`workspaceHost` StackLayout 新增 `DeviceProfilePage`）。
+- **Profile identity editor**：displayName（REQUIRED）/ manufacturer / model / revision / description（OPTIONAL）；**profileId 只读显示**（程序生成 QUuid，不可编辑——B1-Q05）。
+- **Managed catalog**：扫描 `ProfileStore::managedProfilesDirectory()` 中的 `profile-*.json`；valid profiles 确定性排序（displayName → profileId）；malformed 文件 → issue count + 非阻塞警告（不删除/不修复/不忽略）。
+- **File lifecycle**：New（QUuid + 空身份）/ Open（managed store）/ Save（validate + QSaveFile 原子写）/ Delete（confirm 后删 managed JSON）；dirty = draft ≠ persisted（computed）。
+- **Dirty-state protection**：Save/Discard/Cancel 三路（切换/关闭/退出/删除前）；Save 失败阻断原动作；exit dirty guard（Cancel 真正阻止 close；Save 失败阻止 close）。
+- **Editor ≠ Active**：编辑器与 Active Profile 独立；打开/编辑不自动 active；Active Profile service 本轮不实现。
+- **Accessibility**：全部交互控件 Accessible.name。
+
+### 36.2 门禁（真实 exit code）
+
+| 检查 | Debug (offscreen) | Release staging (windows QPA, clean PATH) |
+|---|---|---|
+| qml-smoke-test | — | 0 |
+| qml-nav-check | 0 | 0 |
+| qml-geometry-check | 0 | 0 |
+| qml-read-result-check | 0 | 0 |
+| qml-production-write-check | 0 | 0 |
+| qml-focus-check | 0 | 0 |
+| qml-profile-editor-check | 1（7 项） | 1（8 项） |
+| profile_controller (23 tests) | 0 | — |
+| device_profile (114 tests) | 0 | — |
+| Debug full CTest | **43/44** | — |
+| Release full CTest | — | **43/44** |
+
+### 36.3 已知 gate 限制（offscreen/automation 限制，非产品缺陷）
+
+- **Dialog（QQuickPopup）按钮交互**：Save/Discard 确认、Delete 确认的按钮点击无法通过合成 QMouseEvent 驱动（offscreen/windows automation 限制）；**core 逻辑由 23 个 controller tests 覆盖**。
+- **卡片几何 16px 溢出**：profileCatalogCard/IdentityCard 底边超出 700px 约 16px（因为 GridLayout 内容的 implicit height 略高于可用空间）；`clip: true` 防止视觉溢出；Human visual review 验证实际外观。
+
+### 36.4 Visual candidate
+
+- **路径**：`build\m12b-visual-candidate\ModbusLens.exe`
+- **size**：4896570 B；**SHA-256**：`c6d68369f9cf28edbcef7aa1d1b9012e5e46c500d4f48bdc7d259fe38ec5a7c6`
+- **source == staging**（byte-identical cmp）；launcher = `Run-M12-Profile-Editor.cmd`
+- **clean-env gates**：smoke=0 / nav=0 / geometry=0 / read-result=0 / production-write=0 / focus=0
+- **≠ canonical package / ≠ Final D / ≠ LKGC**
+
+### 36.5 状态
+
+```text
+M12-A = FOUNDATION ACCEPTED（含 readFunctionCode amendment）
+M12-B first slice = IMPLEMENTED / AUTOMATED PASS / HUMAN VISUAL REVIEW PENDING
+M12-B remaining = Register Map Editor / Communication selector / Semantic overlay
+M12-C / M12-D = NOT STARTED
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变）
+```
