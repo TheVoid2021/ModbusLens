@@ -117,6 +117,9 @@ ApplicationWindow {
         // Test seam (nav check reads authoritative properties/calls
         // existing invokable commands through this name).
         objectName: "analysisController"
+        // M12-B slice 4: the semantic layer reads ONLY the session Active
+        // Profile's persisted content through this injection.
+        activeProfileController: activeProfileController
     }
 
     ProfileController {

@@ -2,6 +2,7 @@
 
 #include <QAbstractItemModel>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QUrl>
@@ -12,6 +13,7 @@
 #include <optional>
 
 #include "core/active/ActiveTransactionEvidence.h"
+#include "ui/profile/ActiveProfileController.h"
 #include "core/active/PreparedWriteSnapshot.h"
 #include "core/analysis/TransactionProvenance.h"
 #include "core/analysis/RegisterDecode.h"
@@ -186,6 +188,16 @@ class AnalysisController : public QObject
     // (T023 READ-TXN-5).
     Q_PROPERTY(bool readResultEvidenceAvailable READ readResultEvidenceAvailable NOTIFY readResultChanged)
     Q_PROPERTY(bool readResultAwaitingEvidenceSource READ readResultAwaitingEvidenceSource NOTIFY readResultChanged)
+
+    // ---- M12-B slice 4: semantic projection source (T027 §43) ----
+    // The SESSION Active Profile owner, injected by the shell. The semantic
+    // layer reads ONLY the persisted profile this controller resolves —
+    // never an editor draft. Injecting it connects the refresh chain:
+    // a selection/clear/delete-active/save-active refresh re-projects the
+    // read result through announceReadResultChanged().
+    Q_PROPERTY(modbuslens::ui::ActiveProfileController* activeProfileController
+                   READ activeProfileController WRITE setActiveProfileController
+                       NOTIFY activeProfileControllerChanged)
 
     // ---- M10-D3: product write capability (structural, NOT availability) ----
     // True iff THIS build end-to-end owns 0x06: encoder + protocol/session
@@ -547,6 +559,11 @@ public:
     [[nodiscard]] bool readResultHasValues() const;
     [[nodiscard]] int readResultValueCount() const;
     [[nodiscard]] QVariantList readResultValues() const;
+    // M12-B slice 4: semantic source injection (see the property comment).
+    [[nodiscard]] modbuslens::ui::ActiveProfileController*
+        activeProfileController() const;
+    void setActiveProfileController(
+        modbuslens::ui::ActiveProfileController* controller);
     // M11 decode configuration (ints mirror core::RegisterDecodeType /
     // core::RegisterByteOrder / core::RegisterWordOrder; out-of-range writes
     // are ignored so the state stays decodable).
@@ -597,6 +614,7 @@ public:
     activeSerialTerminations() const;
 
 signals:
+    void activeProfileControllerChanged();
     void statisticsChanged();
     void replayStateChanged();
     void sourceChanged();
@@ -813,6 +831,10 @@ private:
 
     // T023 / M10 correction: the cached FC03 read-result projection.
     ReadResultSnapshot readResult_;
+    // M12-B slice 4: semantic projection helper (never mutates the snapshot).
+    void appendSemanticRowFields(QVariantMap& row, std::uint16_t address,
+                                 int wordIndex) const;
+    QPointer<modbuslens::ui::ActiveProfileController> m_activeProfileSource;
     // M11 decode view configuration (presentation only; defaults frozen in
     // T024 §22: UInt16 + normal byte order).
     int readDecodeType_ = static_cast<int>(modbuslens::core::RegisterDecodeType::UInt16);

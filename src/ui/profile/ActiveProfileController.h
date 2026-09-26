@@ -64,6 +64,11 @@ public:
     [[nodiscard]] QString activeProfileId() const;
     [[nodiscard]] QVariantMap activeProfile() const;
     [[nodiscard]] QString activeError() const;
+    // The persisted CORE profile of the active identity (M12-B slice 4): the
+    // exact object the frozen lookup/projection APIs consume. Empty when No
+    // Profile Selected. Never an editor draft.
+    [[nodiscard]] const modbuslens::core::DeviceProfile& activeCoreProfile()
+        const;
 
     // Selects a profile by its FULL profileId. The id must be a VALID profile
     // currently listed in the managed catalog; the persisted file must load
@@ -88,6 +93,7 @@ private:
     QMetaObject::Connection m_catalogConnection;
     QString m_activeProfileId;
     QVariantMap m_activeProfile;
+    modbuslens::core::DeviceProfile m_activeCoreProfile{};
     QString m_activeError;
 };
 

@@ -2278,6 +2278,147 @@ AnalysisController::readResultSnapshot() const
     return readResult_;
 }
 
+// ---------------------------------------------------------------------------
+// M12-B slice 4 (T027 §43): session Active Profile semantic projection.
+// The semantic layer reads ONLY the ACTIVE PERSISTED profile (resolved by
+// ActiveProfileController) — never an editor draft. The lookup key is the
+// transaction's REQUESTED function code + the PDU/0-based address (both from
+// the read-result snapshot, i.e. transaction truth); there is NO
+// cross-function fallback. Every row keeps its raw + M11 generic columns
+// untouched: the semantic fields are additive and can never rewrite them.
+// ---------------------------------------------------------------------------
+modbuslens::ui::ActiveProfileController*
+    AnalysisController::activeProfileController() const
+{
+    return m_activeProfileSource.data();
+}
+
+void AnalysisController::setActiveProfileController(
+    modbuslens::ui::ActiveProfileController* controller)
+{
+    if (m_activeProfileSource.data() == controller) {
+        return;
+    }
+    if (m_activeProfileSource) {
+        disconnect(m_activeProfileSource, nullptr, this, nullptr);
+    }
+    m_activeProfileSource = controller;
+    if (m_activeProfileSource) {
+        connect(m_activeProfileSource,
+                &modbuslens::ui::ActiveProfileController::activeChanged, this,
+                &AnalysisController::announceReadResultChanged);
+    }
+    emit activeProfileControllerChanged();
+    announceReadResultChanged();
+}
+
+void AnalysisController::appendSemanticRowFields(QVariantMap& row,
+                                                 std::uint16_t address,
+                                                 int wordIndex) const
+{
+    using modbuslens::core::findProfileEntryByStartAddress;
+    using modbuslens::core::findProfileEntryCoveringAddress;
+    using modbuslens::core::profileSemanticClassName;
+    using modbuslens::core::projectProfileSemanticValue;
+    using modbuslens::core::RegisterDecodeStatus;
+
+    if (!m_activeProfileSource || !m_activeProfileSource->hasActiveProfile()) {
+        row.insert(QStringLiteral("semanticStatus"),
+                   QStringLiteral("no_active_profile"));
+        return;
+    }
+    const auto& profile = m_activeProfileSource->activeCoreProfile();
+    // The lookup authority: the transaction's REQUESTED read function code —
+    // never the received/exception function, never a guessed FC.
+    const auto requestedFc = readResult_.functionCode;
+
+    const auto byStart =
+        findProfileEntryByStartAddress(profile, requestedFc, address);
+    if (byStart.found()) {
+        const auto& entry = profile.registers.at(
+            static_cast<std::size_t>(byStart.entryIndex));
+        row.insert(QStringLiteral("semanticName"),
+                   QString::fromStdString(entry.name));
+        row.insert(QStringLiteral("semanticSpan"),
+                   QStringLiteral("%1-%2")
+                       .arg(static_cast<int>(entry.address))
+                       .arg(static_cast<int>(entry.address)
+                            + entry.registerCount - 1));
+        row.insert(QStringLiteral("semanticDataType"),
+                   QString::fromLatin1(
+                       modbuslens::core::profileDataTypeToken(entry.dataType)));
+        const auto numeric = modbuslens::core::decodeRegisterNumeric(
+            readResult_.analysis.values, wordIndex, entry.dataType,
+            entry.byteOrder, entry.wordOrder);
+        if (numeric.status == RegisterDecodeStatus::Ok) {
+            // Frozen formula (T027 §24.3): decodedValue * scale + offset,
+            // with the frozen IEEE special-value classification.
+            const auto projection = projectProfileSemanticValue(entry,
+                                                                numeric.value);
+            row.insert(QStringLiteral("semanticStatus"),
+                       QStringLiteral("mapped_start"));
+            row.insert(QStringLiteral("semanticValueClass"),
+                       QString::fromLatin1(
+                           profileSemanticClassName(projection.valueClass)));
+            QString text;
+            if (projection.valueClass
+                != modbuslens::core::ProfileSemanticClass::Finite) {
+                // Reuse the EXACT M11 special-value wording.
+                if (projection.valueClass
+                    == modbuslens::core::ProfileSemanticClass::NotANumber) {
+                    text = QStringLiteral("非数字（NaN）");
+                } else if (projection.valueClass
+                           == modbuslens::core::ProfileSemanticClass::
+                               PositiveInfinity) {
+                    text = QStringLiteral("正无穷大（+Inf）");
+                } else {
+                    text = QStringLiteral("负无穷大（−Inf）");
+                }
+            } else {
+                text = QString::number(projection.semanticValue);
+                const QString unit = QString::fromStdString(entry.unit);
+                if (!unit.isEmpty()) {
+                    text += QStringLiteral(" ") + unit;
+                }
+            }
+            row.insert(QStringLiteral("semanticText"), text);
+            return;
+        }
+        if (numeric.status == RegisterDecodeStatus::InsufficientWords) {
+            row.insert(QStringLiteral("semanticStatus"),
+                       QStringLiteral("insufficient_words"));
+            return;
+        }
+        row.insert(QStringLiteral("semanticStatus"),
+                   QStringLiteral("decode_error"));
+        return;
+    }
+
+    const auto covering =
+        findProfileEntryCoveringAddress(profile, requestedFc, address);
+    if (covering.found()) {
+        // Continuation word of a 2-word entry: the semantic VALUE lives on
+        // the start row only (T027 §33.1); this row shows its membership.
+        const auto& entry = profile.registers.at(
+            static_cast<std::size_t>(covering.entryIndex));
+        row.insert(QStringLiteral("semanticStatus"),
+                   QStringLiteral("mapped_continuation"));
+        row.insert(QStringLiteral("semanticName"),
+                   QString::fromStdString(entry.name));
+        row.insert(QStringLiteral("semanticSpan"),
+                   QStringLiteral("%1-%2")
+                       .arg(static_cast<int>(entry.address))
+                       .arg(static_cast<int>(entry.address)
+                            + entry.registerCount - 1));
+        row.insert(QStringLiteral("semanticStartAddress"),
+                   static_cast<int>(entry.address));
+        return;
+    }
+
+    row.insert(QStringLiteral("semanticStatus"),
+               QStringLiteral("unmapped"));
+}
+
 void AnalysisController::announceReadResultChanged()
 {
     emit readResultChanged();
@@ -2835,6 +2976,7 @@ QVariantList AnalysisController::readResultValues() const
                                .arg(static_cast<int>(address))
                                .arg(static_cast<int>(address) + 1));
             }
+            appendSemanticRowFields(row, address, static_cast<int>(i));
             rows.append(row);
             ++index;
             ++address;
@@ -2860,6 +3002,7 @@ QVariantList AnalysisController::readResultValues() const
                    QString::fromStdString(std::string(
                        modbuslens::core::registerDecodeStatusName(
                            decoded.status))));
+        appendSemanticRowFields(row, address, index - 1);
         rows.append(row);
         ++index;
         ++address;

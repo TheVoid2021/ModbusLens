@@ -244,4 +244,74 @@ RegisterDecodedView decodeRegisterView(const std::vector<std::uint16_t>& words,
     return {pair.status, pair.text, start, 2};
 }
 
+RegisterDecodedNumeric decodeRegisterNumeric(
+    const std::vector<std::uint16_t>& words, int start, RegisterDecodeType type,
+    RegisterByteOrder byteOrder, RegisterWordOrder wordOrder)
+{
+    // The SAME shape/config guards decodeRegisterView applies (frozen M11
+    // failure mapping), evaluated against the identical frozen pipeline. No
+    // existing function is touched: this is a pure additive accessor.
+    const int wordCount = registerDecodeTypeWordCount(type);
+    if (wordCount == 0 || start < 0
+        || start >= static_cast<int>(words.size())) {
+        return {RegisterDecodeStatus::InvalidConfiguration, 0.0, 0};
+    }
+    const int needed = start + wordCount;
+    if (needed > static_cast<int>(words.size())) {
+        return {RegisterDecodeStatus::InsufficientWords, 0.0, wordCount};
+    }
+
+    if (wordCount == 1) {
+        const RegisterDecodedWord decoded = decodeRegisterWord(
+            words.at(static_cast<std::size_t>(start)), type, byteOrder);
+        if (decoded.status != RegisterDecodeStatus::Ok) {
+            return {decoded.status, 0.0, 1};
+        }
+        // The numeric scalar IS the number the presentation text formats
+        // (Hex/Binary/UInt16 = the effective word; Int16 = its two's
+        // complement) — re-derived through the identical frozen steps.
+        const std::uint16_t effective =
+            decodeEffectiveWord(words.at(static_cast<std::size_t>(start)),
+                                byteOrder);
+        if (type == RegisterDecodeType::Int16) {
+            int value = static_cast<int>(effective);
+            if (value >= 0x8000) {
+                value -= 0x10000;
+            }
+            return {RegisterDecodeStatus::Ok, static_cast<double>(value), 1};
+        }
+        return {RegisterDecodeStatus::Ok, static_cast<double>(effective), 1};
+    }
+
+    // 2-register types: the identical frozen pipeline as decodeRegisterPair.
+    const std::uint16_t effective0 = decodeEffectiveWord(
+        words.at(static_cast<std::size_t>(start)), byteOrder);
+    const std::uint16_t effective1 = decodeEffectiveWord(
+        words.at(static_cast<std::size_t>(start) + 1), byteOrder);
+    const std::uint32_t high =
+        wordOrder == RegisterWordOrder::HighWordFirst ? effective0
+                                                      : effective1;
+    const std::uint32_t low =
+        wordOrder == RegisterWordOrder::HighWordFirst ? effective1
+                                                      : effective0;
+    const std::uint32_t bits = (high << 16) | low;
+    switch (type) {
+    case RegisterDecodeType::UInt32:
+        return {RegisterDecodeStatus::Ok, static_cast<double>(bits), 2};
+    case RegisterDecodeType::Int32: {
+        std::int32_t value = 0;
+        std::memcpy(&value, &bits, sizeof(value));
+        return {RegisterDecodeStatus::Ok, static_cast<double>(value), 2};
+    }
+    case RegisterDecodeType::Float32: {
+        static_assert(sizeof(float) == sizeof(std::uint32_t));
+        float value = 0.0f;
+        std::memcpy(&value, &bits, sizeof(value));
+        return {RegisterDecodeStatus::Ok, static_cast<double>(value), 2};
+    }
+    default:
+        return {RegisterDecodeStatus::UnsupportedType, 0.0, 0};
+    }
+}
+
 } // namespace modbuslens::core

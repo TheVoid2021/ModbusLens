@@ -953,6 +953,17 @@ Item {
                             font.pixelSize: DS.fontCaption
                         }
                     }
+                    // Three-layer legend (M12-B slice 4): raw → generic
+                    // decode → device-profile semantic. Labels, not colors,
+                    // carry the distinction.
+                    Label {
+                        objectName: "readResultLayerLegend"
+                        Layout.fillWidth: true
+                        text: qsTr("每行三层：原始值（DEC/HEX）→ 通用解析 → 设备档案语义")
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                    }
+
                     ListView {
                         objectName: "readResultValuesList"
                         Layout.fillWidth: true
@@ -960,7 +971,9 @@ Item {
                         visible: page.analysisController.readResultHasValues
                         clip: true
                         model: page.analysisController.readResultValues
-                        delegate: Label {
+                        delegate: ColumnLayout {
+                            spacing: 0
+                            width: ListView.view ? ListView.view.width : 0
                             // Tolerant role reads (ISSUE-017): a model reset
                             // re-evaluates every delegate binding once with an
                             // invalid index, when EVERY role is undefined.
@@ -1004,17 +1017,73 @@ Item {
                             readonly property string spanSuffix:
                                 rowDecodeSpan !== ""
                                     ? qsTr("  范围 %1").arg(rowDecodeSpan) : ""
-                            text: qsTr("#%1  地址 %2 (%3)  值 %4 (%5)  解析 %6")
-                                      .arg(rowIndex)
-                                      .arg(rowAddress)
-                                      .arg(rowAddressHex)
-                                      .arg(rowDec)
-                                      .arg(rowHex)
-                                      .arg(decodedDisplay)
-                                  + spanSuffix
-                            color: DS.textPrimary
-                            font.pixelSize: DS.fontCaption
-                            font.family: "Consolas"
+                            Label {
+                                text: qsTr("#%1  地址 %2 (%3)  值 %4 (%5)  解析 %6")
+                                          .arg(rowIndex)
+                                          .arg(rowAddress)
+                                          .arg(rowAddressHex)
+                                          .arg(rowDec)
+                                          .arg(rowHex)
+                                          .arg(decodedDisplay)
+                                      + spanSuffix
+                                color: DS.textPrimary
+                                font.pixelSize: DS.fontCaption
+                                font.family: "Consolas"
+                            }
+
+                            // ---- Layer 3: M12 device-profile semantic ----
+                            // An ADDITIVE, always-labeled line. It never
+                            // replaces the raw/generic columns above and is
+                            // driven by the ACTIVE PERSISTED profile only.
+                            Label {
+                                objectName: "readSemanticCell"
+                                Layout.fillWidth: true
+                                font.pixelSize: DS.fontCaption
+                                font.family: "Consolas"
+                                color: DS.textSecondary
+                                text: {
+                                    const status =
+                                        modelData && modelData.semanticStatus
+                                            !== undefined
+                                            ? modelData.semanticStatus : ""
+                                    const name =
+                                        modelData && modelData.semanticName
+                                            !== undefined
+                                            ? modelData.semanticName : ""
+                                    const text =
+                                        modelData && modelData.semanticText
+                                            !== undefined
+                                            ? modelData.semanticText : ""
+                                    const span =
+                                        modelData && modelData.semanticSpan
+                                            !== undefined
+                                            ? modelData.semanticSpan : ""
+                                    const start =
+                                        modelData
+                                        && modelData.semanticStartAddress
+                                            !== undefined
+                                            ? modelData.semanticStartAddress
+                                            : -1
+                                    if (status === "mapped_start")
+                                        return "档案语义 " + name + " = " + text
+                                               + (span !== ""
+                                                  ? "（" + span + "）" : "")
+                                    if (status === "mapped_continuation")
+                                        return "档案语义：属于 " + name
+                                               + "（起始地址 " + start
+                                               + "）；语义值显示在起始地址行"
+                                    if (status === "insufficient_words")
+                                        return "档案语义 " + name
+                                               + "：数据不足（需 " + span
+                                               + " 全部原始字）"
+                                    if (status === "unmapped")
+                                        return "档案语义：未匹配设备档案"
+                                    if (status === "decode_error")
+                                        return "档案语义 " + name
+                                               + "：无法按档案解码"
+                                    return "档案语义：未选择设备档案"
+                                }
+                            }
                         }
                     }
                 }

@@ -134,4 +134,34 @@ struct RegisterDecodedView {
     const std::vector<std::uint16_t>& words, int start, RegisterDecodeType type,
     RegisterByteOrder byteOrder, RegisterWordOrder wordOrder);
 
+// ---------------------------------------------------------------------------
+// M12-B slice 4 (T027 §43): NON-BREAKING numeric projection of the SAME
+// frozen pipeline decodeRegisterView runs. The M12 semantic formula needs
+// the decoded NUMERIC scalar (decodedValue * scale + offset), while the view
+// API above exposes only presentation text; parsing that text back would be
+// string inference (forbidden for special values). This accessor runs the
+// IDENTICAL frozen steps (effective word / word-order combination /
+// target-type reinterpretation — the exact code paths decodeRegisterWord and
+// decodeRegisterPair execute) and returns the numeric value instead of the
+// formatted string. No existing function, status mapping, or presentation
+// text is touched: ZERO CHANGE for M11 consumers.
+//   Hex / Binary / UInt16 -> the effective word itself (the very number the
+//                           hex/binary/decimal text formats)
+//   Int16                 -> 16-bit two's complement of the effective word
+//   UInt32 / Int32        -> the combined 32-bit bits / its signed reading
+//   Float32               -> the IEEE-754 bit reinterpretation
+// Status mapping matches decodeRegisterView exactly (including
+// InsufficientWords for the last register of a 2-register type).
+// ---------------------------------------------------------------------------
+struct RegisterDecodedNumeric {
+    RegisterDecodeStatus status{RegisterDecodeStatus::Ok};
+    double value{0.0};
+    int wordCount{0};
+    bool operator==(const RegisterDecodedNumeric&) const = default;
+};
+
+[[nodiscard]] RegisterDecodedNumeric decodeRegisterNumeric(
+    const std::vector<std::uint16_t>& words, int start, RegisterDecodeType type,
+    RegisterByteOrder byteOrder, RegisterWordOrder wordOrder);
+
 } // namespace modbuslens::core

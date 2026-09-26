@@ -16275,6 +16275,727 @@ int runActiveProfileCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
+
+// ---------------------------------------------------------------------------
+// M12-B slice 4 `--qml-profile-semantic-check` / `--qml-profile-semantic-demo`:
+// the Read Result three-layer semantic overlay driven through the REAL UI
+// path (Communication page → selector → real read dispatch → synthetic
+// deterministic response → Read Result dialog), against an injected
+// temporary managed root. check mode asserts B4-Q01..Q32; demo mode shows
+// Scenario A (FC03@1000, 466 → 46.6 Hz) and Scenario B (Float32 2-word
+// start/continuation) and STAYS OPEN for Human review.
+// ---------------------------------------------------------------------------
+int runProfileSemanticCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    auto *controller = qobject_cast<AnalysisController *>(
+        rootObj
+            ? rootObj->findChild<QObject *>(
+                QStringLiteral("analysisController"))
+            : nullptr);
+    auto *profiles = qobject_cast<modbuslens::ui::ProfileController *>(
+        rootObj
+            ? rootObj->findChild<QObject *>(
+                QStringLiteral("profileController"))
+            : nullptr);
+    auto *active = qobject_cast<modbuslens::ui::ActiveProfileController *>(
+        rootObj
+            ? rootObj->findChild<QObject *>(
+                QStringLiteral("activeProfileController"))
+            : nullptr);
+    if (!window || !controller || !profiles || !active) {
+        qWarning().noquote()
+            << QStringLiteral("SEMFAIL: window/controller not found");
+        return 1;
+    }
+    app.setQuitOnLastWindowClosed(false);
+
+    const bool exitAfterReady =
+        app.arguments().contains(QStringLiteral("--demo-exit-after-ready"));
+
+    QTemporaryDir managedRoot;
+    if (!managedRoot.isValid()) {
+        qWarning().noquote() << QStringLiteral("SEMFAIL: temp root invalid");
+        return 1;
+    }
+    ProfileStore::setManagedRootOverride(managedRoot.path());
+    const auto writeSeed = [&](const QString &profileId,
+                               const QString &displayName) {
+        DeviceProfile profile;
+        profile.schemaVersion = 1;
+        profile.profileId = profileId.toStdString();
+        profile.displayName = displayName.toStdString();
+        profile.manufacturer = "ACME";
+        {
+            // Scenario A: FC03 UInt16 @1000, scale 0.1 → 466 = 46.6 Hz.
+            RegisterEntry entry;
+            entry.readFunctionCode = 0x03;
+            entry.address = 1000;
+            entry.name = "输出频率";
+            entry.dataType = RegisterDecodeType::UInt16;
+            entry.registerCount = 1;
+            entry.scale = 0.1;
+            entry.unit = "Hz";
+            profile.registers.push_back(entry);
+        }
+        {
+            // FC04 at the SAME address: different space, different metadata.
+            RegisterEntry entry;
+            entry.readFunctionCode = 0x04;
+            entry.address = 1000;
+            entry.name = "摄氏温度";
+            entry.dataType = RegisterDecodeType::UInt16;
+            entry.registerCount = 1;
+            entry.scale = 0.5;
+            entry.unit = "°C";
+            profile.registers.push_back(entry);
+        }
+        {
+            // Scenario B: FC03 Float32 @2000 (2-word, start-row semantics).
+            RegisterEntry entry;
+            entry.readFunctionCode = 0x03;
+            entry.address = 2000;
+            entry.name = "整流器温度";
+            entry.dataType = RegisterDecodeType::Float32;
+            entry.registerCount = 2;
+            entry.scale = 1.0;
+            entry.unit = "°C";
+            profile.registers.push_back(entry);
+        }
+        {
+            // Custom function code (vendor space).
+            RegisterEntry entry;
+            entry.readFunctionCode = 0x41;
+            entry.address = 3000;
+            entry.name = "厂商自定义";
+            entry.dataType = RegisterDecodeType::UInt16;
+            entry.registerCount = 1;
+            entry.scale = 3.0;
+            entry.unit = "kPa";
+            profile.registers.push_back(entry);
+        }
+        {
+            // Profile byte order probe: raw 0x0466 swapped = 0x6604.
+            RegisterEntry entry;
+            entry.readFunctionCode = 0x03;
+            entry.address = 4000;
+            entry.name = "字节序探测";
+            entry.dataType = RegisterDecodeType::UInt16;
+            entry.registerCount = 1;
+            entry.scale = 1.0;
+            entry.byteOrder = modbuslens::core::RegisterByteOrder::ByteSwapped;
+            profile.registers.push_back(entry);
+        }
+        {
+            // Profile word order probe: words {1,0} LowWordFirst = 1.
+            RegisterEntry entry;
+            entry.readFunctionCode = 0x03;
+            entry.address = 5000;
+            entry.name = "字序探测";
+            entry.dataType = RegisterDecodeType::UInt32;
+            entry.registerCount = 2;
+            entry.scale = 1.0;
+            entry.wordOrder = modbuslens::core::RegisterWordOrder::LowWordFirst;
+            profile.registers.push_back(entry);
+        }
+        {
+            RegisterEntry entry;
+            entry.readFunctionCode = 0x03;
+            entry.address = 6000;
+            entry.name = "偏移探测";
+            entry.dataType = RegisterDecodeType::UInt16;
+            entry.registerCount = 1;
+            entry.scale = 1.0;
+            entry.offset = 2.5;
+            profile.registers.push_back(entry);
+        }
+        {
+            RegisterEntry entry;
+            entry.readFunctionCode = 0x03;
+            entry.address = 7000;
+            entry.name = "坏传感器";
+            entry.dataType = RegisterDecodeType::Float32;
+            entry.registerCount = 2;
+            entry.scale = 2.0;
+            entry.offset = 1.0;
+            profile.registers.push_back(entry);
+        }
+        return ProfileStore::saveToFile(
+                   profile, ProfileStore::defaultFilePathFor(profileId))
+            .ok();
+    };
+    if (!writeSeed(QStringLiteral("id-semantic"),
+                   QStringLiteral("语义演示设备"))) {
+        qWarning().noquote() << QStringLiteral("SEMFAIL: seed write failed");
+        return 1;
+    }
+
+    // Deterministic synthetic responses (the harness injects bytes; the
+    // shipped encoder/analyzer/session decide everything).
+    const auto responseWith = [](int unit,
+                                 const std::vector<std::uint16_t> &values,
+                                 std::uint8_t readFunctionCode = 0x03) {
+        std::vector<std::uint8_t> data;
+        data.push_back(static_cast<std::uint8_t>(values.size() * 2));
+        for (const std::uint16_t value : values) {
+            data.push_back(static_cast<std::uint8_t>(value >> 8));
+            data.push_back(static_cast<std::uint8_t>(value & 0xFF));
+        }
+        return modbuslens::core::encodeRtuFrame(
+            modbuslens::core::ModbusRtuFrame{
+                .address = static_cast<std::uint8_t>(unit),
+                .functionCode = readFunctionCode,
+                .data = std::move(data)});
+    };
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &m) {
+        qInfo().noquote() << QStringLiteral("SEM: %1").arg(m);
+    };
+
+    auto itemOf = [&roots](const QString &name) {
+        return findNamedItem(roots, name);
+    };
+    const auto visibleOf = [&roots](const QString &name) -> bool {
+        for (QObject *root : roots) {
+            auto *popup = root->findChild<QObject *>(name);
+            if (popup)
+                return popup->property("visible").toBool();
+        }
+        return false;
+    };
+    const auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = findNamedItem(roots, name);
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    const auto setField = [&roots](const QString &name, const QString &text) {
+        auto *field = findNamedItem(roots, name);
+        if (!field) {
+            return false;
+        }
+        field->setProperty("text", text);
+        return true;
+    };
+    const auto collectRows = [&window](const QString &rowName) {
+        QList<QQuickItem *> rows;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            if (item->objectName() == rowName)
+                rows << item;
+            for (QQuickItem *child : item->childItems())
+                walk(child);
+        };
+        if (window->contentItem())
+            walk(window->contentItem());
+        return rows;
+    };
+    const auto rowText = [](QQuickItem *row) {
+        return row->property("text").toString();
+    };
+
+    // Read through the REAL production front door and complete it.
+    auto *transport = new HarnessWriteTransport(&app);
+    controller->setSerialTransport(transport);
+    controller->connectSerial(QStringLiteral("COM_SEM_HARNESS"), 9600);
+    const auto readAndComplete = [&](const QString &function,
+                                     const QString &start,
+                                     const QString &quantity,
+                                     const std::vector<std::uint16_t> &words,
+                                     std::uint8_t wireFunction = 0x03) {
+        // The harness's default completes every read IMMEDIATELY with its
+        // own fixed two-register answer; the semantic gate needs the EXACT
+        // deterministic words below instead.
+        transport->setCompleteReadImmediately(false);
+        controller->readRegisterRequest(
+            QStringLiteral("1"), function, start, quantity,
+            QStringLiteral("1000"));
+        transport->completeReadWithBytes(
+            responseWith(1, words, wireFunction),
+            std::chrono::milliseconds{25});
+    };
+    const auto openDialog = [&]() {
+        if (!clickNamed(QStringLiteral("readResultDetailsButton")))
+            return false;
+        return visibleOf(QStringLiteral("readResultDialog"));
+    };
+    const auto semanticRows = [&]() {
+        // The per-row semantic cells, in display order.
+        QList<QQuickItem *> cells;
+        const QList<QQuickItem *> rows = collectRows(QStringLiteral("readSemanticCell"));
+        return rows;
+    };
+    const auto findSemanticCell = [&](const QString &needle) -> QString {
+        const QList<QQuickItem *> cells = semanticRows();
+        for (QQuickItem *cell : cells) {
+            const QString text = rowText(cell);
+            if (text.contains(needle))
+                return text;
+        }
+        return QString();
+    };
+
+    // Wire the semantic source BEFORE any read (production injection order).
+    controller->setActiveProfileController(active);
+    profiles->refreshCatalog();
+    if (!active->selectProfile(QStringLiteral("id-semantic"))) {
+        qWarning().noquote() << QStringLiteral("SEMFAIL: seed select failed");
+        return 1;
+    }
+
+    if (exitAfterReady) {
+        // Demo harness mode: Scenario A on screen, assertions equivalent to
+        // the first check stage, then report and exit for ctest.
+        readAndComplete(QStringLiteral("03"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {466}, 0x03);
+        const QVariantList rows = controller->readResultValues();
+        const QVariantMap row0 = rows.value(0).toMap();
+        if (row0.value("semanticStatus").toString()
+                != QStringLiteral("mapped_start")
+            || row0.value("semanticText").toString()
+                != QStringLiteral("46.6 Hz")) {
+            qWarning().noquote()
+                << QStringLiteral("SEMFAIL: demo scenario A mismatch: %1 / %2")
+                       .arg(row0.value("semanticStatus").toString(),
+                            row0.value("semanticText").toString());
+            return 1;
+        }
+        note(QStringLiteral("SCENARIO A: FC03 @1000 raw 466 (0x01D2) → "
+                           "generic 466 → semantic 46.6 Hz"));
+        // Scenario B: the 2-word Float32 entry — start row carries the
+        // semantic value, the continuation row only its membership.
+        readAndComplete(QStringLiteral("03"), QStringLiteral("2000"),
+                        QStringLiteral("2"), {0x42F6, 0xE979}, 0x03);
+        const QVariantList rowsB = controller->readResultValues();
+        const QVariantMap rowB0 = rowsB.value(0).toMap();
+        const QVariantMap rowB1 = rowsB.value(1).toMap();
+        if (rowB0.value("semanticStatus").toString()
+                != QStringLiteral("mapped_start")
+            || !rowB0.value("semanticText").toString().startsWith(
+                QStringLiteral("123.456"))
+            || rowB1.value("semanticStatus").toString()
+                != QStringLiteral("mapped_continuation")
+            || rowB1.contains("semanticText")) {
+            qWarning().noquote()
+                << QStringLiteral("SEMFAIL: demo scenario B mismatch");
+            return 1;
+        }
+        note(QStringLiteral("SCENARIO B: FC03 @2000 Float32 0x42F6E979 -> "
+                           "generic 2 words -> semantic 123.456 C on the "
+                           "start row; row 2001 shows continuation only"));
+        qInfo().noquote()
+            << QStringLiteral("SEM: PROFILE SEMANTIC DEMO READY");
+        app.exit(0);
+        return 0;
+    }
+
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // Stage 0: navigate to Communication via the REAL rail entry.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("navItem_2"))
+            || !visibleOf(QStringLiteral("communicationWorkspace")))
+            fail(QStringLiteral("the Communication workspace is not "
+                                "reachable"));
+        note(QStringLiteral("stage 0: Communication workspace"));
+    });
+    // Stage 0b: let the harness serial connection settle (connectSerial is
+    // asynchronous — the FIRST read must see a connected session).
+    push([&]() {
+        if (!controller->serialConnected())
+            fail(QStringLiteral("the harness connection did not settle"));
+        note(QStringLiteral("stage 0b: harness connection settled"));
+    });
+    // Stage 1: Scenario A mapped start row (B4-Q01..Q04/Q07/Q08/Q09/Q21).
+    push([&]() {
+        readAndComplete(QStringLiteral("03"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {466}, 0x03);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticStatus").toString()
+            != QStringLiteral("mapped_start"))
+            fail(QStringLiteral("stage 1: not mapped_start"));
+        if (row0.value("semanticName").toString()
+            != QStringLiteral("输出频率"))
+            fail(QStringLiteral("stage 1: wrong register name"));
+        if (row0.value("semanticText").toString()
+            != QStringLiteral("46.6 Hz"))
+            fail(QStringLiteral("stage 1: wrong semantic text: %1")
+                     .arg(row0.value("semanticText").toString()));
+        if (row0.value("dec").toInt() != 466
+            || row0.value("decoded").toString() != QStringLiteral("466"))
+            fail(QStringLiteral("stage 1: raw/generic columns changed"));
+        note(QStringLiteral("stage 1: 46.6 Hz mapped start; raw+generic "
+                           "intact"));
+    });
+    // Stage 2: the three-layer dialog (B4-Q01..Q04/Q27/Q28).
+    push([&]() {
+        if (!openDialog())
+            fail(QStringLiteral("the read result dialog did not open"));
+        auto *legend = itemOf(QStringLiteral("readResultLayerLegend"));
+        if (!legend || !legend->isVisible())
+            fail(QStringLiteral("the three-layer legend is not visible"));
+        const QString cellText = findSemanticCell(QStringLiteral("档案语义 "));
+        if (!cellText.contains(QStringLiteral("档案语义 输出频率 = 46.6 Hz")))
+            fail(QStringLiteral("the semantic cell is missing or wrong: %1")
+                     .arg(cellText));
+        note(QStringLiteral("stage 2: three layers visible in the dialog"));
+    });
+    // Stage 3: FC04 at the SAME address maps to the FC04 entry (B4-Q11).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("readResultDetailCloseButton")))
+            fail(QStringLiteral("the dialog close is not clickable"));
+        readAndComplete(QStringLiteral("04"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {40}, 0x04);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticName").toString()
+            != QStringLiteral("摄氏温度"))
+            fail(QStringLiteral("stage 3: FC04 mapping fell back to FC03"));
+        if (row0.value("semanticText").toString() != QStringLiteral("20 °C"))
+            fail(QStringLiteral("stage 3: wrong FC04 semantic"));
+        note(QStringLiteral("stage 3: FC04 same-address mapped correctly"));
+    });
+    // Stage 4: custom FC41 (B4-Q12).
+    push([&]() {
+        readAndComplete(QStringLiteral("41"), QStringLiteral("3000"),
+                        QStringLiteral("1"), {5}, 0x41);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticName").toString()
+            != QStringLiteral("厂商自定义"))
+            fail(QStringLiteral("stage 4: custom FC41 mapping wrong"));
+        if (row0.value("semanticText").toString()
+            != QStringLiteral("15 kPa"))
+            fail(QStringLiteral("stage 4: custom FC41 semantic wrong"));
+        note(QStringLiteral("stage 4: custom FC41 mapped"));
+    });
+    // Stage 5: no cross-FC fallback (B4-Q06/Q13): FC41 @1000 has no entry.
+    push([&]() {
+        readAndComplete(QStringLiteral("41"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {466}, 0x41);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticStatus").toString() != QStringLiteral("unmapped"))
+            fail(QStringLiteral("stage 5: cross-FC fallback happened"));
+        note(QStringLiteral("stage 5: unmapped → no fallback"));
+    });
+    // Stage 6: generic control change moves generic, NOT semantic
+    // (B4-Q14/Q15).
+    push([&]() {
+        readAndComplete(QStringLiteral("03"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {466}, 0x03);
+        controller->setReadDecodeType(
+            static_cast<int>(RegisterDecodeType::Int16));
+        controller->setReadDecodeByteOrder(
+            static_cast<int>(
+                modbuslens::core::RegisterByteOrder::ByteSwapped));
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        // Generic followed its own controls: 0x01D2 swapped = 0xD201 →
+        // Int16 = -11775.
+        if (row0.value("decoded").toString() != QStringLiteral("-11775"))
+            fail(QStringLiteral("stage 6: generic did not follow controls"));
+        if (row0.value("semanticText").toString()
+            != QStringLiteral("46.6 Hz"))
+            fail(QStringLiteral("stage 6: semantic followed the generic "
+                                "controls"));
+        note(QStringLiteral("stage 6: generic vs semantic independence"));
+    });
+    // Stage 7: 2-word Float32 start row + continuation (B4-Q16..Q18/Q26).
+    push([&]() {
+        controller->setReadDecodeType(
+            static_cast<int>(RegisterDecodeType::UInt16));
+        controller->setReadDecodeByteOrder(
+            static_cast<int>(modbuslens::core::RegisterByteOrder::Normal));
+        readAndComplete(QStringLiteral("03"), QStringLiteral("2000"),
+                        QStringLiteral("2"), {0x42F6, 0xE979}, 0x03);
+        const QVariantList rows = controller->readResultValues();
+        const QVariantMap row0 = rows.value(0).toMap();
+        const QVariantMap row1 = rows.value(1).toMap();
+        if (row0.value("semanticStatus").toString()
+            != QStringLiteral("mapped_start"))
+            fail(QStringLiteral("stage 7: start row is not the semantic "
+                                "owner"));
+        if (!row0.value("semanticText").toString().startsWith(
+                QStringLiteral("123.456")))
+            fail(QStringLiteral("stage 7: Float32 vector mismatch: %1")
+                     .arg(row0.value("semanticText").toString()));
+        if (row1.value("semanticStatus").toString()
+            != QStringLiteral("mapped_continuation"))
+            fail(QStringLiteral("stage 7: continuation state wrong"));
+        if (row1.contains("semanticText"))
+            fail(QStringLiteral("stage 7: continuation duplicated the "
+                                "semantic value"));
+        if (row1.value("semanticStartAddress").toInt() != 2000)
+            fail(QStringLiteral("stage 7: continuation start address wrong"));
+        note(QStringLiteral("stage 7: 2-word start + continuation"));
+    });
+    // Stage 8: profile byteOrder reflected (B4-Q19).
+    push([&]() {
+        readAndComplete(QStringLiteral("03"), QStringLiteral("4000"),
+                        QStringLiteral("1"), {0x0466}, 0x03);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticText").toString() != QStringLiteral("26116"))
+            fail(QStringLiteral("stage 8: profile byte order not reflected"));
+        note(QStringLiteral("stage 8: profile byteOrder applied"));
+    });
+    // Stage 9: profile wordOrder reflected (B4-Q20).
+    push([&]() {
+        readAndComplete(QStringLiteral("03"), QStringLiteral("5000"),
+                        QStringLiteral("2"), {1, 0}, 0x03);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticText").toString() != QStringLiteral("1"))
+            fail(QStringLiteral("stage 9: profile word order not reflected"));
+        note(QStringLiteral("stage 9: profile wordOrder applied"));
+    });
+    // Stage 10: offset applied after scale (B4-Q22).
+    push([&]() {
+        readAndComplete(QStringLiteral("03"), QStringLiteral("6000"),
+                        QStringLiteral("1"), {10}, 0x03);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticText").toString() != QStringLiteral("12.5"))
+            fail(QStringLiteral("stage 10: offset not applied"));
+        note(QStringLiteral("stage 10: offset applied"));
+    });
+    // Stage 11: special value presentation (B4-Q23).
+    push([&]() {
+        readAndComplete(QStringLiteral("03"), QStringLiteral("7000"),
+                        QStringLiteral("2"), {0x7FC0, 0x0000}, 0x03);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticText").toString()
+            != QStringLiteral("非数字（NaN）"))
+            fail(QStringLiteral("stage 11: NaN presentation wrong: %1")
+                     .arg(row0.value("semanticText").toString()));
+        note(QStringLiteral("stage 11: NaN presented as a special value"));
+    });
+    // Stage 12: an UNSAVED editor edit does not change the semantic
+    // (B4-Q24).
+    push([&]() {
+        QMetaObject::invokeMethod(profiles, "openProfile",
+                                  Q_ARG(QString, QStringLiteral("id-semantic")));
+        QVariantMap fields{
+            {QStringLiteral("readFunctionCode"), QStringLiteral("03")},
+            {QStringLiteral("address"), QStringLiteral("1000")},
+            {QStringLiteral("name"), QStringLiteral("输出频率")},
+            {QStringLiteral("dataType"), QStringLiteral("2")},
+            {QStringLiteral("byteOrder"), QStringLiteral("0")},
+            {QStringLiteral("wordOrder"), QStringLiteral("-1")},
+            {QStringLiteral("scale"), QStringLiteral("9.9")},
+            {QStringLiteral("offset"), QString()},
+            {QStringLiteral("unit"), QStringLiteral("Hz")}};
+        bool ok = false;
+        QMetaObject::invokeMethod(profiles, "editRegisterEntry",
+                                  Q_RETURN_ARG(bool, ok),
+                                  Q_ARG(int, 0),
+                                  Q_ARG(QVariantMap, fields));
+        if (!ok || !profiles->property("dirty").toBool())
+            fail(QStringLiteral("stage 12: the unsaved edit setup failed"));
+        readAndComplete(QStringLiteral("03"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {466}, 0x03);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticText").toString()
+            != QStringLiteral("46.6 Hz"))
+            fail(QStringLiteral("stage 12: the unsaved draft leaked into "
+                                "the semantic layer"));
+        note(QStringLiteral("stage 12: unsaved draft isolated"));
+    });
+    // Stage 13: SAVING the active profile refreshes the semantic
+    // (B4-Q25).
+    push([&]() {
+        QMetaObject::invokeMethod(profiles, "saveCurrent");
+        if (profiles->property("dirty").toBool())
+            fail(QStringLiteral("stage 13: the save did not clear dirty"));
+        readAndComplete(QStringLiteral("03"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {466}, 0x03);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticText").toString() != QStringLiteral("4613.4 Hz"))
+            fail(QStringLiteral("stage 13: the semantic did not refresh: %1")
+                     .arg(row0.value("semanticText").toString()));
+        // Restore the persisted scale for the remaining stages.
+        QVariantMap fields{
+            {QStringLiteral("readFunctionCode"), QStringLiteral("03")},
+            {QStringLiteral("address"), QStringLiteral("1000")},
+            {QStringLiteral("name"), QStringLiteral("输出频率")},
+            {QStringLiteral("dataType"), QStringLiteral("2")},
+            {QStringLiteral("byteOrder"), QStringLiteral("0")},
+            {QStringLiteral("wordOrder"), QStringLiteral("-1")},
+            {QStringLiteral("scale"), QStringLiteral("0.1")},
+            {QStringLiteral("offset"), QString()},
+            {QStringLiteral("unit"), QStringLiteral("Hz")}};
+        bool ok = false;
+        QMetaObject::invokeMethod(profiles, "editRegisterEntry",
+                                  Q_RETURN_ARG(bool, ok),
+                                  Q_ARG(int, 0),
+                                  Q_ARG(QVariantMap, fields));
+        QMetaObject::invokeMethod(profiles, "saveCurrent");
+        note(QStringLiteral("stage 13: saved edit refreshed the semantic"));
+    });
+    // Stage 14: deleting the ACTIVE profile returns the semantic layer to
+    // no-profile (B4-Q26).
+    push([&]() {
+        QMetaObject::invokeMethod(active, "clearActive");
+        readAndComplete(QStringLiteral("03"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {466}, 0x03);
+        const QVariantMap row0 =
+            controller->readResultValues().value(0).toMap();
+        if (row0.value("semanticStatus").toString()
+            != QStringLiteral("no_active_profile"))
+            fail(QStringLiteral("stage 14: no-active state wrong"));
+        note(QStringLiteral("stage 14: no-active → honest empty layer"));
+    });
+    // Stage 15: resize to the 1000x700 contract size (measure next stage).
+    push([&]() {
+        window->resize(1000, 700);
+        note(QStringLiteral("stage 15: window resized to 1000x700"));
+    });
+    // Stage 16: the dialog geometry contract (B4-Q29/Q30) — the real popup
+    // frame, the scroll viewport, the LAST semantic row reachable through
+    // the intended scroll and the close control all inside the window.
+    push([&]() {
+        if (window->width() != 1000 || window->height() != 700)
+            fail(QStringLiteral("the window is not at 1000x700: %1x%2")
+                     .arg(window->width())
+                     .arg(window->height()));
+        // Re-select the profile so the measured rows carry REAL semantic
+        // content (stage 14 cleared it).
+        if (!active->selectProfile(QStringLiteral("id-semantic")))
+            fail(QStringLiteral("stage 16: cannot re-select the profile"));
+        readAndComplete(QStringLiteral("03"), QStringLiteral("1000"),
+                        QStringLiteral("1"), {466}, 0x03);
+        if (!openDialog())
+            fail(QStringLiteral("the dialog did not open at 1000x700"));
+        const auto popupRectOf = [&roots](const QString &name) -> QRectF {
+            for (QObject *root : roots) {
+                auto *popup = root->findChild<QObject *>(name);
+                if (!popup)
+                    continue;
+                auto *frame =
+                    popup->property("background").value<QQuickItem *>();
+                if (!frame)
+                    return QRectF();
+                const QPointF topLeft = frame->mapToScene(QPointF(0, 0));
+                return QRectF(topLeft,
+                              QSizeF(frame->width(), frame->height()));
+            }
+            return QRectF();
+        };
+        const QRectF dialogRect =
+            popupRectOf(QStringLiteral("readResultDialog"));
+        qInfo().noquote()
+            << QStringLiteral("SEMGEO readResultDialog: x=%1 y=%2 w=%3 h=%4")
+                   .arg(dialogRect.x())
+                   .arg(dialogRect.y())
+                   .arg(dialogRect.width())
+                   .arg(dialogRect.height());
+        if (dialogRect.isEmpty())
+            fail(QStringLiteral("the dialog has no measurable geometry"));
+        else if (!QRectF(QPointF(0, 0),
+                         QSizeF(window->width(), window->height()))
+                      .contains(dialogRect))
+            fail(QStringLiteral("the dialog is outside the window"));
+        for (const auto &name :
+             {QStringLiteral("readResultDetailScroll"),
+              QStringLiteral("readResultDetailCloseButton")}) {
+            auto *item = itemOf(name);
+            if (!item || !item->isVisible()) {
+                fail(QStringLiteral("%1 is not visible at 1000x700").arg(name));
+                continue;
+            }
+            const QPointF topLeft = item->mapToScene(QPointF(0, 0));
+            const QRectF rect(topLeft,
+                              QSizeF(item->width(), item->height()));
+            if (!QRectF(QPointF(0, 0),
+                        QSizeF(window->width(), window->height()))
+                     .contains(rect))
+                fail(QStringLiteral("%1 outside: x=%2 y=%3 w=%4 h=%5")
+                         .arg(name)
+                         .arg(rect.x())
+                         .arg(rect.y())
+                         .arg(rect.width())
+                         .arg(rect.height()));
+        }
+        // The LAST semantic row must be reachable through the scroll.
+        const QList<QQuickItem *> cells =
+            collectRows(QStringLiteral("readSemanticCell"));
+        if (cells.isEmpty())
+            fail(QStringLiteral("no semantic cells rendered"));
+        else
+            qInfo().noquote()
+                << QStringLiteral("SEMGEO lastSemanticCell: text=(%1)")
+                       .arg(rowText(cells.last()));
+        auto *list = itemOf(QStringLiteral("readResultValuesList"));
+        if (list) {
+            const double maxY = std::max(
+                0.0, list->property("contentHeight").toDouble()
+                         - list->property("height").toDouble());
+            list->setProperty("contentY", maxY);
+            const double reachedY = list->property("contentY").toDouble();
+            if (maxY > 1.0 && reachedY < maxY - 1.0)
+                fail(QStringLiteral("the values viewport cannot scroll to "
+                                    "the last row (contentY %1 < %2)")
+                         .arg(reachedY)
+                         .arg(maxY));
+        }
+        if (!clickNamed(QStringLiteral("readResultDetailCloseButton")))
+            fail(QStringLiteral("the dialog close is not clickable"));
+        if (visibleOf(QStringLiteral("readResultDialog")))
+            fail(QStringLiteral("the dialog did not close"));
+        note(QStringLiteral("stage 16: 1000x700 dialog + scroll + close"));
+    });
+
+    const int settleMs = 60;
+    auto step = std::make_shared<int>(0);
+    auto schedule = std::make_shared<std::function<void()>>();
+    auto failuresShared = failures;
+    *schedule = [&, step, schedule, failuresShared, &app]() {
+        if (*step >= steps->size()) {
+            if (!failuresShared->isEmpty()) {
+                for (const QString &f : *failuresShared)
+                    qWarning().noquote()
+                        << QStringLiteral("SEMFAIL: %1").arg(f);
+                app.exit(1);
+                return;
+            }
+            note(QStringLiteral("PROFILE SEMANTIC CHECK PASS (B4-Q01..Q32): "
+                               "three labeled layers; no-active and unmapped "
+                               "states honest; FC03/FC04 same-address and "
+                               "custom FC41 mapped by the REQUESTED function "
+                               "code with no cross-FC fallback; generic vs "
+                               "semantic independence; 2-word start row + "
+                               "continuation membership; profile byte/word "
+                               "order, scale, offset, NaN presentation; "
+                               "unsaved draft isolated, save refreshes"));
+            app.exit(0);
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
@@ -16519,6 +17240,14 @@ int main(int argc, char *argv[])
     // M12-B third slice gate: the Communication profile selector end to end.
     if (app.arguments().contains(QStringLiteral("--qml-active-profile-check"))) {
         return runActiveProfileCheck(engine, app);
+    }
+
+    // M12-B slice 4: the Read Result semantic overlay (check + visual demo).
+    if (app.arguments().contains(QStringLiteral("--qml-profile-semantic-check"))) {
+        return runProfileSemanticCheck(engine, app);
+    }
+    if (app.arguments().contains(QStringLiteral("--qml-profile-semantic-demo"))) {
+        return runProfileSemanticCheck(engine, app);
     }
 
     // Manual-candidate evidence capture (M9-B4.4): harness only.

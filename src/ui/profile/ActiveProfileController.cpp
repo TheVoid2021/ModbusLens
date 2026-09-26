@@ -138,7 +138,14 @@ bool ActiveProfileController::resolvePersistedContent()
         return false;
     }
     m_activeProfile = profileToMap(loaded.profile);
+    m_activeCoreProfile = loaded.profile;
     return true;
+}
+
+const modbuslens::core::DeviceProfile& ActiveProfileController::
+    activeCoreProfile() const
+{
+    return m_activeCoreProfile;
 }
 
 void ActiveProfileController::setActive(const QString &profileId,
@@ -154,6 +161,7 @@ void ActiveProfileController::clearActiveState()
 {
     m_activeProfileId.clear();
     m_activeProfile = QVariantMap{};
+    m_activeCoreProfile = modbuslens::core::DeviceProfile{};
     m_activeError.clear();
 }
 
