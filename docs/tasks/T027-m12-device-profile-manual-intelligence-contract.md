@@ -1691,3 +1691,196 @@ clean-env staging 门禁: smoke / profile-semantic / active-profile /
 M12-B Slice 4 = IMPLEMENTED / AUTOMATED PASS / HUMAN VISUAL REVIEW PENDING
 M12-B overall = HUMAN CLOSURE PENDING；M12-C/D = NOT STARTED
 verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变）
+
+## 45. M12-B FINAL HUMAN ACCEPTANCE + FORMAL CLOSURE（2026-09-27，docs-only）
+
+> 本轮为 docs-only governance closure：未修改 src / tests / QML / CMake，
+> 未 build / test / package，未重建 staging，未推进 LKGC，未 push/tag/amend，
+> 未开始 M12-C/D。
+
+### 45.1 Human Final Acceptance（逐字归档）
+
+Human 原文：
+
+> “M12-B 第四切片全部 PASS，三层展示正常，semantic 正确，Raw/Generic 不变，1000×700 正常，demo 不再自动关闭。”
+
+Human 明确确认的内容（仅此 7 项，不做任何扩写）：
+
+1. Slice 4 全部 PASS
+2. 三层展示正常
+3. semantic 正确
+4. Raw 不变
+5. Generic 不变
+6. 1000×700 正常
+7. demo 不再自动关闭
+
+**未声称**（Human 原文未提及）：真实硬件验证、FC03/FC04/custom FC 的逐项
+Human 验证、NaN/Inf 逐项 Human 验证、package 验证。
+
+### 45.2 M12-B FINAL STATE（正式收口）
+
+```text
+M12-B Slice 1 = HUMAN ACCEPTED
+M12-B Slice 2 = HUMAN ACCEPTED
+M12-B Slice 3 = HUMAN ACCEPTED
+M12-B Slice 4 = HUMAN ACCEPTED
+M12-B = COMPLETE
+M12-C = NOT STARTED
+M12-D = NOT STARTED
+M12 overall = IN PROGRESS（因 C/D 未开始）
+
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变，NO advance）
+REAL HARDWARE = NOT VERIFIED
+M12 canonical package = NOT CREATED
+```
+
+**口径纪律**：`M12-B = COMPLETE` **不得**写成 `M12 COMPLETE`——M12-C
+（Manual Import + AI Extraction Candidate）与 M12-D（Manual Q&A）仍未开始，
+M12 overall 只能是 IN PROGRESS。
+
+### 45.3 Automated Evidence Boundary（历史已执行证据，本轮未重跑）
+
+以 repo 现有记录为准（§43.4 / §44.4 原始数字）：
+
+```text
+Slice 4 automated acceptance（历史执行）：
+  Debug full CTest = 49/49 PASS
+  Release full CTest = 49/49 PASS
+  profile_semantic = 40/40
+  11 windows-QPA gates = exit 0
+  diagnostics = 0（ReferenceError/TypeError/Unable to assign/String.arg Invalid；qrc 警告亦 0）
+  staging source identity = byte-identical（SHA ec3d50f2…，5,481,141 B，当时值）
+
+demo lifetime correction（历史执行）：
+  Debug full CTest = 50/50 PASS
+  Release full CTest = 50/50 PASS
+  automated demo mode（--demo-exit-after-ready）= auto-exit PASS
+  Human visual mode = does not auto-exit（alive@12s/18s=True；WM_CLOSE 后 exit=0）
+```
+
+**本轮为 docs-only，未重跑任何命令；以上均为历史证据引用。**
+
+### 45.4 Demo Lifetime 最终措辞（canonical）
+
+```text
+旧问题：bare --qml-profile-semantic-demo 错误 fall-through 到 automated
+        17-stage check pipeline；该 pipeline 末端是 app.exit(0)
+        ⇒ 约 2 秒后窗口自动关闭。
+
+修复后（behavior 13799d6）：
+  automated test：--qml-profile-semantic-demo --demo-exit-after-ready
+                  → test-only auto-exit（并注册 ctest qml_profile_semantic_demo）
+  Human visual：  --qml-profile-semantic-demo
+                  → stays alive until the Human closes the window
+                    （quitOnLastWindowClosed 仅 Human 模式为 true）
+```
+
+**不得**写成 timer crash / DLL issue / launcher extra argument issue。
+
+### 45.5 Truth Architecture Closure（沿 §8，未重写旧章节）
+
+```text
+Layer 1  Raw / wire truth          = M10/M11 authority（Actual TX/RX、
+                                     TransactionAnalysis.values、raw DEC/HEX）
+Layer 2  M11 Generic Decode         = 七类型 + 双轴 + DecodeStatus（sliding window）
+Layer 3  M12 verified Profile       = HUMAN-authored persisted metadata 的
+         Semantic                      derived presentation（Layer 4 投影）
+
+M12-B 完成后仍然强制：
+  · Raw 不被 Profile 改写；
+  · Generic Decode 不被 Profile 替换（UI controls 独立驱动）；
+  · Profile semantic 只作为 derived presentation（additive 列，永不回流）。
+
+Editor draft ≠ Active persisted Profile（semantic 只读 Active persisted 内容；
+unsaved 编辑不进入任何 semantic 结果）。
+```
+
+### 45.6 M12-B Delivered Capability Summary（收口摘要）
+
+- **Slice 1**（behavior `da07f43`；acceptance `0d146f2b`）：Device Profile
+  workspace；New / Open / Save / Delete；identity editor（profileId 只读）；
+  dirty 三路 Save / Discard / Cancel；exit dirty guard。
+- **Slice 2**（behavior `becadc5`；acceptance `229fa51`）：Register Map
+  Editor —— Add / Edit / Delete entry；readFunctionCode（keyboard-editable，
+  无 silent default）；PDU / 0-based address；dataType（M11 七类型）；
+  registerCount（派生只读）；byteOrder；wordOrder（1-word 显示但 disabled
+  「不适用」）；scale / offset / unit；candidate + 完整 validation 纪律。
+- **Slice 3**（behavior `6802d18`；acceptance `5cbcbe9`）：session Active
+  Profile（profileId identity、session-only、启动无档案、失效/删除语义）+
+  Communication 轻量 selector + Editor/Active 完全分离。
+- **Slice 4**（behavior `f1567a5` + lifetime fix `13799d6`；acceptance 本轮）：
+  Read Result Semantic Overlay —— Raw / Generic / Semantic 三层；FC + PDU
+  lookup（无 cross-FC fallback）；2-word start-row semantic；continuation
+  membership；scale / offset / unit；特殊值（NaN/±Inf）数值分类呈现；
+  deterministic visual demo。
+
+**不含**（属 M12-C/D）：AI 提取、Manual Import、Manual Q&A。
+
+### 45.7 Remaining M12 Scope（未开始，本轮不冻结新细节）
+
+```text
+M12-C = Manual Import + AI Extraction Candidate
+M12-D = Manual Q&A
+```
+
+继续保留的既有原则（来自 §15/§16，非本轮新增）：
+- **AI is extractor / assistant, not authority**；
+- candidate 必须经 **Human Accept / Edit / Reject** 后才能进入 verified
+  Profile。
+
+### 45.8 Real Hardware / Package Boundary
+
+```text
+M12-B：REAL MODBUS HARDWARE = NOT VERIFIED
+  —— deterministic demo 不得写成 hardware evidence。
+
+M12 canonical package = NOT CREATED。
+M11 FINAL PORTABLE PACKAGE = 保持历史 VERIFIED，
+  但不包含 M12 行为（其验收早于 M12 行为落地）。
+M12 visual candidate（build/m12b-visual-candidate/）= visual / verification
+  staging，不是 canonical package / Final D / release artifact / LKGC。
+```
+
+### 45.9 LKGC 治理与 M12-B 行为台账（Git 实测审计）
+
+```text
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（本轮未推进，无授权）
+LKGC 是 HEAD 祖先：YES（git merge-base --is-ancestor）
+
+bc99e6ea..HEAD 内 behavior-bearing commits（按真实 changed paths：
+src/ tests/ QML CMakeLists scripts/ assets/ samples/）实测共 10 个：
+  1c42aaf  M12: add device-profile JSON foundation
+  5d4d9c2  M12: harden profile lookup foundation
+  ec9823c  M12: scope profile data by read function
+  da07f43  M12: add device-profile workspace
+  e3a7a4c  M12: clip profile workspace to prevent visual overflow
+  b502ea8  T027: restore displayName notification, close dirty dialog …
+  becadc5  M12: add register-map editor
+  6802d18  M12: add active profile selection
+  f1567a5  M12: add profile semantic readout
+  13799d6  M12: keep the human semantic demo alive until closed
+
+M12-B 最后 behavior-bearing commit = 13799d633291abd69b66ab1c324699ac5014143a
+  证据：git diff --name-only 13799d6 HEAD -- src tests CMakeLists.txt
+        scripts assets samples  ⇒ 空（behavior tree 自 13799d6 起冻结）；
+        其自身 changed paths = CMakeLists.txt + src/main.cpp。
+  ⇒ 注意：不是 f1567a5（其后的 demo lifetime fix 仍是 behavior 变更）。
+
+future LKGC candidate（仅列为候选，需 Human 单独授权才能推进）：
+  13799d633291abd69b66ab1c324699ac5014143a（M12-B 完整行为树）
+```
+
+### 45.10 状态收口
+
+```text
+M10 = COMPLETE
+M11 = COMPLETE
+M11 FINAL PORTABLE PACKAGE = VERIFIED（不含 M12 行为）
+M12-A = FOUNDATION ACCEPTED
+M12-B = COMPLETE
+M12-C = NOT STARTED
+M12-D = NOT STARTED
+M12 overall = IN PROGRESS
+verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变）
+NO M12 canonical package；REAL HARDWARE = NOT VERIFIED
+```
