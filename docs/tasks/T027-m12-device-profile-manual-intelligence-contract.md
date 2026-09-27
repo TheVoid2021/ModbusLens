@@ -3038,3 +3038,157 @@ M12-C C1b = STARTED / DEPENDENCY BUILD PROBE / IMPLEMENTATION NOT STARTED
 （probe 结果见 §55）
 verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不变）
 ```
+
+---
+
+## 55. M12-C C1b — DEPENDENCY BUILD PROBE（2026-09-27 · **current state = DEPENDENCY PROBE HOLD**）
+
+### 55.0 总判定
+
+```text
+PDFium probe         = BLOCKED
+libzip build probe   = PASS
+DOCX Qt consumer     = PASS
+⇒ 总结果：C1b DEPENDENCY PROBE = **HOLD**（§14：任一 FAIL/BLOCKED ⇒ HOLD）
+⇒ 依 Human 冻结条款「probe 不通过则 STOP，不得自行替换依赖路线」：**STOP，未替换任何路线**
+```
+
+probe 工作区 = `build\m12c-c1b-dependency-probe\`（**ignored，未进 tracked tree**；
+`git ls-files build` 仍为 0）。**未**改 `src/` / `tests/` / `CMakeLists.txt` / QML；
+**未**做任何产品实现；**未**跑产品验收 / canonical package / visual candidate。
+
+### 55.1 PDFium probe = BLOCKED（最高风险项，如实记录）
+
+**上游事实独立复核**（重新核对，不沿用先验）：
+
+```text
+① 官方构建方式：gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git
+   → gclient sync → GN 生成构建文件 → Ninja 执行构建；GN 与 Ninja **均来自 depot_tools**。
+② 编译器政策（官方 README 逐字）：“PDFium aims to be compliant with the Chromium policy.
+   Currently this means Clang. Former MSVC users should consider using clang-cl if needed.”
+   + “No MSVC patches will be taken.”
+③ Windows：与 Chromium 相同工具链；`set DEPOT_TOOLS_WIN_TOOLCHAIN=0` 使用本地 VS 工具链；
+   官方文档**未提供任何预编译二进制下载**（只有源码构建路径）。
+```
+
+**本机实测（producer 侧环境）**：
+
+```text
+gn / gn.exe / clang / clang-cl / depot_tools / gclient / autoninja ⇒ **全部 NOT FOUND**
+（PATH 与常见位置 C:\src、C:\depot_tools、D:\depot_tools 均无；D:\QT\Tools 仅 CMake_64/Ninja/
+ QtCreator/QtDesignStudio/mingw1310_64/mocwrapper/sdktool/LicenseService）
+官方主机可达性：https://pdfium.googlesource.com/pdfium/ ⇒ **HTTP 503**（本网络不可达，
+无法 checkout / 固定 upstream revision）；chromium/src 镜像可达（200）但只提供 Chromium
+同步后的 third_party/pdfium 子树，且构建仍需完整 Chromium 工具链。
+```
+
+**consumer 侧结论**：`ModbusLens-side minimal consumer` **无法建立**——不存在可供 MinGW GCC 13.1
+link/load 的 **PDFium artifact**；路线冻结要求 **exact pin + 离线 runtime + 无 runtime download**，
+而本环境既无官方 artifact，也无法在合理范围内从源码产出（需 depot_tools + GN + Clang + 多 GB
+`gclient sync` + 长时构建；对照：本机单次 CMake 配置约 11–15 分钟）。
+
+**仅完成 API 面侦察（非 consumer probe，不得当作 ABI 证据）**：自官方仓库的第三方镜像取得
+`public/fpdfview.h`（61 534 B）与 `public/fpdf_text.h`（29 438 B），冻结路线所需的 11 个
+**public C API** 符号全部存在：`FPDF_InitLibraryWithConfig` · `FPDF_LoadDocument` ·
+`FPDF_GetPageCount` · `FPDF_LoadPage` · `FPDFText_LoadPage` · `FPDFText_CountChars` ·
+`FPDFText_GetText` · `FPDF_ClosePage` · `FPDFText_ClosePage` · `FPDF_CloseDocument` ·
+`FPDF_DestroyLibrary`。
+
+**未做**：text-layer positive / no-text / corrupt-input 三个运行时用例**未执行**（无 artifact ⇒ 无 consumer）。
+**未**用 Poppler / QtPdf / 其它 wrapper / 在线 API 顶替；第三方预编译分发（非官方）仅被记录为
+**待 Human 决策的候选**，**本轮未采用**。
+
+```text
+PDFium pin       = **UNRESOLVED**（官方主机 503 ⇒ 无法固定 exact upstream commit）
+producer toolchain = NOT AVAILABLE（Chromium tooling 缺失）
+consumer toolchain = Qt 6.11.1 MinGW GCC 13.1 Windows x64（存在，但无 artifact 可消费）
+link/load mechanism = **N/A（未建立）**
+runtime dependency audit = **N/A**
+```
+
+### 55.2 libzip build probe = PASS
+
+```text
+exact version  = **libzip 1.11.4**（= libzip.org/download/ 当前发布版）
+official source= https://libzip.org/download/libzip-1.11.4.tar.gz
+archive        = libzip-1.11.4.tar.gz · 1 301 153 B
+SHA-256        = **82e9f2f2421f9d7c2466bbc3173cd09595a88ea37db0d559a9d0a2dc60dc722e**
+license        = BSD 3-clause 风格（Copyright (C) 1999-2020 Dieter Baron and Thomas Klausner）
+构建工具链      = D:/QT/Tools/CMake_64/bin/cmake（Ninja 生成器）+ MinGW GCC 13.1
+                 （D:/QT/Tools/mingw1310_64/bin/{gcc,g++}.exe）· Windows x64 · Release
+zlib 身份       = **1.2.13**（MinGW-w64 sysroot 自带：`x86_64-w64-mingw32/{include/zlib.h,lib/libz.a}`）
+                 —— 显式以 `-DZLIB_INCLUDE_DIR=` / `-DZLIB_LIBRARY=` 固定；**不代表产品已正式采用 zlib**
+最小依赖配置    = BUILD_SHARED_LIBS=OFF · ENABLE_OPENSSL=OFF · ENABLE_GNUTLS=OFF ·
+                 ENABLE_MBEDTLS=OFF · ENABLE_WINDOWS_CRYPTO=OFF · ENABLE_COMMONCRYPTO=OFF ·
+                 ENABLE_BZIP2=OFF · ENABLE_LZMA=OFF · ENABLE_ZSTD=OFF ·
+                 BUILD_TOOLS/REGRESS/EXAMPLES/DOC=OFF
+构建结果        = configure rc=0（`Found ZLIB: …libz.a (found suitable version "1.2.13")`）·
+                 build rc=0（**0 error**）· install rc=0 ⇒ `out/libzip-install/lib/libzip.a`（静态，260 990 B）
+备注            = 首次 configure 因 CMake `FindZLIB` 未在标准前缀找到 sysroot zlib 而失败
+                 （`Could NOT find ZLIB`），改用显式 pin 后通过；DOCX 常规 **deflate** 真实可读
+                 （见 §55.3 的 `ZIP_DEFLATED` fixture 全部成功解出）。
+```
+
+### 55.3 DOCX Qt consumer probe = PASS
+
+```text
+consumer 工具链 = **Qt 6.11.1**（D:/QT/6.11.1/mingw_64）+ **MinGW GCC 13.1** · Windows x64
+link/load 机制  = **静态** libzip.a + **静态** zlib(1.2.13) + **动态** Qt6Core.dll
+probe 源码      = build\m12c-c1b-dependency-probe\docx\probe_docx.cpp（probe-only，非产品代码）
+probe 可执行    = out\probe_docx.exe · SHA-256
+                  **3f8aa4c1f9396b78748263cef127bb45a9c741910c3a55b969d7c9354c4f34a4d**（311 457 B）
+runtime imports = ADVAPI32.dll · KERNEL32.dll · **Qt6Core.dll** · libgcc_s_seh-1.dll ·
+                  libstdc++-6.dll · msvcrt.dll
+                  ⇒ **无** Python / Java / LibreOffice / Office / Node（逐项实测 absent）
+main part 发现  = 依 **OOXML package relationship**：解析 `_rels/.rels` 中
+                  `Type=…/officeDocument` 的 `Target` ⇒ `word/document.xml`
+                  （**未**把 `word/document.xml` 硬编码为真理）
+XML parser      = **仅** Qt Core `QXmlStreamReader`（未引入第二个 XML parser）
+path/编码机制    = Qt `QFile` 读为 bytes → **libzip memory source**
+                  （`zip_source_buffer_create` + `zip_open_from_source`），
+                  即 libzip **不**自行解析非 ASCII 路径；仍属冻结路线内的实现方式
+```
+
+**确定性用例结果（全部 exit code 实测）**：
+
+| # | 输入 | 期望 | 实测 |
+| --- | --- | --- | --- |
+| A | `docx/fixtures/good.docx`（ASCII + 中文 + 4 段 + 1 表格 2 单元格，ZIP_DEFLATED） | 成功、顺序稳定 | **exit=0**；`libzip_version=1.11.4`、`main_document_part=word/document.xml`；文本含 `Frequency register 1000`、`First paragraph ASCII only.`、`第二段：中文说明，PV 地址 1000，单位 Hz。`、`spaced   text kept`（`xml:space` 空白保留）、`Cell A 表格` / `Cell B` |
+| B | 同内容但路径含中文 `docx/fixtures/中文目录/验收文档.docx` | 可读 | **exit=0**，输出与 A 逐字一致 |
+| C | `docx/fixtures/corrupt.docx`（伪 ZIP） | 明确失败、不 crash | **exit=3**：`not a usable ZIP container: Possibly truncated or corrupted zip archive` |
+| D | `docx/fixtures/missing_main_rel.docx`（无 officeDocument relationship） | 明确失败、不得猜测 | **exit=4**：`no officeDocument relationship in _rels/.rels` |
+| E | `docx/fixtures/dangling_main_part.docx`（relationship 指向的 part 不存在） | 明确失败 | **exit=5**：`main document part missing` |
+| F | `docx/fixtures/malformed_main.docx`（main XML 未闭合） | 明确失败 | **exit=6**：`main document XML malformed` |
+
+**text semantics = PROPOSED / NOT YET PRODUCT-FROZEN**（本轮只记录候选口径，**不得**伪写成 Human 已冻结）：
+段落结束 → `\n`；表格 row 结束 → `\n`；表格 cell 结束 → `\t`；`w:tab` → `\t`；
+`w:br`/`w:cr` → `\n`；run 之间**无**分隔符；`w:t` 文本原样（`xml:space="preserve"` 空白保留）。
+
+### 55.4 安全 / 资源观察（reconnaissance；本轮**不**冻结任何阈值）
+
+未来 implementation 必须处理（本轮仅记录，具体数值一律标为
+**implementation safety parameter to be frozen/recorded later**）：
+ZIP bomb / 解压膨胀 · 超大 XML · package name 类路径穿越 · 加密 ZIP/DOCX ·
+malformed XML · **PDF 密码/加密** · 超大 PDF / page count / text count ·
+PDFium 失败与崩溃边界（尤其因 §55.1 未建立 consumer，该边界**完全未测**）。
+
+### 55.5 未决项
+
+```text
+① PDFium exact pin = UNRESOLVED（官方主机 503 + producer toolchain 缺失）
+② PDFium artifact 来源与 producer toolchain policy = 需 Human 决策
+   （候选仅在案：在具备 depot_tools+GN+Clang 的环境自行构建并 pin exact commit；
+     第三方预编译分发为非官方来源，本轮未采用，需 Human 明确批准）
+③ DOCX text semantics = PROPOSED，需 Human freeze
+④ 资源上限数值 = 未冻结
+```
+
+### 55.6 状态
+
+```text
+M12-C C1b = STARTED / DEPENDENCY PROBE HOLD / IMPLEMENTATION BLOCKED
+（PDFium 路线 BLOCKED；libzip ✅ + DOCX consumer ✅）
+M12-C C1a = COMPLETE / HUMAN ACCEPTED（不变）
+verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不变）
+未改 src/ tests/ CMakeLists.txt QML；未做产品实现；未 push / 未 tag / 未 amend
+```
