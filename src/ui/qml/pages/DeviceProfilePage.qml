@@ -699,11 +699,18 @@ Item {
         Layout.fillWidth: true
         Layout.preferredWidth: 600
         Layout.minimumWidth: 240
-        Layout.preferredHeight: 160
-        Layout.minimumHeight: 160
+        // CONTENT-DRIVEN height. PanelCard's implicit height is derived from its
+        // inner layout's implicit size plus padding, so the area can never be
+        // handed less vertical space than its own content requires. The previous
+        // fixed 160px was smaller than that content minimum under the REAL
+        // windows font metrics, so the list and the preview spilled below the
+        // window edge at 1000x700 (a defect the offscreen gate could not see).
+        Layout.preferredHeight: manualImportCardItem.implicitHeight
+        Layout.minimumHeight: 120
         clip: true
 
         PanelCard {
+            id: manualImportCardItem
             objectName: "manualImportCard"
             anchors.fill: parent
 

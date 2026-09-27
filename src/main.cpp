@@ -16665,6 +16665,25 @@ int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         requireSized(QStringLiteral("manualPreview"));
         requireSized(QStringLiteral("manualDocName"));
         requireInsideWindow(QStringLiteral("manualDocName"));
+        // Neighbour contract: the Manual area must neither push the profile
+        // region out of the window nor overlap it. Measured at REGION level --
+        // individual scrollable fields inside the profile cards are reachable by
+        // scrolling by design and are deliberately not part of this contract.
+        requireInsideWindow(QStringLiteral("profileCatalogCard"));
+        requireInsideWindow(QStringLiteral("profileRegisterCard"));
+        auto *const row = itemOf(QStringLiteral("profileWorkspaceRow"));
+        auto *const host = itemOf(QStringLiteral("manualImportHost"));
+        if (row != nullptr && host != nullptr) {
+            const qreal rowBottom =
+                row->mapToScene(QPointF(0, 0)).y() + row->height();
+            const qreal hostTop = host->mapToScene(QPointF(0, 0)).y();
+            if (rowBottom > hostTop + 0.5) {
+                fail(QStringLiteral("the profile region overlaps the Manual "
+                                    "Import area: rowBottom=%1 hostTop=%2")
+                         .arg(rowBottom)
+                         .arg(hostTop));
+            }
+        }
         dumpManualGeometry(QStringLiteral("s6"));
         note(QStringLiteral("stage 6: 1000x700 reachable with documents"));
     });

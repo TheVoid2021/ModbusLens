@@ -997,6 +997,19 @@ if(BUILD_TESTING)
     add_test(NAME qml_write_foundation_check_windows
         COMMAND modbuslens --qml-write-foundation-check)
 
+    # M12-C C1a: the SAME blind spot, second instance. The Manual Import area was
+    # measured green offscreen while overflowing the window under the real
+    # windows font metrics (manualDocumentList / manualPreview ended at y=707 in
+    # a 700px-high window). This entry re-runs the SAME production check
+    # (--qml-manual-import-check, no second implementation) on the real platform
+    # so the 1000x700 contract is gated where the product actually ships.
+    # Unlike the write-foundation entry above it also pins QT_QPA_PLATFORM=windows
+    # explicitly, so an inherited offscreen value in the environment can never
+    # silently turn this gate back into an offscreen run.
+    # Requires an interactive Windows session (a desktop is present).
+    add_test(NAME qml_manual_import_check_windows
+        COMMAND modbuslens --qml-manual-import-check)
+
     # M9-B4.3 scenario fixtures (repo-relative: copied into the build tree,
     # same mechanism as the demo_v1 test_data above -- no absolute paths).
     target_compile_definitions(modbuslens PRIVATE
@@ -1024,6 +1037,12 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
+    # Same rule for the Manual Import windows entry, but with the platform stated
+    # explicitly instead of relying on the ambient environment.
+    set_tests_properties(qml_manual_import_check_windows PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_ASSUME_STDERR_HAS_CONSOLE=1"
+    )
+
     # Source-tree mirror of the shipping warning rejection, applied to EVERY QML
     # diagnostic mode in the acceptance set. A QML binding that cannot resolve an
     # identifier, or that reads an absent map key / an invalidated model index,
@@ -1034,7 +1053,7 @@ if(BUILD_TESTING)
     #   Unable to assign           : a failed binding assigning undefined to a
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_manual_import_check qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_manual_import_check qml_manual_import_check_windows qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign;String.arg..: Invalid arguments"
     )
 endif()
