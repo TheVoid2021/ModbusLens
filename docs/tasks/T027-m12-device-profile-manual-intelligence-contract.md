@@ -2718,6 +2718,8 @@ DEBUG ENVIRONMENT HOLD        = RESOLVED BY EXTERNAL HUMAN-SHELL CONTROL
 verified LKGC = 13799d633291abd69b66ab1c324699ac5014143a（不推进）
 未做：未 amend · 未 push · 未 tag · 未创建 canonical package · 未开始 C1b/C2/C3/M12-D
 ```
+**〔2026-09-27 追加批注〕本块的 `verified LKGC = 13799d6…（不推进）` 为当时事实，保留不删；
+当前 canonical verified LKGC 已由 §53.4 更新为 `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（Human authorized）。**
 
 ---
 
@@ -2839,3 +2841,113 @@ exact managed root: C:\Users\付\AppData\Roaming\ModbusLens\ModbusLens\manuals
 manual 文档的 Delete 操作 ⇒ Human checklist 中「用产品自身 Delete 清理本轮两条记录」
 **无法通过产品完成**。本轮**不**用 shell 代替产品删除；该清理动作的处置留给 Human，
 并作为后续切片的输入项记录。
+
+---
+
+## 53. M12-C C1a — HUMAN ACCEPTANCE CLOSURE + VERIFIED LKGC ADVANCEMENT（2026-09-27 · **当前状态以本节为准**）
+
+### 53.0 supersede 声明
+
+本节的**当前状态**表述取代 §49–§52 中所有过程性状态。以下短语自本节起**只属历史过程**，
+**不再是 current state**：
+
+```text
+HUMAN VISUAL REVIEW PENDING      （过程态，已由 Human visual PASS 取代）
+DEBUG REVALIDATION PENDING       （过程态，已由 Human 外部 Debug 53/53 取代）
+AUTOMATED RE-ACCEPTANCE PENDING  （过程态，已由 Release 53/53 + Debug 53/53 取代）
+WINDOWS-QPA GEOMETRY DEFECT OPEN （过程态，已由 correction + windows gate 取代）
+```
+
+§49–§52 的原文**保留不删**（只增不改的档案区原则），但其「当前」字样一律以本节为准。
+
+### 53.1 Human acceptance 与授权（逐字，验收边界严格执行）
+
+```text
+Human 验收原文 : “M12-C C1a visual PASS”
+Human 授权原文 : “授权：归档 M12-C C1a Human visual PASS，
+                  并将 verified LKGC 从
+                  13799d633291abd69b66ab1c324699ac5014143a
+                  推进到
+                  8409c271cca966e9f9ab0ad0ba2d6470c0a66e10。”
+```
+
+**验收边界（AGENTS「Cross-Agent Context / Anti-Drift」第 5 条）**：该 PASS 覆盖
+**已交付的整个 C1a visual checklist**（T027 §52 / 交付报告所载 8 项）。**不得**扩写为
+「Human 逐字报告了每一个 checklist item 的单独结果」；归档只写 Human 返回的整体 PASS。
+本授权**不包含** C1b START，也不包含任何后续 milestone 授权。
+
+### 53.2 C1a acceptance chain（A–E）
+
+```text
+A. Behavior foundation
+   7bcd2ca0b72a0fe22ecb0b719c12cbdb2230833c  M12: add deterministic manual import foundation
+B. Windows geometry correction（最终授权 LKGC target）
+   8409c271cca966e9f9ab0ad0ba2d6470c0a66e10  M12: fix manual import windows geometry
+C. Automated final acceptance
+   Release：53/53 PASS · 0 failed
+   Debug  ：53/53 PASS · 0 failed（Human 外部 shell；real 103.10 sec；DEBUG CTEST EXIT = 0）
+   新增 Windows gate：qml_manual_import_check_windows
+   真实经历：pre-fix RED → correction → post-fix GREEN
+D. Human visual acceptance
+   Human 返回：M12-C C1a visual PASS（覆盖整个已交付 checklist）
+E. Human LKGC authorization
+   旧 13799d633291abd69b66ab1c324699ac5014143a
+   新 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10
+```
+
+### 53.3 最终状态（current）
+
+```text
+M12-C C1a            = COMPLETE / HUMAN ACCEPTED
+M12-B                = COMPLETE
+M12-C                = IN PROGRESS（C1a 完成 ≠ M12-C 完成）
+M12-C C1b            = NOT STARTED / DEPENDENCY DECISION DEFERRED
+M12-C C2             = NOT STARTED
+M12-C C3             = NOT STARTED
+M12-D                = NOT STARTED
+M12 canonical package = NOT CREATED
+REAL MODBUS HARDWARE  = NOT VERIFIED
+最终 automated evidence：Release 53/53 PASS · Debug 53/53 PASS · Windows-QPA gate PASS
+最终 Human evidence    ：C1a visual PASS
+```
+
+**本轮 Human 未授权**：C1b START、PDF route、DOCX route、C2、C3、M12-D。⇒ C1b 状态
+**保持** `NOT STARTED / DEPENDENCY DECISION DEFERRED`，**不得**改写为 `STARTED` /
+`IN PROGRESS` / `AUTHORIZED`。
+
+### 53.4 verified LKGC advancement（Human authorized）
+
+```text
+旧 verified LKGC = 13799d633291abd69b66ab1c324699ac5014143a
+新 verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10
+                   （Human authorized）
+ancestry 实测    : git merge-base --is-ancestor 8409c27 HEAD → exit 0（YES）
+                   8409c27 subject = M12: fix manual import windows geometry
+                   11a97ed subject = M12: archive C1a windows geometry correction
+```
+
+**为什么 LKGC target 是 `8409c27` 而**不是** docs commit（`11a97ed` 或本轮 closure commit）**：
+`verified LKGC` 必须指向**已 Human 验收并明确授权的 behavior-bearing commit**；docs-only
+提交**永不作 LKGC**（AGENTS「Git Policy」+ LKGC 治理）。因此 `11a97ed` 与本轮 closure
+commit 均**不是** LKGC target。
+
+**历史保留声明**：`13799d6…` 在 §46/§47/§48/§49/§50/§51/§52 与 PROJECT_STATUS/BACKLOG
+的历史批注中出现，属**当时事实**，**保留不删**；只有「当前 canonical verified LKGC」与
+本轮 advancement 记录被更新。
+
+### 53.5 candidate / ManualStore 事实（本轮不变）
+
+```text
+Human 验收使用 = production ManualStore semantics（非 isolated store）
+candidate      = build\m12c-visual-candidate\（仍**不是** canonical package / Final D / LKGC）
+exact managed root = C:\Users\付\AppData\Roaming\ModbusLens\ModbusLens\manuals
+```
+本轮**未**删除 acceptance manual、**未**清空 ManualStore、**未**修改 profiles、**未**修改或
+重新 staging candidate。C1a 没有 manual Delete UI **不构成**本轮 closure blocker；
+**未**为清理数据新增任何产品行为。
+
+### 53.6 本轮性质
+
+**docs-only acceptance closure**：未做任何 behavior change；未改 `CMakeLists.txt` / `src/` /
+`tests/` / `AGENTS.md` / `CODEBUDDY.md` / `build/` / candidate / production store；
+未重跑 build / CTest / QPA gate（既有最终证据已足够）；未 push / 未 tag / 未 amend。
