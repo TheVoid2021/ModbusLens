@@ -2224,3 +2224,112 @@ REAL MODBUS HARDWARE = NOT VERIFIED
 ```
 
 **未做**：未安装 library / 未 vcpkg·pip·npm install / 未下载 DLL / 未改 Qt / 未改 CMake / 未 build / 未 ctest / 未 package / 未 staging / 未 windeployqt / 未 push / 未 tag / 未 amend。
+
+---
+
+## 48. M12-C P0 HUMAN DECISION ARCHIVE + C1a CONTRACT FREEZE（2026-09-27，docs-only）
+
+### 48.1 Human 裁定原文（逐字归档）
+
+> “同意这组裁定：
+>
+> 1. manual 导入采用 managed-copy + original-path provenance 的 Hybrid；
+> 2. extracted text 按 contentHash 缓存；
+> 3. C1a 支持 UTF-8 / UTF-8 BOM 的 TXT 与 Markdown，非法编码/二进制明确拒绝；UTF-16 暂不要求但不永久排除；
+> 4. 资源超限必须明确拒绝，具体阈值作为实现安全参数；
+> 5. AI 架构 provider-neutral，当前不选具体厂商；
+> 6. cloud AI 默认不上传，仅 Human 显式 extraction 时允许，并显示 payload scope；
+> 7. v1 credential 不持久化明文，先采用环境变量/BYOK seam，secret 不进入 repo/Profile/manual/candidate；
+> 8. confidence 使用 label + optional provider raw opaque value，不解释成概率；
+> 9. Candidate v1 session-only，AI raw response 不长期保存；
+> 10. C1 拆为 C1a TXT/Markdown 与 C1b PDF/DOCX；
+> 11. DOCX 具体依赖方案推迟到 C1b 前单独冻结；
+> 12. PDF text-extraction 方案推迟到 C1b 前单独冻结；OCR 继续 deferred。”
+
+### 48.2 逐项解释与分类
+
+| # | 裁定 | 分类 | 冻结语义 |
+| --- | --- | --- | --- |
+| 1 | Hybrid storage | **HUMAN-FROZEN** | 成功 import 后应用拥有 **managed copy**；`originalPath` **只作 provenance**。读取 / 预览 / 缓存 / 证据**不得依赖 original source 继续存在**；原文件移动·重命名·删除**不得**使已导入 manual 失去 deterministic source。 |
+| 2 | contentHash cache | **HUMAN-FROZEN** | extracted text 按 **source content identity** 缓存。contentHash = **SHA-256(source bytes)**，hex 呈现。**禁止**用 filename / mtime / original path 冒充 content identity。 |
+| 3 | encoding | **HUMAN-FROZEN** | C1a 支持 **UTF-8** 与 **UTF-8 with BOM**；BOM **不进入用户可见正文**；**strict decode**，非法 UTF-8 明确失败，明显 binary 明确失败；**UTF-16 = C1a v1 报告 `unsupported_encoding`**，但**不得**写成「产品永久不支持 UTF-16」。 |
+| 4 | resource safety | **HUMAN-FROZEN（语义）** + **implementation detail（数值）** | 必须存在安全上限；超限**明确拒绝**；**禁止 silent truncate**。具体阈值 = **implementation safety limit**，**不是** Human-frozen 产品常量，须在代码/测试/docs 中如此标注。 |
+| 5 | AI provider-neutral | **HUMAN-FROZEN（未来 guardrail）** | 架构必须 provider-neutral；**当前不选任何厂商**。C1a 不涉及。 |
+| 6 | cloud upload | **HUMAN-FROZEN（未来 guardrail）** | 默认**不上传**；仅 Human 显式 extraction 时允许，并显示 payload scope。C1a 不涉及。 |
+| 7 | credential | **HUMAN-FROZEN（未来 guardrail）** | v1 不持久化明文；环境变量 / BYOK seam；**secret 不进入 repo / Profile / manual / candidate**。C1a 不涉及。 |
+| 8 | confidence | **HUMAN-FROZEN（未来 guardrail）** | label + optional provider raw opaque value；**不得**解释成概率。C1a 不涉及。 |
+| 9 | Candidate session-only | **HUMAN-FROZEN（未来 guardrail）** | Candidate v1 session-only；AI raw response 不长期保存。C1a 不涉及。 |
+| 10 | C1 = C1a + C1b | **HUMAN-FROZEN** | C1a = TXT/Markdown；C1b = PDF/DOCX。 |
+| 11 | DOCX 依赖推迟 | **HUMAN-FROZEN** | DOCX 具体依赖方案**推迟到 C1b 前单独冻结**；C1b 状态 = **NOT STARTED / DEPENDENCY DECISION DEFERRED**。 |
+| 12 | PDF 方案推迟 | **HUMAN-FROZEN** | PDF text-extraction 方案**推迟到 C1b 前单独冻结**；**OCR 继续 deferred**。 |
+
+**补充冻结（§48.3 展开）**：Markdown 语义（E）、no-profile-mutation（F）。
+
+### 48.3 C1a FROZEN CONTRACT
+
+**A. Hybrid storage（HUMAN-FROZEN）**
+1. 成功 import 后：managed copy 存在于 app-managed user-data（`QStandardPaths::AppDataLocation`，沿用 `ProfileStore` 既有模式）。
+2. `originalPath` 仅作 provenance 元数据，**不参与**读取/预览/缓存/证据解析。
+3. 成功 import 后 original 文件移动/重命名/删除 ⇒ manual 仍可 load/preview。
+4. 持久化目录**不得硬编码**用户绝对路径；测试必须能使用 isolated temporary root（沿用 `ProfileStore::setManagedRootOverride` 模式）。
+
+**B. contentHash（HUMAN-FROZEN）**
+- `contentHash = SHA-256(imported source bytes)`，lowercase hex 呈现。
+- extracted-text cache 的主 identity **只**是 `contentHash`。
+- 同 `contentHash` 允许复用 cache；但 **C1a 不发明 dedup UI / merge semantics**，**不得**把两个 Human import 悄悄合并成一个 document。
+
+**C. encoding（HUMAN-FROZEN）**
+- strict UTF-8；**禁止**使用会静默插入 replacement character 却仍报告成功的 decode path。
+- UTF-8 BOM：识别 + 剥离；**BOM 不进入 extracted text**。
+- UTF-16 BOM：明确 `unsupported_encoding`（**不是** binary、不是乱码成功）。
+- 明显 binary：明确 `binary_content` 错误。heuristic = implementation detail，但**至少**捕获 NUL-containing content 与无法 strict UTF-8 decode 的输入。
+- **不得**把合法中文 / emoji / 非 ASCII UTF-8 误判 binary。
+
+**D. resource safety（语义 FROZEN / 数值 implementation detail）**
+- 超限 ⇒ 明确拒绝，**不得 silent truncate**。
+- 数值 = **implementation safety limit**，在代码/测试/docs 中显式标注为 safety limit（非产品常量）。
+
+**E. Markdown（HUMAN-FROZEN）**
+- C1a 的 Markdown = **deterministic source text import**，**不要求** renderer。
+- **不得**执行 HTML / script / 自动 fetch remote resource / 自动下载 image，Markdown 内容**不得**触发任何 network side effect。
+- 预览 = **plain text**。
+
+**F. no profile mutation（HUMAN-FROZEN）**
+- Manual Import **不得**修改 verified DeviceProfile / Active Profile / Raw / Generic Decode / Semantic Overlay / `TransactionAnalysis`。
+- **不得**因 import 自动选择或绑定 Active Profile。
+- **不得**根据 COM port / slave address / read function code / manufacturer·model 自动绑定 profile。
+- C1a 只建立：`ManualDocument` + deterministic source + evidence foundation。Candidate → Profile 属 C2/C3。
+
+### 48.4 C1a scope / non-scope
+
+```text
+# C1a IN SCOPE
+TXT / Markdown deterministic import
+managed copy + contentHash cache + metadata persistence
+strict UTF-8 / UTF-8 BOM decode
+binary / invalid-encoding / unsupported-encoding / resource-limit rejection
+ManualDocument + EvidenceReference foundation
+Device Profile workspace UI（导入 / 列表 / 详情 / read-only plain-text preview）
+isolated test-root seam；targeted tests；QML/Windows-QPA gate
+
+# C1a OUT OF SCOPE（本轮禁止）
+PDF / DOCX / OCR（= C1b，NOT STARTED / DEPENDENCY DECISION DEFERRED）
+AI extraction / AI provider / cloud upload / credential UI
+Candidate / Accept / Edit / Reject
+Manual Q&A / chat / RAG（= M12-D）
+canonical package / LKGC advancement
+修改 DeviceProfile schemaVersion=1
+把 ManualDocument 塞进 DeviceProfile JSON
+```
+
+### 48.5 C1b / C2 / C3 / M12-D 状态（本轮不变）
+
+```text
+C1b = NOT STARTED / DEPENDENCY DECISION DEFERRED
+C2  = NOT STARTED
+C3  = NOT STARTED
+M12-D = NOT STARTED
+verified LKGC = 13799d633291abd69b66ab1c324699ac5014143a（不推进）
+```
+
+**口径纪律**：PDF / DOCX **仍属 M12-C canonical scope**，只是 **C1b deferred**；本轮**不得**删除 canonical PDF/DOCX requirement、**不得**写成 out-of-scope for M12-C、**不得**写成 “unsupported forever”。
