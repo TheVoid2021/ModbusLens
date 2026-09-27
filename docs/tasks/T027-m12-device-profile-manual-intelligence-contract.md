@@ -2479,3 +2479,82 @@ Release 的同一归档仅 ≈ **198 KB**，正常。
 **工作树异常观察（非本轮产生）**：`git status` 出现 3 个**非本轮创建**的未跟踪文件
 （`_count_tests.py`、`_map_scenarios.py`、`scripts/bench_replay/_run_1m.txt`，
 mtime 2026-09-27 16:52–16:54）。本轮**未创建、未修改、未删除**它们；归档在案待 Human 确认归属。
+
+---
+
+## 50. M12-C C1a — ENVIRONMENT-ONLY DEBUG UNBLOCK ATTEMPT（2026-09-27，结果 = 未解除）
+
+> Human/ChatGPT 裁定：**暂不接受 Release-only 作为最终 C1a automated closure**，先做一次严格的
+> **environment-only** Debug unblock 尝试。本轮**未**修改产品 source / tests / CMake behavior /
+> Debug flags / optimization / acceptance criteria；**未**创建 behavior commit / visual candidate。
+
+### 50.1 首选假设与实验设计
+
+假设 = 「binutils 对 **non-ASCII temp path** 存在兼容问题」。做法：建立 **repo 外纯 ASCII 临时目录**
+`E:\tmp\modbuslens-binutils`（空、可写），**仅在本轮命令环境中**显式设置
+`TEMP` / `TMP` / `TMPDIR`（**未**永久修改系统环境变量）。
+
+**环境继承已实证**（子进程读到的是 Windows 形式）：
+
+```text
+TEMP= 'E:\\tmp\\modbuslens-binutils'
+TMP= 'E:\\tmp\\modbuslens-binutils'
+TMPDIR= 'E:\\tmp\\modbuslens-binutils'
+```
+
+### 50.2 Observed（既有事实）
+
+```text
+原 TEMP/TMP/TMPDIR = C:\Users\付\AppData\Local\Temp（含非 ASCII 用户目录「付」）
+Debug libmodbuslens_core.a ≈ 14.7 MB
+ar / ranlib（GNU Binutils 2.39）→ could not create temporary file whilst writing archive:
+                                  no more archived files
+```
+
+### 50.3 Controlled comparison（同一 ar.exe / ranlib.exe / 同一 obj set / 同一命令；唯一变化 = temp env）
+
+| 组 | 目标 | temp env | 结果 |
+| --- | --- | --- | --- |
+| A | repo 外 `E:\tmp\probe_big` | ASCII `E:\tmp\modbuslens-binutils` | `ar` **3/3 FAIL**（archive size 8 = 仅 magic） |
+| B | repo 内 `build\debug` | ASCII（同上） | **1/3 PASS**（14 732 408 B）→ 2/3 FAIL ⇒ **间歇** |
+| M1 | repo 外 `E:\tmp\probe_big` | **默认**（非 ASCII） | `ar` **3/3 FAIL** |
+| R1 | repo 内（ninja 原命令） | 默认 | **12/12 FAIL** |
+| R2 | repo 内（ninja 原命令） | 默认 | **40/40 FAIL**（累计 52 连败） |
+
+**⇒ CASE B（非稳定 PASS）**：ASCII temp **不是解**；且**非** Unicode-temp 专属问题。
+
+### 50.4 进一步排除（按 §4 清单）
+
+```text
+· 环境继承          → 已实证子进程收到 ASCII 路径（python 子进程实测）
+· 归档目标权限      → dd 直写 15 MB 进 build\debug 成功（≈998 MB/s）⇒ 权限/磁盘/配额正常
+· 磁盘空间          → E: 61G free / C: 46G free
+· 文件锁 / 残留     → ASCII 临时目录 0 entries；其中此前写入的 15 MB 探针文件**消失**
+                      ⇒ 存在**外部进程**在清理该目录（与本轮工作树出现的非本 Agent
+                      未跟踪文件同源现象）
+· 默认 temp 目录内容 → 含沙箱内部物：codebuddy-shell-payload-*、codebuddy-safe-delete
+· 安全软件（可观察） → Lenovo Anti-Virus powered by Huorong Security（state=262144）+
+                      Windows Defender（state=397568）；usysdiag pid=20772、wsctrl11 pid=19576
+· 纯 ASCII cwd 复现  → probe A 的 cwd = E:\tmp\probe_big（纯 ASCII）仍 FAIL
+· **size 相关性已消失** → 当前环境下 ar 连 **1 个 object** 都失败（size=8）；
+                      先前 1.79 MB 的成功不再可复现
+```
+
+**措辞纪律**：安全软件并存是**观察到的相关性**，**不是**已证明的因果；本文件**不**写
+「GNU ranlib 确定存在 Unicode bug」，也**不**断言具体拦截机制。
+
+### 50.5 结论与状态
+
+```text
+DEBUG ENVIRONMENT HOLD REMAINS
+· 失败位于 environment / toolchain / sandbox 层面（非产品缺陷、非 C1a 引入、
+  非编译错误；Debug 编译阶段此前已实测 0 error）
+· ar 的临时文件创建在本会话内由「>≈2 MB 间歇失败」劣化为「全部失败」⇒ 与时间/会话状态相关
+· 未解除的手段：ASCII temp（已证伪）；未尝试且**不允许**的手段：
+  改产品代码 / 改 tests / 改 CMake behavior / 降 Debug flags / 改 optimization /
+  替换 acceptance criteria
+· build\debug\libmodbuslens_core.a 当前**不存在**（ninja 的 rm -f 移除后 ar 无法重建）
+  —— 仅构建产物状态，非 repo 跟踪内容
+· C1a 仍为：PRODUCT GATES = PASS / RELEASE FULL = PASS / DEBUG = ENVIRONMENT HOLD
+· behavior 仍**未提交**；visual candidate 仍**未创建**；WIP 原样保留
+```
