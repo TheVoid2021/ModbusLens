@@ -2951,3 +2951,90 @@ exact managed root = C:\Users\付\AppData\Roaming\ModbusLens\ModbusLens\manuals
 **docs-only acceptance closure**：未做任何 behavior change；未改 `CMakeLists.txt` / `src/` /
 `tests/` / `AGENTS.md` / `CODEBUDDY.md` / `build/` / candidate / production store；
 未重跑 build / CTest / QPA gate（既有最终证据已足够）；未 push / 未 tag / 未 amend。
+
+---
+
+## 54. M12-C C1b — START + DEPENDENCY ROUTE FREEZE（2026-09-27 · **current state = STARTED / DEPENDENCY BUILD PROBE**）
+
+### 54.1 Human 授权与冻结原文（逐字归档）
+
+> “授权：M12-C C1b START。
+> PDF 路线冻结为 PDFium public C API，
+> 仅提取已有 text layer，
+> OCR deferred；
+>
+> DOCX 路线冻结为
+> libzip + Qt Core QXmlStreamReader，
+> v1 提取 main document story 的
+> deterministic plain text，
+> 非正文扩展内容 deferred；
+>
+> 第三方依赖必须固定版本、
+> 离线运行、
+> 无运行时下载，
+>
+> 先做当前 Qt 6.11.1 MinGW 下的
+> dependency/build probe，
+>
+> probe 不通过则 STOP，
+> 不得自行替换依赖路线。”
+
+**授权范围边界（不得外推）**：这是 **C1b START authorization + dependency-route freeze**，
+**不是** C1b implementation acceptance，**不是** LKGC advancement authorization。
+verified LKGC 保持 `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`。
+
+### 54.2 冻结条款（HUMAN-FROZEN）
+
+```text
+PDF   = PDFium public C API ONLY
+        目标 = 仅提取**已有 PDF text layer**
+        OCR = DEFERRED（禁止 OCR / PDF rendering / AI extraction / 在线 PDF 转换）
+DOCX  = libzip + Qt Core QXmlStreamReader
+        v1 目标 = 取 main document story 的 **deterministic plain text**
+        非正文扩展内容 DEFERRED：
+          header / footer / comments / footnotes / endnotes /
+          embedded objects / image OCR，以及其它不属于 main story v1 的扩展内容
+第三方依赖 = 必须 **exact pin** · **离线 runtime** · **无 runtime download**
+probe 目标环境 = Qt 6.11.1 · MinGW GCC 13.1 · Windows x64
+```
+
+**明确禁止的替代路线（不得自行替换）**：Poppler · QtPdf · QZipReader private API ·
+LibreOffice automation · Microsoft Office automation · Python runtime · Java runtime ·
+在线转换服务 · 其它 PDF/DOCX library。**probe 不通过 ⇒ STOP**，不得偷偷改路线。
+
+### 54.3 probe 计划（本轮执行）
+
+```text
+工作区（与产品源码隔离，ignored）: build\m12c-c1b-dependency-probe\
+PDFium probe : 冻结 exact upstream revision；说明 producer/consumer toolchain 分离；
+               MinGW GCC 13.1 最小 consumer 仅调用 **public C API**
+               （FPDF_InitLibraryWithConfig / FPDF_LoadDocument / FPDF_GetPageCount /
+                FPDF_LoadPage / FPDFText_LoadPage / FPDFText_CountChars / FPDFText_GetText
+                + 对应 close/destroy）；
+               三个确定性输入：有 text layer 的小 PDF / 无 text layer 的 blank-image PDF /
+               corrupt 非 PDF。
+libzip probe : exact pinned release；MinGW GCC 13.1 可重复 build；最小依赖配置
+               （DOCX 只需 ZIP container + deflate ⇒ 不引入 OpenSSL/GnuTLS/bzip2/lzma/zstd）；
+               zlib 来源与 linkage 必须明确记录。
+DOCX probe   : Qt 6.11.1 + MinGW GCC 13.1 构建的 libzip + QXmlStreamReader consumer；
+               仅 **两个** parser（libzip + QXmlStreamReader，不引入第二个 XML parser）；
+               main document part 按 **package relationship（officeDocument target）发现**，
+               **不**把 `word/document.xml` 当无条件真理；
+               四个确定性输入：合法 DOCX（ASCII + 中文 + ≥2 paragraph + table cell）/
+               中文路径 DOCX / corrupt ZIP（伪 DOCX）/ 缺 main document relationship。
+```
+
+**结果分类**：三者分别判 `PASS / FAIL / BLOCKED`；**只有三者全 PASS** 才是
+`C1b DEPENDENCY PROBE = PASS`，否则 `= HOLD`（然后 STOP，不自动替换路线）。
+
+**范围纪律**：本轮**不做**任何 C1b 产品实现（不改 `src/` / `tests/` / `CMakeLists.txt` / QML，
+不加 importer / extractor / UI / Candidate / AI extraction）；不跑 C1b product acceptance、
+不建 canonical package、不建 Human visual candidate；不把任何 probe artifact 放进 tracked tree。
+
+### 54.4 状态
+
+```text
+M12-C C1b = STARTED / DEPENDENCY BUILD PROBE / IMPLEMENTATION NOT STARTED
+（probe 结果见 §55）
+verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不变）
+```
