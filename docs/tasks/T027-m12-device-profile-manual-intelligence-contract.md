@@ -2718,3 +2718,124 @@ DEBUG ENVIRONMENT HOLD        = RESOLVED BY EXTERNAL HUMAN-SHELL CONTROL
 verified LKGC = 13799d633291abd69b66ab1c324699ac5014143a（不推进）
 未做：未 amend · 未 push · 未 tag · 未创建 canonical package · 未开始 C1b/C2/C3/M12-D
 ```
+
+---
+
+## 52. M12-C C1a — WINDOWS-QPA GEOMETRY CORRECTION（2026-09-27，收口完成）
+
+### 52.A 被 supersede 的旧状态（不得再作当前终态）
+
+```text
+旧 behavior commit : 7bcd2ca0b72a0fe22ecb0b719c12cbdb2230833c
+当时证据           : Debug 52/52 PASS（Human 外部 shell）
+                     Release 52/52 PASS（WorkBuddy 内）
+旧状态表述         : M12-C C1a = IMPLEMENTED / AUTOMATED PASS / HUMAN REVIEW PENDING
+```
+该表述**已被后续真实 defect evidence supersede**：随后在 **真实 Windows QPA** 下对
+staged candidate 做验证时发现 **1000×700 几何缺陷**。**不得**再把 `7bcd2ca` 的
+52/52 当作 C1a 的当前终态；`6b59cef` 中归档的「automated acceptance」同样按本批注 supersede。
+
+### 52.B pre-fix Windows-QPA RED（新门禁先行，真实 RED）
+
+新增 **`qml_manual_import_check_windows`**（test **#53**）后，在**修改布局之前**单独执行，
+真实 RED 并逐字复现缺陷：
+
+```text
+MANFAIL: manualDocumentList outside: x=73 y=640 w=250 h=67 win=1000x700   (bottom 707 > 700)
+MANFAIL: manualPreview      outside: x=331 y=671 w=653 h=36 win=1000x700  (bottom 707 > 700)
+0% tests passed, 1 tests failed out of 1
+```
+
+**offscreen 门禁看不见它**：同一二进制在本页 header 上 offscreen 为 15 px、真实 Windows
+为 20 px，逐层累积后 offscreen 判定通过而真平台溢出。
+
+### 52.C 修复性质（content-driven，**不是**魔法数字）
+
+```text
+根因  : Manual 区 wrapper 的**固定高度 160 px** < 其自身内容在 windows 度量下的最小高度
+        （卡片 implicitHeight 183）⇒ 布局无法同时满足「固定 160」与「内容需 183」，
+        子项溢出卡片与窗口。
+修复  : DeviceProfilePage.qml —— wrapper 的 Layout.preferredHeight 改为
+        **manualImportCardItem.implicitHeight**（PanelCard 由内部 contentLayout.implicit +
+        2×padding 推导），并给 Layout.minimumHeight 120 作为下限。
+        ⇒ 「固定高度低于内容最小高度」这一整类缺陷**在构造上被消除**；
+        **不是** 60 → 67，**不是** 160 → 183 的硬编码打补丁。
+附带  : 卡片新增 id `manualImportCardItem` —— QML **不能**用 objectName 字符串做属性引用，
+        否则运行时 **ReferenceError**（首次尝试即被 FAIL_REGULAR_EXPRESSION 门禁捕获）。
+gate  : src/main.cpp 只**新增**断言（profileCatalogCard / profileRegisterCard 在窗口内；
+        以及 profile 区与 Manual 区**不重叠**），未放宽任何既有判断。
+门禁  : CMakeLists.txt 新增 qml_manual_import_check_windows —— 复用**同一条生产命令**
+        `--qml-manual-import-check`（未复制第二份实现），并**显式** `QT_QPA_PLATFORM=windows`，
+        使「继承到 offscreen」不可能把该门禁悄悄降级；同时纳入 FAIL_REGULAR_EXPRESSION。
+```
+
+### 52.D 修正后真实 Windows QPA / 1000×700 几何（实测）
+
+```text
+deviceProfileWorkspace x=57 y=41 w=943 h=659              → bottom 700
+profileWorkspaceRow    x=61 y=123 w=935 h=378（原 401）   → bottom 501
+manualImportHost       x=61 y=513 w=935 h=183（h == implicitHeight）→ bottom 696
+manualImportCard       x=61 y=513 w=935 h=183（h == implicitHeight）→ bottom 696
+manualImportBody       h=67（h == implicitHeight，不再被压扁）
+manualDocumentList     x=73 y=617 w=250 h=67              → bottom 684
+manualPreview          x=331 y=648 w=653 h=36             → bottom 684
+非重叠               : profileWorkspaceRow bottom 501 ≤ manualImportHost top 513
+```
+
+### 52.E Release 全量
+
+```text
+cmake --build --preset release-local → rc=0
+ctest --output-on-failure            → 100% tests passed, 0 tests failed out of 53
+测试数变化                            → 52 → 53（新增 qml_manual_import_check_windows）
+targeted 9/9 PASS；诊断 ReferenceError=0 / TypeError=0 / Unable to assign=0 / String.arg Invalid=0
+```
+
+### 52.F Human 外部 Debug 复验（AUTHORITATIVE，逐字对照）
+
+```text
+cmake --build build\debug   → ninja: no work to do.        DEBUG BUILD EXIT = 0
+（正确解释：Human 执行时 Debug build tree 已 up-to-date；**不得**伪写成重新编译了 N/N objects）
+ctest --test-dir build\debug -N
+                            → 明确列出 Test #51 qml_manual_import_check ·
+                              #52 qml_write_foundation_check_windows ·
+                              #53 qml_manual_import_check_windows
+                              Total Tests: 53                CTEST LIST EXIT = 0
+Debug full CTest            → 53/53 PASS · 100% tests passed, 0 tests failed out of 53
+                              Total Test time (real) = 103.10 sec
+                              DEBUG CTEST EXIT = 0
+其中 PASS：qml_profile_editor_check · qml_register_map_check · qml_active_profile_check ·
+           qml_manual_import_check · qml_write_foundation_check_windows ·
+           qml_manual_import_check_windows
+⇒ DEBUG REVALIDATION PENDING **解除**
+```
+
+### 52.G 最终 automated 状态
+
+```text
+M12-C C1a = IMPLEMENTED / AUTOMATED RE-ACCEPTANCE PASS / HUMAN VISUAL REVIEW PENDING
+（这是 automated 结论：**不是** Human visual PASS，**不是** LKGC advancement。）
+correction commit = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（parent 6b59cef，NO AMEND）
+```
+
+### 52.H candidate 与 ManualStore 事实（不得美化）
+
+```text
+candidate        = build\m12c-visual-candidate\（M12-B 已验证 self-contained staging 复用；
+                   **未**运行 windeployqt / qtpaths 失败路径，**未**伪装 canonical deployment）
+isolation seam   : **不存在** candidate 可用且无需改 tracked source 的 ManualStore root seam ——
+                   `ManualStore::setManagedRootOverride` 只在 QML check harness 内调用，
+                   无 CLI flag；无 QStandardPaths test mode。⇒ **不**为 candidate 再改产品代码
+                   （否则会让刚取得的 Release 53/53 与 Human Debug 53/53 acceptance 失效）。
+实际存储         : **production ManualStore semantics**（**不是** isolated store）
+exact managed root: C:\Users\付\AppData\Roaming\ModbusLens\ModbusLens\manuals
+启动前只读盘点   : 该 `manuals` 目录**此前并不存在**（`documents/` `source/` `text/` 均无），
+                   即**无任何既有 manual 记录**
+⇒ 本轮 sample import 新建的记录可明确识别，不存在破坏既有数据的风险；
+  但**不**用 shell 清空任何 store，也**不**把 production store 称为 isolated store。
+```
+
+**已知能力缺口（如实记录）**：C1a 的 UI 只有 导入 / 列表 / 详情 / 纯文本预览，**没有**
+manual 文档的 Delete 操作 ⇒ Human checklist 中「用产品自身 Delete 清理本轮两条记录」
+**无法通过产品完成**。本轮**不**用 shell 代替产品删除；该清理动作的处置留给 Human，
+并作为后续切片的输入项记录。
