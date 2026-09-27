@@ -153,3 +153,49 @@ Preflight
 - 协议相关：golden vectors / semantic tests。
 - AI 相关：fake/offline deterministic tests 优先；不得依赖一次 live provider PASS 作为唯一证据。
 - write 相关：明确用户操作、明确确认、失败不得呈现为成功、**Agent 不得获得自动写权限**。
+
+## Cross-Agent Context / Anti-Drift（跨 Agent 防漂移 · durable）
+
+> 适用于一切 coding agent（ZCode / Claude Code / Cursor / CodeBuddy / 人类）。
+> 本节**不缓存任何瞬时状态**：HEAD / LKGC / 测试数 / package·staging hash /
+> 里程碑当前值一律实时从 canonical docs 与 Git 读取。
+
+1. **Agent 记忆不是事实来源。** auto memory / 旧会话 / 交接摘要 / 压缩上下文
+   只是提示（hints）；与 repo（source、tests、canonical docs、Git 历史）冲突时
+   **repo 胜**（工作纪律 13 的延伸）。
+2. **不知道就必须重新读取 repo，不得猜。** 任何 path / class / function /
+   test / commit / artifact / hash / gate result / hardware result 事实，必须有
+   repo、filesystem 或明确标注的历史 canonical evidence 支撑。
+3. **Resync 纪律。** 开始新的 behavior slice 之前，或经历上下文压缩 / Agent
+   切换之后，必须重新读取：current HEAD（`git rev-parse HEAD`）、
+   `docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、当前任务契约、相关
+   source/tests；禁止仅凭摘要继续关键工程判断。
+4. **状态等式否定（不得互相替代）**：
+   `expected ≠ actual`；`planned ≠ implemented`；`implemented ≠ tested`；
+   `tested ≠ Human accepted`；`Human accepted ≠ verified LKGC`；
+   `verified LKGC ≠ package`；`deterministic demo / simulation ≠ real hardware
+   evidence`；`historical evidence ≠ currently executed evidence`。
+5. **Human 验收边界。** Human acceptance 只覆盖其原文明确确认的范围；归档必须
+   逐字引用原文，**禁止扩写**（例如把「demo 不再自动关闭」扩写成硬件验证）。
+6. **Milestone 纪律。** automated PASS 不构成启动下一 milestone 的授权；下一
+   里程碑必须由 Human 单独授权后才可开始。
+7. **commit 分类按真实 changed paths。** behavior-bearing commit 与 LKGC
+   candidate 的判断依据是实际改动路径（`src/`、`tests/`、QML、
+   `CMakeLists.txt`、`scripts/`、`assets/`、`samples/`）经 `git diff
+   --name-only` 实测，不能仅凭 commit subject；docs-only 提交永不作 LKGC。
+8. **历史与现状分离归档。** 历史证据、当前执行、Human 验收、verified LKGC、
+   package、hardware 各自独立陈述；更正过时表述用**追加批注（superseding
+   note）**，不覆盖档案区原文。
+
+## 操作安全 / Mutation Safety（durable）
+
+1. **负向对照（negative control）**必须：真实 mutate → 观察目标测试 **RED** →
+   **精确逆向 patch** 还原 → 基线复绿；**没有真实 RED 不算 evidence**。
+2. **还原禁令**：mutation / 实验的还原**禁止** `git checkout -- <file>`、
+   `git restore`、`git reset`（曾把未提交实现一并回退，repo 有真实事故记录）；
+   一律 precise patch + precise reverse patch。
+3. **文档与源码编辑**：关键 docs（AGENTS / PROJECT_STATUS / 任务契约）**避免
+   heredoc** 写入（曾多次发生截断 / 转义损坏）；使用精确脚本或编辑器工具；
+   每次修改后立即 `git diff --check` 并检查文件尾无 shell 残留。
+4. **patch 锚点必须精确**；发现打错位置时立即精确逆向还原再重做（repo 有真实
+   事故记录），禁止在损坏状态上继续叠加修改。
