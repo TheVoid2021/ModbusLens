@@ -3302,3 +3302,203 @@ ABI / public C API consumer probe + probe evidence archive。**不做** C1b 产�
 probe 工作区 = ignored `build\m12c-c1b-dependency-probe\pdfium-binary-8066\`（**不删除**上一轮
 libzip / DOCX / PDF reconnaissance 证据）。
 上一轮 `libzip = PASS` 与 `DOCX consumer = PASS` **不重跑**，只复核无 repo truth 冲突。
+
+---
+
+## 57. M12-C C1b — PDFIUM BINARY ABI PROBE（2026-09-27 · **current state = DEPENDENCY PROBE PASS**）
+
+### 57.0 总判定
+
+```text
+PDFium binary ABI probe = **PASS**
+结合已归档的 libzip build PASS + DOCX Qt consumer PASS（本轮未重跑）
+⇒ M12-C C1b = STARTED / DEPENDENCY PROBE PASS / IMPLEMENTATION NOT STARTED
+（DEPENDENCY PROBE PASS ≠ implementation authorized）
+```
+
+### 57.1 Release identity / pin（frozen）
+
+```text
+distributor repo      = bblanchon/pdfium-binaries（**第三方 binary distributor**）
+release tag           = **chromium/8066**
+release title         = **PDFium 156.0.8066.0**
+release id            = 392954061 · draft=false · prerelease=false
+published_at          = 2026-09-21T12:48:25Z
+distributor release target commit = **f2e9a1c45bb17b85b540abf1af30146ef65416ac**
+                        （**= bblanchon/pdfium-binaries 仓库 commit，非 upstream PDFium commit**）
+upstream PDFium frozen commit     = **fc46361ce75055cd549cb938fae5d6a3fe3a1a05**
+release URL           = https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/8066
+```
+
+**upstream identity 本轮在线重新验证 = YES（成功）**：
+
+```text
+GET https://pdfium.googlesource.com/pdfium/+/fc46361ce75055cd549cb938fae5d6a3fe3a1a05?format=JSON → HTTP 200
+commit    = fc46361ce75055cd549cb938fae5d6a3fe3a1a05
+tree      = d8a0dc23abd3e92213c7b613a5b8c6304f6dea2e
+parents   = [221fc40e5868f4c136179d40a10e8fc75deb6889]
+author    = Tom Sepez <tsepez@google.com> · Thu Sep 17 18:46:22 2026 -0700
+committer = pdfium-scoped@luci-project-accounts.iam.gserviceaccount.com（同时间戳）
+subject   = "Remove core/fxge dependency from core/fxcrt/css"
+⇒ 与 Human-frozen identity **一致，无矛盾**（§5 的 503 保护条款本轮未被触发）
+```
+
+### 57.2 Artifact / digest / attestation
+
+```text
+artifact          = **pdfium-win-x64.tgz**（**非 V8** 版本；同 release 另有 pdfium-v8-win-x64.tgz 12 728 306 B 以示区分）
+asset id          = **579031518**
+asset size        = **3 823 498 B**（下载实测 bytes=3823498）
+local SHA-256     = **739a57d597d864297909cc40a2411eba728490c76a0fa25e3ea299c7f6b07020**
+GitHub API digest = sha256:739a57d597d864297909cc40a2411eba728490c76a0fa25e3ea299c7f6b07020
+digest match      = **EXACT MATCH**
+attestation asset = pdfium-attestation.json · id 579031525 · 18 411 B
+attestation SHA-256 = **78e8446878a31978058268d3931d15ff1766d72145bea5128c16f953b3b94d82**（= API digest，EXACT MATCH）
+attestation 结构   = DSSE envelope（in-toto Statement v1 · predicateType **SLSA provenance v1**）
+subject digest    = 解码 payload 后含 `pdfium-win-x64.tgz` → sha256 **739a57d5…**（= 本地 artifact）⇒ **subject digest match**
+```
+
+**密码学验证（§7）**：
+
+```text
+verifier          = **gh 2.101.0 (2026-09-15)**（pinned；portable zip 仅置于 probe workspace，
+                    未全局安装、未改系统 PATH、未进 Git）
+gh zip 校验        = 本地 bc6c814367b193cd8e713611d61e36013c0ef843b8f516458fe3eda039192794
+                    == GitHub API digest == 官方 checksums 文件 → 三方一致
+command           = gh attestation verify downloads/pdfium-win-x64.tgz \
+                      --bundle downloads/pdfium-attestation.json --repo bblanchon/pdfium-binaries
+exit code         = **0（PASS）**
+signer identity   = SAN = https://github.com/bblanchon/pdfium-binaries/.github/workflows/build-all.yml@refs/heads/master
+issuer            = https://token.actions.githubusercontent.com
+workflow          = .github/workflows/build-all.yml · ref refs/heads/master · repo bblanchon/pdfium-binaries
+provenance 生成步  = workflow 内 `uses: actions/attest-build-provenance@v3`，`subject-path: pdfium-*.tgz`
+                    （随后 mv 为 pdfium-attestation.json 并随 release 上传）
+```
+
+### 57.3 Artifact 内容 / VERSION / 构建配置 / 架构
+
+```text
+安全解包          = 50 entries；**0** 个绝对路径/`..` 条目；**无** symlink
+VERSION           = MAJOR=156 · MINOR=0 · BUILD=8066 · PATCH=0 ⇒ 与 **156.0.8066.0** 一致
+args.gn           = is_component_build=false · is_debug=false · **pdf_enable_v8=false** ·
+                    pdf_enable_xfa=false · pdf_is_standalone=true · pdf_use_partition_alloc=false ·
+                    **target_cpu="x64"** · **target_os="win"** · treat_warnings_as_errors=false
+                    ⇒ 确认为 **Windows x64 非 V8** artifact
+pdfium.dll        = 7 380 992 B · SHA-256 **d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b**
+                    格式 **pei-x86-64**（architecture i386:x86-64）
+exports           = 471 total · **434 个 `FPDF*`**；12 个必检符号全部存在：
+                    FPDF_InitLibraryWithConfig · FPDF_LoadDocument · FPDF_GetPageCount ·
+                    FPDF_LoadPage · FPDFText_LoadPage · FPDFText_CountChars · FPDFText_GetText ·
+                    FPDFText_ClosePage · FPDF_ClosePage · FPDF_CloseDocument ·
+                    FPDF_DestroyLibrary · FPDF_GetLastError
+pdfium.dll.lib    = 114 736 B · SHA-256 **a5b07aacd8a4c0fe4900152ca58332d512018c35619f555c0fbc68ed9213d5db**
+                    MSVC 格式 COFF import library（binutils 可读：`file format pe-x86-64`）
+```
+
+### 57.4 Public headers 与 upstream 逐字节对照（§11）
+
+```text
+header inventory  = include/ 下 24 个 public `fpdf*.h` + include/cpp/ 2 个 + **fpdfview.h.orig**
+fpdfview.h        = SHA-256 **7fe0ff046ec5a2eaf1642c21076c39737e04d0819bc7265d7c7c33a6b216cb5f**
+fpdf_text.h       = SHA-256 **4682f8553dc1d29bbee95cdcddefebbd96522c5be654807906240f8571593726**
+fpdfview.h.orig   = SHA-256 **c001b029e3b026e1704a30bca8335211b3bad374676c9946113696dc6dcbc305**
+
+upstream public/fpdfview.h @ fc46361c  vs artifact include/fpdfview.h.orig → **BYTE-IDENTICAL**
+upstream public/fpdf_text.h @ fc46361c vs artifact include/fpdf_text.h     → **BYTE-IDENTICAL**
+upstream public/fpdfview.h @ fc46361c  vs artifact include/fpdfview.h      → DIFFERS（**仅 6 行**）
+```
+
+**差异的成因已由 distributor 可验证 build process 证明为「预期生成步骤」**（§11 要求）：
+
+```text
+① artifact 自身携带 `fpdfview.h.orig`（= upstream 原文，逐字节一致）⇒ 是**有意 patch** 而非意外改动；
+② distributor `.github/workflows/patch.yml` → `steps/03-patch.sh`：shared 构建会依次 apply
+   `patches/shared_library.patch` 与 `patches/public_headers.patch`；
+③ `patches/shared_library.patch` 恰触及两个文件：`BUILD.gn` 与 **`public/fpdfview.h`**，
+   其 hunk 正是删除 `#if defined(COMPONENT_BUILD) … #else #define FPDF_EXPORT #endif`
+   这段 6 行 guard；
+④ 语义后果：upstream 在**非 COMPONENT_BUILD** 消费侧把 `FPDF_EXPORT` 定为**空**，
+   而 patch 后 WIN32 消费侧得到 **`__declspec(dllimport)`** ⇒ 对 DLL 消费方是**必要且正确**的修正；
+   （`patches/public_headers.patch` 只重写 `public/cpp/*.h` 的 include 路径，与本差异无关。）
+⇒ 结论：**差异为预期生成步骤，§11 的 STOP 条件不成立**；本轮仅使用 public headers，未调用任何 internal API。
+```
+
+### 57.5 Runtime dependency audit（§13，以 PE import table 为证据）
+
+```text
+pdfium.dll imports = **ADVAPI32.dll · GDI32.dll · KERNEL32.dll · USER32.dll**（全部 Windows system DLL）
+⇒ 无 V8 · 无 Node · 无 Python · 无 Java · 无 Office · 无 LibreOffice · 无 Qt ·
+  无 WinHTTP · 无 WinINet · 无 WS2_32（逐项以 import table 实测，非「目录里没有」推断）
+未向 System32 / Qt 安装目录 / MinGW 安装目录复制任何 DLL；全部 runtime staging 仅在 probe workspace
+```
+
+### 57.6 MinGW direct import-lib consumer（§14–§15）—— **DIRECT LINK = PASS**
+
+```text
+consumer compiler = **g++ (x86_64-posix-seh-rev1, MinGW-Builds) 13.1.0** · target **x86_64-w64-mingw32**
+                    （与 Qt 6.11.1 kit 同一 MinGW；**未**使用 MSVC / clang-cl）
+headers           = artifact include/（public headers only）
+import library    = artifact lib/pdfium.dll.lib（**直接使用**，未自行重新生成 import lib）
+compile command   = g++ -std=c++20 -O2 -o out/probe_pdf_direct.exe out/probe_pdf.cpp \
+                      artifact/lib/pdfium.dll.lib -Iartifact/include -Wall -Wextra
+compile           = **rc=0 · 0 error · 0 undefined reference · 0 warning**
+probe exe         = 85 979 B · SHA-256 **78f0536088e7bca58b17d52fe587be5bc13b51fca72a6523db66343a9f25bb83**
+architecture      = **pei-x86-64**
+PE imports        = KERNEL32.dll · libgcc_s_seh-1.dll · libstdc++-6.dll · msvcrt.dll · **pdfium.dll**
+runtime dir       = runtime/direct/ 仅含：probe exe + **frozen pdfium.dll**（SHA-256 d42c452a…，
+                    与 artifact 一致）+ 3 个 MinGW runtime DLL（libgcc_s_seh-1 / libstdc++-6 / libwinpthread-1）
+PATH 歧义检查      = `where.exe pdfium.dll` → **未找到**（PATH 上不存在另一份 pdfium.dll）
+                    ⇒ loader 实际使用 runtime 目录内的 frozen DLL（配合显式 dll_path 打印）
+repeatability     = 三个用例各连续运行 **2 次**，输出与 exit code 完全一致
+```
+
+### 57.7 功能用例（§16–§17）
+
+| 用例 | fixture（自生成，无版权） | 期望 | 实测（2 次一致） |
+| --- | --- | --- | --- |
+| text-layer | `samples/text-layer.pdf` 607 B（无压缩流，`BT…Tj…ET`） | page≥1 · CountChars>0 · GetText 含预期文本 | **exit=0** · `page_count=1` · `total_chars=32` · 文本 = **`ModbusLens C1b PDFium text layer`**（完全匹配） |
+| no-text | `samples/no-text.pdf` 577 B（合法页、无文本算子） | 不 OCR、不猜测、chars==0 | **exit=0** · `page_count=1` · `total_chars=**0**` · 文本为空 |
+| corrupt | `samples/corrupt.pdf` 317 B（合法 PDF 截断至 55%） | 明确失败、不 crash | **exit=2** · `load_document=FAILED` · **`FPDF_GetLastError=3`**（FPDF_ERR_FILE）· 无 crash |
+
+**dynamic fallback = NOT RUN**（Human 授权：仅当 direct 不可靠时才允许；direct 已 PASS，故未执行）。
+
+### 57.8 许可证 / notice 分层审计（§12，事实 inventory，非法律意见）
+
+```text
+A. distributor repo license = MIT 风格（Copyright 2014-2025 Benoit Blanchon）· 1 068 B
+B. upstream PDFium LICENSE @ fc46361c = BSD-3-clause 风格（Copyright 2014 The PDFium Authors）· 12 896 B
+   （仓库内以 `// ` 注释前缀书写；去掉前缀后与 C 层 pdfium.txt **语义一致**）
+C. artifact 内实际携带 = `LICENSE`（= distributor MIT 文本 + 追加一句
+   “This package also includes third-party software. See the licenses/ directory …”，
+   与 repo LICENSE 的字节差来自行尾/该句）+ `licenses/` **14 个**第三方 notice：
+   abseil · agg23 · fast_float · freetype · icu · lcms · libjpeg_turbo(.ijg/.md) ·
+   libopenjpeg · libpng · llvm-libc · **pdfium** · simdutf · zlib
+D. NuGet：distributor README 记录其发布 `bblanchon.PDFium` / `bblanchon.PDFiumV8`；
+   NuGet 元数据端点可达，但本轮**未提取**其 license declaration（tgz 路线不需要）
+```
+
+**PACKAGING LICENSE MATERIAL 工程判断**：artifact 自带 LICENSE + 14 项第三方 notice，
+**明显材料齐备**（`PACKAGING LICENSE MATERIAL = PRESENT`）；但具体 redistribution 义务
+（逐文件归属、NOTICE 并入方式）**必须在未来 packaging 轮重新核对**，本轮不主张
+canonical distribution ready。
+
+### 57.9 probe 位置 / 未做事项
+
+```text
+probe 工作区 = build\m12c-c1b-dependency-probe\pdfium-binary-8066\
+              （downloads/ artifact/ out/ runtime/ samples/ logs/；**ignored & untracked**）
+上一轮证据   = build\m12c-c1b-dependency-probe\ 下的 libzip / DOCX / PDF reconnaissance **未删除、未改动**
+probe artifacts tracked = **NO**（`git ls-files build` = 0）
+runtime download        = **NO**（下载仅发生在 probe preparation；运行期只用本地 bytes/DLL）
+product implementation  = **NO**（未改 src/ tests/ CMakeLists.txt QML / AGENTS.md / CODEBUDDY.md）
+```
+
+### 57.10 状态
+
+```text
+M12-C C1b = STARTED / DEPENDENCY PROBE PASS / IMPLEMENTATION NOT STARTED
+（PDFium binary ABI probe PASS · libzip PASS · DOCX consumer PASS）
+M12-C C1a = COMPLETE / HUMAN ACCEPTED（不变）
+verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不变）
+未 push / 未 tag / 未 amend；未创建 behavior commit / Human candidate / canonical package
+```
