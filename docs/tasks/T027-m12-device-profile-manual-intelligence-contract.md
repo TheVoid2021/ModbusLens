@@ -3502,3 +3502,119 @@ M12-C C1a = COMPLETE / HUMAN ACCEPTED（不变）
 verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不变）
 未 push / 未 tag / 未 amend；未创建 behavior commit / Human candidate / canonical package
 ```
+
+---
+
+## 58. M12-C C1b — PRODUCT IMPLEMENTATION START + SEMANTICS / DEPENDENCY FREEZE（2026-09-27）
+
+> 本节是 **docs-only freeze**：先冻结 Human 批准的产品语义与依赖物料策略，**然后**才允许写产品代码。
+> 实现证据见 §59。
+
+### 58.1 Human 授权原文（逐字归档）
+
+> “授权：M12-C C1b product implementation START。
+> 冻结 PDF 文本语义为使用 PDFium public C API
+> 提取已有 text layer，
+> UTF-16 正确转换为 Unicode/QString，
+> 至少覆盖 ASCII、中文、无 text layer 与 corrupt PDF；
+>
+> 冻结 DOCX v1 plain-text 语义为
+> paragraph 分隔 `\n`、
+> table cell 分隔 `\t`、
+> table row 分隔 `\n`、
+> `w:tab`→`\t`、
+> `w:br`/`w:cr`→`\n`、
+> run 间无额外分隔、
+> `w:t` 保持文本且尊重 `xml:space`；
+>
+> PDFium/libzip 依赖必须使用
+> 已 probe 通过的 exact pins，
+> 并通过可重复、离线可用的
+> 本地 dependency materialization 进入构建，
+> 禁止 runtime 下载与隐式 latest。
+>
+> 实现前先把这些语义与依赖物料策略归档，
+> 然后才允许写产品代码。”
+
+**授权边界**：这是 **C1b PRODUCT IMPLEMENTATION START**，**不是** C1b COMPLETE、**不是** Human acceptance、
+**不是** LKGC advancement、**不是** C2/C3 授权、**不是** M12-D 授权。
+verified LKGC 保持 `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`。
+
+### 58.2 PDF 文本语义（**HUMAN-APPROVED PRODUCT DECISION**）
+
+```text
+PDF 文本 = 使用 **PDFium public C API** 提取**已有 text layer**
+转换规则 = PDFium 文本按 public API contract 作为 **UTF-16** data 处理，
+           正确转换为 **Unicode / QString**（禁止 Latin-1 / local 8-bit /
+           UTF-8 reinterpret_cast / 逐 byte 构造）
+最低覆盖 = ASCII · 中文 · 无 text layer · corrupt PDF
+OCR      = **DEFERRED**（不得 OCR、不得猜测文本）
+```
+
+### 58.3 DOCX v1 plain-text 语义（**HUMAN-APPROVED PRODUCT DECISION**）
+
+```text
+paragraph 分隔     = `\n`
+table cell 分隔    = `\t`
+table row 分隔     = `\n`
+`w:tab`            = `\t`
+`w:br` / `w:cr`    = `\n`
+run 之间           = **无**额外分隔符
+`w:t`              = 保持文本内容，并**尊重 `xml:space`**
+story 边界（v1）    = 仅 **Main Document Part** 的 main document story
+                      （header / footer / comments / footnotes / endnotes /
+                       text box extended stories / embedded object / image OCR /
+                       tracked-change semantics / field evaluation = 不得自动扩展）
+```
+
+解析必须 **namespace-aware**（按 namespace URI + local name 判断，不得假定 prefix 为 `w` / `r`）。
+不得 trim / 折叠空白 / 自动美化 / Markdown·HTML render。
+
+### 58.4 依赖物料策略（**IMPLEMENTATION STRATEGY — under authorized offline-materialization
+requirement；下列具体路径 / 脚本名 / manifest 形状属工程实现选择，不是 Human 原文**）
+
+```text
+§2 审计结论：repo **无**既有 canonical third-party materialization 机制
+             （无 third_party 目录、无 lock manifest、无 FetchContent/ExternalProject；
+              仅 Qt 的 find_package）；既有先例 = `scripts/make_package.py` 与
+              `scripts/test_make_package_freshness.py`（Python stdlib 脚本惯例）；
+              `docs/ENVIRONMENT.md §6` 红线：项目代码不得依赖任何机器的绝对路径。
+             ⇒ 与下述策略**无实质冲突**，不构成「第二套 dependency truth」。
+
+(1) tracked lock manifest —— repo 内轻量 JSON，只记 pin / hash / 上游标识，
+    **不记任何本机绝对路径**（遵守 ENVIRONMENT §6）。
+(2) local distfiles only —— 产品 CMake **禁止联网**：不得 FetchContent URL /
+    ExternalProject URL / latest / main / master / HEAD；只接受本地已存在的 exact-pinned distfiles。
+(3) explicit offline materializer —— repo-tracked Python(stdlib) 工具，**默认 NO NETWORK**；
+    输入 = local distfiles 目录；输出 = ignored `build/deps/m12c-c1b/`；
+    **先 SHA-256 验证 → 再解包/构建**；任何 hash mismatch 明确 FAIL。
+(4) build consumption —— CMake 只消费已 materialized 的 local root；缺失 / 版本不符 /
+    pin 不符 / manifest 不符 ⇒ configure **明确失败**并给出 preparation command，绝不自动联网修复。
+(5) reproducibility boundary —— 「offline reproducible」定义为：exact distfiles 已在本地后，
+    materialization + configure/build/test **全程无需网络**；**不**声称 clean clone 在完全没有
+    dependency bytes 的机器上凭空离线构建。
+(6) no vendored blob —— **不**把 pdfium tgz / pdfium.dll / pdfium.dll.lib / libzip tarball /
+    libzip.a 提交进 Git。
+```
+
+### 58.5 本轮范围（HARD SCOPE）
+
+```text
+IN : A 离线依赖物料化 · B PDFium extraction foundation · C DOCX extraction foundation ·
+     D deterministic unit tests · E CMake 本地依赖消费
+OUT: ManualImportController 接线 · ManualStore import 行为修改 · FileDialog filter 修改 ·
+     DeviceProfilePage.qml / Main.qml 修改 · Human candidate · visual review ·
+     AI extraction · Candidate model · C2/C3 · M12-D
+```
+
+**PDF「无 text layer」在本 slice 不得被映射成最终 UI/import policy**（reject 导入 vs 允许保存但文本为空
+= 未冻结的产品 UX 决策）：extractor 只返回明确的 `NoExtractableText` 状态。
+
+### 58.6 未冻结项（本轮发现，待 Human）
+
+```text
+PDF page-boundary / user-visible page concatenation 语义：Human 本轮授权只覆盖
+「existing text layer extraction」与 UTF-16 correctness，**未**新增 PDF page separator 规则；
+T027 既有 contract 亦未冻结。⇒ 本 slice **不**自行把任何 page separator 升格为产品契约，
+result 保留 **per-page** 结构；若未来必须选定 user-visible 拼接语义，另行提请 Human 裁定。
+```
