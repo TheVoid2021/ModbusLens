@@ -2333,3 +2333,149 @@ verified LKGC = 13799d633291abd69b66ab1c324699ac5014143a（不推进）
 ```
 
 **口径纪律**：PDF / DOCX **仍属 M12-C canonical scope**，只是 **C1b deferred**；本轮**不得**删除 canonical PDF/DOCX requirement、**不得**写成 out-of-scope for M12-C、**不得**写成 “unsupported forever”。
+
+---
+
+## 49. M12-C C1a — UI Layout Correction + Automated Evidence（2026-09-27）
+
+> **状态口径（不得改写）**：**C1a PRODUCT(QML) GATES = PASS · Release 全量 = PASS ·
+> DEBUG = ENVIRONMENT HOLD**。**不得**写成 `C1a PASS`，**不得**写成 `C1a FAIL`，
+> **不得**写成 `AUTOMATED COMPLETE`。本节的 behavior 变更**未提交**（见 §49.7）。
+
+### 49.1 QML 几何 RCA（先取证，后修改）
+
+`--qml-manual-import-check` 新增 `MANGEO` / `MANCHAIN` 逐节点取证输出（x/y/w/h/
+implicitW/implicitH/visible + parent chain）。实测得到两个**互相独立**的真实根因：
+
+**根因 1 —— 测量发生在未结算的布局上（harness 缺陷，非产品缺陷）**
+第一次取证（原 stage 0，与 `window->resize(1000,700)` 同一 step）读到的是
+**resize 尚未传播到 scene graph** 的旧几何：
+
+```text
+MANCHAIN s0 d5 QQuickColumnLayout: w=1024 h=720      ← 旧窗口尺寸
+MANCHAIN s0 d1 QQuickColumnLayout: iw=903 ih=344
+MANGEO  s0 manualImportHost: w=0 h=0                  ← 假 0
+```
+
+⇒ 「card 0×0」在 s0 是**测量时机**问题。
+
+**根因 2 —— preview 视口真的塌成 0（真实产品缺陷）**
+在结算后的 s6（1000×700）取证：
+
+```text
+MANCHAIN s6 d0 manualImportHost: x=61 y=556 w=935 h=140   ← wrapper 有尺寸
+MANGEO  s6 manualImportCard:     w=935 h=140              ← anchors.fill 成立
+MANGEO  s6 manualImportBody:     h=35                     ← 内容被压扁
+MANGEO  s6 manualPreview:        w=653 h=0                ← 唯一真正的 0
+```
+
+⇒ 卡片高 140 不足以容纳 header(15) + actions(34) + body；`manualPreview`
+（`Layout.fillHeight: true`）在无下限约束下被压到 **h=0**。
+
+### 49.2 精确修复（最小、非掩盖）
+
+```text
+A. gate：stage 0 拆为 stage 0 + stage 0b（几何测量单独 step，
+   不在同一 step 内 resize+measure）；新增 requireSized（visible + w>0 + h>0）；
+   stage 0b/s6 各做一次 MANGEO/MANCHAIN dump。
+B. QML wrapper Item：Layout.fillWidth + preferred/minimumWidth(600/240) +
+   preferred/minimumHeight(160) + objectName "manualImportHost"。
+C. manualImportBody：Layout.minimumHeight 60；
+   manualPreview：Layout.minimumHeight 36。
+D. 详情列：移除抢占高度的第三行 provenance Label（objectName 由
+   manualDocSource 删除；contentHash 行保留）——不删除任何信息能力，
+   只回收垂直空间。
+```
+
+**未使用**：clip 掩盖 overflow、删除内容、固定 1000px 宽、在 controller 里硬编码几何、
+gate 跳过 Manual 区域。§1 的「core/store/controller 保持 ZERO/MINIMAL DIFF」满足：
+`ManualDocument.*` / `ManualStore.*` / `ManualImportController.*` 的**最终**内容
+与本轮开始时一致（本轮全部 mutation 均已精确逆向还原，见 §49.6）。
+
+### 49.3 自动化证据（Release，真实执行）
+
+```text
+ctest（Release，完整 52 项）        → 100% tests passed, 0 tests failed out of 52
+manual_import                      → PASS（22 个测试函数）
+qml_manual_import_check            → PASS（MAN-Q01..Q12；含 requireSized 与越窗断言）
+qml_profile_editor_check           → PASS（M12-B 既有门禁，无回归）
+qml_register_map_check             → PASS（同上）
+qml_active_profile_check           → PASS（同上）
+qml_geometry_check                 → PASS
+qml_nav_check                      → PASS
+qml_write_foundation_check_windows → PASS（真实 windows QPA，含于 52 项内）
+诊断计数（LastTest.log）           → ReferenceError=0 · TypeError=0 ·
+                                     Unable to assign=0 · String.arg Invalid arguments=0
+```
+
+### 49.4 真实负向对照（各含真实 RED → 精确逆向 patch → 基线复绿）
+
+| NC | mutation | 真实 RED（逐字） | 还原后 |
+| --- | --- | --- | --- |
+| NC-C1A-1 | `loadAll()` 丢弃 `originalPath` 已不存在的文档 | `FAIL! : ManualImportTest::originalSourceDeletionDoesNotBreakTheManagedDocument() Compared values are not the same`（21 passed / 1 failed） | GREEN |
+| NC-C1A-2 | 忽略 `QStringDecoder` 的 strict-UTF-8 失败结果 | `FAIL! : ManualImportTest::invalidUtf8WithoutNulIsRejected() '!result.ok()' returned FALSE.`（21/1） | GREEN |
+| NC-C1A-3 | cache 路径改用 `originalFileName` 而非 `contentHash` | 8 项 RED，含 `contentHashIsDeterministic() Compared values are not the same`（14/8） | GREEN |
+| NC-C1A-4 | import 提交后覆写 profiles 目录下的 profile JSON | `FAIL! : ManualImportTest::persistedProfileJsonIsUntouched() Compared values are not the same`（21/1） | GREEN |
+
+还原方式一律 **precise reverse patch**；未使用 `git checkout --` / `git restore` / `git reset`。
+还原后 `ManualStore.cpp` 复核：无 mutation 残留（`grep -n "MUTATION|ProfileStore|victims"`
+= 0 命中），370 行，目标行内容与设计一致。
+
+### 49.5 Debug ENVIRONMENT HOLD（独立轨道，与 QML 缺陷**不是**同一根因）
+
+```text
+工具链      → GNU ar / ranlib (GNU Binutils) 2.39
+ar         → D:\QT\Tools\mingw1310_64\bin\ar.exe
+ranlib     → D:\QT\Tools\mingw1310_64\bin\ranlib.exe
+TMP/TEMP   → C:\Users\付\AppData\Local\Temp（非 ASCII，实测可正常写入）
+磁盘       → E: 61G free / C: 46G free（非空间问题）
+archive 路径 → 54 字符（非长度问题）
+```
+
+**现象**：Debug 的 `libmodbuslens_core.a` ≈ **14.7 MB**；`ar`/`ranlib` 在写归档时
+报 `could not create temporary file whilst writing archive: no more archived files`。
+Release 的同一归档仅 ≈ **198 KB**，正常。
+
+**产品无关最小探针（结论性）**：
+
+```text
+① 同一批 25 个 obj（14.1 MB）
+   · 目标 E:\tmp\probe_big（repo 外）→ ar qc 成功 14732408 B；
+     ranlib 连续 8/8 失败
+   · 目标 E:\desktop\ModbusLens\build\debug（repo 内）→ ar qc 失败
+   · 1.79 MB（6 obj）→ ar/ranlib 在 C:/E:、repo 内外**全部成功**
+② 仅用**既有** obj（排除新增 ManualDocument.cpp.obj）：14 693 920 B →
+   ranlib 仍失败 ⇒ **与本轮 C1a 改动无关**
+③ Debug 编译阶段：src/core/manual/* + src/ui/manual/* + tests/test_manual_import.cpp
+   + src/main.cpp 以 Debug 风格旗标（-g -O0 -std=c++20 -Wall -Wextra，-fsyntax-only）
+   实测 **0 error**
+```
+
+**RCA 结论**：失败位于 **binutils 写归档时的临时文件创建**，阈值约 2 MB，
+且对目标目录敏感（repo 内 build 目录更易触发）、**间歇性**（同一命令曾偶发成功）。
+判定 = **环境 / 工具链 / 沙箱层面**，**不**是 C++ 编译错误、**不**是产品缺陷、
+**不**是 C1a 引入。**未**为绕过它修改产品代码、**未**改编译优化、**未**把 Release PASS
+冒充 Debug PASS。
+
+**未满足的验收面**：`Debug full CTest` **无法执行**（本机所有下游边都依赖该归档，
+`ninja -k 0` 报 `cannot make progress due to previous errors`）。另有独立既有阻塞
+（T027 §44 家族）：`windeployqt --version` 仍报
+`Unable to query qtpaths: Error running binary qtpaths: pipe: rc=0`（`qtpaths` 自身 rc=0）
+⇒ canonical deploy / 全新 portable 部署树仍不可用。
+
+### 49.6 behavior 未提交（HOLD 路径）
+
+```text
+期望 HEAD = f500cf37cfc7cffd8d51a4650303adcc094ecb2b（docs-only 裁定归档）
+本轮：未创建 behavior commit（Debug 处于 environment HOLD，按 Human/ChatGPT 约定
+      不创建「已完成」behavior commit）
+工作树：有价值的 WIP 原样保留（CMakeLists.txt / src/main.cpp / src/ui/qml/Main.qml /
+      src/ui/qml/pages/DeviceProfilePage.qml 修改；src/core/manual/ + src/ui/manual/ +
+      tests/test_manual_import.cpp 新增）
+未做：未创建 visual candidate（§12 前提为「完整 automated acceptance 可交 Human」，
+      当前 Debug 未满足）；未 push / tag / amend；未推进 LKGC；未 package
+```
+
+**工作树异常观察（非本轮产生）**：`git status` 出现 3 个**非本轮创建**的未跟踪文件
+（`_count_tests.py`、`_map_scenarios.py`、`scripts/bench_replay/_run_1m.txt`，
+mtime 2026-09-27 16:52–16:54）。本轮**未创建、未修改、未删除**它们；归档在案待 Human 确认归属。
