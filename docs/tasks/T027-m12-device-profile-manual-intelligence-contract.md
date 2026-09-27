@@ -2558,3 +2558,163 @@ DEBUG ENVIRONMENT HOLD REMAINS
 · C1a 仍为：PRODUCT GATES = PASS / RELEASE FULL = PASS / DEBUG = ENVIRONMENT HOLD
 · behavior 仍**未提交**；visual candidate 仍**未创建**；WIP 原样保留
 ```
+
+---
+
+## 51. M12-C C1a — AUTOMATED CLOSURE + BEHAVIOR COMMIT + VISUAL CANDIDATE（2026-09-27）
+
+### 51.1 Human external Debug evidence（AUTHORITATIVE，逐字归档）
+
+Human 在 **WorkBuddy 之外的普通 Windows shell** 完成决定性 Debug 验证，使用
+`cmake = D:\QT\Tools\CMake_64\bin\cmake.exe`、`ctest = D:\QT\Tools\CMake_64\bin\ctest.exe`、
+`ninja = D:\QT\Tools\Ninja\ninja.exe`，`TEMP/TMP/TMPDIR = E:\tmp\ext-probe`，目标
+`E:\desktop\ModbusLens\build\debug`：
+
+```text
+Debug build   : [148/148] Linking CXX executable modbuslens.exe
+                DEBUG BUILD EXIT = 0
+Debug CTest   : 52/52 PASS  ——  100% tests passed, 0 tests failed out of 52
+                Total Test time (real) = 121.72 sec
+                DEBUG CTEST EXIT = 0
+其中包含     : manual_import PASS · qml_profile_editor_check PASS ·
+              qml_register_map_check PASS · qml_active_profile_check PASS ·
+              qml_manual_import_check PASS · qml_geometry_check PASS ·
+              qml_nav_check PASS · qml_write_foundation_check_windows PASS
+同一 shell 的 large archive probe :
+              同一 MinGW ar.exe / 同一 ranlib.exe / 同一批 ≈14.7 MB Debug obj
+              3/3 → ar=0 · ranlib=0 · size=14732408
+```
+
+⇒ **DEBUG ENVIRONMENT HOLD = RESOLVED BY EXTERNAL HUMAN-SHELL CONTROL。**
+**措辞纪律**（不得越界）：**不**声称 binutils 已被「修复」；**不**声称 Trae 为根因；
+**不**声称 Defender / 火绒 为根因。已证明的仅是：**同一 machine / toolchain / object set
+在普通 Windows shell 中可稳定完成 large archive，且完整 Debug build + 52/52 CTest PASS**。
+据此，WorkBuddy sandbox 内的 ar/ranlib archive failure **不得**再作为 C1a Debug acceptance failure。
+
+### 51.2 WorkBuddy 侧本轮 Release 最终回归（真实执行）
+
+```text
+cmake --build --preset release-local → build rc=0（ninja: no work to do ⇒ 已验证产物与本树一致）
+ctest（Release，完整）               → 100% tests passed, 0 tests failed out of 52
+                                     （52 条 Start/Passed 条目实测；count 以本轮发现为准）
+包含                                 → manual_import · qml_manual_import_check ·
+                                     qml_profile_editor_check · qml_register_map_check ·
+                                     qml_active_profile_check · qml_geometry_check ·
+                                     qml_nav_check · qml_write_foundation_check_windows 全部 PASS
+```
+
+**§4–§7 条件全部满足** ⇒ 允许写：**M12-C C1a = IMPLEMENTED / AUTOMATED PASS /
+HUMAN REVIEW PENDING**（这是 **automated acceptance**，**不是** Human visual PASS、
+**不是** LKGC advancement、**不是** C1a Human acceptance）。
+
+### 51.3 Behavior commit
+
+```text
+commit  = 7bcd2ca0b72a0fe22ecb0b719c12cbdb2230833c
+parent  = 56e64e2e79ef0848487ca55ccd66f84752f37193
+subject = M12: add deterministic manual import foundation
+paths   = CMakeLists.txt, src/core/manual/ManualDocument.{h,cpp},
+          src/ui/manual/{ManualStore,ManualImportController}.{h,cpp},
+          src/main.cpp, src/ui/qml/Main.qml,
+          src/ui/qml/pages/DeviceProfilePage.qml, tests/test_manual_import.cpp
+          （11 files changed, 2243 insertions(+), 2 deletions(-)）
+NO AMEND。未混入 docs/ / _ctx.py / _dump.py / build/ / 任何 probe artifact。
+```
+
+### 51.4 Qt License Service message —— disposition
+
+Human-shell Debug build 期间 AutoMoc / moc 多次报告：
+
+```text
+Could not initialize license client
+Cannot find a license service installation that matches version "3.6.4"
+Cannot acquire license to use qtframework
+```
+
+**disposition = NON-BLOCKING ENVIRONMENT WARNING OBSERVED DURING HUMAN-SHELL DEBUG BUILD**。
+依据：build 继续完成至 `[148/148] Linking CXX executable modbuslens.exe`，`DEBUG BUILD EXIT = 0`，
+`DEBUG CTEST = 52/52 PASS`。**不**写成 C1a product failure；**不**声称 license valid；
+**不**声称 license invalid；**未**由本 Agent 设置 `QTFRAMEWORK_BYPASS_LICENSE_CHECK=1`
+（本轮**未使用**该 bypass）；**未**修改任何 license configuration；**未**替 Human 接受任何
+license terms。该事项作为独立环境维护项留待 Human 处置。
+
+### 51.5 WIP 完整性 / negative-control 还原 / protected diff 审计
+
+```text
+MUTATION marker 残留          → 0 命中（src/ tests/ CMakeLists.txt）
+original-path dependency      → 无（loadAll 不含 originalPath 过滤）
+strict UTF-8 bypass           → 无（decoder.hasError() || finalized.invalidChars 仍在）
+cache identity regression     → 无（cache = <contentHash>.txt）
+Profile JSON pollution         → 无（manual 层零 ProfileStore 耦合，仅注释中提及）
+contentHash                   → 仍为 QCryptographicHash::Sha256(source bytes)
+protected authority（vs verified LKGC 13799d6）
+  TransactionAnalysis.cpp / RegisterDecode.cpp / DeviceProfile.{h,cpp} /
+  ProfileStore.{h,cpp} / ProfileController.cpp / ActiveProfileController.cpp
+                              → 全部 UNCHANGED
+tracked 改动路径（vs LKGC）   → 仅 CMakeLists.txt · src/main.cpp ·
+                                src/ui/qml/Main.qml · DeviceProfilePage.qml
+DeviceProfile schemaVersion   → 未因 ManualDocument 改动；ManualDocument 使用
+                                自己的 schemaVersion=1 与独立目录，绝不写入 DeviceProfile JSON
+```
+
+### 51.6 Visual candidate（staging）—— 已组装 + 验证 → **交付受阻**
+
+```text
+路径            = build\m12c-visual-candidate\
+staging 机制     = 复用 M12-B 已实际验证过的自包含 staging（Qt DLL 集 + plugins +
+                  ModbusLens QML module dir）+ 本轮 Release exe；**未**运行 windeployqt
+                  （其 `Unable to query qtpaths: … pipe: rc=0` 问题依旧），
+                  **未**伪装 canonical deployment PASS
+exe 身份         = candidate ModbusLens.exe SHA-256
+                  7b486eea9ab5e9922f0c36a90f211ad3295fcd3fc97c5a804bd471069708feae
+                  == source build\release\ModbusLens.exe（byte-identical）
+QML module       = 逐份复制自 build\release\ModbusLens\（含 manualImportCard 的新版
+                  DeviceProfilePage.qml；staging 树确实**随源码刷新**，非旧副本）
+launcher         = Run-C1a-Manual-Import.cmd（最小 PATH=System32；**不**自动退出）
+samples          = samples\manual-utf8.txt（UTF-8，无 BOM，首字节 46 72 65）
+                  samples\manual-bom.md（UTF-8 **带 BOM**，首字节 EF BB BF，含中文 /
+                  ASCII / Markdown heading / 普通 link / 图片语法 / script 字样）
+clean-env 启动   = 通过（最小 PATH 下 exe 正常启动并进入 QML）
+lifetime         = 通过（bare 启动后 8 s 仍存活，PID 3924 / 175 376 K；已由本 Agent
+                  手动终止并确认 0 残留进程）
+Manual Import gate（staged 树、**真实 windows QPA**）→ **RED**
+```
+
+**真实缺陷（must not be hidden）**：在 **真 windows QPA + 1000×700** 下，Manual 区域内容
+越出窗口 7 px：
+
+```text
+MANFAIL: manualDocumentList outside: x=73 y=640 w=250 h=67 win=1000x700
+MANFAIL: manualPreview      outside: x=331 y=671 w=653 h=36 win=1000x700
+（同次 dump：manualImportHost 935×160 正常；manualImportBody 只得 h=60，
+  而 body 内容的实际最小高度在 windows 字体度量下为 67 ⇒ 子项溢出 body，
+  再溢出卡片（card y=536..696）与窗口（底边 707 > 700））
+```
+
+**根因**：`manualImportBody.Layout.minimumHeight: 60`（为 **offscreen** 字体度量选定）
+小于 windows 度量下内容的最小高度（67）；卡片固定高 160 无法容纳
+`header 20 + actions 34 + body 67 + spacing + padding`。**这是本轮 C1a 引入的真实缺陷**，
+且**正是** `qml_write_foundation_check_windows` 那条既有教训所覆盖的 offscreen 盲区
+（offscreen 行高 12 px vs 真平台 16 px；本页 header 实测 offscreen 15 px vs windows 20 px）。
+**offscreen 门禁无法发现它**，因此本轮 52/52（全 offscreen，除 windows 那一项）通过并不构成
+「1000×700 在真平台可用」的证据。
+
+**建议修复（未执行，需 Human 授权为新的一轮）**：
+① 提高 Manual 区域的垂直预算（host/body/preview 的 minimum 与 preferred 按 **windows** 度量重算，
+或把详情列再压一行）保证 body 内容在 1000×700 下完整落在窗口内；
+② 新增 CTest 条目 `qml_manual_import_check_windows`（同命令、**不给** offscreen 环境），
+沿用 `qml_write_foundation_check_windows` 的既有先例，关闭该盲区；
+③ 因②会改变测试数量，**必须**重跑 Release 全量 + 由 Human 在普通 shell 重跑 Debug 全量，
+新 head 才能重新取得 automated acceptance。
+
+### 51.7 状态与下一步
+
+```text
+M12-C C1a（at commit 7bcd2ca）= IMPLEMENTED / AUTOMATED PASS / HUMAN REVIEW PENDING
+VISUAL CANDIDATE              = ASSEMBLED + IDENTITY-OK + LIFETIME-OK
+                                BUT **NOT HANDED OVER**：真实 windows QPA 1000×700
+                                几何缺陷（越窗 7 px）必须先修复
+DEBUG ENVIRONMENT HOLD        = RESOLVED BY EXTERNAL HUMAN-SHELL CONTROL
+verified LKGC = 13799d633291abd69b66ab1c324699ac5014143a（不推进）
+未做：未 amend · 未 push · 未 tag · 未创建 canonical package · 未开始 C1b/C2/C3/M12-D
+```
