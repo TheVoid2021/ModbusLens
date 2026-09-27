@@ -3192,3 +3192,113 @@ M12-C C1a = COMPLETE / HUMAN ACCEPTED（不变）
 verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不变）
 未改 src/ tests/ CMakeLists.txt QML；未做产品实现；未 push / 未 tag / 未 amend
 ```
+
+---
+
+## 56. M12-C C1b — PDFIUM HOLD UNLOCK AUTHORIZATION（2026-09-27 · probe 结果见 §57）
+
+### 56.1 Human 授权原文（逐字归档）
+
+> “授权：M12-C C1b PDFium HOLD 解锁 probe
+> 使用第三方 binary distributor
+> bblanchon/pdfium-binaries，
+>
+> 冻结 candidate release 为：
+>
+> PDFium 156.0.8066.0
+> /
+> chromium/8066
+>
+> 对应官方 PDFium chromium/8066
+> 当前 commit：
+>
+> fc46361ce75055cd549cb938fae5d6a3fe3a1a05
+>
+> 目标 artifact：
+>
+> Windows x64
+> pdfium-win-x64.tgz。
+>
+> 必须核验并归档：
+>
+> artifact SHA-256
+> GitHub release digest/attestation
+> VERSION
+> public headers
+> architecture
+> license/notices
+> runtime dependencies。
+>
+> 仅允许：
+>
+> PDFium public C API。
+>
+> OCR 继续 deferred。
+>
+> runtime 不得下载。
+>
+> 先测试：
+>
+> MinGW GCC 13.1 consumer
+> 对发行包 import library
+> 的直接消费。
+>
+> 若不可靠：
+>
+> 允许在不更换
+> PDFium DLL / version
+> 的前提下测试
+> 本地动态符号加载。
+>
+> 两种机制均失败：
+>
+> 继续 HOLD。
+>
+> 不得自行更换 PDF engine。
+>
+> 该授权：
+>
+> 仅用于解除 dependency probe，
+>
+> 不授权：
+>
+> C1b 产品实现。”
+
+### 56.2 冻结项（HUMAN-FROZEN）与边界
+
+```text
+PDF engine       = **未改变**，仍是 **PDFium public C API**（OCR 继续 DEFERRED）
+新增授权         = 允许采用 **bblanchon/pdfium-binaries** 作为 **frozen binary distributor**
+                   进行 dependency probe
+PDFium version   = **156.0.8066.0**
+distributor tag  = **chromium/8066**
+upstream identity= **chromium/8066**
+Human-frozen upstream commit = **fc46361ce75055cd549cb938fae5d6a3fe3a1a05**
+artifact         = **Windows x64 · pdfium-win-x64.tgz**
+runtime          = **不得下载**（下载只允许发生在 probe preparation）
+```
+
+**distributor 定性（必须逐字保留）**：`bblanchon/pdfium-binaries` 是**第三方 binary
+distributor**，**不是** Google、**不是** Foxit、**不是** PDFium 官方 binary channel。
+distributor 仓库侧出现的任何 commit（例如 release 页面上的 `f2e9a1c` 一类）
+**必须标注为 bblanchon/pdfium-binaries 仓库 commit**，**绝不得**写成 upstream PDFium commit；
+upstream frozen identity 单独是 `fc46361ce75055cd549cb938fae5d6a3fe3a1a05`。
+
+**本授权 ≠ 产品 dependency adoption；≠ C1b implementation authorization；≠ LKGC advancement。**
+probe 完成前的状态：
+
+```text
+M12-C C1b = STARTED / DEPENDENCY PROBE HOLD /
+            PDFIUM BINARY ABI PROBE AUTHORIZED / IMPLEMENTATION BLOCKED
+verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不变）
+```
+
+### 56.3 本轮范围
+
+只做：授权归档 + 第三方 PDFium binary supply-chain verification + MinGW GCC 13.1
+ABI / public C API consumer probe + probe evidence archive。**不做** C1b 产品实现；
+不改 `src/` / `tests/` / `CMakeLists.txt` / QML / `AGENTS.md` / `CODEBUDDY.md`；
+不建 behavior commit / Human candidate / canonical package；不推进 verified LKGC；
+probe 工作区 = ignored `build\m12c-c1b-dependency-probe\pdfium-binary-8066\`（**不删除**上一轮
+libzip / DOCX / PDF reconnaissance 证据）。
+上一轮 `libzip = PASS` 与 `DOCX consumer = PASS` **不重跑**，只复核无 repo truth 冲突。
