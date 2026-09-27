@@ -1934,3 +1934,293 @@ NOT VERIFIED
 
 **口径纪律**：LKGC 是 `13799d6`——**不是** `6447d83`（closure docs commit），
 **也不是**本轮 docs commit。所有 docs-only 提交永不作 LKGC。
+
+---
+
+## 47. M12-C CONTRACT / DEPENDENCY RECONNAISSANCE（2026-09-27，docs-only）
+
+- **本轮性质**：READ-ONLY reconnaissance。**未实现任何 behavior**；未修改 `src/`、
+  `tests/`、QML、`CMakeLists.txt`、`scripts/`、`assets/`、`samples/`；未 build /
+  未 ctest / 未 package / 未安装任何 dependency。
+- **授权边界**：Human 原文「两项一起授权。」（§46）授权的是 **M12-C START**，
+  **不是**选择 AI provider / model / cloud policy / credential / storage / DOCX / OCR。
+  本节凡未标注 **HUMAN-FROZEN** 者，一律为 **PROPOSED** 或 **PENDING HUMAN DECISION**。
+- 起始 HEAD = `6ea57ab02a83ec455238319e1a6e0a7e444c0fdb`；verified LKGC = `13799d6…`（不变）。
+
+### 47.1 M12-C canonical 重建与分类
+
+**A. PRE-EXISTING CANONICAL**（契约/计划原文，非本轮发明）
+
+| 项 | 出处（逐字口径） |
+| --- | --- |
+| M12-C = Manual Import + AI Extraction；格式 PDF / DOCX / TXT / Markdown | `docs/11_V2_UPGRADE_PLAN.md` §4 M12 第 103 行 |
+| 扫描 PDF OCR = 后续能力（「仅作后续能力，除非调研证明低成本可靠可做」） | 同上；T027 §15 第 189 行、§21 out-of-scope |
+| AI 输出 = **Candidate，不是 verified truth**；**不得直接修改 verified Profile** | 11_V2_UPGRADE_PLAN §4 第 104 行；T027 §15 第 190 行 |
+| 每项至少含 candidate value / evidence / source page-section（若有）/ confidence-uncertainty / confirmation state | 11_V2_UPGRADE_PLAN §4 第 104 行；T027 §15 第 191 行 |
+| Human **Accept / Edit / Reject**；仅确认后进入 verified Device Profile | 同上 |
+| **AI is extractor / assistant, not authority** | 11_V2_UPGRADE_PLAN §4 第 106 行 |
+| M12-C exit boundary | T027 §17.2 第 230 行 |
+| OCR = future capability（**不阻塞 C**） | T027 §15 第 189 行、§17.2 第 230 行 |
+| 本轮不决定：AI provider / prompt format / embedding store / vector DB / OCR engine | T027 §15 第 192 行 |
+| P1-BEFORE-M12-C = AI provider / BYOK model；extraction evidence schema；OCR boundary | T027 §19 第 268 行 |
+| out-of-scope：扫描 PDF OCR；vendor database / 厂商模板库 / cloud sync；SQLite / database / 云存储（JSON 之外的持久化） | T027 §21 |
+| Manual Q&A（found / `Not found` / `Insufficient evidence`）属 **M12-D** | T027 §16 |
+| 四层 truth architecture；PDU / 0-based 地址权威；不重开 M11 类型 | T027 §8 / §5 / §6 |
+| per-FC duplicate / overlap；readFunctionCode 域 0x01..0x7F | T027 §29 / §32 |
+| `validateDeviceProfile`（T027 §26，纯函数、不改输入、不 auto-correct） | `src/core/profile/DeviceProfile.h` |
+| JSON persistence（1 文件 = 1 Profile、schemaVersion=1、version-too-new 拒载、MANUAL SAVE） | T027 §24.2 |
+| Editor draft ≠ Active persisted Profile | T027 §31.3 / §33.3 |
+
+**B. HUMAN-FROZEN**：D1–D4（「四项都同意」）、M12-A/B 的 P0/P1 冻结、LKGC 推进与 M12-C START（「两项一起授权」）。**M12-C 自身目前没有任何 Human-frozen 技术细节。**
+
+**C. DERIVED BUT SAFE**（由 A 合成，无需 Human 单独裁定）
+1. Candidate 进入 verified Profile 前必须走现有 `validateDeviceProfile` —— 由「AI 不得直接修改 verified Profile」+「validation 是唯一入口」合成。
+2. AI / Candidate 层不得改写 wire truth、`TransactionAnalysis`、raw 值、M11 `RegisterDecode` —— 由四层 truth architecture 合成。
+3. 「page exists but no extractable text」必须可表达 —— 由「evidence 必须可回看确定性 source」+「OCR = future」合成。
+
+**D. PROPOSED**（本轮提出，**不是 canonical**）：ManualDocument / EvidenceReference / Candidate 模型（§47.10）、UI owner（§47.9）、切片分解（§47.13）、P0 推荐默认值（§47.14）。
+
+**E. PENDING HUMAN DECISION**：AI provider、cloud upload policy、credential、manual storage、extracted-text persistence、Candidate persistence、DOCX strategy、confidence 表示、encoding policy、resource limits（§47.14）。
+
+### 47.2 Source architecture audit（只读，逐项实际存在性）
+
+| # | 问题 | 结论（repo 证据） |
+| --- | --- | --- |
+| A | M12-C 最自然 UI owner | **PROPOSED**：`src/ui/qml/pages/DeviceProfilePage.qml`（1044 行，rail index 5「设备」，M12-B 已启用）+ 一个新的 manual/import controller（`Main.qml` 第 310–311、345 行已有 `profileController` / `activeProfileController` 注入模式可复用）。**未冻结。** |
+| B | Manual Import 是否属于现有 Device Profile workspace | **PROPOSED = 是**（作为 workspace 内独立入口/卡片），**不得**落在 Communication 页；**不得**复用 M12-B 的 Open（见 §47.9）。未冻结。 |
+| C | 是否已有 ManualDocument / Candidate / Evidence domain model | **NO**（`grep -riE "ManualImport\|DocumentImport\|AiExtraction\|ManualExtraction\|ImportCandidate\|ManualQA" src tests CMakeLists.txt` = 0 命中）。 |
+| D | 是否已有 AI provider abstraction | **NO（无 provider-neutral abstraction）**；但**有** single-provider single-purpose product code：`src/ui/ai/ModelScopeDiagnosisClient.{h,cpp}`（诊断）+ `src/ui/agent/ModelScopeAgentClient.{h,cpp}`（agent）。用途 = 诊断/只读 agent，**不是 extraction abstraction**。 |
+| E | 是否已有 network abstraction | **有（product code，T011 既有）**：`QNetworkAccessManager` / `QNetworkReply` + `QTimer` timeout + `AiAbortReason`（UserCancel/Timeout/BatchInvalidated/DiagnosisCleared/SupersededRequest）+ `AiDiagnosisErrorCode`（NetworkError / Timeout / Unauthorized / RateLimited / ProviderRequestError / ServerError / InvalidResponse）。安全契约（头文件原文）：Authorization 只发给已配置端点、TLS peer verification 常开、重定向限制同源、**key/body 从不记日志**。 |
+| F | 是否已有 credential / config storage | **有 env-var 一种**：`qEnvironmentVariable("MODELSCOPE_API_KEY")`（`ModelScopeDiagnosisClient.cpp:287`）；modelId 可 env 覆盖（`MODBUSLENS_MODELSCOPE_MODEL`）；**endpoint 编译期固定、刻意不可 env 覆盖**（防 token exfiltration）。**无** `QSettings`（全仓仅在 `ActiveProfileController.h:27` 注释中出现「no QSettings」）、**无** keychain / DPAPI / 配置文件。 |
+| G | 是否已有 FileDialog / file picker production pattern | **有**：`src/ui/qml/pages/ReplayPage.qml`（`import QtQuick.Dialogs`，第 105–112 行 `FileDialog { id: replayFileDialog … onAccepted: page.analysisController.loadReplayFile(selectedFile) }`）；`Main.qml:3` 亦 import。`DeviceProfilePage.qml` 当前 **0 处** FileDialog。 |
+| H | 是否已有 background worker / async task pattern | **无显式 worker 抽象**（`QThread` / `QtConcurrent` / `QFuture` / `QRunnable` / `QThreadPool` 全仓 **NOT FOUND**）。既有异步 = `QNetworkAccessManager` 事件驱动 + 串口信号驱动。 |
+| I | 是否已有 ZIP / XML reader | **NO**。`zip` 仅出现在 `scripts/make_package.py`（打包脚本，非产品代码）；`QXml` / `QDomDocument` / `quazip` / `libzip` / `minizip` 产品代码 **NOT FOUND**。QtXml 模块**已安装但未链接**（见 §47.4）。 |
+| J | 是否已有 PDF extraction layer | **NO**（`Pdf` / `PDF` / `poppler` 产品与测试代码均 **NOT FOUND**）。 |
+| K | 是否已有 document import owner | **NO**。 |
+
+补充（测试基建）：`tests/fake_chat_completions_server.{h,cpp}` = **TEST-ONLY** 本地 127.0.0.1 fake Chat Completions 端点（捕获 method/path/headers/body，脚本化响应；原文明确「NEVER touches the public internet，NEVER reads the developer's real MODELSCOPE_API_KEY」）⇒ 已存在 **AI 相关 deterministic offline test 先例**。`tests/data/` 为**空目录**。`ProfileStore::setManagedRootOverride()` = 已存在的 managed-root 注入 seam（供 C1 文件系统测试复用）。
+
+### 47.3 Repository-wide capability search（PRODUCT / TEST / DOCS / NOT FOUND）
+
+| 关键词 | 结果 |
+| --- | --- |
+| `QFileDialog` / `FolderDialog` | NOT FOUND（QML 侧用 `QtQuick.Dialogs` 的 `FileDialog`） |
+| `FileDialog` | PRODUCT（`Main.qml`、`ReplayPage.qml`） |
+| `QNetworkAccessManager` / `QNetworkReply` | PRODUCT（`src/ui/ai`、`src/ui/agent`）+ TEST（`fake_chat_completions_server.h`） |
+| `QHttp` / `curl` / `QSslSocket` / `QSslConfiguration` | NOT FOUND（TLS 配置未在源码显式出现；头文件契约声明 TLS 校验常开） |
+| `OpenAI` / `Anthropic` | **DOCS/SCRIPTS-ONLY**（`scripts/make_package.py` 的 negative scan 关键词），**产品代码 0 命中** |
+| `Gemini` / `Azure` | NOT FOUND |
+| `LLM` | PRODUCT（`ModelScopeDiagnosisClient.cpp`、`AnalysisController.h`）+ TEST |
+| `API key` / `apikey` / `secret` | PRODUCT（`ModelScopeDiagnosisClient.{h,cpp}`、`AnalysisController.cpp`）+ TEST |
+| `token` | PRODUCT（大量 = **协议/validation machine token**，与 credential 无关）+ TEST |
+| `credential` | PRODUCT（`src/main.cpp:13651` 注释：no credential reaches the UI）+ scripts negative scan |
+| `QSettings` | **NOT USED**（仅注释） |
+| `keychain` / `DPAPI` | NOT FOUND |
+| `QXml` / `QDomDocument` | NOT FOUND（产品代码） |
+| `zip` / `quazip` / `archive` | SCRIPTS-ONLY（`make_package.py`）；`archive` 另有语义 = 归档统计/证据，非 ZIP |
+| `QThread` / `QtConcurrent` / `QFuture` / `QRunnable` / `QThreadPool` | NOT FOUND |
+| `async` | PRODUCT（仅描述性：串口/网络异步语义） |
+| `Pdf` / `PDF` / `poppler` | NOT FOUND |
+| `docx` / `DOCX` / `OOXML` | NOT FOUND |
+| `Markdown` / `markdown` | PRODUCT（`AgentPromptBuilder.cpp`、`DiagnosisPromptBuilder.cpp`）= **prompt 文本格式化**，**不是 import 格式支持** |
+| `UTF-8` | PRODUCT（ incidental：`ProfileStore` 的 profileId UTF-8 sha256、`RegisterDecode`、`Main.cpp`）；**无 TXT/MD 导入编码政策** |
+| `BOM` / `QTextCodec` / `QStringConverter` | NOT FOUND |
+
+### 47.4 Qt / toolchain dependency audit（read-only probe）
+
+```text
+qtpaths --qt-version                    → 6.11.1
+qtpaths -query QT_INSTALL_PREFIX        → D:/QT/6.11.1/mingw_64
+qtpaths -query QT_INSTALL_LIBS          → D:/QT/6.11.1/mingw_64/lib
+toolchain                               → MinGW (GCC 13.1.0)
+CMakeLists.txt find_package(Qt6 …)      → Core Gui Qml Quick QuickControls2 SerialPort Network Test
+```
+
+| 能力 | AVAILABILITY | 项目是否已采用 |
+| --- | --- | --- |
+| **Qt6Pdf / Qt6PdfQuick** | **NOT AVAILABLE**（`bin/` 无 `Qt6Pdf*.dll`；`lib/cmake/` 无 `Qt6Pdf*`；`include/` 无 `QtPdf*`；`plugins/` 无 pdf） | 否（且不存在） |
+| Qt6Xml | **AVAILABLE**（`lib/cmake/Qt6Xml`、`include/QtXml` 6.11.1） | **否**（CMake 未 `find_package`、未链接） |
+| Qt6Concurrent | **AVAILABLE** | **否** |
+| Qt6Network | AVAILABLE | **是**（ModelScope client） |
+| Qt6PrintSupport（PDF 相关） | 模块存在，但 `include/QtPrintSupport` 下 **无 QPdf\*** ⇒ 无 PDF 读/写能力 | 否 |
+| zlib | MinGW sysroot **AVAILABLE**：`D:/QT/Tools/mingw1310_64/x86_64-w64-mingw32/include/zlib.h` + `lib/libz.a`；Qt 另有**私有** `include/QtZlib/zlib.h`（**不得**当作公开依赖使用） | 否 |
+| QuaZip / libzip / minizip | **NOT FOUND** | 否 |
+
+> **纪律**：AVAILABLE ≠ ADOPTED。本轮**未**修改 CMake、**未**安装任何 dependency。
+
+### 47.5 PDF import capability（三者严格区分）
+
+| 能力 | 定义 | 当前状态 |
+| --- | --- | --- |
+| **A. embedded text extraction** | 从 PDF 内容流逐页取得文本 | **无实现路径** —— QtPdf 未安装，产品代码无任何 PDF 解析；需新增第三方依赖或推迟 |
+| **B. page rendering** | 把页面渲染为位图 | 无（且**不得**冒充 A） |
+| **C. OCR** | 从位图识别文字 | canonical = **future capability**（T027 §21） |
+
+结论：**text PDF 在当前 toolchain 下不存在 deterministic 实现路径**，除非 Human 批准引入新依赖（§47.14 P0-G 关联）。三条硬约束（写入契约供未来遵守）：
+1. 不得把 render image 冒充 text extraction；
+2. 不得自动 OCR / 自动调用 cloud OCR；
+3. 某 page **存在但无 extractable embedded text** 时，模型必须能表达 `page exists but no extractable text`。
+
+### 47.6 Scanned PDF / OCR boundary
+
+- canonical 原文：T027 §15「扫描 PDF OCR = future capability（非本阶段必需）」；§21 out-of-scope；§17.2「OCR = future capability（不阻塞 C）」。
+- 本轮：**不选择 OCR engine、不安装 OCR、不设计 cloud OCR、不声称 scanned PDF 已支持**。
+- 「text PDF import」与「scanned PDF OCR」是**两条独立能力**，架构上不得合并。
+
+### 47.7 DOCX dependency audit
+
+**结论：`NO EXISTING DOCX READER`**（产品代码 0 命中；无 QuaZip/libzip/minizip；QtXml 未链接；zlib 未链接）。
+
+| 方向 | dependency footprint | packaging impact | security surface | maintenance cost | evidence extraction quality |
+| --- | --- | --- | --- | --- | --- |
+| **A. 引入 dedicated dependency**（QuaZip / libzip 等） | +1 第三方库（源码或预编译） | 需新增 DLL、windeployqt 未必覆盖、package manifest 变更 | 新增第三方 CVE 面 + 供应链 | 中（版本跟进） | 高 |
+| **B. 用当前 toolchain 已有 zlib + QtXml** | 链接 `libz.a`（已在 MinGW sysroot）+ `Qt6::Xml`（已安装） | 需改 CMake；zlib 若静态链入则无新 DLL | 自实现 ⇒ 面可控，但实现者需自行防范 zip-slip / decompression bomb | 中高（ZIP 中央目录 + OOXML 语义自实现） | 中高 |
+| **C. narrowly-scoped OOXML reader** | 最小子集（`word/document.xml` + 段落/表格），仍依赖 B 的 ZIP 层 | 同 B | 最小（只读、白名单 entry） | 中 | 中（表格结构/跨页定位弱） |
+| **D. 推迟 DOCX**（推荐见 §47.14 P0-G） | 0 | 0 | 0 | 0 | — |
+
+任何未来 DOCX reader 的**强制不变量**（PROPOSED，待 Human 追认）：
+不执行 macro · 不运行 embedded executable · 不自动 fetch external relationship · 不解析 remote resource · 防 zip-slip（entry 路径必须 containment 在目标目录内）· 防 decompression bomb（compressed/uncompressed 比与绝对上限）· 限制 entry 数量。
+
+### 47.8 TXT / Markdown import audit
+
+- **TXT**：Qt/Core 可 deterministic 读取本地文本文件（既有先例：`ReplayPage.qml` → `loadReplayFile`）。
+- **encoding：未冻结**。全仓无 BOM 政策、无 UTF-16 处理、无 `QTextCodec` / `QStringConverter`、无 binary-file detection、无 max file size。
+  - **PROPOSED（非 canonical）**：第一切片采用 **UTF-8 + 可选 UTF-8 BOM 剥离**；UTF-16 与非法编码 = 明确拒绝并给出可读错误；binary 检测 + 大小上限。
+- **Markdown**：canonical 仅把 Markdown 列为 **manual input format**；**repo 无 Markdown parser**，本轮**不引入**。
+  - **PROPOSED 区分**：source text / heading structure / evidence locator 三层。
+  - 第一版**不得**：执行 HTML、执行 script、自动下载 remote content、因 import 副作用解析 remote image。
+
+### 47.9 File picker / workspace integration
+
+- 既有 production pattern：`QtQuick.Dialogs` 的 `FileDialog`（`ReplayPage.qml`）。
+- **M12-B 的「打开」= managed profile store Open**（`ProfileController::openProfile(profileId)`，按逻辑 profileId 打开 managed JSON），**不是 manual import** ⇒ M12-C **不得**把它复用成「打开 Profile JSON」。
+- **PROPOSED**：M12-C Manual Import 入口放在 `DeviceProfilePage.qml`（设备档案 workspace）内，作为与 New/Open/Save/Delete 并列的**独立动作**（例如「导入说明书」），经新的 import controller 走 `FileDialog`（复用 `ReplayPage.qml` 的 `QtQuick.Dialogs` 形态）。**未冻结。**
+
+### 47.10 PROPOSED domain models（只设计，不实现）
+
+> 全部 = **PROPOSED**。目标 = provider-neutral、可被 deterministic 测试、**不是**大型文档管理数据库。
+
+**ManualDocument**
+
+| 字段 | 标记 | 说明 |
+| --- | --- | --- |
+| `documentId` | REQUIRED FOR C1 | 程序生成的稳定 identity（复用 `QUuid` 先例） |
+| `originalFileName` | REQUIRED FOR C1 | 人类可识别来源名（**非**路径权威） |
+| `documentType` | REQUIRED FOR C1 | `pdf` / `docx` / `txt` / `md`（枚举，不自由文本） |
+| `sourcePath`（原始路径） | PENDING HUMAN DECISION | 依赖 §47.14 P0-A（copy / reference / hybrid） |
+| `managedCopyPath` | PENDING HUMAN DECISION | 同上 |
+| `contentHash` | PROPOSED | 证据稳定性 + 缓存失效键 |
+| `pageCount` | OPTIONAL（PDF/DOCX 语义） | TXT/MD 无 page 概念 |
+| `extractionStatus` | REQUIRED FOR C1 | 至少 `not_started / ok / partial / failed` |
+| `errorState` | REQUIRED FOR C1 | 失败不得静默 |
+| `extractedSections/pages` | REQUIRED FOR C1 | 逐页/逐节文本 + **page exists but no extractable text** 状态 |
+
+**EvidenceReference**
+
+| 字段 | 标记 |
+| --- | --- |
+| `documentId` | REQUIRED FOR C1 |
+| `pageNumber` | OPTIONAL / format **PENDING HUMAN DECISION**（PDF 页码约定、DOCX 无原生页码） |
+| `section / heading` | OPTIONAL |
+| `textStart / textEnd`（offset） | **PROPOSED**（offset 格式未冻结） |
+| `short excerpt` | PROPOSED（**excerpt 长度未冻结**） |
+| source hash / content identity | PROPOSED |
+
+核心原则（canonical 派生）：**Candidate 不得只有 value + "AI says page 17"** —— 必须能重新关联到 imported deterministic source。
+
+**Candidate（provider-neutral）**
+- 覆盖两类 target：**ProfileField**（profileId/displayName/manufacturer/model/revision/description）与 **RegisterEntryCandidate**（`readFunctionCode` / `address` / `name` / `description` / `dataType` / `byteOrder` / `wordOrder` / `scale` / `offset` / `unit`）。
+- **`registerCount` 不是 AI 输入**：它由 `dataType` 派生（T027 §33 Group 1-B），Candidate 也不得提供。
+- Candidate **不得**直接构造 verified `RegisterEntry`；只描述「建议值 + evidence + confidence + confirmation state」。
+
+### 47.11 Candidate lifecycle（PROPOSED）+ 必须冻结的 invariant
+
+状态名/数量 **未冻结**，建议最小集：`Pending → Accepted / Rejected`（Edited 视为 Accept 前的一次修正，不新增终态）。
+
+**必须冻结的 invariant（由 canonical 派生，非新发明）**
+1. `Pending` **不得**进入 verified Profile。
+2. `Rejected` **不得**进入 verified Profile。
+3. Accept / Edit 后、真正写入 Profile 前，**必须**走现有 `validateDeviceProfile`。
+4. 若写入会造成 `invalid_read_function_code` / `duplicate_address`(同 FC) / `overlapping_span`(同 FC) / `register_count_mismatch` / `unsupported_data_type` / `non_finite_scale|offset` / `address_out_of_range` / `span_out_of_range` ⇒ **Accept 必须失败**。
+5. **Profile 不得被部分污染**（失败时原子回滚；沿用 M12-B「candidate copy + full validation + 只提交 valid」纪律）。
+6. Candidate 在失败后**仍可继续修正**。
+7. AI 失败 / 网络失败**不得**影响 imported manual 与 verified Profile（§47.12）。
+
+### 47.12 M12-C / M12-D hard boundary
+
+- **M12-C**：Manual Import → Evidence Foundation → AI Extraction Candidate → Human review（Accept/Edit/Reject）→ `validateDeviceProfile` → verified Profile。
+- **M12-D**：Manual Q&A。**本轮禁止设计/实现**：question box、chat history、RAG Q&A、answer generation UI、conversation memory、Q&A citation UI。
+- 可复用 `ManualDocument` / `EvidenceReference`，但**不得提前做 D**。
+
+### 47.13 Slice decomposition（PROPOSED）+ C1 entry-gate
+
+| 切片 | 内容 | 是否需 AI / cloud / credential |
+| --- | --- | --- |
+| **C1 — Deterministic Manual Import + Evidence Foundation** | 文件选择 → 类型判别 → 逐页/逐节文本提取 → `ManualDocument` + `EvidenceReference` → 可回看确定性 source；**无 AI、无 cloud、无 credential** | **否** |
+| **C2 — Provider-neutral AI Candidate Extraction** | provider seam + prompt + 响应解析 → Candidate（value/evidence/confidence/confirmation）+ 失败语义 | 是 |
+| **C3 — Human Candidate Review** | Accept / Edit / Reject → `validateDeviceProfile` → verified Profile | 否（但依赖 C1/C2 产物） |
+
+**C1 entry-gate 判断**
+
+| 依赖项 | 是否阻塞 C1 | 说明 |
+| --- | --- | --- |
+| AI provider | **否** | C1 定义上无 AI |
+| cloud upload policy | **否** | C1 定义上无网络上传 |
+| credential policy | **否** | C1 定义上无 credential |
+| **manual storage policy** | **是** | 决定 import 后是否 copy / 只存引用 / hybrid ⇒ 决定 C1 语义与测试 |
+| **extracted-text persistence** | **是** | 决定提取结果的生命周期与能否离线复核 |
+| **TXT/MD encoding policy** | **是** | C1 的 TXT/MD 核心语义 |
+| **DOCX strategy** | **是（仅当要求 C1 一次覆盖全部 4 种格式）** | 若 Human 允许「TXT / MD 先行」，则不阻塞 C1 启动 |
+| **PDF dependency** | **是（仅当要求 C1 覆盖 PDF）** | QtPdf NOT AVAILABLE ⇒ PDF 需新依赖或单列子切片 |
+
+**建议（PROPOSED）**：把 C1 再拆为 **C1a = TXT / Markdown**（零新依赖）与 **C1b = PDF / DOCX**（待 §47.14 P0-G 与 PDF 依赖决策），使 Human 一次决策后即可启动 C1a。
+
+### 47.14 TRUE HUMAN-BLOCKING P0
+
+> 仅列影响产品语义 / 安全 / 隐私 / 兼容性 / 数据生命周期者。**推荐默认值 = PROPOSED，Human 未答复前不冻结。**
+
+| ID | CURRENT CONTRACT | OPTIONS | RECOMMENDED DEFAULT | WHY | C1 | C2 | C3 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **P0-A** manual storage | 未规定 | A 复制到 app-managed user-data / B 仅保存原路径引用 / C hybrid | **C-hybrid（复制进 managed store + 原始路径仅作 provenance 元数据，不再回读原文件）** | 源移动/删除不影响复核；离线可复核；本地隐私；磁盘占用由上限约束；可移植（沿用 `ProfileStore` 的 `QStandardPaths::AppDataLocation` managed-root 先例） | **阻塞** | 阻塞 | 否 |
+| **P0-B** AI provider family | 未规定（T027 §15/§19 明确不决定） | 复用现有 ModelScope client 形态 / provider-neutral seam + 可插拔 backend / local model / 暂不选 | **定义 provider-neutral seam；本轮不点名任何厂商** | 避免锁定；`ModelScope` 只是既有诊断用途，不等于 M12-C 选择 | 否 | **阻塞** | 否 |
+| **P0-C** cloud upload permission | 未规定 | 默认离线 / per-document consent / per-extraction consent + scope preview | **默认离线 + 显式 per-extraction consent + 可见 payload scope；deterministic import 必须零网络可用** | 隐私；避免「import 即自动上传」 | 否 | **阻塞** | 否 |
+| **P0-D** credential source / storage | 未规定（既有先例 = `MODELSCOPE_API_KEY` env var + endpoint 编译期固定 + 不记日志） | env var / session-only input / OS credential store / app settings plaintext | **env var（复用既有先例）；明文配置文件与写入 repo / profile JSON 明确否决** | 最小面、与既有安全契约一致 | 否 | **阻塞** | 否 |
+| **P0-E** Candidate persistence | 未规定 | session-only ephemeral / managed JSON / audit log | **v1 = session-only；Accepted 是否留 audit record 另议** | 隐私与存储最小化；Candidate 非 truth | 否 | **阻塞** | **阻塞** |
+| **P0-F** extracted-text persistence | 未规定 | A 每次重提取 / B 持久化 / C cache + content-hash 失效 | **C（按 contentHash 缓存）** | 证据可复现 + 性能；失效键明确 | **阻塞** | 否 | 否 |
+| **P0-G** DOCX dependency strategy | 未规定 | A dedicated dep / B zlib+QtXml / C narrow OOXML / D 推迟 | **D（DOCX 推迟出 C1；待定后优先 C 而非 A）** | 零依赖先跑通 TXT/MD；DOCX 需专门安全设计 | **阻塞全格式 C1；不阻塞 C1a** | 否 | 否 |
+| **P0-H** confidence representation | canonical 仅要求 confidence/uncertainty，**未定义形式** | A label（low/medium/high/unknown）/ B opaque numeric + provenance / C provider text 或 unavailable | **A 为主 + 可选保留 provider raw 作为 opaque 字段；不得称为 probability** | 未校准分数不得冒充概率 | 否 | **阻塞** | 否 |
+| **P0-I** TXT/MD encoding policy | 未规定 | UTF-8 only / UTF-8 + BOM / 含 UTF-16 / reject binary | **UTF-8 + 可选 BOM 剥离；UTF-16 与非法编码明确拒绝；binary 检测 + 大小上限** | deterministic、可测试、错误可见 | **阻塞** | 否 | 否 |
+| **P0-J** resource limits | 未规定 | 数值由实现定 / 由 Human 定 | **安全上限（max file size / pages / extracted bytes / ZIP entry 数 / 压缩比 / AI payload / excerpt 长度）作为 implementation detail；但「超限即明确拒绝」的用户可见语义需 Human 追认** | 安全上限属实现细节；拒绝语义属产品策略 | 部分（建议授权「实现细节 + 明确拒绝」后即不阻塞） | 部分 | 否 |
+
+附：**AI raw response 是否保存**归入 **P0-E**（与 Candidate persistence 同源，不单列）。
+
+### 47.15 本轮状态与边界
+
+```text
+# 本轮产出
+M12-C CONTRACT / DEPENDENCY RECONNAISSANCE = COMPLETE（docs-only）
+
+# 明确未开始
+M12-C IMPLEMENTATION                        = NOT STARTED
+M12-D                                       = NOT STARTED
+
+# 未决定（Human P0，见 §47.14）
+AI provider / model / endpoint              = NOT FROZEN
+cloud upload policy                         = NOT FROZEN
+API credential storage                      = NOT FROZEN
+manual storage (copy/reference/hybrid)      = NOT FROZEN
+extracted-text persistence                  = NOT FROZEN
+Candidate persistence                       = NOT FROZEN
+DOCX dependency strategy                    = NOT FROZEN
+confidence representation                   = NOT FROZEN
+TXT/MD encoding policy                      = NOT FROZEN
+resource limits                             = NOT FROZEN
+
+# 未改变
+verified LKGC = 13799d633291abd69b66ab1c324699ac5014143a
+M12-B = COMPLETE；M12-C = STARTED — CONTRACT / RECONNAISSANCE；M12-D = NOT STARTED
+M12 overall = IN PROGRESS；M12 canonical package = NOT CREATED
+REAL MODBUS HARDWARE = NOT VERIFIED
+```
+
+**未做**：未安装 library / 未 vcpkg·pip·npm install / 未下载 DLL / 未改 Qt / 未改 CMake / 未 build / 未 ctest / 未 package / 未 staging / 未 windeployqt / 未 push / 未 tag / 未 amend。
