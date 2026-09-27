@@ -1884,3 +1884,53 @@ M12 overall = IN PROGRESS
 verified LKGC = bc99e6ea871628a3a685b9cf80cf3840e7b3b171（不变）
 NO M12 canonical package；REAL HARDWARE = NOT VERIFIED
 ```
+
+## 46. M12 LKGC ADVANCE + M12-C START — Human Authorization Archive
+（2026-09-27，docs-only）
+
+Human 原文（逐字归档）：
+
+> “两项一起授权。”
+
+授权上下文（两项，均经 Human 明确确认）：
+
+1. **verified LKGC 推进**：
+   `bc99e6ea871628a3a685b9cf80cf3840e7b3b171`
+   →
+   **`13799d633291abd69b66ab1c324699ac5014143a`**
+2. **M12-C START AUTHORIZED**（进入 CONTRACT / RECONNAISSANCE 阶段）。
+
+Git 实测证据（归档时点）：
+
+```text
+git merge-base --is-ancestor 13799d6 HEAD          → exit 0
+git diff --name-only 13799d6 HEAD -- src tests CMakeLists.txt scripts assets samples
+                                                    → 空（零 behavior 变化）
+⇒ 13799d6 = M12-B 最后 behavior-bearing tree（其后 6447d83 与本轮 docs commit
+  均 docs-only，永不作 LKGC）。
+```
+
+归档后的 canonical state：
+
+```text
+# verified LKGC
+13799d633291abd69b66ab1c324699ac5014143a
+
+# M12-A
+FOUNDATION ACCEPTED
+# M12-B
+COMPLETE
+# M12-C
+STARTED — CONTRACT / RECONNAISSANCE
+# M12-D
+NOT STARTED
+# M12 overall
+IN PROGRESS
+# M12 canonical package
+NOT CREATED
+# REAL MODBUS HARDWARE
+NOT VERIFIED
+```
+
+**口径纪律**：LKGC 是 `13799d6`——**不是** `6447d83`（closure docs commit），
+**也不是**本轮 docs commit。所有 docs-only 提交永不作 LKGC。
