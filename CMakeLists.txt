@@ -31,6 +31,7 @@ add_library(modbuslens_core STATIC
     src/core/analysis/TransactionAnalysis.cpp
     src/core/analysis/RegisterDecode.cpp
     src/core/profile/DeviceProfile.cpp
+    src/core/manual/ManualDocument.cpp
     src/core/analysis/PassiveTransactionAnalysis.cpp
     src/core/analysis/TransactionProvenance.cpp
     src/core/analysis/TransactionStatistics.cpp
@@ -81,6 +82,8 @@ target_include_directories(modbuslens PRIVATE "${MODBUSLENS_GENERATED_DIR}")
 # QML_ELEMENT type in this subdirectory; without this include path the
 # generated __has_include fails and the type is never registered.
 target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/profile")
+# M12-C C1a: same qmltyperegistrar requirement for the manual controllers.
+target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/manual")
 if(WIN32)
     set(MODBUSLENS_ICO_PATH
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/brand/windows/ModbusLens.ico")
@@ -126,6 +129,10 @@ qt_add_qml_module(modbuslens
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
+        src/ui/manual/ManualStore.h
+        src/ui/manual/ManualStore.cpp
+        src/ui/manual/ManualImportController.h
+        src/ui/manual/ManualImportController.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -522,6 +529,35 @@ if(BUILD_TESTING)
 
     add_test(NAME active_profile_controller
              COMMAND modbuslens_active_profile_controller_tests)
+
+    # M12-C C1a: deterministic manual import (TXT / Markdown) + evidence
+    # foundation, driven against an injected temporary managed root. The
+    # profile sources are linked here on purpose: the same target asserts the
+    # isolation invariants (draft / dirty / Active Profile / profile JSON).
+    add_executable(modbuslens_manual_import_tests
+        tests/test_manual_import.cpp
+        src/ui/manual/ManualStore.h
+        src/ui/manual/ManualStore.cpp
+        src/ui/manual/ManualImportController.h
+        src/ui/manual/ManualImportController.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
+        src/ui/profile/ActiveProfileController.h
+        src/ui/profile/ActiveProfileController.cpp)
+    target_include_directories(modbuslens_manual_import_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(modbuslens_manual_import_tests PRIVATE
+        modbuslens_core Qt6::Qml Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_manual_import_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME manual_import
+             COMMAND modbuslens_manual_import_tests)
 
     # M12-B slice 4: the read-result semantic projection, driven through the
     # REAL production read path (recording transport + shipped encoder +
@@ -940,6 +976,13 @@ if(BUILD_TESTING)
     add_test(NAME qml_active_profile_check
         COMMAND modbuslens --qml-active-profile-check)
 
+    # M12-C C1a gate: the Manual Import area inside the Device Profile
+    # workspace (import TXT/Markdown, document list, detail, plain-text
+    # preview, no AI/Candidate/Q&A controls) driven end to end against an
+    # injected temporary managed root.
+    add_test(NAME qml_manual_import_check
+        COMMAND modbuslens --qml-manual-import-check)
+
     # All QML gates above run under QT_QPA_PLATFORM=offscreen so they stay
     # headless-safe. Offscreen, however, does NOT use the shipped font
     # metrics: measured on the same binary, a line of text is 12px offscreen
@@ -971,7 +1014,7 @@ if(BUILD_TESTING)
     # in the diagnostics text is invisible here while it still fails the
     # shipping gate (scripts/make_package.py minimal_path_run greps the
     # captured stdout+stderr of the extracted package).
-    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge register_decode device_profile profile_controller active_profile_controller profile_semantic replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_profile_semantic_check qml_profile_semantic_demo PROPERTIES
+    set_tests_properties(crc frame codec f03 simulator simulator_integration fault fault_integration transaction transaction_integration statistics statistics_integration ui_bridge register_decode device_profile profile_controller active_profile_controller manual_import profile_semantic replay_log replay_analysis serial serial_adapter active_request active_master write_prepare write_dispatch diagnosis ai_client agent_tools agent_runtime agent_integration qml_smoke qml_geometry_check qml_nav_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_manual_import_check qml_profile_semantic_check qml_profile_semantic_demo PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
@@ -991,7 +1034,7 @@ if(BUILD_TESTING)
     #   Unable to assign           : a failed binding assigning undefined to a
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_manual_import_check qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign;String.arg..: Invalid arguments"
     )
 endif()

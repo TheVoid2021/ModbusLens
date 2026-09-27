@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import ModbusLens
 
@@ -24,6 +25,11 @@ Item {
     objectName: "deviceProfileWorkspace"
 
     required property ProfileController profileController
+    // M12-C C1a: the Manual Import owner is a SEPARATE controller. It owns no
+    // ProfileController / ActiveProfileController reference by construction,
+    // so an import can never change the editor draft, the dirty state, the
+    // Active Profile or a persisted DeviceProfile JSON.
+    required property ManualImportController manualController
 
     function refreshProfileCatalog() {
         profileController.refreshCatalog()
@@ -276,6 +282,8 @@ Item {
         }
 
         RowLayout {
+            id: profileWorkspaceRow
+            objectName: "profileWorkspaceRow"
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: DS.spacingM
@@ -674,6 +682,216 @@ Item {
                 }
             }
         }
+
+    // ---- M12-C C1a: Manual Import (deterministic TXT / Markdown) ----
+    // A separate, bounded area of the SAME Device Profile workspace. It is
+    // deterministic by contract: no AI, no cloud, no credential, no
+    // Candidate, no Accept/Edit/Reject and no Q&A. PDF / DOCX are C1b
+    // (deferred, still in M12-C scope) and OCR is a later capability.
+    // A plain Item wrapper keeps the area out of the page's implicit-size
+    // propagation: an unconstrained PanelCard implicit width/height would
+    // otherwise inflate this ColumnLayout and push the profile workspace out
+    // of the 1000x700 window. The Item's implicit size is 0, so the layout
+    // only ever sees the explicit preferredHeight below.
+    Item {
+        id: manualImportHost
+        objectName: "manualImportHost"
+        Layout.fillWidth: true
+        Layout.preferredWidth: 600
+        Layout.minimumWidth: 240
+        Layout.preferredHeight: 160
+        Layout.minimumHeight: 160
+        clip: true
+
+        PanelCard {
+            objectName: "manualImportCard"
+            anchors.fill: parent
+
+        SectionHeader {
+            objectName: "manualImportHeader"
+            Layout.fillWidth: true
+            title: qsTr("说明书导入（Manual Import）")
+        }
+
+        RowLayout {
+            objectName: "manualImportActions"
+            spacing: DS.spacingS
+            Layout.fillWidth: true
+
+            AppButton {
+                objectName: "manualImportButton"
+                Accessible.name: qsTr("导入说明书")
+                text: qsTr("导入说明书…")
+                onClicked: manualFileDialog.open()
+            }
+            Label {
+                objectName: "manualImportCount"
+                text: qsTr("已导入 %1 份")
+                          .arg(manualController.manualDocuments.length)
+                color: DS.textSecondary
+                font.pixelSize: DS.fontCaption
+            }
+            Label {
+                objectName: "manualImportScope"
+                Layout.fillWidth: true
+                text: manualController.scopeText
+                color: DS.textSecondary
+                font.pixelSize: DS.fontCaption
+                elide: Text.ElideRight
+            }
+        }
+
+        Label {
+            objectName: "manualImportError"
+            visible: manualController.lastErrorText !== ""
+            text: manualController.lastErrorText
+            color: DS.error
+            font.pixelSize: DS.fontCaption
+            Layout.fillWidth: true
+            elide: Text.ElideRight
+        }
+
+        RowLayout {
+            objectName: "manualImportBody"
+            spacing: DS.spacingS
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            // The body is the part that actually needs room: without a floor
+            // the preview viewport collapses to 0 height inside the bounded
+            // card (measured: manualPreview h=0 at 1000x700).
+            Layout.minimumHeight: 60
+
+            // ---- left: imported document list ----
+            Flickable {
+                id: manualDocumentList
+                objectName: "manualDocumentList"
+                Accessible.name: qsTr("已导入说明书列表")
+                Layout.fillHeight: true
+                Layout.preferredWidth: 250
+                clip: true
+                contentWidth: width
+                contentHeight: manualDocumentColumn.height
+
+                ColumnLayout {
+                    id: manualDocumentColumn
+                    width: manualDocumentList.width
+                    spacing: DS.spacingXS
+
+                    Label {
+                        objectName: "manualDocumentEmpty"
+                        visible: manualController.manualDocuments.length === 0
+                        text: qsTr("尚无说明书。点击「导入说明书…」导入 TXT / Markdown。")
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                    }
+
+                    Repeater {
+                        model: manualController.manualDocuments
+
+                        delegate: ItemDelegate {
+                            id: manualRow
+                            objectName: "manualDocumentRow"
+
+                            readonly property var rowData:
+                                modelData !== undefined ? modelData : {}
+
+                            width: manualDocumentList.width
+                            highlighted: manualController.selectedIndex === index
+                            onClicked: manualController.selectDocument(index)
+
+                            contentItem: ColumnLayout {
+                                spacing: 0
+                                Label {
+                                    text: manualRow.rowData.originalFileName
+                                          !== undefined
+                                          ? manualRow.rowData.originalFileName
+                                          : ""
+                                    font.pixelSize: DS.fontBody
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: (manualRow.rowData.documentType
+                                           !== undefined
+                                           ? manualRow.rowData.documentType : "")
+                                          + " · "
+                                          + (manualRow.rowData.statusToken
+                                             !== undefined
+                                             ? manualRow.rowData.statusToken
+                                             : "")
+                                    color: DS.textSecondary
+                                    font.pixelSize: DS.fontCaption
+                                    Layout.fillWidth: true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- right: detail + read-only plain-text preview ----
+            ColumnLayout {
+                objectName: "manualDocColumn"
+                Layout.fillWidth: true
+                Layout.preferredWidth: 320
+                Layout.fillHeight: true
+                spacing: 0
+
+                Label {
+                    objectName: "manualDocName"
+                    text: manualController.selectedDocument.originalFileName
+                          !== undefined
+                          ? manualController.selectedDocument.originalFileName
+                          : qsTr("未选择说明书")
+                    font.pixelSize: DS.fontBody
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                Label {
+                    objectName: "manualDocHash"
+                    // contentHash is provenance of the CONTENT identity: it is
+                    // the only key of the managed copy and the text cache.
+                    text: manualController.selectedDocument.contentHash
+                          !== undefined
+                          ? ("contentHash " + manualController
+                                                  .selectedDocument.contentHash)
+                          : ""
+                    color: DS.textSecondary
+                    font.pixelSize: DS.fontCaption
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                Flickable {
+                    id: manualPreview
+                    objectName: "manualPreview"
+                    Accessible.name: qsTr("说明书纯文本预览")
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: 36
+                    clip: true
+                    contentWidth: width
+                    contentHeight: manualPreviewText.height
+
+                    Text {
+                        id: manualPreviewText
+                        objectName: "manualPreviewText"
+                        width: manualPreview.width
+                        // PLAIN TEXT on purpose: Markdown is imported as
+                        // deterministic source text — no HTML, no script, no
+                        // remote resource is ever resolved or rendered.
+                        textFormat: Text.PlainText
+                        text: manualController.previewText
+                        color: DS.textSecondary
+                        font.pixelSize: DS.fontCaption
+                        wrapMode: Text.Wrap
+                    }
+                }
+            }
+        }
+        }
+    }
     }
 
     // ---- dirty-state three-way resolution (Save / Discard / Cancel) ----
@@ -1040,5 +1258,19 @@ Item {
                 }
             }
         }
+    }
+
+    // M12-C C1a: the file picker reuses the shipped QtQuick.Dialogs pattern.
+    // The name filters only HELP the Human — the controller/store layer
+    // validates the type independently, so a test never relies on them.
+    FileDialog {
+        id: manualFileDialog
+        objectName: "manualFileDialog"
+        title: qsTr("导入说明书（TXT / Markdown）")
+        nameFilters: [
+            qsTr("文本与 Markdown (*.txt *.md *.markdown)"),
+            qsTr("所有文件 (*)")
+        ]
+        onAccepted: manualController.importManualFile(selectedFile)
     }
 }

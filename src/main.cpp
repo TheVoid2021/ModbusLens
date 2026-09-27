@@ -35,7 +35,9 @@
 #include <QTemporaryDir>
 #include <QStandardPaths>
 #include "core/profile/DeviceProfile.h"
+#include "core/manual/ManualDocument.h"
 #include "ui/profile/ProfileStore.h"
+#include "ui/manual/ManualStore.h"
 
 #include <functional>
 
@@ -14333,6 +14335,7 @@ using modbuslens::core::DeviceProfile;
 using modbuslens::core::RegisterDecodeType;
 using modbuslens::core::RegisterEntry;
 using modbuslens::ui::ProfileStore;
+using modbuslens::ui::ManualStore;
 
 // M12-B first slice `--qml-profile-editor-check`: an automated end-to-end
 // gate for the Device Profile workspace (rail index 5). It drives the REAL
@@ -16277,6 +16280,429 @@ int runActiveProfileCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
 
 // ---------------------------------------------------------------------------
+// M12-C C1a `--qml-manual-import-check`: the Manual Import area inside the
+// Device Profile workspace driven end to end through the REAL UI path, against
+// an injected temporary managed root. Deterministic by contract: TXT /
+// Markdown only, no AI, no cloud, no network, no credential, no Candidate and
+// no Q&A. PDF / DOCX remain C1b (deferred, still in scope) and OCR stays a
+// later capability — this gate never claims otherwise.
+// ---------------------------------------------------------------------------
+int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    auto *manual = rootObj ? rootObj->findChild<QObject *>(
+                                 QStringLiteral("manualController"))
+                           : nullptr;
+    auto *profiles = rootObj ? rootObj->findChild<QObject *>(
+                                   QStringLiteral("profileController"))
+                             : nullptr;
+    if (!window || !manual || !profiles) {
+        qWarning().noquote()
+            << QStringLiteral("MANFAIL: window/controller not found");
+        return 1;
+    }
+    app.setQuitOnLastWindowClosed(false);
+
+    QTemporaryDir managedRoot;
+    if (!managedRoot.isValid()) {
+        qWarning().noquote() << QStringLiteral("MANFAIL: temp root invalid");
+        return 1;
+    }
+    ManualStore::setManagedRootOverride(managedRoot.path());
+    ProfileStore::setManagedRootOverride(managedRoot.path());
+
+    const QString sourceDir = QDir(managedRoot.path()).filePath("sources");
+    if (!QDir(managedRoot.path()).mkpath(QStringLiteral("sources"))) {
+        qWarning().noquote() << QStringLiteral("MANFAIL: seed dir failed");
+        return 1;
+    }
+    const auto writeSeed = [&sourceDir](const QString &name,
+                                        const QByteArray &bytes) {
+        const QString path = QDir(sourceDir).filePath(name);
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly)) {
+            return QString();
+        }
+        file.write(bytes);
+        file.close();
+        return path;
+    };
+    const QByteArray txtBytes =
+        QStringLiteral("Frequency register 1000\n输出频率 46.6 Hz\n")
+            .toUtf8();
+    QByteArray mdBytes;
+    mdBytes.append("\xEF\xBB\xBF", 3);
+    mdBytes.append(
+        QStringLiteral(
+            "# 设备手册\n\n<script>alert(1)</script>\n\n"
+            "![x](https://example.invalid/x.png)\n\n"
+            "[link](https://example.invalid/page)\n")
+            .toUtf8());
+    const QString txtPath =
+        writeSeed(QStringLiteral("manual-utf8.txt"), txtBytes);
+    const QString mdPath =
+        writeSeed(QStringLiteral("manual-bom.md"), mdBytes);
+    const QString pdfPath =
+        writeSeed(QStringLiteral("manual.pdf"), QByteArray("%PDF-1.7\n"));
+    if (txtPath.isEmpty() || mdPath.isEmpty() || pdfPath.isEmpty()) {
+        qWarning().noquote() << QStringLiteral("MANFAIL: seed write failed");
+        return 1;
+    }
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &m) {
+        qInfo().noquote() << QStringLiteral("MAN: %1").arg(m);
+    };
+    auto itemOf = [&roots](const QString &name) {
+        return findNamedItem(roots, name);
+    };
+    const auto visibleOf = [&roots](const QString &name) -> bool {
+        for (QObject *root : roots) {
+            auto *item = root->findChild<QObject *>(name);
+            if (item)
+                return item->property("visible").toBool();
+        }
+        return false;
+    };
+    const auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = findNamedItem(roots, name);
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    const auto requireInsideWindow = [&](const QString &name) {
+        auto *item = itemOf(name);
+        if (!item || !item->isVisible()) {
+            fail(QStringLiteral("%1 is not visible at measure time").arg(name));
+            return;
+        }
+        const QPointF topLeft = item->mapToScene(QPointF(0, 0));
+        const QRectF rect(topLeft, QSizeF(item->width(), item->height()));
+        if (!QRectF(QPointF(0, 0), QSizeF(window->width(), window->height()))
+                 .contains(rect)) {
+            fail(QStringLiteral("%1 outside: x=%2 y=%3 w=%4 h=%5 win=%6x%7")
+                     .arg(name)
+                     .arg(rect.x())
+                     .arg(rect.y())
+                     .arg(rect.width())
+                     .arg(rect.height())
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
+    };
+    const auto importFile = [&](const QString &path) -> bool {
+        bool ok = false;
+        QMetaObject::invokeMethod(
+            manual, "importManualFile", Qt::DirectConnection,
+            Q_RETURN_ARG(bool, ok), Q_ARG(QUrl, QUrl::fromLocalFile(path)));
+        return ok;
+    };
+    const auto selectDocument = [&](int index) {
+        QMetaObject::invokeMethod(manual, "selectDocument", Qt::DirectConnection,
+                                  Q_ARG(int, index));
+    };
+    const auto docCount = [&]() {
+        return manual->property("manualDocuments").toList().size();
+    };
+    const auto errorToken = [&]() {
+        return manual->property("lastErrorToken").toString();
+    };
+    const auto preview = [&]() {
+        return manual->property("previewText").toString();
+    };
+    // The managed index is ordered by metadata filename, not by import order:
+    // always resolve a document by its original file name.
+    const auto indexOfDoc = [&](const QString &fileName) {
+        const QVariantList docs = manual->property("manualDocuments").toList();
+        for (int i = 0; i < docs.size(); ++i) {
+            if (docs.at(i).toMap().value("originalFileName").toString()
+                == fileName) {
+                return i;
+            }
+        }
+        return -1;
+    };
+    const auto collectRows = [&window](const QString &rowName) {
+        QList<QQuickItem *> rows;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            if (item->objectName() == rowName)
+                rows << item;
+            for (QQuickItem *child : item->childItems())
+                walk(child);
+        };
+        if (window->contentItem())
+            walk(window->contentItem());
+        return rows;
+    };
+
+    // Geometry forensics (T027 §48 / C1a layout RCA): the Manual area must be
+    // measured on REAL scene geometry — never "the object exists".
+    const auto dumpManualGeometry = [&](const QString &tag) {
+        static const char *const kNames[] = {
+            "deviceProfileWorkspace", "profileWorkspaceRow", "manualImportHost",
+            "manualImportCard",      "manualImportHeader",  "manualImportActions",
+            "manualImportButton",    "manualImportBody",    "manualDocumentList",
+            "manualDocColumn",       "manualDocName",       "manualPreview",
+            "manualPreviewText",
+        };
+        for (const char *rawName : kNames) {
+            const QString name = QString::fromLatin1(rawName);
+            auto *item = itemOf(name);
+            if (!item) {
+                qInfo().noquote() << QStringLiteral("MANGEO %1 %2: <missing>")
+                                         .arg(tag, name);
+                continue;
+            }
+            const QPointF p = item->mapToScene(QPointF(0, 0));
+            qInfo().noquote()
+                << QStringLiteral(
+                       "MANGEO %1 %2: x=%3 y=%4 w=%5 h=%6 iw=%7 ih=%8 vis=%9")
+                       .arg(tag, name)
+                       .arg(p.x())
+                       .arg(p.y())
+                       .arg(item->width())
+                       .arg(item->height())
+                       .arg(item->implicitWidth())
+                       .arg(item->implicitHeight())
+                       .arg(item->isVisible() ? QStringLiteral("1")
+                                              : QStringLiteral("0"));
+        }
+        // Parent chain: the first ancestor that HAS a size while the child is
+        // 0 is where the layout stops propagating.
+        QQuickItem *cur = itemOf(QStringLiteral("manualImportHost"));
+        for (int depth = 0; cur && depth < 6; ++depth) {
+            const QPointF p = cur->mapToScene(QPointF(0, 0));
+            qInfo().noquote()
+                << QStringLiteral("MANCHAIN %1 d%2 %3: x=%4 y=%5 w=%6 h=%7 iw=%8 ih=%9")
+                       .arg(tag)
+                       .arg(depth)
+                       .arg(cur->objectName().isEmpty()
+                                ? QString::fromLatin1(cur->metaObject()->className())
+                                : cur->objectName())
+                       .arg(p.x())
+                       .arg(p.y())
+                       .arg(cur->width())
+                       .arg(cur->height())
+                       .arg(cur->implicitWidth())
+                       .arg(cur->implicitHeight());
+            cur = cur->parentItem();
+        }
+    };
+
+    // "The object exists" is NOT evidence: every measured item must also have
+    // a real, non-zero viewport inside the window.
+    const auto requireSized = [&](const QString &name) {
+        auto *item = itemOf(name);
+        if (!item) {
+            fail(QStringLiteral("%1 is missing").arg(name));
+            return;
+        }
+        if (!item->isVisible()) {
+            fail(QStringLiteral("%1 is not visible").arg(name));
+            return;
+        }
+        if (item->width() <= 0.0 || item->height() <= 0.0) {
+            fail(QStringLiteral("%1 has a zero viewport: w=%2 h=%3")
+                     .arg(name)
+                     .arg(item->width())
+                     .arg(item->height()));
+        }
+    };
+
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> fn) { *steps << fn; };
+
+    // Stage 0: reachable through the REAL rail, and the Manual Import area is
+    // inside the 1000x700 window.
+    push([&]() {
+        window->resize(1000, 700);
+        if (!clickNamed(QStringLiteral("navItem_5")))
+            fail(QStringLiteral("the Device rail entry is not clickable"));
+        if (!visibleOf(QStringLiteral("deviceProfileWorkspace")))
+            fail(QStringLiteral("the Device Profile workspace is not visible"));
+        QMetaObject::invokeMethod(manual, "refresh");
+        QMetaObject::invokeMethod(profiles, "refreshCatalog");
+        if (!visibleOf(QStringLiteral("manualImportCard")))
+            fail(QStringLiteral("the Manual Import card is not visible"));
+        note(QStringLiteral("stage 0: Manual Import area reachable via rail"));
+    });
+
+    // Stage 0b: geometry is measured in its OWN step — the window resize from
+    // stage 0 only reaches the scene graph after an event-loop pass, so a
+    // measurement taken inside the same step reads a stale (unsettled) layout.
+    push([&]() {
+        requireSized(QStringLiteral("manualImportHost"));
+        requireSized(QStringLiteral("manualImportCard"));
+        requireSized(QStringLiteral("manualImportButton"));
+        requireSized(QStringLiteral("manualDocumentList"));
+        requireSized(QStringLiteral("manualPreview"));
+        requireInsideWindow(QStringLiteral("manualImportCard"));
+        requireInsideWindow(QStringLiteral("manualImportButton"));
+        requireInsideWindow(QStringLiteral("manualDocumentList"));
+        requireInsideWindow(QStringLiteral("manualPreview"));
+        dumpManualGeometry(QStringLiteral("s0b"));
+        note(QStringLiteral("stage 0b: Manual Import area measured at 1000x700"));
+    });
+
+    // Stage 1: deterministic UTF-8 TXT import + plain-text preview.
+    push([&]() {
+        if (!importFile(txtPath)) {
+            fail(QStringLiteral("stage 1: UTF-8 TXT import failed: %1")
+                     .arg(errorToken()));
+            return;
+        }
+        if (docCount() != 1)
+            fail(QStringLiteral("stage 1: expected 1 document, got %1")
+                     .arg(docCount()));
+        selectDocument(indexOfDoc(QStringLiteral("manual-utf8.txt")));
+        if (preview() != QString::fromUtf8(txtBytes))
+            fail(QStringLiteral("stage 1: preview != source text"));
+        if (collectRows(QStringLiteral("manualDocumentRow")).size() != 1)
+            fail(QStringLiteral("stage 1: the document list row is missing"));
+        note(QStringLiteral("stage 1: UTF-8 TXT imported and previewed"));
+    });
+
+    // Stage 2: UTF-8 BOM Markdown — the BOM never reaches the visible text
+    // and Markdown stays plain source text (no HTML/script/remote fetch).
+    push([&]() {
+        if (!importFile(mdPath)) {
+            fail(QStringLiteral("stage 2: BOM Markdown import failed: %1")
+                     .arg(errorToken()));
+            return;
+        }
+        if (docCount() != 2)
+            fail(QStringLiteral("stage 2: expected 2 documents, got %1")
+                     .arg(docCount()));
+        selectDocument(indexOfDoc(QStringLiteral("manual-bom.md")));
+        const QString text = preview();
+        if (text.contains(QChar(0xFEFF)))
+            fail(QStringLiteral("stage 2: the BOM leaked into the text"));
+        if (!text.contains(QStringLiteral("<script>alert(1)</script>")))
+            fail(QStringLiteral("stage 2: Markdown source text altered"));
+        if (!text.contains(QStringLiteral("![x](https://example.invalid/x.png)")))
+            fail(QStringLiteral("stage 2: the remote image markup is missing"));
+        note(QStringLiteral("stage 2: BOM Markdown imported as plain text"));
+    });
+
+    // Stage 3: PDF is refused in C1a — and the refusal changes nothing.
+    push([&]() {
+        if (importFile(pdfPath))
+            fail(QStringLiteral("stage 3: a PDF was accepted in C1a"));
+        if (errorToken() != QStringLiteral("unsupported_type"))
+            fail(QStringLiteral("stage 3: expected unsupported_type, got %1")
+                     .arg(errorToken()));
+        if (docCount() != 2)
+            fail(QStringLiteral("stage 3: a refused import changed the list"));
+        if (collectRows(QStringLiteral("manualDocumentRow")).size() != 2)
+            fail(QStringLiteral("stage 3: the document list changed"));
+        note(QStringLiteral("stage 3: PDF refused (C1b), list unchanged"));
+    });
+
+    // Stage 4: no AI / Candidate / Q&A / credential control exists anywhere in
+    // the Manual Import area.
+    push([&]() {
+        auto *card = itemOf(QStringLiteral("manualImportCard"));
+        if (!card) {
+            fail(QStringLiteral("stage 4: the Manual Import card is missing"));
+            return;
+        }
+        QStringList names;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            if (!item->objectName().isEmpty())
+                names << item->objectName();
+            for (QQuickItem *child : item->childItems())
+                walk(child);
+        };
+        walk(card);
+        const QStringList forbidden = {
+            QStringLiteral("candidate"),
+            QStringLiteral("accept"),     QStringLiteral("reject"),
+            QStringLiteral("question"),   QStringLiteral("chat"),
+            QStringLiteral("upload"),     QStringLiteral("credential"),
+            QStringLiteral("apikey"),     QStringLiteral("network"),
+        };
+        for (const QString &name : names) {
+            const QString lower = name.toLower();
+            for (const QString &token : forbidden) {
+                if (lower.contains(token))
+                    fail(QStringLiteral("stage 4: forbidden control '%1' "
+                                        "(token '%2')")
+                             .arg(name, token));
+            }
+        }
+        note(QStringLiteral("stage 4: no AI/Candidate/Q&A controls present"));
+    });
+
+    // Stage 5: profile isolation — the import touched nothing in the profile
+    // world (draft, dirty state, open profile, active profile).
+    push([&]() {
+        if (profiles->property("hasOpenProfile").toBool())
+            fail(QStringLiteral("stage 5: an import opened a profile"));
+        if (profiles->property("dirty").toBool())
+            fail(QStringLiteral("stage 5: an import dirtied the draft"));
+        note(QStringLiteral("stage 5: profile state untouched"));
+    });
+
+    // Stage 6: the 1000x700 contract still holds with documents present.
+    push([&]() {
+        window->resize(1000, 700);
+        requireInsideWindow(QStringLiteral("manualImportCard"));
+        requireInsideWindow(QStringLiteral("manualImportButton"));
+        requireInsideWindow(QStringLiteral("manualDocumentList"));
+        requireInsideWindow(QStringLiteral("manualPreview"));
+        requireSized(QStringLiteral("manualPreview"));
+        requireSized(QStringLiteral("manualDocName"));
+        requireInsideWindow(QStringLiteral("manualDocName"));
+        dumpManualGeometry(QStringLiteral("s6"));
+        note(QStringLiteral("stage 6: 1000x700 reachable with documents"));
+    });
+
+    const int settleMs = 60;
+    auto step = std::make_shared<int>(0);
+    auto schedule = std::make_shared<std::function<void()>>();
+    auto failuresShared = failures;
+    *schedule = [&, step, schedule, failuresShared, &app]() {
+        if (*step >= steps->size()) {
+            if (!failuresShared->isEmpty()) {
+                for (const QString &f : *failuresShared)
+                    qWarning().noquote()
+                        << QStringLiteral("MANFAIL: %1").arg(f);
+                app.exit(1);
+                return;
+            }
+            note(QStringLiteral("MANUAL IMPORT CHECK PASS (MAN-Q01..Q12): "
+                                "Manual Import area reachable in the Device "
+                                "Profile workspace; UTF-8 TXT + UTF-8 BOM "
+                                "Markdown imported deterministically; BOM "
+                                "never visible; Markdown stays plain source "
+                                "text; PDF refused as C1b; no AI/Candidate/"
+                                "Q&A/credential control; profile state "
+                                "untouched; 1000x700 reachable"));
+            app.exit(0);
+            return;
+        }
+        const int current = (*step)++;
+        (*steps)[current]();
+        QTimer::singleShot(settleMs, &app, *schedule);
+    };
+    QTimer::singleShot(settleMs, &app, *schedule);
+    return app.exec();
+}
+
+
+// ---------------------------------------------------------------------------
 // M12-B slice 4 `--qml-profile-semantic-check` / `--qml-profile-semantic-demo`:
 // the Read Result three-layer semantic overlay driven through the REAL UI
 // path (Communication page → selector → real read dispatch → synthetic
@@ -17319,6 +17745,12 @@ int main(int argc, char *argv[])
     // M12-B third slice gate: the Communication profile selector end to end.
     if (app.arguments().contains(QStringLiteral("--qml-active-profile-check"))) {
         return runActiveProfileCheck(engine, app);
+    }
+
+    // M12-C C1a gate: the Manual Import area inside the Device Profile
+    // workspace (deterministic TXT / Markdown import + plain-text preview).
+    if (app.arguments().contains(QStringLiteral("--qml-manual-import-check"))) {
+        return runManualImportCheck(engine, app);
     }
 
     // M12-B slice 4: the Read Result semantic overlay (check + visual demo).

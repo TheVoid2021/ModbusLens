@@ -137,6 +137,14 @@ ApplicationWindow {
         profileController: profileController
     }
 
+    // M12-C C1a: deterministic Manual Import (TXT / Markdown) owner. It is a
+    // separate controller from both profile controllers on purpose — it owns
+    // no profile reference and never selects, infers or binds a profile.
+    ManualImportController {
+        id: manualController
+        objectName: "manualController"
+    }
+
     // ------------------------------------------------------------------
     // Application Shell (M9-B1): AppBar + compact NavigationRail +
     // WorkspaceHost (StackLayout) -> LegacyWorkspace.
@@ -343,6 +351,7 @@ ApplicationWindow {
                 DeviceProfilePage {
                     objectName: "deviceProfileWorkspace"
                     profileController: profileController
+                    manualController: manualController
                     enabled: workspaceHost.currentIndex === workspaceDeviceIndex
                 }
             }
