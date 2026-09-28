@@ -3711,6 +3711,12 @@ result 保留 **per-page** 结构；若未来必须选定 user-visible 拼接语
   NC 还原后的**注释**（其文字与实际行为矛盾，描述的是 mutation 期间的临时行为并带
   "Reverted immediately after." 流程注记）。语句 `if actual != expected_sha: fail(4, …)` 本身
   正确且经 DEP 篡改用例验证。清理属 docs/注释级变更，**待 Human 裁定**，本轮按「不得修改」纪律不动。
+- **〔2026-09-28 追加批注 · Human 已授权清理（commit `2287169510e4c2436f6bef539624c1c0a22d0ff2`，
+  「M12: remove stale C1b mutation comment」）〕**上述 cosmetic residue 已清除：仅删除该 1 行注释
+  （0 行新增，无任何 executable statement 变化），上方原文**保留不删**。清理后
+  `c1b_dependency_materializer` targeted CTest 单独复跑 **PASS**（Test #28，568.78 sec；
+  注册实测 #27 manual_extraction / #28 c1b_dependency_materializer，Total Tests: 55）。
+  纯注释清理、无行为变化；**fb2170e 的历史验收结论仍然有效，不改写**。
 
 ### 59.8 Protected diff audit（PASS）
 
