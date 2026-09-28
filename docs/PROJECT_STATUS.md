@@ -1,6 +1,14 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-09-28 追加批注 · M12-C C1b EXTRACTION FOUNDATION FINAL REGRESSION + BEHAVIOR COMMIT（behavior · 以本块为准）〕**
+档案 = **T027 §59**。本块 supersede 上方 `C1b PRODUCT IMPLEMENTATION START` 块的**当前状态字段**（其授权与冻结内容继续有效；历史块保留不删）。
+**behavior commit = `fb2170efc26fd7fd884ec4b950e8607385223fc0`**（「M12: add deterministic PDF and DOCX extraction foundation」，parent `e01cb1a505845188fb1d5d4e7ab0061461f54759`，12 files / +2328 −0，NO AMEND；tracked lock + offline materializer + DEP 契约测试 + PDFium/DOCX extractors（**不链入 app**）+ manual_extraction tests + CMake 集成 + distfiles ignore rule）。
+**自动化证据（全部本轮实测）**：CTest **53 → 55**（新增 `manual_extraction` #27 · `c1b_dependency_materializer` #28）；**Release full = 55/55 PASS / 0 failed / exit 0**（546.57 s）；**Debug full = 55/55 PASS / 0 failed / exit 0**（563.06 s；Debug configure 首次在 CMakeLists regenerate 时于 **find_program 边界附近失败（exact mechanism UNKNOWN）→ 显式 cache configuration（显式 python / 既有显式 compiler+make program）后恢复**，未声称其它机制）；**windows-QPA protected gates = 5/5 exit 0**（manual-import · write-foundation · profile-editor · register-map · active-profile；显式 `QT_QPA_PLATFORM=windows`，诊断 ReferenceError/TypeError/Unable to assign/String.arg Invalid **全 0**）；`c1b_dependency_materializer` = **DEP01–DEP12 12/12 PASS**（explicit zlib-input，PATH 永不探测；zlib.h/libz.a 实测 hash 对 lock 双 MATCH）。
+**依赖身份（exact pins 不变）**：PDFium **156.0.8066.0** / chromium/8066（artifact `739a57d5…` · dll `d42c452a…` · implib `a5b07aac…`）+ libzip **1.11.4**（distfile 实测 `82e9f2f2…` = frozen value）+ zlib 1.2.13（MinGW sysroot，显式 input + hash pin）；runtime download = NONE；implicit latest = NONE；无 vendored blob。
+**审计**：mutation markers = 0（三个关键文件）；materializer 存在**一处 NC 还原后的注释级 cosmetic residue**（`materialize_c1b_deps.py` 注释文字与实际行为矛盾，代码语句与行为正确）——已如实入档 §59.7，**未修改**，清理待 Human 裁定；protected diff = authority（TransactionAnalysis/RegisterDecode/DeviceProfile/ProfileStore/ProfileController/ActiveProfile/M12-B overlay/C1a TXT-MD/QML/ManualImportController wiring）**全部 UNCHANGED vs HEAD^**。
+**NC-C1B-1..4** = 前序 implementation 轮已完成（本轮 final-regression-only，按纪律未重新执行 mutation）。
+**状态**：**M12-C C1b extraction foundation = IMPLEMENTED / AUTOMATED PASS**；**C1b import workflow/UI = NOT STARTED**；C1a = COMPLETE / HUMAN ACCEPTED；M12-B = COMPLETE；M12-C = IN PROGRESS；C2/C3/M12-D = NOT STARTED；**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）**；canonical package = NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED；未 push / 未 tag / 未 amend。
 **〔2026-09-27 追加批注 · M12-C C1b PRODUCT IMPLEMENTATION START + SEMANTICS/DEPENDENCY FREEZE（docs-only · 以本块为准）〕**
 档案 = **T027 §58**（实现证据见 §59）。**Human 授权原文**：“授权：M12-C C1b product implementation START。
 冻结 PDF 文本语义为使用 PDFium public C API 提取已有 text layer，UTF-16 正确转换为 Unicode/QString，

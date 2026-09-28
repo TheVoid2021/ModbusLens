@@ -3618,3 +3618,127 @@ PDF page-boundary / user-visible page concatenation 语义：Human 本轮授权�
 T027 既有 contract 亦未冻结。⇒ 本 slice **不**自行把任何 page separator 升格为产品契约，
 result 保留 **per-page** 结构；若未来必须选定 user-visible 拼接语义，另行提请 Human 裁定。
 ```
+
+## 59. M12-C C1b — Extraction Foundation Final Regression + Behavior Commit（2026-09-28，behavior `fb2170e`）
+
+> 本节归档 §58 冻结范围的实现与验证证据。执行环境 = WorkBuddy Agent 沙箱（canonical Qt 6.11.1 MinGW
+> toolchain，`D:/QT/Tools/CMake_64/bin/cmake.exe` + `D:/QT/6.11.1/mingw_64` + `D:/QT/Tools/mingw1310_64`）。
+> 本节为 **behavior-bearing slice 收口档案**：final regression + commit only，不含 implementation 变更。
+
+### 59.1 起点与 resync（TRUSTED RESYNC 实测）
+
+- starting HEAD = `e01cb1a505845188fb1d5d4e7ab0061461f54759`（与 Human 提供的期望值一致）；
+  verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（PROJECT_STATUS 顶部批注链确认）。
+- WIP reconciliation（`git status --porcelain=v1 --untracked-files=all`）：modified = `.gitignore`(+4)、
+  `CMakeLists.txt`(+168)；untracked = materializer/DEP 脚本 2 + extractor 源 6 + `test_manual_extraction.cpp`
+  + `third_party/m12c-c1b/dependencies.lock.json`，另有 2 个**外来**未跟踪文件 `_ctx.py`、`_dump.py`
+  （非本 slice 产物，**未 stage、未修改**，留待 Human 处置）。`git diff --check` = PASS；cached 为空。
+- Human shell 已确认：materializer mutation markers = 0；libzip restored SHA-256 =
+  `82e9f2f2…`；normal materializer exit 0；NC-C1B-1..4 已完成。
+
+### 59.2 依赖物料化交付（explicit offline materializer）
+
+- **tracked lock** = `third_party/m12c-c1b/dependencies.lock.json`（schemaVersion 1，无任何机器绝对路径）：
+  PDFium **156.0.8066.0**（distributor `bblanchon/pdfium-binaries` tag `chromium/8066`，distributor commit
+  `f2e9a1c`，upstream `fc46361c…`；artifact `pdfium-win-x64.tgz` `739a57d5…`；dll `d42c452a…`；implib
+  `a5b07aac…`；VERSION/args.gn 断言）· libzip **1.11.4**（`82e9f2f2…`，Release/Ninja/static，TLS/LZMA 等全 OFF）
+  · zlib **1.2.13**（MinGW sysroot，`zlib.h` `a980a0d1…` + `libz.a` `a0d1c861…`）。
+- **materializer** = `scripts/materialize_c1b_deps.py`（Python stdlib，**no network code path at all**）：
+  先 SHA-256 验证所有 distfile 与 zlib 输入 → 再解包（防 path traversal、stamp 幂等）→ 校验 pdfium
+  VERSION/args.gn/dll/implib/notices → 本地构建 libzip → 写 git-ignored materialized manifest
+  `build/deps/m12c-c1b/manifest/materialized.json`（产物路径 repo-relative 记录）。
+- **explicit zlib-input（审计确认）**：`locate_zlib()` **deliberately 不做** ambient PATH-first
+  discovery（`shutil.which(gcc) → sysroot` 路径已移除并注释说明）；缺 `--zlib-include/--zlib-library`
+  即 `fail(5)`。实际 zlib.h/libz.a 本轮重新 hash 实测 = **双双 MATCH lock**。
+- **DEP results**：`scripts/test_materialize_c1b_deps.py`（DEP01–DEP12，故意篡改副本必须被拒）经
+  CTest 注册后 = **12/12 PASS**（Release 与 Debug 两侧 full regression 内均 PASS；pytest 式自报
+  `12/12 dependency materializer tests passed`）。CTest 注册把 lock/distfiles/zlib 路径**显式**转发，
+  独立于 CTest cwd；**PATH 永不探测**（interpreter 亦为显式 `MODBUSLENS_PYTHON_EXECUTABLE`）。
+- **runtime download = NONE；implicit latest = NONE；vendored blob = NONE**（distfiles 目录 git-ignored，
+  tracked 的只有 lock json）。
+
+### 59.3 CMake regeneration evidence（按 Human 措辞要求归档）
+
+- 本轮 CMakeLists regenerate 期间，Debug 侧手动 configure **一次失败，failure boundary observed
+  at/after `find_program`；exact mechanism UNKNOWN**。
+- **eliminating ambient PATH discovery via explicit cache configuration**（显式传入
+  `MODBUSLENS_PYTHON_EXECUTABLE`，配合 cache 中既有的显式 `CMAKE_CXX_COMPILER` /
+  `CMAKE_MAKE_PROGRAM`）**restored manual configure and ninja regeneration** —— 重跑 configure
+  exit 0（两次：37.5 s / 首次 112.1 s），后续 ninja regenerate 正常。
+- **不声称** CMake executed Python stub，不声称其它机制；该现象仅记为环境侧观察，产品 CMake
+  的设计应对（所有 tool/interpreter 路径显式化、PATH 永不探测）即为既定架构。
+
+### 59.4 Extraction foundation（PDF / DOCX）
+
+- **PDF**（`ManualPdfTextExtractor`，PDFium public C API）：仅提取已有 text layer，UTF-16→QString
+  正确转换；**PDF 中文提取**（`pdf02_chineseTextLayer` + `pdf03_mixedAsciiAndChinese`）PASS；
+  无 text layer = 显式 `NoExtractableText`（**绝不 OCR、绝不猜测**）；corrupt = 明确失败不崩溃；
+  **page-boundary remains per-page**（result 保留 per-page 结构，user-visible 拼接语义仍未冻结）。
+- **DOCX**（`ManualDocxTextExtractor`，libzip + Qt Core `QXmlStreamReader`，namespace-aware）：
+  §58.3 七条 plain-text 语义逐条落地（d04–d11）；main document story 边界（d21 header/footer 不泄漏）；
+  relationship 发现 + 不安全 target 拒绝（d12/d20）；corrupt/缺 rels/缺 main part/malformed XML
+  全部明确失败不崩溃（d14–d19）；`xml:space` 保留（d11）；空 story = `NoExtractableText`（d24）。
+- `ManualTextExtraction` 为统一入口/结果模型（status tokens 稳定性有专门测试）。
+- **extractors 不链入 app**：CMakeLists 注释明确 —— 链入会改变已接受的 C1a 部署（exe 隐式依赖
+  pdfium.dll）；wiring 属 import workflow slice。**ManualImportController PDF/DOCX wiring = 0 改动。**
+
+### 59.5 Targeted tests + 负向对照
+
+- `manual_extraction`（QTest）：**pdf01–pdf11（11）+ d01–d24（24）+ statusTokens** 全 PASS
+  （Release 与 Debug full regression 内各复验一次）。
+- `c1b_dependency_materializer`：DEP01–DEP12 **12/12 PASS**（同上）。
+- **NC-C1B-1..4**：前序 implementation 轮已完成并精确还原（Human 确认）；本轮为
+  final-regression-only，**按纪律未重新执行任何 mutation**。
+
+### 59.6 Final regression（全部本轮实测，真实 exit code）
+
+| Gate | 结果 |
+| --- | --- |
+| CTest inventory（`ctest -N`，Release） | **Total Tests = 55**（53→55；#27 manual_extraction · #28 c1b_dependency_materializer · #53/#55 manual_import check(+windows) · #50–#52 profile/register/active） |
+| Release build | `ninja: no work to do` / exit 0 |
+| **Release full CTest** | **55/55 PASS / 0 failed / exit 0**（546.57 s；materializer 用时 6m35s 属预期：每次全量 verify+build libzip） |
+| Debug configure（显式 cache configuration） | exit 0（§59.3 证据） |
+| Debug build | exit 0（46/46；新增 C1b 源全部编译链接；**未复现** ar/ranlib 历史错误） |
+| **Debug full CTest** | **55/55 PASS / 0 failed / exit 0**（563.06 s） |
+| **Windows-QPA protected gates（显式 `QT_QPA_PLATFORM=windows`，非 offscreen）** | **5/5 exit 0**：qml_manual_import_check / qml_write_foundation_check / qml_profile_editor_check / qml_register_map_check / qml_active_profile_check |
+| 诊断统计（QPA 5 日志） | ReferenceError = 0 · TypeError = 0 · Unable to assign = 0 · String.arg Invalid = 0（日志中的 "invalid FC refused" / "invalidated(...)" 为功能 dump 文本，非诊断） |
+
+### 59.7 Mutation-residue audit（含一处诚实记录）
+
+- `scripts/materialize_c1b_deps.py` / `ManualPdfTextExtractor.cpp` / `ManualDocxTextExtractor.cpp`：
+  `MUTATION` 与 `False and actual != expected_sha` = **0 命中**；代码行为正确。
+- **cosmetic residue（如实入档，未修改）**：`materialize_c1b_deps.py` hash-mismatch 分支残留一行
+  NC 还原后的**注释**（其文字与实际行为矛盾，描述的是 mutation 期间的临时行为并带
+  "Reverted immediately after." 流程注记）。语句 `if actual != expected_sha: fail(4, …)` 本身
+  正确且经 DEP 篡改用例验证。清理属 docs/注释级变更，**待 Human 裁定**，本轮按「不得修改」纪律不动。
+
+### 59.8 Protected diff audit（PASS）
+
+- tracked diff vs HEAD^ 仅 `.gitignore`（distfiles ignore rule）与 `CMakeLists.txt`（C1b 依赖/测试
+  集成块；extractors **不链入 app**）—— 均属允许范围。
+- 新增文件全部在允许清单（lock/materializer/DEP/extractors×6/manual_extraction tests）。
+- **authority UNCHANGED**：TransactionAnalysis · RegisterDecode · DeviceProfile · ProfileStore ·
+  ProfileController · ActiveProfile · M12-B semantic overlay · C1a TXT/Markdown · QML ·
+  ManualImportController PDF/DOCX wiring —— 零 diff。
+
+### 59.9 Final materializer audit（PASS，全部本轮实测）
+
+tracked lock 无机器绝对路径 ✅ · zlib 不经 ambient PATH 推导（显式 input，缺失即 fail）✅ ·
+zlib.h/libz.a 实测 hash 对 lock 双 MATCH ✅ · runtime download = NONE ✅ · implicit latest = NONE ✅ ·
+PDFium exact pin 不变（156.0.8066.0 / `fc46361c…` / `739a57d5…` / `d42c452a…` / `a5b07aac…`）✅ ·
+libzip exact pin 不变（1.11.4 / distfile 实测 `82e9f2f2…` = frozen）✅。
+
+### 59.10 Behavior commit 与状态
+
+- **behavior commit = `fb2170efc26fd7fd884ec4b950e8607385223fc0`**
+  「M12: add deterministic PDF and DOCX extraction foundation」
+  parent = `e01cb1a505845188fb1d5d4e7ab0061461f54759`；12 files / +2328 −0；NO AMEND / NO push / NO tag；
+  显式逐文件 stage（禁 `git add .`/`-A`；`_ctx.py`、`_dump.py`、docs、build/ 均未 stage）。
+- 状态：**C1b extraction foundation = IMPLEMENTED / AUTOMATED PASS**；**C1b import workflow/UI =
+  NOT STARTED**；C2 / C3 / M12-D = NOT STARTED；verified LKGC = `8409c27…`（**不推进**，
+  `fb2170e` 为 future candidate，需 Human 单独授权）；canonical package = NOT CREATED；
+  REAL MODBUS HARDWARE = NOT VERIFIED。
+- Knowledge ownership：通过本轮真实事情理解了 —— ① IMPORTED target + configure-time hash 断言
+  如何让「materialized 产物被偷换」在 configure 阶段即 FATAL；② extractor 与 app 的链接隔离
+  （测试目标独享依赖，app 二进制不变 ⇒ 已接受部署零风险）；③ CTest 注册显式转发解释器与
+  zlib 路径 = 把「PATH 探测」这一类环境漂移从机制上排除。
