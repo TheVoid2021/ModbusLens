@@ -3831,3 +3831,107 @@ PDF 的 text cache = text/<contentHash>.json（pages 数组，per-page truth）�
 TXT/MD/DOCX 的 text cache 保持 text/<contentHash>.txt。
 C1a TXT/Markdown 行为 ZERO CHANGE。
 ```
+
+---
+
+## 61. M12-C C1b SECOND SLICE — AUTOMATED ACCEPTANCE ARCHIVE（2026-09-28 · Session A–D）
+
+### 61.0 提交链
+
+```text
+docs-freeze  = 6abed334bb0c3305d18b8035a9e3e2150790df1f「M12: freeze C1b import workflow semantics」
+behavior     = c36eb181917ab2aba9435870cd376c19b8b4bc60「M12: integrate PDF and DOCX manual import workflow」
+               （parent 6abed33；11 files：CMakeLists.txt · core ManualDocument.{h,cpp} · main.cpp ·
+                ManualImportController.{h,cpp} · ManualStore.{h,cpp} · DeviceProfilePage.qml ·
+                tests/test_manual_import.cpp · tests/test_manual_import_pdf_docx.cpp；+1645 −211）
+```
+
+### 61.1 Session A — implementation + targeted（WorkBuddy）
+
+```text
+routing/atomicity/cache/state 实现（ManualStore TXT/MD 路径逐字节不变；PDF cache=<hash>.json；
+extractionStateToken 序列化/加载；hasManagedArtifacts 类型感知）；Controller previewStateToken；
+QML FileDialog filters + no-text 显式文案；CMake 依赖 preamble 上移 + app 链接 pdfium/libzip/zlib +
+pdfium.dll staging；gate 扩展 stage3(.exe unsupported) + 3b/3c/3d/3e/3f。
+targeted gates 10/10 PASS：manual_import 22/22 · manual_extraction 38/38 · manual_import_pdf_docx 32/32 ·
+c1b_dependency_materializer 12/12 · qml_manual_import_check[_windows] · profile_editor · register_map ·
+active_profile · write_foundation_windows。Total Tests: 55 → 56。
+```
+
+### 61.2 Session B — negative controls（每项 REAL RED → precise reverse patch → GREEN）
+
+```text
+NC-C1B2-1  no-text 必须保持 import success：
+           mutation = NoExtractableText 分支改 MalformedContent return；
+           RED = i06/i07 'result.ok()' returned FALSE（30 passed / 2 failed）→ reverse → GREEN。
+NC-C1B2-2  contentHash 不得成为 document identity：
+           mutation = hash 相同即返回既有 record（去重）；
+           RED = i23/i24 'a.document.documentId != b.document.documentId' returned FALSE
+                + i27 'a.document.originalPath != b.document.originalPath' returned FALSE
+                （29 passed / 3 failed）→ reverse → GREEN。
+NC-C1B2-3  failed-import durable-state non-pollution invariant（isolated managed-root override 内）：
+           mutation = Malformed 分支 return 前写入 manuals/source/mutated-partial.bin；
+           RED = i08 'Compared lists have different sizes. Actual 20 / Expected 19'
+                （31 passed / 1 failed）→ reverse → GREEN；mutated-partial 残留 0。
+           证据边界：本 NC 证明测试能够识别 partial durable state（invariant 可被违反即被检测）；
+           不主张穷举证明所有内部写入顺序绝对原子。
+NC-C1B2-4  page header 不得进 cache truth：
+           mutation = PDF cache pagesArray 拼入 "第 N 页\n"；
+           RED = i03 Actual "第 1 页\nModbusLens PDF import"（i04/i05/i07/i21 同红，27 passed / 5 failed）
+           → reverse → GREEN；presentationIndex 残留 0。
+targeted re-green：10/10 PASS（同 Session A protected surface），exit 0。
+```
+
+### 61.3 Session C — WorkBuddy full regression + Debug HOLD
+
+```text
+Release：configure 0 / build 0 / full CTest **56/56 passed / 0 failed / exit 0**（788.24 s）。
+Windows-QPA protected gates 6/6：#51 profile_editor (2.34s) · #52 register_map (2.27s) ·
+#53 active_profile (2.41s) · #54 manual_import (4.21s) · #55 write_foundation_windows (12.16s) ·
+#56 manual_import_windows (6.29s，含 PDF/DOCX stages 与 1000×700 geometry)。
+QML diagnostics：ReferenceError=0 · TypeError=0 · Unable to assign=0 · String.arg Invalid=0。
+Release staged pdfium.dll SHA-256 = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+（= frozen value）。protected diff = PASS；dependency/runtime = PASS（exact pins 不变，无 runtime download）。
+WorkBuddy-context Debug：configure 0；build 两次失败于
+`ranlib.exe: could not create temporary file whilst writing archive: no more archived files`
+（目标 libmodbuslens_core.a，step 5/205，**compile errors = 0**）；当时按协议 HOLD。
+```
+
+### 61.4 Session D — Human external Debug evidence ratification
+
+```text
+Human 在外部普通 Windows PowerShell 对当前 WIP（build/debug 既有 build tree）执行 Debug revalidation：
+DEBUG CONFIGURE EXIT = 0 · CTest inventory = Total Tests: 56 ·
+DEBUG BUILD EXIT = 0（[158/159] Building CXX object CMakeFiles/modbuslens.dir/src/main.cpp.obj →
+[159/159] Linking CXX executable modbuslens.exe，**非 clean rebuild，是既有 target 的完成**）·
+DEBUG FULL CTEST = 56/56 PASS / 0 failed / Total Test time = 125.04 sec / CTEST EXIT = 0
+（manual_import_pdf_docx · c1b_dependency_materializer · qml_profile_editor_check ·
+qml_register_map_check · qml_active_profile_check · qml_manual_import_check ·
+qml_write_foundation_check_windows · qml_manual_import_check_windows 全 PASS）。
+措辞边界：**WorkBuddy-context ranlib failure was NOT reproduced externally; external Debug build
+completed and full CTest passed 56/56. Root cause remains UNKNOWN.**
+（禁止归档为 sandbox-caused / binutils bug / TEMP / resource / root-cause-fixed。）
+external shell 的 git rev-parse / status / diff --check 因 PATH 缺 Git 未执行成功，
+**不作为 repo-state evidence**；repo truth 由 Session D resync 提供（HEAD/WIP 与 Session C 完全一致，
+WIP 未变化 ⇒ Session A–C 的自动化 evidence 继续适用）。
+```
+
+### 61.5 最终状态
+
+```text
+M12-C C1b second-slice import workflow/UI =
+  IMPLEMENTED / AUTOMATED PASS · HUMAN VISUAL ACCEPTANCE PENDING
+（AUTOMATED ACCEPTANCE COMPLETE；未写 HUMAN ACCEPTED / COMPLETE / LKGC advanced）
+C1b extraction foundation = IMPLEMENTED / AUTOMATED PASS（fb2170e）
+C1a = COMPLETE / HUMAN ACCEPTED · M12-B = COMPLETE · C2/C3/M12-D = NOT STARTED
+canonical package = NOT CREATED（future package gate：必须携带 pdfium.dll）
+REAL MODBUS HARDWARE = NOT VERIFIED · verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不推进）
+Release Human visual candidate：
+  exe = build/release/modbuslens.exe（6 043 056 B，SHA-256
+        026d3589a1f4c5bb3071cdba9aa53109c276b441e058c9ecd03992e5fec69792）
+  runtime = build/release/pdfium.dll（7 380 992 B，SHA-256
+        d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b）
+  candidate product code anchor = c36eb181917ab2aba9435870cd376c19b8b4bc60
+HUMAN FIXTURE SET = NOT PREPARED（fixtures 由测试 in-code 生成；Human visual 可自选
+  普通 PDF / 中文 PDF / 无文本层 PDF / DOCX）
+```

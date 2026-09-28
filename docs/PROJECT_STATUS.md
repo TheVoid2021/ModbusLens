@@ -1,6 +1,34 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-09-28 追加批注 · M12-C C1b SECOND-SLICE AUTOMATED ACCEPTANCE COMPLETE（behavior + docs · 以本块为准）〕**
+档案 = **T027 §61**。**提交链**：docs-freeze `6abed334bb0c3305d18b8035a9e3e2150790df1f` →
+**behavior `c36eb181917ab2aba9435870cd376c19b8b4bc60`**（「M12: integrate PDF and DOCX manual import
+workflow」，parent `6abed33`，11 files / **+1645 −211**，NO AMEND；本块 supersede 上方 SECOND-SLICE
+CONTRACT FROZEN 块的当前状态字段，其契约内容继续有效、历史保留）。
+**自动化证据（全部本轮实测）**：Session A targeted gates 10/10（manual_import 22/22 · manual_extraction
+38/38 · manual_import_pdf_docx 32/32 · c1b_dependency_materializer 12/12 · 5 QML 门）；Session B
+**NC-C1B2-1..4 全部 REAL RED → precise reverse patch → GREEN**（residue 0；NC3 证据边界 =
+failed-import durable-state non-pollution invariant 可检测，非穷举原子性证明）；Session C WorkBuddy
+**Release full 56/56 passed / 0 failed / exit 0**（788.24 s）+ Windows-QPA 6/6 + QML diagnostics
+全 0 + staged pdfium.dll = frozen `d42c452a…` + protected diff/dependency/runtime PASS；WorkBuddy
+Debug 两次命中历史 `ranlib.exe: could not create temporary file whilst writing archive`（0 compile
+errors，当时 HOLD）。**Human external Windows PowerShell Debug revalidation**：configure 0 ·
+inventory 56 · build 0（[159/159] Linking CXX executable modbuslens.exe，**非 clean rebuild**）·
+full CTest **56/56 PASS / 0 failed / exit 0**（125.04 s）；**WorkBuddy-context ranlib failure was
+NOT reproduced externally; root cause remains UNKNOWN**；external Git 命令因 PATH 缺 Git 未执行，
+不作为 repo-state evidence（repo truth = Session D resync）。
+**Release Human visual candidate**：`build/release/modbuslens.exe`（6 043 056 B，SHA-256
+`026d3589a1f4c5bb3071cdba9aa53109c276b441e058c9ecd03992e5fec69792`）+ `build/release/pdfium.dll`
+（7 380 992 B，SHA-256 `d42c452a…`）；**candidate product code anchor = `c36eb18`**（docs commit
+不改变 product bytes）；HUMAN FIXTURE SET = NOT PREPARED。
+**状态**：**M12-C C1b second-slice import workflow/UI = IMPLEMENTED / AUTOMATED PASS ·
+HUMAN VISUAL ACCEPTANCE PENDING**（AUTOMATED ACCEPTANCE COMPLETE；**未写** HUMAN ACCEPTED /
+COMPLETE / LKGC advanced）；C1b extraction foundation = IMPLEMENTED / AUTOMATED PASS（fb2170e）；
+C1a = COMPLETE / HUMAN ACCEPTED；M12-B = COMPLETE；M12-C = IN PROGRESS；C2/C3/M12-D = NOT STARTED；
+**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）**；canonical package =
+NOT CREATED（future package gate：必须携带 pdfium.dll）；REAL MODBUS HARDWARE = NOT VERIFIED；
+未 push / 未 tag / 未 amend。
 **〔2026-09-28 追加批注 · M12-C C1b SECOND-SLICE CONTRACT FROZEN（docs-only · 以本块为准）〕**
 档案 = **T027 §60**。**Human decision（逐字）**：“四组都同意。” ⇒ **HUMAN-APPROVED M12-C C1b
 SECOND-SLICE CONTRACT DECISION**（非 pre-existing canonical）。**GROUP 1**：复用同一 Manual Import
