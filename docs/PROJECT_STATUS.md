@@ -1,6 +1,32 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-09-28 追加批注 · M12-C C1b SECOND-SLICE CONTRACT FROZEN（docs-only · 以本块为准）〕**
+档案 = **T027 §60**。**Human decision（逐字）**：“四组都同意。” ⇒ **HUMAN-APPROVED M12-C C1b
+SECOND-SLICE CONTRACT DECISION**（非 pre-existing canonical）。**GROUP 1**：复用同一 Manual Import
+区域与同一 FileDialog，不新增独立 PDF/DOCX button；v1 selectable = TXT/MD/Markdown/PDF/DOCX；
+extension 只做 extractor routing，content 仍严格校验（扩展名正确 ≠ 内容可信）；unsupported extension =
+explicit reject；**C1a TXT/Markdown 语义 ZERO CHANGE**。**GROUP 2**：正常 PDF(text layer)/DOCX(main
+story) ⇒ managed-copy + extraction + record + contentHash cache + preview；**PDF no text layer ⇒ IMPORT
+本身 SUCCESS**（保留 managed copy + record，extraction state = `no_extractable_text`，UI 明确显示
+「未发现可提取文本层」，禁止 OCR/猜测/伪造 empty-success）；corrupt/fake/malformed/encrypted/
+resource-limit ⇒ **WHOLE IMPORT = ATOMIC FAILURE**（无半状态），失败 UI 用稳定 product message；
+original source 删除/移动后 managed copy 仍可用（C1a Hybrid 不变）。**GROUP 3**：**document identity ≠
+contentHash；contentHash = cache identity**；不按 contentHash 去重 documents（同 bytes 不同 original
+path ⇒ 多 records、各自 provenance），cache 按 contentHash 复用，不自动 merge。**GROUP 4**：TXT/MD
+保持现有 preview；DOCX = frozen main-story text；**PDF 按 page 展示，presentation header（第 1 页…）
+只是 presentation —— 不写入 text cache、不改 extractor per-page truth**；PDF no-text 显示明确 no-text
+state；raw error 只作 diagnostics。**scope ONLY**：routing/managed-copy/extraction/cache reuse/list/
+detail/preview integration；**OUT**：Manual Delete UI、AI Candidate、Accept/Edit/Reject、OCR、C2、C3、
+M12-D、editing、remote/runtime download、external content execution。**Schema amendment（工程必需）**：
+`ManualDocumentType += Pdf/Docx`；`ManualImportError += MalformedContent/EncryptedOrPasswordProtected`；
+`ManualDocument += extractionStateToken`（`extracted` | `no_extractable_text`；schemaVersion 仍 1，
+pre-release amendment）；PDF cache = `text/<hash>.json`（pages 数组），TXT/MD/DOCX 保持 `.txt`；
+C1a 行为 ZERO CHANGE。**状态**：**M12-C C1b = IN PROGRESS**；**extraction foundation = IMPLEMENTED /
+AUTOMATED PASS**；**import workflow/UI = STARTED — CONTRACT FROZEN / IMPLEMENTATION NOT YET WRITTEN**；
+C1a = COMPLETE / HUMAN ACCEPTED；M12-B = COMPLETE；M12-C = IN PROGRESS；C2/C3/M12-D = NOT STARTED；
+**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）**；package = NOT CREATED；
+REAL MODBUS HARDWARE = NOT VERIFIED。
 **〔2026-09-28 追加批注 · M12-C C1b EXTRACTION FOUNDATION FINAL REGRESSION + BEHAVIOR COMMIT（behavior · 以本块为准）〕**
 档案 = **T027 §59**。本块 supersede 上方 `C1b PRODUCT IMPLEMENTATION START` 块的**当前状态字段**（其授权与冻结内容继续有效；历史块保留不删）。
 **behavior commit = `fb2170efc26fd7fd884ec4b950e8607385223fc0`**（「M12: add deterministic PDF and DOCX extraction foundation」，parent `e01cb1a505845188fb1d5d4e7ab0061461f54759`，12 files / +2328 −0，NO AMEND；tracked lock + offline materializer + DEP 契约测试 + PDFium/DOCX extractors（**不链入 app**）+ manual_extraction tests + CMake 集成 + distfiles ignore rule）。

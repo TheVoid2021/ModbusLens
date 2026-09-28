@@ -3748,3 +3748,86 @@ libzip exact pin 不变（1.11.4 / distfile 实测 `82e9f2f2…` = frozen）✅�
   如何让「materialized 产物被偷换」在 configure 阶段即 FATAL；② extractor 与 app 的链接隔离
   （测试目标独享依赖，app 二进制不变 ⇒ 已接受部署零风险）；③ CTest 注册显式转发解释器与
   zlib 路径 = 把「PATH 探测」这一类环境漂移从机制上排除。
+
+---
+
+## 60. M12-C C1b SECOND SLICE — IMPORT WORKFLOW + UI（2026-09-28 · CONTRACT FROZEN）
+
+### 60.0 Human decision（逐字归档）
+
+> “四组都同意。”
+
+标为 **HUMAN-APPROVED M12-C C1b SECOND-SLICE CONTRACT DECISION**（不是 pre-existing canonical）。
+授权边界：C1b second-slice contract freeze；**不是** LKGC advancement、**不是** C2/C3/M12-D 授权。
+verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）。
+
+### 60.1 GROUP 1 — IMPORT ENTRY / ROUTING（HUMAN-APPROVED）
+
+1. 复用现有 Manual Import 区域与**同一个** FileDialog；**不新增**独立 PDF/DOCX import button。
+2. v1 selectable types：TXT · MD · Markdown · PDF · DOCX。
+3. extension 只负责 **extractor routing**；actual content 仍由对应 extractor 严格校验
+   （`.pdf`/`.docx` 扩展名正确 ≠ 内容自动可信）。
+4. unsupported extension = **explicit reject**。
+5. **C1a TXT / Markdown import path 与其已验收语义 ZERO CHANGE**。
+
+### 60.2 GROUP 2 — IMPORT SUCCESS / FAILURE SEMANTICS（HUMAN-APPROVED）
+
+```text
+正常（PDF 有 text layer / DOCX main story）
+  ⇒ managed-copy success → deterministic extraction success → ManualDocument record
+    → contentHash text cache → UI preview available。
+
+PDF no text layer
+  ⇒ IMPORT ITSELF = SUCCESS：保留 managed copy + ManualDocument record，
+    extraction state = no_extractable_text；UI 明确显示「未发现可提取文本层」；
+    禁止 OCR / 猜测文本 / 伪造 empty-success preview。
+
+corrupt / fake / malformed / encrypted / password-protected / resource-limit exceeded
+  ⇒ WHOLE IMPORT = ATOMIC FAILURE：不得留下 partial ManualDocument / partial managed
+    copy / partial text cache / half-registered state；失败 UI 必须有稳定 product-level message。
+
+original source 在 import 成功后即使被移动/删除：managed copy 仍是可用来源
+（C1a Hybrid 契约：managed-copy + original-path provenance，不变）。
+```
+
+### 60.3 GROUP 3 — DUPLICATE / CACHE IDENTITY（HUMAN-APPROVED）
+
+```text
+document identity != contentHash；contentHash = cache identity。
+不按 contentHash 去重 documents：同 bytes 从不同 original paths 导入 ⇒ 允许多个
+ManualDocument records，各自保留 originalPath provenance。
+extracted-text cache 按 contentHash 复用（同 bytes ⇒ 同 cache payload）。
+不自动 merge documents；不自动修改既有 record 的 originalPath；
+不把「相同内容」解释成「同一文档」。
+```
+
+### 60.4 GROUP 4 — UI PREVIEW / SLICE BOUNDARY（HUMAN-APPROVED）
+
+```text
+TXT / Markdown：保持现有 plain-text preview。
+DOCX：显示已冻结的 deterministic main-story plain text。
+PDF：按 page 展示；允许 presentation header（如「第 1 页」「第 2 页」），
+     但 page header 只属于 presentation —— 不得写入 text cache、不得改变 extractor
+     per-page truth。
+PDF no-text：显示明确 no-text state，不得用空白 preview 假装普通 extraction success。
+error UI：稳定 Human-facing message；PDFium/libzip raw error 只作 diagnostics，
+     不得直接成为长期 product contract。
+```
+
+**本 slice scope ONLY**：PDF/DOCX import routing · managed-copy · extraction · contentHash
+cache reuse · document-list integration · detail integration · preview integration。
+**OUT OF SCOPE**：Manual Delete UI · AI Candidate · Accept/Edit/Reject · OCR · C2 · C3 ·
+Manual Q&A/M12-D · PDF/DOCX editing · remote resource loading · runtime download ·
+external content execution · automatic AI extraction。
+
+### 60.5 Schema amendment（随本决策的工程必需，属 HUMAN-APPROVED CONTRACT 的直接实现）
+
+```text
+ManualDocumentType 增加 Pdf / Docx（extension 矩阵扩展）；
+ManualImportError 增加 MalformedContent / EncryptedOrPasswordProtected；
+ManualDocument 增加 extractionStateToken（"extracted" | "no_extractable_text"），
+随 metadata JSON（schemaVersion 仍为 1 —— pre-release amendment，与 C1a readFunctionCode 同例）；
+PDF 的 text cache = text/<contentHash>.json（pages 数组，per-page truth）；
+TXT/MD/DOCX 的 text cache 保持 text/<contentHash>.txt。
+C1a TXT/Markdown 行为 ZERO CHANGE。
+```
