@@ -239,10 +239,14 @@ private slots:
     {
         ManagedRootScope root;
         QVERIFY(root.valid());
+        // M12-C C1b second slice (T027 §60.1): .pdf / .docx are now SUPPORTED
+        // routes, so the unsupported-extension case must use an extension that
+        // is still outside the frozen matrix. The rejection is extension-level
+        // and happens before any content is read.
         const QString path =
-            writeSource(root.path(), "manual.pdf", QByteArray("%PDF-1.7\n"));
+            writeSource(root.path(), "manual.exe", QByteArray("MZ binary"));
         QVERIFY(!path.isEmpty());
-        const auto result = ManualStore::importSourceFile(path, "manual.pdf");
+        const auto result = ManualStore::importSourceFile(path, "manual.exe");
         QVERIFY(!result.ok());
         QCOMPARE(QString::fromStdString(
                      std::string(manualImportErrorToken(result.error))),

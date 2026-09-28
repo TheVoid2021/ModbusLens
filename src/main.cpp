@@ -39,6 +39,8 @@
 #include "ui/profile/ProfileStore.h"
 #include "ui/manual/ManualStore.h"
 
+#include <zip.h>
+
 #include <functional>
 
 namespace {
@@ -16344,10 +16346,129 @@ int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         writeSeed(QStringLiteral("manual-utf8.txt"), txtBytes);
     const QString mdPath =
         writeSeed(QStringLiteral("manual-bom.md"), mdBytes);
-    const QString pdfPath =
-        writeSeed(QStringLiteral("manual.pdf"), QByteArray("%PDF-1.7\n"));
-    if (txtPath.isEmpty() || mdPath.isEmpty() || pdfPath.isEmpty()) {
+    const QString exePath =
+        writeSeed(QStringLiteral("manual.exe"), QByteArray("MZ binary"));
+    if (txtPath.isEmpty() || mdPath.isEmpty() || exePath.isEmpty()) {
         qWarning().noquote() << QStringLiteral("MANFAIL: seed write failed");
+        return 1;
+    }
+
+    // M12-C C1b second slice (T027 section 60): deterministic PDF / DOCX
+    // seeds built in-code (licence-free, offline). The PDF text pages use a
+    // plain Helvetica font; no CJK fixture is needed at gate level (the CJK
+    // coverage lives in the unit suites).
+    const auto pdfStreamObject = [](const QByteArray &stream) {
+        return QByteArray("<< /Length ") + QByteArray::number(stream.size())
+               + QByteArray(" >>\nstream\n") + stream
+               + QByteArray("\nendstream");
+    };
+    const auto buildTextPdf = [&](const QList<QByteArray> &pageTexts) {
+        QList<QByteArray> objects;
+        objects << QByteArray("<< /Type /Catalog /Pages 2 0 R >>");
+        QByteArray kids;
+        for (int i = 0; i < pageTexts.size(); ++i) {
+            kids += QByteArray::number(3 + i * 2) + QByteArray(" 0 R ");
+        }
+        objects << QByteArray("<< /Type /Pages /Kids [").append(kids)
+                       .append("] /Count ")
+                       .append(QByteArray::number(pageTexts.size()))
+                       .append(" >>");
+        for (int i = 0; i < pageTexts.size(); ++i) {
+            objects << QByteArray("<< /Type /Page /Parent 2 0 R ")
+                           .append("/MediaBox [0 0 612 792] /Contents ")
+                           .append(QByteArray::number(4 + i * 2))
+                           .append(" 0 R /Resources << /Font << /F1 ")
+                           .append(QByteArray::number(5 + pageTexts.size() * 2))
+                           .append(" 0 R >> >> >>");
+            const QByteArray stream = QByteArray("BT /F1 18 Tf 72 700 Td (")
+                                          .append(pageTexts.at(i))
+                                          .append(") Tj ET");
+            objects << pdfStreamObject(stream);
+        }
+        objects << QByteArray("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        QByteArray out = "%PDF-1.4\n";
+        QList<int> offsets;
+        for (int i = 0; i < objects.size(); ++i) {
+            offsets.append(out.size());
+            out += QByteArray::number(i + 1) + " 0 obj\n" + objects.at(i)
+                   + "\nendobj\n";
+        }
+        const int xrefAt = out.size();
+        out += "xref\n0 " + QByteArray::number(objects.size() + 1)
+               + "\n0000000000 65535 f \n";
+        for (int offset : offsets) {
+            out += QByteArray::number(offset).rightJustified(10, '0')
+                   + " 00000 n \n";
+        }
+        out += "trailer\n<< /Size " + QByteArray::number(objects.size() + 1)
+               + " /Root 1 0 R >>\nstartxref\n" + QByteArray::number(xrefAt)
+               + "\n%%EOF\n";
+        return out;
+    };
+    const QByteArray textPdfBytes = buildTextPdf(
+        {QByteArray("ModbusLens C1b PDF import")});
+    const QByteArray noTextPdfBytes = buildTextPdf({});
+    const QByteArray twoPagePdfBytes = buildTextPdf(
+        {QByteArray("ModbusLens C1b PDF page one"),
+         QByteArray("ModbusLens C1b PDF page two")});
+    const QString textPdfPath =
+        writeSeed(QStringLiteral("manual-text.pdf"), textPdfBytes);
+    const QString noTextPdfPath =
+        writeSeed(QStringLiteral("manual-notext.pdf"), noTextPdfBytes);
+    const QString twoPagePdfPath =
+        writeSeed(QStringLiteral("manual-twopage.pdf"), twoPagePdfBytes);
+    const QString textPdfCopyPath =
+        writeSeed(QStringLiteral("manual-text-copy.pdf"), textPdfBytes);
+
+    const QByteArray docxDocumentXml = QByteArray(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        "<w:document xmlns:w=\"http://schemas.openxmlformats.org/"
+        "wordprocessingml/2006/main\"><w:body><w:p><w:r><w:t>"
+        "DOCX \u5bfc\u5165\u6b63\u6587</w:t></w:r></w:p></w:body></w:document>");
+    const QByteArray docxContentTypes = QByteArray(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/"
+        "content-types\"><Default Extension=\"rels\" ContentType=\"application/"
+        "vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\""
+        " ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\""
+        " ContentType=\"application/vnd.openxmlformats-officedocument."
+        "wordprocessingml.document.main+xml\"/></Types>");
+    const QByteArray docxRels = QByteArray(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/"
+        "relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas."
+        "openxmlformats.org/officeDocument/2006/relationships/officeDocument\""
+        " Target=\"word/document.xml\"/></Relationships>");
+    const auto writeDocxSeed = [&](const QString &path) -> bool {
+        int errorCode = 0;
+        zip_t *archive =
+            zip_open(path.toUtf8().constData(), ZIP_CREATE | ZIP_TRUNCATE,
+                     &errorCode);
+        if (archive == nullptr) {
+            return false;
+        }
+        const auto add = [archive](const char *name, const QByteArray &content) {
+            zip_source_t *source = zip_source_buffer(
+                archive, content.constData(), content.size(), 0);
+            return source != nullptr
+                   && zip_file_add(archive, name, source, ZIP_FL_ENC_UTF_8) >= 0;
+        };
+        const bool ok =
+            add("[Content_Types].xml", docxContentTypes)
+            && add("_rels/.rels", docxRels)
+            && add("word/document.xml", docxDocumentXml);
+        zip_close(archive);
+        return ok;
+    };
+    const QString docxPath =
+        writeSeed(QStringLiteral("manual.docx"), QByteArray());
+    if (docxPath.isEmpty() || !writeDocxSeed(docxPath)) {
+        qWarning().noquote() << QStringLiteral("MANFAIL: docx seed failed");
+        return 1;
+    }
+    if (textPdfPath.isEmpty() || noTextPdfPath.isEmpty()
+        || twoPagePdfPath.isEmpty() || textPdfCopyPath.isEmpty()) {
+        qWarning().noquote() << QStringLiteral("MANFAIL: pdf seed write failed");
         return 1;
     }
 
@@ -16596,10 +16717,12 @@ int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         note(QStringLiteral("stage 2: BOM Markdown imported as plain text"));
     });
 
-    // Stage 3: PDF is refused in C1a — and the refusal changes nothing.
+    // Stage 3: an unsupported extension is refused — and the refusal
+    // changes nothing. (T027 section 60.1: .pdf / .docx are now SUPPORTED
+    // routes, so this case moved to a still-unsupported extension.)
     push([&]() {
-        if (importFile(pdfPath))
-            fail(QStringLiteral("stage 3: a PDF was accepted in C1a"));
+        if (importFile(exePath))
+            fail(QStringLiteral("stage 3: an .exe was accepted"));
         if (errorToken() != QStringLiteral("unsupported_type"))
             fail(QStringLiteral("stage 3: expected unsupported_type, got %1")
                      .arg(errorToken()));
@@ -16607,7 +16730,118 @@ int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("stage 3: a refused import changed the list"));
         if (collectRows(QStringLiteral("manualDocumentRow")).size() != 2)
             fail(QStringLiteral("stage 3: the document list changed"));
-        note(QStringLiteral("stage 3: PDF refused (C1b), list unchanged"));
+        note(QStringLiteral("stage 3: unsupported extension refused, list unchanged"));
+
+    // Stage 3b: a PDF WITH an existing text layer imports successfully; the
+    // preview is the deterministic extracted text under a page header, and
+    // the page header is presentation-only (never in the cache payload).
+    push([&]() {
+        if (!importFile(textPdfPath)) {
+            fail(QStringLiteral("stage 3b: PDF import failed: %1")
+                     .arg(errorToken()));
+            return;
+        }
+        if (docCount() != 3)
+            fail(QStringLiteral("stage 3b: expected 3 documents, got %1")
+                     .arg(docCount()));
+        selectDocument(indexOfDoc(QStringLiteral("manual-text.pdf")));
+        if (preview().isEmpty()
+            || !preview().contains(QStringLiteral("ModbusLens C1b PDF import")))
+            fail(QStringLiteral("stage 3b: the extracted text is missing"));
+        if (!preview().startsWith(QStringLiteral("\u7b2c 1 \u9875\n")))
+            fail(QStringLiteral("stage 3b: the page header is missing"));
+        const QString hash =
+            manual->property("selectedDocument").toMap()
+                .value(QStringLiteral("contentHash")).toString();
+        QFile cacheFile(QDir(ManualStore::textDirectory())
+                            .filePath(hash + QStringLiteral(".json")));
+        if (!cacheFile.open(QIODevice::ReadOnly)) {
+            fail(QStringLiteral("stage 3b: the PDF cache is missing"));
+            return;
+        }
+        const QByteArray cacheBytes = cacheFile.readAll();
+        cacheFile.close();
+        if (cacheBytes.contains("\u7b2c"))
+            fail(QStringLiteral("stage 3b: a page header leaked into the cache"));
+        note(QStringLiteral("stage 3b: PDF text layer imported; header is presentation-only"));
+    });
+
+    // Stage 3c: DOCX main story imports with the frozen plain text.
+    push([&]() {
+        if (!importFile(docxPath)) {
+            fail(QStringLiteral("stage 3c: DOCX import failed: %1")
+                     .arg(errorToken()));
+            return;
+        }
+        if (docCount() != 4)
+            fail(QStringLiteral("stage 3c: expected 4 documents, got %1")
+                     .arg(docCount()));
+        selectDocument(indexOfDoc(QStringLiteral("manual.docx")));
+        if (preview() != QString::fromUtf8("DOCX \u5bfc\u5165\u6b63\u6587\n"))
+            fail(QStringLiteral("stage 3c: the main story text changed"));
+        note(QStringLiteral("stage 3c: DOCX main story imported"));
+    });
+
+    // Stage 3d: a PDF without a text layer imports SUCCESSFULLY and the UI
+    // reports the explicit no-text state (never a fake empty success).
+    push([&]() {
+        if (!importFile(noTextPdfPath)) {
+            fail(QStringLiteral("stage 3d: no-text PDF import failed: %1")
+                     .arg(errorToken()));
+            return;
+        }
+        if (docCount() != 5)
+            fail(QStringLiteral("stage 3d: expected 5 documents, got %1")
+                     .arg(docCount()));
+        selectDocument(indexOfDoc(QStringLiteral("manual-notext.pdf")));
+        if (manual->property("previewStateToken").toString()
+            != QStringLiteral("no_extractable_text"))
+            fail(QStringLiteral("stage 3d: the no-text state is not surfaced"));
+        if (!preview().isEmpty())
+            fail(QStringLiteral("stage 3d: a no-text PDF must not yield text"));
+        note(QStringLiteral("stage 3d: no-text PDF imports with an explicit state"));
+    });
+
+    // Stage 3e: the same PDF bytes from a different original path form a
+    // SECOND record while the cache payload is reused (one cache file).
+    push([&]() {
+        if (!importFile(textPdfCopyPath)) {
+            fail(QStringLiteral("stage 3e: duplicate import failed: %1")
+                     .arg(errorToken()));
+            return;
+        }
+        if (docCount() != 6)
+            fail(QStringLiteral("stage 3e: expected 6 documents, got %1")
+                     .arg(docCount()));
+        int jsonCaches = 0;
+        const QDir textDir(ManualStore::textDirectory());
+        for (const QString &name : textDir.entryList(QDir::Files)) {
+            if (name.endsWith(QLatin1String(".json")))
+                ++jsonCaches;
+        }
+        if (jsonCaches != 2)  // the text PDF + the no-text PDF: exactly one each
+            fail(QStringLiteral("stage 3e: the cache was duplicated (%1)")
+                     .arg(jsonCaches));
+        note(QStringLiteral("stage 3e: same bytes -> second record, cache reused"));
+    });
+
+    // Stage 3f: a two-page PDF presents BOTH pages under their headers and
+    // still keeps the per-page truth intact in the cache.
+    push([&]() {
+        if (!importFile(twoPagePdfPath)) {
+            fail(QStringLiteral("stage 3f: two-page PDF import failed: %1")
+                     .arg(errorToken()));
+            return;
+        }
+        selectDocument(indexOfDoc(QStringLiteral("manual-twopage.pdf")));
+        if (!preview().startsWith(QStringLiteral("\u7b2c 1 \u9875\n")))
+            fail(QStringLiteral("stage 3f: page 1 header missing"));
+        if (!preview().contains(QStringLiteral("\u7b2c 2 \u9875\n")))
+            fail(QStringLiteral("stage 3f: page 2 header missing"));
+        if (!preview().contains(QStringLiteral("page two")))
+            fail(QStringLiteral("stage 3f: page 2 text missing"));
+        note(QStringLiteral("stage 3f: two-page presentation verified"));
+    });
     });
 
     // Stage 4: no AI / Candidate / Q&A / credential control exists anywhere in

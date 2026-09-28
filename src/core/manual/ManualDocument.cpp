@@ -6,8 +6,12 @@ namespace {
 
 constexpr std::string_view kTypeTxt = "txt";
 constexpr std::string_view kTypeMarkdown = "md";
+constexpr std::string_view kTypePdf = "pdf";
+constexpr std::string_view kTypeDocx = "docx";
 constexpr std::string_view kStatusReady = "ready";
 constexpr std::string_view kStatusUnavailable = "unavailable";
+constexpr std::string_view kExtractionExtracted = "extracted";
+constexpr std::string_view kExtractionNoText = "no_extractable_text";
 
 [[nodiscard]] char asciiLower(char c)
 {
@@ -38,6 +42,10 @@ std::string_view manualDocumentTypeToken(ManualDocumentType type)
         return kTypeTxt;
     case ManualDocumentType::Markdown:
         return kTypeMarkdown;
+    case ManualDocumentType::Pdf:
+        return kTypePdf;
+    case ManualDocumentType::Docx:
+        return kTypeDocx;
     }
     return {};
 }
@@ -53,6 +61,17 @@ bool manualDocumentTypeFromExtension(std::string_view fileName,
         out = ManualDocumentType::Markdown;
         return true;
     }
+    // M12-C C1b second slice (T027 §60.1, HUMAN-APPROVED): the extension only
+    // ROUTES to an extractor family. The routed extractor still validates the
+    // actual content strictly, so a correct extension never makes bytes trusted.
+    if (endsWithLower(fileName, ".pdf")) {
+        out = ManualDocumentType::Pdf;
+        return true;
+    }
+    if (endsWithLower(fileName, ".docx")) {
+        out = ManualDocumentType::Docx;
+        return true;
+    }
     return false;
 }
 
@@ -63,6 +82,17 @@ std::string_view manualDocumentStatusToken(ManualDocumentStatus status)
         return kStatusReady;
     case ManualDocumentStatus::Unavailable:
         return kStatusUnavailable;
+    }
+    return {};
+}
+
+std::string_view manualExtractionStateToken(ManualExtractionState state)
+{
+    switch (state) {
+    case ManualExtractionState::Extracted:
+        return kExtractionExtracted;
+    case ManualExtractionState::NoExtractableText:
+        return kExtractionNoText;
     }
     return {};
 }
@@ -90,6 +120,10 @@ std::string_view manualImportErrorToken(ManualImportError error)
         return "empty_content";
     case ManualImportError::StorageFailed:
         return "storage_failed";
+    case ManualImportError::MalformedContent:
+        return "malformed_content";
+    case ManualImportError::EncryptedOrPasswordProtected:
+        return "encrypted_or_password_protected";
     }
     return {};
 }

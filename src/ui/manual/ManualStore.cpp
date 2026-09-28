@@ -4,12 +4,17 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QStringConverter>
 #include <QUuid>
+
+#include "ui/manual/ManualDocxTextExtractor.h"
+#include "ui/manual/ManualPdfTextExtractor.h"
+#include "ui/manual/ManualTextExtraction.h"
 
 namespace modbuslens::ui {
 
@@ -121,6 +126,11 @@ QByteArray ManualStore::serializeMetadata(
     root[QStringLiteral("statusToken")] =
         QString::fromStdString(std::string(
             manualDocumentStatusToken(document.status)));
+    // M12-C C1b second slice (T027 §60.2): "extracted" |
+    // "no_extractable_text". Written for every format so the schema stays
+    // uniform (TXT / Markdown are always "extracted").
+    root[QStringLiteral("extractionStateToken")] =
+        QString::fromStdString(document.extractionStateToken);
     QJsonDocument json(root);
     // QJsonDocument::Compact + QJsonObject key ordering make the metadata
     // byte-stable, so a save is reproducible and diffable.
@@ -165,53 +175,117 @@ ManualImportResult ManualStore::importSourceFile(const QString &sourcePath,
         return result;
     }
 
-    // 3. BOM discrimination: UTF-8 is stripped, UTF-16 is an explicit
-    //    "unsupported in C1a v1" (never binary, never mojibake success).
-    QByteArrayView body(bytes);
-    static const char kUtf8Bom[] = {'\xEF', '\xBB', '\xBF'};
-    static const char kUtf16LeBom[] = {'\xFF', '\xFE'};
-    static const char kUtf16BeBom[] = {'\xFE', '\xFF'};
-    if (hasPrefix(bytes, kUtf8Bom, 3)) {
-        body = body.mid(3);
-    } else if (hasPrefix(bytes, kUtf16LeBom, 2)
-               || hasPrefix(bytes, kUtf16BeBom, 2)) {
-        result.error = ManualImportError::UnsupportedEncoding;
-        return result;
-    }
-
-    // 4. Binary heuristic (implementation detail): NUL-containing content is
-    //    not text. It can never misfire on legal Chinese / emoji / other
-    //    non-ASCII UTF-8, which never contains a NUL byte.
-    if (containsNul(body)) {
-        result.error = ManualImportError::BinaryContent;
-        return result;
-    }
-
-    // 5. STRICT UTF-8: a decoder that reports invalid characters instead of a
-    //    path that silently inserts U+FFFD and still claims success.
-    QStringDecoder decoder(QStringConverter::Utf8);
-    const QString text = decoder.decode(body);
-    const auto finalized = decoder.finalize();
-    if (decoder.hasError() || finalized.invalidChars != 0) {
-        result.error = ManualImportError::InvalidEncoding;
-        return result;
-    }
-    if (text.isEmpty()) {
-        result.error = ManualImportError::EmptyContent;
-        return result;
-    }
-    if (static_cast<std::size_t>(text.size()) > kManualMaxTextChars) {
-        result.error = ManualImportError::TooLarge;
-        return result;
-    }
-
-    // 6. Content identity — the ONLY cache key.
+    // 3. Content identity — the ONLY cache key (unchanged from C1a).
     const QString contentHash =
         QString::fromUtf8(
             QCryptographicHash::hash(bytes, QCryptographicHash::Sha256)
                 .toHex());
 
-    // 7. Commit: managed copy, text cache, then the metadata index. Nothing
+    // 4. Format-specific validation / extraction. NOTHING has been written at
+    //    this point, so any failure here keeps the store untouched (atomicity
+    //    owner: this function — T027 §60.2).
+    //
+    //    TXT / Markdown: the C1a path, BYTE-FOR-BYTE unchanged semantics
+    //    (BOM discrimination, binary refusal, strict UTF-8, limits).
+    //    PDF / DOCX (C1b second slice): routed to the frozen extractors; a PDF
+    //    without an existing text layer is an IMPORT SUCCESS recorded as
+    //    no_extractable_text (never OCR'd, never guessed), while corrupt /
+    //    fake / malformed / encrypted / over-limit inputs make the WHOLE
+    //    IMPORT fail.
+    QString text;                 // TXT / Markdown / DOCX cache payload
+    QStringList pdfPages;         // PDF per-page truth (presentation-agnostic)
+    bool isPdf = type == ManualDocumentType::Pdf;
+    std::size_t charCount = 0;
+    std::string extractionState(
+        std::string(manualExtractionStateToken(
+            ManualExtractionState::Extracted)));
+
+    if (type == ManualDocumentType::Txt
+        || type == ManualDocumentType::Markdown) {
+        QByteArrayView body(bytes);
+        static const char kUtf8Bom[] = {'\xEF', '\xBB', '\xBF'};
+        static const char kUtf16LeBom[] = {'\xFF', '\xFE'};
+        static const char kUtf16BeBom[] = {'\xFE', '\xFF'};
+        if (hasPrefix(bytes, kUtf8Bom, 3)) {
+            body = body.mid(3);
+        } else if (hasPrefix(bytes, kUtf16LeBom, 2)
+                   || hasPrefix(bytes, kUtf16BeBom, 2)) {
+            result.error = ManualImportError::UnsupportedEncoding;
+            return result;
+        }
+
+        // Binary heuristic (implementation detail): NUL-containing content is
+        // not text. It can never misfire on legal Chinese / emoji / other
+        // non-ASCII UTF-8, which never contains a NUL byte.
+        if (containsNul(body)) {
+            result.error = ManualImportError::BinaryContent;
+            return result;
+        }
+
+        // STRICT UTF-8: a decoder that reports invalid characters instead of a
+        // path that silently inserts U+FFFD and still claims success.
+        QStringDecoder decoder(QStringConverter::Utf8);
+        text = decoder.decode(body);
+        const auto finalized = decoder.finalize();
+        if (decoder.hasError() || finalized.invalidChars != 0) {
+            result.error = ManualImportError::InvalidEncoding;
+            return result;
+        }
+        if (text.isEmpty()) {
+            result.error = ManualImportError::EmptyContent;
+            return result;
+        }
+        if (static_cast<std::size_t>(text.size()) > kManualMaxTextChars) {
+            result.error = ManualImportError::TooLarge;
+            return result;
+        }
+        charCount = static_cast<std::size_t>(text.size());
+    } else {
+        const ManualExtractionResult extraction =
+            isPdf ? ManualPdfTextExtractor::extractFromFile(sourcePath)
+                  : ManualDocxTextExtractor::extractFromBytes(
+                        bytes, originalFileName);
+        switch (extraction.status) {
+        case ManualExtractionStatus::Ok:
+            extractionState = std::string(
+                manualExtractionStateToken(ManualExtractionState::Extracted));
+            break;
+        case ManualExtractionStatus::NoExtractableText:
+            // HUMAN-APPROVED (T027 §60.2): the import itself SUCCEEDS; the
+            // record keeps the managed copy and carries the explicit state.
+            extractionState = std::string(
+                manualExtractionStateToken(
+                    ManualExtractionState::NoExtractableText));
+            break;
+        case ManualExtractionStatus::MalformedDocument:
+            result.error = ManualImportError::MalformedContent;
+            return result;
+        case ManualExtractionStatus::EncryptedOrPasswordProtected:
+            result.error = ManualImportError::EncryptedOrPasswordProtected;
+            return result;
+        case ManualExtractionStatus::ResourceLimitExceeded:
+            result.error = ManualImportError::TooLarge;
+            return result;
+        case ManualExtractionStatus::InternalError:
+        case ManualExtractionStatus::DependencyError:
+        case ManualExtractionStatus::UnsupportedDocumentFeature:
+        default:
+            result.error = ManualImportError::StorageFailed;
+            return result;
+        }
+        if (isPdf) {
+            pdfPages = extraction.pageTexts;
+            for (const QString &page : pdfPages) {
+                charCount += static_cast<std::size_t>(page.size());
+            }
+        } else {
+            text = extraction.mainStoryText;
+            charCount = static_cast<std::size_t>(text.size());
+        }
+        result.document.extractionStateToken = extractionState;
+    }
+
+    // 5. Commit: managed copy, text cache, then the metadata index. Nothing
     //    has been written before this point, so a failure up to here cannot
     //    leave a partial document.
     const QDir manualsDir(managedManualsDirectory());
@@ -224,8 +298,15 @@ ManualImportResult ManualStore::importSourceFile(const QString &sourcePath,
 
     const QString managedCopyPath =
         QDir(sourceDirectory()).filePath(contentHash + QStringLiteral(".bin"));
+    // Cache identity is contentHash for every format; the PDF per-page truth
+    // lives in a .json sibling so the presentation can page through it while
+    // the extractor's per-page truth stays intact (T027 §60.4).
+    const bool pdfCache = isPdf;
     const QString cachePath =
-        QDir(textDirectory()).filePath(contentHash + QStringLiteral(".txt"));
+        QDir(textDirectory())
+            .filePath(contentHash
+                      + (pdfCache ? QStringLiteral(".json")
+                                  : QStringLiteral(".txt")));
     const bool copyExisted = QFileInfo::exists(managedCopyPath);
     const bool cacheExisted = QFileInfo::exists(cachePath);
 
@@ -233,7 +314,19 @@ ManualImportResult ManualStore::importSourceFile(const QString &sourcePath,
         result.error = ManualImportError::StorageFailed;
         return result;
     }
-    const QByteArray cacheBytes = text.toUtf8();
+    QByteArray cacheBytes;
+    if (pdfCache) {
+        QJsonArray pagesArray;
+        for (const QString &page : pdfPages) {
+            pagesArray.append(page);
+        }
+        QJsonObject cacheRoot;
+        cacheRoot[QStringLiteral("schemaVersion")] = 1;
+        cacheRoot[QStringLiteral("pages")] = pagesArray;
+        cacheBytes = QJsonDocument(cacheRoot).toJson(QJsonDocument::Compact);
+    } else {
+        cacheBytes = text.toUtf8();
+    }
     if (!cacheExisted && !writeFileAtomic(cachePath, cacheBytes)) {
         if (!copyExisted) {
             QFile::remove(managedCopyPath);
@@ -251,8 +344,9 @@ ManualImportResult ManualStore::importSourceFile(const QString &sourcePath,
     document.originalPath = sourcePath.toStdString();
     document.contentHash = contentHash.toStdString();
     document.byteSize = static_cast<std::uint64_t>(bytes.size());
-    document.charCount = static_cast<std::size_t>(text.size());
+    document.charCount = charCount;
     document.status = ManualDocumentStatus::Ready;
+    document.extractionStateToken = extractionState;
 
     const QString metaPath = QDir(documentsDirectory())
                                  .filePath(QString::fromStdString(
@@ -311,6 +405,10 @@ std::vector<modbuslens::core::ManualDocument> ManualStore::loadAll()
             root.value(QStringLiteral("documentType")).toString();
         if (typeToken == QStringLiteral("md")) {
             type = ManualDocumentType::Markdown;
+        } else if (typeToken == QStringLiteral("pdf")) {
+            type = ManualDocumentType::Pdf;
+        } else if (typeToken == QStringLiteral("docx")) {
+            type = ManualDocumentType::Docx;
         }
         document.documentType = type;
         document.originalPath =
@@ -321,13 +419,18 @@ std::vector<modbuslens::core::ManualDocument> ManualStore::loadAll()
             root.value(QStringLiteral("byteSize")).toVariant().toULongLong());
         document.charCount = static_cast<std::size_t>(
             root.value(QStringLiteral("charCount")).toVariant().toULongLong());
+        // M12-C C1b second slice: pre-amendment records (C1a era) carry no
+        // extractionStateToken and are always "extracted" — their behaviour is
+        // byte-for-byte what it always was.
+        document.extractionStateToken =
+            root.value(QStringLiteral("extractionStateToken"))
+                .toString(QStringLiteral("extracted"))
+                .toStdString();
         document.status = hasManagedArtifacts(document)
                               ? ManualDocumentStatus::Ready
                               : ManualDocumentStatus::Unavailable;
         document.statusToken =
-            document.status == ManualDocumentStatus::Ready
-                ? std::string(manualDocumentStatusToken(document.status))
-                : std::string(manualDocumentStatusToken(document.status));
+            std::string(manualDocumentStatusToken(document.status));
         documents.push_back(document);
     }
     return documents;
@@ -340,10 +443,18 @@ bool ManualStore::hasManagedArtifacts(
     if (hash.isEmpty()) {
         return false;
     }
-    return QFileInfo::exists(
-               QDir(sourceDirectory()).filePath(hash + QStringLiteral(".bin")))
-           && QFileInfo::exists(
-                  QDir(textDirectory()).filePath(hash + QStringLiteral(".txt")));
+    if (!QFileInfo::exists(
+            QDir(sourceDirectory()).filePath(hash + QStringLiteral(".bin")))) {
+        return false;
+    }
+    // The cache artefact is format-specific: PDF per-page truth lives in a
+    // .json sibling, every other format keeps the UTF-8 .txt cache.
+    const QString cacheName =
+        hash + (document.documentType
+                        == modbuslens::core::ManualDocumentType::Pdf
+                    ? QStringLiteral(".json")
+                    : QStringLiteral(".txt"));
+    return QFileInfo::exists(QDir(textDirectory()).filePath(cacheName));
 }
 
 QString ManualStore::loadText(const QString &contentHash, bool *ok)
@@ -365,6 +476,35 @@ QString ManualStore::loadText(const QString &contentHash, bool *ok)
         *ok = true;
     }
     return QString::fromUtf8(bytes);
+}
+
+QStringList ManualStore::loadPdfPages(const QString &contentHash, bool *ok)
+{
+    if (ok) {
+        *ok = false;
+    }
+    QStringList pages;
+    if (contentHash.isEmpty()) {
+        return pages;
+    }
+    QFile file(QDir(textDirectory())
+                   .filePath(contentHash + QStringLiteral(".json")));
+    if (!file.open(QIODevice::ReadOnly)) {
+        return pages;
+    }
+    const QJsonDocument json = QJsonDocument::fromJson(file.readAll());
+    file.close();
+    if (!json.isObject()) {
+        return pages;
+    }
+    const QJsonArray array = json.object().value(QStringLiteral("pages")).toArray();
+    for (const QJsonValue &value : array) {
+        pages.append(value.toString());
+    }
+    if (ok) {
+        *ok = true;
+    }
+    return pages;
 }
 
 } // namespace modbuslens::ui

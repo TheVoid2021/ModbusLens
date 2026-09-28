@@ -36,12 +36,16 @@ inline constexpr int kManualMaxExcerptChars = 240;
 enum class ManualDocumentType {
     Txt,
     Markdown,
+    Pdf,  // M12-C C1b second slice (T027 §60.1): routed to the PDFium extractor
+    Docx, // M12-C C1b second slice (T027 §60.1): routed to the libzip+XML extractor
 };
 
 [[nodiscard]] std::string_view manualDocumentTypeToken(ManualDocumentType type);
 
 // Extension-driven type discrimination (ASCII, case-insensitive). Anything
-// outside the C1a matrix yields false — the caller must refuse, never guess.
+// outside the frozen type matrix yields false — the caller must refuse, never
+// guess. The extension only ROUTES (T027 §60.1); the routed extractor still
+// validates the actual content strictly.
 [[nodiscard]] bool manualDocumentTypeFromExtension(std::string_view fileName,
                                                    ManualDocumentType &out);
 
@@ -53,9 +57,22 @@ enum class ManualDocumentStatus {
 [[nodiscard]] std::string_view manualDocumentStatusToken(
     ManualDocumentStatus status);
 
+// M12-C C1b second slice (T027 §60.2, HUMAN-APPROVED): a PDF without an
+// existing text layer is an IMPORT SUCCESS — the managed copy and the record
+// are kept — but its extraction state is recorded explicitly instead of
+// pretending an ordinary extraction happened. OCR / guessing stays forbidden.
+enum class ManualExtractionState {
+    Extracted,           // deterministic extracted text is cached
+    NoExtractableText,   // valid document, but no existing text layer (PDF) /
+                         // empty main story (DOCX): never OCR'd, never guessed
+};
+
+[[nodiscard]] std::string_view manualExtractionStateToken(
+    ManualExtractionState state);
+
 enum class ManualImportError {
     Ok,
-    UnsupportedType,      // extension outside the C1a TXT/Markdown matrix
+    UnsupportedType,      // extension outside the frozen type matrix
     FileNotFound,
     ReadFailed,
     TooLarge,             // exceeds kManualMaxSourceBytes
@@ -64,6 +81,10 @@ enum class ManualImportError {
     UnsupportedEncoding,  // UTF-16 BOM: unsupported in C1a v1, not forever
     EmptyContent,
     StorageFailed,        // managed copy / cache / metadata write failed
+    // M12-C C1b second slice (T027 §60.2): extraction-side failures make the
+    // WHOLE IMPORT an atomic failure.
+    MalformedContent,     // corrupt / fake / malformed PDF or DOCX
+    EncryptedOrPasswordProtected,
 };
 
 // Stable machine tokens ("unsupported_type", ...) — never human UI prose.
@@ -80,6 +101,10 @@ struct ManualDocument {
     std::size_t charCount{0};
     ManualDocumentStatus status{ManualDocumentStatus::Ready};
     std::string statusToken;      // machine token; empty while Ready
+    // M12-C C1b second slice (T027 §60.2): "extracted" | "no_extractable_text".
+    std::string extractionStateToken{
+        std::string(manualExtractionStateToken(
+            ManualExtractionState::Extracted))};
 };
 
 // ---------------------------------------------------------------------------

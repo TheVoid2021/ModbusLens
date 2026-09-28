@@ -11,7 +11,7 @@
 namespace modbuslens::ui {
 
 // ---------------------------------------------------------------------------
-// M12-C C1a: Manual persistence (Qt side).
+// M12-C C1a/C1b: Manual persistence (Qt side).
 //
 // Split mirrors the M12-A/B layering: the domain model + tokens live in the
 // Zero-Qt core (core/manual/ManualDocument.h); this layer owns exactly the
@@ -19,7 +19,7 @@ namespace modbuslens::ui {
 // (QStringDecoder), atomic file writes (QSaveFile) and the platform
 // user-data location (QStandardPaths).
 //
-// HUMAN-FROZEN semantics (T027 §48):
+// HUMAN-FROZEN semantics (T027 §48, §60):
 //   · HYBRID STORAGE: a successful import copies the source into the
 //     app-managed directory. `originalPath` is persisted as PROVENANCE and is
 //     NEVER read again — after a successful import the original file may be
@@ -27,15 +27,24 @@ namespace modbuslens::ui {
 //   · CONTENT IDENTITY: contentHash = SHA-256 of the imported source bytes,
 //     lowercase hex. It — and only it — keys the managed copy and the
 //     extracted-text cache. filename / mtime / original path are never used
-//     as cache truth.
-//   · C1a FORMATS: TXT and Markdown only. PDF / DOCX are C1b
-//     (NOT STARTED / DEPENDENCY DECISION DEFERRED) and OCR stays deferred;
-//     this layer refuses them, it does not remove them from scope.
+//     as cache truth. document identity != contentHash: the same bytes may be
+//     imported from different original paths and form SEPARATE records
+//     (T027 §60.3) while the cache payload is reused.
+//   · FORMATS: C1a = TXT and Markdown (semantics ZERO CHANGE). C1b second
+//     slice (T027 §60, HUMAN-APPROVED) adds PDF (existing text layer only, no
+//     OCR) and DOCX (main document story) routed by extension; the routed
+//     extractor still validates the content strictly. A PDF without a text
+//     layer is an IMPORT SUCCESS with extraction state no_extractable_text;
+//     corrupt/fake/malformed/encrypted/resource-limit failures make the WHOLE
+//     IMPORT an atomic failure (no partial artifacts — same discipline as
+//     C1a).
 //
 // Layout under the managed root (never a hard-coded user path):
 //   <root>/manuals/documents/<documentId>.json   metadata (the index)
 //   <root>/manuals/source/<contentHash>.bin      managed byte copy
 //   <root>/manuals/text/<contentHash>.txt        extracted-text cache (UTF-8)
+//                                                (TXT / Markdown / DOCX)
+//   <root>/manuals/text/<contentHash>.json       PDF per-page truth (pages[])
 // ---------------------------------------------------------------------------
 
 struct ManualImportResult {
@@ -87,6 +96,12 @@ public:
     // could be mistaken for an empty document.
     [[nodiscard]] static QString loadText(const QString &contentHash,
                                           bool *ok = nullptr);
+
+    // M12-C C1b second slice (T027 §60.4): the per-page truth of a PDF,
+    // loaded from text/<hash>.json. The page headers shown by the UI are
+    // presentation-only and are NEVER part of this data.
+    [[nodiscard]] static QStringList loadPdfPages(const QString &contentHash,
+                                                  bool *ok = nullptr);
 
 private:
     [[nodiscard]] static QByteArray serializeMetadata(

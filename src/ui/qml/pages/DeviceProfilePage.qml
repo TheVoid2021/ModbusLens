@@ -889,7 +889,13 @@ Item {
                         // deterministic source text — no HTML, no script, no
                         // remote resource is ever resolved or rendered.
                         textFormat: Text.PlainText
-                        text: manualController.previewText
+                        // M12-C C1b second slice (T027 §60.4): a no-text PDF /
+                        // DOCX shows an EXPLICIT state — never a blank preview
+                        // that would fake an ordinary extraction success.
+                        text: manualController.previewStateToken
+                                  === "no_extractable_text"
+                                  ? qsTr("未发现可提取文本层（不做 OCR，不猜测文本）。")
+                                  : manualController.previewText
                         color: DS.textSecondary
                         font.pixelSize: DS.fontCaption
                         wrapMode: Text.Wrap
@@ -1273,9 +1279,14 @@ Item {
     FileDialog {
         id: manualFileDialog
         objectName: "manualFileDialog"
-        title: qsTr("导入说明书（TXT / Markdown）")
+        // M12-C C1b second slice (T027 §60.1): one dialog, more selectable
+        // types; the extension only routes to an extractor family — the
+        // content is still strictly validated before anything is stored.
+        title: qsTr("导入说明书（TXT / Markdown / PDF / DOCX）")
         nameFilters: [
             qsTr("文本与 Markdown (*.txt *.md *.markdown)"),
+            qsTr("PDF 文档 (*.pdf)"),
+            qsTr("Word 文档 (*.docx)"),
             qsTr("所有文件 (*)")
         ]
         onAccepted: manualController.importManualFile(selectedFile)
