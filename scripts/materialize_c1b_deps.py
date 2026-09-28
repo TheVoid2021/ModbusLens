@@ -80,7 +80,6 @@ def verify_distfile(path: str, expected_sha: str, label: str) -> None:
         )
     actual = sha256_of(path)
     if actual != expected_sha:
-        # check so tampered bytes are silently accepted. Reverted immediately after.
         fail(
             4,
             f"hash mismatch for {label}: {path}\n"
