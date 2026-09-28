@@ -6,6 +6,10 @@ build*/
 # --- CMake local overrides (machine-specific toolchains live here, never committed) ---
 CMakeUserPresets.json
 
+# --- M12-C C1b third-party distfiles (local dependency bytes; the tracked truth is the
+#     lock manifest third_party/m12c-c1b/dependencies.lock.json, never the blobs) ---
+/third_party/m12c-c1b/distfiles/
+
 # --- IDE / editor ---
 .vscode/
 .idea/

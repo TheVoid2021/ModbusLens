@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "scope": "m12c-c1b",
+  "comment": "Exact pins for the M12-C C1b PDF/DOCX extraction foundation. This manifest is the tracked dependency truth; the actual dependency bytes are NOT vendored (they live in the git-ignored third_party/m12c-c1b/distfiles/ and are consumed by scripts/materialize_c1b_deps.py, which never touches the network). No machine-absolute path may appear in this file.",
+  "materializer": {
+    "script": "scripts/materialize_c1b_deps.py",
+    "distfilesDir": "third_party/m12c-c1b/distfiles",
+    "outputRoot": "build/deps/m12c-c1b",
+    "network": "forbidden"
+  },
+  "dependencies": {
+    "pdfium": {
+      "role": "PDF text-layer extraction via the PDFium public C API (OCR deferred)",
+      "version": "156.0.8066.0",
+      "distributor": "bblanchon/pdfium-binaries",
+      "distributorKind": "third-party binary distributor (not Google, not Foxit, not an official binary channel)",
+      "distributorTag": "chromium/8066",
+      "distributorReleaseTargetCommit": "f2e9a1c45bb17b85b540abf1af30146ef65416ac",
+      "upstreamCommit": "fc46361ce75055cd549cb938fae5d6a3fe3a1a05",
+      "artifact": "pdfium-win-x64.tgz",
+      "artifactSize": 3823498,
+      "artifactSha256": "739a57d597d864297909cc40a2411eba728490c76a0fa25e3ea299c7f6b07020",
+      "expectedVersionFile": {
+        "MAJOR": "156",
+        "MINOR": "0",
+        "BUILD": "8066",
+        "PATCH": "0"
+      },
+      "expectedArgsGn": {
+        "target_os": "win",
+        "target_cpu": "x64",
+        "pdf_enable_v8": false
+      },
+      "runtimeDllPathInArtifact": "bin/pdfium.dll",
+      "runtimeDllSha256": "d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b",
+      "importLibraryPathInArtifact": "lib/pdfium.dll.lib",
+      "importLibrarySha256": "a5b07aacd8a4c0fe4900152ca58332d512018c35619f555c0fbc68ed9213d5db",
+      "publicHeadersDirInArtifact": "include",
+      "licenseFileInArtifact": "LICENSE",
+      "thirdPartyNoticesDirInArtifact": "licenses"
+    },
+    "libzip": {
+      "role": "DOCX (OOXML) ZIP container reading",
+      "version": "1.11.4",
+      "officialSource": "https://libzip.org/download/libzip-1.11.4.tar.gz",
+      "archive": "libzip-1.11.4.tar.gz",
+      "archiveSize": 1301153,
+      "archiveSha256": "82e9f2f2421f9d7c2466bbc3173cd09595a88ea37db0d559a9d0a2dc60dc722e",
+      "license": "BSD-3-Clause style (Copyright (C) 1999-2020 Dieter Baron and Thomas Klausner)",
+      "build": {
+        "generator": "Ninja",
+        "buildType": "Release",
+        "shared": false,
+        "disabled": [
+          "ENABLE_OPENSSL",
+          "ENABLE_GNUTLS",
+          "ENABLE_MBEDTLS",
+          "ENABLE_WINDOWS_CRYPTO",
+          "ENABLE_COMMONCRYPTO",
+          "ENABLE_BZIP2",
+          "ENABLE_LZMA",
+          "ENABLE_ZSTD",
+          "BUILD_TOOLS",
+          "BUILD_REGRESS",
+          "BUILD_EXAMPLES",
+          "BUILD_DOC"
+        ]
+      }
+    },
+    "zlib": {
+      "role": "deflate for libzip (the only libzip dependency)",
+      "version": "1.2.13",
+      "provider": "MinGW-w64 sysroot shipped with the Qt 6.11.1 MinGW toolchain",
+      "headerFile": "zlib.h",
+      "headerSize": 97323,
+      "headerSha256": "a980a0d104198a53cc220c51ab5856e5be901bec8a2d02e0ee79a8754219dfed",
+      "libraryFile": "libz.a",
+      "librarySize": 127434,
+      "librarySha256": "a0d1c8616a1f826ac2392cc200523d69e35fc8e95a4a4934c78bd02071a670e8",
+      "machinePathsInTrackedFiles": false,
+      "note": "This does NOT mean the product has adopted a zlib of its own: the toolchain sysroot copy is pinned by hash and recorded into the git-ignored materialized manifest."
+    }
+  }
+}

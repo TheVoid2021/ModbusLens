@@ -559,6 +559,174 @@ if(BUILD_TESTING)
     add_test(NAME manual_import
              COMMAND modbuslens_manual_import_tests)
 
+    # ---------------------------------------------------------------------------
+    # M12-C C1b: offline-materialized PDF / DOCX extraction dependencies.
+    #
+    # The dependency bytes are never vendored and never downloaded by CMake. The tracked
+    # truth is third_party/m12c-c1b/dependencies.lock.json; the git-ignored materialized
+    # root is produced by scripts/materialize_c1b_deps.py (no network). Every hash is
+    # re-checked by the materializer before use, and the artifact hashes recorded in the
+    # materialized manifest are asserted again here so a stray swap cannot go unnoticed.
+    # ---------------------------------------------------------------------------
+    option(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS
+        "Build the M12-C C1b PDF/DOCX extraction foundation tests (requires the materialized dependency root)"
+        ON)
+
+    if(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS)
+        # The materialized root is repo-relative (the lock manifest says
+        # outputRoot = build/deps/m12c-c1b), deliberately shared by every build tree so a
+        # Debug and a Release configuration consume the very same dependency bytes.
+        set(MODBUSLENS_C1B_DEPS_ROOT "${CMAKE_SOURCE_DIR}/build/deps/m12c-c1b")
+        set(MODBUSLENS_C1B_MANIFEST
+            "${MODBUSLENS_C1B_DEPS_ROOT}/manifest/materialized.json")
+        if(NOT EXISTS "${MODBUSLENS_C1B_MANIFEST}")
+            message(FATAL_ERROR
+                "M12-C C1b dependency root is missing or was never materialized.\n"
+                "  expected manifest: ${MODBUSLENS_C1B_MANIFEST}\n"
+                "  prepare it with (this never uses the network):\n"
+                "    python scripts/materialize_c1b_deps.py\n"
+                "  see third_party/m12c-c1b/dependencies.lock.json for the exact pins, and\n"
+                "  set MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS=OFF to build without them.")
+        endif()
+
+        file(READ "${MODBUSLENS_C1B_MANIFEST}" MODBUSLENS_C1B_MANIFEST_JSON)
+        string(JSON MODBUSLENS_C1B_PDFIUM_INCLUDE GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               pdfium includeDir)
+        string(JSON MODBUSLENS_C1B_PDFIUM_DLL GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               pdfium runtimeDll)
+        string(JSON MODBUSLENS_C1B_PDFIUM_DLL_SHA GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               pdfium runtimeDllSha256)
+        string(JSON MODBUSLENS_C1B_PDFIUM_IMPLIB GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               pdfium importLibrary)
+        string(JSON MODBUSLENS_C1B_PDFIUM_IMPLIB_SHA GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               pdfium importLibrarySha256)
+        string(JSON MODBUSLENS_C1B_LIBZIP_INCLUDE GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               libzip includeDir)
+        string(JSON MODBUSLENS_C1B_LIBZIP_LIB GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               libzip staticLibrary)
+        string(JSON MODBUSLENS_C1B_ZLIB_INCLUDE GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               zlib header)
+        string(JSON MODBUSLENS_C1B_ZLIB_LIB GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               zlib library)
+        string(JSON MODBUSLENS_C1B_PDFIUM_VERSION GET "${MODBUSLENS_C1B_MANIFEST_JSON}"
+               pdfium version)
+
+        foreach(_pair
+                "MODBUSLENS_C1B_PDFIUM_INCLUDE;${MODBUSLENS_C1B_PDFIUM_INCLUDE}"
+                "MODBUSLENS_C1B_PDFIUM_DLL;${MODBUSLENS_C1B_PDFIUM_DLL}"
+                "MODBUSLENS_C1B_PDFIUM_IMPLIB;${MODBUSLENS_C1B_PDFIUM_IMPLIB}"
+                "MODBUSLENS_C1B_LIBZIP_INCLUDE;${MODBUSLENS_C1B_LIBZIP_INCLUDE}"
+                "MODBUSLENS_C1B_LIBZIP_LIB;${MODBUSLENS_C1B_LIBZIP_LIB}")
+            list(GET _pair 0 _var)
+            list(GET _pair 1 _value)
+            # Every path in the materialized manifest is repo-relative; a re-run from another
+            # drive keeps them absolute, so both forms are accepted here.
+            if(IS_ABSOLUTE "${_value}")
+                set(${_var} "${_value}")
+            else()
+                set(${_var} "${CMAKE_SOURCE_DIR}/${_value}")
+            endif()
+        endforeach()
+        get_filename_component(MODBUSLENS_C1B_ZLIB_INCLUDE
+                               "${MODBUSLENS_C1B_ZLIB_INCLUDE}" DIRECTORY)
+
+        # Hash assertions: the manifest is build output but the hashes inside it must match
+        # the tracked lock manifest, so a swapped artifact cannot silently enter a build.
+        file(SHA256 "${MODBUSLENS_C1B_PDFIUM_DLL}" _pdfium_dll_sha)
+        file(SHA256 "${MODBUSLENS_C1B_PDFIUM_IMPLIB}" _pdfium_implib_sha)
+        if(NOT _pdfium_dll_sha STREQUAL MODBUSLENS_C1B_PDFIUM_DLL_SHA)
+            message(FATAL_ERROR "M12-C C1b: pdfium.dll hash mismatch (expected "
+                                "${MODBUSLENS_C1B_PDFIUM_DLL_SHA}, got ${_pdfium_dll_sha})")
+        endif()
+        if(NOT _pdfium_implib_sha STREQUAL MODBUSLENS_C1B_PDFIUM_IMPLIB_SHA)
+            message(FATAL_ERROR "M12-C C1b: pdfium.dll.lib hash mismatch (expected "
+                                "${MODBUSLENS_C1B_PDFIUM_IMPLIB_SHA}, got ${_pdfium_implib_sha})")
+        endif()
+        if(NOT EXISTS "${MODBUSLENS_C1B_LIBZIP_LIB}")
+            message(FATAL_ERROR "M12-C C1b: libzip static library missing: "
+                                "${MODBUSLENS_C1B_LIBZIP_LIB}\n"
+                                "  re-run: python scripts/materialize_c1b_deps.py")
+        endif()
+        message(STATUS
+            "M12-C C1b dependencies: PDFium ${MODBUSLENS_C1B_PDFIUM_VERSION} (pinned, "
+            "sha256 ${_pdfium_dll_sha}) + libzip (static) - offline materialized root in use")
+
+        add_library(modbuslens_pdfium SHARED IMPORTED GLOBAL)
+        set_target_properties(modbuslens_pdfium PROPERTIES
+            IMPORTED_LOCATION "${MODBUSLENS_C1B_PDFIUM_DLL}"
+            IMPORTED_IMPLIB "${MODBUSLENS_C1B_PDFIUM_IMPLIB}"
+            INTERFACE_INCLUDE_DIRECTORIES "${MODBUSLENS_C1B_PDFIUM_INCLUDE}")
+
+        add_library(modbuslens_libzip STATIC IMPORTED GLOBAL)
+        set_target_properties(modbuslens_libzip PROPERTIES
+            IMPORTED_LOCATION "${MODBUSLENS_C1B_LIBZIP_LIB}"
+            INTERFACE_INCLUDE_DIRECTORIES "${MODBUSLENS_C1B_LIBZIP_INCLUDE}")
+
+        add_library(modbuslens_zlib STATIC IMPORTED GLOBAL)
+        set_target_properties(modbuslens_zlib PROPERTIES
+            IMPORTED_LOCATION "${MODBUSLENS_C1B_ZLIB_LIB}"
+            INTERFACE_INCLUDE_DIRECTORIES "${MODBUSLENS_C1B_ZLIB_INCLUDE}")
+
+        # The extractors are NOT linked into the application yet: doing so would make the
+        # shipped exe implicitly import pdfium.dll and would change the accepted C1a
+        # deployment. Wiring them into the app belongs to the slice that also deploys the
+        # DLL (T027 section 58.5 keeps the import workflow out of this slice).
+        add_executable(modbuslens_manual_extraction_tests
+            tests/test_manual_extraction.cpp
+            src/ui/manual/ManualTextExtraction.h
+            src/ui/manual/ManualTextExtraction.cpp
+            src/ui/manual/ManualPdfTextExtractor.h
+            src/ui/manual/ManualPdfTextExtractor.cpp
+            src/ui/manual/ManualDocxTextExtractor.h
+            src/ui/manual/ManualDocxTextExtractor.cpp)
+        target_link_libraries(modbuslens_manual_extraction_tests PRIVATE
+            modbuslens_core Qt6::Core Qt6::Test modbuslens_pdfium modbuslens_libzip
+            modbuslens_zlib)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(modbuslens_manual_extraction_tests PRIVATE -Wall -Wextra)
+        endif()
+        # The extractor tests must load the FROZEN pdfium.dll from their own directory: no
+        # PATH entry, no Qt or toolchain directory and no other pdfium.dll copy may satisfy
+        # the import.
+        add_custom_command(TARGET modbuslens_manual_extraction_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${MODBUSLENS_C1B_PDFIUM_DLL}"
+                    "$<TARGET_FILE_DIR:modbuslens_manual_extraction_tests>/pdfium.dll"
+            COMMENT "Staging the pinned pdfium.dll next to the extraction tests")
+
+        add_test(NAME manual_extraction
+                 COMMAND modbuslens_manual_extraction_tests)
+
+        # Dependency materializer contract tests (offline; hash tampering must be refused).
+        #
+        # Two things are passed EXPLICITLY and never probed from PATH:
+        #   * the interpreter: -DMODBUSLENS_PYTHON_EXECUTABLE=<path-to-python>
+        #     (probing PATH with find_program() executes whatever python the environment
+        #      exposes, which in this environment terminated the CMake regeneration process)
+        #   * the pinned zlib identity: read from the git-ignored materialized manifest and
+        #     forwarded as command arguments, so the test re-verifies the very same files
+        #     the product consumes (no ambient MinGW discovery, no machine path literal here)
+        string(JSON MODBUSLENS_C1B_ZLIB_HEADER GET "${MODBUSLENS_C1B_MANIFEST_JSON}" zlib header)
+        string(JSON MODBUSLENS_C1B_ZLIB_LIBRARY GET "${MODBUSLENS_C1B_MANIFEST_JSON}" zlib library)
+        set(MODBUSLENS_PYTHON_EXECUTABLE "" CACHE FILEPATH
+            "Explicit Python interpreter for the M12-C C1b dependency contract tests (never probed from PATH)")
+        if(MODBUSLENS_PYTHON_EXECUTABLE AND EXISTS "${MODBUSLENS_PYTHON_EXECUTABLE}")
+            add_test(NAME c1b_dependency_materializer
+                COMMAND "${MODBUSLENS_PYTHON_EXECUTABLE}"
+                        "${CMAKE_SOURCE_DIR}/scripts/test_materialize_c1b_deps.py"
+                        "--lock" "${CMAKE_SOURCE_DIR}/third_party/m12c-c1b/dependencies.lock.json"
+                        "--distfiles" "${CMAKE_SOURCE_DIR}/third_party/m12c-c1b/distfiles"
+                        "--zlib-include" "${MODBUSLENS_C1B_ZLIB_HEADER}"
+                        "--zlib-library" "${MODBUSLENS_C1B_ZLIB_LIBRARY}")
+            set_tests_properties(c1b_dependency_materializer PROPERTIES
+                ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        else()
+            message(STATUS
+                "M12-C C1b: c1b_dependency_materializer not registered (pass "
+                "-DMODBUSLENS_PYTHON_EXECUTABLE=<python> to enable; PATH is never probed)")
+        endif()
+    endif()
+
     # M12-B slice 4: the read-result semantic projection, driven through the
     # REAL production read path (recording transport + shipped encoder +
     # shipped analyzer) against an injected temporary managed root.
