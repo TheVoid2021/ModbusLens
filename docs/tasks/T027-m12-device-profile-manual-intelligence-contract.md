@@ -4415,3 +4415,204 @@ REAL MODBUS HARDWARE = NOT VERIFIED；
 failure #1 exact foreign provider = NOT VERIFIED；
 failure #2 historical exact root cause = UNKNOWN。
 ```
+
+---
+
+## 66. M12-C C2 — AI CANDIDATE CONTRACT FREEZE（2026-09-29 · Session M · docs-only）
+
+> 性质：**append-only 归档**。本节把 Human 在 SESSION M 对 C2 缺失产品/语义决策的 10 条裁定
+> （H1–H10）逐字冻结为 **HUMAN-APPROVED C2 CONTRACT**，并**显式记录**它们与
+> §15 / §19 / §47.10 / §47.11 / §47.13 / §47.14 / §47.15 / §48 的历史关系。
+> **禁止**据此对历史章节做全局机械替换；历史引用保持历史原貌。
+
+### 66.0 Human 授权原文（逐字归档）
+
+```text
+Human 明确回复（SESSION M §0）：
+
+  「同意以上 C2 冻结方案。」
+
+该回复针对 SESSION M 提交的 H1–H10 C2 冻结方案（10 条），构成新的
+HUMAN-APPROVED C2 CONTRACT。
+
+同时确认 SESSION L 终态（SESSION M §0 起始 resync 基线）：
+  HEAD                    = 489d91189a9e8fa7a2f8aed06c0434e5873092fa
+  verified LKGC           = 19f9738c980e0a8a31b557c346fb50a4af711cab
+  M12-C C1b               = COMPLETE / HUMAN ACCEPTED
+  M12-C C2                = STARTED（仅 contract recovery）
+  M12-C C2 IMPLEMENTATION = NOT STARTED
+
+未授权（本轮明确不做）：C3 · M12-D · canonical package · release · tag · push ·
+real hardware claims · scope expansion。
+```
+
+### 66.1 H1–H10 冻结契约（逐条）
+
+**H1 PROVIDER（provider-neutral）**
+
+```text
+架构保持 provider-neutral。首个真实 / live provider 允许沿用既有 ModelScope；
+model id 属 configuration，不成为业务真相，不冻结进 Candidate domain contract。
+first slice 不要求 live ModelScope。
+派生：C++ 侧不得出现 ModelScope-specific Candidate domain 类型 / OpenAI-specific
+业务类型；provider-specific transport object 停在 adapter boundary 之外。
+```
+
+**H2 CLOUD UPLOAD（默认不上传）**
+
+```text
+默认 NO UPLOAD（deterministic 路径零网络）。
+仅 Human 显式触发「AI 提取候选」时允许 cloud extraction。
+selected document 首次需上传前，UI 必须展示 payload scope。
+「允许上传」= selected document 的 canonical extracted text。
+不上传：原始 PDF/DOCX bytes · 其他 manual · verified Device Profile ·
+unrelated transaction history · credentials。
+拒绝 ⇒ zero network request。
+该 UI / live-network 行为不属于本 first slice 范围，但 domain / seam 不得与之冲突。
+```
+
+**H3 CREDENTIAL**
+
+```text
+v1 凭据来源 = process environment only + BYOK seam。
+禁止：UI 持久化 API key · 写入 Profile JSON · 写入 Manual metadata · 写入 Candidate ·
+写入 repo · 写入 log · 任何 plaintext credential persistence。
+missing credential ⇒ 明确失败；不得改变 Manual / Candidate / verified Profile truth。
+first slice 无 live provider ⇒ 不得要求 credential。
+```
+
+**H4 CANDIDATE PERSISTENCE**
+
+```text
+v1 = SESSION-ONLY / IN-MEMORY。重启即消失。
+不写入：Device Profile JSON · manual metadata · cache truth · repo · long-term DB。
+只有未来 C3 的 Human Accept / Edit 经确定性 validation 后，才可能进入 verified Profile。
+```
+
+**H5 CONFIDENCE**
+
+```text
+C2 v1：DO NOT use / display / persist provider-reported numeric confidence。
+Evidence 是候选可信依据。
+保留 §48.1 第 8 项 / §48.2 #8 历史原文（label + optional provider raw opaque value，
+不得解释成概率）；本节新增「C2 v1 进一步 narrowing」= first slice 不实现 confidence。
+```
+
+**H6 EVIDENCE REFERENCE（本地确定性可验证）**
+
+```text
+每个有效 Candidate 必须具备可由本地 deterministic code 验证的 Evidence，绑定：
+  · Manual document identity（documentId）+ content identity（contentHash）/
+    canonical extracted-text identity；
+  · exact excerpt；
+  · canonical extracted-text location（由程序本地计算 / 确认）。
+PDF 可额外携带 page identity / index；TXT / Markdown / DOCX 不得为统一 schema 强造 page。
+AI / provider 返回的 quote / location = UNTRUSTED INPUT；程序必须针对 C1b canonical
+extracted text 重新验证 / 重新定位。
+provider 自报 offset / page / location 不能直接成为 truth。
+exact excerpt 无法验证 ⇒ MUST NOT become a valid Candidate。
+重复 excerpt / ambiguous location 且无既有确定性规则 ⇒ 本 first slice 不发明全局
+ambiguity policy：使用唯一可定位 fixture，ambiguity behavior 明确 DEFERRED。
+```
+
+**H7 CANDIDATE LIFECYCLE**
+
+```text
+C2 只产生 PendingReview（或 repository 语义等价的 canonical state）。
+Accept / Edit / Reject 属 C3。
+不得 AI → verified Profile direct write。
+```
+
+**H8 PROMPT / OUTPUT CONTRACT**
+
+```text
+冻结的是 semantic contract 而非 prompt 文案。
+AI 只能从提供的 canonical extracted text 提取。
+不得猜 scale / offset / unit / register meaning / address / field value；
+source evidence 不支持则不产出。
+provider output 必须经 deterministic schema validation + deterministic evidence
+validation 才能成为 Candidate。
+malformed / invalid provider output 不得产生 verified Profile truth。
+prompt wording / parser class / adapter class shape 由工程实现决定。
+```
+
+**H9 C2 UI BOUNDARY**
+
+```text
+未来可提供：AI extraction trigger · running state · failure reason · Candidate result display。
+完整 Accept / Edit / Reject 属 C3。
+first slice NO QML required（除非 repository architecture 证明否则）。
+```
+
+**H10 RETRY / FAILURE**
+
+```text
+AI / network / parser failure 必须相对 imported Manual / canonical extracted text /
+verified Profile 原子。
+已有成功 Candidate 集存在时，失败 retry 不得覆盖 / 清空。
+新的成功 extraction 才允许替换同一 document 在当前 session 的旧 Candidate set。
+first slice 不要求实现 retry，但 domain model / seam 不得让未来该 invariant 无法实现。
+```
+
+### 66.2 与历史决策的关系（显式记录，禁止机械替换）
+
+| # | 历史出处 | 关系 | 说明 |
+| --- | --- | --- | --- |
+| H1 | §48.1 第 5 项 / §48.2 #5（HUMAN-FROZEN 未来 guardrail） | **REAFFIRMED**；早期「当前不选具体 provider」**保留**，并被更晚的 C2-specific decision **局部 supersede** | 历史原文（「当前不选任何厂商」）作为 C1a 时点记录**不改**；H1 新增的是「首个 live provider 允许沿用 ModelScope，但 model id 属 configuration、不进入 Candidate domain contract」 |
+| H2 | §48.1 第 6 项 / §48.2 #6；§47.14 P0-C | **REAFFIRMED + NARROWED** | 新增边界：上传内容**仅** canonical extracted text；拒绝 ⇒ zero network；UI / live 行为非本切片范围 |
+| H3 | §48.1 第 7 项 / §48.2 #7；§47.14 P0-D | **REAFFIRMED + NARROWED（v1 限定 process environment only）** | 保留「env var / BYOK seam；secret 不进入 repo / Profile / manual / candidate」；新增「v1 仅 process environment」以及「无 live provider 时不得要求 credential」 |
+| H4 | §48.1 第 9 项 / §48.2 #9；§47.14 P0-E | **REAFFIRMED** | 「AI raw response 不长期保存」一并 REAFFIRMED |
+| H5 | §48.1 第 8 项 / §48.2 #8；§47.14 P0-H | **保留历史原文 + 追加 C2 v1 narrowing** | 不改 §48 原文；追加「C2 v1 不使用 / 不显示 / 不持久化 provider-reported numeric confidence」 |
+| H6 | §47.10 EvidenceReference 核心原则；§48.3F no-profile-mutation | **派生强化（非新发明）** | 「Candidate 不得只有 value + AI says page 17」→ H6 要求本地重算 location；offset 格式沿用既有 `ManualEvidenceReference` 约定（CHARACTER offsets，half open） |
+| H7 | §47.11 invariant 1 / 2 | **REAFFIRMED** | Pending / Rejected 不得进入 verified Profile |
+| H8 | §15 / §19（本轮不决定 prompt format）；§47.11 invariant 3 / 4 | **REAFFIRMED + 明确分工** | 冻结 semantic contract；prompt wording / parser / adapter shape 属工程实现 |
+| H9 | §47.9 PROPOSED UI；§47.12 M12-C / M12-D hard boundary | **NARROWED（first slice 不要求）** | 不把 PROPOSED UI 提前冻结；不触碰 M12-D |
+| H10 | §47.11 invariant 7 | **REAFFIRMED + 扩展** | 新增「失败 retry 不得清空既有成功 Candidate 集」 |
+
+### 66.3 本 Session 第一切片范围声明（PHASE B 执行边界）
+
+```text
+FIRST SLICE（PHASE B）= C2 第一个最小 deterministic vertical slice：
+  provider-neutral candidate + evidence local validation foundation。
+
+INPUT  = one imported ManualDocument + C1b canonical extracted text +
+         provider-neutral proposal input（由 TEST-ONLY deterministic fake provider 提供）
+PROPOSAL 至少含：target field identity · proposed value · evidence exact excerpt
+OUTPUT = zero or more PendingReview Candidate，每个 valid Candidate 绑定：
+         actual ManualDocument identity · actual content identity ·
+         exact evidence excerpt · deterministic locally-validated location ·
+         proposed value；且不是 verified Profile truth。
+
+明确不做：live ModelScope request · API key flow · cloud consent UI ·
+big QML Candidate review UI · Accept / Edit / Reject · DeviceProfile write ·
+Candidate persistence · confidence · retry · C3 · M12-D · canonical package。
+完成一个 first slice 后必须 STOP。
+```
+
+### 66.4 明确未冻结 / DEFERRED
+
+```text
+AMBIGUOUS EVIDENCE MATCH POLICY  = DEFERRED / NOT IMPLEMENTED / NOT GUESSED
+live ModelScope provider         = NOT STARTED
+cloud consent UI                 = NOT STARTED
+C2 Human Candidate review（C3）  = NOT STARTED / NOT AUTHORIZED
+M12-D                            = NOT STARTED / NOT AUTHORIZED
+canonical package                = NOT CREATED
+```
+
+### 66.5 状态
+
+```text
+M12-C C1b                        = COMPLETE / HUMAN ACCEPTED（未变）
+M12-C                            = IN PROGRESS
+M12-C C2                         = IN PROGRESS（contract 已冻结；first slice 见 §66.3）
+H1–H10                           = HUMAN-APPROVED C2 CONTRACT（本节）
+verified LKGC                    = 19f9738c980e0a8a31b557c346fb50a4af711cab（UNCHANGED）
+C3 · M12-D                       = NOT STARTED
+canonical package                = NOT CREATED
+REAL MODBUS HARDWARE             = NOT VERIFIED
+```
+
+**本节动作边界（Session M · Phase A · docs-only）**：仅归档 Human H1–H10 裁定 + 历史关系；
+未 build · 未 test · 未改产品代码 · 未开始 C3 / M12-D · 未创建 canonical package ·
+未 push / 未 tag / 未 amend。
