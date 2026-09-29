@@ -1354,7 +1354,23 @@ if(BUILD_TESTING)
     # preview, no AI/Candidate/Q&A controls) driven end to end against an
     # injected temporary managed root.
     add_test(NAME qml_manual_import_check
-        COMMAND modbuslens --qml-manual-import-check)
+             COMMAND modbuslens --qml-manual-import-check)
+
+    # M12-C C2 third-slice REMEDIATION (Session O-R1, T027 §72): the cloud
+    # consent dialog must stay contained at the Human-reported 1280x937
+    # viewport, its disclosure text must wrap inside the dialog, and Cancel /
+    # Agree must be reachable by a REAL mouse interaction. This gate drives the
+    # shipped QML through the shipped buttons; it never calls a controller.
+    add_test(NAME qml_consent_check
+             COMMAND modbuslens --qml-consent-check)
+
+    # Same rule as the Manual Import windows entry: re-run the ONE consent-gate
+    # implementation on the real platform, because the Human failure was
+    # observed on the real Windows QPA. The platform is pinned explicitly so an
+    # inherited offscreen value can never silently turn this into an offscreen
+    # run.
+    add_test(NAME qml_consent_check_windows
+        COMMAND modbuslens --qml-consent-check)
 
     # All QML gates above run under QT_QPA_PLATFORM=offscreen so they stay
     # headless-safe. Offscreen, however, does NOT use the shipped font
@@ -1416,6 +1432,12 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
+    # Same for the consent-gate windows entry (Session O-R1): the Human failure
+    # was seen on the real Windows QPA, so that is where it must be re-gated.
+    set_tests_properties(qml_consent_check_windows PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_ASSUME_STDERR_HAS_CONSOLE=1"
+    )
+
     # Source-tree mirror of the shipping warning rejection, applied to EVERY QML
     # diagnostic mode in the acceptance set. A QML binding that cannot resolve an
     # identifier, or that reads an absent map key / an invalidated model index,
@@ -1426,7 +1448,7 @@ if(BUILD_TESTING)
     #   Unable to assign           : a failed binding assigning undefined to a
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_manual_import_check qml_manual_import_check_windows qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_manual_import_check qml_manual_import_check_windows qml_consent_check qml_consent_check_windows qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign;String.arg..: Invalid arguments"
     )
 endif()

@@ -16289,6 +16289,262 @@ int runActiveProfileCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 // no Q&A. PDF / DOCX remain C1b (deferred, still in scope) and OCR stays a
 // later capability — this gate never claims otherwise.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// M12-C C2 third-slice REMEDIATION gate (Session O-R1, T027 §72).
+//
+// Human FAILED the cloud consent dialog in the real Release candidate at
+// 1280x937: the consent body overflowed the popup and neither 「取消」 nor
+// 「同意」 could be clicked. This gate drives the REAL dialog through the REAL
+// UI path (a genuine mouse press/release on the real controls) and asserts
+// RUNTIME geometry — never a source-text grep, never a direct controller call.
+// ---------------------------------------------------------------------------
+int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    auto *manual = rootObj ? rootObj->findChild<QObject *>(
+                                 QStringLiteral("manualController"))
+                           : nullptr;
+    auto *candidate = rootObj ? rootObj->findChild<QObject *>(
+                                    QStringLiteral("candidateController"))
+                              : nullptr;
+    if (!window || !manual || !candidate) {
+        qWarning().noquote()
+            << QStringLiteral("CONSENTFAIL: window/controller not found");
+        return 1;
+    }
+    app.setQuitOnLastWindowClosed(false);
+
+    QTemporaryDir managedRoot;
+    if (!managedRoot.isValid()) {
+        qWarning().noquote() << QStringLiteral("CONSENTFAIL: temp root invalid");
+        return 1;
+    }
+    ManualStore::setManagedRootOverride(managedRoot.path());
+    ProfileStore::setManagedRootOverride(managedRoot.path());
+
+    const QString sourceDir = QDir(managedRoot.path()).filePath("sources");
+    if (!QDir(managedRoot.path()).mkpath(QStringLiteral("sources"))) {
+        qWarning().noquote() << QStringLiteral("CONSENTFAIL: seed dir failed");
+        return 1;
+    }
+    const QString seedPath = QDir(sourceDir).filePath(QStringLiteral("consent.txt"));
+    {
+        QFile seed(seedPath);
+        if (!seed.open(QIODevice::WriteOnly)) {
+            qWarning().noquote() << QStringLiteral("CONSENTFAIL: seed write failed");
+            return 1;
+        }
+        seed.write(QStringLiteral("Manufacturer: ACME Power Systems Ltd.\n"
+                                  "Model: INV-1000\n")
+                       .toUtf8());
+    }
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &m) {
+        qInfo().noquote() << QStringLiteral("CONSENT: %1").arg(m);
+    };
+    auto itemOf = [&roots](const QString &name) { return findNamedItem(roots, name); };
+    auto objectOf = [rootObj](const QString &name) {
+        return rootObj ? rootObj->findChild<QObject *>(name) : nullptr;
+    };
+    const auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = findNamedItem(roots, name);
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+    const auto sceneRectOf = [](QQuickItem *item) {
+        const QPointF topLeft = item->mapToScene(QPointF(0, 0));
+        return QRectF(topLeft, QSizeF(item->width(), item->height()));
+    };
+    const auto stateToken = [candidate]() {
+        return candidate->property("stateToken").toString();
+    };
+    const auto dialogVisible = [objectOf]() {
+        QObject *popup = objectOf(QStringLiteral("candidateConsentDialog"));
+        return popup != nullptr && popup->property("visible").toBool();
+    };
+    // Geometry evidence for the Human defect: every consent control must live
+    // inside the dialog's own rect, and the dialog must live inside the window.
+    const auto requireConsentGeometry = [&](const QString &tag) {
+        QObject *popup = objectOf(QStringLiteral("candidateConsentDialog"));
+        if (popup == nullptr) {
+            fail(QStringLiteral("%1: the consent dialog object is missing").arg(tag));
+            return;
+        }
+        const QRectF popupRect(popup->property("x").toDouble(),
+                               popup->property("y").toDouble(),
+                               popup->property("width").toDouble(),
+                               popup->property("height").toDouble());
+        const QRectF windowRect(QPointF(0, 0),
+                                QSizeF(window->width(), window->height()));
+        if (!windowRect.contains(popupRect)) {
+            fail(QStringLiteral("%1: dialog outside the window: dialog=%2,%3 %4x%5 "
+                                "window=%6x%7")
+                     .arg(tag)
+                     .arg(popupRect.x())
+                     .arg(popupRect.y())
+                     .arg(popupRect.width())
+                     .arg(popupRect.height())
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
+        for (const QString &name : {QStringLiteral("candidateConsentScope"),
+                                    QStringLiteral("candidateConsentCancelButton"),
+                                    QStringLiteral("candidateConsentGrantButton")}) {
+            QQuickItem *item = itemOf(name);
+            if (item == nullptr || !item->isVisible()) {
+                fail(QStringLiteral("%1: %2 is not visible/reachable").arg(tag, name));
+                continue;
+            }
+            const QRectF rect = sceneRectOf(item);
+            if (!popupRect.contains(rect)) {
+                fail(QStringLiteral("%1: %2 escapes the dialog: item=%3,%4 %5x%6 "
+                                    "dialog=%7,%8 %9x%10")
+                         .arg(tag, name)
+                         .arg(rect.x())
+                         .arg(rect.y())
+                         .arg(rect.width())
+                         .arg(rect.height())
+                         .arg(popupRect.x())
+                         .arg(popupRect.y())
+                         .arg(popupRect.width())
+                         .arg(popupRect.height()));
+            }
+        }
+    };
+
+    // The Human-reported viewport. Measured BEFORE the dialog opens so the
+    // dialog is laid out at this size for real.
+    window->resize(1280, 937);
+
+    const int settleMs = 80;
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> step) { steps->append(std::move(step)); };
+
+    push([&]() { clickNamed(QStringLiteral("navItem_5")); });
+    push([&]() {
+        bool ok = false;
+        QMetaObject::invokeMethod(
+            manual, "importManualFile", Qt::DirectConnection,
+            Q_RETURN_ARG(bool, ok), Q_ARG(QUrl, QUrl::fromLocalFile(seedPath)));
+        if (!ok) {
+            fail(QStringLiteral("R00: the consent seed manual did not import"));
+            return;
+        }
+        QMetaObject::invokeMethod(manual, "selectDocument", Qt::DirectConnection,
+                                  Q_ARG(int, 0));
+    });
+    // R01/R02/R03 — open the REAL dialog at 1280x937 and measure it.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateExtractButton"))) {
+            fail(QStringLiteral("R01: candidateExtractButton is not clickable"));
+            return;
+        }
+        if (stateToken() != QStringLiteral("consent_required")) {
+            fail(QStringLiteral("R01: extraction did not stop at consent_required (got '%1')")
+                     .arg(stateToken()));
+            return;
+        }
+        if (!dialogVisible()) {
+            fail(QStringLiteral("R01: the consent dialog did not open"));
+            return;
+        }
+        note(QStringLiteral("R01: consent dialog open at %1x%2")
+                 .arg(window->width())
+                 .arg(window->height()));
+        requireConsentGeometry(QStringLiteral("R01/R02/R03"));
+    });
+    // R04/R06 — a REAL click on Cancel must close/reject, with zero provider work.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateConsentCancelButton"))) {
+            fail(QStringLiteral("R04: candidateConsentCancelButton is not clickable"));
+            return;
+        }
+        if (dialogVisible()) {
+            fail(QStringLiteral("R04: the dialog stayed open after Cancel"));
+        }
+        if (stateToken() != QStringLiteral("idle")) {
+            fail(QStringLiteral("R04/R06: Cancel left state '%1' (expected idle: no "
+                                "provider attempt may have started)")
+                     .arg(stateToken()));
+        }
+        if (candidate->property("candidateCount").toInt() != 0) {
+            fail(QStringLiteral("R06: Cancel changed the candidate set"));
+        }
+    });
+    // R05/R07 — a REAL click on Agree must advance the orchestration exactly once.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateExtractButton"))) {
+            fail(QStringLiteral("R05: candidateExtractButton is not clickable (second pass)"));
+            return;
+        }
+        if (!dialogVisible()) {
+            fail(QStringLiteral("R05: the consent dialog did not re-open"));
+            return;
+        }
+    });
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateConsentGrantButton"))) {
+            fail(QStringLiteral("R05: candidateConsentGrantButton is not clickable"));
+            return;
+        }
+        if (dialogVisible()) {
+            fail(QStringLiteral("R05: the dialog stayed open after Agree"));
+        }
+        // The production runner has no transport, so a granted attempt is
+        // expected to advance to a deterministic failure — the point is that it
+        // ADVANCED (exactly once) rather than staying at ConsentRequired.
+        if (stateToken() == QStringLiteral("consent_required")
+            || stateToken() == QStringLiteral("idle")) {
+            fail(QStringLiteral("R05: Agree did not advance the orchestration (state '%1')")
+                     .arg(stateToken()));
+        }
+        if (candidate->property("candidateCount").toInt() != 0) {
+            fail(QStringLiteral("R07: Agree wrote a candidate without a provider result"));
+        }
+    });
+
+    auto index = std::make_shared<int>(0);
+    auto finish = std::make_shared<std::function<void()>>();
+    *finish = [&, index, finish]() {
+        if (*index >= steps->size()) {
+            if (!failures->isEmpty()) {
+                for (const QString &m : *failures) {
+                    qWarning().noquote() << QStringLiteral("CONSENTFAIL: %1").arg(m);
+                }
+                app.exit(1);
+                return;
+            }
+            qInfo().noquote()
+                << QStringLiteral("CONSENT CHECK PASS (R01..R07): consent dialog "
+                                  "contained in the usable window at %1x%2; body "
+                                  "wraps inside the dialog; Cancel and Agree "
+                                  "reachable by a real mouse interaction")
+                       .arg(window->width())
+                       .arg(window->height());
+            app.exit(0);
+            return;
+        }
+        (*steps)[(*index)++]();
+        QTimer::singleShot(settleMs, &app, *finish);
+    };
+    QTimer::singleShot(settleMs, &app, *finish);
+    return app.exec();
+}
+
 int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 {
     const auto roots = engine.rootObjects();
@@ -18053,6 +18309,13 @@ int main(int argc, char *argv[])
     // workspace (deterministic TXT / Markdown import + plain-text preview).
     if (app.arguments().contains(QStringLiteral("--qml-manual-import-check"))) {
         return runManualImportCheck(engine, app);
+    }
+
+    // M12-C C2 third-slice remediation (Session O-R1): the cloud consent dialog
+    // must stay contained at the Human-reported 1280x937 viewport and its
+    // Cancel / Agree controls must be reachable by a real mouse interaction.
+    if (app.arguments().contains(QStringLiteral("--qml-consent-check"))) {
+        return runConsentCheck(engine, app);
     }
 
     // M12-B slice 4: the Read Result semantic overlay (check + visual demo).

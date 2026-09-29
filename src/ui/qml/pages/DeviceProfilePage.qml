@@ -1065,11 +1065,23 @@ Item {
         width: Math.min(560, Overlay.overlay ? Overlay.overlay.width - 2 * DS.spacingXL : 520)
 
         ColumnLayout {
+            // Session O-R1 (T027 §72) — bounding the content is the fix for the
+            // Human geometry/interaction failure. Without it the ColumnLayout
+            // took its implicit width from the wrapped Label's UNWRAPPED text
+            // width (measured at 1280x937: the disclosure laid out 975px wide
+            // inside a 560px dialog), and the footer RowLayout was displaced by
+            // the same amount — pushing 「取消」 outside the dialog (where the
+            // modal overlay swallowed the click) and 「同意」 outside the WINDOW
+            // (x=1252..1341 against a 1280px viewport), so neither button could
+            // ever be clicked. Binding the content to the dialog's own available
+            // width makes the disclosure wrap and keeps the footer inside.
+            width: candidateConsentDialog.availableWidth
             spacing: DS.spacingM
 
             Label {
                 objectName: "candidateConsentScope"
                 Layout.fillWidth: true
+                Layout.maximumWidth: candidateConsentDialog.availableWidth
                 wrapMode: Text.Wrap
                 text: candidateController.consentScopeText
                 font.pixelSize: DS.fontBody
