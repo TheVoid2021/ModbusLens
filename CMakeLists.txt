@@ -32,6 +32,7 @@ add_library(modbuslens_core STATIC
     src/core/analysis/RegisterDecode.cpp
     src/core/profile/DeviceProfile.cpp
     src/core/manual/ManualDocument.cpp
+    src/core/candidate/CandidateExtraction.cpp
     src/core/analysis/PassiveTransactionAnalysis.cpp
     src/core/analysis/TransactionProvenance.cpp
     src/core/analysis/TransactionStatistics.cpp
@@ -715,6 +716,29 @@ if(BUILD_TESTING)
 
     add_test(NAME manual_import
              COMMAND modbuslens_manual_import_tests)
+
+    # ---------------------------------------------------------------------------
+    # M12-C C2 first deterministic slice (T027 §66): provider-neutral candidate
+    # extraction with locally verified evidence. The domain lives in the
+    # Zero-Qt core (src/core/candidate) and is linked straight from
+    # modbuslens_core; this target adds the Qt side only for the persistence
+    # isolation assertions (ProfileStore root/dir queries) and QTest.
+    add_executable(modbuslens_candidate_extraction_tests
+        tests/test_candidate_extraction.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_include_directories(modbuslens_candidate_extraction_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(modbuslens_candidate_extraction_tests PRIVATE
+        modbuslens_core Qt6::Core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_candidate_extraction_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME candidate_extraction
+             COMMAND modbuslens_candidate_extraction_tests)
 
     # ---------------------------------------------------------------------------
     if(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS)
