@@ -1,6 +1,26 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-09-29 追加批注 · M12-C C1b HUMAN VISUAL ACCEPTANCE PASS / C1b 闭档（docs-only · 以本块为准）〕**
+档案 = **T027 §64**。**Human 验收原文（逐项）**：**新版上方三栏空间 = PASS** · **Manual Import 阅读空间 = PASS** ·
+**窗口缩放布局 = PASS** · **PDF / DOCX 新版视觉复查 = PASS** · **异常 = 无**
+⇒ 权威 Human 结论 **M12-C C1b Human visual re-acceptance = PASS**。
+**维度分立（不得合并成一句「全部 PASS」）**：
+Implementation = **COMPLETE**（`fb2170e` extraction foundation + `c36eb18` import workflow/UI +
+`a7bbbad` self-contained candidate + `19f9738` preview 垂直空间）·
+Automated regression = **PASS**（Release full CTest 57/57，含 `deployment_startup_check`；QML diagnostics 全 0）·
+Human functional = **PASS**（PDF / DOCX 导入 / 抽取 / 预览 + candidate 启动）·
+**Human visual = PASS（本轮新证据）**
+⇒ 文档自此可写 **M12-C C1b = COMPLETE / HUMAN ACCEPTED**。
+**历史链保留**：Session J（§63）的 HOLD 记录与 RCA **不改写、不删除**；本块只解除其「当前状态」字段
+（HOLD → remediation → re-review PASS 三段链完整）。人工验收入口 = 唯一允许的 Release candidate
+`build/release/candidate/ModbusLens/modbuslens.exe`（布局整改后由 canonical target 重新生成，exe `edb362c0…`）。
+**仍然未变、禁止顺带升级**：failure #1 exact foreign provider = NOT VERIFIED；
+failure #2 historical exact root cause = **UNKNOWN**（未复现即不归因）；
+**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进；本 commit docs-only 永不作 LKGC）**；
+M12-C C2 = NOT STARTED；canonical package = NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED；
+无 push / 无 tag / 无 amend。**本轮 = docs-only**：未 build / 未 test / 未重新生成 candidate / 未 packaging /
+未改产品代码 / 未推进 LKGC / 未开始 C2。
 **〔2026-09-29 追加批注 · M12-C C1b MANUAL IMPORT 垂直布局整改（以本块为准）〕**
 档案 = **T027 §63**。**提交**：behavior `19f9738c980e0a8a31b557c346fb50a4af711cab`
 「M12: give manual preview usable vertical space」（parent `21636a4`，2 files / +67 −1：

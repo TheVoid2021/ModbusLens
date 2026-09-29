@@ -334,6 +334,28 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-25 | **M11 Governance — Advance verified LKGC（docs-only，Human 授权）**：Human 授权原文「批准推进 LKGC 到 bc99e6ea871628a3a685b9cf80cf3840e7b3b171」⇒ verified LKGC `352b81c…` → `bc99e6e…`（历史链 fc86dcc → 9bdd99c → d08ab55 → 352b81c → bc99e6e；ancestry 双向实测 exit 0）；candidate 复核按实际 diff path：bc99e6e..HEAD 仅 docs/ 5 文件（+324/−6），零 behavior-bearing ⇒ bc99e6e = FINAL M11 BEHAVIOR-BEARING TREE；2f767d1/cc9193d/6550ca9/30332d2 均 docs-only 永不作 LKGC；治理模式复用 fbb59b3c 先例（current-state 字段更新 + 历史 provenance 全保留）；本 commit docs-only 永不作 LKGC；未 push / 未 tag / 未 amend |
 | 2026-09-23 | **M10-F LKGC ADVANCE（docs-only governance）：verified LKGC `9bdd99c` → `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`**：**Human 明确授权**（原文：「批准推进 LKGC 到 d08ab55」）⇒ 满足治理规则「verified LKGC 的推进需 Human 授权」（T022 §ZE17 line 7794–7795 + AGENTS.md line 130 + M10-F acceptance matrix 第 14 项）。**candidate 身份（本轮重新验证）**：`d08ab55` = M10-F 收口时**最后一个 behavior-bearing** commit（`CMakeLists.txt` + `src/ui/qml/components/WriteFoundationSection.qml` + `src/ui/qml/pages/CommunicationPage.qml`）⇒ 正是最终 accepted portable package（D = `839082d3…aec4`）的源码身份；其后的 `45e9dac`（docs archive）与 `b8abe2c`（M10-F closure）**均为 docs-only**，实测 `git diff --name-only d08ab55..HEAD` 全部落在 `docs/` ⇒ 按「docs-only commit 永不作 LKGC」规则**不可**作为 LKGC。**candidate 已通过的验收（本轮未重跑，仅引用）**：Debug 37/37 · Release 37/37 · 真实 windows QPA 六门禁 PASS · canonical package PASS · A/B/C/D PASS · portable 6/6 PASS · R15/R16/R17 PASS · Human #10 PASS · Human #11 PASS。**历史引用处理**：只更新「当前 verified LKGC」字段（PROJECT_STATUS 的 当前 Milestone / 当前任务补注 / 当前阶段 / 下一动作 / 下一任务 / Known Issues，以及 T022 顶部追加的当前状态批注），**未做全局 search-and-replace**；BACKLOG / devlog / T022 既有章节 / INTERVIEW_NOTES / ISSUE-015 中的历史 `9bdd99c` 与旧 acceptance evidence **保留原貌**。**未虚构**：授权时间 / 额外审批人 / 签名 / tag / release / push / 截图。**本轮 = docs-only**（未 build / 未 test / 未 package / 未 windeployqt；未 push；未 tag；未 amend；未开始 M11）。**状态**：M10 = ✅ COMPLETE；M10-F = ✅ CLOSED；**verified LKGC = `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`（Human 授权）**；M11 = HOLD / NOT STARTED；REAL MODBUS HARDWARE = NOT VERIFIED（证据边界未改变）。 |
 | 2026-09-29 | **M12 Windows Deployment — Self-Contained Candidate（behavior + docs）**：
+human startup failure #1（`_M_replace_cold` entry point）→ 原始 raw candidate 完全没有 local
+compiler runtime = **VERIFIED DEFECT**；用户 PATH 上的另一套 MinGW（`D://mingw64`）libstdc++ hash≠canonical
+且不导出该符号（静态证据），但 **exact Human-loaded provider = NOT VERIFIED**（live 复现未完成，不事后归因）。
+failure #2（Qt platform plugin initialization failure）= **VERIFIED HUMAN EVIDENCE**，
+**historical exact root cause = UNKNOWN**（CONTROL 与 REGISTRY-ENV 均 exit 0 + SMOKE PASS，未复现）；
+0xc0000602 只记 STATUS_FAIL_FAST_EXCEPTION。
+**永久架构修正（档案 T027 §62 + AGENTS.md durable rule）**：RAW BUILD OUTPUT != DEPLOYABLE CANDIDATE；
+Release candidate = `build/release/candidate/ModbusLens/`，Debug = `build/debug/candidate/ModbusLens/`，
+由 canonical target `modbuslens_candidate` **清空后从零生成**（stale sentinel 证明），source 仅来自
+current target / frozen PDFium / active MinGW toolchain / active Qt kit / current QML module build output；
+historical deploy-tree runtime source = **NO**；single Scheme A plugin layout；candidate-manifest.json
+（1713 entries）；gate 只消费 candidate、launch 前做 manifest/hash 校验、sanitized PATH 无 developer
+Qt/MinGW fallback。
+**提交**：behavior `a7bbbad60908ae47f6cd0b01b747353ca4c3369e`「M12: make Windows deployment candidate
+self-contained」（parent `0c7535e`，3 files / +336）+ 后续 docs/governance commit。
+**自动化验收（本轮实测）**：Release full **57/57 PASS**（684.09 s，含 deployment_startup_check #29
+125.40 s）；Debug full **57/57 PASS**（714.81 s，gate 130.62 s，build 无 ranlib 故障）；QML diagnostics
+全 0；NC-A（缺 libstdc++-6.dll）与 NC-B（缺 platforms/qwindows.dll）REAL RED，production gate 复绿。
+**状态**：WINDOWS SELF-CONTAINED CANDIDATE = **AUTOMATED FULL REGRESSION PASS**；
+**HUMAN VISUAL RE-ACCEPTANCE = PENDING**（只给 candidate 路径）；
+**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）**；C2/C3/M12-D = NOT STARTED；
+canonical package = NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED；无 push / 无 tag / 无 amend |
 | 2026-09-29 | **M12-C C1b — Manual Import 垂直布局整改（Human UX HOLD remediation；behavior + docs）**：
 Human 从唯一允许的 Release candidate `build/release/candidate/ModbusLens/modbuslens.exe` 完成人工验收：
 **Windows self-contained candidate 启动 = PASS** · **PDF 导入/抽取/预览 功能 = PASS** ·
@@ -360,25 +382,4 @@ Delete/C2/C3/M12-D；未改 deployment architecture）。
 **C1b HUMAN VISUAL RE-ACCEPTANCE = PENDING**；
 **verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）**；C2 = NOT STARTED；
 canonical package = NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED；无 push / 无 tag / 无 amend |
-human startup failure #1（`_M_replace_cold` entry point）→ 原始 raw candidate 完全没有 local
-compiler runtime = **VERIFIED DEFECT**；用户 PATH 上的另一套 MinGW（`D://mingw64`）libstdc++ hash≠canonical
-且不导出该符号（静态证据），但 **exact Human-loaded provider = NOT VERIFIED**（live 复现未完成，不事后归因）。
-failure #2（Qt platform plugin initialization failure）= **VERIFIED HUMAN EVIDENCE**，
-**historical exact root cause = UNKNOWN**（CONTROL 与 REGISTRY-ENV 均 exit 0 + SMOKE PASS，未复现）；
-0xc0000602 只记 STATUS_FAIL_FAST_EXCEPTION。
-**永久架构修正（档案 T027 §62 + AGENTS.md durable rule）**：RAW BUILD OUTPUT != DEPLOYABLE CANDIDATE；
-Release candidate = `build/release/candidate/ModbusLens/`，Debug = `build/debug/candidate/ModbusLens/`，
-由 canonical target `modbuslens_candidate` **清空后从零生成**（stale sentinel 证明），source 仅来自
-current target / frozen PDFium / active MinGW toolchain / active Qt kit / current QML module build output；
-historical deploy-tree runtime source = **NO**；single Scheme A plugin layout；candidate-manifest.json
-（1713 entries）；gate 只消费 candidate、launch 前做 manifest/hash 校验、sanitized PATH 无 developer
-Qt/MinGW fallback。
-**提交**：behavior `a7bbbad60908ae47f6cd0b01b747353ca4c3369e`「M12: make Windows deployment candidate
-self-contained」（parent `0c7535e`，3 files / +336）+ 后续 docs/governance commit。
-**自动化验收（本轮实测）**：Release full **57/57 PASS**（684.09 s，含 deployment_startup_check #29
-125.40 s）；Debug full **57/57 PASS**（714.81 s，gate 130.62 s，build 无 ranlib 故障）；QML diagnostics
-全 0；NC-A（缺 libstdc++-6.dll）与 NC-B（缺 platforms/qwindows.dll）REAL RED，production gate 复绿。
-**状态**：WINDOWS SELF-CONTAINED CANDIDATE = **AUTOMATED FULL REGRESSION PASS**；
-**HUMAN VISUAL RE-ACCEPTANCE = PENDING**（只给 candidate 路径）；
-**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）**；C2/C3/M12-D = NOT STARTED；
-canonical package = NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED；无 push / 无 tag / 无 amend |
+| 2026-09-29 | **M12-C C1b — Human 视觉验收 PASS / C1b 闭档（docs-only · Session K）**：Human 就垂直布局整改后的新版界面完成新一轮视觉验收，逐项报告 —— **新版上方三栏空间 = PASS** · **Manual Import 阅读空间 = PASS** · **窗口缩放布局 = PASS** · **PDF / DOCX 新版视觉复查 = PASS** · **异常 = 无** ⇒ 权威 Human 结论 **M12-C C1b Human visual re-acceptance = PASS**；Session J 的 HOLD 由此解除，**HOLD → remediation → re-review PASS 三段历史链完整保留、不改写**（§63 的 HOLD 证据与 RCA 仍是历史事实，未做任何追溯性重写）。人工验收入口 = 唯一允许的 Release candidate `build/release/candidate/ModbusLens/modbuslens.exe`（布局整改后由 canonical target 重新生成，exe `edb362c0…`）。**证据维度分立（不得合并成一句“全部 PASS”）**：Implementation = COMPLETE（`fb2170e` extraction foundation + `c36eb18` import workflow/UI + `a7bbbad` self-contained candidate + `19f9738` preview 垂直空间）· Automated regression = PASS（Release full CTest **57/57**，含 `deployment_startup_check`；QML diagnostics 全 0）· Human functional = PASS（PDF / DOCX 导入 / 抽取 / 预览 + candidate 启动）· **Human visual = PASS**（本轮新证据）⇒ 文档自此可写 **M12-C C1b = COMPLETE / HUMAN ACCEPTED**。**仍然未变、禁止顺带升级**：failure #1（missing local compiler runtime = VERIFIED DEFECT）exact foreign provider = NOT VERIFIED；failure #2（Qt platform plugin initialization failure = VERIFIED HUMAN EVIDENCE）historical exact root cause = **UNKNOWN**（未复现即不归因）；**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进；本 commit docs-only 永不作 LKGC）**；M12-C C2 = NOT STARTED；canonical package = NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED；无 push / 无 tag / 无 amend；本轮 docs-only（未 build / 未 test / 未重新生成 candidate / 未 packaging / 未改产品代码）|

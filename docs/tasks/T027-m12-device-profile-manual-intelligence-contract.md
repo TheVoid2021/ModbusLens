@@ -4132,3 +4132,102 @@ C1b HUMAN VISUAL RE-ACCEPTANCE = PENDING（Human 尚未重新视觉验收新布�
 verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不推进）
 C2 = NOT STARTED · canonical package = NOT CREATED · REAL MODBUS HARDWARE = NOT VERIFIED
 ```
+
+---
+
+## 64. M12-C C1b — HUMAN VISUAL ACCEPTANCE / C1b CLOSURE（2026-09-29 · Session K）
+
+### 64.1 Human 验收原文（逐项归档，不得改写）
+
+```text
+Human 就垂直布局整改后的新版界面完成新一轮视觉验收，逐项报告：
+
+  新版上方三栏空间            = PASS
+  Manual Import 阅读空间      = PASS
+  窗口缩放布局                = PASS
+  PDF / DOCX 新版视觉复查     = PASS
+  异常                        = 无
+
+⇒ 权威 Human 结论：**M12-C C1b Human visual re-acceptance = PASS**
+
+人工验收入口 = 唯一允许的 Release candidate
+  E:\desktop\ModbusLens\build\release\candidate\ModbusLens\modbuslens.exe
+（该候选在 §63 布局整改后由 canonical target `modbuslens_candidate` 重新生成，
+  exe `edb362c0…`；raw exe 仍然禁止作为人工验收入口）
+```
+
+### 64.2 历史链保留（HOLD → remediation → re-review PASS）
+
+```text
+Session J（§63）：
+  C1b functional re-acceptance        = PASS
+  Windows deployment Human check      = PASS
+  Manual Import 垂直布局可用性        = HOLD（Human 明确提出重大 UI 问题）
+  C1b Human visual re-acceptance      = HOLD（当时明令禁止写成 PASS）
+Session J 修复：behavior 19f9738c980e0a8a31b557c346fb50a4af711cab
+  （有界比例三栏 min(workspace*0.42, 460) + minimumHeight 180，
+   Manual Import 获得 Layout.fillHeight: true）
+Session K（本节）：Human 重新视觉验收 ⇒ PASS
+
+纪律：本节**只解除** §63 的「当前状态」字段（HOLD → PASS）。
+§63 的 HOLD 证据、Human 原始观察与 RCA **一字不改、一段不删**，
+不做任何追溯性重写（retroactive rewrite）= FORBIDDEN。
+```
+
+### 64.3 证据维度分立（four-axis split，禁止合并成一句「全部 PASS」）
+
+```text
+Implementation        = COMPLETE
+  · fb2170e  C1b extraction foundation（PDFium 156.0.8066.0 + libzip 1.11.4，确定性离线）
+  · c36eb18  C1b import workflow / UI（PDF / DOCX / TXT / MD）
+  · a7bbbad  Windows self-contained candidate architecture
+  · 19f9738  Manual Import preview 垂直空间整改
+Automated regression  = PASS
+  · Release full CTest 57/57 PASS，0 failed，exit 0（775.12 s），含
+    deployment_startup_check（174.23 s）
+  · QML diagnostics（ReferenceError / TypeError / Unable to assign / String.arg Invalid）全 0
+  · targeted 9/9 PASS；几何断言 mutation proof REAL RED → GREEN
+Human functional      = PASS
+  · Windows self-contained candidate 启动 = PASS
+  · PDF 导入 / 抽取 / 预览 = PASS
+  · DOCX 导入 / 抽取 / 预览 = PASS
+Human visual          = PASS（本轮 Session K 新证据，四项全 PASS，异常 = 无）
+
+⇒ 文档自此可写：**M12-C C1b = COMPLETE / HUMAN ACCEPTED**
+```
+
+### 64.4 仍然未变 / 禁止顺带升级的维度
+
+```text
+failure #1（Explorer 双击 _M_replace_cold entry point）：
+  missing local compiler runtime            = VERIFIED DEFECT
+  exact foreign provider                    = NOT VERIFIED（保持，不事后归因）
+failure #2（Qt platform plugin initialization failure）：
+  Human evidence                            = VERIFIED
+  historical exact root cause               = UNKNOWN（未复现即不归因，保持 UNKNOWN）
+0xc0000602：仅记 STATUS_FAIL_FAST_EXCEPTION，不作归因
+
+verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10
+  · 不推进；本 commit 为 docs-only，**docs-only commit 永不作 LKGC**
+M12-C C2      = NOT STARTED
+canonical package = NOT CREATED（未执行 packaging；未来 package gate 必须携带 pdfium.dll）
+REAL MODBUS HARDWARE = NOT VERIFIED
+无 push / 无 tag / 无 amend
+```
+
+### 64.5 本轮动作边界（Session K = docs-only）
+
+```text
+未 build · 未 test · 未重新生成 candidate · 未 packaging · 未改产品代码 ·
+未推进 LKGC · 未开始 C2。
+唯一动作 = 把 Human 视觉验收 PASS 归档进 canonical docs：
+  docs/tasks/T027 §64（本节）
+  docs/PROJECT_STATUS.md（顶部追加批注块）
+  docs/BACKLOG.md（大事记表新增一行）
+  docs/devlog/2026-09-29.md（Session K 章节 + 状态字段更新）
+并提交一个 docs-only commit。
+附带（诚实披露）：BACKLOG.md 大事记表修正一处**结构缺陷** —— 上一轮插入把
+「2026-09-29 M12 Windows Deployment」那条多行记录拦腰截断（其续行落在
+「Manual Import 整改」整条记录之后）；本次把被截断的续行块移回原记录尾部，
+**内容零改动**，仅恢复表格结构。
+```
