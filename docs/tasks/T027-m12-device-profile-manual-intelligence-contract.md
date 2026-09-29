@@ -4034,3 +4034,101 @@ HUMAN VISUAL RE-ACCEPTANCE = PENDING（只能使用 candidate 路径，禁止使
 verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不推进）
 C2 = NOT STARTED · canonical package = NOT CREATED · REAL MODBUS HARDWARE = NOT VERIFIED
 ```
+
+---
+
+## 63. M12-C C1b — MANUAL IMPORT VERTICAL LAYOUT REMEDIATION（2026-09-29 · Session J）
+
+### 63.1 Human evidence（准确边界，不得美化）
+
+```text
+Human 从唯一允许的 Release candidate 启动：
+  E:\desktop\ModbusLens\build\release\candidate\ModbusLens\modbuslens.exe
+  · Windows self-contained candidate launch        = PASS
+  · PDF 导入 / 抽取 / 预览（功能）                 = PASS
+  · DOCX 导入 / 抽取 / 预览（功能）                = PASS
+  · **Manual Import 垂直布局可用性                 = HOLD（Human 明确提出重大 UI 问题）**
+
+Human 观察（约 1280x937 截图，文字描述归档）：
+  上方三栏（设备档案列表 / 档案信息 / 寄存器映射）在内容大量为空时仍占据约 500+ px；
+  下方 Manual Import 只剩约 200 px；PDF/DOCX 正文 preview 一次只能看到约 2–3 行；
+  阅读长说明书「只能全靠滚轮翻页」。
+Human intent：把说明书显示区域整体往上/放大，上方三栏不需要这么大的位置。
+
+因此本轮准确状态：
+  C1b functional re-acceptance   = PASS
+  Windows deployment Human check = PASS
+  C1b Manual Import layout usability = HOLD
+  C1b Human visual re-acceptance = HOLD（不得写成 “C1b Human visual PASS”）
+这**不是** Windows deployment regression（deployment 已 PASS，未重新调查
+_M_replace_cold / platform plugin / PATH / windeployqt / DLL closure）。
+```
+
+### 63.2 RCA
+
+```text
+CURRENT GEOMETRY OWNER = DeviceProfilePage.qml → 根 ColumnLayout（anchors.fill）
+ROOT CAUSE =
+  · profileWorkspaceRow（三栏 RowLayout）持有 Layout.fillHeight: true
+    ⇒ 吞掉 header/actions/catalog-issues 之后的**全部**剩余高度；
+  · manualImportHost 只有 Layout.preferredHeight: manualImportCardItem.implicitHeight
+    （content-driven）⇒ 长文档阅读区只拿到「内容最小值」，不参与剩余空间分配。
+  修复前实测（1000x700）：workspace 659 / row 400（61%）/ host 161（24%）/ preview 36px。
+MINIMAL CORRECTION POINT =
+  ① profileWorkspaceRow：fillHeight false + 有界比例高度 min(workspace*0.42, 460)
+     + minimumHeight 180（三栏各自已有 Flickable 内部滚动，不损失功能）；
+  ② manualImportHost：Layout.fillHeight: true（释放出的高度归长文档阅读区，随窗口增长），
+     保留 content-driven preferredHeight 作为 stretch basis/floor。
+  未改信息架构 / 未新增 tab / 未改字体主题 / 未改 minimum window（Main.qml 仍 1000x700）
+  / 未为单一 1280x937 截图特调。
+```
+
+### 63.3 修复后几何契约（真实 runtime 实测）
+
+```text
+1000x700（门禁尺寸，--qml-manual-import-check stage 6/7，有文档状态）：
+  profileWorkspaceRow / workspace share = 0.420（277 px，原 400）
+  manualImportHost  / workspace share   = 0.439（289 px，原 161）
+  manualPreview viewport                = 157 px（原 36 ⇒ 约 11 行 caption 文本，增长 4.4×）
+Human 尺寸（~1280x937）下同一比例规则 ⇒ 阅读区约获内容区一半高度、preview 数百 px。
+未出现 clipping/overlap：上方三栏内部 Flickable 滚动，preview 保持 Flickable 垂直滚动。
+```
+
+### 63.4 回归门禁与 mutation proof
+
+```text
+新增（绑定真实 runtime geometry，位于 runManualImportCheck stage 6/7）：
+  row share <= 0.50 · host share >= 0.35 · manualPreview.height >= 120
+Mutation proof（precise reverse patch，未 commit）：
+  恢复缺陷态 ⇒ REAL RED：
+    "Manual Import area gets too little vertical space: share=0.255 (host=168 workspace=659)"
+    "preview viewport is too small: h=36 (minimum 120)"
+  精确逆向恢复本修复 ⇒ GREEN（share 0.420 / 0.439，preview 157）
+```
+
+### 63.5 自动化验收与提交
+
+```text
+targeted（9/9 PASS）：qml_smoke · qml_geometry_check · qml_manual_import_check ·
+  qml_manual_import_check_windows · qml_profile_editor_check · qml_register_map_check ·
+  qml_active_profile_check · qml_profile_semantic_check · qml_profile_semantic_demo
+Release full CTest：57/57 PASS，0 failed，exit 0（775.12 s），含 deployment_startup_check
+  #29（174.23 s）；QML diagnostics：ReferenceError/TypeError/Unable to assign/
+  String.arg Invalid 全 0
+Release candidate：由 canonical target modbuslens_candidate 重新生成（1713 manifest entries），
+  deployment gate PASS（142.38 s）；exe edb362c0…、pdfium d42c452a…（frozen）、
+  qwindows 80473907…
+SEMANTIC ZERO DIFF：Profile schema/persistence/editor/register map 与 Manual Import 的
+  routing / content validation / document identity / contentHash / cache /
+  no_extractable_text / PDF per-page / DOCX deterministic extraction / FileDialog 全部未变；
+  无 OCR / AI extraction / Delete / C2 / C3 / M12-D；未改 deployment architecture。
+
+behavior commit = 19f9738c980e0a8a31b557c346fb50a4af711cab
+  「M12: give manual preview usable vertical space」（parent 21636a4，2 files / +67 −1）
+docs commit = 「M12: archive manual preview layout remediation」（本节 + 状态文档）
+
+MANUAL IMPORT LAYOUT REMEDIATION = AUTOMATED PASS
+C1b HUMAN VISUAL RE-ACCEPTANCE = PENDING（Human 尚未重新视觉验收新布局）
+verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不推进）
+C2 = NOT STARTED · canonical package = NOT CREATED · REAL MODBUS HARDWARE = NOT VERIFIED
+```

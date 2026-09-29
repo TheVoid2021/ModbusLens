@@ -1,6 +1,38 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-09-29 追加批注 · M12-C C1b MANUAL IMPORT 垂直布局整改（以本块为准）〕**
+档案 = **T027 §63**。**提交**：behavior `19f9738c980e0a8a31b557c346fb50a4af711cab`
+「M12: give manual preview usable vertical space」（parent `21636a4`，2 files / +67 −1：
+`src/main.cpp` + `src/ui/qml/pages/DeviceProfilePage.qml`）；随后 docs 提交。
+**Human evidence（准确边界）**：Human 从 Release candidate
+`build/release/candidate/ModbusLens/modbuslens.exe` 完成人工验收 ——
+**Windows self-contained candidate 启动 = PASS**、**PDF 导入/抽取/预览 功能 = PASS**、
+**DOCX 导入/抽取/预览 功能 = PASS**；但 **Manual Import 垂直布局可用性 = HOLD**
+（上方三栏在内容为空时仍占 ~500+px，Manual Import 只剩 ~200px，preview 一次仅 ~2–3 行，
+「只能全靠滚轮翻页」）⇒ **C1b Human visual re-acceptance = HOLD**，禁止写成 PASS。
+**本轮不是** Windows deployment regression（deployment 仍 PASS，未重开 RCA）。
+**RCA**：`profileWorkspaceRow`（三栏）持有 `Layout.fillHeight: true` 吞掉全部剩余高度；
+`manualImportHost` 仅 content-sized。修复前 1000x700：workspace 659 / row 400（61%）/
+host 161（24%）/ preview 36px。
+**修复（最小、结构性）**：三栏改为有界比例高度 `min(workspace*0.42, 460)` + `minimumHeight 180`
+（各自已有 Flickable 内部滚动，功能无损）；Manual Import 获得 `Layout.fillHeight: true`
+（释放高度归长文档阅读区，随窗口增长）。未改信息架构 / 未新增 tab / 未改字体主题 /
+未改 minimum window（仍 1000x700）/ 未为单一截图特调。
+**修复后实测（1000x700，真实 runtime）**：row share **0.420**（277px）· host share **0.439**（289px）·
+**preview viewport 157px**（原 36 ⇒ 约 11 行，增长 4.4×）；无 clipping/overlap。
+**回归门禁 + mutation proof**：`--qml-manual-import-check` stage 6/7 新增
+row share ≤0.50 / host share ≥0.35 / preview ≥120 三项真实几何断言；逆向恢复缺陷态
+**REAL RED**（share=0.255、preview h=36），精确恢复后 **GREEN**。
+**自动化验收**：targeted 9/9 PASS（qml_smoke / qml_geometry_check / qml_manual_import_check[_windows] /
+qml_profile_editor_check / qml_register_map_check / qml_active_profile_check /
+qml_profile_semantic_check / qml_profile_semantic_demo）；**Release full 57/57 PASS**（775.12s，
+含 deployment gate #29 174.23s）；QML diagnostics 全 0；candidate 由 canonical target 重新生成
+（1713 manifest entries），deployment gate PASS（142.38s），新 exe `edb362c0…`。
+**SEMANTIC ZERO DIFF**：Profile 与 Manual Import 全部既有语义未变；无 OCR/AI/Delete/C2/C3/M12-D。
+**状态**：**MANUAL IMPORT LAYOUT REMEDIATION = AUTOMATED PASS**；
+**C1b HUMAN VISUAL RE-ACCEPTANCE = PENDING**；**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）**；
+C2/C3/M12-D = NOT STARTED；canonical package = NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED。
 **〔2026-09-29 追加批注 · M12 WINDOWS SELF-CONTAINED CANDIDATE（behavior + docs · 以本块为准）〕**
 档案 = **T027 §62**。**提交**：behavior `a7bbad60908ae47f6cd0b01b747353ca4c3369e`
 「M12: make Windows deployment candidate self-contained」（parent `0c7535e`，3 files / +336），

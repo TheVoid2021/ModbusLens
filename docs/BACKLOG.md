@@ -334,6 +334,32 @@ T001 ✅ → T001.1 ✅ → T002 CRC16 ✅ → T003 Frame Model ✅ → T004 Cod
 | 2026-09-25 | **M11 Governance — Advance verified LKGC（docs-only，Human 授权）**：Human 授权原文「批准推进 LKGC 到 bc99e6ea871628a3a685b9cf80cf3840e7b3b171」⇒ verified LKGC `352b81c…` → `bc99e6e…`（历史链 fc86dcc → 9bdd99c → d08ab55 → 352b81c → bc99e6e；ancestry 双向实测 exit 0）；candidate 复核按实际 diff path：bc99e6e..HEAD 仅 docs/ 5 文件（+324/−6），零 behavior-bearing ⇒ bc99e6e = FINAL M11 BEHAVIOR-BEARING TREE；2f767d1/cc9193d/6550ca9/30332d2 均 docs-only 永不作 LKGC；治理模式复用 fbb59b3c 先例（current-state 字段更新 + 历史 provenance 全保留）；本 commit docs-only 永不作 LKGC；未 push / 未 tag / 未 amend |
 | 2026-09-23 | **M10-F LKGC ADVANCE（docs-only governance）：verified LKGC `9bdd99c` → `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`**：**Human 明确授权**（原文：「批准推进 LKGC 到 d08ab55」）⇒ 满足治理规则「verified LKGC 的推进需 Human 授权」（T022 §ZE17 line 7794–7795 + AGENTS.md line 130 + M10-F acceptance matrix 第 14 项）。**candidate 身份（本轮重新验证）**：`d08ab55` = M10-F 收口时**最后一个 behavior-bearing** commit（`CMakeLists.txt` + `src/ui/qml/components/WriteFoundationSection.qml` + `src/ui/qml/pages/CommunicationPage.qml`）⇒ 正是最终 accepted portable package（D = `839082d3…aec4`）的源码身份；其后的 `45e9dac`（docs archive）与 `b8abe2c`（M10-F closure）**均为 docs-only**，实测 `git diff --name-only d08ab55..HEAD` 全部落在 `docs/` ⇒ 按「docs-only commit 永不作 LKGC」规则**不可**作为 LKGC。**candidate 已通过的验收（本轮未重跑，仅引用）**：Debug 37/37 · Release 37/37 · 真实 windows QPA 六门禁 PASS · canonical package PASS · A/B/C/D PASS · portable 6/6 PASS · R15/R16/R17 PASS · Human #10 PASS · Human #11 PASS。**历史引用处理**：只更新「当前 verified LKGC」字段（PROJECT_STATUS 的 当前 Milestone / 当前任务补注 / 当前阶段 / 下一动作 / 下一任务 / Known Issues，以及 T022 顶部追加的当前状态批注），**未做全局 search-and-replace**；BACKLOG / devlog / T022 既有章节 / INTERVIEW_NOTES / ISSUE-015 中的历史 `9bdd99c` 与旧 acceptance evidence **保留原貌**。**未虚构**：授权时间 / 额外审批人 / 签名 / tag / release / push / 截图。**本轮 = docs-only**（未 build / 未 test / 未 package / 未 windeployqt；未 push；未 tag；未 amend；未开始 M11）。**状态**：M10 = ✅ COMPLETE；M10-F = ✅ CLOSED；**verified LKGC = `d08ab55c71f54211e35f6bcdf0c2ec026a1d185f`（Human 授权）**；M11 = HOLD / NOT STARTED；REAL MODBUS HARDWARE = NOT VERIFIED（证据边界未改变）。 |
 | 2026-09-29 | **M12 Windows Deployment — Self-Contained Candidate（behavior + docs）**：
+| 2026-09-29 | **M12-C C1b — Manual Import 垂直布局整改（Human UX HOLD remediation；behavior + docs）**：
+Human 从唯一允许的 Release candidate `build/release/candidate/ModbusLens/modbuslens.exe` 完成人工验收：
+**Windows self-contained candidate 启动 = PASS** · **PDF 导入/抽取/预览 功能 = PASS** ·
+**DOCX 导入/抽取/预览 功能 = PASS**；但 **Manual Import 垂直布局可用性 = HOLD**（上方三栏内容为空时
+仍占 ~500+px，Manual Import 仅剩 ~200px，preview 一次约 2–3 行，「只能全靠滚轮翻页」）⇒
+**C1b Human visual re-acceptance = HOLD**（不得写 PASS）；**本轮不是 deployment regression**。
+**RCA**：`profileWorkspaceRow` 持有 `Layout.fillHeight: true` 吞掉全部剩余高度，`manualImportHost`
+仅 content-sized（1000x700：workspace 659 / row 400=61% / host 161=24% / preview 36px）。
+**最小修复**：三栏改为 `min(workspace*0.42, 460)` + `minimumHeight 180`（各自 Flickable 内部滚动，
+功能无损），Manual Import 获 `Layout.fillHeight: true`（释放高度归长文档阅读区）；未改信息架构/
+未新增 tab/未改字体主题/未改 minimum window（仍 1000x700）。
+**修复后实测**：row share **0.420**（277px）· host share **0.439**（289px）· **preview 157px**（原 36，
+约 11 行，4.4×）；无 clipping/overlap。
+**门禁 + mutation proof**：`--qml-manual-import-check` 新增 row≤0.50 / host≥0.35 / preview≥120
+真实几何断言；逆向恢复缺陷态 **REAL RED**（share=0.255、preview h=36），精确恢复 **GREEN**。
+**提交**：behavior `19f9738c980e0a8a31b557c346fb50a4af711cab`「M12: give manual preview usable
+vertical space」（parent `21636a4`，2 files / +67 −1）+ docs「M12: archive manual preview layout
+remediation」。
+**自动化验收**：targeted 9/9 PASS；**Release full 57/57 PASS**（775.12 s，含 deployment gate 174.23 s）；
+QML diagnostics 全 0；candidate 由 canonical target 重新生成（1713 entries），gate PASS（142.38 s），
+新 exe `edb362c0…`。**SEMANTIC ZERO DIFF**（Profile 与 Manual Import 全部既有语义未变；无 OCR/AI/
+Delete/C2/C3/M12-D；未改 deployment architecture）。
+**状态**：MANUAL IMPORT LAYOUT REMEDIATION = **AUTOMATED PASS**；
+**C1b HUMAN VISUAL RE-ACCEPTANCE = PENDING**；
+**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）**；C2 = NOT STARTED；
+canonical package = NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED；无 push / 无 tag / 无 amend |
 human startup failure #1（`_M_replace_cold` entry point）→ 原始 raw candidate 完全没有 local
 compiler runtime = **VERIFIED DEFECT**；用户 PATH 上的另一套 MinGW（`D://mingw64`）libstdc++ hash≠canonical
 且不导出该符号（静态证据），但 **exact Human-loaded provider = NOT VERIFIED**（live 复现未完成，不事后归因）。
