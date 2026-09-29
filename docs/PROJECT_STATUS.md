@@ -1,6 +1,31 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-09-29 追加批注 · M12 WINDOWS SELF-CONTAINED CANDIDATE（behavior + docs · 以本块为准）〕**
+档案 = **T027 §62**。**提交**：behavior `a7bbad60908ae47f6cd0b01b747353ca4c3369e`
+「M12: make Windows deployment candidate self-contained」（parent `0c7535e`，3 files / +336），
+随后 docs/governance 提交（AGENTS.md durable rule + 本节归档）。
+**永久规则：RAW BUILD OUTPUT != DEPLOYABLE CANDIDATE。** Release Human candidate =
+`build/release/candidate/ModbusLens/`；Debug candidate = `build/debug/candidate/ModbusLens/`；
+由 canonical target `modbuslens_candidate`（`cmake/modbuslens_generate_candidate.cmake`）**清空后从零生成**
+（stale sentinel 证明），source 仅来自 current target / frozen PDFium（`d42c452a…`）/ active MinGW
+toolchain / active Qt kit / current QML module build output；**historical deploy-tree runtime source = NO**。
+门禁 `deployment_startup_check` 只消费 candidate（raw exe 0 引用），launch 前做 manifest 与
+compiler-runtime/Qt6Core hash 校验，sanitized PATH（candidate+System32+Windows，清除
+QT_PLUGIN_PATH/QT_QPA_PLATFORM_PLUGIN_PATH/QML*_IMPORT_PATH），要求 exit 0 + `SMOKE IDENTITY PASS`
++ QT_DEBUG_PLUGINS 证明 qwindows 来自 `candidate/platforms/qwindows.dll`。
+**自动化验收**：Release full **57/57 PASS**（684.09s，含 gate #29 Passed 125.40s）；
+Debug full **57/57 PASS**（714.81s，含 gate 130.62s，无 ranlib 故障）；QML diagnostics 全 0；
+NC-A（缺 libstdc++）/NC-B（缺 qwindows）REAL RED，production gate 复绿。
+**Human 失败边界**：failure #1 = missing local compiler runtime（VERIFIED DEFECT），
+exact foreign provider = NOT VERIFIED；failure #2 = Human platform-plugin failure（VERIFIED），
+historical root cause = **UNKNOWN**（未复现，不事后归因）；0xc0000602 仅记 STATUS_FAIL_FAST_EXCEPTION。
+**状态**：**WINDOWS SELF-CONTAINED CANDIDATE = AUTOMATED FULL REGRESSION PASS**；
+**HUMAN VISUAL RE-ACCEPTANCE = PENDING**（只给 candidate 路径，禁止 `build/release/modbuslens.exe`）；
+M12-C C1b second-slice = IMPLEMENTED / AUTOMATED PASS；
+**verified LKGC = `8409c271cca966e9f9ab0ad0ba2d6470c0a66e10`（不推进）**；
+C2/C3/M12-D = NOT STARTED；canonical package = NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED；
+无 push / 无 tag / 无 amend。
 **〔2026-09-28 追加批注 · M12-C C1b SECOND-SLICE AUTOMATED ACCEPTANCE COMPLETE（behavior + docs · 以本块为准）〕**
 档案 = **T027 §61**。**提交链**：docs-freeze `6abed334bb0c3305d18b8035a9e3e2150790df1f` →
 **behavior `c36eb181917ab2aba9435870cd376c19b8b4bc60`**（「M12: integrate PDF and DOCX manual import

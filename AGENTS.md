@@ -199,3 +199,28 @@ Preflight
    每次修改后立即 `git diff --check` 并检查文件尾无 shell 残留。
 4. **patch 锚点必须精确**；发现打错位置时立即精确逆向还原再重做（repo 有真实
    事故记录），禁止在损坏状态上继续叠加修改。
+
+## Windows Deployment / Candidate Architecture（durable · M12 起长期强制）
+
+> 只写永久规则；当前 HEAD / hash / 测试数 / 候选 hash 等 volatile state 一律从
+> canonical docs 与 Git 实时读取。
+
+1. **Raw build output is not a deployable artifact.** `build/<cfg>/modbuslens.exe`
+   只是编译输出，不是 Human/验收/打包 artifact。
+2. **Windows Human acceptance 必须使用 candidate tree**：
+   `<build-config>/candidate/ModbusLens/`，且只能由仓库 canonical candidate
+   target（当前为 `modbuslens_candidate`）生成。
+3. **Windows canonical packaging 必须消费 candidate tree**，不得消费 raw target
+   output。
+4. **Candidate generation owns and recreates only its candidate root from zero**：
+   每次生成先清空并重建 candidate root；candidate 内旧文件永远不是 source；
+   Release 与 Debug 使用同一 configuration-aware 生成逻辑（各自独立树，不得互相复制）。
+5. **Deployment startup gate 必须使用 sanitized environment**：PATH 只含
+   candidate root 与 Windows 系统目录，清除 `QT_PLUGIN_PATH` /
+   `QT_QPA_PLATFORM_PLUGIN_PATH` / `QML_IMPORT_PATH` / `QML2_IMPORT_PATH`，
+   不得依赖开发者 Qt/MinGW bin 作为 DLL fallback；launch 前先做
+   manifest / runtime hash 校验。
+6. **禁止把 historical deploy/package tree 当作 runtime byte source**
+   （`build/**/deploy`、`_superseded*`、历史 portable package 一律禁止 copy）；
+   runtime bytes 只来自 current target output、current Qt kit、
+   current compiler toolchain 与 frozen third-party materialization。

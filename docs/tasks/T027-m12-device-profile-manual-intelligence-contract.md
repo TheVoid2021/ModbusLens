@@ -3935,3 +3935,102 @@ Release Human visual candidate：
 HUMAN FIXTURE SET = NOT PREPARED（fixtures 由测试 in-code 生成；Human visual 可自选
   普通 PDF / 中文 PDF / 无文本层 PDF / DOCX）
 ```
+
+---
+
+## 62. M12 WINDOWS DEPLOYMENT CORRECTION — SELF-CONTAINED CANDIDATE（2026-09-29 · Session E–I）
+
+### 62.1 Human startup failure #1（libstdc++ entry point）
+
+```text
+Observed：Human 在 Explorer 双击 build/release/modbuslens.exe，进入 UI 前失败：
+  modbuslens.exe - 无法找到入口
+  _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE15_M_replace_coldEPcyPKcy
+Evidence：
+  exe PE imports = libstdc++-6.dll + libgcc_s_seh-1.dll（libstdc++ 自身再 import libwinpthread-1.dll）
+  original raw candidate 完全没有 local compiler runtime（依赖开发者 PATH）✓ VERIFIED
+  canonical MinGW（D:\QT\Tools\mingw1310_64）libstdc++ 导出该符号 ✓
+  D:\mingw64\bin\libstdc++-6.dll（用户 PATH 上的另一套 MinGW）存在、hash≠canonical、
+  且**不导出** _M_replace_cold ✓（静态证据）
+Root cause boundary：
+  missing local compiler runtime = VERIFIED DEFECT
+  exact Human-loaded foreign provider = NOT VERIFIED（live 0xc0000139 复现未完成，
+  沙箱进程启动机制限制）
+```
+回收 Session E 的过度表述：不得写 “Explorer definitely loaded D:\mingw64\bin\libstdc++-6.dll”。
+
+### 62.2 Human startup failure #2（Qt platform plugin）
+
+```text
+Observed（Human 截图，AUTHORITATIVE）：
+  This application failed to start because no Qt platform plugin could be initialized.
+  Available platform plugins are: windows.
+Diagnostics：CONTROL（sanitized）与 REGISTRY-ENV（Machine;User 真实 PATH，Qt/QML vars 全 unset）
+  均 exit 0 + SMOKE IDENTITY PASS ⇒ EXPLORER FAILURE #2 NOT REPRODUCED AUTOMATICALLY
+ROOT CAUSE（historical）= UNKNOWN
+已 VERIFIED 的独立缺陷：混合/非自包含 deployment architecture（deploy-era plugins/platforms
+  与 current-kit platforms 并存；historical deploy tree 曾作为 runtime source；
+  Debug 未获得与 Release 相同的 runtime tree）
+```
+0xc0000602 只记录为 STATUS_FAIL_FAST_EXCEPTION，不作 environment/deployment/product 归因。
+
+### 62.3 永久架构修正：raw build output != deployable candidate
+
+```text
+Release Human candidate = build/release/candidate/ModbusLens/
+Debug candidate        = build/debug/candidate/ModbusLens/
+生成：add_custom_target(modbuslens_candidate) → cmake/modbuslens_generate_candidate.cmake
+  · 清空 candidate root 后从零生成（stale sentinel 证明：创建 → 生成 → 消失）
+  · source：current app target / frozen PDFium / active MinGW toolchain（CMAKE_CXX_COMPILER）
+    / active Qt kit（Qt6_DIR）/ current QML module build output
+  · 内容：exe、pdfium.dll、compiler runtime 3、Qt runtime 与 QuickControls2/QuickDialogs2 闭包、
+    platforms/{qwindows,qoffscreen}.dll、Scheme A plugin families
+    (imageformats/iconengines/tls/networkinformation)、current-kit qml 闭包、
+    app 自身 ModbusLens QML 模块、qt.conf（[Paths] Prefix=. Qml2Imports=qml，单一 plugin scheme）
+  · manifest：candidate-manifest.json（1713 entries：path/category/SHA-256）
+  · Release/Debug 同一 configuration-aware 逻辑，独立生成，互不复制
+  · historical deploy-tree runtime source = NO（plus 行引用 0）
+门禁：tests/deployment_startup_check.cmake
+  · 只消费 candidate（raw exe 引用 0）
+  · launch 前做 manifest + compiler-runtime/Qt6Core hash 校验
+  · sanitized PATH（candidate + System32 + Windows，清除 QT_PLUGIN_PATH /
+    QT_QPA_PLATFORM_PLUGIN_PATH / QML*_IMPORT_PATH）
+  · 要求 exit 0 + SMOKE IDENTITY PASS + QT_DEBUG_PLUGINS 证明 qwindows 来自
+    candidate/platforms/qwindows.dll（实测：Qt 安装路径 0 命中）
+  · NO_GENERATE=1 = negative-control isolated-candidate mode
+```
+
+### 62.4 自动化验收
+
+```text
+Session H（targeted）：Release targeted 8/8、Debug targeted 3/3、candidate gate Release/Debug
+  PASS；NC-A（缺 libstdc++-6.dll）REAL RED；NC-B（缺 platforms/qwindows.dll）REAL RED；
+  production gate 复绿；manual_import_pdf_docx 一次瞬态失败复跑 PASS（同一 commit 前状态）。
+Session I（full）：
+  Release full CTest  = 57/57 PASS，0 failed，exit 0（684.09 s），含 deployment_startup_check
+                        #29 Passed 125.40 s；QML diagnostics 全 0
+  Debug   full CTest  = 57/57 PASS，0 failed，exit 0（714.81 s），含 deployment_startup_check
+                        Passed 130.62 s；0xc0000602 计数 0
+  Debug build：无 ranlib archive failure（无需 bounded retry）
+Release candidate hashes：
+  modbuslens.exe b5b1f4a8a6e7dce4c5acb34b2358a84e3a2ed1143b34604c0ce591d22d2139dc
+  pdfium.dll     d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b（frozen）
+  libstdc++-6.dll 8013488c5528bad7966ca07f3ea2e7a9b743cacb258fe76b46a326f821cc83b0（active toolchain）
+  platforms/qwindows.dll 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac（active kit）
+Debug candidate：1713 manifest entries，exe b418c71a…（独立，非 Release 复制）
+```
+
+### 62.5 提交与状态
+
+```text
+behavior commit = a7bbbad60908ae47f6cd0b01b747353ca4c3369e
+  「M12: make Windows deployment candidate self-contained」（parent 0c7535e，
+  3 files / +336：CMakeLists.txt、cmake/modbuslens_generate_candidate.cmake、
+  tests/deployment_startup_check.cmake）
+docs/governance commit = 本节后追加（AGENTS.md durable rule + docs 归档）
+
+WINDOWS SELF-CONTAINED CANDIDATE = AUTOMATED FULL REGRESSION PASS
+HUMAN VISUAL RE-ACCEPTANCE = PENDING（只能使用 candidate 路径，禁止使用 raw exe）
+verified LKGC = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10（不推进）
+C2 = NOT STARTED · canonical package = NOT CREATED · REAL MODBUS HARDWARE = NOT VERIFIED
+```
