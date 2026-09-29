@@ -6156,3 +6156,186 @@ Escape 行为：除非实际实现令其成为本 narrow fix 的必要条件，�
 
 **本节动作边界（docs-only）**：仅归档 Human 失败 + 状态分离 + R08 覆盖缺口 + 产品契约；
 未改产品代码 · 未 build · 未 test · 未推进 LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+---
+
+## 75. M12-C C2 — CONSENT MODALITY REMEDIATION ARCHIVE（2026-09-29 · Session O-R2 · behavior + docs）
+
+> 性质：**append-only 归档**。§74（Human 失败归档）保持原貌；本节只新增。
+
+### 75.0 两个提交
+
+```text
+HUMAN-FAILURE DOCS COMMIT = d72da898e160306b956b9ea4d96fd270092b4cc8
+                            「M12: archive consent outside-click human failure」（4 docs / +148 −1，docs-only）
+BEHAVIOR COMMIT           = bf6c02b8c8573ebf323b10764bbd01db29e16db7
+                            「M12: keep cloud consent modal until explicit choice」
+                            （2 files / +54 −4，NO AMEND）
+                            src/main.cpp（扩展 O-R1 运行时门禁 +48 −4）·
+                            src/ui/qml/pages/DeviceProfilePage.qml（closePolicy +10）
+```
+
+### 75.1 ACTUAL POPUP / DIALOG CLOSE BEHAVIOR（§2/§3 源码 + 运行期实测）
+
+```text
+CONSENT UI FILE        = src/ui/qml/pages/DeviceProfilePage.qml
+DIALOG TYPE            = QtQuick.Controls `Dialog`（Popup 派生），objectName candidateConsentDialog
+MODAL                  = `modal: true`
+FOCUS                  = 默认（Popup 取得焦点）
+CURRENT closePolicy    = **修复前：未设置** ⇒ 继承 Qt Quick Controls 默认
+                         **`Popup.CloseOnEscape | Popup.CloseOnPressOutside`**
+OUTSIDE CLICK BEHAVIOR = 外部按下即触发 close() ⇒ 对话框消失（运行期实测，见 §75.3）
+onClosed / onRejected  = **未定义**（无自定义关闭副作用）
+CANCEL ACTION          = `candidateController.rejectConsent()` + `candidateConsentDialog.close()`
+AGREE ACTION           = `candidateController.grantConsent()` + `candidateConsentDialog.close()`
+ORCHESTRATION AFTER OUTSIDE DISMISS = **不变**（仍 `consent_required`；candidateCount = 0）
+   ⇒ 与 Human screenshot（候选区仍显示「需要你同意后才会发送已抽取文本」）一致。
+
+仓库既有惯例（实测 grep `closePolicy`）：
+  DeviceProfilePage.qml:1119 / :1167 / :1218（同页三个模态 Dialog）与 Main.qml:80 = `Popup.NoAutoClose`
+  WriteFoundationSection.qml:551 · CommunicationPage.qml:726 = `Popup.CloseOnEscape`
+  ⇒ consent dialog 是**同页唯一未设 closePolicy 的对话框**（本缺陷的成因）。
+```
+
+### 75.2 ROOT CAUSE（§7）= VERIFIED
+
+```text
+ROOT CAUSE = **VERIFIED**：consent Dialog **未显式设置 closePolicy**，继承 Qt 默认含
+`CloseOnPressOutside` ⇒ 真实外部鼠标按下调用 `close()`，在**未获任何显式选择**的情况下关闭同意门。
+运行期证据：修复前 gate 输出 `CONSENTFAIL: R2-01: the consent dialog was dismissed by a real
+outside press`（exit 1），且关闭后 `stateToken` 仍为 `consent_required`、workspace index 仍为 5
+（⇒ 只有 close() 被执行，编排与背景控件均未被触碰）。
+
+**为什么它超出「模态」的直觉**：`modal: true` 只保证**输入被 overlay 阻断**（R2-02 实测通过，
+背景控件未激活）；它**不**决定 Popup 自身的 close 策略 —— 两者是独立机制。
+
+**R08 为何漏检（§7 要求的分类）** = **TEST SEMANTIC COVERAGE GAP**：
+O-R1 的 R08 断言的是「模态不阻挡 dialog **自身**控件」（Cancel/Agree 可点），
+**从未**断言其互补方向「真实**外部**点击后 dialog 仍保持打开」。
+⇒ 覆盖语义不完整，而非 Agent 能力退化或框架行为异常；本 session 以 R2-01..R2-05 补齐该方向。
+```
+
+### 75.3 REAL RED（§6 · 修复前，Human 缺陷自动化复现）
+
+```text
+command   : ./modbuslens.exe --qml-consent-check（QT_QPA_PLATFORM=offscreen, QT_ASSUME_STDERR_HAS_CONSOLE=1）
+viewport  : 1280x937
+dialog    : candidateConsentDialog 360,421.5 560x95（与 §73 修复后几何一致）
+outside click coordinate = navItem_0 中心（左侧导航栏，恒在 dialog 之外且在窗口之内）
+clicked background target = navItem_0（Dashboard rail entry）
+dialog visible before = true
+dialog visible after  = **false**（缺陷）
+orchestration state   = consent_required（未变）
+provider count        = 0（未变）
+exit code             = **1**
+failing assertion     : `CONSENTFAIL: R2-01: the consent dialog was dismissed by a real outside press`
+（连带 `R04: candidateConsentCancelButton is not clickable` —— dialog 已消失）
+性质：build/link 正常、test process 正常 ⇒ **真实运行期 RED**。
+```
+
+### 75.4 MINIMUM FIX（§8）
+
+```text
+src/ui/qml/pages/DeviceProfilePage.qml 的 consent Dialog：
+  + closePolicy: Popup.CloseOnEscape
+选择理由（evidence-based）：
+  · 契约 §5 要求「Escape 行为除非必要否则**不变**」⇒ `Popup.NoAutoClose`（同页三兄弟 Dialog 的惯例）
+    会**同时**去掉 Escape 关闭 ⇒ 属静默改变 Escape 语义，**故刻意不采用**；
+  · `Popup.CloseOnEscape` 只移除 `CloseOnPressOutside` ⇒ 外部按下不再关闭，**Escape 行为逐字保持**。
+**未**改同意文案 · **未**改 O-R1 几何约束 · **未**改 Candidate/provider/parser 语义 ·
+**未**新增 production transport · **未**开始 C3 · **未**改页面 IA。
+**未发生** §5 所述「Escape 语义冲突」⇒ 无需 STOP。
+```
+
+### 75.5 R2-01..R2-10 实测矩阵（§9）
+
+| case | 断言 | 结果 |
+| --- | --- | --- |
+| R2-01 | 真实鼠标外部按下后 dialog 仍打开 | PASS（修复前为 RED） |
+| R2-02 | 被点击位置处的背景控件未激活（`workspaceHost.currentIndex` 5 → 5） | PASS |
+| R2-03 | 外部点击后 provider 调用/尝试数 = 0（state 仍为 `consent_required` ⇒ 无 attempt 启动） | PASS |
+| R2-04 | 编排状态保持 consent-required | PASS |
+| R2-05 | Candidate 集 / DeviceProfile / ManualDocument 均未变（candidateCount 0） | PASS |
+| R2-06 | 真实点击 Cancel 仍生效（dialog 关闭 + 零 provider + 回到 `idle`） | PASS |
+| R2-07 | 真实点击 Agree 仍生效（dialog 关闭 + 编排恰好推进一次） | PASS |
+| R2-08 | O-R1 全部容器/换行/footer 断言仍 PASS（同一 gate 的 R01/R02/R03） | PASS |
+| R2-09 | Session J Manual Import 垂直几何仍达验收门槛 | PASS（见 §75.7） |
+| R2-10 | QML 诊断 0 命中（新 gate 仍在诊断拒绝集内） | PASS |
+
+### 75.6 NEGATIVE CONTROL（§10）
+
+```text
+precise mutation：把 closePolicy 精确改回失败行为
+                  `Popup.CloseOnEscape | Popup.CloseOnPressOutside`。
+实测 RED ：exit **1**；`CONSENTFAIL: R2-01: the consent dialog was dismissed by a real outside
+           press`（+ 连带 R04）；build/run 均正常。
+precise reverse：精确还原为 `Popup.CloseOnEscape`（**未用** checkout / restore / reset / stash）。
+residue ：grep -c "NEGATIVE-CONTROL MUTATION" = **0**。
+恢复后  ：exit 0 / `CONSENT CHECK PASS (R01..R07 + R2-01..R2-07)`。
+```
+
+### 75.7 Targeted / Release / 诊断 / 几何（§11）
+
+```text
+targeted : ctest -R "^qml_|candidate_|manual_|device_profile|ai_client|profile_" ⇒
+           **30/30 PASS / 0 failed / exit 0 / 161.05 s**
+           （含 #59 qml_consent_check · #60 qml_consent_check_windows · #27 candidate_extraction ·
+             #28 candidate_adapter · #29 candidate_orchestration · #26 manual_import · #23 device_profile 等）
+ctest -N : Total Tests = **62**（未新增 target —— 本轮是**扩展** O-R1 既有 gate，非新建）
+Release full : **100% tests passed, 0 tests failed out of 62** · Total **964.44 s** · exit **0**
+           （#32 deployment_startup_check 280.23 s · #59 qml_consent_check 5.46 s）
+QML 诊断 : 0 命中（gate 仍在 FAIL_REGULAR_EXPRESSION 诊断拒绝集内）
+双平台   : consent gate 在 offscreen(1280x937) 与真实 Windows QPA(1280x844) **均 PASS**
+Session J: offscreen `row 0.420 / manual import 0.439 / preview 157.0`（既有验收基线，未变）
+```
+
+### 75.8 Protected-surface audit（§12）
+
+```text
+behavior commit bf6c02b changed paths（实测）= src/main.cpp · src/ui/qml/pages/DeviceProfilePage.qml
+protected 面 diff = **0**：src/core · src/ui/manual · src/ui/profile · src/ui/ai · src/ui/candidate ·
+  tests · scripts · src/ui/qml/Main.qml
+⇒ O-R1 consent geometry · Cancel/Agree 语义 · Session J 几何 · SESSION M Candidate/Evidence ·
+  SESSION N strict parser · SESSION O orchestration · DeviceProfile 权威/持久化 · C1a/C1b import ·
+  M10/M11 truth · Windows candidate 部署架构 **全部未变**。
+**无** production HTTP transport · **无** live ModelScope · **无** C3 Accept/Edit/Reject ·
+**无** AI 写 Profile · **无** Candidate 持久化 · **无** confidence · **无** M12-D。
+git diff --check = 0；QML diff 精确等于 `closePolicy` 一行 + 说明注释；无格式化 churn；
+无 generated build artifact；behavior commit 内无 docs。
+```
+
+### 75.9 Candidate provenance + 部署门禁（§14）
+
+```text
+candidate root : build/release/candidate/ModbusLens/（canonical target 从零重建，1714 files）
+exe            : build/release/candidate/ModbusLens/modbuslens.exe
+                 size = 6,274,447 B
+                 SHA-256 = 05fe14ec955a7e469f2ef846f0fdcb62ef29075aac5ccb27259740813df4f361
+pdfium.dll     : SHA-256 = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+platforms/qwindows.dll : SHA-256 = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+部署/启动门禁  : `deployment_startup_check` = **PASS**（170.90 s，sanitized PATH）
+启动/冒烟**未**执行任何 ModelScope 提取。Human 复测入口 = 上述 candidate exe；
+**未**创建 canonical ZIP/package。
+```
+
+### 75.10 状态
+
+```text
+SESSION O automated                = PASS（未变）
+SESSION O-R1 geometry remediation  = IMPLEMENTED / AUTOMATED PASS / **HUMAN PASS**（本轮 re-test 未再报告溢出）
+O-R1 Agree interaction             = **HUMAN PASS**
+O-R1 Human re-test                 = FAIL / HOLD（§74，原始 Human 结论不改写）
+Outside-click modality             = **IMPLEMENTED / AUTOMATED PASS**（本节）
+O-R2 Human re-test                 = **REQUIRED**
+C2 Human visual                    = HOLD / PENDING RE-TEST
+PendingReview 成功 Human 视觉      = NOT REACHED / NOT VERIFIED
+Live ModelScope                    = NOT RUN / NOT VERIFIED
+verified LKGC                      = 19f9738c980e0a8a31b557c346fb50a4af711cab（**UNCHANGED**）
+SESSION P                          = NOT STARTED
+C3 · M12-D                         = NOT STARTED / NOT AUTHORIZED
+canonical package                  = NOT CREATED
+REAL MODBUS HARDWARE               = NOT VERIFIED
+```
+
+**注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
+**SESSION O-R2 = COMPLETE — STOP**（未开始 SESSION P / live ModelScope / C3）。

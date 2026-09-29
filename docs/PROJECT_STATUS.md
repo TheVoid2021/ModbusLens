@@ -1,7 +1,42 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-09-29 追加批注 · M12-C C2 — HUMAN UI FAIL：CONSENT OUTSIDE-CLICK DISMISSAL（Session O-R2 · 以本块为准）〕**
+**〔2026-09-29 追加批注 · M12-C C2 — CONSENT MODALITY REMEDIATED（Session O-R2 · 以本块为准）〕**
+档案 = **T027 §75**。**Human 失败归档（docs-only）** = `d72da898e160306b956b9ea4d96fd270092b4cc8`
+「M12: archive consent outside-click human failure」；**行为提交** = `bf6c02b8c8573ebf323b10764bbd01db29e16db7`
+「M12: keep cloud consent modal until explicit choice」（2 files / +54 −4，NO AMEND）。
+**根因（VERIFIED）**：consent Dialog **未显式设置 `closePolicy`** ⇒ 继承 Qt Quick Controls 默认
+`Popup.CloseOnEscape | Popup.CloseOnPressOutside` ⇒ 真实外部按下调用 `close()`，在**无任何显式选择**下关闭同意门。
+同页另三个模态 Dialog（`:1119`/`:1167`/`:1218`）与 `Main.qml:80` **都**显式设了 `closePolicy`（`NoAutoClose`），
+consent dialog 是同页**唯一**漏设者。**注意**：`modal: true` 只保证输入被 overlay 阻断（R2-02 实测背景控件
+未激活），**不**决定 Popup 自身 close 策略 —— 两者独立。
+**R08 漏检分类 = TEST SEMANTIC COVERAGE GAP**：R08 只断言「模态不阻挡 dialog **自身**控件」，
+**未**断言互补方向「真实**外部**点击后 dialog 仍保持打开」。
+**修复**：`+ closePolicy: Popup.CloseOnEscape`（仅移除 `CloseOnPressOutside`，**Escape 行为逐字保持**；
+同页 `NoAutoClose` 惯例因会静默改变 Escape 语义而**刻意不采用** ⇒ 未发生 §5 所述冲突，无需 STOP）。
+**证据**：**REAL RED**（修复前）exit 1 / `R2-01: the consent dialog was dismissed by a real outside press`
+（dialog 360,421.5 560x95 @1280x937；外部点击 navItem_0；dialog visible true→**false**；state 仍 `consent_required`；
+provider 0）→ **GREEN** `CONSENT CHECK PASS (R01..R07 + R2-01..R2-07)` exit 0，**offscreen(1280x937) 与真实
+Windows QPA(1280x844) 双平台** → **negative control**（改回 `CloseOnEscape|CloseOnPressOutside`）⇒ R2-01 REAL RED
+→ 精确还原 → residue 0 / 复绿 · **R2-01..R2-10 全 PASS** · **targeted 30/30 PASS / exit 0 / 161.05s** ·
+**Release full 62/62 PASS / 0 failed / exit 0 / 964.44s**（N 仍为 62；本轮**扩展**既有 gate 而非新增 target；
+`deployment_startup_check` 280.23s PASS）· **Session J 几何 offscreen 0.420 / 0.439 / 157.0 = 验收基线未变** ·
+QML 诊断 0 命中。**审计**：behavior commit 仅 2 files（`src/main.cpp` +48 −4 · `DeviceProfilePage.qml` +10，
+QML diff **精确等于** `closePolicy` 一行 + 说明注释）；**protected 面 diff = 0**；`git diff --check` = 0；
+**无** production transport / live ModelScope / C3 / Profile write / Candidate persistence / M12-D。
+**candidate provenance**：exe 6,274,447 B / SHA-256 `05fe14ec955a7e469f2ef846f0fdcb62ef29075aac5ccb27259740813df4f361`；
+pdfium `d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b`；
+qwindows `804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac`；1714 files；
+`deployment_startup_check` **PASS**（170.90s）；Human 复测入口 = `build/release/candidate/ModbusLens/modbuslens.exe`；
+启动**未**执行任何提取。**状态**：**Outside-click modality = IMPLEMENTED / AUTOMATED PASS** ·
+**SESSION O automated = PASS（未变）** · **O-R1 geometry remediation = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS** ·
+**O-R1 Agree interaction = HUMAN PASS** · **O-R1 Human re-test = FAIL / HOLD（原始 Human 结论不改写）** ·
+**O-R2 Human re-test = REQUIRED** · **C2 Human visual = HOLD / PENDING RE-TEST** ·
+PendingReview 成功 Human 视觉 = NOT REACHED / NOT VERIFIED · Live ModelScope = NOT RUN / NOT VERIFIED ·
+**verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）** · **SESSION P = NOT STARTED** ·
+C3 · M12-D = NOT STARTED / NOT AUTHORIZED · canonical package = **NOT CREATED** ·
+REAL MODBUS HARDWARE = **NOT VERIFIED** · 无 push / 无 tag / 无 amend。
+**〔2026-09-29 追加批注 · M12-C C2 — HUMAN UI FAIL：CONSENT OUTSIDE-CLICK DISMISSAL（Session O-R2 · 历史链一环 · 其「当前状态」字段已由上方 REMEDIATED 块继承）〕**
 档案 = **T027 §74**。**Human 对 O-R1 后 Release candidate 再次真实 UI 检查**：
 **已 PASS 部分** —— Consent **geometry/wrapping = HUMAN PASS**（未再报告溢出）· **Agree button = HUMAN PASS** ·
 Agree 后进入 `提取未成功 (not_configured)` = 符合当前无 production transport 的预期。
