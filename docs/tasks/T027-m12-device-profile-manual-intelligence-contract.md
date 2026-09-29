@@ -4616,3 +4616,230 @@ REAL MODBUS HARDWARE             = NOT VERIFIED
 **本节动作边界（Session M · Phase A · docs-only）**：仅归档 Human H1–H10 裁定 + 历史关系；
 未 build · 未 test · 未改产品代码 · 未开始 C3 / M12-D · 未创建 canonical package ·
 未 push / 未 tag / 未 amend。
+
+---
+
+## 67. M12-C C2 — FIRST DETERMINISTIC SLICE ARCHIVE（2026-09-29 · Session M · behavior + docs）
+
+### 67.0 两个提交
+
+```text
+冻结提交（docs-only，永不作 LKGC）：
+  cf68d6823e7f5640e658ca5728191e90729a3f3a  M12: freeze C2 candidate extraction contract
+  （4 files / +309 −4：docs/BACKLOG.md · docs/PROJECT_STATUS.md ·
+    docs/devlog/2026-09-29.md · docs/tasks/T027…；NO AMEND）
+
+行为提交（behavior-bearing；不是 LKGC）：
+  d899e55593cfc29519779af48bd01ecb998a18b5  M12: add evidence-backed AI candidate foundation
+  （4 files / +840 −0：CMakeLists.txt · src/core/candidate/CandidateExtraction.{h,cpp} ·
+    tests/test_candidate_extraction.cpp；NO AMEND）
+```
+
+### 67.1 Pre-code source audit（结论）
+
+- **A. Manual source of truth**：`src/core/manual/ManualDocument.h`（Zero-Qt）——`documentId` = document
+  identity（程序生成稳定 identity）；`contentHash` = content identity（imported source bytes SHA-256）。
+  `ManualEvidenceReference` offset = **CHARACTER offsets（QString UTF-16 code units）half-open [start,end)，
+  -1 不适用**；`pageNumber = -1` for TXT/Markdown（永不伪造 page）。`src/ui/manual/ManualStore.h`：
+  `loadText(contentHash)`（`<root>/manuals/text/<contentHash>.txt`，UTF-8 extracted cache）·
+  `loadPdfPages(contentHash)`（同目录 `.json` 的 `pages[]` = PDF per-page truth）。UI 的「第 N 页」header =
+  presentation-only。`ManualImportController::evidenceReferenceAt(start,end)` 已存在同一约定 ⇒ **C2 复用，
+  不建第二套**。
+- **B. Device Profile**：`validateDeviceProfile` = 唯一 validation owner（纯函数，从不 mutate）；
+  `ProfileStore`（Qt 侧）= JSON 契约编码 + `QSaveFile` 原子写 + managed-root override。
+- **C. Existing AI architecture**：`src/ui/ai/ModelScopeDiagnosisClient.h` 为 **Diagnosis-specific**；
+  `tests/fake_chat_completions_server.{h,cpp}` 证明 fake/stub pattern 已存在 ⇒ **不复制第二套网络框架、
+  不把 Candidate domain 塞进 Diagnosis-specific authority**。
+- **D. Candidate shape（§47.9）**：ProfileField = profileId/displayName/manufacturer/model/revision/
+  description；RegisterEntryCandidate = readFunctionCode/address/name/description/dataType/byteOrder/
+  wordOrder/scale/offset/unit；`registerCount` 不是 AI 输入。
+- **E. Build owner**：`modbuslens_core` = **Zero-Qt STATIC（links no Qt at all）** ⇒ 新 domain 进
+  `src/core/candidate/`；Qt 侧只在测试目标中（ProfileStore 隔离断言）。
+
+### 67.2 first-slice 选定（单一 ProfileField）
+
+```text
+chosen field = ProfileFieldTarget::Manufacturer
+  （§47.9 明确允许；first slice 只实现一个 ProfileField —— 不实现所有 ProfileField，
+   也不实现 RegisterEntryCandidate）
+编译期常量：kC2FirstSliceProfileField = ProfileFieldTarget::Manufacturer
+非该 target 的 proposal 在 deterministic validator 中被拒绝（refusedProposalCount++），
+故该约束是**真实行为**，不是空守卫。
+```
+
+### 67.3 Provider-neutral seam 架构
+
+```text
+struct CandidateProposal        { target, proposedValue, evidenceExcerpt, locationHint(-1) }
+class  ICandidateProposalProvider { virtual propose(ManualDocument, string_view) = 0; }
+      ⇒ 唯一 provider 抽象；无 ModelScope / OpenAI 业务类型；provider transport 停在其边界外。
+locationHint 被建模为 UNTRUSTED 输入（真实 provider 确实会报 offset），使「忽略 hint」成为
+**可测的真实行为**（C2-A06），而不是不可测的假设；它永不进入 CandidateEvidence。
+struct CandidateEvidence { documentId, contentHash, textStart, textEnd, excerpt }
+struct ProfileFieldCandidate { target, proposedValue, evidence, lifecycle }
+      ⇒ lifecycle ∈ { PendingReview }（C2 只产生 PendingReview；Accept/Edit/Reject = C3）。
+```
+
+### 67.4 EvidenceReference 表示（H6）
+
+```text
+documentId  = ManualDocument.documentId（NEVER contentHash）
+contentHash = ManualDocument.contentHash
+textStart/textEnd = CHARACTER offsets into canonical extracted text, half open [start,end)
+                    —— 由本地 deterministic code **重新计算**，provider 自报 location 不参与。
+excerpt     = exact excerpt（原样保存）
+```
+
+**AMBIGUOUS EVIDENCE MATCH POLICY = DEFERRED / NOT IMPLEMENTED / NOT GUESSED**：`locateUniqueExcerpt`
+只在 exact excerpt **唯一**出现时给出 span；出现 0 次 ⇒ 拒绝（H6：无法验证 ⇒ 不得成为 valid Candidate）；
+出现 ≥2 次 ⇒ 亦拒绝（保守解读 H6，不发明全局歧义策略，不伪造 span）。fixtures 使用唯一 excerpt。
+
+### 67.5 REAL RED（无 compile-fail RED）
+
+```text
+command  : build/release/modbuslens_candidate_extraction_tests.exe
+exit code: 12
+结果     : Totals: 2 passed, 12 failed, 0 skipped, 0 blacklisted, 616ms
+首选断言 : a01_presentExcerptYieldsOnePendingReviewCandidate()
+           FAIL! 'provider.called' returned FALSE.
+性质     : placeholder（返回空结果）⇒ 纯语义断言 RED；**非** compile failure / DLL failure /
+           fixture malformed / crash（build 与 link 均成功）。
+```
+
+### 67.6 GREEN 实现（最小行为）
+
+```text
+consume provider-neutral proposals →
+  schema validation（target == first-slice field；proposedValue 非空）→
+  evidence validation（locateUniqueExcerpt 对 canonical text）→
+  local location 计算（NEVER 读 locationHint）→
+  construct PendingReview ProfileFieldCandidate →
+  no Profile mutation · no persistence · no network · no credential · no confidence
+```
+
+GREEN 结果：`Totals: 14 passed, 0 failed`，exit 0。
+
+### 67.7 C2-A01..A12 实测矩阵
+
+| case | 断言 | 结果 |
+| --- | --- | --- |
+| A01 | exact excerpt 存在 ⇒ 恰好 1 个 PendingReview Candidate；provider 被真实消费；收到 canonical text | PASS |
+| A02 | excerpt 不存在 ⇒ 0 candidate、refusedProposalCount=1 | PASS |
+| A03 | `evidence.documentId` == actual `document.documentId` 且 != contentHash | PASS |
+| A04 | `evidence.contentHash` == `document.contentHash` | PASS |
+| A05 | 回读 canonical text 的 [textStart,textEnd) 精确得到 stored excerpt（round-trip） | PASS |
+| A06 | provider 自报 locationHint（0 / 4096 / -1）不污染 validated location（== 真值） | PASS |
+| A07 | candidate 生成后 `DeviceProfile` value-for-value 不变、validation code 不变 | PASS |
+| A08 | 不创建 / 不更新 ProfileStore 持久化（隔离 root 下 tree 快照不变；目标路径不存在） | PASS |
+| A09 | 无 Candidate / manual cache 持久化 side effect（隔离 root tree 快照不变） | PASS |
+| A10 | Candidate 无语义 confidence 数值字段（**编译期 SFINAE static_assert** + 运行期字段集检查） | PASS |
+| A11 | 同 deterministic 输入两次 ⇒ semantic fields 相等（ProfileFieldCandidate 值相等） | PASS |
+| A12 | 驱动来自 canonical extracted text，不重读 original source（BOM 差异 + 删除原文件后仍驱动） | PASS |
+
+A10 说明：`hasConfidenceMember` / `hasScoreMember` / `hasProbabilityMember` 对
+`ProfileFieldCandidate` / `CandidateEvidence` / `CandidateProposal` 的 `static_assert(!…)`
+使「重新引入 confidence 字段」**破坏构建**，因此该冻结不是文档级声明而是可执行约束。
+
+### 67.8 Negative control（非空洞性证明）
+
+```text
+precise mutation：在 locateUniqueExcerpt 内把「excerpt 不存在 ⇒ return false」改为
+                  「假定其存在于 0 并 return true」。
+预期     ：C2-A02 REAL RED。
+实测     ：exit 1；Totals: 13 passed, 1 failed；
+           FAIL! a02_absentExcerptYieldsNoValidCandidate
+             Actual (result.candidates.size()) = 1 / Expected = 0
+           ⇒ compile / link 正常、test process 正常、**semantic assertion RED**。
+precise reverse：精确还原原 `return false;` 分支（**未用** checkout / restore / reset）。
+residue  ：grep -c "NEGATIVE-CONTROL MUTATION" = 0（残留为零）。
+恢复后   ：exit 0；Totals: 14 passed, 0 failed（GREEN 复现）。
+```
+
+### 67.9 Targeted regression
+
+```text
+manual_import           Passed  16.00 sec   （C1a/C1b store + controller，相邻面）
+manual_extraction       Passed   5.12 sec
+manual_import_pdf_docx  Passed  11.85 sec
+candidate_extraction    Passed   1.49 sec   （本轮新增，C2 first slice）
+device_profile          （DeviceProfile domain/validation 未改动，仍随 full regression 覆盖）
+全部 PASS，exit 0。
+```
+
+### 67.10 Release full regression
+
+```text
+release gate #29 deployment_startup_check  Passed 217.12 sec
+build  : cmake --build build/release  ⇒ 78/78 objects 全部链接成功
+ctest -N : Total Tests: 58   （前次 57；+1 = candidate_extraction；#27）
+结果   : 100% tests passed, 0 tests failed out of 58
+         Total Test time (real) = 876.02 sec
+ctest exit code = 0
+```
+
+Debug：新增源在当前 canonical compiler（MinGW GCC 13.1.0）下**编译成功**
+（`modbuslens_core.dir/src/core/candidate/CandidateExtraction.cpp.obj` 生成）；
+Debug 链接阶段命中**既有环境问题** `ar/ranlib: could not create temporary file whilst archive`（非本轮代码语义）。
+按 §15「不得因历史环境问题无限重试」，Release（canonical gate）已提供完整 58/58 证据；Debug 未运行 full。
+
+### 67.11 AI boundary audit（静态，不替代行为测试）
+
+```text
+新 domain/test 文件中：
+  QNetworkAccessManager / QNetworkRequest / QUrl / http / endpoint / QProcess = 0
+  apiKey / api_key / Authorization / Bearer / getenv / qgetenv           = 0
+  QSettings / QStandardPaths / QSaveFile                                  = 0
+  QFile / QDir / std::filesystem / fopen                                  = 0（无 I/O）
+  ModelScope                                                              = 1（注释，声明禁止）
+  confidence / probability / score  仅出现在 (a) 说明「禁止」的注释、
+                                    (b) **负向** static_assert / 字段名黑名单检查
+⇒ 无 network call · 无 URL · 无 credential 读取要求 · 无 secret ·
+  无 ModelScope-specific Candidate domain · 无 ProfileStore 写入 ·
+  无 DeviceProfile mutation · 无 Candidate 持久化 · 无 confidence 数值 · 无 raw model response 持久化。
+（行为证据见 C2-A06/A07/A08/A09/A10 与 C2-A12。）
+```
+
+### 67.12 Protected diff audit
+
+```text
+git diff --name-status（behavior commit d899e55）
+  M  CMakeLists.txt
+  A  src/core/candidate/CandidateExtraction.h
+  A  src/core/candidate/CandidateExtraction.cpp
+  A  tests/test_candidate_extraction.cpp
+protected paths diff（src/core/analysis · src/core/protocol · src/main.cpp · src/ui/qml ·
+  tests/test_manual_import.cpp · tests/test_manual_extraction.cpp · tests/test_manual_import_pdf_docx.cpp ·
+  src/ui/manual · src/ui/profile · src/core/profile · src/core/manual · scripts） = 0
+git diff --check = 0；无 build/generated 文件；无 secret；无 provider-specific domain coupling；
+无大块 accidental rewrite（CMakeLists 仅 +1 core 源行 + 27 行新测试目标注册）。
+```
+
+### 67.13 明确未做 / 未冻结
+
+```text
+live ModelScope request / provider wiring = NOT STARTED
+API key flow / cloud consent UI           = NOT STARTED
+big QML Candidate review UI               = NOT STARTED（first slice NO QML required）
+Accept / Edit / Reject（C3）              = NOT STARTED / NOT AUTHORIZED
+DeviceProfile write / Candidate persistence = NOT STARTED
+confidence / retry                        = NOT STARTED
+AMBIGUOUS EVIDENCE MATCH POLICY           = DEFERRED / NOT IMPLEMENTED / NOT GUESSED
+C3 · M12-D                                = NOT STARTED / NOT AUTHORIZED
+canonical package / release tag / push    = NOT DONE
+```
+
+### 67.14 状态
+
+```text
+M12-C C1b                        = COMPLETE / HUMAN ACCEPTED（未变）
+M12-C                            = IN PROGRESS
+M12-C C2                         = IN PROGRESS
+C2 Candidate/Evidence foundation = IMPLEMENTED / AUTOMATED PASS
+verified LKGC                    = 19f9738c980e0a8a31b557c346fb50a4af711cab（**UNCHANGED**）
+C3 · M12-D                       = NOT STARTED / NOT AUTHORIZED
+canonical package                = NOT CREATED
+REAL MODBUS HARDWARE             = NOT VERIFIED
+```
+
+**注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
+**SESSION M = COMPLETE — STOP**（未开始第二个 C2 slice）。
