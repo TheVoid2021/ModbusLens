@@ -1,7 +1,28 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-09-29 追加批注 · M12-C C2 SECOND SLICE IMPLEMENTED / AUTOMATED PASS（Session N · 以本块为准）〕**
+**〔2026-09-29 追加批注 · M12-C C2 THIRD SLICE AUTHORIZED（Session O · 以本块为准）〕**
+档案 = **T027 §70**。**Human 授权（SESSION O §0 逐字：「M12-C C2 THIRD SLICE = START」）**：C2 **第三个切片** =
+① Production extraction orchestration ② Cloud-consent gate ③ PendingReview Candidate display
+④ deterministic fake provider 完成自动化 ⑤ Human UI acceptance preparation。
+**明确禁止**：真实 ModelScope inference · 真实网络请求 · Accept/Edit/Reject · DeviceProfile write ·
+Candidate persistence · numeric confidence · C3 · M12-D · canonical package · release/tag/push ·
+LKGC advancement。**verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）**。
+**起点（Git 实测）**：HEAD = `b3ff697c22f2a21e3c3ebec4c38ea7b3a9696d59`；SESSION M 三提交 `cf68d68` →
+`d899e55593cfc29519779af48bd01ecb998a18b5` → `91ac7a2…`；SESSION N 三提交 `989070b` →
+`19bb9cf38a9d0128c0590045f6b1ddf29069c1a5` → `b3ff697…`。
+**⚠ prompt 假设与仓库真相差异（按 §2 以 repo 为准）**：SESSION O §1 写「SESSION N Release full 58/58」，
+仓库真相 = **59/59 PASS**（N 58→59，+`candidate_adapter`）⇒ 以 59/59 为 canonical。
+**架构恢复要点**：SELECTED DOCUMENT OWNER = `ManualImportController`；CANONICAL TEXT OWNER =
+`ManualStore::loadText(contentHash, ok)`（**不得**用含 PDF 展示页眉的 `previewText`）；
+CANDIDATE SET/LIFETIME OWNER、CONSENT GATE、CANDIDATE DISPLAY **均不存在**（本切片新建）；
+Manual Import 是 `DeviceProfilePage.qml:698-924` 内的区域而非独立组件。
+**状态**：M12-C C1b = **COMPLETE / HUMAN ACCEPTED**（未变）· M12-C = IN PROGRESS ·
+**M12-C C2 = IN PROGRESS** · foundation = IMPLEMENTED / AUTOMATED PASS · adapter+parser = IMPLEMENTED /
+AUTOMATED PASS · **C2 THIRD SLICE = AUTHORIZED · IMPLEMENTATION = NOT STARTED（本块仅为授权归档）** ·
+C3 · M12-D = NOT STARTED / NOT AUTHORIZED · canonical package = **NOT CREATED** ·
+REAL MODBUS HARDWARE = **NOT VERIFIED** · 无 push / 无 tag / 无 amend。
+**〔2026-09-29 追加批注 · M12-C C2 SECOND SLICE IMPLEMENTED / AUTOMATED PASS（Session N · 历史链一环）〕**
 档案 = **T027 §69**。**授权（docs-only）** = `989070be13a4d2246f8180523947c11b148fce26`
 「M12: freeze C2 provider adapter slice」；**行为提交** = `19bb9cf38a9d0128c0590045f6b1ddf29069c1a5`
 「M12: add strict ModelScope candidate adapter」（9 files / +1701 −0，NO AMEND）。

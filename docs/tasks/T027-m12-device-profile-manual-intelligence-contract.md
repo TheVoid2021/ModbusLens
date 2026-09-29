@@ -5376,3 +5376,149 @@ REAL MODBUS HARDWARE             = NOT VERIFIED
 
 **注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
 **SESSION N = COMPLETE — STOP**（未开始 C2 第三个切片）。
+
+---
+
+## 70. M12-C C2 THIRD SLICE — ORCHESTRATION / CONSENT / CANDIDATE DISPLAY AUTHORIZATION FREEZE（2026-09-29 · Session O · docs-only）
+
+> 性质：**append-only 归档**。本节把 Human 在 SESSION O §0 对 C2 **第三个切片**的显式授权
+> （start + 5 项目标）与**范围边界（in scope / explicit deferred）**冻结为可审计记录，
+> 并在**写任何产品代码之前**落库（SESSION O §5 顺序要求）。
+> **禁止**据此改写 §66 / §67 / §68 / §69（历史原貌保持）；本节只新增。
+
+### 70.0 Human 授权原文（逐字归档）
+
+```text
+Human（SESSION O §0 HUMAN AUTHORIZATION）：
+
+  「M12-C C2 THIRD SLICE = START」
+
+本 slice 精确范围（5 项）：
+  1. Production extraction orchestration
+  2. Cloud-consent gate
+  3. PendingReview Candidate display
+  4. deterministic fake provider 完成自动化
+  5. Human UI acceptance preparation
+
+本 slice 明确禁止：
+  真实 ModelScope inference · 真实网络请求 · Human Accept/Edit/Reject ·
+  DeviceProfile write · Candidate persistence · numeric confidence ·
+  C3 · M12-D · canonical package · release/tag/push · verified LKGC advancement
+
+verified LKGC MUST remain 19f9738c980e0a8a31b557c346fb50a4af711cab
+```
+
+### 70.1 起始基线（实测）+ 与 prompt 假设的差异（如实记录）
+
+```text
+HEAD                 = b3ff697c22f2a21e3c3ebec4c38ea7b3a9696d59
+porcelain -uall      = ?? _ctx.py / ?? _dump.py（仅此两项）
+tracked diff         = 空 · index(cached) = 空 · git diff --check rc = 0
+git tag --list       = v1.0.0（唯一）
+git ls-files build   = 0
+verified LKGC        = 19f9738c980e0a8a31b557c346fb50a4af711cab（未推进）
+
+SESSION M 三提交（Git 实测恢复）：
+  cf68d6823e7f5640e658ca5728191e90729a3f3a「M12: freeze C2 candidate extraction contract」
+  d899e55593cfc29519779af48bd01ecb998a18b5「M12: add evidence-backed AI candidate foundation」
+  91ac7a2df8ed033647d71107692f5b17a14cae38「M12: archive C2 candidate foundation slice」
+SESSION N 三提交（Git 实测恢复）：
+  989070be13a4d2246f8180523947c11b148fce26「M12: freeze C2 provider adapter slice」
+  19bb9cf38a9d0128c0590045f6b1ddf29069c1a5「M12: add strict ModelScope candidate adapter」
+  b3ff697c22f2a21e3c3ebec4c38ea7b3a9696d59「M12: archive C2 provider adapter slice」
+
+**§1 与仓库真相的差异（按 §2「repository truth > prompt assumptions」处理）**：
+  SESSION O §1 写「SESSION N Release full: 58/58 PASS」。
+  仓库真相（§69.16 / PROJECT_STATUS / BACKLOG 实测记录）= **59/59 PASS**
+  （N 由 58 → 59，新增 CTest `candidate_adapter`；build 81/81；898.60s；exit 0）。
+  ⇒ 以 **59/59** 为 canonical；58/58 视为陈旧假设，本节记录差异，不改写历史。
+```
+
+### 70.2 IN SCOPE（本切片授权交付）
+
+```text
+① Production extraction orchestration（最小生产编排层，契合既有架构）
+② Cloud-consent gate（默认 NO UPLOAD；上传前需显式同意）
+③ PendingReview Candidate display（仅展示本地已验证的 PendingReview Candidate）
+④ deterministic fake provider 完成自动化（自动化测试**只**用确定性 fake）
+⑤ Human UI acceptance preparation（准备 candidate 与自动化证据；**不**声称 Human visual PASS）
+```
+
+### 70.3 明确 DEFERRED / 禁止（本 session 不得执行）
+
+```text
+live ModelScope inference          = NOT AUTHORIZED（零真实推理）
+真实网络请求                        = NOT AUTHORIZED
+Human Accept / Edit / Reject（C3）  = NOT STARTED / NOT AUTHORIZED
+verified DeviceProfile write        = NOT AUTHORIZED
+Candidate persistence               = NOT AUTHORIZED（v1 仍 SESSION-ONLY）
+numeric confidence                  = NOT AUTHORIZED
+C3                                  = NOT STARTED / NOT AUTHORIZED
+M12-D                               = NOT STARTED / NOT AUTHORIZED
+canonical package / release / tag / push = NOT DONE
+verified LKGC advancement           = NOT AUTHORIZED（保持 19f9738…）
+```
+
+### 70.4 恢复的既有架构（SESSION M/N 实测，禁止重设计）
+
+```text
+MANUAL DOCUMENT OWNER      = core::ManualDocument（src/core/manual/ManualDocument.h）
+CANONICAL TEXT OWNER       = ui::ManualStore::loadText(contentHash, bool* ok)
+                             （src/ui/manual/ManualStore.h:97-98；ok=false = 缓存缺失，绝不静默空串）
+                             ⚠ previewText() 对 PDF **含展示页眉**（buildPdfPreview），
+                               不是 canonical truth ⇒ 编排层 MUST 用 loadText，不得用 previewText
+SELECTED DOCUMENT OWNER    = ui::ManualImportController（src/ui/manual/ManualImportController.h:37）
+                             selectedIndex() / selectedDocument()(QVariantMap) /
+                             Q_INVOKABLE selectDocument(int) / clearSelection()
+                             内部真身 = std::vector<core::ManualDocument> m_documents + m_selectedIndex
+CANDIDATE DOMAIN OWNER     = src/core/candidate/CandidateExtraction.{h,cpp}
+                             + src/core/candidate/ProviderExtractionContract.{h,cpp}（Zero-Qt）
+CANDIDATE SET/LIFETIME OWNER = **不存在**（本切片新建；v1 = SESSION-ONLY in-memory）
+EVIDENCE VALIDATOR         = core::extractProfileFieldCandidates()（内部 locateUniqueExcerpt，
+                             exact + UNIQUE；0 次或 ≥2 次一律拒绝 ⇒ 本地重算 location）
+PROVIDER-NEUTRAL REQUEST   = core::ExtractionRequest + core::buildC2FirstSliceExtractionRequest()
+PROVIDER-NEUTRAL PROPOSAL  = core::CandidateProposal + core::ICandidateProposalProvider
+MODELSCOPE ADAPTER         = ui::ModelScopeCandidateAdapter
+                             （src/ui/ai/ModelScopeCandidateAdapter.h:102，实现 ICandidateProposalProvider）
+TRANSPORT SEAM             = ui::IExtractionTransport（src/ui/ai/ExtractionTransport.h）
+STRICT PARSER              = ui::parseStrictCandidateProposals() + ui::extractModelScopeResponseContent()
+CURRENT UI CONTROLLER      = ManualImportController / ProfileController / ActiveProfileController /
+                             AnalysisController（全仓仅 4 个 QML_ELEMENT；**无** setContextProperty 注册，
+                             靠 CMakeLists.txt:208 qt_add_qml_module + qmltyperegistrar）
+DEVICE PROFILE PAGE OWNER  = src/ui/qml/pages/DeviceProfilePage.qml
+                             （root id=deviceProfileRoot，objectName=deviceProfileWorkspace；
+                              Main.qml StackLayout 第 6 项 index 5；rail navItem_5）
+CURRENT MANUAL IMPORT UI OWNER = DeviceProfilePage.qml:698-924（manualImportHost / manualImportCard /
+                             manualImportBody / manualDocumentList / manualDocColumn / manualPreview）
+                             ⇒ Manual Import **不是**独立组件，是同一 Device Profile workspace 内的区域
+CURRENT TEST INJECTION PATTERN = ① C++ 单元测试：tests/*.cpp + 自有 fake double
+                             （如 tests/test_candidate_adapter.cpp 的 FakeExtractionTransport）
+                             ② QML 门禁：src/main.cpp 内 `--qml-*` flag 分派（runManualImportCheck:16292 等），
+                             用 findNamedItemRecursive（**visual childItems 树**，因 Repeater delegate
+                             只在视觉树可达）+ requireSized / requireInsideWindow / 比例断言 /
+                             clickNamed + steps(QTimer::singleShot, settleMs=60)
+                             ③ 持久化隔离：ManualStore::setManagedRootOverride + ProfileStore::setManagedRootOverride
+```
+
+**中心 invariant 复核（SESSION N N09 仍存在且 PASS）**：schema-valid provider proposal + false /
+unverifiable evidence ⇒ **0** PendingReview Candidate（由 SESSION M 的 `locateUniqueExcerpt` 拒绝，
+`refusedProposalCount` 计数）。本切片**不得**绕过该路径。
+
+### 70.5 状态
+
+```text
+M12-C C1b                        = COMPLETE / HUMAN ACCEPTED（未变）
+M12-C                            = IN PROGRESS
+M12-C C2                         = IN PROGRESS
+C2 Candidate/Evidence foundation = IMPLEMENTED / AUTOMATED PASS（§67，未变）
+C2 ModelScope adapter + strict parser = IMPLEMENTED / AUTOMATED PASS（§69，未变）
+C2 THIRD SLICE                   = AUTHORIZED（本节）· IMPLEMENTATION = NOT STARTED
+verified LKGC                    = 19f9738c980e0a8a31b557c346fb50a4af711cab（**UNCHANGED**）
+C3 · M12-D                       = NOT STARTED / NOT AUTHORIZED
+canonical package                = NOT CREATED
+REAL MODBUS HARDWARE             = NOT VERIFIED
+```
+
+**本节动作边界（Session O · 授权归档 · docs-only）**：仅归档 Human 第三切片授权 + 范围 +
+explicit deferred + 恢复的 M/N 架构 + §1 差异记录；未 build · 未 test · 未改产品代码 ·
+未推进 LKGC · 未开始 C3 / M12-D · 未创建 canonical package · 未 push / 未 tag / 未 amend。
