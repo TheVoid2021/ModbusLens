@@ -4231,3 +4231,187 @@ REAL MODBUS HARDWARE = NOT VERIFIED
 「Manual Import 整改」整条记录之后）；本次把被截断的续行块移回原记录尾部，
 **内容零改动**，仅恢复表格结构。
 ```
+
+---
+
+## 65. M12-C C1b — VERIFIED LKGC ADVANCE（2026-09-29 · Session L · docs-only）
+
+### 65.0 Human 授权（SESSION L §0）
+
+```text
+Human 明确授权（SESSION L 指令 §0）：
+
+  ① 把 verified LKGC 从 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10
+     推进到            19f9738c980e0a8a31b557c346fb50a4af711cab；
+  ② 开始 M12-C C2。
+
+未授权（本轮明确不做）：C3 · M12-D · canonical package · release · tag · push ·
+real hardware claims · scope expansion。
+```
+
+**授权边界澄清**：本授权 = **LKGC advancement + 允许对 C2 做 contract recovery / 第一切片**；
+**不是**「授权 WorkBuddy 发明 C2 缺失语义」。若 repository truth 显示 C2 仍存在未决产品/语义决策，
+则按 §1/§5/§7 要求 **STOP after Phase B**，不做实现。本轮实际结果见 §65.3。
+
+### 65.1 ancestry 与 behavior-bearing 证据（Git 实测）
+
+```text
+$ git cat-file -t 19f9738c980e0a8a31b557c346fb50a4af711cab
+commit
+
+$ git merge-base --is-ancestor 19f9738c980e0a8a31b557c346fb50a4af711cab HEAD
+(exit 0)
+
+$ git show -s --format='%H | %ad | %s' 19f9738c980e0a8a31b557c346fb50a4af711cab
+19f9738c980e0a8a31b557c346fb50a4af711cab
+Tue Sep 29 12:42:25 2026 +0800
+M12: give manual preview usable vertical space
+
+$ git diff --name-status 19f9738~1 19f9738
+M  src/main.cpp
+M  src/ui/qml/pages/DeviceProfilePage.qml
+⇒ 2 files 变化，含 src/ 与 QML ⇒ BEHAVIOR-BEARING（非 docs-only）
+
+$ git diff --name-status 19f9738 HEAD
+M  docs/BACKLOG.md
+M  docs/PROJECT_STATUS.md
+M  docs/devlog/2026-09-29.md
+M  docs/tasks/T027-m12-device-profile-manual-intelligence-contract.md
+$ git log --oneline 19f9738..HEAD
+b9d98af M12: archive C1b human visual acceptance
+79b0833 M12: archive manual preview layout remediation
+⇒ 19f9738 之后的 2 个提交全部 docs-only
+⇒ 19f9738 = 最后一个 behavior-bearing tree，docs-only 提交永不作 LKGC
+
+$ git diff --name-only 8409c27 19f9738 -- src tests CMakeLists.txt cmake scripts assets samples
+CMakeLists.txt
+cmake/modbuslens_generate_candidate.cmake
+scripts/materialize_c1b_deps.py
+scripts/test_materialize_c1b_deps.py
+src/core/manual/ManualDocument.{h,cpp}
+src/main.cpp
+src/ui/manual/ManualDocxTextExtractor.{h,cpp}
+src/ui/manual/ManualImportController.{h,cpp}
+src/ui/manual/ManualPdfTextExtractor.{h,cpp}
+src/ui/manual/ManualStore.{h,cpp}
+src/ui/manual/ManualTextExtraction.{h,cpp}
+src/ui/qml/pages/DeviceProfilePage.qml
+tests/deployment_startup_check.cmake
+tests/test_manual_extraction.cpp
+tests/test_manual_import.cpp
+tests/test_manual_import_pdf_docx.cpp
+⇒ 8409c27 → 19f9738 区间共 31 files / +6228 −106，行为路径非空
+（C1b extraction foundation fb2170e → import workflow/UI c36eb18 →
+ self-contained candidate a7bbbad → preview 垂直空间 19f9738）
+⇒ LKGC 推进跨越了 C1b 全部已验收的 behavior-bearing 工作
+```
+
+### 65.2 verified LKGC advancement
+
+```text
+verified LKGC BEFORE = 8409c271cca966e9f9ab0ad0ba2d6470c0a66e10
+verified LKGC AFTER  = 19f9738c980e0a8a31b557c346fb50a4af711cab   （Human authorized）
+
+历史链（behavior-bearing，全部 Human 授权）：
+  fc86dcc（M10-C）→ 9bdd99c → d08ab55（M10 Read Correction）→ 352b81c（M10）
+  → bc99e6e（M11）→ 13799d6（M12-B）→ 8409c27（M12-C C1a）→ 19f9738（M12-C C1b）
+
+对应状态：M9 ✅ · M10 ✅ COMPLETE · M11 ✅ COMPLETE ·
+  M12-A ✅ · M12-B ✅ COMPLETE · M12-C C1b = COMPLETE / HUMAN ACCEPTED
+  （Implementation COMPLETE · Automated regression PASS · Human functional PASS · Human visual PASS）
+本轮未改动的历史：8409c27 的所有其他出现位置保持历史原文（只增不改原则）。
+```
+
+### 65.3 C2 contract recovery（Phase B 结果摘要）
+
+本轮在已授权范围内完成 **C2 contract recovery**（只读仓库真相，未写任何 C2 代码）。
+
+**recovered C2 contract**（唯一 canonical 来源 = 本节 §47.10 / §47.11 / §47.12 / §47.13 / §47.14 / §15 / §17.2）：
+
+```text
+C2 NAME        = Provider-neutral AI Candidate Extraction
+C2 PURPOSE     = 从已导入的 deterministic manual source 产生「建议 + evidence + confidence +
+                 confirmation state」，供 Human 审阅；绝不直接改写 verified Profile
+C2 INPUT       = C1 产出的 ManualDocument + deterministic extracted text + EvidenceReference
+C2 OUTPUT      = Candidate 列表（ProfileField / RegisterEntryCandidate）
+                 每项含 value + evidence + confidence + confirmation state
+C2 OWNER       = PROPOSED（§47.9：DeviceProfilePage.qml 内新 manual/import controller）
+C2 UI          = 未冻结（§47.9 明确「未冻结」）
+C2 PERSISTENCE = 未冻结（§47.14 P0-E：v1 = session-only 仅为 PROPOSED）
+C2 AI BOUNDARY = AI = extractor/assistant ≠ authority（canonical，已冻结）；
+                 Candidate 不得直接构造 verified RegisterEntry
+C2 HUMAN GATE  = Accept / Edit / Reject（canonical，属 C3 执行）
+C2 ERROR/FALLBACK = §47.11 invariant 7：AI 失败 / 网络失败不得影响 imported manual 与 verified Profile
+C2 NON-GOALS   = 不选 provider·model·endpoint；不做 OCR；不做 Q&A（M12-D）；不做 Accept/Edit/Reject（C3）
+C2 ACCEPTANCE  = §17.2 M12-C exit（高层；无 C2 detailed matrix）
+C2 DEPENDENCIES ON C1b = 直接消费 ManualDocument / ManualStore / extracted text / contentHash cache
+C2 RELATION TO C3/M12-D = C3 = Human Accept/Edit/Reject + validateDeviceProfile → verified Profile；
+                 M12-D = Manual Q&A（硬边界，见 §47.12）
+```
+
+**gate 判定 = HUMAN DECISION REQUIRED**（详见本轮报告 E/F/G 节）。开放项（**均未被仓库真相解析**）：
+
+```text
+REQUIRES HUMAN DECISION（阻塞 C2，§47.14 仍标 NOT FROZEN）：
+  P0-B AI provider family          （§47.15 NOT FROZEN；§48.2#5 仅 guardrail「provider-neutral、不选厂商」）
+  P0-C cloud upload permission     （§47.15 NOT FROZEN；§48.2#6 仅 guardrail）
+  P0-D credential source / storage （§47.15 NOT FROZEN；§48.2#7 仅 guardrail）
+  P0-E Candidate persistence       （§47.15 NOT FROZEN；§48.2#9 仅 guardrail "v1 session-only"）
+  P0-H confidence representation   （§47.15 NOT FROZEN；§48.2#8 仅 guardrail "label + opaque raw"）
+
+上述 §48.2 第 5–9 行明标「HUMAN-FROZEN（**未来 guardrail**）」，且逐行注明「C1a 不涉及」
+⇒ 它们是**方向性 guardrail**，**不足以唯一确定 C2 的 externally visible behavior**：
+  · provider seam 的具体形态（接口面 / 调用节奏 / 是否可插拔 backend）· 未冻结
+  · prompt contract（格式 / 注入边界 / bounded 规则）· §15 明确「本轮不决定 AI provider、prompt format」
+  · response parsing（成功/失败判别、字段映射）· 未冻结
+  · Candidate 的数据模型细节（§47.10 全文标注 PROPOSED；EvidenceReference 的 excerpt 长度、
+    textStart/textEnd offset 格式、content identity 字段均 PROPOSED 未冻结）
+  · §47.11 Candidate 状态名/数量「未冻结」（建议最小集仅为建议）
+  · §47.9 UI owner 与 §47.9 B「是否属 Device Profile workspace」= PROPOSED / 未冻结
+
+RESOLVED BY REPOSITORY TRUTH（可直接实施、无需新裁定）：
+  · AI 不得直接修改 verified Profile（canonical §15 + 11_V2_UPGRADE_PLAN §4 第 104/106 行）
+  · Candidate 进入 Profile 前必须走 validateDeviceProfile（§47.11 invariant 3，DERIVED BUT SAFE）
+  · §47.11 invariant 1/2/4/5/6/7（Pending/Rejected 不得进入；失败必须原子回滚；失败后仍可修正；
+    AI/网络失败不得影响 manual 与 verified Profile）
+  · Candidate 不得改写 wire truth / TransactionAnalysis / M11 decode / raw（四层 truth，canonical）
+  · registerCount 不是 AI 输入（§33 Group 1-B，已冻结）
+  · C1b 契约：document identity != contentHash；contentHash = cache identity（§60.3，已冻结）
+```
+
+**结论**：C2 的**边界与不变量**已被仓库真相充分定义，但 C2 的**可外部观察行为**
+（provider seam 形态、prompt 契约、response parsing、Candidate 数据模型细节、
+confidence 表示、持久化）依赖 §47.14 P0-B/C/D/E/H 与 §47.10/§47.11/§47.9 的未冻结项。
+按 SESSION L §7 的定义，**至少一个未决问题会迫使 WorkBuddy 发明 externally visible behavior
+⇒ 判定 = HUMAN DECISION REQUIRED，DO NOT CODE**。
+
+### 65.4 C2 状态（禁止升级）
+
+```text
+M12-C C2 = STARTED（**仅 contract recovery**）
+M12-C C2 IMPLEMENTATION = NOT STARTED
+未新增任何 Candidate / provider seam / extraction-AI 代码（实测 src/ tests/ 中无 Candidate 模型：
+  grep 命中的 "candidate" 全为既有 framing / protocol / catalog 语义，非 M12 Candidate）
+未改 src/ · tests/ · CMakeLists.txt · QML · scripts/
+C3 · M12-D = NOT STARTED
+```
+
+### 65.5 本轮动作边界（Session L · docs-only）
+
+```text
+未 build · 未 test · 未重新生成 candidate · 未 packaging · 未改产品代码 ·
+未写 C2 代码 · 未开始 C3 / M12-D · 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+唯一动作 = 归档 Human 授权的 LKGC 推进 + C2 contract recovery 结论：
+  docs/tasks/T027 §65（本节）
+  docs/PROJECT_STATUS.md（顶部追加批注块 + 标注前一 owner 块为历史链一环）
+  docs/BACKLOG.md（M12 行追加 LKGC 推进批注）
+  docs/devlog/2026-09-29.md（Session L 章节 + 状态字段更新）
+并提交一个 docs-only commit（subject = `M12: advance verified LKGC through C1b`）。
+
+仍未变：M12-C C1b = COMPLETE / HUMAN ACCEPTED；M12-C = IN PROGRESS；
+C3 / M12-D = NOT STARTED；canonical package = NOT CREATED；
+REAL MODBUS HARDWARE = NOT VERIFIED；
+failure #1 exact foreign provider = NOT VERIFIED；
+failure #2 historical exact root cause = UNKNOWN。
+```
