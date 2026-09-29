@@ -16918,8 +16918,57 @@ int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                          .arg(hostTop));
             }
         }
+        // Session J vertical-budget contract (real runtime geometry, measured
+        // at 1000x700 with documents present). The Device Profile row must not
+        // own the page, and the Manual Import reading area must keep a usable
+        // document viewport — the Human defect was a preview that showed only
+        // 2-3 lines of a long manual.
+        auto *const workspace = itemOf(QStringLiteral("deviceProfileWorkspace"));
+        auto *const preview = itemOf(QStringLiteral("manualPreview"));
+        if (workspace == nullptr || row == nullptr || host == nullptr
+            || preview == nullptr) {
+            fail(QStringLiteral("the vertical-budget items are missing"));
+        } else {
+            const qreal wsHeight = workspace->height();
+            if (wsHeight <= 0.0) {
+                fail(QStringLiteral("the Device workspace has no height"));
+            } else {
+                const qreal rowShare = row->height() / wsHeight;
+                const qreal hostShare = host->height() / wsHeight;
+                if (rowShare > 0.50) {
+                    fail(QStringLiteral("the Device Profile row owns too much "
+                                        "vertical space: share=%1 (row=%2 "
+                                        "workspace=%3)")
+                             .arg(rowShare, 0, 'f', 3)
+                             .arg(row->height())
+                             .arg(wsHeight));
+                }
+                if (hostShare < 0.35) {
+                    fail(QStringLiteral("the Manual Import area gets too little "
+                                        "vertical space: share=%1 (host=%2 "
+                                        "workspace=%3)")
+                             .arg(hostShare, 0, 'f', 3)
+                             .arg(host->height())
+                             .arg(wsHeight));
+                }
+            }
+            if (preview->height() < 120.0) {
+                fail(QStringLiteral("the document preview viewport is too "
+                                    "small: h=%1 (minimum 120)")
+                         .arg(preview->height()));
+            }
+        }
         dumpManualGeometry(QStringLiteral("s6"));
         note(QStringLiteral("stage 6: 1000x700 reachable with documents"));
+        note(QStringLiteral("stage 7: vertical budget — profile row share=%1, "
+                            "manual import share=%2, preview viewport=%3")
+                 .arg(workspace != nullptr && workspace->height() > 0.0
+                          && row != nullptr
+                          ? row->height() / workspace->height() : -1.0, 0, 'f', 3)
+                 .arg(workspace != nullptr && workspace->height() > 0.0
+                          && host != nullptr
+                          ? host->height() / workspace->height() : -1.0, 0, 'f', 3)
+                 .arg(preview != nullptr ? preview->height() : -1.0, 0, 'f', 1));
     });
 
     const int settleMs = 60;

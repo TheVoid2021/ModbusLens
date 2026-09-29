@@ -285,7 +285,19 @@ Item {
             id: profileWorkspaceRow
             objectName: "profileWorkspaceRow"
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            // VERTICAL BUDGET (M12-C C1b · Session J). The three Device Profile
+            // columns keep a bounded, scrollable band instead of owning every
+            // remaining pixel: as a fillHeight row they swallowed the page and
+            // left the Manual Import reading area only its content minimum
+            // (measured at 1000x700: row 400px vs preview viewport 36px, i.e.
+            // 2-3 visible lines of a long manual). Nothing is lost — the
+            // catalog and the register map already scroll inside their own
+            // Flickable — and the freed height now belongs to the document
+            // viewport, which is what grows when the window grows.
+            Layout.fillHeight: false
+            Layout.preferredHeight: Math.round(
+                Math.min(deviceProfileRoot.height * 0.42, 460))
+            Layout.minimumHeight: 180
             spacing: DS.spacingM
 
             // ---- left: managed catalog ----
@@ -707,6 +719,11 @@ Item {
         // window edge at 1000x700 (a defect the offscreen gate could not see).
         Layout.preferredHeight: manualImportCardItem.implicitHeight
         Layout.minimumHeight: 120
+        // Session J: the Manual Import area is the long-document reading area,
+        // so it takes the vertical space the profile row no longer claims. The
+        // content-driven preferredHeight above stays as the stretch basis/floor
+        // (the card can never be handed less than its own content needs).
+        Layout.fillHeight: true
         clip: true
 
         PanelCard {
