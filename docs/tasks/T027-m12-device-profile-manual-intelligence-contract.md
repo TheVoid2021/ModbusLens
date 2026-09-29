@@ -5005,3 +5005,374 @@ REAL MODBUS HARDWARE             = NOT VERIFIED
 **本节动作边界（Session N · 授权归档 · docs-only）**：仅归档 Human 第二切片授权 + 范围 +
 explicit deferred + SESSION M 起点事实；未 build · 未 test · 未改产品代码 ·
 未推进 LKGC · 未开始 C3 / M12-D · 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+---
+
+## 69. M12-C C2 — SECOND SLICE ARCHIVE（PROVIDER ADAPTER + STRICT PROVIDER RESPONSE CONTRACT）（2026-09-29 · Session N · behavior + docs）
+
+> 性质：**append-only 归档**。本节记录 C2 第二个切片的实际交付与全部实测证据。
+> §68（授权冻结）保持不变；本节只新增。
+
+### 69.0 两个提交
+
+```text
+AUTHORIZATION DOCS COMMIT = 989070be13a4d2246f8180523947c11b148fce26
+                            「M12: freeze C2 provider adapter slice」
+                            （4 docs / +231 −3，docs-only，NO AMEND）
+BEHAVIOR COMMIT           = 19bb9cf38a9d0128c0590045f6b1ddf29069c1a5
+                            「M12: add strict ModelScope candidate adapter」
+                            （9 files / +1701 −0，NO AMEND）
+                            CMakeLists.txt · src/core/candidate/CandidateExtraction.{h,cpp} ·
+                            src/core/candidate/ProviderExtractionContract.{h,cpp} ·
+                            src/ui/ai/ExtractionTransport.h ·
+                            src/ui/ai/ModelScopeCandidateAdapter.{h,cpp} ·
+                            tests/test_candidate_adapter.cpp
+```
+
+**注意**：行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`（见 §69.20）。
+
+### 69.1 SOURCE AUDIT — 既有 AI / 网络栈（§7 结论）
+
+```text
+EXISTING MODELSCOPE CLIENT = src/ui/ai/ModelScopeDiagnosisClient.{h,cpp}（M6，Diagnosis-specific）
+                              + src/ui/agent/ModelScopeAgentClient.{h,cpp}（Agent 用途）
+EXISTING TRANSPORT OWNER   = 两者各自持有 QNetworkAccessManager（new QNetworkAccessManager(this)），
+                             单飞 + QNetworkReply + 单一 QTimer 超时 owner
+EXISTING CREDENTIAL SOURCE = process environment only：MODELSCOPE_API_KEY（必需）+
+                             MODBUSLENS_MODELSCOPE_MODEL（可选 override），由
+                             buildModelScopeProductionConfig() 读取；无 QSettings / 无持久化
+EXISTING JSON PARSER STYLE = QJsonDocument::fromJson → 严格 isObject + choices isArray →
+                             取 message.content 非空 string；error.message 截断 200
+EXISTING TEST SEAM         = tests/fake_chat_completions_server.{h,cpp}（localhost fake，
+                             capture request + scripted response）+
+                             ModelScopeDiagnosisClient::configure(config) 的 endpoint 注入
+REUSABLE PARTS             = ① Chat Completions wire envelope 形状
+                             （{model,messages,stream:false,max_tokens} / choices[]→message.content）
+                             ② HTTP status → 语义类别的映射意图（2xx 成功 vs 其余失败）
+                             ③ fake transport 的 capture/script/count 模式
+DIAGNOSIS-SPECIFIC PARTS THAT MUST NOT LEAK INTO C2 =
+                             AiDiagnosisErrorCode（12 值）· AiAbortReason · ModelScopeClientConfig ·
+                             DiagnosisPromptBuilder · diagnosisSucceeded/Failed signals ·
+                             DiagnosisContext · RuleBasedDiagnosis
+```
+
+**复用决策**：**不**复用 `ModelScopeDiagnosisClient` 类本身（其 error code / signal / prompt 均为
+Diagnosis-specific）；**复用**其 wire contract 形状与 fake 模式。**未修改 M6 任何文件**
+（M6 diagnosis / agent / fake server / test_ai_client 全部零 diff，且 ai_client 测试仍 PASS）。
+
+### 69.2 ModelScope WIRE CONTRACT 来源（§8 纪律）
+
+```text
+判定 = 复用仓库既有「已接受」的 wire contract，**未发明**新 envelope / 未发明新 wire 字段。
+repo 内权威出处（实测 grep）：
+  docs/tasks/T011-ai-diagnosis.md:387-388 · :425
+    Base     = https://api-inference.modelscope.cn/v1
+    Endpoint = https://api-inference.modelscope.cn/v1/chat/completions
+    Headers  = Authorization: Bearer <MODELSCOPE_API_KEY> + Content-Type: application/json
+    Body     = { model, messages:[{system},{user}], stream:false, max_tokens:768 }
+  docs/08_KNOWLEDGE_OWNERSHIP.md:1405（同一契约的二次记录）
+  src/ui/ai/ModelScopeDiagnosisClient.cpp:14-19（常量）· :257-280（choices[]→message.content）
+外部交叉核对（documentation research only；**未**发任何推理请求 / 未用 token / 未花钱）：
+  ModelScope API-Inference 官方文档（modelscope.cn/docs/model-service/API-Inference/intro）
+  确认 base_url = https://api-inference.modelscope.cn/v1/ 、OpenAI-compatible Chat Completions、
+  model = ModelScope Model-Id、messages 含 system/user、非流式响应经 choices[0].message.content。
+本切片**新增**的仅是「content 内容本身须满足的 strict schema」（§69.6），
+属于 C2 自有契约而非新 wire 行为。
+```
+
+### 69.3 架构（实际落地）
+
+```text
+canonical Manual text
+  → core::ExtractionRequest（provider-neutral；src/core/candidate/ProviderExtractionContract.h）
+  → ModelScopeCandidateAdapter（provider adapter boundary；src/ui/ai/）
+  → IExtractionTransport（最小 transport seam；src/ui/ai/ExtractionTransport.h）
+  → deterministic FakeExtractionTransport（tests 内）
+  → extractModelScopeResponseContent()（wire envelope → assistant content）
+  → parseStrictCandidateProposals()（strict、fail-closed、atomic）
+  → core::CandidateProposal（provider-neutral，SESSION M 既有类型）
+  → core::extractProfileFieldCandidates()（SESSION M 本地确定性 Evidence validation）
+  → PendingReview Candidate
+```
+
+**边界落实为可审计事实**：`ModelScopeCandidateAdapter` 实现 SESSION M 的
+`ICandidateProposalProvider`，因此第二个切片**直接复用**既有本地 Evidence 验证路径；
+provider-specific 形状（endpoint 由调用方配置、model id、wire body、HTTP-like status、
+transport 对象）全部只存在于 `src/ui/ai/`。
+
+### 69.4 PROVIDER-NEUTRAL REQUEST CONTRACT（§10）
+
+```text
+struct ExtractionRequest { targetFieldToken; documentTypeToken; canonicalExtractedText; };
+buildC2FirstSliceExtractionRequest(document, canonicalText) 为纯函数，只复制 extraction payload。
+
+**结构性最小化**：documentId / contentHash / originalFileName / originalPath / byteSize /
+extraction bookkeeping **根本没有字段**，因此不可能被序列化到 provider。
+测试 N15 另以捕获到的 wire body 实证：仅含 canonical extracted text + target token，
+不含 documentId / contentHash / filename / original path / apiKey / Authorization / Bearer /
+register / transaction / profileId。
+```
+
+### 69.5 PROMPT CONTRACT（§11）
+
+```text
+冻结的是 semantic contract（H8），wording 属 adapter implementation detail。
+adapter 内构造 system instruction（只用 supplied text / 不猜 / 每个 fact 必须附 exact excerpt /
+不支持则省略 / 不声称 verified）与 user prompt（target token + strict 输出 schema 提示 + manual text）。
+测试**不**做 full-string equality；N15 采语义断言（首行 / 证据行 / 末行均被承载 + target token 存在）。
+```
+
+### 69.6 STRICT PROVIDER RESPONSE CONTRACT（§12）
+
+```text
+provider content 的 strict schema（C2 v1）：
+  { "proposals": [ { "target": <frozen token>, "value": <非空 string>, "evidence": <非空 string> } ] }
+
+fail-closed（任一违反 ⇒ ok=false 且 **零** proposal）：
+  · content 非法 JSON                      → MalformedResponse
+  · 顶层非 object（如数组/标量）            → SchemaViolation
+  · 顶层或元素出现未知 / 多余成员            → SchemaViolation
+  · 缺失必需成员 / 必需成员 JSON 类型错误    → SchemaViolation（**无类型强转**：number 绝不读作 string）
+  · 空 target / value / evidence            → SchemaViolation
+  · 未知 target token                       → SchemaViolation（provider 不得扩宽冻结契约）
+  · numeric confidence / score / probability 等任何多余数值成员 → SchemaViolation（H5）
+  · 重复成员名（同一 object 内）             → SchemaViolation（"哪一个胜出"不许歧义）
+合法特例：proposals 为空数组 = 「source 不支持任何事实」，ok=true 且零 proposal（不是错误）。
+```
+
+**实现**：为保持 `src/core` 的 Zero-Qt 与 target 的零网络能力，strict JSON reader 为
+**自写的最小递归下降解析器**（object/array/string/number/bool/null；严格 RFC 8259 number
+语法；拒绝孤立代理项 / 非法转义 / 原始控制字符 / 尾随内容），**未**引入任何第三方或 Qt 依赖。
+
+### 69.7 PARSER GRANULARITY — RESPONSE ATOMICITY（§13）
+
+```text
+选定并记录 = **one provider extraction response is parsed atomically**（C2 v1 preferred）。
+实现：先构建完整 accepted 集合，任一违反即整体丢弃并返回 failure —— **无部分接受混合物**。
+这属于 provider-response atomicity；**未修改** SESSION M local Evidence semantics
+（SESSION M 的 per-proposal 拒绝与 refusedProposalCount 语义原样保留，N07 part B 实证两层分工）。
+```
+
+### 69.8 RAW RESPONSE BOUNDARY（§14）
+
+```text
+raw provider body 只存在于 adapter / parser 的调用作用域内（`exchange.responseBody` 局部量），
+不进入 CandidateProposal / CandidateEvidence / DeviceProfile / manual metadata / cache / docs / log。
+编译期约束：static_assert(!hasRawResponseMember<ProviderExtractionResult>) 与
+            static_assert(!hasRawResponseMember<ProfileFieldCandidate>)。
+运行期约束：N12 —— envelope 含唯一标记 "chatcmpl-1"，其不出现在返回值任何字段。
+```
+
+### 69.9 TRANSPORT SEAM + FAKE TRANSPORT（§15）
+
+```text
+最小 seam = IExtractionTransport::send(requestBody) → Exchange{responseBody, transportOk, statusOk}。
+**未**建 generalized HTTP framework；**未**复用 M6 的 localhost fake server（其 seam 是
+Diagnosis-specific 具体客户端 + signal/error-code 语义，复用会把 C2 耦合到 diagnosis 域）。
+确定性 fake = tests 内 FakeExtractionTransport：capture outbound request · 确定性成功响应 ·
+确定性 transport failure · 确定性 non-success status · 计数调用。
+**结构性保证**：新测试 target **不链接 Qt6::Network**（CMake 实测），产品路径无法经它发出真实请求。
+**Production UI 未被接线**（无 QML / 无 controller / 无 main.cpp 改动；diff 实测为零）。
+```
+
+### 69.10 REAL RED（无 compile-fail RED，§16）
+
+```text
+做法：先落 compile-safe scaffold（公开 API 齐备、链接成功，行为确定性 inert：
+      信封提取返回空、strict parser fail-closed、adapter 报 failure），再跑 N01–N18。
+command  : build/release/modbuslens_candidate_adapter_tests.exe -o "$TEMP/sn_red.txt,txt"
+exit code: 17
+结果     : Totals: 3 passed, 17 failed, 0 skipped, 0 blacklisted, 313ms
+首选断言 : n01_validProviderResponseYieldsPendingReviewCandidate()
+           FAIL! Actual (transport.calls) = 0 / Expected = 1
+性质     : build 与 link 均成功、test process 正常退出并产出报告 ⇒ **纯语义断言 RED**；
+           **非** compile failure / link failure / DLL failure / crash / grep miss。
+（中间过程如实记录一次修正：N18 断言把 QStringList 误写为 QString ⇒ 那是**编译失败**，
+  按 §16 不计为 RED；修正后才取得上述真实 RED。链接期一次 ProfileStore 符号缺失同样
+  属链接失败、不计为 RED，补齐源后重取。）
+```
+
+### 69.11 GREEN（§20 最小实现）
+
+```text
+consume provider-neutral request → build ModelScope wire body（内部）→ transport.exchange →
+extractModelScopeResponseContent() → parseStrictCandidateProposals() → 返回 provider-neutral proposals；
+失败路径一律零 proposal + 确定性 failure taxonomy（transport_error / provider_rejected_status /
+malformed_response / schema_violation）。
+
+GREEN（首次）: Totals: 19 passed, 1 failed —— n15 断言写得过于字面（正文含换行，JSON 序列化后为 \n）。
+修正 = 把 n15 改为**语义断言**（首行 / 证据行 / 末行均承载 + target token 存在），非放宽标准。
+GREEN（最终）: Totals: 20 passed, 0 failed, exit 0（298ms / 307ms 两次复现一致）。
+```
+
+### 69.12 N01–N18 矩阵（实测）
+
+| case | 断言 | 结果 |
+| --- | --- | --- |
+| N01 | 合法 synthetic ModelScope 响应 + strict 合法 content + excerpt 存在 ⇒ 1 个 PendingReview Candidate；transport 恰好被调用 1 次 | PASS |
+| N02 | 结构化 content 非法 JSON ⇒ MalformedResponse、零 proposal / 零 Candidate | PASS |
+| N03 | 顶层类型错误（数组）⇒ SchemaViolation | PASS |
+| N04 | 缺必需成员（value）⇒ SchemaViolation | PASS |
+| N05 | 成员类型错误（value=42）⇒ SchemaViolation，**无强转** | PASS |
+| N06 | 未知/多余 schema 成员 ⇒ SchemaViolation（strict 而非 permissive） | PASS |
+| N07 | 未知 target token ⇒ SchemaViolation；**且**合法但非 first-slice 的 target 由 SESSION M per-proposal 拒绝（两层分工保留） | PASS |
+| N08 | 空 evidence ⇒ SchemaViolation | PASS |
+| N09 | **schema 合法 + excerpt 不存在 ⇒ 零 Candidate**（provider 被真实消费，refusedProposalCount=1） | PASS |
+| N10 | **NOT APPLICABLE as a "bogus hint accepted" case**：本切片 schema 刻意**不含** provider location；带 location 成员者按未知成员被拒（fail-closed），故 provider 位置在最结构层面无法成为 authority | PASS（N/A 形态；见说明） |
+| N11 | numeric confidence 成员 ⇒ SchemaViolation、零 Candidate；且编译期 static_assert 保证 Candidate 类型无 confidence 成员 | PASS |
+| N12 | raw response 不被保留（标记不出现在返回字段；编译期无 raw 成员） | PASS |
+| N13 | transport error ⇒ TransportError、零 Candidate | PASS |
+| N14 | non-success provider status ⇒ ProviderRejectedStatus、零 Candidate | PASS |
+| N15 | outbound payload 最小化（含 intended text；不含本地标识符 / 路径 / 凭据 / 设备与事务真值） | PASS |
+| N16 | 驱动来自 canonical text（复用 SESSION M C2-A12 的结论 + 本切片新增：原文件路径不存在仍成功、wire body 无路径） | PASS |
+| N17 | determinism（两次同输入 ⇒ 语义相等 + 相同 wire body） | PASS |
+| N18 | DeviceProfile / ProfileStore 零 diff（隔离 root 下 tree 快照不变） | PASS |
+
+**N10 说明（如实）**：SESSION N schema 故意不含 provider location，故「给 bogus location 而
+exact excerpt 有效 ⇒ 最终 location 仍本地派生」这一形态**不被构造**；本切片以更强的结构性命题
+覆盖——provider 一旦携带 location 即因 strict unknown-field 规则被整响应拒绝。SESSION M 的
+C2-A06 已另行证明 `CandidateProposal::locationHint` 被本地验证器忽略。**未**扩 schema。
+
+### 69.13 中心验收 invariant 的独立证明（§18）
+
+```text
+N09（schema 合法 + 伪造 excerpt）+ N01（对照：合法 excerpt ⇒ 1 Candidate）共同证明：
+  valid JSON ≠ schema-valid ≠ 本地证据成立 ≠ PendingReview Candidate ≠ verified truth。
+证据强度：N09 同时断言 transport.calls == 1（provider **确实**被消费）与
+          candidates.size() == 0 且 refusedProposalCount == 1（**仍然**不产出）。
+```
+
+### 69.14 NEGATIVE CONTROL / MUTATION（§19）
+
+```text
+precise mutation：在 hasOnlyMembers() 内，把「未知成员 ⇒ return false」改为
+                  「未知成员 ⇒ 忽略（continue）」——即让 strict parser 变成 permissive drift。
+预期     ：N06 REAL RED。
+实测     ：exit 3；Totals: 17 passed, 3 failed；
+           FAIL! n06_unknownExtraSchemaFieldIsRejected
+           FAIL! n10_providerLocationIsNotAuthority   （同一根因：未知成员不再被拒）
+           FAIL! n11_numericConfidenceCannotReachACandidate（同一根因）
+           ⇒ build / link 正常、test process 正常、**semantic assertion RED**。
+precise reverse：精确还原原 `return false;` 分支并删除 mutation 注释
+                 （**未用** checkout / restore / reset / stash）。
+residue  ：grep -c "NEGATIVE-CONTROL MUTATION" = 0；且与 GREEN 基线**逐字节相同**（diff 空）。
+恢复后   ：exit 0；Totals: 20 passed, 0 failed（GREEN 复现）。
+说明     ：本 mutation 只针对 **SESSION N 新增逻辑**（strict parser 的 unknown-field 判定），
+           **未**复用 SESSION M 的 evidence-mutation 作为本切片非空洞性证明。
+```
+
+### 69.15 Targeted regression（§22）
+
+```text
+build/release 下 ctest -R "candidate_adapter|candidate_extraction|manual_import|manual_extraction|ai_client"
+  26 manual_import                       Passed  15.31 sec
+  27 candidate_extraction                Passed   1.44 sec
+  28 candidate_adapter                   Passed   0.84 sec   （本轮新增）
+  29 manual_extraction                   Passed   3.39 sec
+  30 manual_import_pdf_docx              Passed   8.67 sec
+  41 ai_client                           Passed   1.58 sec   （M6 未改，作为无回归对照）
+  57 qml_manual_import_check             Passed   4.33 sec   （regex 命中）
+  59 qml_manual_import_check_windows     Passed   6.23 sec   （regex 命中）
+100% tests passed, 0 tests failed out of 8 · exit code 0 · 42.49 sec
+（DeviceProfile / profile_semantic / ui_bridge 等因未触及受保护面，按 §22 由 full regression 覆盖。）
+```
+
+### 69.16 Release full regression（§23）
+
+```text
+build : cmake --build build/release ⇒ 81/81 objects 全部链接成功
+ctest -N : Total Tests: 59   （前次 58；+1 = candidate_adapter；其插入使 #28 之后的编号整体 +1）
+结果  : 100% tests passed, 0 tests failed out of 59
+        #27 candidate_extraction  Passed   1.67 sec
+        #28 candidate_adapter     Passed   0.85 sec
+        #31 deployment_startup_check Passed 234.39 sec
+        Total Test time (real) = 898.60 sec
+ctest exit code = 0
+Debug：新增 core 源在当前 canonical compiler（MinGW GCC 13.1.0 / Debug）下**编译成功**
+       （build/debug/CMakeFiles/modbuslens_core.dir/src/core/candidate/ProviderExtractionContract.cpp.obj，
+       154699 B；CandidateExtraction.cpp.obj 同轮生成）；
+       归档步骤命中**既有环境问题** `ranlib: could not create temporary file whilst writing archive`，
+       故 Debug full 未运行（Release = canonical gate；与 SESSION M 记录一致）。
+       新测试 target 由 `if(BUILD_TESTING)` 保护、跨 config 形状一致，无 config-sensitive 逻辑。
+```
+
+### 69.17 Static security / AI boundary audit（§24）
+
+```text
+new/changed files 静态审计（实测 grep）：
+  QNetworkAccessManager / QNetworkRequest / QNetworkReply / QtNetwork     = 0（全部新文件）
+  http(s):// / QUrl / Bearer / apiKey= / MODELSCOPE_API_KEY /
+    MODBUSLENS_MODELSCOPE_MODEL / getenv / qEnvironmentVariable            = 0（实现文件）
+  QSettings / QStandardPaths / QFile / QDir / fopen / std::filesystem      = 0（core 与 adapter 实现）
+  'Authorization' 字样：仅 1 处，在 ExtractionTransport.h 的**文档注释**中（说明实现在别处）
+  src/core 内 Qt include 数                                                = 0（Zero-Qt 保持）
+  src/core 内 'ModelScope' 字样 = 2 处，**均为注释**（H1 禁止性/边界说明；其中 1 处为 SESSION M 既有）
+     ⇒ core 无 provider 类型 / endpoint / model id / envelope / HTTP status / transport object
+  密钥面：无 token 字面量 / 无 API key / 无 fixture 内凭据（N15 反向断言其不存在）
+  无 raw provider response 持久化 · 无 Candidate 持久化 · 无 DeviceProfile 写入 ·
+  无 Accept/Edit/Reject · 无 numeric confidence 进入 Candidate（编译期 + 运行期）·
+  无 production UI 联网接线 · 无原始 PDF/DOCX 字节上传路径 · 无其他 manual 上传 ·
+  无 transaction / raw TX·RX 上传 · 无 C3 / M12-D 实现
+```
+
+### 69.18 Protected-surface zero-diff audit（§25）
+
+```text
+git diff（behavior commit 19bb9cf）实际 changed paths：
+  M CMakeLists.txt · M src/core/candidate/CandidateExtraction.{h,cpp} ·
+  A src/core/candidate/ProviderExtractionContract.{h,cpp} ·
+  A src/ui/ai/ExtractionTransport.h · A src/ui/ai/ModelScopeCandidateAdapter.{h,cpp} ·
+  A tests/test_candidate_adapter.cpp            （9 files / +1701 −0）
+
+protected paths diff（实测为空）：
+  src/core/analysis · src/core/protocol · src/main.cpp · src/ui/qml · src/ui/manual ·
+  src/ui/profile · src/core/profile · src/core/manual · scripts ·
+  tests/test_manual_import.cpp · tests/test_manual_extraction.cpp ·
+  tests/test_manual_import_pdf_docx.cpp ·
+  src/ui/ai/ModelScopeDiagnosisClient.{h,cpp} · src/ui/ai/DiagnosisPromptBuilder.{h,cpp} ·
+  tests/fake_chat_completions_server.{h,cpp} · tests/test_ai_client.cpp
+git diff --check = 0；无无关格式化 churn；无意外大删除（全部为新增）；无 generated build artifact；
+无 docs 混入 behavior commit；无 QML 改动；无 package artifact。
+```
+
+### 69.19 明确未做 / 仍然 DEFERRED
+
+```text
+live ModelScope inference（本 session 未发任何真实网络请求）   = NOT RUN / NOT VERIFIED
+production AI extraction UI trigger（未接线）                  = NOT STARTED
+cloud consent UI                                               = NOT STARTED
+credential plumbing（本切片测试无需）                          = NOT IMPLEMENTED
+Candidate review UI / Candidate display                        = NOT STARTED
+Accept / Edit / Reject（C3）                                   = NOT STARTED / NOT AUTHORIZED
+DeviceProfile write / Candidate persistence                    = NOT STARTED
+numeric confidence / retry                                     = NOT STARTED
+provider location authority                                    = schema 不含 provider location（未扩 schema）
+AMBIGUOUS EVIDENCE MATCH POLICY                                = DEFERRED / NOT IMPLEMENTED / NOT GUESSED
+RETRY / REPLACEMENT ATOMICITY（H10 的 orchestrator 层）        = DEFERRED TO ORCHESTRATION SLICE
+   （本切片不为此发明 broad controller；parser/adapter 本身无 destructive side effect：无 I/O、
+     无 store 写入，N18 实证 ProfileStore 零 diff）
+C3 · M12-D                                                     = NOT STARTED / NOT AUTHORIZED
+canonical package / tag / push / release                       = NOT DONE
+```
+
+### 69.20 状态
+
+```text
+M12-C C1b                        = COMPLETE / HUMAN ACCEPTED（未变）
+M12-C                            = IN PROGRESS
+M12-C C2                         = IN PROGRESS
+C2 Candidate/Evidence foundation = IMPLEMENTED / AUTOMATED PASS（§67，未变）
+C2 ModelScope adapter + strict parser = IMPLEMENTED / AUTOMATED PASS（本节；N01–N18 + mutation + 59/59）
+C2 Human acceptance              = PENDING
+Live ModelScope inference        = NOT RUN / NOT VERIFIED
+Cloud consent UI                 = NOT STARTED
+Production AI extraction UI trigger = NOT STARTED
+C2 Candidate display             = NOT STARTED
+C3 · M12-D                       = NOT STARTED / NOT AUTHORIZED
+verified LKGC                    = 19f9738c980e0a8a31b557c346fb50a4af711cab（**UNCHANGED**）
+canonical package                = NOT CREATED
+REAL MODBUS HARDWARE             = NOT VERIFIED
+```
+
+**注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
+**SESSION N = COMPLETE — STOP**（未开始 C2 第三个切片）。
