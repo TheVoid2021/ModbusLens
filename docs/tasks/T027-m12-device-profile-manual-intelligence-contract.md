@@ -4843,3 +4843,165 @@ REAL MODBUS HARDWARE             = NOT VERIFIED
 
 **注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
 **SESSION M = COMPLETE — STOP**（未开始第二个 C2 slice）。
+
+---
+
+## 68. M12-C C2 SECOND SLICE — PROVIDER ADAPTER FREEZE + SCOPE AUTHORIZATION（2026-09-29 · Session N · docs-only）
+
+> 性质：**append-only 归档**。本节把 Human 在 SESSION N §0 对 C2 **第二个切片**的显式授权
+> （start + 5 项目标）与**范围边界**（in scope / explicit deferred）冻结为可审计的 canonical 记录，
+> 并在**写任何产品代码之前**落库（SESSION N §6 顺序要求）。
+> **禁止**据此改写 §66 / §67（SESSION M 历史原貌保持）；本节只新增。
+
+### 68.0 Human 授权原文（逐字归档）
+
+```text
+Human（SESSION N §0 HUMAN AUTHORIZATION）：
+
+  「M12-C C2 SECOND SLICE = START.」
+
+授权针对的目标（5 项，逐字转写）：
+  ① ModelScope provider adapter boundary
+  ② provider-neutral extraction request / response contract
+  ③ deterministic strict schema / parser validation
+  ④ deterministic fake transport
+  ⑤ integration with SESSION M local Evidence validation
+
+同轮明确声明：NO live network。
+
+起始基线（SESSION N §1 KNOWN STARTING STATE，实测复核通过）：
+  HEAD                    = 91ac7a2df8ed033647d71107692f5b17a14cae38
+  porcelain -uall         = ?? _ctx.py / ?? _dump.py（仅此两项）
+  tracked diff            = 空 · index(cached) = 空 · diff --check rc = 0
+  tags                    = v1.0.0（唯一）
+  git ls-files build      = 0
+  verified LKGC           = 19f9738c980e0a8a31b557c346fb50a4af711cab
+  SESSION M Release full  = 58/58 PASS（行为提交 d899e55）
+```
+
+### 68.1 SECOND SLICE 目标与边界（IN SCOPE）
+
+```text
+本切片 = C2 第二个最小 slice：provider adapter + strict provider response contract。
+交付物（行为）：
+  · provider-neutral EXTRACTION REQUEST contract（只表达 extraction 所需内容）
+  · ModelScope adapter boundary（provider-specific 类型 / wire envelope / endpoint /
+    model id / HTTP status 一律停在边界内，不进入 Candidate domain）
+  · deterministic STRICT provider-response parser（fail-closed；无 best-effort、无类型强转）
+  · deterministic FAKE TRANSPORT（capture outbound request / 返回确定性成功响应 /
+    返回确定性失败 / 计数调用）——SESSION N 内唯一被消费的 transport
+  · 与 SESSION M 既有 local Evidence validation 的集成（proposal → 本地验证 → PendingReview Candidate）
+
+架构依赖方向（SESSION N §9，概念级；具体类名/文件由 repository 架构决定）：
+  canonical Manual text → provider-neutral extraction request → provider adapter boundary
+  → ModelScope adapter → transport seam → synthetic/fake provider response（测试内）
+  → response content extraction → strict deterministic proposal parser
+  → provider-neutral proposal → SESSION M local Evidence validation → PendingReview Candidate
+```
+
+### 68.2 交付纪律（本切片强制）
+
+```text
+· provider-specific 类型 MUST stop at the adapter boundary。
+· Candidate domain MUST NOT 含 ModelScope 类型 / endpoint / model id / response envelope /
+  HTTP status / transport object。
+· SESSION N 自动化测试 MUST 使用 deterministic fake transport；**不得** live network、
+  **不得**需要 token、**不得**花钱。
+· Production UI MUST NOT 在本 session 被接到真实请求（不得让产品路径可能发出真实网络请求）。
+· 若 M6 已有合适 injected transport seam ⇒ 复用；否则加最小 provider-transport seam；
+  **不建 generalized HTTP framework**。
+· 不得为「声称复用」而把 C2 Candidate 语义塞进 M6 Diagnosis-specific domain。
+· provider evidence 未经验证；provider **不得**决定 canonical evidence location；
+  SESSION M 本地确定性 Evidence validation 仍为权威。
+· 无法本地验证的 excerpt ⇒ MUST NOT become valid PendingReview Candidate。
+· raw provider response 只可 transient 存在于 adapter/parser call scope，
+  MUST NOT 存入 Candidate / Profile / manual metadata / cache / project docs / 长期状态。
+```
+
+### 68.3 明确未授权 / DEFERRED（OUT OF SCOPE，本 session 不得执行）
+
+```text
+verified LKGC advancement          = NOT AUTHORIZED（保持 19f9738…）
+cloud consent UI                   = NOT STARTED（非本 slice）
+live ModelScope call               = NOT AUTHORIZED（NO live network）
+production AI extraction UI trigger = NOT STARTED / NOT AUTHORIZED
+Candidate review UI                = NOT STARTED
+Accept / Edit / Reject（C3）       = NOT STARTED / NOT AUTHORIZED
+DeviceProfile write                = NOT STARTED / NOT AUTHORIZED
+Candidate persistence              = NOT STARTED（v1 仍 SESSION-ONLY）
+C3                                 = NOT STARTED / NOT AUTHORIZED
+M12-D                              = NOT STARTED / NOT AUTHORIZED
+canonical package                  = NOT CREATED
+tag / push / release               = NOT DONE
+```
+
+### 68.4 与 §66 冻结契约（H1–H10）的关系
+
+本节**不新增**产品语义裁定，只做**授权 + 范围**记录；本切片的每一条纪律均为 H1–H10 的
+**直接适用**，而非新冻结：
+
+| 纪律（§68.2） | 依据 |
+| --- | --- |
+| provider-neutral；provider 类型止于 boundary | **H1**（provider-neutral；model id = configuration） |
+| request 只带 extraction payload；测试须证明无多余内容 | **H2**（上传范围 = selected doc canonical extracted text） |
+| credential = process env only；fake transport 不需 credential plumbing | **H3** |
+| Candidate SESSION-ONLY；无 provider persistence | **H4** |
+| 无 numeric confidence 进入 Candidate | **H5** |
+| 本地重算 location；未验证 excerpt ⇒ 非 valid Candidate | **H6** |
+| 只产 PendingReview | **H7** |
+| fail-closed parser；schema + evidence 双重验证；prompt wording 属实现细节 | **H8** |
+| 本切片仍 NO QML required | **H9** |
+| failure 原子；不为此测试发明 broad controller | **H10** |
+
+**未修改**：§66.4 的 `AMBIGUOUS EVIDENCE MATCH POLICY = DEFERRED / NOT IMPLEMENTED /
+NOT GUESSED` 依然有效；本切片不发明歧义策略。
+
+### 68.5 起点 = SESSION M 已接受 foundation（Git 实测恢复，不得重设计）
+
+```text
+SESSION_M_FREEZE_DOCS_COMMIT     = cf68d6823e7f5640e658ca5728191e90729a3f3a
+                                   「M12: freeze C2 candidate extraction contract」
+SESSION_M_BEHAVIOR_COMMIT        = d899e55593cfc29519779af48bd01ecb998a18b5
+                                   「M12: add evidence-backed AI candidate foundation」
+SESSION_M_ARCHIVE_DOCS_COMMIT    = 91ac7a2df8ed033647d71107692f5b17a14cae38
+                                   「M12: archive C2 candidate foundation slice」
+（git merge-base --is-ancestor d899e55 HEAD ⇒ rc = 0，实测）
+
+本切片 MUST 复用（不得因「另一形状更好看」而重设计）：
+  CANDIDATE DOMAIN OWNER      = src/core/candidate/CandidateExtraction.h（Zero-Qt）
+  PROVIDER-NEUTRAL PROPOSAL   = struct CandidateProposal
+                                { target, proposedValue, evidenceExcerpt, locationHint }
+  PROVIDER SEAM               = class ICandidateProposalProvider
+                                { propose(const ManualDocument&, std::string_view) }
+  EVIDENCE TYPE               = struct CandidateEvidence
+                                { documentId, contentHash, textStart, textEnd, excerpt }
+  EVIDENCE VALIDATOR          = extractProfileFieldCandidates() 内的 locateUniqueExcerpt
+                                （exact / UNIQUE；0 次或 ≥2 次一律拒绝）
+  SUPPORTED FIRST-SLICE FIELD = kC2FirstSliceProfileField = ProfileFieldTarget::Manufacturer
+  CANDIDATE STATE             = CandidateLifecycleState::PendingReview（唯一值）
+  CANDIDATE STORAGE / LIFETIME= SESSION-ONLY / in-memory（无持久化句柄）
+  SESSION M TEST TARGET       = modbuslens_candidate_extraction_tests / ctest `candidate_extraction`
+  SESSION M CMAKE OWNER       = 顶层 CMakeLists.txt（modbuslens_core + 独立测试 target）
+```
+
+**注意**：SESSION M 的 `CandidateProposal` 已含 `locationHint`（刻意 UNTRUSTED）；本切片
+的 provider adapter 产出该 provider-neutral proposal 时，**不得**改变其语义，也不得让
+`locationHint` 进入 `CandidateEvidence`（H6 行为已由 C2-A06 证明）。
+
+### 68.6 状态
+
+```text
+M12-C C1b                        = COMPLETE / HUMAN ACCEPTED（未变）
+M12-C                            = IN PROGRESS
+M12-C C2                         = IN PROGRESS
+C2 Candidate/Evidence foundation = IMPLEMENTED / AUTOMATED PASS（§67，未变）
+C2 SECOND SLICE                  = AUTHORIZED（本节）· IMPLEMENTATION = NOT STARTED
+verified LKGC                    = 19f9738c980e0a8a31b557c346fb50a4af711cab（**UNCHANGED**）
+C3 · M12-D                       = NOT STARTED / NOT AUTHORIZED
+canonical package                = NOT CREATED
+REAL MODBUS HARDWARE             = NOT VERIFIED
+```
+
+**本节动作边界（Session N · 授权归档 · docs-only）**：仅归档 Human 第二切片授权 + 范围 +
+explicit deferred + SESSION M 起点事实；未 build · 未 test · 未改产品代码 ·
+未推进 LKGC · 未开始 C3 / M12-D · 未创建 canonical package · 未 push / 未 tag / 未 amend。
