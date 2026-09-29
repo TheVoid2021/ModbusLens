@@ -21,6 +21,27 @@ std::string_view profileFieldTargetToken(ProfileFieldTarget target)
     return "unknown";
 }
 
+bool profileFieldTargetFromToken(std::string_view token, ProfileFieldTarget &out)
+{
+    // Single source of truth: each candidate is accepted only when its OWN
+    // forward token round-trips, so the two directions cannot drift apart.
+    // An unknown token is refused (the provider cannot widen the contract).
+    for (const ProfileFieldTarget target : {
+             ProfileFieldTarget::ProfileId,
+             ProfileFieldTarget::DisplayName,
+             ProfileFieldTarget::Manufacturer,
+             ProfileFieldTarget::Model,
+             ProfileFieldTarget::Revision,
+             ProfileFieldTarget::Description,
+         }) {
+        if (profileFieldTargetToken(target) == token) {
+            out = target;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool isC2FirstSliceProfileField(ProfileFieldTarget target)
 {
     // First slice = exactly one target (T027 §66.3). Everything else is a

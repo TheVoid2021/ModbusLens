@@ -33,6 +33,7 @@ add_library(modbuslens_core STATIC
     src/core/profile/DeviceProfile.cpp
     src/core/manual/ManualDocument.cpp
     src/core/candidate/CandidateExtraction.cpp
+    src/core/candidate/ProviderExtractionContract.cpp
     src/core/analysis/PassiveTransactionAnalysis.cpp
     src/core/analysis/TransactionProvenance.cpp
     src/core/analysis/TransactionStatistics.cpp
@@ -739,6 +740,33 @@ if(BUILD_TESTING)
 
     add_test(NAME candidate_extraction
              COMMAND modbuslens_candidate_extraction_tests)
+
+    # ---------------------------------------------------------------------------
+    # M12-C C2 SECOND SLICE (T027 §68): ModelScope provider adapter boundary +
+    # strict provider response contract, exercised ONLY through a deterministic
+    # fake transport. This target deliberately does NOT link Qt6::Network — the
+    # adapter under test has no network capability at all, so no live request
+    # is possible from the automated path.
+    add_executable(modbuslens_candidate_adapter_tests
+        tests/test_candidate_adapter.cpp
+        src/ui/ai/ModelScopeCandidateAdapter.h
+        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/ai/ExtractionTransport.h
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_include_directories(modbuslens_candidate_adapter_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(modbuslens_candidate_adapter_tests PRIVATE
+        modbuslens_core Qt6::Core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_candidate_adapter_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME candidate_adapter
+             COMMAND modbuslens_candidate_adapter_tests)
 
     # ---------------------------------------------------------------------------
     if(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS)

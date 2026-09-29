@@ -61,6 +61,15 @@ enum class ProfileFieldTarget {
 
 [[nodiscard]] std::string_view profileFieldTargetToken(ProfileFieldTarget target);
 
+// Reverse of profileFieldTargetToken. The strict provider parser must turn a
+// provider-supplied token back into the frozen target identity; anything
+// outside the frozen list yields false and must be REFUSED, never guessed
+// (C2 SECOND SLICE, T027 §68). This resolves domain identity only — it does
+// NOT apply the first-slice restriction, which stays owned by the SESSION M
+// validator (isC2FirstSliceProfileField) so the two rules cannot drift apart.
+[[nodiscard]] bool profileFieldTargetFromToken(std::string_view token,
+                                               ProfileFieldTarget &out);
+
 // The FIRST SLICE implements exactly ONE target (T027 §66.3 / SESSION M §6):
 // realizing every ProfileField plus RegisterEntryCandidate at once is out of
 // scope. A proposal for any other target is refused by the deterministic
