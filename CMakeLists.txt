@@ -294,6 +294,28 @@ add_custom_command(TARGET modbuslens POST_BUILD
             "$<TARGET_FILE_DIR:modbuslens>/pdfium.dll"
     COMMENT "Staging the pinned pdfium.dll next to the application")
 
+    # ------------------------------------------------------------------
+    # M12 Windows deployment architecture (Session H): RAW BUILD OUTPUT
+    # != DEPLOYABLE CANDIDATE. The only deployable artifact root for this
+    # configuration is ${CMAKE_BINARY_DIR}/candidate/ModbusLens, generated
+    # FROM SCRATCH by cmake/modbuslens_generate_candidate.cmake with
+    # identity-bound sources only: the current app target, the frozen PDFium
+    # materialization, the active MinGW toolchain and the active Qt kit.
+    # The raw target directory is a compile output, never a candidate.
+    # ------------------------------------------------------------------
+    get_filename_component(MODBUSLENS_COMPILER_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(MODBUSLENS_QT_PREFIX "${Qt6_DIR}/../../.." ABSOLUTE)
+    add_custom_target(modbuslens_candidate
+        COMMAND ${CMAKE_COMMAND}
+            -DCANDIDATE_DIR=${CMAKE_BINARY_DIR}/candidate/ModbusLens
+            -DAPP_EXE=$<TARGET_FILE:modbuslens>
+            -DPDFIUM_DLL=${MODBUSLENS_C1B_PDFIUM_DLL}
+            -DCOMPILER_BIN=${MODBUSLENS_COMPILER_BIN}
+            -DQT_PREFIX=${MODBUSLENS_QT_PREFIX}
+            -DQML_MODULE_DIR=${CMAKE_BINARY_DIR}/ModbusLens
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modbuslens_generate_candidate.cmake"
+        DEPENDS modbuslens
+        COMMENT "Generating the self-contained ModbusLens candidate")
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(modbuslens PRIVATE -Wall -Wextra)
 endif()
@@ -753,6 +775,27 @@ if(BUILD_TESTING)
             COMMENT "Staging the pinned pdfium.dll next to the import workflow tests")
         add_test(NAME manual_import_pdf_docx
                  COMMAND modbuslens_manual_import_pdf_docx_tests)
+
+        # M12-C C1b SESSION E: Explorer-style deployment-startup gate.
+        #
+        # The CTest worker PATH contains the developer toolchain directories, which
+        # would silently mask a missing compiler/Qt runtime in the candidate. This
+        # gate therefore launches the candidate through tests/deployment_startup_check.cmake,
+        # which replaces PATH with candidate-dir + Windows system directories ONLY
+        # (no developer Qt/MinGW bin fallback), verifies the candidate manifest and
+        # the runtime hashes first, then asserts exit 0 of the finite
+        # --qml-smoke-test launch with QT_DEBUG_PLUGINS proof that qwindows.dll
+        # was loaded from the candidate tree.
+        add_test(NAME deployment_startup_check
+            COMMAND ${CMAKE_COMMAND}
+                -DCANDIDATE_DIR=${CMAKE_BINARY_DIR}/candidate/ModbusLens
+                -DEXE_NAME=modbuslens.exe
+                -DCOMPILER_BIN=${MODBUSLENS_COMPILER_BIN}
+                -DQT_PREFIX=${MODBUSLENS_QT_PREFIX}
+                -DQML_MODULE_DIR=${CMAKE_BINARY_DIR}/ModbusLens
+                -DAPP_EXE=$<TARGET_FILE:modbuslens>
+                -DPDFIUM_DLL=${MODBUSLENS_C1B_PDFIUM_DLL}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/deployment_startup_check.cmake")
 
         # Dependency materializer contract tests (offline; hash tampering must be refused).
         #
