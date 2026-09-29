@@ -1,7 +1,32 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-09-29 追加批注 · M12-C C2 — HUMAN UI FAIL / HOLD：CONSENT DIALOG GEOMETRY + INTERACTION（Session O-R1 · 以本块为准）〕**
+**〔2026-09-29 追加批注 · M12-C C2 — CONSENT DIALOG REMEDIATED（Session O-R1 · 以本块为准）〕**
+档案 = **T027 §73**。**Human 失败归档（docs-only）** = `3d4b46a4c72a5ef175f4c433b4ea7ec4392154fe`
+「M12: archive consent dialog human failure」；**行为提交** = `3d4c91a19401cc6e00d3cec9361a133c96f1d549`
+「M12: fix cloud consent dialog usability」（3 files / +299 −2，NO AMEND）。
+**根因（运行期 VERIFIED）**：Dialog 的 `contentItem`（ColumnLayout）**无宽度约束** ⇒ implicitWidth 由
+带 `Text.Wrap` 的 Label 的**未换行** implicitWidth 决定 ⇒ 实测（1280x937）dialog `360,421.5 560x95` 而
+scope `366,451.5 **975x13**`（溢出且单行未换行）；同一溢出把 footer 推移 ⇒ cancel `1197,…`（对话框之外，
+被模态 overlay 吞掉）、grant `1252,… 89x34`（右边界 1341 > 窗口 1280 ⇒ **完全不可达**）⇒ 与 Human
+「两按钮点不了」一致。**修复**：给 contentItem `width: availableWidth` + Label `Layout.maximumWidth: availableWidth`
+（响应式，非硬编码视口）。**证据**：**REAL RED**（修复前）exit 1，越界几何如上；**GREEN** = CONSENT CHECK PASS
+/ exit 0（offscreen **与真实 Windows QPA 双平台**）；**几何 mutation**（移除两条约束）⇒ 原缺陷几何**精确复现**
+（exit 1）→ 精确还原 → residue 0、复绿；**交互 mutation**（仅断开 Cancel 真实动作）⇒ `R04/R06` REAL RED
+（exit 1）→ 精确还原 → 复绿；**R01–R12 全 PASS**；**targeted 30/30 PASS / exit 0**；
+**Release full 62/62 PASS / 0 failed / exit 0 / 837.26s**（N 60→62，+`qml_consent_check` +
+`qml_consent_check_windows`）；**Session J 几何 offscreen 0.420 / 0.439 / 157.0 = 与验收基线完全一致**；
+QML 诊断 0 命中（新 gate 已并入诊断拒绝集）。
+**candidate provenance**：exe 6,268,661 B / SHA-256 `f19e961f…afb122`；pdfium `d42c452a…`；
+qwindows `80473907…`；1714 files；`deployment_startup_check` **PASS**（182.81s）；启动**未**执行任何提取。
+**状态**：**Consent dialog geometry / Cancel interaction / Agree interaction = REMEDIATED / AUTOMATED PASS** ·
+**SESSION O automated = PASS（未变）** · **SESSION O Human UI = FAIL / HOLD（原始 Human 结论不改写）** ·
+**Human re-test = REQUIRED** · **C2 Human visual acceptance = HOLD / PENDING RE-TEST** ·
+PendingReview 成功 Human 视觉 = NOT REACHED / NOT VERIFIED · Live ModelScope = NOT RUN / NOT VERIFIED ·
+**verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）** · **SESSION P = NOT STARTED** ·
+C3 · M12-D = NOT STARTED / NOT AUTHORIZED · canonical package = **NOT CREATED** ·
+REAL MODBUS HARDWARE = **NOT VERIFIED** · 无 push / 无 tag / 无 amend。
+**〔2026-09-29 追加批注 · M12-C C2 — HUMAN UI FAIL / HOLD：CONSENT DIALOG GEOMETRY + INTERACTION（Session O-R1 · 历史链一环 · 其「当前状态」字段已由上方 REMEDIATED 块继承）〕**
 档案 = **T027 §72**。**Human 对 SESSION O Release candidate 的真实 UI 检查在视口 1280x937 下**：
 **同意对话框正文溢出**（中文同意文本伸向/超出弹窗）+ **「取消」/「同意」按钮均无法点击**
 ⇒ 同意流程在真实 candidate 中被**完全阻断**。**Human 原文**：「是否同意选择框有问题，字体都超出弹出框了，

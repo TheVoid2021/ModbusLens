@@ -5866,3 +5866,217 @@ tracked diff / cached = 空 · git diff --check rc = 0 · tags = v1.0.0 · ls-fi
 
 **本节动作边界（docs-only）**：仅归档 Human 失败证据 + 状态分离 + 授权范围；未改产品代码 ·
 未 build · 未 test · 未推进 LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+---
+
+## 73. M12-C C2 — CONSENT DIALOG REMEDIATION ARCHIVE（2026-09-29 · Session O-R1 · behavior + docs）
+
+> 性质：**append-only 归档**。§72（Human 失败归档）保持原貌；本节只新增。
+
+### 73.0 两个提交
+
+```text
+HUMAN-FAILURE DOCS COMMIT = 3d4b46a4c72a5ef175f4c433b4ea7ec4392154fe
+                            「M12: archive consent dialog human failure」（4 docs / +126 −1，docs-only）
+BEHAVIOR COMMIT           = 3d4c91a19401cc6e00d3cec9361a133c96f1d549
+                            「M12: fix cloud consent dialog usability」
+                            （3 files / +299 −2，NO AMEND）
+                            CMakeLists.txt · src/main.cpp · src/ui/qml/pages/DeviceProfilePage.qml
+```
+
+### 73.1 CONSENT UI 归属（源码实测）
+
+```text
+CONSENT UI FILE        = src/ui/qml/pages/DeviceProfilePage.qml（页面级 Dialog，非独立组件）
+DIALOG TYPE            = QtQuick.Controls `Dialog`（Popup 派生），objectName candidateConsentDialog
+DIALOG WIDTH OWNER     = Dialog 自身：`width: Math.min(560, Overlay.overlay.width - 2*DS.spacingXL)`
+DIALOG HEIGHT OWNER    = 隐式（来自 contentItem 隐式高）
+CONTENT ITEM           = Dialog 的默认子项 = `ColumnLayout`（即 contentItem）
+BODY TEXT ITEM         = `Label` objectName candidateConsentScope
+BODY WRAP MODE         = `Text.Wrap`（**已存在**，不是缺失项）
+BODY WIDTH CONSTRAINT  = **修复前：无**（仅 `Layout.fillWidth: true`）← 缺陷所在
+FOOTER OWNER           = contentItem 内 `RowLayout`（含 `Item{Layout.fillWidth}` spacer + 两个 AppButton）
+CANCEL BUTTON OWNER    = `AppButton` objectName candidateConsentCancelButton → onClicked: rejectConsent()+close()
+AGREE BUTTON OWNER     = `AppButton` objectName candidateConsentGrantButton → onClicked: grantConsent()+close()
+MODAL OVERLAY OWNER    = Dialog `modal: true`（点击由模态 overlay 接管）
+WINDOW/PAGE GEOMETRY   = 页面是 Main.qml StackLayout index 5；Dialog 锚定 Overlay.overlay 居中
+```
+
+### 73.2 根因报告（§7 · 运行期证据支撑）
+
+```text
+**GEOMETRY ROOT CAUSE = VERIFIED**
+  contentItem（ColumnLayout）**没有宽度约束** ⇒ 其 implicitWidth 由子项 implicitWidth 决定；
+  而带 `wrapMode: Text.Wrap` 的 Label 在无宽度约束时 implicitWidth = **未换行的整行文本宽度**。
+  实测（1280x937，offscreen）：dialog = 360,421.5 **560**x95，而 candidateConsentScope =
+  366,451.5 **975**x13 ⇒ 宽 975 > 560（溢出 421px），高 13 = **单行，完全未换行**。
+  Dialog 显式 `width` 只约束弹窗自身矩形，**不会**约束已布局的内容。
+
+**INTERACTION ROOT CAUSE = VERIFIED**（与几何同根）
+  同一溢出把 footer 整体推移：candidateConsentCancelButton = **1197**,476.5 50x34
+  （dialog 右边界 = 920 ⇒ 已在对话框之外，点击被 `modal: true` 的 overlay 吞掉）；
+  candidateConsentGrantButton = **1252**,476.5 89x34（右边界 1341 > 窗口宽 **1280**
+  ⇒ 完全落在窗口之外，物理不可达）。⇒ 与 Human「两个按钮都点不了」一致。
+
+**AUTOMATED REPRODUCTION = ACHIEVED**（不只是复现；是直接测量到与 Human 描述一致的越界几何）。
+**未验证项（如实）**：Human 截图中出现的**字体度量**差异（offscreen 12px vs windows 16px）
+未单独归因；本修复为**结构性**约束，不依赖字体度量（两平台 gate 均 PASS，见 §73.5）。
+```
+
+### 73.3 REAL RED（§10 · 修复前）
+
+```text
+command  : ./modbuslens.exe --qml-consent-check（QT_QPA_PLATFORM=offscreen,
+           QT_ASSUME_STDERR_HAS_CONSOLE=1）
+exit code: 1
+viewport : 1280x937
+结果     : CONSENT: R01: consent dialog open at 1280x937
+           CONSENTFAIL: R01/R02/R03: candidateConsentScope escapes the dialog:
+                        item=366,451.5 975x13 dialog=360,421.5 560x95
+           CONSENTFAIL: R01/R02/R03: candidateConsentCancelButton escapes the dialog:
+                        item=1197,476.5 50x34 dialog=360,421.5 560x95
+           CONSENTFAIL: R01/R02/R03: candidateConsentGrantButton escapes the dialog:
+                        item=1252,476.5 89x34 dialog=360,421.5 560x95
+           CONSENTFAIL: R04/R06: Cancel left state 'consent_required' (expected idle …)
+           CONSENTFAIL: R05: the dialog stayed open after Agree
+           CONSENTFAIL: R05: Agree did not advance the orchestration (state 'consent_required')
+性质     : build 与 link 成功、test process 正常 ⇒ **真实运行期几何断言 RED**（非 grep、非 static）。
+```
+
+### 73.4 最小修复（§13）
+
+```text
+src/ui/qml/pages/DeviceProfilePage.qml 的 Dialog contentItem（ColumnLayout）：
+  + width: candidateConsentDialog.availableWidth
+  + （Label）Layout.maximumWidth: candidateConsentDialog.availableWidth
+（`wrapMode: Text.Wrap` 与 `Layout.fillWidth: true` 原本已存在，未改。）
+不改同意语义 · 不改 orchestrator 权限 · 不改页面 IA · 不硬编码 1280x937 专用宽度（用响应式 availableWidth）。
+**实证哪一条承重**：仅移除 `width:` 时 gate 仍 PASS；再移除 `Layout.maximumWidth` 时**原缺陷精确复现**
+（scope 975x13 / cancel x=1197 / grant x=1252..1341）⇒ 承重项为 `Layout.maximumWidth`（它同时约束
+layout 的隐式宽度）。两条同时保留 = 内容与文本双重有界（防御性，且均以 availableWidth 响应式表达）。
+```
+
+### 73.5 R01–R12 实测矩阵
+
+| case | 断言 | 结果 |
+| --- | --- | --- |
+| R01 | 1280x937 下 consent dialog 完全位于可用窗口内 | PASS（dialog 360,421.5 560x… 在窗口内） |
+| R02 | 披露文本换行并留在内容区内 | PASS（scope 不再 975 宽；wrap 生效） |
+| R03 | Cancel / Agree 完全位于 dialog 与可用视口内 | PASS |
+| R04 | 真实鼠标交互点击 Cancel 生效；provider 调用数 = 0 | PASS（state 变 `idle` ⇒ 未进入 Running，即零 provider 尝试） |
+| R05 | 真实鼠标交互点击 Agree 生效；编排恰好推进一次 | PASS（dialog 关闭 + state 离开 consent_required/idle ⇒ 已推进；生产 runner 无 transport ⇒ 确定性 `not_configured` 失败） |
+| R06 | Cancel 不改 Candidate 集 / DeviceProfile / manual | PASS（candidateCount 仍 0；device_profile 测试 PASS） |
+| R07 | Agree 本身不写 verified DeviceProfile | PASS（candidateCount 0；无写路径） |
+| R08 | 模态：背景被阻挡但 dialog 自身控件不被阻挡 | PASS（Cancel/Agree 两次真实点击均生效 ⇒ 模态未吞掉自身控件） |
+| R09 | SESSION O O01/O02/O03 等同意语义保持 PASS | PASS（`candidate_orchestration` 22/0） |
+| R10 | Session J Manual Import 几何保持 | PASS（offscreen **0.420 / 0.439 / 157.0 = 与验收基线完全一致**；`qml_manual_import_check` PASS） |
+| R11 | 既有 canonical 视口门禁 | PASS（1000x700 门禁 `qml_manual_import_check` + `..._windows` 均 PASS；**未**新增视口策略） |
+| R12 | 无相关 QML 诊断 | PASS（新 gate 已并入 `FAIL_REGULAR_EXPRESSION` 诊断拒绝集；0 命中） |
+
+### 73.6 真实交互测试证据（§11/§16）
+
+```text
+CLICK TARGET            = findNamedItem(roots, "candidateConsentCancelButton"/"candidateConsentGrantButton")
+EVENT METHOD            = QMouseEvent(MouseButtonPress) + QMouseEvent(MouseButtonRelease) →
+                          QCoreApplication::sendEvent(window, …)（真实窗口事件，非直接调用）
+ACTUAL QML CONTROL      = AppButton 的 onClicked（生产按钮本身）
+OBSERVED UI RESULT      = 对话框关闭（popup.visible == false）
+OBSERVED ORCHESTRATION  = Cancel ⇒ state `idle` / candidateCount 0；Agree ⇒ state 离开 consent_required
+测试**未**调用 controller 方法、**未** invoke 同意结果函数、**未** grep onClicked、**未**仅检查 visible。
+**交互非空洞性 mutation**：临时仅断开 Cancel 的**真实动作**（保留 close()）⇒ gate
+  CONSENTFAIL: R04/R06: Cancel left state 'consent_required'（exit 1）⇒ 证明点击测试观测的是真实动作，
+  而不是「对话框被关掉」这一副作用。精确还原后 residue = 0、复绿。
+```
+
+### 73.7 几何 mutation（§15 · 强制）
+
+```text
+precise mutation：移除 contentItem 的 `width: availableWidth` 与 Label 的
+                  `Layout.maximumWidth: availableWidth`（回到原缺陷状态）。
+实测 RED ：exit 1；原缺陷几何**精确复现**（scope 975x13 / cancel 1197 / grant 1252）。
+precise reverse：精确还原两行（**未用** checkout / restore / reset / stash）。
+residue ：grep -c "NEGATIVE-CONTROL MUTATION" = 0；恢复后 gate exit 0 / CONSENT CHECK PASS。
+```
+
+### 73.8 Targeted regression（§17）
+
+```text
+ctest -R "^qml_|candidate_|manual_|device_profile|ai_client|profile_" ⇒ **30/30 PASS / exit 0 / 150.95 s**
+含新增 #59 qml_consent_check（4.93 s）与 #60 qml_consent_check_windows（5.14 s）、
+#27 candidate_extraction · #28 candidate_adapter · #29 candidate_orchestration ·
+#26 manual_import · #30 manual_extraction · #31 manual_import_pdf_docx · #23 device_profile ·
+#24 profile_controller · #42 ai_client 等。
+```
+
+### 73.9 Release full regression（§18）
+
+```text
+build : 全目标链接成功（BUILDALL_RC = 0）
+ctest -N : Total Tests: **62**（前次 60；+2 = qml_consent_check + qml_consent_check_windows）
+结果  : 100% tests passed, 0 tests failed out of 62 · Total **837.26 s** · ctest exit code = **0**
+        #32 deployment_startup_check  Passed 168.38 s
+        #59 qml_consent_check         Passed   4.93 s
+        #60 qml_consent_check_windows Passed   5.29 s
+Debug full：未运行（本切片仅改 QML/测试门禁，未触及 core 编译单元；Release = canonical gate）。
+```
+
+### 73.10 QML 诊断 + Session J 非回归（§12/§10）
+
+```text
+QML 诊断：新 gate 已加入 FAIL_REGULAR_EXPRESSION 诊断拒绝集
+          （ReferenceError / TypeError / Unable to assign / String.arg Invalid）= **0 命中**。
+Session J（offscreen 实测）：`MAN: stage 7: vertical budget — profile row share=0.420,
+          manual import share=0.439, preview viewport=157.0` = **与 Human 验收基线完全一致**。
+Windows QPA 实测（同一 gate，字体度量更大）：row 0.420 / manual import 0.431 / preview 137.0
+          ⇒ 仍满足门槛（≥0.35 / ≥120），系平台字体度量既有差异，非本切片引入。
+```
+
+### 73.11 Protected-surface audit（§19）
+
+```text
+behavior commit 3d4c91a changed paths（实测）= CMakeLists.txt · src/main.cpp ·
+  src/ui/qml/pages/DeviceProfilePage.qml（QML diff 仅 +12 行：注释 + 两条宽度约束）
+protected 面 diff = **0**：src/core · src/ui/manual · src/ui/profile · src/ui/ai ·
+  src/ui/candidate · tests · scripts · src/ui/qml/Main.qml
+⇒ M10/M11 truth · DeviceProfile 持久化 · C1a/C1b · manual identity/contentHash/ManualStore ·
+  SESSION M Evidence · SESSION N strict parser · SESSION O orchestration/consent/Candidate 语义 ·
+  Windows candidate 架构 全部**未变**；**未**新增 production network transport；**无** C3 代码。
+git diff --check = 0；无无关格式化 churn；无 generated build artifact；behavior commit 内无 docs。
+```
+
+### 73.12 Candidate provenance + 部署门禁（§22）
+
+```text
+candidate root : build/release/candidate/ModbusLens/（canonical target 从零重建，1714 files）
+exe            : build/release/candidate/ModbusLens/modbuslens.exe
+                 size = 6,268,661 B
+                 SHA-256 = f19e961f65e69f1ca15ef3013dc35d7edcbbb283b919b0286c2b8466a7afb122
+pdfium.dll     : SHA-256 = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+platforms/qwindows.dll : SHA-256 = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+部署/启动门禁  : `deployment_startup_check` = **PASS**（182.81 s，sanitized PATH）
+启动/冒烟**未**执行任何 ModelScope 提取。
+Human 复测入口 = 上述 candidate exe（**不是** build/release/modbuslens.exe）；**未**创建 canonical ZIP/package。
+```
+
+### 73.13 状态
+
+```text
+SESSION O automated                = PASS（§71，未变）
+SESSION O Human UI                 = FAIL / HOLD（原始 Human 测试结论，§72，不改写）
+Consent dialog geometry            = REMEDIATED / AUTOMATED PASS
+Consent Cancel interaction         = REMEDIATED / AUTOMATED PASS
+Consent Agree interaction          = REMEDIATED / AUTOMATED PASS
+Consent remediation overall        = IMPLEMENTED / AUTOMATED PASS
+Human re-test                      = REQUIRED
+C2 Human visual acceptance         = HOLD / PENDING RE-TEST
+PendingReview 成功 Human 视觉      = NOT REACHED / NOT VERIFIED
+Live ModelScope                    = NOT RUN / NOT VERIFIED
+verified LKGC                      = 19f9738c980e0a8a31b557c346fb50a4af711cab（**UNCHANGED**）
+SESSION P                          = NOT STARTED
+C3 · M12-D                         = NOT STARTED / NOT AUTHORIZED
+canonical package                  = NOT CREATED
+REAL MODBUS HARDWARE               = NOT VERIFIED
+```
+
+**注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
+**SESSION O-R1 = COMPLETE — STOP**（未开始 SESSION P / live ModelScope / C3）。
