@@ -1060,6 +1060,16 @@ Item {
         objectName: "candidateConsentDialog"
         title: qsTr("云端 AI 提取需要你的同意")
         modal: true
+        // Session O-R2 (T027 §74/§75) — an outside/background press must NOT
+        // dismiss this dialog. Without an explicit policy it inherited the Qt
+        // default `CloseOnEscape | CloseOnPressOutside`, so a real click on the
+        // background closed the consent gate without any explicit choice
+        // (measured: R2-01 RED before this line). Only the outside-press flag is
+        // removed: Escape still closes, exactly as before, because the frozen
+        // contract forbids changing Escape behaviour for this narrow fix. The
+        // sibling dialogs in this page use `Popup.NoAutoClose`; that would have
+        // silently changed Escape semantics here, so it is deliberately NOT used.
+        closePolicy: Popup.CloseOnEscape
         anchors.centerIn: Overlay.overlay
         standardButtons: Dialog.NoButton
         width: Math.min(560, Overlay.overlay ? Overlay.overlay.width - 2 * DS.spacingXL : 520)

@@ -16467,6 +16467,45 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                  .arg(window->height()));
         requireConsentGeometry(QStringLiteral("R01/R02/R03"));
     });
+    // R2-01..R2-05 (Session O-R2, T027 §74/§75) — a REAL mouse press OUTSIDE
+    // the dialog but INSIDE the application window must NOT dismiss the modal
+    // consent dialog, must NOT activate the background control underneath it,
+    // and must not touch orchestration / Candidate / provider state. The Human
+    // failure was exactly this dismissal.
+    push([&]() {
+        auto *workspace = itemOf(QStringLiteral("workspaceHost"));
+        const int indexBefore =
+            workspace ? workspace->property("currentIndex").toInt() : -1;
+        note(QStringLiteral("R2: outside press over navItem_0 (workspace index "
+                            "before = %1)")
+                 .arg(indexBefore));
+        if (!clickNamed(QStringLiteral("navItem_0"))) {
+            fail(QStringLiteral("R2-02: navItem_0 is not clickable at all"));
+            return;
+        }
+        if (!dialogVisible()) {
+            fail(QStringLiteral("R2-01: the consent dialog was dismissed by a real "
+                                "outside press"));
+        }
+        const int indexAfter =
+            workspace ? workspace->property("currentIndex").toInt() : -1;
+        if (indexAfter != indexBefore) {
+            fail(QStringLiteral("R2-02: the background control activated "
+                                "(workspace index %1 -> %2)")
+                     .arg(indexBefore)
+                     .arg(indexAfter));
+        }
+        // No provider attempt can have started: a started attempt moves the
+        // orchestration out of consent_required.
+        if (stateToken() != QStringLiteral("consent_required")) {
+            fail(QStringLiteral("R2-03/R2-04: the outside press changed the "
+                                "orchestration state to '%1'")
+                     .arg(stateToken()));
+        }
+        if (candidate->property("candidateCount").toInt() != 0) {
+            fail(QStringLiteral("R2-05: the outside press changed the candidate set"));
+        }
+    });
     // R04/R06 — a REAL click on Cancel must close/reject, with zero provider work.
     push([&]() {
         if (!clickNamed(QStringLiteral("candidateConsentCancelButton"))) {
@@ -16529,10 +16568,11 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 return;
             }
             qInfo().noquote()
-                << QStringLiteral("CONSENT CHECK PASS (R01..R07): consent dialog "
-                                  "contained in the usable window at %1x%2; body "
-                                  "wraps inside the dialog; Cancel and Agree "
-                                  "reachable by a real mouse interaction")
+                << QStringLiteral("CONSENT CHECK PASS (R01..R07 + R2-01..R2-07): "
+                                  "consent dialog contained in the usable window at "
+                                  "%1x%2; body wraps inside the dialog; a REAL "
+                                  "outside press does not dismiss it; Cancel and "
+                                  "Agree reachable by a real mouse interaction")
                        .arg(window->width())
                        .arg(window->height());
             app.exit(0);
