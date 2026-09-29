@@ -1,7 +1,22 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-09-29 追加批注 · M12-C C2 THIRD SLICE IMPLEMENTED / AUTOMATED PASS（Session O · 以本块为准）〕**
+**〔2026-09-29 追加批注 · M12-C C2 — HUMAN UI FAIL / HOLD：CONSENT DIALOG GEOMETRY + INTERACTION（Session O-R1 · 以本块为准）〕**
+档案 = **T027 §72**。**Human 对 SESSION O Release candidate 的真实 UI 检查在视口 1280x937 下**：
+**同意对话框正文溢出**（中文同意文本伸向/超出弹窗）+ **「取消」/「同意」按钮均无法点击**
+⇒ 同意流程在真实 candidate 中被**完全阻断**。**Human 原文**：「是否同意选择框有问题，字体都超出弹出框了，
+然后后续点击不了同意和取消按钮」。**性质 = GEOMETRY FAILURE + INTERACTION FAILURE（不是纯视觉问题）**；
+**根因（本块时点）= UNKNOWN**（需源码/运行期取证）。**状态分离（禁止合并）**：
+**SESSION O automated = PASS（§71，未变）** · **SESSION O Human UI = FAIL / HOLD** ·
+Consent dialog geometry = HUMAN FAIL · Consent Cancel interaction = HUMAN FAIL ·
+Consent Agree interaction = HUMAN FAIL · **PendingReview Candidate 成功视觉态 = NOT REACHED** ·
+**C2 Human visual acceptance = HOLD / PENDING RE-TEST** · Live ModelScope = NOT RUN / NOT VERIFIED。
+**已授权（narrow）**：诊断几何失败 · 修复几何 · 修复 Cancel/Agree 交互 · 增加非空洞自动化回归 ·
+重新生成 Release candidate 供 Human 复测。**未授权**：live inference · 新 production transport ·
+SESSION P · C3 · Accept/Edit/Reject · DeviceProfile write · Candidate persistence · M12-D ·
+canonical package · release/tag/push · **LKGC advancement** · DeviceProfilePage 大改。
+**verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）** · 无 push / 无 tag / 无 amend。
+**〔2026-09-29 追加批注 · M12-C C2 THIRD SLICE IMPLEMENTED / AUTOMATED PASS（Session O · 历史链一环）〕**
 档案 = **T027 §71**。**授权（docs-only）** = `0d339c2be8659e7685406eeb8f443c68bd3ce1c3`
 「M12: freeze C2 orchestration and consent slice」；**行为提交** = `309ba15a72ffd463b38ade32f0b23547b0bdf04c`
 「M12: add consent-gated AI candidate orchestration」（9 files / +1585 −0，NO AMEND）。

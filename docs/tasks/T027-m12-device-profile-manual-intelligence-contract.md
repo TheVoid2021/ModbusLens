@@ -5799,3 +5799,70 @@ REAL MODBUS HARDWARE             = NOT VERIFIED
 
 **注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
 **SESSION O = COMPLETE — STOP**（未开始 live ModelScope 测试，未开始 C3）。
+
+---
+
+## 72. M12-C C2 — HUMAN UI FAILURE ARCHIVE：CONSENT DIALOG GEOMETRY + INTERACTION（2026-09-29 · Session O-R1 · docs-only）
+
+> 性质：**append-only 归档**。本节记录 Human 对 SESSION O Release candidate 的真实 UI 检查结果。
+> **不**改写 §71 的 SESSION O automated PASS 历史——这是**更晚**的 Human 验收结果。
+
+### 72.0 Human 失败报告（逐字）
+
+```text
+Human 对 SESSION O Release candidate 进行真实 UI 检查。
+Human 截图视口 = **1280 x 937**。
+
+Human 原文：
+  「是否同意选择框有问题，字体都超出弹出框了，
+    然后后续点击不了同意和取消按钮」
+
+Human 观察（逐条）：
+  1. Cloud AI consent dialog 打开。
+  2. 同意正文文字未能正确换行/适配对话框内部。
+  3. 很长的中文同意文本可见地伸向/超出可用弹出区域。
+  4. 「取消」按钮无法成功点击。
+  5. 「同意」按钮无法成功点击。
+  6. ⇒ 真实 Release candidate 中同意流程被完全阻断。
+```
+
+### 72.1 状态分离归档（禁止合并）
+
+```text
+SESSION O automated            = PASS（§71，未变）
+SESSION O Human UI             = **FAIL / HOLD**
+Consent dialog geometry        = **HUMAN FAIL**
+Consent Cancel interaction     = **HUMAN FAIL**
+Consent Agree interaction      = **HUMAN FAIL**
+PendingReview Candidate 成功视觉态 = **NOT REACHED**（同意流程被阻断，未能到达候选展示）
+Live ModelScope                = NOT RUN / NOT VERIFIED
+
+原因：真实 Release candidate 在 1280x937 下同意文本溢出，且 Human 无法操作 Cancel/Agree。
+性质：**GEOMETRY FAILURE + INTERACTION FAILURE**（**不是**纯视觉问题）。
+根因（本节时点）= **UNKNOWN**，不得在源码/运行期取证前猜测。
+```
+
+### 72.2 本节授权范围（narrow remediation）
+
+```text
+已授权：诊断 consent dialog 几何失败 · 修复几何 · 修复 Cancel 交互 · 修复 Agree 交互 ·
+        增加非空洞的自动化回归覆盖 · 重新生成 Release candidate 供 Human 复测。
+未授权：live ModelScope inference · 新 production HTTP transport · SESSION P · C3 ·
+        Candidate Accept/Edit/Reject · DeviceProfile write · Candidate persistence · M12-D ·
+        canonical package · release/tag/push · LKGC advancement · DeviceProfilePage 大改。
+verified LKGC = 19f9738c980e0a8a31b557c346fb50a4af711cab（UNCHANGED）
+```
+
+### 72.3 起始基线（实测）
+
+```text
+HEAD                = 3cf5fff8ecf79636b41e18a90e6b9a72bad8b11d
+SESSION O 三提交     = 0d339c2be8659e7685406eeb8f443c68bd3ce1c3（授权 docs）
+                     309ba15a72ffd463b38ade32f0b23547b0bdf04c（behavior）
+                     3cf5fff8ecf79636b41e18a90e6b9a72bad8b11d（archive docs）
+porcelain -uall     = ?? _ctx.py / ?? _dump.py（仅此两项）
+tracked diff / cached = 空 · git diff --check rc = 0 · tags = v1.0.0 · ls-files build = 0
+```
+
+**本节动作边界（docs-only）**：仅归档 Human 失败证据 + 状态分离 + 授权范围；未改产品代码 ·
+未 build · 未 test · 未推进 LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。
