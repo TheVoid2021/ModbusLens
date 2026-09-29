@@ -6080,3 +6080,79 @@ REAL MODBUS HARDWARE               = NOT VERIFIED
 
 **注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
 **SESSION O-R1 = COMPLETE — STOP**（未开始 SESSION P / live ModelScope / C3）。
+
+---
+
+## 74. M12-C C2 — HUMAN UI FAIL ARCHIVE：CONSENT OUTSIDE-CLICK DISMISSAL（2026-09-29 · Session O-R2 · docs-only）
+
+> 性质：**append-only 归档**。记录 O-R1 之后 Human 的**再次**真实 UI 检查结果。
+> **不**改写 §72/§73 的历史；这是更晚的 Human 验收结果。
+
+### 74.0 Human 报告（逐字）
+
+```text
+Human 对 SESSION O-R1 后的 Release candidate 再次测试。
+
+已确认（Human PASS 部分）：
+  · Consent geometry / wrapping 修复：**Human 未再报告溢出**
+  · **Agree button = HUMAN PASS**
+  · Agree 后进入 `提取未成功 (not_configured)` = 符合当前无 production transport 的预期
+
+新的 Human FAIL：
+  Consent dialog 打开时，Human 点击 dialog 外部的背景页面 ⇒ **dialog 直接消失**。
+  随后 AI Candidate 区仍显示 `需要你同意后才会发送已抽取文本`。
+  Human screenshot 已确认 dialog 已消失。
+
+结论：
+  **O-R1 Human re-test = FAIL / HOLD**
+  **Consent outside-click modality = HUMAN FAIL**
+```
+
+### 74.1 状态分离归档（禁止合并）
+
+```text
+SESSION O automated                   = PASS（§71，未变）
+SESSION O-R1 geometry remediation     = IMPLEMENTED / AUTOMATED PASS（§73，未变）
+O-R1 Human re-test                    = **FAIL / HOLD**
+Geometry / wrapping                   = **HUMAN PASS**（本轮 re-test 未再报告溢出）
+Agree interaction                     = **HUMAN PASS**
+**Outside-click modality**            = **HUMAN FAIL**
+Cancel interaction（本轮）            = 未单独报告（不作推断）
+PendingReview 成功 Human 视觉         = NOT REACHED / NOT VERIFIED
+Live ModelScope                       = NOT RUN / NOT VERIFIED
+SESSION P                             = **BLOCKED**（未开始）
+
+**R08 既往自动化证据 = INSUFFICIENT**（对本次澄清后的需求而言）：R08 当时只断言
+「模态不阻挡 dialog 自身控件」，**未**证明「真实外部点击后 dialog 仍保持打开」
+⇒ 属 **TEST SEMANTIC COVERAGE GAP**，将在 §75 以 R2-01..R2-05 补齐。
+```
+
+### 74.2 起始基线（实测）
+
+```text
+HEAD              = 5ba8c4e1a2a6c5d4fbca1540574d439aea35b288
+O-R1 behavior     = 3d4c91a19401cc6e00d3cec9361a133c96f1d549
+O-R1 archive docs = 5ba8c4e1a2a6c5d4fbca1540574d439aea35b288
+porcelain -uall   = ?? _ctx.py / ?? _dump.py（仅此两项）
+tracked / cached  = 空 · git diff --check rc = 0 · tags = v1.0.0 · ls-files build = 0
+verified LKGC     = 19f9738c980e0a8a31b557c346fb50a4af711cab（UNCHANGED）
+```
+
+### 74.3 产品契约（本次澄清后冻结，供 §75 实现与验证）
+
+```text
+模态云同意对话框：外部/背景鼠标点击 MUST
+  · 不关闭同意对话框
+  · 不授予同意
+  · 不计作 Cancel
+  · 不调用 provider
+  · 不改变 Candidate 集
+  · 不改变 DeviceProfile
+  · 不激活被点击的背景控件
+外部点击后：dialog 仍可见；编排仍为 consent-required；provider 调用数 = 0。
+Human 仍须能**显式**选择「取消」或「同意」（两者既有语义不变）。
+Escape 行为：除非实际实现令其成为本 narrow fix 的必要条件，否则**不得改变**。
+```
+
+**本节动作边界（docs-only）**：仅归档 Human 失败 + 状态分离 + R08 覆盖缺口 + 产品契约；
+未改产品代码 · 未 build · 未 test · 未推进 LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。

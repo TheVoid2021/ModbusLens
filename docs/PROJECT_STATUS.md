@@ -1,7 +1,26 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-09-29 追加批注 · M12-C C2 — CONSENT DIALOG REMEDIATED（Session O-R1 · 以本块为准）〕**
+**〔2026-09-29 追加批注 · M12-C C2 — HUMAN UI FAIL：CONSENT OUTSIDE-CLICK DISMISSAL（Session O-R2 · 以本块为准）〕**
+档案 = **T027 §74**。**Human 对 O-R1 后 Release candidate 再次真实 UI 检查**：
+**已 PASS 部分** —— Consent **geometry/wrapping = HUMAN PASS**（未再报告溢出）· **Agree button = HUMAN PASS** ·
+Agree 后进入 `提取未成功 (not_configured)` = 符合当前无 production transport 的预期。
+**新的 Human FAIL** —— Consent dialog 打开时，**点击 dialog 外部背景页面 ⇒ dialog 直接消失**；随后 AI Candidate 区
+仍显示「需要你同意后才会发送已抽取文本」（Human screenshot 已确认 dialog 消失）。
+⇒ **O-R1 Human re-test = FAIL / HOLD** · **Consent outside-click modality = HUMAN FAIL**。
+**状态分离（禁止合并）**：SESSION O automated = **PASS（未变）** · SESSION O-R1 geometry remediation =
+**IMPLEMENTED / AUTOMATED PASS（未变）** · Geometry/wrapping = **HUMAN PASS** · Agree interaction = **HUMAN PASS** ·
+**Outside-click modality = HUMAN FAIL** · PendingReview 成功 Human 视觉 = **NOT REACHED / NOT VERIFIED** ·
+Live ModelScope = **NOT RUN / NOT VERIFIED** · **SESSION P = BLOCKED**。
+**R08 既往自动化证据 = INSUFFICIENT（对本轮澄清后的需求）**：R08 只断言「模态不阻挡 dialog 自身控件」，
+**未**证明「真实外部点击后 dialog 仍保持打开」⇒ 归为 **TEST SEMANTIC COVERAGE GAP**（将在 §75 补齐 R2-01..R2-05）。
+**产品契约（本轮澄清后冻结）**：外部/背景点击 MUST **不**关闭对话框 · **不**授予同意 · **不**计作 Cancel ·
+**不**调用 provider · **不**改 Candidate 集 · **不**改 DeviceProfile · **不**激活背景控件；Escape 行为除非必要否则不变。
+**已授权（narrow）**：诊断 outside-click 关闭 · 最小修复 · 增加非空洞运行时回归 · 重新生成 candidate 供 Human 复测。
+**未授权**：SESSION P · live ModelScope · 新 production transport · C3 · Accept/Edit/Reject · Profile write ·
+Candidate persistence · M12-D · canonical package · release/tag/push · **LKGC advancement** · DeviceProfilePage 大改。
+**verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）** · 无 push / 无 tag / 无 amend。
+**〔2026-09-29 追加批注 · M12-C C2 — CONSENT DIALOG REMEDIATED（Session O-R1 · 历史链一环 · 其「当前状态」字段已由上方 outside-click 块继承）〕**
 档案 = **T027 §73**。**Human 失败归档（docs-only）** = `3d4b46a4c72a5ef175f4c433b4ea7ec4392154fe`
 「M12: archive consent dialog human failure」；**行为提交** = `3d4c91a19401cc6e00d3cec9361a133c96f1d549`
 「M12: fix cloud consent dialog usability」（3 files / +299 −2，NO AMEND）。
