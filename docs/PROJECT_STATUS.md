@@ -1,7 +1,39 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-09-29 追加批注 · M12-C C2 THIRD SLICE AUTHORIZED（Session O · 以本块为准）〕**
+**〔2026-09-29 追加批注 · M12-C C2 THIRD SLICE IMPLEMENTED / AUTOMATED PASS（Session O · 以本块为准）〕**
+档案 = **T027 §71**。**授权（docs-only）** = `0d339c2be8659e7685406eeb8f443c68bd3ce1c3`
+「M12: freeze C2 orchestration and consent slice」；**行为提交** = `309ba15a72ffd463b38ade32f0b23547b0bdf04c`
+「M12: add consent-gated AI candidate orchestration」（9 files / +1585 −0，NO AMEND）。
+**交付**：① **Production orchestration**（`src/ui/candidate/CandidateExtractionController`，QML_ELEMENT，
+状态机 Idle/ConsentRequired/Running/Failed/Succeeded）② **Cloud consent gate**（默认 NO UPLOAD；
+同意范围 = 本会话 × documentId × contentHash；无磁盘持久化；Reject ⇒ 零调用零变更）
+③ **PendingReview Candidate display**（新 `candidateCard`，只显示本地已验证字段）
+④ deterministic **fake runner** 驱动自动化（生产 path 无 fake 模式）⑤ Human UI acceptance 准备。
+**证据**：**REAL RED** = exit 6 / **16 passed 6 failed**（精确 mutation 绕过同意门 ⇒ O01「未授权即调用
+provider」等 6 项失败；build+link+run 正常）→ 精确还原 → **GREEN 22 passed / 0 failed / exit 0**，
+residue = 0、与基线逐字节相同 · **O01–O20 全 PASS**（O06 APPLICABLE）· **targeted 17/17 PASS** ·
+**QML 门禁 17/17 PASS**（诊断 0）· **Session J 几何零回归**（stage 7：row 0.420 / manual import 0.439 /
+preview 157.0 = **与验收基线完全一致**）· **Release full 60/60 PASS / 0 failed / exit 0 / 994.27s**
+（N 59→60，+`candidate_orchestration`；`deployment_startup_check` 259.77s PASS）。
+**关键放置决策**：既有 C1 门禁 stage 4 禁止 `manualImportCard` 子树出现 candidate/accept/reject/
+upload/credential/apikey/network token ⇒ **不改动受保护门禁**，AI 卡片做成 `manualImportCard`
+的**同级兄弟** `candidateCard`（`manualImportCard` 内部零改动），垂直方向零改动。
+**审计**：新文件 QNetwork*/QUrl/Bearer/QSettings/sk-* = 0；`src/core` Qt include = 0；
+`src/ui/candidate/` 无 accept/edit/reject Candidate 动作、无 DeviceProfile 写入；无 secret；
+无 raw response 持久化；无 Candidate 持久化；无 confidence；生产 UI 无 fake AI 模式；
+protected surfaces 全部未变；`git diff --check` = 0。
+**Candidate provenance**：exe 6,236,802 B / SHA-256 `fb6ff1b8…d2a7232`；pdfium.dll `d42c452a…`；
+platforms/qwindows.dll `80473907…`；candidate root 1714 files；启动/冒烟**未**执行任何提取。
+**状态**：M12-C C1b = **COMPLETE / HUMAN ACCEPTED**（未变）· M12-C = IN PROGRESS ·
+**M12-C C2 = IN PROGRESS** · foundation / adapter+parser / **orchestration / consent gate / Candidate
+display = IMPLEMENTED / AUTOMATED PASS** · **C2 Human visual acceptance = PENDING** ·
+**C2 Human functional AI extraction = NOT RUN / NOT VERIFIED** · **Live ModelScope inference =
+NOT RUN / NOT VERIFIED**（无 transport 实现）· Candidate Accept/Edit/Reject = NOT STARTED / C3 ·
+verified LKGC = **`19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）** ·
+C3 · M12-D = NOT STARTED / NOT AUTHORIZED · canonical package = **NOT CREATED** ·
+REAL MODBUS HARDWARE = **NOT VERIFIED** · 无 push / 无 tag / 无 amend。
+**〔2026-09-29 追加批注 · M12-C C2 THIRD SLICE AUTHORIZED（Session O · 历史链一环 · 其「当前状态」字段已由上方第三切片块继承）〕**
 档案 = **T027 §70**。**Human 授权（SESSION O §0 逐字：「M12-C C2 THIRD SLICE = START」）**：C2 **第三个切片** =
 ① Production extraction orchestration ② Cloud-consent gate ③ PendingReview Candidate display
 ④ deterministic fake provider 完成自动化 ⑤ Human UI acceptance preparation。

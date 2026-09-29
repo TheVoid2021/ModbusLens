@@ -5522,3 +5522,280 @@ REAL MODBUS HARDWARE             = NOT VERIFIED
 **本节动作边界（Session O · 授权归档 · docs-only）**：仅归档 Human 第三切片授权 + 范围 +
 explicit deferred + 恢复的 M/N 架构 + §1 差异记录；未 build · 未 test · 未改产品代码 ·
 未推进 LKGC · 未开始 C3 / M12-D · 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+---
+
+## 71. M12-C C2 — THIRD SLICE ARCHIVE（CONSENT-GATED ORCHESTRATION + PENDINGREVIEW CANDIDATE DISPLAY）（2026-09-29 · Session O · behavior + docs）
+
+> 性质：**append-only 归档**。§70（授权冻结）保持原貌；本节只新增。
+
+### 71.0 两个提交
+
+```text
+AUTHORIZATION DOCS COMMIT = 0d339c2be8659e7685406eeb8f443c68bd3ce1c3
+                            「M12: freeze C2 orchestration and consent slice」（4 docs / +211 −1，docs-only）
+BEHAVIOR COMMIT           = 309ba15a72ffd463b38ade32f0b23547b0bdf04c
+                            「M12: add consent-gated AI candidate orchestration」
+                            （9 files / +1585 −0，NO AMEND）
+                            CMakeLists.txt · src/ui/candidate/{CandidateExtractionRunner.h,
+                            ModelScopeCandidateRunner.h/.cpp, CandidateExtractionController.h/.cpp} ·
+                            src/ui/qml/Main.qml · src/ui/qml/pages/DeviceProfilePage.qml ·
+                            tests/test_candidate_orchestration.cpp
+```
+
+**不是** LKGC；verified LKGC 仍为 `19f9738…`（见 §71.13）。
+
+### 71.1 CONSENT CONTRACT（§6 语义，落地实现）
+
+```text
+默认 = NO CLOUD UPLOAD。同意范围 = 当前应用会话 × selected ManualDocument identity ×
+其当前 content identity（contentHash）。**无磁盘持久化**（内存 vector，无 QSettings/无文件）。
+· 同 (documentId, contentHash) 且本会话已授权 ⇒ 后续提取不再弹窗（O04）
+· 不同 document ⇒ 需重新同意（O05）
+· 同 documentId 但 contentHash 不同 ⇒ 需重新同意（O06）
+· Reject/Cancel ⇒ provider 调用数 = 0；候选集 / verified Profile / manual 全部不变；
+  不永久持久化，之后的显式尝试可再次询问；无「永远记住」
+同意 UI 语义（`consentScopeText`）：发送的是**已抽取文本**、**不上传**原始 PDF/DOCX、
+输出仅为**待审核候选**、**不会自动修改已验证设备档案**。exact prose = UI 实现细节。
+```
+
+### 71.2 PRODUCTION ORCHESTRATION 状态机（§7）
+
+```text
+Idle --requestExtraction()--> [consent?]
+   否 --> ConsentRequired --reject--> Idle（零调用、零变更）
+                        --grant--> Running
+   Running --success(≥1 本地验证候选)--> Succeeded（候选集原子替换）
+           --failure / 零候选--------> Failed（旧成功候选集不变）
+实现 = src/ui/candidate/CandidateExtractionController（QML_ELEMENT）。
+依赖：selected ManualDocument（经 ManualImportController）+ **ManualStore::loadText 的
+C1b canonical extracted text**（**不得**用含 PDF 展示页眉的 previewText）+ SESSION N
+provider-neutral seam（经 ICandidateExtractionRunner）+ SESSION M/N 本地 Evidence validation。
+**不**重读原始 PDF/DOCX，**不**建第二套 manual-text 来源。
+```
+
+### 71.3 CANDIDATE-SET ATOMICITY 与失败语义（§8）
+
+```text
+成功定义 = transport ok + strict schema ok + **≥1 个经本地 Evidence 验证的候选**。
+失败来源（全部保持旧成功候选集不变、不清空、不部分替换、不 mutate）：
+  transport failure · provider failure · malformed response · strict schema rejection ·
+  **evidence rejection（零候选）** · orchestration error。
+只有「完全成功」的新提取才可 **原子替换** 该 document/content 的当前会话候选集。
+替换 = 会话内存，无持久化。实现：先在局部构建 replacement，完成后再 move 赋值。
+```
+
+### 71.4 STALE-RESULT GUARD（§9）
+
+```text
+每次 attempt 一个 generation（`++generation_` + `activeAttempt_` 记录 documentId/contentHash）。
+完成时：generation ≠ activeAttempt_.generation ⇒ 丢弃；state ≠ Running ⇒ 丢弃。
+不同 document/content 的新请求 **supersede** 进行中的 attempt（新 generation），
+旧 completion 被 stale guard 丢弃，**不会**出现在新选中文档的候选中（O12）。
+同一 document/content 的重复触发 = single-flight 忽略。
+**未**为此外取消或改写任何 Manual 状态（不耦合 C2 到 Diagnosis 域语义）。
+```
+
+### 71.5 CANDIDATE DISPLAY（§12）与 C3 边界（§13）
+
+```text
+UI 只展示**本地已验证**的 PendingReview Candidate 字段：
+  targetField（冻结 token）· proposedValue · evidenceExcerpt · lifecycle("pending_review")
+  · documentId · contentHash · textStart/textEnd（**本地重算**的偏移）
+**不展示**：numeric confidence · raw provider JSON · raw ModelScope response ·
+provider 自报 offset 作为真值 · secret/token · 原始二进制。
+PDF 页信息仅在本地已验证且既有可用时展示；TXT/MD/DOCX **不伪造**页信息（本切片未展示页信息）。
+C3 边界：**无** Accept / Edit / Reject；`rejectConsent()` 是**同意取消**，不是 Candidate Reject，
+且不 mutate 任何候选。UI 两个概念不混同（按钮文案分别为「取消」/「同意并提取」）。
+```
+
+### 71.6 QML 放置决策（关键 · 受保护面保全）
+
+```text
+既有 C1 门禁 `runManualImportCheck` 的 **stage 4** 遍历 `manualImportCard` 子树并禁止
+objectName 含 token：candidate / accept / reject / question / chat / upload / credential /
+apikey / network。直接插入会 **REAL RED**（实测：6 个 MANFAIL）。
+⇒ 决策：**不改动受保护门禁**，把 AI 卡片做成 `manualImportCard` 的 **同级兄弟**
+（同一 `manualImportHost` 内、`manualImportCard` 之外），命名为 `candidateCard`。
+`manualImportCard` 内部内容 **零改动**（仅新增 `anchors.rightMargin: 336` 让出横向空间）。
+**垂直方向零改动** ⇒ Session J 几何不受影响（实测 §71.7）。
+（中途一次误锚点造成的 QML 局部损坏已按 AGENTS.md「精确逆向还原再重做」纪律修复：
+ 删除损坏行 + 补回被吞掉的根 ColumnLayout 闭合括号，括号平衡最终 = 0，EOL 统一 CRLF 1486/1486。）
+```
+
+### 71.7 Session J 几何非回归（§19 · 实测）
+
+```text
+gate 直接运行输出（QT_QPA_PLATFORM=offscreen, QT_ASSUME_STDERR_HAS_CONSOLE=1）：
+  MAN: stage 4: no AI/Candidate/Q&A controls present
+  MAN: stage 7: vertical budget — profile row share=0.420, manual import share=0.439,
+                preview viewport=157.0
+对比 SESSION M/J 验收基线（row 0.420 / host 0.439 / preview 157.0）⇒ **完全一致**。
+（中途用「第三列插入 manualImportBody」方案时实测 host 0.431 / preview 137.0——虽仍过门禁但
+ 已偏离基线；改为同级兄弟卡片后回到基线值。）
+门禁断言未被削弱：rowShare>0.50 fail、hostShare<0.35 fail、preview<120 fail、row/host 不重叠 —— 全部原样保留。
+```
+
+### 71.8 REAL RED / GREEN / 负向对照（§15–§17）
+
+```text
+（说明：本切片的 C++ 编排 API 已直接实现，故 §16 的首选 RED 与 §17 的同意门负向对照
+ 由**同一次精确 mutation** 覆盖——两者目标同为「同意门」，非重复计数。）
+
+precise mutation（§17）：把 `if (!isConsentGranted(doc, hash))` 改为 `if (false)`
+                         （即绕过同意门，未授权也立即调用 provider）。
+实测 RED  ：exit code 6；Totals **16 passed, 6 failed**；
+            FAIL! o01_noConsentNoProviderCall  Actual(state)="running" vs Expected="consent_required"
+            FAIL! o02 / o03 / o05 / o06 / o13（同一根因）
+            ⇒ build/link 正常、test process 正常、**semantic assertion RED**（provider 调用数 > 0 且未授权）。
+precise reverse：精确还原原 `if (!isConsentGranted(...))` 分支并删除 mutation 注释
+                 （**未用** checkout / restore / reset / stash）。
+residue ：grep -c "NEGATIVE-CONTROL MUTATION" = 0；与 GREEN 基线**逐字节相同**（diff 空）。
+恢复后  ：exit 0；Totals **22 passed, 0 failed**（GREEN 复现）。
+```
+
+### 71.9 O01–O20 矩阵（实测）
+
+| case | 断言 | 结果 |
+| --- | --- | --- |
+| O01 | 未授权触发 ⇒ state=consent_required、provider 调用数=0、候选数=0 | PASS |
+| O02 | Reject ⇒ 零调用、候选集不变、ProfileStore 树快照不变 | PASS |
+| O03 | Grant ⇒ 恰好 1 次 attempt，且 request 携带 target="manufacturer" + canonical text | PASS |
+| O04 | 同 doc/content 已授权 ⇒ 不再要求同意，provider 可被再调用 1 次 | PASS |
+| O05 | 换文档 ⇒ 需同意，B 在授权前 provider 调用数不变 | PASS |
+| O06 | 同 documentId 但 contentHash 变化 ⇒ 需重新同意 | PASS（APPLICABLE） |
+| O07 | 成功端到端 ⇒ state=succeeded、1 个 PendingReview Candidate，字段/证据/lifecycle 正确 | PASS |
+| O08 | schema 合法但 excerpt 不存在 ⇒ 零新候选、**旧成功集保留**、state=failed | PASS |
+| O09 | transport failure ⇒ failureToken="transport_error"、旧集保留、Profile 树不变 | PASS |
+| O10 | malformed response 与 strict schema rejection ⇒ 旧集保留（token 分别为 malformed_response / schema_violation） | PASS |
+| O11 | 完全成功的新提取 ⇒ 原子替换（size=1 且为新值，无混合物） | PASS |
+| O12 | A 在飞时切到 B，B 完成后再补送 A ⇒ A **不出现**在 B 的候选中（documentId 仍为 B） | PASS |
+| O13 | 销毁后重建 owner ⇒ 候选数=0、state=idle、同意未被记住（再触发仍 consent_required） | PASS |
+| O14 | 全部 C2 路径后 DeviceProfile 值相等 + ProfileStore 树快照不变 | PASS |
+| O15 | 候选视图键名不含 confidence / score / probability | PASS |
+| O16 | 候选视图键集恰为 8 个本地验证字段（含编译期无 manifest 成员断言） | PASS |
+| O17 | 尝试由传入的 canonical text 驱动；证据 location 与同一文本 round-trip 一致 | PASS |
+| O18 | Q_INVOKABLE 含 requestExtraction/grantConsent/rejectConsent，且**无**任何 Candidate 级 accept/edit/reject 方法 | PASS |
+| O19 | 出站 request 只含 canonical text + target token；类型**无** originalPath 成员（编译期断言） | PASS |
+| O20 | 同 doc/content/同意/fake 结果 ⇒ 两次候选集语义相等 | PASS |
+
+### 71.10 QML / 几何 / 焦点 / 导航证据（§18）
+
+```text
+ctest -R "^qml_" ⇒ 100% tests passed, 0 tests failed out of 17（95.50 sec）
+含：qml_smoke · qml_geometry_check · qml_nav_check · qml_focus_check ·
+    qml_manual_import_check · qml_manual_import_check_windows ·
+    qml_profile_editor_check · qml_register_map_check · qml_active_profile_check ·
+    qml_profile_semantic_check · qml_write_foundation_check_windows · read-result 系列等
+诊断计数（ReferenceError / TypeError / Unable to assign / String.arg Invalid）= **0**。
+新 UI 断言来源 = 既有 `runManualImportCheck` stage 4（AI/Candidate 控件不在 manualImportCard 内）
+与 stage 7（几何基线一致）——**未新增 gate、未削弱任何断言**。
+```
+
+### 71.11 Targeted regression（§20）
+
+```text
+ctest -R "candidate_|manual_|device_profile|ai_client|profile_" ⇒ 17/17 PASS / exit 0 / 75.97 sec
+  #23 device_profile · #24 profile_controller · #25 active_profile_controller ·
+  #26 manual_import · #27 candidate_extraction · #28 candidate_adapter ·
+  #29 candidate_orchestration（本轮新增）· #30 manual_extraction · #31 manual_import_pdf_docx ·
+  #34 profile_semantic · #35/#36 profile semantic gates · #42 ai_client ·
+  #55 qml_profile_editor_check · #57 qml_active_profile_check ·
+  #58 qml_manual_import_check · #60 qml_manual_import_check_windows
+```
+
+### 71.12 Release full regression（§21）
+
+```text
+build : cmake --build build/release ⇒ 全目标链接成功
+ctest -N : Total Tests: **60**（前次 59；+1 = candidate_orchestration；其插入使 #29 之后编号 +1）
+结果  : 100% tests passed, 0 tests failed out of 60 · Total 994.27 sec · ctest exit code = 0
+        #32 deployment_startup_check  Passed 259.77 sec（该 canonical 门禁按设计重建 candidate 树）
+Debug：本切片未触及 core 编译单元/config-sensitive 逻辑，未运行 Debug full（Release = canonical gate）。
+```
+
+### 71.13 RELEASE CANDIDATE + 部署门禁 + provenance（§26/§27）
+
+```text
+candidate root : build/release/candidate/ModbusLens/（由 canonical target 从零重建，1714 files）
+exe            : build/release/candidate/ModbusLens/modbuslens.exe
+                 size = 6,236,802 B
+                 SHA-256 = fb6ff1b8db6eff6bd9ee6e625cca542685005ed8bba42413d1cd76450d2a7232
+pdfium.dll     : SHA-256 = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+platforms/qwindows.dll : SHA-256 = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+部署/启动门禁  : ctest `deployment_startup_check` = **PASS**（259.77 sec，sanitized PATH）
+**启动/冒烟过程中未执行任何 ModelScope 提取**（自动化启动 only）。
+candidate 仍为 build artifact（非 release artifact、非 LKGC）；**未**创建 canonical ZIP/package。
+```
+
+### 71.14 Security / authority audit（§22）
+
+```text
+新增/变更文件静态审计（实测）：
+  QNetworkAccessManager / QNetworkRequest / QNetworkReply / http(s):// / Bearer /
+  Authorization / QSettings / QStandardPaths::writableLocation / sk-* 字面量 = **0**
+  （`QSettings` 唯一命中是 CandidateExtractionController.h 的注释「No disk, no QSettings, no cache」）
+  src/core Qt include = 0（Zero-Qt 保持）
+  src/ui/candidate/ 内 acceptCandidate / editCandidate / rejectCandidate / DeviceProfile 写入 /
+  saveToFile = **0**
+  confidence / probability / rawResponse 命中 = 1（注释：声明「无 confidence / 无 raw response」）
+行为证据：无 transport 实现 ⇒ 无 live request（ModelScopeCandidateRunner::begin 恒返回 false，
+beginCount 恒 0）；O01/O02 证明未授权零调用；O14 证明 Profile 零 diff；O15/O16 证明无 confidence /
+无 raw response；O18 证明无 C3 动作；O19 证明出站 payload 范围。生产 UI **未**暴露任何 fake AI
+模式（无调试假按钮 / 无隐藏 fake 环境变量 / 无测试 fixture loader）。
+```
+
+### 71.15 Protected-surface audit（§23）
+
+```text
+changed paths（behavior commit 309ba15，实测）：CMakeLists.txt · src/ui/qml/Main.qml ·
+  src/ui/qml/pages/DeviceProfilePage.qml · 5 个新增 src/ui/candidate/* · tests/test_candidate_orchestration.cpp
+protected 语义面全部未变：
+  M10 transaction truth · M11 RegisterDecode · raw DEC/HEX · DeviceProfile verified persistence ·
+  C1a TXT/Markdown import · C1b PDF/DOCX extraction · document identity · contentHash ·
+  ManualStore/cache · PDF no_extractable_text · SESSION M Evidence validation ·
+  SESSION N strict parser · Windows candidate architecture · **Session J 垂直预算整改**
+  （stage 7 实测回到基线 0.420/0.439/157.0）
+`manualImportCard` 内部内容零改动（仅新增 rightMargin 让出横向空间）；
+C1 门禁 stage 4 原样保留且 PASS。git diff --check = 0；无 generated build artifact；
+无 docs 混入 behavior commit；无 package artifact；无 C3 / M12-D 代码。
+```
+
+### 71.16 明确未做 / DEFERRED
+
+```text
+live ModelScope inference            = NOT RUN / NOT VERIFIED
+真实网络请求                          = NOT EXECUTED（无 transport 实现）
+production live transport            = NOT IMPLEMENTED（随 live extraction slice 交付）
+Human Accept / Edit / Reject（C3）    = NOT STARTED / NOT AUTHORIZED
+verified DeviceProfile write          = NOT STARTED
+Candidate persistence                 = NOT STARTED（SESSION-ONLY）
+numeric confidence / retry            = NOT STARTED
+C3 · M12-D                            = NOT STARTED / NOT AUTHORIZED
+canonical package / release / tag / push = NOT DONE
+verified LKGC advancement             = NOT AUTHORIZED（保持 19f9738…）
+```
+
+### 71.17 状态
+
+```text
+M12-C C1b                        = COMPLETE / HUMAN ACCEPTED（未变）
+M12-C                            = IN PROGRESS
+M12-C C2                         = IN PROGRESS
+Candidate/Evidence foundation    = IMPLEMENTED / AUTOMATED PASS（§67）
+ModelScope adapter + strict parser = IMPLEMENTED / AUTOMATED PASS（§69）
+Production orchestration         = IMPLEMENTED / AUTOMATED PASS（本节）
+Cloud consent gate               = IMPLEMENTED / AUTOMATED PASS（本节）
+PendingReview Candidate display  = IMPLEMENTED / AUTOMATED PASS（本节）
+C2 Human visual acceptance       = PENDING
+C2 Human functional AI extraction = NOT RUN / NOT VERIFIED
+Candidate Accept/Edit/Reject     = NOT STARTED / C3
+Live ModelScope inference        = NOT RUN / NOT VERIFIED
+C3 · M12-D                       = NOT STARTED / NOT AUTHORIZED
+verified LKGC                    = 19f9738c980e0a8a31b557c346fb50a4af711cab（**UNCHANGED**）
+canonical package                = NOT CREATED
+REAL MODBUS HARDWARE             = NOT VERIFIED
+```
+
+**注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
+**SESSION O = COMPLETE — STOP**（未开始 live ModelScope 测试，未开始 C3）。
