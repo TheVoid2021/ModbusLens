@@ -145,6 +145,17 @@ ApplicationWindow {
         objectName: "manualController"
     }
 
+    // M12-C C2 third slice (T027 §70): the AI extraction orchestration owner.
+    // It reads the selected document through manualController and the canonical
+    // text through the managed store; it holds the cloud-consent gate and the
+    // SESSION-ONLY PendingReview Candidate set. The production runner is the
+    // real ModelScope path (no fake mode is reachable from the UI).
+    CandidateExtractionController {
+        id: candidateController
+        objectName: "candidateController"
+        manualController: manualController
+    }
+
     // ------------------------------------------------------------------
     // Application Shell (M9-B1): AppBar + compact NavigationRail +
     // WorkspaceHost (StackLayout) -> LegacyWorkspace.
@@ -352,6 +363,7 @@ ApplicationWindow {
                     objectName: "deviceProfileWorkspace"
                     profileController: profileController
                     manualController: manualController
+                    candidateController: candidateController
                     enabled: workspaceHost.currentIndex === workspaceDeviceIndex
                 }
             }

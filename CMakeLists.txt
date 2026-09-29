@@ -191,6 +191,8 @@ target_include_directories(modbuslens PRIVATE "${MODBUSLENS_GENERATED_DIR}")
 target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/profile")
 # M12-C C1a: same qmltyperegistrar requirement for the manual controllers.
 target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/manual")
+# M12-C C2 third slice: same requirement for the candidate orchestration owner.
+target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/candidate")
 if(WIN32)
     set(MODBUSLENS_ICO_PATH
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/brand/windows/ModbusLens.ico")
@@ -246,6 +248,11 @@ qt_add_qml_module(modbuslens
         src/ui/manual/ManualPdfTextExtractor.cpp
         src/ui/manual/ManualDocxTextExtractor.h
         src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/candidate/CandidateExtractionRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateExtractionController.h
+        src/ui/candidate/CandidateExtractionController.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -767,6 +774,52 @@ if(BUILD_TESTING)
 
     add_test(NAME candidate_adapter
              COMMAND modbuslens_candidate_adapter_tests)
+
+    # ---------------------------------------------------------------------------
+    # M12-C C2 THIRD SLICE (T027 §70): production orchestration + the cloud
+    # consent gate + the SESSION-ONLY PendingReview Candidate set. The
+    # orchestration layer is driven by an injected deterministic fake runner;
+    # the manual sources are linked because the orchestrator reads the selected
+    # document through ManualImportController and the canonical text through
+    # ManualStore (never the original file).
+    add_executable(modbuslens_candidate_orchestration_tests
+        tests/test_candidate_orchestration.cpp
+        src/ui/candidate/CandidateExtractionRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateExtractionController.h
+        src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/manual/ManualStore.h
+        src/ui/manual/ManualStore.cpp
+        src/ui/manual/ManualImportController.h
+        src/ui/manual/ManualImportController.cpp
+        src/ui/manual/ManualTextExtraction.h
+        src/ui/manual/ManualTextExtraction.cpp
+        src/ui/manual/ManualPdfTextExtractor.h
+        src/ui/manual/ManualPdfTextExtractor.cpp
+        src/ui/manual/ManualDocxTextExtractor.h
+        src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_include_directories(modbuslens_candidate_orchestration_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(modbuslens_candidate_orchestration_tests PRIVATE
+        modbuslens_core Qt6::Core Qt6::Test modbuslens_pdfium modbuslens_libzip
+        modbuslens_zlib)
+    add_custom_command(TARGET modbuslens_candidate_orchestration_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MODBUSLENS_C1B_PDFIUM_DLL}"
+                "$<TARGET_FILE_DIR:modbuslens_candidate_orchestration_tests>/pdfium.dll"
+        COMMENT "Staging the pinned pdfium.dll next to the orchestration tests")
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_candidate_orchestration_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME candidate_orchestration
+             COMMAND modbuslens_candidate_orchestration_tests)
 
     # ---------------------------------------------------------------------------
     if(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS)

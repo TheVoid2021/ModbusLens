@@ -30,6 +30,11 @@ Item {
     // so an import can never change the editor draft, the dirty state, the
     // Active Profile or a persisted DeviceProfile JSON.
     required property ManualImportController manualController
+    // M12-C C2 third slice (T027 §70): the AI extraction ORCHESTRATION owner.
+    // It holds the cloud-consent gate and the SESSION-ONLY PendingReview
+    // Candidate set. It owns no ProfileController reference by construction, so
+    // no extraction path can write a verified Device Profile.
+    required property CandidateExtractionController candidateController
 
     function refreshProfileCatalog() {
         profileController.refreshCatalog()
@@ -730,6 +735,11 @@ Item {
             id: manualImportCardItem
             objectName: "manualImportCard"
             anchors.fill: parent
+            // M12-C C2 third slice: the AI extraction card sits beside this
+            // card, inside the same Manual Import area. The card itself keeps
+            // its accepted C1 contract and content byte-for-byte; it only
+            // yields horizontal room, never vertical.
+            anchors.rightMargin: 336
 
         SectionHeader {
             objectName: "manualImportHeader"
@@ -919,9 +929,174 @@ Item {
                     }
                 }
             }
+
         }
+        }
+
+        // ---- M12-C C2 third slice: AI extraction candidate card -----------
+        // A SIBLING of the Manual Import card on purpose. The Manual Import card
+        // keeps its accepted deterministic (C1) contract unchanged — including
+        // the gate that forbids any candidate/credential/network control inside
+        // it — while the AI surface lives here. It owns no ProfileController
+        // reference by construction, so nothing here can write a verified
+        // Device Profile. Display shows ONLY locally validated PendingReview
+        // Candidates: no confidence, no raw provider response, no provider
+        // offset, and NO Accept/Edit/Reject (that is C3).
+        PanelCard {
+            id: candidateCardItem
+            objectName: "candidateCard"
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.right: parent.right
+            width: 328
+
+            SectionHeader {
+                objectName: "candidateHeader"
+                Layout.fillWidth: true
+                title: qsTr("AI 候选（待审核）")
+            }
+            AppButton {
+                objectName: "candidateExtractButton"
+                Layout.fillWidth: true
+                Accessible.name: qsTr("AI 提取设备档案候选")
+                text: qsTr("AI 提取候选")
+                enabled: manualController.selectedIndex >= 0
+                         && !candidateController.busy
+                onClicked: {
+                    // Without a grant for this document/content the controller
+                    // stops at consent_required and calls NOTHING (O01).
+                    candidateController.requestExtraction()
+                    if (candidateController.stateToken === "consent_required") {
+                        candidateConsentDialog.open()
+                    }
+                }
+            }
+            Label {
+                objectName: "candidateStateLabel"
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                font.pixelSize: DS.fontCaption
+                color: candidateController.stateToken === "failed"
+                       ? DS.error : DS.textSecondary
+                text: candidateController.stateToken === "consent_required"
+                      ? qsTr("需要你同意后才会发送已抽取文本")
+                      : candidateController.stateToken === "running"
+                        ? qsTr("正在提取…")
+                        : candidateController.stateToken === "failed"
+                          ? qsTr("提取未成功（%1）")
+                                .arg(candidateController.failureToken)
+                          : candidateController.stateToken === "succeeded"
+                            ? qsTr("待审核候选 %1 项")
+                                  .arg(candidateController.candidateCount)
+                            : qsTr("尚未提取")
+            }
+            Flickable {
+                objectName: "candidateList"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: 36
+                clip: true
+                contentWidth: width
+                contentHeight: candidateListColumn.height
+
+                ColumnLayout {
+                    id: candidateListColumn
+                    width: parent.width
+                    spacing: DS.spacingS
+
+                    Repeater {
+                        objectName: "candidateRepeater"
+                        model: candidateController.candidates
+                        delegate: ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            Label {
+                                objectName: "candidateRowValue"
+                                Layout.fillWidth: true
+                                // Defensive on purpose: a model reset can leave
+                                // the row roles undefined for a beat.
+                                text: (modelData && modelData.targetField
+                                       ? modelData.targetField : "")
+                                      + ": "
+                                      + (modelData && modelData.proposedValue
+                                         ? modelData.proposedValue : "")
+                                font.pixelSize: DS.fontCaption
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                objectName: "candidateRowEvidence"
+                                Layout.fillWidth: true
+                                // Derived from the LOCALLY validated evidence
+                                // reference, never from provider prose.
+                                text: modelData && modelData.evidenceExcerpt
+                                      ? modelData.evidenceExcerpt : ""
+                                color: DS.textSecondary
+                                font.pixelSize: DS.fontCaption
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                objectName: "candidateRowLifecycle"
+                                Layout.fillWidth: true
+                                text: modelData
+                                      && modelData.lifecycle === "pending_review"
+                                      ? qsTr("待审核") : ""
+                                color: DS.pending
+                                font.pixelSize: DS.fontCaption
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+    }
+
+    // ---- cloud consent gate (M12-C C2 third slice, T027 §70) ----
+    // A modal dialog rather than an inline banner: it costs the page ZERO
+    // vertical pixels, so the accepted Session J geometry is unaffected.
+    // Cancel here is CONSENT cancel, never Candidate reject (C3).
+    Dialog {
+        id: candidateConsentDialog
+        objectName: "candidateConsentDialog"
+        title: qsTr("云端 AI 提取需要你的同意")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        standardButtons: Dialog.NoButton
+        width: Math.min(560, Overlay.overlay ? Overlay.overlay.width - 2 * DS.spacingXL : 520)
+
+        ColumnLayout {
+            spacing: DS.spacingM
+
+            Label {
+                objectName: "candidateConsentScope"
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: candidateController.consentScopeText
+                font.pixelSize: DS.fontBody
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Item {
+                    Layout.fillWidth: true
+                }
+                AppButton {
+                    objectName: "candidateConsentCancelButton"
+                    text: qsTr("取消")
+                    onClicked: {
+                        candidateController.rejectConsent()
+                        candidateConsentDialog.close()
+                    }
+                }
+                AppButton {
+                    objectName: "candidateConsentGrantButton"
+                    text: qsTr("同意并提取")
+                    onClicked: {
+                        candidateController.grantConsent()
+                        candidateConsentDialog.close()
+                    }
+                }
+            }
+        }
     }
 
     // ---- dirty-state three-way resolution (Save / Discard / Cancel) ----
