@@ -1,7 +1,37 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-09-30 追加批注 · M12-C C2 — O-R2 HUMAN RE-ACCEPTANCE = PASS（Session P · 以本块为准）〕**
+**〔2026-09-30 追加批注 · M12-C C2 — HUMAN 授权永久确定性修复 + 已 VERIFIED RCA 归档（Session P-R1 · 以本块为准）〕**
+档案 = **T027 §77**。**Human 明确批准**：「同意按上述永久修复方案恢复 SESSION P 主线」——
+授权永久修复已 VERIFIED 的 CMake acceptance configuration contract regression、永久消除 canonical CTest
+对 ambient Windows PATH / foreign MinGW runtime 的依赖、使用 genuinely fresh binary directory 完成
+Release acceptance、恢复并完成 SESSION P production ModelScope transport slice、candidate regeneration
++ deployment/startup acceptance、docs/governance archive、准备 Human live ModelScope gate。
+**未授权**：WorkBuddy 执行真实 inference · 读取/粘贴 Human 真实 token · C3 · AI 写 verified DeviceProfile ·
+Candidate persistence · numeric confidence · M12-D · canonical ZIP/package · release/tag/push ·
+**LKGC advancement**。**Live cloud inference remains HUMAN-ONLY。**
+**RCA-A（CMake configuration contract regression）= VERIFIED**：`fb2170e` 曾声明
+`option(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS "..." ON)`，`c36eb18` **删除该声明**却**保留**
+`if(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS)`（line 892–1000，恰好包住 `manual_extraction` /
+`manual_import_pdf_docx` / `deployment_startup_check` / `c1b_dependency_materializer` 四个目标）；
+当前 HEAD/工作区**无 option() 无 set()** ⇒ 未定义 ⇒ false ⇒ fresh 树略过 4 目标 ⇒ inventory 59；
+而旧 `build/release/CMakeCache.txt:312` = `:BOOL=ON`（**陈旧缓存**保留了已删除 option 的值）。
+**RCA-B（Windows runtime DLL resolution）= VERIFIED**：consumer 需 `libstdc++-6.dll` 导出
+`_ZSt28__throw_bad_array_new_lengthv`；继承 PATH 第一命中 **`D:\mingw64\bin\libstdc++-6.dll`**
+（2018-05-13 / 1,420,800 B / `43b71d76…`）**不导出**该符号（其余 9 个所需符号均导出）；
+canonical `D:\QT\6.11.1\mingw_64\bin\libstdc++-6.dll`（2023-05-25 / `8013488c…`）**导出**之；
+受控证据 A=RED / B=GREEN / C=RED。限制（如实）：WorkBuddy 未能独立捕获精确数值码，Human 报告
+`0xc0000139 STATUS_ENTRYPOINT_NOT_FOUND`。
+**RCA-C**：旧 `build/release` 的 `ninja: failed recompaction` 隔离于旧树自身状态（fresh 树 401/401 未复现），
+**精确机制 UNKNOWN** ⇒ 不修复、不复用该树。
+**撤回的既往错误表述**：「fresh 未使用 preset」（实为 `cmake --preset release-local -B`）；
+「Qt6Core.dll / build-release 陈旧 DLL 是已证元凶」（实为 `D:\mingw64\bin\libstdc++-6.dll`）；
+WorkBuddy 先前「文件锁已释放」推断（已被 fresh-tree 结果证伪）。
+**冻结的永久修复策略（尚未实施）**：恢复显式 CMake 契约 · canonical acceptance 不得依赖 stale cache ·
+CTest Windows runtime 由 toolchain 推导 · acceptance 必须含 genuinely fresh binary tree ·
+raw ambient PATH 不得决定 runtime identity · 旧树不作 reproducibility 证据。
+**verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）** · 无 push / 无 tag / 无 amend。
+**〔2026-09-30 追加批注 · M12-C C2 — O-R2 HUMAN RE-ACCEPTANCE = PASS（Session P · 历史链一环）〕**
 档案 = **T027 §76**。**Human 对 SESSION O-R2 Release candidate 复测，report 逐字：「全部 PASS」**。
 **权威解读（Human 原文范围）**：Consent dialog layout = **HUMAN PASS** · Outside/background click keeps dialog
 open = **HUMAN PASS** · Background control blocked = **HUMAN PASS** · Cancel = **HUMAN PASS** · Agree =

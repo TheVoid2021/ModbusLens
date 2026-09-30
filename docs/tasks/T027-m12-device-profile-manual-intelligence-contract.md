@@ -6342,6 +6342,106 @@ REAL MODBUS HARDWARE               = NOT VERIFIED
 
 ---
 
+## 77. M12-C C2 — HUMAN AUTHORIZATION + VERIFIED BUILD/TEST RCA（SESSION P-R1 · 归档）
+
+> 性质：**append-only 归档**。本节只记录 Human 授权与两条**已 VERIFIED** 的根因；
+> **不**声称任何修复已实施。
+
+### 77.0 Human 授权（逐字）
+
+```text
+Human 明确批准：「同意按上述永久修复方案恢复 SESSION P 主线。」
+
+授权范围：A 永久修复已 VERIFIED 的 CMake acceptance configuration contract regression ·
+B 永久消除 canonical CTest 对 ambient Windows PATH / foreign MinGW runtime 的依赖 ·
+C 使用 genuinely fresh binary directory 完成 Release acceptance ·
+D 恢复并完成当前 SESSION P production ModelScope transport slice ·
+E candidate regeneration + deployment/startup acceptance ·
+F docs/governance archive · G prepare Human live ModelScope gate。
+
+**未授权**：WorkBuddy 执行真实 ModelScope inference · 读取/粘贴 Human 真实 token ·
+C3 Accept/Edit/Reject · AI 写 verified DeviceProfile · Candidate persistence · numeric confidence ·
+M12-D · canonical ZIP/package · release/tag/push · **verified LKGC advancement**。
+**Live cloud inference remains HUMAN-ONLY。**
+```
+
+### 77.1 RCA-A — CMAKE CONFIGURATION CONTRACT REGRESSION = **VERIFIED**
+
+```text
+· commit `fb2170e` 曾引入 `option(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS "..." ON)`（默认 ON）。
+· commit `c36eb18`（"M12: integrate PDF and DOCX manual import workflow"）**删除该 option() 声明**，
+  但**保留** `if(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS)` 守卫。
+· 当前 HEAD 与工作区的 CMakeLists.txt **既无 option() 也无 set()**（实测 grep 为空）
+  ⇒ 变量未定义 ⇒ false（OFF）。
+· `release-local` preset **不显式设置**该变量（只设 CMAKE_PREFIX_PATH / CMAKE_CXX_COMPILER +
+  generator/binaryDir/env）；`release` 只设 CMAKE_BUILD_TYPE / CMAKE_EXPORT_COMPILE_COMMANDS。
+· 旧 `build/release/CMakeCache.txt:312` = `MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS:BOOL=ON`
+  ⇒ **陈旧 CMake cache 保留了已被删除的 option 值**。
+· 后果：旧缓存树注册完整 C1b 测试；**fresh 树因变量未定义而略过四个目标**：
+  `manual_extraction` · `manual_import_pdf_docx` · `deployment_startup_check` ·
+  `c1b_dependency_materializer`（四者**全部**位于 line 892–1000 的同一个 `if(...)` 块内）。
+定性：**CONFIGURATION CONTRACT GAP / REGRESSION**，**不是**合法的 canonical 差异。
+```
+
+### 77.2 RCA-B — WINDOWS RUNTIME DLL RESOLUTION = **VERIFIED**
+
+```text
+consumer = `modbuslens_active_master_tests.exe`
+  需要 `libstdc++-6.dll` 导出 `_ZSt28__throw_bad_array_new_lengthv`（GCC 11+ 才有）。
+wrong provider（继承 PATH 第一命中）= `D:\mingw64\bin\libstdc++-6.dll`
+  1,420,800 B / 2018-05-13 / SHA-256
+  43b71d76ec2304f210600457a6c29baf81c026ab130b29a3471fe64c17fdec13
+  ⇒ **不导出** `_ZSt28__throw_bad_array_new_lengthv`（导出数 = 0；其余 9 个所需符号各 = 1）。
+canonical provider = `D:\QT\6.11.1\mingw_64\bin\libstdc++-6.dll`
+  2,243,072 B / 2023-05-25 / SHA-256
+  8013488c5528bad7966ca07f3ea2e7a9b743cacb258fe76b46a326f821cc83b0
+  ⇒ **导出**该符号（导出数 = 1）。
+另：`libgcc_s_seh-1.dll` 亦被 `D:\mingw64\bin\libgcc_s_seh-1.dll` 优先解析
+  （78,336 B / 2018-05-13 / 52c1b144…），canonical = 109,056 B / 5e275891…。
+受控证据：A 继承 PATH = RED · B canonical Qt/MinGW PATH = GREEN · C canonical + wrong 前置 = RED。
+定性：runtime resolution is load-bearing = VERIFIED · wrong provider = VERIFIED ·
+missing entrypoint = VERIFIED。
+限制（如实）：WorkBuddy **未能独立捕获精确数值码**（工具限制），Human 的 fresh CTest 报告
+`0xc0000139 STATUS_ENTRYPOINT_NOT_FOUND`；loader 机制已独立 VERIFIED。
+```
+
+### 77.3 RCA-C — 旧 `build/release` 边界 = **UNKNOWN（不修复、不复用）**
+
+```text
+旧 build/release 反复出现 `ninja: error: failed recompaction: Permission denied`；
+genuinely fresh tree 配置 + 构建 **401/401 PASS** 且**未复现**该失败。
+⇒ 该问题**隔离于旧构建树自身状态**；**精确 lock/filter/root cause 仍 UNKNOWN**。
+**不得**尝试修复或以该旧树作为 canonical acceptance 证据。
+```
+
+### 77.4 撤回的既往错误表述（degradation correction）
+
+```text
+撤回：「fresh 配置未使用仓库 preset」→ 更正：Human 确用
+      `cmake --preset release-local -B <fresh-dir>`；缺陷是 option() 声明缺失。
+撤回：「Qt6Core.dll / build/release 陈旧 DLL 是已证元凶」→ 更正：精确 wrong provider 是外来的
+      `D:\mingw64\bin\libstdc++-6.dll`（Qt6*.dll 无歧义解析到 canonical Qt）。
+撤回：WorkBuddy 先前「文件锁已释放」推断 → 已由 fresh-tree 结果证伪。
+**不得**重新引入上述撤回结论。若新证据与已接受 RCA 冲突：先 STOP 再变更解释。
+```
+
+### 77.5 冻结的永久修复策略（尚未实施）
+
+```text
+1. 恢复显式 CMake configuration contract（canonical 源配置必须自证其真值）。
+2. canonical acceptance **不得**依赖 stale cache。
+3. CTest Windows runtime 必须使用**由 toolchain 推导**的确定性路径。
+4. acceptance **必须**包含 genuinely fresh binary tree。
+5. raw ambient PATH **不得**决定 Qt/MinGW runtime identity。
+6. 旧 `build/release` **不得**作为 fresh reproducibility 证据。
+```
+
+**本节动作边界（docs-only）**：仅归档 Human 授权 + 已 VERIFIED RCA + 撤回清单 + 冻结策略；
+**未**实施任何修复 · 未改产品代码 · 未 build · 未 test · 未执行任何 live 网络请求 ·
+未推进 LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+---
+
 ## 76. M12-C C2 — HUMAN RE-ACCEPTANCE ARCHIVE：CONSENT UI / INTERACTION / MODALITY PASS（2026-09-30 · Session P · docs-only）
 
 > 性质：**append-only 归档**。记录 Human 对 SESSION O-R2 Release candidate 的**再次**真实 UI 复测结果。
