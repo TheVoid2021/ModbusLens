@@ -1,7 +1,22 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-09-29 追加批注 · M12-C C2 — CONSENT MODALITY REMEDIATED（Session O-R2 · 以本块为准）〕**
+**〔2026-09-30 追加批注 · M12-C C2 — O-R2 HUMAN RE-ACCEPTANCE = PASS（Session P · 以本块为准）〕**
+档案 = **T027 §76**。**Human 对 SESSION O-R2 Release candidate 复测，report 逐字：「全部 PASS」**。
+**权威解读（Human 原文范围）**：Consent dialog layout = **HUMAN PASS** · Outside/background click keeps dialog
+open = **HUMAN PASS** · Background control blocked = **HUMAN PASS** · Cancel = **HUMAN PASS** · Agree =
+**HUMAN PASS** · Agree → `not_configured`（pre-transport 构建的失败态）= **HUMAN PASS / EXPECTED**
+⇒ **SESSION O-R2 Human re-test = PASS** · **Consent UI / interaction / modality = HUMAN ACCEPTED**。
+**明确保留（禁止扩写）**：PendingReview 成功 Human 视觉 = **NOT REACHED / NOT VERIFIED** ·
+Live ModelScope = **NOT RUN / NOT VERIFIED** · C2 overall = **IN PROGRESS**。
+**SESSION P 授权（engineering only）**：production ModelScope HTTP transport · process-environment
+credential/config seam · production wiring 到已接受的 C2 provider-neutral 架构 · deterministic
+transport/network tests · Release candidate preparation · Human live-smoke preparation。
+**未授权**：Agent live ModelScope inference（Human GATE）· C3 · AI 写 verified DeviceProfile ·
+Candidate persistence · numeric confidence · M12-D · canonical package · release/tag/push ·
+**LKGC advancement**。**verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）** ·
+无 push / 无 tag / 无 amend。
+**〔2026-09-29 追加批注 · M12-C C2 — CONSENT MODALITY REMEDIATED（Session O-R2 · 历史链一环 · 其「当前状态」字段已由上方 O-R2 Human PASS 块继承）〕**
 档案 = **T027 §75**。**Human 失败归档（docs-only）** = `d72da898e160306b956b9ea4d96fd270092b4cc8`
 「M12: archive consent outside-click human failure」；**行为提交** = `bf6c02b8c8573ebf323b10764bbd01db29e16db7`
 「M12: keep cloud consent modal until explicit choice」（2 files / +54 −4，NO AMEND）。

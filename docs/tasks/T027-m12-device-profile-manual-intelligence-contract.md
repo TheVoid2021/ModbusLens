@@ -6339,3 +6339,91 @@ REAL MODBUS HARDWARE               = NOT VERIFIED
 
 **注意**：本行为提交**不是** LKGC；verified LKGC 仍为 `19f9738…`，推进必须 Human 明确授权。
 **SESSION O-R2 = COMPLETE — STOP**（未开始 SESSION P / live ModelScope / C3）。
+
+---
+
+## 76. M12-C C2 — HUMAN RE-ACCEPTANCE ARCHIVE：CONSENT UI / INTERACTION / MODALITY PASS（2026-09-30 · Session P · docs-only）
+
+> 性质：**append-only 归档**。记录 Human 对 SESSION O-R2 Release candidate 的**再次**真实 UI 复测结果。
+> **不**改写 §72/§74 的 FAIL 历史；这是更晚的 Human 验收结果。
+
+### 76.0 Human 报告（逐字）
+
+```text
+Human 完成 SESSION O-R2 Release candidate 复测。
+
+Human report（逐字）：全部 PASS
+
+权威解读（Human 明确范围）：
+  Consent dialog layout                     = HUMAN PASS
+  Outside / background click keeps dialog open = HUMAN PASS
+  Background control blocked                = HUMAN PASS
+  Cancel                                    = HUMAN PASS
+  Agree                                     = HUMAN PASS
+  Agree → `not_configured`（当前 pre-transport 构建的失败态）
+                                            = HUMAN PASS / EXPECTED FOR PRE-TRANSPORT BUILD
+
+⇒ SESSION O-R2 Human re-test = **PASS**
+⇒ Consent UI / interaction / modality = **HUMAN ACCEPTED**
+```
+
+### 76.1 状态分离归档（禁止合并 · 禁止扩写）
+
+```text
+SESSION O automated                  = PASS（§71，未变）
+SESSION O-R1 geometry remediation    = IMPLEMENTED / AUTOMATED PASS（§73，未变）
+O-R1 original Human test             = FAIL / HOLD（§72，历史原样保留）
+O-R2 pre-retest state                = PENDING（§75，历史原样保留）
+**SESSION O-R2 Human re-test**       = **PASS**
+Consent geometry                     = HUMAN PASS
+Outside-click modality               = HUMAN PASS
+Background blocking                  = HUMAN PASS
+Cancel                               = HUMAN PASS
+Agree                                = HUMAN PASS
+Agree → not_configured               = HUMAN PASS / EXPECTED PRE-TRANSPORT STATE
+Consent UI / interaction / modality  = **HUMAN ACCEPTED**
+
+**明确保留（Human 未确认的部分，禁止扩写）**：
+PendingReview 成功 Human 视觉        = **NOT REACHED / NOT VERIFIED**
+Live ModelScope                      = **NOT RUN / NOT VERIFIED**
+C2 overall                           = **IN PROGRESS**
+verified LKGC                        = 19f9738c980e0a8a31b557c346fb50a4af711cab（**UNCHANGED**）
+```
+
+**注意**：Human 的 PASS 只覆盖其原文列出的 6 项与「Consent UI / interaction / modality」范围；
+**不**构成 live ModelScope 验收，**不**构成 PendingReview 成功视觉验收，**不**构成 LKGC 推进授权。
+
+### 76.2 本节授权范围（SESSION P engineering）
+
+```text
+已授权（SESSION P engineering）：
+  · production ModelScope HTTP transport
+  · process-environment credential / config seam
+  · production wiring 到已接受的 C2 provider-neutral 架构
+  · deterministic transport / network tests
+  · Release candidate preparation
+  · Human live-smoke preparation
+
+**明确未授权**：
+  Agent live ModelScope inference（Human GATE：私密 token 属 Human、canonical extracted text 会离机、
+  且冻结的云同意契约要求 Human 显式同意）· C3 Accept/Edit/Reject · AI 写 verified DeviceProfile ·
+  Candidate persistence · numeric confidence · M12-D · canonical package · release/tag/push ·
+  **LKGC advancement**。
+
+**WorkBuddy MUST STOP before any real inference request。**
+```
+
+### 76.3 起始基线（实测）
+
+```text
+HEAD              = 4893f78c71b6d830cb29e13b089f5978f79b0b7a
+O-R2 三提交        = d72da898e160306b956b9ea4d96fd270092b4cc8（失败归档）
+                    bf6c02b8c8573ebf323b10764bbd01db29e16db7（behavior）
+                    4893f78c71b6d830cb29e13b089f5978f79b0b7a（修复归档）
+porcelain -uall   = ?? _ctx.py / ?? _dump.py（仅此两项）
+tracked / cached  = 空 · git diff --check rc = 0 · tags = v1.0.0 · ls-files build = 0
+```
+
+**本节动作边界（docs-only）**：仅归档 O-R2 Human PASS + 状态分离 + SESSION P 授权范围；
+未改产品代码 · 未 build · 未 test · 未执行任何 live 网络请求 · 未推进 LKGC ·
+未创建 canonical package · 未 push / 未 tag / 未 amend。
