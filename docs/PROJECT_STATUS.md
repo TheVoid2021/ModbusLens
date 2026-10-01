@@ -1,7 +1,35 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-09-30 追加批注 · M12-C C2 — HUMAN 授权永久确定性修复 + 已 VERIFIED RCA 归档（Session P-R1 · 以本块为准）〕**
+**〔2026-10-01 追加批注 · M12-C C2 — SESSION P-R1C：CONSENT FRESH-TREE CTEST "CRASH" RCA + HARNESS CREDENTIAL SANITIZATION（ZCode 接管轮 · 以本块为准）〕**
+档案 = **T027 §78 + ISSUE-020**。接管基线：HEAD `20a9129`（= §77 授权归档）、
+verified LKGC `19f9738…`（UNCHANGED）、WIP = SESSION P transport slice（§76 授权）+
+§77 永久修复（option() 恢复 + toolchain 推导 CTest runtime PATH 前置）。
+**RCA（VERIFIED，证据矩阵 = ISSUE-020）**：所谓 "QML consent fresh-tree ctest crash"
+**不是 crash** —— `qml_consent_check` 的 Failed/零输出/15.87s = **ambient
+`MODELSCOPE_API_KEY`（Windows User 级持久存在）泄漏进确定性 harness**：SESSION P 后
+production runner 不再惰性，consent gate Agree 点击 → 真实 HTTPS 调度 → 本地 Evidence
+验证通过 → candidateCount=1 ⇒ R07 FAIL；单变量对照（credential ABSENT ⇒ 同一二进制
+PASS / 1.87s）+ 15.87s−1.87s ≈ 网络往返证实 14:53 的 WorkBuddy 运行同样含真实调度；
+零输出 = 该 gate（非 _windows 变体）缺 `QT_ASSUME_STDERR_HAS_CONSOLE=1`，GUI-subsystem
+exe 诊断在 ctest 管道下全丢。**Governance disclosure**：WorkBuddy 14:53 ctest 与 ZCode
+RCA Run A 各自可能已发生一次真实 ModelScope 推理（payload = 8 行种子文本；无任何 Agent
+读取/打印 token 值）—— 如实记录，详见 ISSUE-020。**修复（最小）**：① `src/main.cpp`
+任何 `--qml-*` harness 进程创建任何 controller 前 `qunsetenv` 凭据与 model override
+（harness 自证配置真值；production 不受影响，live inference 仍 Human-gated）；
+② `runConsentCheck` 入口凭据 guard（泄漏 ⇒ 响亮 CONSENTFAIL / exit 1 / 零调度）；
+③ `CMakeLists.txt` 给 `qml_consent_check` 补 stderr 契约（平台语义不变）。**验证**：
+fresh tree `build/acceptance/session-p-r1c-release/` configure RC0 + build RC0（417 steps）；
+同崩溃原配置（token PRESENT）`qml_consent_check` **Passed 3.73s**；负向对照 MUTATION-NX1
+（禁用 token 清理）⇒ **REAL RED**（CONSENTFAIL exit 1 / 1.58s / 入口即拒绝零调度）→
+精确逆向还原 → **Passed 5.58s** / residue 0；`candidate_transport`（P01–P24）**Passed 1.34s**；
+full Release ctest 见 T027 §78.5。**未变**：M12-C C1b = COMPLETE / HUMAN ACCEPTED；
+M12-C C2 = IN PROGRESS（transport slice automated 证据齐备、**C2 Human acceptance =
+PENDING**、Live ModelScope = NOT RUN / NOT VERIFIED — Agent 永不执行）；C3 · M12-D =
+NOT STARTED / NOT AUTHORIZED；canonical package = NOT CREATED；REAL MODBUS HARDWARE =
+NOT VERIFIED。**verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）**
+· 无 push / 无 tag / 无 amend。
+**〔2026-09-30 追加批注 · M12-C C2 — HUMAN 授权永久确定性修复 + 已 VERIFIED RCA 归档（Session P-R1 · 历史链一环）〕**
 档案 = **T027 §77**。**Human 明确批准**：「同意按上述永久修复方案恢复 SESSION P 主线」——
 授权永久修复已 VERIFIED 的 CMake acceptance configuration contract regression、永久消除 canonical CTest
 对 ambient Windows PATH / foreign MinGW runtime 的依赖、使用 genuinely fresh binary directory 完成

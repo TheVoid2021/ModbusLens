@@ -6527,3 +6527,119 @@ tracked / cached  = 空 · git diff --check rc = 0 · tags = v1.0.0 · ls-files 
 **本节动作边界（docs-only）**：仅归档 O-R2 Human PASS + 状态分离 + SESSION P 授权范围；
 未改产品代码 · 未 build · 未 test · 未执行任何 live 网络请求 · 未推进 LKGC ·
 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+---
+
+## 78. M12-C C2 — SESSION P-R1C：QML CONSENT FRESH-TREE CTEST "CRASH" RCA + HARNESS CREDENTIAL SANITIZATION（2026-10-01 · ZCode 接管轮）
+
+> 性质：append-only 归档。SECTION P-R1C = SESSION P-R1 修复授权（§77）范围内的
+> 一个子切片：诊断 fresh tree 上 `qml_consent_check` 的"零输出失败"。
+> **⚠ 该失败实为一次真实云端推理的可见症状** —— 全文以 ISSUE-020 为准：
+> `docs/issues/ISSUE-020-harness-ambient-credential-live-dispatch.md`。
+
+### 78.1 接管基线（ZCode 实测，2026-10-01）
+
+```text
+HEAD              = 20a9129771aff9ad48f40659a6e5083ba544bc01（= §77 授权归档提交）
+verified LKGC     = 19f9738c980e0a8a31b557c346fb50a4af711cab（UNCHANGED）
+WIP（接管时）      = M CMakeLists.txt
+                    M src/ui/candidate/ModelScopeCandidateRunner.{h,cpp}
+                    ?? src/ui/candidate/ModelScopeExtractionTransport.{h,cpp}
+                    ?? src/ui/candidate/ModelScopeHttpClient.{h,cpp}
+                    ?? tests/test_candidate_transport.cpp
+                    ?? _ctx.py / ?? _dump.py（前轮遗留，不动）
+git diff --check  = rc 0 · cached = 空
+```
+
+WIP 内容 = §76 授权的 SESSION P transport slice（production `QtModelScopeHttpClient`
+→ `ModelScopeExtractionTransport` → 既有 SESSION N adapter 链 + P01–P24 确定性
+transport 测试）+ §77 冻结策略 ①（恢复 `option(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS)`
+声明）+ 冻结策略 ③⑤（CTest runtime 由 toolchain 推导、PATH 前置）。接管时
+WorkBuddy 已在 `build/acceptance/session-p-r1b-release` 完成配置/构建，并在
+2026-09-30 14:53 的 `qml_consent_check` 上得到 **Failed / 零输出 / 15.87s**。
+
+### 78.2 RCA（VERIFIED，证据矩阵见 ISSUE-020）
+
+```text
+RC-1（核心）：ambient MODELSCOPE_API_KEY（Windows User 级持久存在，len=39）
+  泄漏进确定性 harness 进程。SESSION P 后 production runner 不再惰性：
+  consent gate 同意点击 → runner begin() → ensureWired() → 真实 HTTPS 调度
+  → 200 + strict parser + 本地 Evidence 验证全过 → candidateCount=1
+  ⇒ R07 FAIL（"Agree wrote a candidate without a provider result"）。
+  单变量对照：credential ABSENT ⇒ 同一二进制 CONSENT CHECK PASS / 1.87s。
+  15.87s − 1.87s ≈ 真实网络往返 ⇒ WorkBuddy 14:53 运行同样含真实调度。
+RC-2（可观测性）：qml_consent_check（非 _windows）未设
+  QT_ASSUME_STDERR_HAS_CONSOLE=1 ⇒ GUI-subsystem exe 在 ctest 管道下
+  Qt 诊断全丢 ⇒ "零输出 Failed"，被误读为 crash。
+```
+
+**Governance disclosure（不扩写、如实记录）**：WorkBuddy 14:53 ctest 与 ZCode
+RCA Run A 各自可能已发生一次真实 ModelScope 推理（payload = 8 行种子文本，
+模型 = 接受的默认 Qwen/Qwen3.5-27B）。无任何 Agent 读取或打印 token 值。
+
+### 78.3 修复（SESSION P-R1C 行为改动 · 最小）
+
+```text
+1. src/main.cpp：任何 --qml-* harness 进程在创建任何 controller 之前
+   qunsetenv("MODELSCOPE_API_KEY") + qunsetenv("MODBUSLENS_MODELSCOPE_MODEL")。
+   harness 自己声明配置真值；production（无 --qml- 参数）保持 ambient 环境不变
+   ⇒ live inference 仍为 Human-gated 产品行为。
+2. src/main.cpp runConsentCheck 入口 guard：凭据对 harness 可见 ⇒
+   CONSENTFAIL ... refusing to run（exit 1），入口即拒绝、零调度。
+3. CMakeLists.txt：qml_consent_check 补 ENVIRONMENT
+   "QT_ASSUME_STDERR_HAS_CONSOLE=1"（平台语义不变，仅补 stderr 契约）。
+R07 断言本身零改动 —— 它正是本轮的探测点。
+```
+
+### 78.4 验证（真实命令与输出）
+
+```text
+fresh tree        = build/acceptance/session-p-r1c-release/（本会话新建，
+                    release 等价配置 + MODBUSLENS_PYTHON_EXECUTABLE=D:/Anaconda3/python.exe）
+configure         = RC 0（Configuring done 33.8s / Generating done）
+build             = RC 0（417 steps 全绿，0 error）
+targeted          = ctest -R ^qml_consent_check$（ambient token PRESENT = 崩溃原配置）
+                    ⇒ #60 Passed 3.73s
+negative control  = MUTATION-NX1（注释 token qunsetenv）⇒ rebuild ⇒
+                    CONSENTFAIL: harness credential contract violated（exit 1 / 1.58s，
+                    入口即拒绝 ⇒ 零调度）⇒ 精确逆向还原 ⇒ rebuild ⇒
+                    #60 Passed 5.58s；grep MUTATION-NX1 = 无残留
+candidate_transport = #30 Passed 1.34s（P01–P24，注入 fake client，零 socket）
+full Release ctest  = 见 78.5
+```
+
+### 78.5 全量回归与状态
+
+```text
+full Release ctest（fresh tree build/acceptance/session-p-r1c-release/）
+  = 63/63 PASS / 0 failed / exit 0 / 201.14s（63 Passed，无 Timeout / Not Run；
+    deployment_startup_check #33 Passed 35.51s，candidate 由 canonical target 重建）
+candidate provenance = source exe ≡ candidate exe（byte-identical）：
+  modbuslens.exe SHA-256
+  1e9a0b99ed9ff02121a41cffeec903fbc7ee811759c94393b8fef63c56182286
+behavior commit = 613a32a「M12: complete session P transport and sanitize
+  harness credentials」（9 files / +1234 −40，parent 20a9129，NO AMEND；
+  内容 = SESSION P transport slice（§76）+ §77 冻结修复 ①③⑤ + §78 P-R1C
+  harness credential sanitization —— 三者同属 §77.0 单一授权计划，且已在
+  同一 fresh tree 上整体验证）
+Debug full = NOT RUN（本轮未声称；Debug 归档按既有惯例由 Human 外部 shell 复验）
+```
+
+**状态（P-R1C 完成时点）**：M12-C C1b = COMPLETE / HUMAN ACCEPTED（未变）·
+M12-C = IN PROGRESS · **M12-C C2 = IN PROGRESS** · foundation / adapter+parser /
+orchestration+consent+display / **production transport = IMPLEMENTED /
+AUTOMATED PASS（P01–P24，零 socket）** · **harness credential sanitization =
+IMPLEMENTED / AUTOMATED PASS（含 REAL RED 负向对照）** · **C2 Human acceptance =
+PENDING** · PendingReview 成功 Human 视觉 = NOT REACHED / NOT VERIFIED ·
+**Live ModelScope = NOT RUN / NOT VERIFIED（Agent 永不执行；Human-only）** ·
+C3 · M12-D = NOT STARTED / NOT AUTHORIZED · canonical package = NOT CREATED ·
+REAL MODBUS HARDWARE = NOT VERIFIED · **verified LKGC = `19f9738…`（UNCHANGED）** ·
+无 push / 无 tag / 无 amend。**SESSION P-R1C = COMPLETE — STOP。**
+剩余 SESSION P 授权内未完项（待后续会话）：Human live ModelScope gate 准备（G）
+与 Human 对 C2 的 functional/visual 验收。
+
+**本节动作边界**：SESSION P-R1C 范围 = §77 授权 A/B/C（deterministic acceptance
+repair）内的 RCA + harness 修复 + 验证。**未**执行真实 inference（修复后的
+deterministic gate 结构上不可能再调度）· 未读取/打印 Human token 值 ·
+未开始 C3 · 未写 DeviceProfile · 未做 Candidate persistence · 未做 M12-D ·
+未推进 verified LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。
