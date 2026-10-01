@@ -253,6 +253,12 @@ qt_add_qml_module(modbuslens
         src/ui/candidate/ModelScopeCandidateRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/candidate/ModelScopeHttpClient.h
+        src/ui/candidate/ModelScopeHttpClient.cpp
+        src/ui/candidate/ModelScopeExtractionTransport.h
+        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/ai/ModelScopeCandidateAdapter.h
+        src/ui/ai/ModelScopeCandidateAdapter.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -784,11 +790,17 @@ if(BUILD_TESTING)
     # ManualStore (never the original file).
     add_executable(modbuslens_candidate_orchestration_tests
         tests/test_candidate_orchestration.cpp
+        src/ui/ai/ModelScopeCandidateAdapter.h
+        src/ui/ai/ModelScopeCandidateAdapter.cpp
         src/ui/candidate/CandidateExtractionRunner.h
         src/ui/candidate/ModelScopeCandidateRunner.h
         src/ui/candidate/ModelScopeCandidateRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/candidate/ModelScopeHttpClient.h
+        src/ui/candidate/ModelScopeHttpClient.cpp
+        src/ui/candidate/ModelScopeExtractionTransport.h
+        src/ui/candidate/ModelScopeExtractionTransport.cpp
         src/ui/manual/ManualStore.h
         src/ui/manual/ManualStore.cpp
         src/ui/manual/ManualImportController.h
@@ -804,9 +816,13 @@ if(BUILD_TESTING)
     target_include_directories(modbuslens_candidate_orchestration_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    # Qt6::Network is required from SESSION P on: the orchestration owner now
+    # constructs the PRODUCTION runner, which reaches the Qt Network transport.
+    # The suite itself still injects a fake runner, so nothing here opens a
+    # socket.
     target_link_libraries(modbuslens_candidate_orchestration_tests PRIVATE
-        modbuslens_core Qt6::Core Qt6::Test modbuslens_pdfium modbuslens_libzip
-        modbuslens_zlib)
+        modbuslens_core Qt6::Core Qt6::Test Qt6::Network modbuslens_pdfium
+        modbuslens_libzip modbuslens_zlib)
     add_custom_command(TARGET modbuslens_candidate_orchestration_tests POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${MODBUSLENS_C1B_PDFIUM_DLL}"
@@ -822,6 +838,69 @@ if(BUILD_TESTING)
              COMMAND modbuslens_candidate_orchestration_tests)
 
     # ---------------------------------------------------------------------------
+    # M12-C C2 FOURTH SLICE (T027 §76): the PRODUCTION ModelScope transport, the
+    # process-environment credential/config seam and the full consent -> HTTP ->
+    # envelope -> strict parser -> Evidence chain. The production transport code
+    # path is exercised for real; only the thin HTTP seam is faked, so no socket
+    # is ever opened and the suite is fully deterministic and offline.
+    add_executable(modbuslens_candidate_transport_tests
+        tests/test_candidate_transport.cpp
+        src/ui/ai/ModelScopeCandidateAdapter.h
+        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/candidate/CandidateExtractionRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateExtractionController.h
+        src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/candidate/ModelScopeHttpClient.h
+        src/ui/candidate/ModelScopeHttpClient.cpp
+        src/ui/candidate/ModelScopeExtractionTransport.h
+        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/manual/ManualStore.h
+        src/ui/manual/ManualStore.cpp
+        src/ui/manual/ManualImportController.h
+        src/ui/manual/ManualImportController.cpp
+        src/ui/manual/ManualTextExtraction.h
+        src/ui/manual/ManualTextExtraction.cpp
+        src/ui/manual/ManualPdfTextExtractor.h
+        src/ui/manual/ManualPdfTextExtractor.cpp
+        src/ui/manual/ManualDocxTextExtractor.h
+        src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_include_directories(modbuslens_candidate_transport_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(modbuslens_candidate_transport_tests PRIVATE
+        modbuslens_core Qt6::Core Qt6::Test Qt6::Network modbuslens_pdfium
+        modbuslens_libzip modbuslens_zlib)
+    add_custom_command(TARGET modbuslens_candidate_transport_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MODBUSLENS_C1B_PDFIUM_DLL}"
+                "$<TARGET_FILE_DIR:modbuslens_candidate_transport_tests>/pdfium.dll"
+        COMMENT "Staging the pinned pdfium.dll next to the C2 transport tests")
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_candidate_transport_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME candidate_transport
+             COMMAND modbuslens_candidate_transport_tests)
+
+    # ---------------------------------------------------------------------------
+    # M12-C C2 SESSION P-R1 (T027 §77): the configuration contract is defined by
+    # the SOURCE, not by a stale cache. commit fb2170e declared this option with
+    # an ON default and commit c36eb18 removed the declaration while keeping the
+    # guard below, so a genuinely fresh configure silently skipped the C1b
+    # extraction/deployment gates (inventory dropped from 63 to 59) and only the
+    # stale build/release cache kept them alive. Restoring the declaration makes
+    # a fresh release-local configure register the canonical inventory again,
+    # with no manual -D and no reliance on developer memory.
+    option(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS
+        "Build the M12-C C1b PDF/DOCX extraction foundation tests (requires the materialized dependency root)"
+        ON)
+
     if(MODBUSLENS_BUILD_C1B_EXTRACTION_TESTS)
         add_executable(modbuslens_manual_extraction_tests
             tests/test_manual_extraction.cpp
@@ -1372,6 +1451,17 @@ if(BUILD_TESTING)
     add_test(NAME qml_consent_check_windows
         COMMAND modbuslens --qml-consent-check)
 
+    # SESSION P-R1C (T027 §78): the base consent gate drives a GUI-subsystem
+    # exe whose Qt diagnostics go NOWHERE when stderr is a pipe and no console
+    # is assumed — its first real failure therefore surfaced as a silent,
+    # output-less ctest FAIL that read like a crash. Declaring the stderr
+    # contract makes every future failure diagnosable. The PLATFORM stays
+    # deliberately unpinned exactly as accepted in O-R1; only the stderr
+    # contract is added.
+    set_tests_properties(qml_consent_check PROPERTIES
+        ENVIRONMENT "QT_ASSUME_STDERR_HAS_CONSOLE=1"
+    )
+
     # All QML gates above run under QT_QPA_PLATFORM=offscreen so they stay
     # headless-safe. Offscreen, however, does NOT use the shipped font
     # metrics: measured on the same binary, a line of text is 12px offscreen
@@ -1451,4 +1541,35 @@ if(BUILD_TESTING)
     set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_manual_import_check qml_manual_import_check_windows qml_consent_check qml_consent_check_windows qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign;String.arg..: Invalid arguments"
     )
+endif()
+# ---------------------------------------------------------------------------
+# M12-C C2 SESSION P-R1 (T027 §77) -- deterministic Windows test runtime.
+#
+# A Windows test process resolves its runtime DLLs from PATH, and an ambient
+# developer PATH can resolve libstdc++-6.dll / libgcc_s_seh-1.dll /
+# libwinpthread-1.dll from a FOREIGN MinGW toolchain before the configured kit
+# (measured: a 2018-era libstdc++-6.dll that does not export the
+# _ZSt28__throw_bad_array_new_lengthv entry point the tests require, which made
+# every CTest test fail with 0xc0000139 STATUS_ENTRYPOINT_NOT_FOUND). CTest
+# therefore owns runtime identity: the runtime directories DERIVED from this
+# build's configure-time truth are PREPENDED, so they always win, while the
+# inherited PATH remains afterwards for non-runtime tools.
+#
+#   Qt runtime bin   <- Qt6_DIR reported by find_package(Qt6)
+#   MinGW runtime bin <- parent directory of CMAKE_CXX_COMPILER
+#
+# No machine-specific absolute path is recorded in this file, and ambient PATH
+# is never searched to decide runtime identity.
+# ---------------------------------------------------------------------------
+if(WIN32)
+    get_filename_component(MODBUSLENS_QT_RUNTIME_PREFIX "${Qt6_DIR}/../../.." ABSOLUTE)
+    set(MODBUSLENS_QT_RUNTIME_BIN "${MODBUSLENS_QT_RUNTIME_PREFIX}/bin")
+    get_filename_component(MODBUSLENS_MINGW_RUNTIME_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+
+    get_property(MODBUSLENS_ALL_TESTS DIRECTORY PROPERTY TESTS)
+    if(MODBUSLENS_ALL_TESTS)
+        set_tests_properties(${MODBUSLENS_ALL_TESTS} PROPERTIES
+            ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:${MODBUSLENS_MINGW_RUNTIME_BIN};PATH=path_list_prepend:${MODBUSLENS_QT_RUNTIME_BIN}")
+    endif()
 endif()

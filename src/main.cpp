@@ -38,6 +38,7 @@
 #include "core/manual/ManualDocument.h"
 #include "ui/profile/ProfileStore.h"
 #include "ui/manual/ManualStore.h"
+#include "ui/candidate/ModelScopeCandidateRunner.h"
 
 #include <zip.h>
 
@@ -14338,6 +14339,7 @@ using modbuslens::core::RegisterDecodeType;
 using modbuslens::core::RegisterEntry;
 using modbuslens::ui::ProfileStore;
 using modbuslens::ui::ManualStore;
+using modbuslens::ui::ModelScopeCandidateRunner;
 
 // M12-B first slice `--qml-profile-editor-check`: an automated end-to-end
 // gate for the Device Profile workspace (rail index 5). It drives the REAL
@@ -16300,6 +16302,19 @@ int runActiveProfileCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 // ---------------------------------------------------------------------------
 int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 {
+    // SESSION P-R1C regression protection (T027 §78): this harness drives the
+    // REAL consent gate with REAL clicks, and Agree is allowed to advance the
+    // orchestration. If an ambient credential ever reaches a harness process
+    // again, that advance would be a REAL provider dispatch with the Human's
+    // real token. Fail loudly BEFORE any step instead of ever risking it; the
+    // credential seam read here is the exact one the production runner reads.
+    if (ModelScopeCandidateRunner::hasConfiguredCredential()) {
+        qWarning().noquote()
+            << QStringLiteral("CONSENTFAIL: harness credential contract "
+                              "violated — a MODELSCOPE_API_KEY value is visible "
+                              "to a deterministic gate; refusing to run");
+        return 1;
+    }
     const auto roots = engine.rootObjects();
     QObject *rootObj = roots.value(0);
     auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
@@ -18115,6 +18130,26 @@ int main(int argc, char *argv[])
         ":/ModbusLens/assets/brand/windows/ModbusLens.ico")));
     // M9-E E1: the frozen product name as the user-visible display name.
     QGuiApplication::setApplicationDisplayName(QStringLiteral("ModbusLens"));
+
+    // M12-C C2 SESSION P-R1C (T027 §78): every --qml-* process is a
+    // DETERMINISTIC harness, never a live-cloud client. The production
+    // credential seam is the ambient process environment, and the Human may
+    // legitimately have MODELSCOPE_API_KEY set user-wide for live use. Left in
+    // place, a harness that drives the consent gate (runConsentCheck R05/R07)
+    // degrades into a REAL provider dispatch with the real token — the exact
+    // fresh-tree defect this session fixes. Harness runs therefore declare
+    // their own configuration truth: the ambient credential and model override
+    // are removed before any controller exists, so every fail-closed gate sees
+    // "no credential" exactly as the deterministic contracts assume. A
+    // production run (no --qml- argument) keeps the ambient environment
+    // untouched — live inference stays Human-gated in the product UI.
+    for (const auto &argument : app.arguments()) {
+        if (argument.startsWith(QStringLiteral("--qml-"))) {
+            qunsetenv("MODELSCOPE_API_KEY");
+            qunsetenv("MODBUSLENS_MODELSCOPE_MODEL");
+            break;
+        }
+    }
 
     // M10-E4 REAL-HARDWARE diagnostic (not a product feature, never reachable
     // from the UI): measure what the OS/Qt actually do when a USB serial
