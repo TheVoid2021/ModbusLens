@@ -6638,6 +6638,23 @@ REAL MODBUS HARDWARE = NOT VERIFIED · **verified LKGC = `19f9738…`（UNCHANGE
 剩余 SESSION P 授权内未完项（待后续会话）：Human live ModelScope gate 准备（G）
 与 Human 对 C2 的 functional/visual 验收。
 
+### 78.6 环境观察（记录在案 · 未修复 · 不阻塞 · 不复用该树）
+
+```text
+对 build/acceptance/session-p-r1b-release/（WorkBuddy 2026-09-30 的 fresh 树）
+重新执行 configure（无论 --regenerate-during-build 还是普通 -S/-B）⇒
+cmake.exe 进程以 0xC0000409（UCRT fail-fast/abort）硬中止，stdout/stderr 零输出，
+build.ninja 不被改写。实测隔离：
+  · 同一 cmake.exe --version 正常；
+  · 同一源树 configure 到全新目录（scratch / session-p-r1c-release）完全正常
+    （RC 0，Generating done）⇒ 非 CMakeLists / 非 preset / 非 cmake 本体缺陷；
+  · 干净最小环境仍复现 ⇒ 非 ambient 环境注入。
+结论：abort 与该树既有 cache/CMakeFiles 状态相关；精确机制 UNKNOWN
+（与 §77.3 RCA-C 同属"旧树状态、机制未知、不修复不复用"类别）。
+处置：P-R1C 验证全部改在新建 fresh tree（78.4）完成；
+build/acceptance/session-p-r1b-release/ 保留为 14:53 失败证据，不再复用。
+```
+
 **本节动作边界**：SESSION P-R1C 范围 = §77 授权 A/B/C（deterministic acceptance
 repair）内的 RCA + harness 修复 + 验证。**未**执行真实 inference（修复后的
 deterministic gate 结构上不可能再调度）· 未读取/打印 Human token 值 ·
