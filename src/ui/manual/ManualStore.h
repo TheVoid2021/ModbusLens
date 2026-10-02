@@ -4,6 +4,7 @@
 #include <QString>
 #include <QUrl>
 
+#include <functional>
 #include <vector>
 
 #include "core/manual/ManualDocument.h"
@@ -102,6 +103,48 @@ public:
     // presentation-only and are NEVER part of this data.
     [[nodiscard]] static QStringList loadPdfPages(const QString &contentHash,
                                                   bool *ok = nullptr);
+
+    // ------------------------------------------------------------------
+    // M12-C ML-2 (T027 §91, P0-ML-D/F): authoritative DELETE of one manual
+    // library record. The metadata record documents/<documentId>.json is the
+    // library-record VISIBILITY point: when its removal fails the record
+    // stays and nothing else is touched (no GC, no fake success). After a
+    // successful removal the managed artifacts of the deleted content
+    // identity are cleaned ONLY when no remaining document still references
+    // the same contentHash (shared artifacts MUST survive), using the
+    // document's own type for the cache artifact path. Missing artifacts are
+    // already clean; the Human's ORIGINAL external file is never touched by
+    // this class at all. This type knows nothing about Candidates,
+    // extractions, QML or profiles - policy lives above.
+    // ------------------------------------------------------------------
+    enum class ManualDeleteOutcome {
+        Success,                   // token: manual_delete_success
+        SuccessWithCleanupWarning, // token: manual_delete_cleanup_warning
+        FailureDocumentNotFound,   // token: manual_delete_not_found
+        FailureMetadataRemove,     // token: manual_delete_metadata_failed
+    };
+
+    struct ManualDeleteResult {
+        ManualDeleteOutcome outcome{ManualDeleteOutcome::Success};
+        [[nodiscard]] bool ok() const
+        {
+            return outcome == ManualDeleteOutcome::Success
+                || outcome == ManualDeleteOutcome::SuccessWithCleanupWarning;
+        }
+        bool operator==(const ManualDeleteResult &) const = default;
+    };
+
+    [[nodiscard]] static ManualDeleteResult deleteDocument(
+        const QString &documentId);
+
+    // TEST/AUTOMATION seam (same discipline as setManagedRootOverride):
+    // when set, every file removal performed by deleteDocument routes
+    // through this predicate instead of QFile::remove, so automated tests
+    // can force deterministic metadata/GC failures without touching real
+    // directories or permissions. Empty (the default) restores direct
+    // QFile::remove behavior. No generalized filesystem abstraction.
+    using RemoveInterposer = std::function<bool(const QString &path)>;
+    static void setRemoveInterposerForAutomation(RemoveInterposer interposer);
 
 private:
     [[nodiscard]] static QByteArray serializeMetadata(

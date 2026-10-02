@@ -53,6 +53,13 @@ class CandidateExtractionController : public QObject
     Q_PROPERTY(QString lastReviewError READ lastReviewError NOTIFY reviewChanged)
     Q_PROPERTY(QString lastReviewErrorToken READ lastReviewErrorToken NOTIFY
                    reviewChanged)
+    // M12-C ML-2 (T027 §91): Human-visible surface of the LAST delete
+    // request - either a P0-ML-B/C blocker (the delete did NOT happen) or a
+    // P0-ML-D/F outcome (success / cleanup warning). Empty while none.
+    Q_PROPERTY(QString lastDeleteNotice READ lastDeleteNotice NOTIFY
+                   deleteNoticeChanged)
+    Q_PROPERTY(QString lastDeleteNoticeToken READ lastDeleteNoticeToken NOTIFY
+                   deleteNoticeChanged)
     // Machine tokens for the UI. Wording is a UI detail; the token set is the
     // contract: idle | consent_required | running | failed | succeeded
     Q_PROPERTY(QString stateToken READ stateToken NOTIFY stateChanged)
@@ -92,6 +99,12 @@ public:
     [[nodiscard]] QString lastReviewErrorToken() const
     {
         return lastReviewErrorToken_;
+    }
+
+    [[nodiscard]] QString lastDeleteNotice() const { return lastDeleteNotice_; }
+    [[nodiscard]] QString lastDeleteNoticeToken() const
+    {
+        return lastDeleteNoticeToken_;
     }
 
     [[nodiscard]] QString stateToken() const;
@@ -134,6 +147,19 @@ public:
     Q_INVOKABLE bool acceptCandidate(const QVariantMap &candidate);
     Q_INVOKABLE bool rejectCandidate(const QVariantMap &candidate);
 
+    // ------------------------------------------------------------------
+    // M12-C ML-2 (T027 §91): the ONE authoritative application-level Manual
+    // delete path. checkManualDeleteAllowed runs the frozen P0-ML-B/C guards
+    // as a pure read (no mutation) so the UI can show a blocker BEFORE any
+    // destructive confirmation; deleteManualDocument RE-RUNS the same guards
+    // (an enabled button is never the authority), then dispatches the delete
+    // through the wired Manual controller and reports the P0-ML-D/F outcome.
+    // The result map is { ok: bool, token: QString, text: QString }.
+    // ------------------------------------------------------------------
+    Q_INVOKABLE QVariantMap checkManualDeleteAllowed(
+        const QVariantMap &document);
+    Q_INVOKABLE QVariantMap deleteManualDocument(const QVariantMap &document);
+
     // TEST/AUTOMATION seam (same discipline as
     // ProfileStore::setManagedRootOverride): installs proposals as PendingReview
     // Candidates through the REAL deterministic C2 validator, without any
@@ -161,11 +187,23 @@ signals:
     void manualControllerChanged();
     void profileControllerChanged();
     void reviewChanged();
+    void deleteNoticeChanged();
 
 private:
     enum class State { Idle, ConsentRequired, Running, Failed, Succeeded };
 
     // Stable machine tokens of the review surface (C3-H2/H3/H4/H5/H6).
+    // ML-2 delete tokens (P0-ML-B/C blockers and P0-ML-D/F outcomes).
+    static constexpr char kDeleteBlockedPending[] =
+        "manual_delete_blocked_pending";
+    static constexpr char kDeleteBlockedRunning[] =
+        "manual_delete_blocked_running";
+    static constexpr char kDeleteNotAvailable[] = "manual_delete_unavailable";
+    static constexpr char kDeleteNotFound[] = "manual_delete_not_found";
+    static constexpr char kDeleteMetadataFailed[] =
+        "manual_delete_metadata_failed";
+    static constexpr char kDeleteCleanupWarning[] =
+        "manual_delete_cleanup_warning";
     static constexpr char kReviewCandidateNotPending[] = "candidate_not_pending";
     static constexpr char kReviewProfileTargetMissing[] = "profile_target_missing";
     static constexpr char kReviewEvidenceDocumentMissing[] =
@@ -202,6 +240,13 @@ private:
         const core::ProfileFieldCandidate &candidate);
     void setReviewError(QString token, QString text);
     void clearReviewError();
+    // ML-2 (T027 §91): the frozen P0-ML-B/C guards as a pure read. An empty
+    // map means allowed; otherwise it carries { allowed:false, token, text }.
+    [[nodiscard]] QVariantMap deleteBlockerFor(const QString &documentId) const;
+    void setDeleteNotice(QString token, QString text);
+    void clearDeleteNotice();
+    [[nodiscard]] static QVariantMap deleteResult(bool ok, const QString &token,
+                                                  const QString &text);
     // Moves a Candidate out of the pending set into its session-only consumed
     // list (C3-H5/H6) and refreshes the UI projection.
     void consumeCandidate(core::ProfileFieldCandidate &pending,
@@ -225,6 +270,11 @@ private:
     std::vector<core::ProfileFieldCandidate> consumedRejected_;
     QString lastReviewError_;
     QString lastReviewErrorToken_;
+
+    // ML-2 delete notice (P0-ML-B/C blockers and P0-ML-D/F outcomes) -
+    // session-only, like every other surface on this controller.
+    QString lastDeleteNotice_;
+    QString lastDeleteNoticeToken_;
 
     std::uint64_t generation_{0};
     Attempt activeAttempt_;

@@ -14,6 +14,9 @@
 
 #include "ui/manual/ManualDocxTextExtractor.h"
 #include "ui/manual/ManualPdfTextExtractor.h"
+
+#include <algorithm>
+#include <utility>
 #include "ui/manual/ManualTextExtraction.h"
 
 namespace modbuslens::ui {
@@ -88,6 +91,95 @@ QString ManualStore::sourceDirectory()
 QString ManualStore::textDirectory()
 {
     return QDir(managedManualsDirectory()).filePath(QStringLiteral("text"));
+}
+
+// ML-2 test/automation interposer storage (T027 §91). File-scope on purpose:
+// the production default is direct QFile::remove and nothing else in this
+// class may widen the seam.
+namespace {
+ManualStore::RemoveInterposer m_removeInterposer{};
+
+[[nodiscard]] bool removePathForDelete(const QString &path)
+{
+    if (m_removeInterposer) {
+        return m_removeInterposer(path);
+    }
+    return QFile::remove(path);
+}
+} // namespace
+
+void ManualStore::setRemoveInterposerForAutomation(RemoveInterposer interposer)
+{
+    m_removeInterposer = std::move(interposer);
+}
+
+ManualStore::ManualDeleteResult ManualStore::deleteDocument(
+    const QString &documentId)
+{
+    using namespace modbuslens::core;
+
+    // 1. resolve the target through the authoritative load path.
+    const std::vector<ManualDocument> documents = loadAll();
+    const auto record = std::find_if(
+        documents.begin(), documents.end(),
+        [&](const ManualDocument &d) {
+            return d.documentId == documentId.toStdString();
+        });
+    if (record == documents.end()) {
+        return {ManualDeleteOutcome::FailureDocumentNotFound};
+    }
+    const ManualDocument target = *record;
+
+    // 2. P0-ML-D: the metadata record is the authoritative visibility point.
+    //    If its removal fails, the record stays and NOTHING else runs.
+    const QString metadataPath =
+        QDir(documentsDirectory())
+            .filePath(QString::fromStdString(target.documentId)
+                      + QStringLiteral(".json"));
+    if (!removePathForDelete(metadataPath)) {
+        return {ManualDeleteOutcome::FailureMetadataRemove};
+    }
+
+    // 3. P0-ML-F: shared-content reference protection. The managed copy and
+    //    the text cache are keyed by contentHash and MAY be shared by other
+    //    records (§60.3); they survive while anything still references them.
+    const std::vector<ManualDocument> remaining = loadAll();
+    const bool stillReferenced = std::any_of(
+        remaining.begin(), remaining.end(), [&](const ManualDocument &d) {
+            return d.contentHash == target.contentHash;
+        });
+    if (stillReferenced) {
+        return {ManualDeleteOutcome::Success};
+    }
+
+    // 4. P0-ML-F: unreferenced managed-artifact cleanup. The cache artifact
+    //    extension follows the document's OWN type (PDF pages live in .json,
+    //    everything else in .txt) - never a filename guess. Missing
+    //    artifacts are already clean. The Human's original external file is
+    //    never part of the managed layout and is never touched here.
+    const bool isPdf = target.documentType == ManualDocumentType::Pdf;
+    const QString cachePath =
+        QDir(textDirectory())
+            .filePath(QString::fromStdString(target.contentHash)
+                      + (isPdf ? QStringLiteral(".json")
+                               : QStringLiteral(".txt")));
+    const QString managedCopyPath =
+        QDir(sourceDirectory())
+            .filePath(QString::fromStdString(target.contentHash)
+                      + QStringLiteral(".bin"));
+    bool cleanupOk = true;
+    if (QFileInfo::exists(cachePath) && !removePathForDelete(cachePath)) {
+        cleanupOk = false;
+    }
+    if (QFileInfo::exists(managedCopyPath)
+        && !removePathForDelete(managedCopyPath)) {
+        cleanupOk = false;
+    }
+    // P0-ML-F: the record stays deleted even when the cleanup fails - the
+    // caller surfaces SUCCESS_WITH_CLEANUP_WARNING, never a fake full
+    // success and never a rollback that recreates the metadata.
+    return {cleanupOk ? ManualDeleteOutcome::Success
+                      : ManualDeleteOutcome::SuccessWithCleanupWarning};
 }
 
 bool ManualStore::writeFileAtomic(const QString &path, const QByteArray &bytes)

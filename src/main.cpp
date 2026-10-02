@@ -17490,6 +17490,7 @@ int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (collectRows(QStringLiteral("manualDocumentRow")).size() != 2)
             fail(QStringLiteral("stage 3: the document list changed"));
         note(QStringLiteral("stage 3: unsupported extension refused, list unchanged"));
+    });
 
     // Stage 3b: a PDF WITH an existing text layer imports successfully; the
     // preview is the deterministic extracted text under a page header, and
@@ -17600,7 +17601,6 @@ int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (!preview().contains(QStringLiteral("page two")))
             fail(QStringLiteral("stage 3f: page 2 text missing"));
         note(QStringLiteral("stage 3f: two-page presentation verified"));
-    });
     });
 
     // Stage 4: no AI / Candidate / Q&A / credential control exists anywhere in
@@ -17730,6 +17730,92 @@ int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                  .arg(preview != nullptr ? preview->height() : -1.0, 0, 'f', 1));
     });
 
+    // ML2 delete stages (T027 §91): the REAL manual delete path driven
+    // through the REAL row button, confirmation dialog and authoritative
+    // command - using the injected temporary managed root only. The library
+    // already holds several imported manuals at this point, so every
+    // assertion is RELATIVE to the count measured right before the click.
+    auto ml2CountBefore = std::make_shared<int>(-1);
+    push([&]() {
+        // Select row 0 so the delete exercises the P0-ML-A clear path.
+        selectDocument(0);
+        if (manual->property("selectedIndex").toInt() != 0) {
+            fail(QStringLiteral("ML2: cannot select a manual for deletion"));
+            return;
+        }
+        *ml2CountBefore = docCount();
+        if (*ml2CountBefore <= 0) {
+            fail(QStringLiteral("ML2: no imported manual to delete"));
+            return;
+        }
+        if (!clickNamed(QStringLiteral("manualDeleteButton_0"))) {
+            fail(QStringLiteral("ML2: the delete button is not clickable"));
+            return;
+        }
+        if (!visibleOf(QStringLiteral("manualDeleteConfirmDialog"))) {
+            fail(QStringLiteral("ML2: the delete confirmation did not open"));
+            return;
+        }
+        auto *confirmText = itemOf(QStringLiteral("manualDeleteConfirmText"));
+        const QString text =
+            confirmText ? confirmText->property("text").toString() : QString();
+        if (!text.contains(QStringLiteral("不会删除电脑上的原始文件"))
+            || !text.contains(QStringLiteral("ModbusLens"))) {
+            fail(QStringLiteral("ML2: the confirmation does not state the "
+                                "managed-copy / original-file boundary"));
+        }
+    });
+    push([&]() {
+        // ML2-03: Cancel performs zero mutation (library + selection).
+        const int selectedBefore = manual->property("selectedIndex").toInt();
+        if (!clickNamed(QStringLiteral("manualDeleteCancelButton"))) {
+            fail(QStringLiteral("ML2: the delete Cancel is not clickable"));
+            return;
+        }
+        if (visibleOf(QStringLiteral("manualDeleteConfirmDialog")))
+            fail(QStringLiteral("ML2: the delete dialog stayed open after "
+                                "Cancel"));
+        if (docCount() != *ml2CountBefore)
+            fail(QStringLiteral("ML2: Cancel changed the manual library"));
+        if (manual->property("selectedIndex").toInt() != selectedBefore)
+            fail(QStringLiteral("ML2: Cancel changed the selection"));
+    });
+    push([&]() {
+        // ML2-04/05/06/07: Confirm deletes exactly that record, clears the
+        // selection and preview, and disables extraction until a new
+        // explicit selection.
+        if (!clickNamed(QStringLiteral("manualDeleteButton_0"))) {
+            fail(QStringLiteral("ML2: the delete button is not clickable "
+                                "(confirm pass)"));
+            return;
+        }
+        if (!clickNamed(QStringLiteral("manualDeleteConfirmButton"))) {
+            fail(QStringLiteral("ML2: the delete Confirm is not clickable"));
+            return;
+        }
+        if (visibleOf(QStringLiteral("manualDeleteConfirmDialog")))
+            fail(QStringLiteral("ML2: the delete dialog stayed open after "
+                                "Confirm"));
+        if (docCount() != *ml2CountBefore - 1)
+            fail(QStringLiteral("ML2: Confirm did not remove exactly one "
+                                "manual (before=%1 after=%2)")
+                     .arg(*ml2CountBefore)
+                     .arg(docCount()));
+        if (manual->property("selectedIndex").toInt() != -1)
+            fail(QStringLiteral("ML2: Confirm left a stale selection"));
+        auto *previewText = itemOf(QStringLiteral("manualPreviewText"));
+        if (previewText && !previewText->property("text").toString().isEmpty())
+            fail(QStringLiteral("ML2: the preview survived deletion"));
+        // ML2-07 structural: the extraction trigger is bound to
+        // selectedIndex >= 0, which is now -1.
+        auto *extract = itemOf(QStringLiteral("candidateExtractButton"));
+        if (extract && extract->property("enabled").toBool())
+            fail(QStringLiteral("ML2: AI extraction still enabled without a "
+                                "selected manual"));
+        note(QStringLiteral("ML2: delete confirmation + Cancel zero-mutation + "
+                            "confirm delete verified on the real path"));
+    });
+
     const int settleMs = 60;
     auto step = std::make_shared<int>(0);
     auto schedule = std::make_shared<std::function<void()>>();
@@ -17750,7 +17836,9 @@ int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                 "never visible; Markdown stays plain source "
                                 "text; PDF refused as C1b; no AI/Candidate/"
                                 "Q&A/credential control; profile state "
-                                "untouched; 1000x700 reachable"));
+                                "untouched; 1000x700 reachable; ML2 delete "
+                                "confirmation shows original-file safety and "
+                                "Cancel/Confirm behave per P0-ML-A/D"));
             app.exit(0);
             return;
         }

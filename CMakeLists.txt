@@ -955,6 +955,62 @@ if(BUILD_TESTING)
              COMMAND modbuslens_candidate_review_tests)
 
     # ---------------------------------------------------------------------------
+    # M12-C ML-2 (Manual Library maintenance, T027 §91): DELETE of one selected
+    # Manual under the frozen P0-ML-A/B/C/D/F/G/H policies - guards, confirmation
+    # semantics, authoritative metadata removal, shared-content protection and
+    # unreferenced managed-artifact GC. The suite drives the ONE authoritative
+    # delete path through the Qt meta-object, exactly like the QML boundary.
+    add_executable(modbuslens_manual_delete_tests
+        tests/test_manual_delete.cpp
+        src/ui/ai/ModelScopeCandidateAdapter.h
+        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/candidate/CandidateExtractionRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateExtractionController.h
+        src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/candidate/ModelScopeHttpClient.h
+        src/ui/candidate/ModelScopeHttpClient.cpp
+        src/ui/candidate/ModelScopeExtractionTransport.h
+        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/manual/ManualStore.h
+        src/ui/manual/ManualStore.cpp
+        src/ui/manual/ManualImportController.h
+        src/ui/manual/ManualImportController.cpp
+        src/ui/manual/ManualTextExtraction.h
+        src/ui/manual/ManualTextExtraction.cpp
+        src/ui/manual/ManualPdfTextExtractor.h
+        src/ui/manual/ManualPdfTextExtractor.cpp
+        src/ui/manual/ManualDocxTextExtractor.h
+        src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_include_directories(modbuslens_manual_delete_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    # Qt6::Network mirrors the orchestration target: the controller constructs
+    # the PRODUCTION runner by default; this suite injects a hanging/counting
+    # fake and proves delete actions never dispatch anything.
+    target_link_libraries(modbuslens_manual_delete_tests PRIVATE
+        modbuslens_core Qt6::Core Qt6::Test Qt6::Network modbuslens_pdfium
+        modbuslens_libzip modbuslens_zlib)
+    add_custom_command(TARGET modbuslens_manual_delete_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MODBUSLENS_C1B_PDFIUM_DLL}"
+                "$<TARGET_FILE_DIR:modbuslens_manual_delete_tests>/pdfium.dll"
+        COMMENT "Staging the pinned pdfium.dll next to the ML-2 delete tests")
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_manual_delete_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME manual_delete
+             COMMAND modbuslens_manual_delete_tests)
+
+    # ---------------------------------------------------------------------------
     # M12-C C2 SESSION P-R1 (T027 §77): the configuration contract is defined by
     # the SOURCE, not by a stale cache. commit fb2170e declared this option with
     # an ON default and commit c36eb18 removed the declaration while keeping the

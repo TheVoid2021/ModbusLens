@@ -82,6 +82,18 @@ public:
     // pageNumber is ALWAYS -1 for TXT / Markdown (never fabricated).
     Q_INVOKABLE QVariantMap evidenceReferenceAt(int start, int end) const;
 
+    // ------------------------------------------------------------------
+    // M12-C ML-2 (T027 §91): delete ONE manual library record by documentId
+    // through the authoritative ManualStore path, then reload and re-resolve
+    // the selection BY IDENTITY. When the deleted record was the selected
+    // one, the selection/preview are cleared (P0-ML-A) - the selection can
+    // never silently point at a different row. Returns the store result so
+    // the caller (the delete orchestrator) can surface failure/warning
+    // semantics. This method knows nothing about Candidates or extractions.
+    // ------------------------------------------------------------------
+    [[nodiscard]] ManualStore::ManualDeleteResult
+    deleteDocumentById(const QString &documentId);
+
 signals:
     void documentsChanged();
     void selectionChanged();

@@ -40,6 +40,35 @@ Item {
         profileController.refreshCatalog()
     }
 
+    // M12-C ML-2 (T027 §91): Manual delete orchestration state. The guards
+    // live on the candidate controller; this page only renders their verdict
+    // and holds the pending target for the confirmation dialog.
+    property string lastDeleteNotice: ""
+    property string lastDeleteNoticeToken: ""
+    property var pendingManualDelete: null
+
+    function requestManualDelete(document) {
+        const check = candidateController.checkManualDeleteAllowed(document)
+        if (!check.allowed) {
+            lastDeleteNotice = check.text
+            lastDeleteNoticeToken = check.token
+            return
+        }
+        pendingManualDelete = document
+        manualDeleteConfirmDialog.open()
+    }
+
+    function confirmManualDelete() {
+        if (!pendingManualDelete) {
+            return
+        }
+        const result = candidateController.deleteManualDocument(
+            pendingManualDelete)
+        lastDeleteNotice = result.text
+        lastDeleteNoticeToken = result.token
+        pendingManualDelete = null
+    }
+
     // Three-way dirty resolution (Save / Discard / Cancel) before any action
     // that would abandon the current draft. pendingAction carries what to run
     // after the resolution.
@@ -800,6 +829,20 @@ Item {
             elide: Text.ElideRight
         }
 
+        // M12-C ML-2 (T027 §91): Human-visible delete blockers (P0-ML-B/C)
+        // and outcomes (P0-ML-D/F cleanup warning). Empty while none.
+        Label {
+            objectName: "manualDeleteNotice"
+            visible: deviceProfileRoot.lastDeleteNoticeToken !== ""
+            text: deviceProfileRoot.lastDeleteNotice
+            wrapMode: Text.Wrap
+            font.pixelSize: DS.fontCaption
+            color: deviceProfileRoot.lastDeleteNoticeToken
+                       === "manual_delete_cleanup_warning"
+                   ? DS.pending : DS.error
+            Layout.fillWidth: true
+        }
+
         RowLayout {
             objectName: "manualImportBody"
             spacing: DS.spacingS
@@ -873,6 +916,20 @@ Item {
                                     color: DS.textSecondary
                                     font.pixelSize: DS.fontCaption
                                     Layout.fillWidth: true
+                                }
+                                // M12-C ML-2 (T027 §91): the standing
+                                // delete request. The guards run on click
+                                // (the authoritative command re-checks them
+                                // again); this button is never the safety.
+                                AppButton {
+                                    objectName: "manualDeleteButton_"
+                                                + index
+                                    Layout.fillWidth: true
+                                    Accessible.name: qsTr("删除该说明书")
+                                    text: qsTr("删除")
+                                    onClicked:
+                                        deviceProfileRoot.requestManualDelete(
+                                            manualRow.rowData)
                                 }
                             }
                         }
@@ -1136,6 +1193,61 @@ Item {
             }
         }
     }
+    }
+
+    // ---- Manual delete confirmation (M12-C ML-2, T027 §91) ----
+    // Same destructive-dialog convention as the profile delete dialog: modal,
+    // no auto-close, exact record name, and wording that makes the frozen
+    // managed-copy semantics explicit - the Human's ORIGINAL file is never
+    // touched. Cancel performs zero mutation; 删除 dispatches the ONE
+    // authoritative delete command (whose guards re-run at command time).
+    Dialog {
+        id: manualDeleteConfirmDialog
+        objectName: "manualDeleteConfirmDialog"
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        anchors.centerIn: parent
+        width: 380
+        title: qsTr("删除说明书")
+
+        ColumnLayout {
+            width: parent.width
+            Label {
+                objectName: "manualDeleteConfirmText"
+                text: deviceProfileRoot.pendingManualDelete
+                      ? qsTr("将从 ModbusLens 删除已导入的说明书副本「%1」。
+不会删除电脑上的原始文件。")
+                            .arg(deviceProfileRoot.pendingManualDelete
+                                     .originalFileName !== undefined
+                                 ? deviceProfileRoot.pendingManualDelete
+                                       .originalFileName
+                                 : qsTr("所选说明书"))
+                      : ""
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+        }
+        footer: DialogButtonBox {
+            AppButton {
+                objectName: "manualDeleteConfirmButton"
+                Accessible.name: qsTr("确认删除说明书")
+                text: qsTr("删除")
+                onClicked: {
+                    deviceProfileRoot.confirmManualDelete()
+                    manualDeleteConfirmDialog.close()
+                }
+            }
+            AppButton {
+                objectName: "manualDeleteCancelButton"
+                Accessible.name: qsTr("取消删除说明书")
+                text: qsTr("取消")
+                onClicked: {
+                    deviceProfileRoot.pendingManualDelete = null
+                    // Zero mutation: nothing was ever dispatched on Cancel.
+                    manualDeleteConfirmDialog.close()
+                }
+            }
+        }
     }
 
     // ---- cloud consent gate (M12-C C2 third slice, T027 §70) ----

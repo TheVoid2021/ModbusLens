@@ -311,4 +311,46 @@ QVariantMap ManualImportController::evidenceReferenceAt(int start,
     return map;
 }
 
+ManualStore::ManualDeleteResult
+ManualImportController::deleteDocumentById(const QString &documentId)
+{
+    // P0-ML-A preparation: remember WHICH record is selected by IDENTITY, so
+    // the post-delete reload can never leave the selection silently pointing
+    // at a different row when the list shrinks.
+    QString selectedId;
+    if (m_selectedIndex >= 0
+        && m_selectedIndex < static_cast<int>(m_documents.size())) {
+        selectedId = QString::fromStdString(
+            m_documents.at(static_cast<std::size_t>(m_selectedIndex))
+                .documentId);
+    }
+
+    // The ONE authoritative store-level deletion (P0-ML-D/F).
+    const ManualStore::ManualDeleteResult result =
+        ManualStore::deleteDocument(documentId);
+    if (result.outcome == ManualStore::ManualDeleteOutcome::FailureDocumentNotFound
+        || result.outcome
+            == ManualStore::ManualDeleteOutcome::FailureMetadataRemove) {
+        // Nothing changed: the library keeps its exact previous state.
+        return result;
+    }
+
+    // Authoritative reload + identity-preserving selection re-resolve.
+    m_documents = ManualStore::loadAll();
+    int newIndex = -1;
+    if (!selectedId.isEmpty()) {
+        for (std::size_t i = 0; i < m_documents.size(); ++i) {
+            if (m_documents.at(i).documentId == selectedId.toStdString()) {
+                newIndex = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+    m_selectedIndex = newIndex;
+    refreshPreview();
+    emit documentsChanged();
+    emit selectionChanged();
+    return result;
+}
+
 } // namespace modbuslens::ui

@@ -90,6 +90,131 @@ void CandidateExtractionController::setReviewError(QString token, QString text)
     emit reviewChanged();
 }
 
+void CandidateExtractionController::setDeleteNotice(QString token,
+                                                    QString text)
+{
+    lastDeleteNoticeToken_ = std::move(token);
+    lastDeleteNotice_ = std::move(text);
+    emit deleteNoticeChanged();
+}
+
+void CandidateExtractionController::clearDeleteNotice()
+{
+    if (lastDeleteNoticeToken_.isEmpty() && lastDeleteNotice_.isEmpty()) {
+        return;
+    }
+    lastDeleteNoticeToken_.clear();
+    lastDeleteNotice_.clear();
+    emit deleteNoticeChanged();
+}
+
+QVariantMap CandidateExtractionController::deleteResult(bool ok,
+                                                        const QString &token,
+                                                        const QString &text)
+{
+    QVariantMap map;
+    map.insert(QStringLiteral("ok"), ok);
+    // The pre-confirmation CHECK reads `allowed`; the delete command reads
+    // `ok`. Both mean "the guard chain let this request through".
+    map.insert(QStringLiteral("allowed"), ok);
+    map.insert(QStringLiteral("token"), token);
+    map.insert(QStringLiteral("text"), text);
+    return map;
+}
+
+QVariantMap CandidateExtractionController::deleteBlockerFor(
+    const QString &documentId) const
+{
+    // P0-ML-C: a RUNNING extraction for THIS document blocks deletion first
+    // (frozen product policy even though the canonical text is captured
+    // in-memory - the Human must resolve the attempt before deleting).
+    if (state_ == State::Running
+        && activeAttempt_.documentId == documentId.toStdString()) {
+        return deleteResult(
+            false, QString::fromLatin1(kDeleteBlockedRunning),
+            tr("该说明书正在进行 AI 提取，请等待提取完成后再删除。"));
+    }
+    // P0-ML-B: any PendingReview Candidate referencing this document blocks.
+    // Consumed (Accepted/Rejected) Candidates are in their own session lists
+    // and can never block (ML2-20).
+    for (const core::ProfileFieldCandidate &candidate : candidates_) {
+        if (candidate.evidence.documentId == documentId.toStdString()) {
+            return deleteResult(
+                false, QString::fromLatin1(kDeleteBlockedPending),
+                tr("该说明书仍有待审核 AI 候选，请先接受或拒绝候选，"
+                   "再删除说明书。"));
+        }
+    }
+    return {};
+}
+
+QVariantMap CandidateExtractionController::checkManualDeleteAllowed(
+    const QVariantMap &document)
+{
+    // Pure read: the frozen guards with ZERO mutation, so the UI can show a
+    // blocker BEFORE opening any destructive confirmation (P0-ML-B/C). An
+    // empty blocker set yields the explicit allowed envelope.
+    const QVariantMap blocker = deleteBlockerFor(
+        document.value(QStringLiteral("documentId")).toString());
+    if (blocker.isEmpty()) {
+        return deleteResult(true, QString(), QString());
+    }
+    return blocker;
+}
+
+QVariantMap CandidateExtractionController::deleteManualDocument(
+    const QVariantMap &document)
+{
+    // ML-2 (T027 §91): the ONE authoritative application-level delete path.
+    // The guards are RE-RUN here - an enabled button is never the authority -
+    // and the store-level deletion carries its own P0-ML-D/F semantics.
+    const QString documentId =
+        document.value(QStringLiteral("documentId")).toString();
+
+    const QVariantMap blocker = deleteBlockerFor(documentId);
+    if (!blocker.isEmpty()) {
+        setDeleteNotice(blocker.value("token").toString(),
+                        blocker.value("text").toString());
+        return blocker;
+    }
+
+    if (manualController_ == nullptr) {
+        setDeleteNotice(QString::fromLatin1(kDeleteNotAvailable),
+                        tr("说明书控制器不可用。"));
+        return deleteResult(false, QString::fromLatin1(kDeleteNotAvailable),
+                            tr("说明书控制器不可用。"));
+    }
+
+    const auto result = manualController_->deleteDocumentById(documentId);
+    switch (result.outcome) {
+    case ManualStore::ManualDeleteOutcome::Success: {
+        clearDeleteNotice();
+        return deleteResult(true, QStringLiteral("manual_delete_success"),
+                            QString());
+    }
+    case ManualStore::ManualDeleteOutcome::SuccessWithCleanupWarning: {
+        // P0-ML-F: the record is deleted; never claim full cleanup success.
+        setDeleteNotice(QString::fromLatin1(kDeleteCleanupWarning),
+                        tr("说明书已从 ModbusLens 移除，但本地缓存清理失败。"));
+        return deleteResult(
+            true, QString::fromLatin1(kDeleteCleanupWarning),
+            tr("说明书已从 ModbusLens 移除，但本地缓存清理失败。"));
+    }
+    case ManualStore::ManualDeleteOutcome::FailureDocumentNotFound: {
+        setDeleteNotice(QString::fromLatin1(kDeleteNotFound),
+                        tr("该说明书不存在或已被删除。"));
+        return deleteResult(false, QString::fromLatin1(kDeleteNotFound),
+                            tr("该说明书不存在或已被删除。"));
+    }
+    case ManualStore::ManualDeleteOutcome::FailureMetadataRemove:
+        break;
+    }
+    setDeleteNotice(QString::fromLatin1(kDeleteMetadataFailed),
+                    tr("删除说明书失败，请重试。"));
+    return deleteResult(false, QString::fromLatin1(kDeleteMetadataFailed),
+                        tr("删除说明书失败，请重试。"));
+}
+
 void CandidateExtractionController::clearReviewError()
 {
     if (lastReviewErrorToken_.isEmpty() && lastReviewError_.isEmpty()) {
