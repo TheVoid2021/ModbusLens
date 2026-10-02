@@ -1,7 +1,35 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · M12-C C3 — ACCEPTANCE EVIDENCE ADDENDUM + POST-COMMIT RATIFICATION（Session C3-R2A · 以本块为准）〕**
+**〔2026-10-02 追加批注 · M12-C C3 — STANDING DISCARD ACTION EXPOSED（Session C3-R2B · 以本块为准）〕**
+档案 = **T027 §84**。**实现**（2 files / +69 −1）：Device Profile 工作区动作行
+（Save 与 Delete 之间）新增 `profileDiscardButton`「放弃修改」——把**既有**权威
+`discardCurrentChanges()` workflow 暴露为常驻 Human 动作；`enabled = dirty &&
+hasOpenProfile`（沿用现有 enabled 风格）；点击只调该 workflow（整 draft 恢复
+persisted 基线、不 Save、不触 Candidate lifecycle、consumed Candidate 不复活、
+无第二套 rollback、QML 不触 JSON/ProfileStore）。**验证**：`qml_profile_editor_check`
+新增 stage 16 —— **REAL RED**（exit 1：按钮缺失/不可点/draft 未恢复/dirty 未清）
+→ **GREEN**（stage 16 PASS：enabled 跟随 dirty、恢复 persisted displayName、
+dirty 清除、持久化文件 byte-identical、Candidate 集不动；诊断 0）→ targeted
+**17/17** → 提交源码上 **full 66/66 / exit 0 / 170.7s**。**行为提交 =
+`bb996a5bfc5416e3392c6fd709508e21aeab62c2`**（2 files，parent `f1d05c3…`，
+NO AMEND，内无 docs；提交信息引用的 full 66/66 在提交后立即补齐执行并 PASS，
+时序瑕疵如实记录于 §84.4）。**post-commit ratification**（新树
+`session-c3-r2b-postcommit-release/`，凭据缺席）：configure RC0（38.9s）/ build
+RC0（435/435，341.3s）/ **inventory 66 / full 66/66 PASS / exit 0 / 184.4s**
+（editor gate #57 Passed 1.83s 含 stage 16；deployment #34 Passed 27.77s）。
+**新候选**：`candidate\ModbusLens\`，exe 6,449,965 B / SHA-256
+`0bc2e6a23b7b0142612c8e31387bbc603b7afbd3ad2943a55405c0eb5ae083fa`（≡ source），
+manifest 1713 entries（root 1714），qwindows `80473907…8ac`，pdfium `d42c452a…14b`；
+**deployment gate 独立复跑 Passed 27.29s**。**状态**：Standing Discard action =
+IMPLEMENTED / AUTOMATED PASS（Human visible = PENDING，并入 C3 Human acceptance，
+入口 = §84.3 新候选）；M12-C C3 = IN PROGRESS；C3 first slice/Accept/Reject =
+IMPLEMENTED / AUTOMATED PASS（R2A ratification 不变）；Edit/batch = DEFERRED；
+RegisterEntryCandidate = NOT IN SOURCE；Durable provenance = DEFERRED / NO SCHEMA
+CHANGE；M12-D = NOT STARTED / NOT AUTHORIZED；canonical package = NOT CREATED。
+**verified LKGC = `613a32a0d6ca71ac53185779b7d5ab3b80c82870`（UNCHANGED）** ·
+无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · M12-C C3 — ACCEPTANCE EVIDENCE ADDENDUM + POST-COMMIT RATIFICATION（Session C3-R2A · 历史链一环）〕**
 档案 = **T027 §83**。三项验收证据缺口闭合（Human 授权范围 = 仅此三项；生产源码只读，
 **未暴露生产缺陷**）：① **r2a_01 非空洞 full-profile validation**——draft 违反真实冻结规则
 `display_name_missing`（权威 core validator 证明）时，完全有效的 Candidate + 完全有效的

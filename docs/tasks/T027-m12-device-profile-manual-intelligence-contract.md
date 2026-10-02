@@ -7343,3 +7343,100 @@ verified LKGC = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED；
                  docs-only 提交永不作 LKGC）
 无 push / 无 tag / 无 amend。
 ```
+
+---
+
+## 84. M12-C C3 — STANDING DISCARD ACTION EXPOSED（SESSION C3-R2B · behavior + docs）
+
+> 性质：append-only 归档。范围 = 把**既有** `ProfileController::discardCurrentChanges()`
+> （早已 Q_INVOKABLE、退出守卫已在用）作为显式 Human UI 动作暴露到 Device Profile
+> 工作区。不实现 Edit/batch/RegisterEntryCandidate/schema·provenance/M12-D；
+> 无 LKGC advancement/package/tag/push。
+
+### 84.1 实现（最小，2 files / +69 −1）
+
+```text
+DeviceProfilePage.qml：deviceProfileActions 行内、Save 与 Delete 之间新增
+  profileDiscardButton（AppButton，既有按钮风格）：
+    text = 「放弃修改」· Accessible.name = 「放弃未保存的设备档案修改」
+    enabled = profileController.dirty && profileController.hasOpenProfile
+    onClicked = profileController.discardCurrentChanges()
+  ⇒ 无未保存修改时禁用（沿用现有 enabled 绑定风格）；无第二套 rollback 逻辑
+    （这就是退出守卫已在用的权威 workflow）；QML 不触 JSON/ProfileStore；
+    不触碰 Candidate lifecycle。
+src/main.cpp：runProfileEditorCheck 新增 stage 16（runtime gate）。
+```
+
+### 84.2 验证链（真实命令与输出，凭据缺席）
+
+```text
+REAL RED（实现前，qml_profile_editor_check exit 1）
+  PROFFAIL: the standing Discard action is missing
+  PROFFAIL: the Discard action is not clickable
+  PROFFAIL: Discard did not restore the persisted displayName
+  PROFFAIL: Discard left the draft dirty
+GREEN（实现后）
+  qml_profile_editor_check = exit 0，PASS（stage 16：enabled 跟随 dirty、
+    点击后 persisted displayName 恢复、dirty 清除、持久化文件 byte-identical、
+    Candidate 集不动），QML 诊断 0
+targeted = 17/17 PASS / exit 0 / 54.8s（editor/register_map/active_profile/
+  manual_import±windows/consent±windows/candidate_review±windows/
+  candidate_extraction/orchestration/profile_controller/smoke/geometry/nav/focus）
+fresh full（提交源码上）= 66/66 PASS / exit 0 / 170.7s（deployment #34 Passed 25.78s）
+```
+
+### 84.3 提交与 post-commit ratification
+
+```text
+behavior commit = bb996a5bfc5416e3392c6fd709508e21aeab62c2
+                  「M12: expose the profile discard action」
+                  （2 files / +69 −1，parent f1d05c3…，NO AMEND，内无 docs）
+post-commit ratification 树 = buildcceptance\session-c3-r2b-postcommit-release  （本 session 新建，未复用旧树；凭据缺席；configure RC 0 38.9s；build RC 0 435/435）
+  inventory = 66
+  full      = 66/66 PASS / 0 failed / exit 0 / 184.4s
+    qml_profile_editor_check #57 = Passed 1.83s（含 stage 16）
+    deployment_startup_check #34 = Passed 27.77s（canonical generator 从零重建候选）
+新候选 provenance：
+  exe = 6,449,965 B / SHA-256
+        0bc2e6a23b7b0142612c8e31387bbc603b7afbd3ad2943a55405c0eb5ae083fa
+        （source exe ≡ candidate exe，byte-identical；manifest 内哈希一致）
+  manifest = 1713 entries（root 1714 files）
+  qwindows.dll = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+  pdfium.dll   = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+deployment gate（独立复跑）= Passed 27.29s（sanitized 凭据缺席 env；
+  qwindows 确证从 candidate 树加载；启动零 ModelScope 请求）
+```
+
+### 84.4 诚实记录（证据时序）
+
+behavior commit 信息中引用的 full 66/66 在**提交后立即补齐执行**（当时 targeted
+17/17 已过、full 尚未跑完即提交——时序瑕疵如实记录；随后 full 66/66 PASS 验证了该
+提交，post-commit ratification 树再次独立复证 66/66）。若 full 失败，将按纪律另行
+correction commit（未发生）。
+
+### 84.5 Human 验收补充项（并入 §82.6 checklist 之外的新增项）
+
+```text
+K. 打开一个 Profile，修改 displayName（出现「未保存修改」）⇒ [放弃修改] 可用；
+   点击后 displayName 恢复为持久化值、「未保存修改」消失、无保存发生；
+L. 无未保存修改时 [放弃修改] 禁用；
+M. Accept 一个 Candidate 后点击 [放弃修改]：Manufacturer 草稿恢复原值，
+   已消费 Candidate 不复活（不重回待审核列表）。
+```
+
+### 84.6 状态（本节归档时点）
+
+```text
+M12-C C3               = IN PROGRESS
+C3 first slice / Accept / Reject = IMPLEMENTED / AUTOMATED PASS
+Standing Discard action = IMPLEMENTED / AUTOMATED PASS（本节； Human visible = PENDING
+                         并入 C3 Human acceptance，入口 = §84.3 新候选）
+C3 Edit / batch        = NOT IMPLEMENTED / DEFERRED
+RegisterEntryCandidate = NOT IMPLEMENTED / NOT IN CURRENT SOURCE
+Durable provenance     = DEFERRED / NO SCHEMA CHANGE
+M12-D                  = NOT STARTED / NOT AUTHORIZED
+canonical package      = NOT CREATED
+verified LKGC          = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED；
+                         behavior 提交不是 LKGC）
+无 push / 无 tag / 无 amend。
+```
