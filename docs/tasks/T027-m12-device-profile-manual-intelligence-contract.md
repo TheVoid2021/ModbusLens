@@ -7227,3 +7227,119 @@ verified LKGC          = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED；
                          behavior 提交不是 LKGC）
 无 push / 无 tag / 无 amend。
 ```
+
+---
+
+## 83. M12-C C3 — ACCEPTANCE EVIDENCE ADDENDUM（SESSION C3-R2A · test-only + ratification）
+
+> 性质：append-only 归档。Human 授权范围 = 仅关闭三项验收证据缺口
+> （① 非空洞 full-profile validation；② Accept→Discard 恢复；③ 第二棵全新
+> post-commit fresh ratification 树 + 候选/部署生成）；**不**重设计 C3，
+> **不**实现 Edit/batch/RegisterEntryCandidate/schema·provenance/M12-D/package/
+> tag/push/LKGC advancement。生产源码只读，除非新测试暴露真实缺陷
+>（结果：**未暴露**，无需 STOP/HOLD）。
+
+### 83.1 起始基线（实测）
+
+```text
+HEAD              = aba716bc3e3b3db8a5aab7a32edb9fc3ae81ade5
+behavior commit   = 61f641ef2d9045cd90dd7598dcf78ab36b5af800
+verified LKGC     = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED）
+tracked clean · cached 空 · diff --check rc 0
+```
+
+### 83.2 GAP A — 非空洞 full-profile validation（新测试 r2a_01）
+
+`r2a_01_invalidDraftAcceptFailsAtomically`：通过既有编辑 seam 把当前 draft 置为
+违反**真实冻结规则**的状态（清空 displayName），非法性由两路证明——控制器投影
+`validationText` 非空 + 权威 core validator `validateDeviceProfile` 在等价逻辑状态上
+命名 `DisplayNameMissing`；然后以**完全有效的 Candidate + 完全有效的 evidence** 执行
+C3 Accept ⇒ **Accept 失败**：review token = `candidate_apply_failed`、
+ProfileController token = `display_name_missing`、Candidate 保持 PendingReview、
+draft 快照逐项不变（含 manufacturer = "Old Co."）、持久化文件 byte-identical、
+零 runner 调用。**证明 applyCandidateField 内的全量 validateDeviceProfile 是
+承重的，而非无条件接受 Manufacturer。**
+
+### 83.3 GAP B — Accept → Discard（新测试 r2a_02）
+
+`r2a_02_acceptThenDiscardRestoresBaseline`：持久化基线（"Old Co."）→ 记录完整
+draft/持久化快照 → 有效 Candidate → Accept 成功（draft manufacturer = 提议值、dirty、
+持久化文件不变）→ 调用**既有** `discardCurrentChanges()` ⇒ draft 快照恢复到
+persisted 基线（manufacturer/其余 identity 字段逐项原值）、dirty = false、持久化文件
+byte-identical；**Candidate 保持 consumed**——同一 candidate map 再次 Accept = false，
+绝不因 draft 被 Discard 而重回 PendingReview（C3-H5/H9）；零 runner 调用。
+
+### 83.4 非空洞 mutation（MUTATION-NX3）
+
+临时注释 `applyCandidateField` 内的全量 validation 调用（测试不变）⇒ **REAL RED
+exit 1（22 passed / 1 failed）**，恰好 `r2a_01` 在
+`'!invokeAccept(...)' returned FALSE` 上失败——bypass 后非法草稿的 Accept 成功。
+精确逆向（未用 checkout/restore/reset）⇒ residue 0（grep 无残留；
+ProfileController.cpp 与 HEAD diff 为空）⇒ 重建复绿 **23/23**。
+
+### 83.5 test-only 提交
+
+```text
+commit = f5c1c906f95ddaaf7f2219cc73ef5c13cf9c277b
+         「M12: strengthen C3 authority acceptance tests」
+         （1 file / +98，parent aba716b…，NO AMEND）
+仅 tests/test_candidate_review.cpp；零生产/QML/schema/docs 改动。
+NOT LKGC；不替代 behavior commit 61f641e。
+CMake 无需改动（新测试并入既有 candidate_review 目标）。
+```
+
+### 83.6 第二棵全新 post-commit ratification 树
+
+```text
+tree      = buildcceptance\session-c3-r2a-postcommit-release\（本 session 新建；
+            未复用 session-c3-r2-release / session-p-r1* / 旧 build/release）
+configure = RC 0（121.3s；GNU 13.1.0 / Qt 6.11.1 mingw_64 /
+            PDFium 156.0.8066.0 frozen `d42c452a…` + libzip 1.11.4 offline root；
+            从当前 committed HEAD 配置；凭据缺席）
+build     = RC 0（435/435，350.9s）
+inventory = Total Tests = 66
+full      = 66/66 PASS / 0 failed / exit 0 / 180.2s
+  candidate_review #31           = Passed 1.43s（23 个测试函数，含两个 R2A 新测试）
+  qml_candidate_review_check #63 = Passed 2.74s
+  qml_candidate_review_check_windows #64 = Passed 2.77s
+  deployment_startup_check #34   = Passed 25.71s
+  QML 诊断                        = 0（FAIL_REGULAR_EXPRESSION 拒绝集零命中）
+```
+
+### 83.7 行为边界（BOUNDARY）
+
+```text
+C3 BEHAVIOR BOUNDARY = 61f641ef2d9045cd90dd7598dcf78ab36b5af800
+Git 实测：61f641e..HEAD 仅 docs（aba716b）+ tests（f5c1c90）；
+  src/ diff = 空 ⇒ 61f641e 之后无任何生产行为变化。
+test-only 提交不晋升为 behavior LKGC。
+```
+
+### 83.8 新候选 provenance（取代 C3-R2 pre-ratification 候选）
+
+```text
+candidate root = buildcceptance\session-c3-r2a-postcommit-release\candidate\ModbusLensexe path       = <candidate root>\modbuslens.exe
+exe size       = 6,443,540 B
+exe SHA-256    = 4f40a67afd599b2d1d0287b70a74d4c2425938816af99029f1aa9555e3dfbce5
+                 （source exe ≡ candidate exe，byte-identical）
+manifest       = 1713 entries（root 1714 files）
+qwindows.dll   = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+pdfium.dll     = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+deployment     = deployment_startup_check 独立复跑 Passed 28.14s
+                 （sanitized 凭据缺席 env；qwindows 确证从 candidate 树加载；
+                   启动零 ModelScope 请求）
+```
+
+### 83.9 状态（本节归档时点）
+
+```text
+C3 first slice = IMPLEMENTED / AUTOMATED PASS（R2A 三门全过：新测试 + NX3 闭环 +
+                 post-commit 66/66 ratification）
+C3 Human visual/functional = PENDING（Human 验收入口 = §83.8 新候选；
+                 R2 旧候选 `bd6133f0…` 对 Human gate 而言已被取代）
+M12-C C3 = IN PROGRESS；M12-C overall = IN PROGRESS
+M12-D = NOT STARTED / NOT AUTHORIZED；canonical package = NOT CREATED
+verified LKGC = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED；
+                 docs-only 提交永不作 LKGC）
+无 push / 无 tag / 无 amend。
+```

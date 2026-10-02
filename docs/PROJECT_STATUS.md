@@ -1,7 +1,34 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · M12-C C3 — FIRST BEHAVIOR SLICE IMPLEMENTED / AUTOMATED PASS（Session C3-R2 · 以本块为准）〕**
+**〔2026-10-02 追加批注 · M12-C C3 — ACCEPTANCE EVIDENCE ADDENDUM + POST-COMMIT RATIFICATION（Session C3-R2A · 以本块为准）〕**
+档案 = **T027 §83**。三项验收证据缺口闭合（Human 授权范围 = 仅此三项；生产源码只读，
+**未暴露生产缺陷**）：① **r2a_01 非空洞 full-profile validation**——draft 违反真实冻结规则
+`display_name_missing`（权威 core validator 证明）时，完全有效的 Candidate + 完全有效的
+evidence 的 Accept **原子失败**（`candidate_apply_failed` + `display_name_missing`，
+Candidate 保持 PendingReview，draft/persisted 不变）⇒ applyCandidateField 内的全量
+validateDeviceProfile 承重；② **r2a_02 Accept→Discard**——既有 `discardCurrentChanges`
+精确恢复 persisted 基线（dirty=false、文件 byte-identical），consumed Candidate 绝不因
+Discard 重回 PendingReview；③ **非空洞 mutation MUTATION-NX3**（bypass 全量 validation）
+⇒ **REAL RED exit 1（恰好 r2a_01）** → 精确逆向 residue 0 → 复绿 23/23。
+**test-only 提交 = `f5c1c906f95ddaaf7f2219cc73ef5c13cf9c277b`**（1 file/+98，
+仅 test_candidate_review.cpp；NOT LKGC；CMake 零改动）。
+**第二棵全新 post-commit ratification 树** `buildcceptance\session-c3-r2a-postcommit-release\`
+（凭据缺席，从 committed HEAD 配置）：configure RC0（121.3s）/ build RC0（435/435，350.9s）/
+**inventory 66 / full 66/66 PASS / exit 0 / 180.2s**（candidate_review #31 Passed 1.43s
+含两个 R2A 新测试；两个 QML review 门禁 Passed；deployment_startup_check #34 Passed
+25.71s；QML 诊断 0）。**新候选**（取代 R2 旧候选成为 Human 验收入口）：
+`candidate\ModbusLens\`，exe 6,443,540 B / SHA-256
+`4f40a67afd599b2d1d0287b70a74d4c2425938816af99029f1aa9555e3dfbce5`（≡ source），
+manifest 1713 entries（root 1714），qwindows `80473907…8ac`，pdfium `d42c452a…14b`；
+**deployment gate 独立复跑 Passed 28.14s**。**C3 BEHAVIOR BOUNDARY =
+`61f641ef2d9045cd90dd7598dcf78ab36b5af800`**（Git 实测：61f641e..HEAD 仅 docs+tests，
+src/ diff = 空；test-only 提交不晋升 behavior LKGC）。**状态**：C3 first slice =
+IMPLEMENTED / AUTOMATED PASS（R2A 三门全过）；**C3 Human visual/functional = PENDING**
+（入口 = §83.8 新候选）；M12-C C3 = IN PROGRESS；M12-D = NOT STARTED / NOT
+AUTHORIZED；canonical package = NOT CREATED。**verified LKGC =
+`613a32a0d6ca71ac53185779b7d5ab3b80c82870`（UNCHANGED）** · 无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · M12-C C3 — FIRST BEHAVIOR SLICE IMPLEMENTED / AUTOMATED PASS（Session C3-R2 · 历史链一环）〕**
 档案 = **T027 §82**。**Human 授权**（逐字见 §82 头部）：启动 C3 first behavior slice，
 严格按 C3-H1..H10 实施；不授权 Edit / batch / RegisterEntryCandidate / schema·provenance
 persistence / M12-D / LKGC advancement / package / tag / push。**实现**（唯一权威链 =
