@@ -6660,3 +6660,87 @@ repair）内的 RCA + harness 修复 + 验证。**未**执行真实 inference（
 deterministic gate 结构上不可能再调度）· 未读取/打印 Human token 值 ·
 未开始 C3 · 未写 DeviceProfile · 未做 Candidate persistence · 未做 M12-D ·
 未推进 verified LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+---
+
+## 79. M12-C C2 — HUMAN LIVE MODELSCOPE ACCEPTANCE（SESSION P-R1F · docs-only 归档）
+
+> 性质：append-only 归档。仅记录 Human 权威报告与授权解释；**不**记录任何未被
+> Human 报告的事实（不发明 latency / provider status code / response body /
+> token 细节 / 计费配额 / 网络包证据 / Human 未报告的 Candidate 字段内容）。
+> **无 token 值入档 · 无 raw provider response 入档。**
+
+### 79.1 接受的 live-smoke 目标（provenance 引用 = P-R1E handoff，本轮零新生成）
+
+```text
+candidate  = build\acceptance\session-p-r1d-ratify\candidate\ModbusLens\
+             （canonical 生成器 modbuslens_generate_candidate.cmake 从零重建）
+exe        = 6,345,517 B / SHA-256
+             44130e8a78f1686b20b3bebc129204434e8e09b9e150e15da131c302cefa68ba
+qwindows   = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+pdfium     = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+manifest   = 1713 files 条目（root 1714 files / 91 dirs）
+startup gate = deployment_startup_check Passed（P-R1D 轮 #33，26.37s @ HEAD ca01025）
+```
+
+### 79.2 Human 权威报告（逐字）
+
+```text
+「Agree 后进入 Running，随后进入 PendingReview；
+Candidate 可见；
+Device Profile 未变化；
+无可见错误。」
+```
+
+### 79.3 授权解释（逐字归档，禁止扩写）
+
+```text
+Human live ModelScope inference        = PASS / HUMAN VERIFIED
+PendingReview successful live Candidate visual = HUMAN PASS
+C2 Human functional AI extraction      = PASS
+Verified DeviceProfile mutation during live extraction = NONE OBSERVED / HUMAN PASS
+M12-C C2 overall Human acceptance      = PASS / HUMAN ACCEPTED
+```
+
+### 79.4 治理区分（与 ISSUE-020 的事件分立，历史分级不改写）
+
+```text
+P-R1 live smoke = HUMAN AUTHORIZED / EXPLICIT CONSENT（产品同意流）/ PASS。
+本 smoke 是 Human 显式授权、经产品同意门发生的请求，
+**不**属于 ISSUE-020 记录的 P-R1C 未授权事件。
+既有历史分级原样保留：
+  P-R1C governance                = VIOLATION CONFIRMED
+  ZCode P-R1C Run A 事件分级      = STRONGLY SUPPORTED
+  WorkBuddy 14:53 事件分级        = LIKELY
+ISSUE-020 已追加最小澄清批注（不改写任何历史证据）。
+```
+
+### 79.5 归档时点状态（M12-C C2 收口）
+
+```text
+M12-C C1a  = COMPLETE / HUMAN ACCEPTED
+M12-C C1b  = COMPLETE / HUMAN ACCEPTED
+M12-C C2   = COMPLETE / HUMAN ACCEPTED
+C2 内部分层：
+  Candidate/Evidence foundation       = IMPLEMENTED / AUTOMATED PASS
+  ModelScope adapter + strict parser  = IMPLEMENTED / AUTOMATED PASS
+  Production orchestration            = IMPLEMENTED / AUTOMATED PASS
+  Cloud consent                       = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+  Production ModelScope transport     = IMPLEMENTED / AUTOMATED PASS / HUMAN LIVE PASS
+  Process-env credential              = IMPLEMENTED / AUTOMATED PASS / HUMAN LIVE PASS
+PendingReview Candidate live visual    = HUMAN PASS
+C2 Human functional AI extraction      = PASS
+C3（Accept / Edit / Reject）           = NOT STARTED / NOT AUTHORIZED
+M12-D（Manual Q&A）                    = NOT STARTED / NOT AUTHORIZED
+M12-C overall                          = IN PROGRESS（C3 未启动，不推断收口）
+canonical package                      = NOT CREATED
+REAL MODBUS HARDWARE                   = NOT VERIFIED
+verified LKGC                          = 19f9738c980e0a8a31b557c346fb50a4af711cab
+                                         （UNCHANGED；本节 docs-only 提交永不作 LKGC）
+```
+
+**本节动作边界（docs-only）**：仅归档 Human 权威结果与授权解释；
+未改 source / CMake / tests · 未 build / configure / CTest · 未生成新 candidate ·
+未执行任何 ModelScope 请求 · 未读取凭据值 · 无 token 值 / raw response 入档 ·
+未开始 C3 / M12-D · 未创建 canonical package · 未推进 verified LKGC ·
+未 push / 未 tag / 未 amend。

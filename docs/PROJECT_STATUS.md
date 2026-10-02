@@ -1,7 +1,28 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-01 追加批注 · M12-C C2 — SESSION P-R1C：CONSENT FRESH-TREE CTEST "CRASH" RCA + HARNESS CREDENTIAL SANITIZATION（ZCode 接管轮 · 以本块为准）〕**
+**〔2026-10-02 追加批注 · M12-C C2 — HUMAN LIVE MODELSCOPE ACCEPTANCE = PASS（Session P-R1F · docs-only 归档 · 以本块为准）〕**
+档案 = **T027 §79**（+ ISSUE-020 最小澄清批注）。**Human 权威报告（逐字）**：「Agree 后进入
+Running，随后进入 PendingReview；Candidate 可见；Device Profile 未变化；无可见错误。」
+**授权解释（逐字归档）**：Human live ModelScope inference = **PASS / HUMAN VERIFIED** ·
+PendingReview successful live Candidate visual = **HUMAN PASS** · C2 Human functional AI
+extraction = **PASS** · Verified DeviceProfile mutation during live extraction = **NONE
+OBSERVED / HUMAN PASS** · **M12-C C2 overall Human acceptance = PASS / HUMAN ACCEPTED**。
+live smoke 目标 = P-R1E handoff candidate（`build\acceptance\session-p-r1d-ratify\candidate\ModbusLens\`，
+exe `44130e8a…68ba` / 6,345,517 B，manifest 1713 条，deployment_startup_check Passed）；
+Human 显式授权 + 经产品同意流显式同意；**无 token 值入档 · 无 raw provider response 入档 ·
+未发明 latency / status code / body / 计费配额 / 网络包证据**。**治理区分（分级原样保留）**：
+P-R1C governance = VIOLATION CONFIRMED · ZCode Run A = STRONGLY SUPPORTED ·
+WorkBuddy 14:53 = LIKELY；**P-R1 live smoke = HUMAN AUTHORIZED / EXPLICIT CONSENT / PASS，
+不属于 ISSUE-020 未授权事件**。**状态**：**M12-C C2 = COMPLETE / HUMAN ACCEPTED**（分层终态：
+foundation / adapter+strict parser / orchestration / cloud consent / production transport /
+process-env credential = IMPLEMENTED / AUTOMATED PASS，其中 consent + transport + credential
+另获 HUMAN PASS / HUMAN LIVE PASS）；**M12-C C1a · C1b = COMPLETE / HUMAN ACCEPTED**；
+**M12-C overall = IN PROGRESS（C3 未启动，不推断收口）**；**C3 = NOT STARTED / NOT AUTHORIZED** ·
+**M12-D = NOT STARTED / NOT AUTHORIZED** · canonical package = NOT CREATED ·
+REAL MODBUS HARDWARE = NOT VERIFIED。**verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`
+（UNCHANGED；本 docs-only 提交永不作 LKGC）** · 无 push / 无 tag / 无 amend。
+**〔2026-10-01 追加批注 · M12-C C2 — SESSION P-R1C：CONSENT FRESH-TREE CTEST "CRASH" RCA + HARNESS CREDENTIAL SANITIZATION（ZCode 接管轮 · 历史链一环）〕**
 档案 = **T027 §78 + ISSUE-020**。接管基线：HEAD `20a9129`（= §77 授权归档）、
 verified LKGC `19f9738…`（UNCHANGED）、WIP = SESSION P transport slice（§76 授权）+
 §77 永久修复（option() 恢复 + toolchain 推导 CTest runtime PATH 前置）。

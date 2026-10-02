@@ -106,3 +106,14 @@ deterministic gate **永不**发起真实网络请求。
    不如在 harness 入口显式清除 + 入口断言。
 3. GUI-subsystem exe 的 gate 必须**声明 stderr 契约**，否则失败不可诊断
    （本次"crash"之谜的直接来源）。
+
+---
+
+## 追加澄清批注（2026-10-02 · SESSION P-R1F · 最小澄清，不改写以上任何历史证据）
+
+本文记录的未授权事件**仅限** P-R1C 期间的两起：WorkBuddy 14:53 ctest 运行（分级
+LIKELY）与 ZCode Run A（分级 STRONGLY SUPPORTED）。其后由 **Human 显式授权、经产品
+同意流**完成的 P-R1 live ModelScope smoke（T027 §79：Agree → Running → PendingReview，
+PASS）**不**属于本 issue 的未授权事件，两者不得混同。既有 Observed / Expected /
+Evidence / Root Cause / Fix / Verification / Regression Protection 各节作为历史事实
+原样保留。
