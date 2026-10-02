@@ -725,6 +725,104 @@ private slots:
         }
     }
 
+    // ------------------------------------------------- C3-R2A GAP A ------
+    // The full-profile validation inside the controlled Accept path must be
+    // LOAD-BEARING: with a draft that violates an ACTUAL frozen rule
+    // (display_name_missing), a perfectly valid Candidate with perfectly
+    // valid evidence must still be refused atomically (C3-H2/H10, T027 §82
+    // acceptance-evidence addendum). This fails if the full-profile
+    // validation call is bypassed.
+    void r2a_01_invalidDraftAcceptFailsAtomically()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        QVERIFY(profileController.saveCurrent());
+        const QString profilePath = ProfileStore::defaultFilePathFor(
+            profileController.currentProfileId());
+        const QByteArray persistedBefore = readBytes(profilePath);
+
+        // Make the CURRENT DRAFT invalid through the accepted editing seam.
+        QVERIFY(profileController.setProperty("displayName", QString()));
+        // The controller projection reports the draft as invalid (human text,
+        // non-empty), and the AUTHORITATIVE core validator names the frozen
+        // rule on the equivalent logical state (persisted profile with the
+        // cleared displayName) - validateDeviceProfile, not a test invention.
+        QVERIFY(!profileController.validationText().isEmpty());
+        {
+            auto equivalent =
+                ProfileStore::loadFromFile(
+                    ProfileStore::defaultFilePathFor(
+                        profileController.currentProfileId()))
+                    .profile;
+            equivalent.displayName.clear();
+            QCOMPARE(modbuslens::core::validateDeviceProfile(equivalent).code,
+                     modbuslens::core::ProfileValidationCode::DisplayNameMissing);
+        }
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        QCOMPARE(controller.property("candidateCount").toInt(), 1);
+        const QStringList invalidBefore = draftSnapshot(&profileController);
+
+        // Accept: valid Candidate, valid evidence — but the FULL staged
+        // profile validation must refuse.
+        QVERIFY(!invokeAccept(&controller, pendingCandidateAt(&controller, 0)));
+        QCOMPARE(controller.property("lastReviewErrorToken").toString(),
+                 QStringLiteral("candidate_apply_failed"));
+        QCOMPARE(profileController.lastActionErrorToken(),
+                 QStringLiteral("display_name_missing"));
+        QCOMPARE(controller.property("candidateCount").toInt(), 1); // stays pending
+        QCOMPARE(draftSnapshot(&profileController), invalidBefore);
+        QCOMPARE(profileController.manufacturer(), QString::fromUtf8(kOldManufacturer));
+        QCOMPARE(readBytes(profilePath), persistedBefore); // no Save
+        QCOMPARE(runner.callCount(), 0);
+    }
+
+    // ------------------------------------------------- C3-R2A GAP B ------
+    // Accept -> Discard: restoration goes through the EXISTING Discard
+    // workflow, and a consumed Candidate never re-enters PendingReview merely
+    // because the Profile draft was discarded (C3-H5/H9).
+    void r2a_02_acceptThenDiscardRestoresBaseline()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        QVERIFY(profileController.saveCurrent());
+
+        const QString profilePath = ProfileStore::defaultFilePathFor(
+            profileController.currentProfileId());
+        const QByteArray persistedBefore = readBytes(profilePath);
+        const QStringList persistedSnapshot = draftSnapshot(&profileController);
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(invokeAccept(&controller, candidate));
+        QCOMPARE(profileController.manufacturer(), QString::fromUtf8(kProposed));
+        QCOMPARE(profileController.dirty(), true);
+        QCOMPARE(readBytes(profilePath), persistedBefore); // no auto-save
+
+        // The EXISTING authoritative Discard workflow.
+        QMetaObject::invokeMethod(&profileController, "discardCurrentChanges",
+                                  Qt::DirectConnection);
+        QCOMPARE(draftSnapshot(&profileController), persistedSnapshot);
+        QCOMPARE(profileController.manufacturer(), QString::fromUtf8(kOldManufacturer));
+        QCOMPARE(profileController.dirty(), false);
+        QCOMPARE(readBytes(profilePath), persistedBefore);
+
+        // The Candidate stays consumed; it does not come back with the draft.
+        QVERIFY(!invokeAccept(&controller, candidate));
+        QCOMPARE(controller.property("candidateCount").toInt(), 0);
+        QCOMPARE(runner.callCount(), 0);
+    }
+
 private:
     static void wire(CandidateExtractionController *controller,
                      ProfileController *profileController)
