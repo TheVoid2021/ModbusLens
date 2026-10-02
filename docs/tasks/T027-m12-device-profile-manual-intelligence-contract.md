@@ -7861,3 +7861,97 @@ verified LKGC         = bb996a5bfc5416e3392c6fd709508e21aeab62c2（UNCHANGED；
                         behavior/data 提交不是 LKGC）
 无 push / 无 tag / 无 amend。
 ```
+
+---
+
+## 89. MANUAL LIBRARY ML-1 — HUMAN COLD-START ACCEPTANCE（SESSION ML-R1A · docs-only 归档）
+
+> 性质：append-only 归档。Human 授权（逐字）：「授权：归档 Manual Library ML-1
+> Human cold-start acceptance PASS；仅 docs-only，不推进 LKGC，不实施 ML-2 Delete，
+> 不开始 C3 Edit/M12-D，不做 package/tag/push。」仅记录 Human 观察到的证据；
+> **不**发明启动时延、手册精确数量、文件系统事件、内部 controller 状态、store 读取
+> 次数、QML 信号时序、provider/网络行为或隐藏诊断。本节为 §88.9
+> 「HUMAN COLD-START REVIEW PENDING」的 current superseding note；§88 历史原文
+> 不改写。
+
+### 89.1 验收对象边界（artifact boundary）
+
+```text
+Human acceptance 覆盖的候选 = ML-R1 post-commit 候选（§88.7）：
+  buildcceptance\session-ml-r1-postcommit-release\candidate\ModbusLens\modbuslens.exe
+  exe SHA-256 = b80811bff2b0aba507cdcb5ca75b2f4b96357e405b8eb400110e85746c794a46
+其 behavior/data 提交 = 19e2f45341c3f15d1f27bc38a9ad728d268049e3（§88.5）
+本 docs 归档提交本身**不是**被测行为，**不是** LKGC。
+```
+
+### 89.2 Human 权威陈述（逐字）
+
+```text
+「冷启动两次都不用导入，
+旧说明书列表直接出现，
+点击后可以正常预览。」
+```
+
+### 89.3 Human 实际执行（仅 Human 观察事实）
+
+```text
+Run 1：ModbusLens 完全关闭后启动 ML-R1 候选；Human **未**导入任何新说明书；
+  已导入的旧手册列表直接出现；Human 选中一本既有手册；预览正常显示。
+Run 2：ModbusLens 再次完全关闭并重启；Human 仍**未**导入任何新说明书；
+  旧手册列表再次直接出现；既有手册预览保持可用。
+Human 未再需要历史性 workaround（「先导入一份说明书，旧说明书列表才出现」）。
+```
+
+### 89.4 授权解释（分类 = HUMAN PASS）
+
+```text
+Manual Library ML-1 Human cold-start acceptance = PASS / HUMAN VERIFIED
+Cold-start hydration                 = AUTOMATED PASS / HUMAN PASS
+Cold-start existing-list visibility  = HUMAN PASS
+Existing Manual selection (cold start) = HUMAN PASS
+Existing Manual preview (cold start) = HUMAN PASS
+Second restart repeatability         = HUMAN PASS
+两次 Human 检查均未要求任何新的导入操作。
+```
+
+### 89.5 缺陷状态的 superseding current truth
+
+```text
+历史记录原样保留：Human 曾观察「启动列表为空 → 导入一份 → 旧手册才出现」。
+Current superseding truth：
+  Cold-start hydration defect = CONFIRMED BY SOURCE AUDIT（ML-R0，机制：
+  ManualImportController 构造不加载持久化 store）→ FIXED IN ML-R1
+  （ctor 调用既有 refresh()）→ AUTOMATED PASS（ML1 矩阵 + MUTATION-NX4 闭环）→
+  HUMAN PASS（本节两次冷启动验证）。
+历史 issue 状态 = CLOSED / VERIFIED FIXED。
+「NOT CURRENTLY REPRODUCED」不再是当前最终分类——源码审计已确立机制。
+```
+
+### 89.6 ML-1 最终分类
+
+```text
+Manual Library ML-1      = COMPLETE / HUMAN ACCEPTED
+Cold-start hydration     = FIXED / AUTOMATED PASS / HUMAN PASS
+Existing Manual cold-start visibility = HUMAN PASS
+Existing Manual selection/preview after cold start = HUMAN PASS
+Synthetic samples        = TRACKED / AUDITED / SYNTHETIC / repository-only
+Manual Delete            = NOT IMPLEMENTED
+Manual Delete contract   = P0-ML-A/B/C/D/F/G/H HUMAN-FROZEN（§88.0，ML-2 语义）
+ML-2                     = NOT STARTED / NOT AUTHORIZED
+C3 first behavior slice  = COMPLETE / HUMAN ACCEPTED
+C3 overall               = IN PROGRESS（Edit 未实现未验收）
+C3 Edit                  = NOT STARTED / NOT AUTHORIZED
+M12-C overall            = IN PROGRESS
+M12-D                    = NOT STARTED / NOT AUTHORIZED
+canonical package        = NOT CREATED
+verified LKGC            = bb996a5bfc5416e3392c6fd709508e21aeab62c2（UNCHANGED；
+                           docs-only 提交永不作 LKGC）
+```
+
+### 89.7 本节动作边界（docs-only）
+
+仅归档 Human 权威验收证据与 superseding 分类；未改 src/tests/CMake/QML/samples ·
+未 build / configure / CTest / 候选重生成 / deployment 测试 / 生产 app 启动 ·
+无 live ModelScope / 凭据读取 · 无 ManualStore/DeviceProfile 数据变更 ·
+未开始 ML-2 Delete / C3 Edit / M12-D / Manual Library 维护实现 ·
+未推进 LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。

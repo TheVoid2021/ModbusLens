@@ -1,7 +1,31 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-1 — COLD-START HYDRATION + SYNTHETIC SAMPLES = IMPLEMENTED / AUTOMATED PASS（Session ML-R1 · 以本块为准）〕**
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-1 — HUMAN COLD-START ACCEPTANCE = PASS（Session ML-R1A · docs-only 归档 · 以本块为准）〕**
+档案 = **T027 §89**。Human 授权（逐字）：「授权：归档 Manual Library ML-1 Human
+cold-start acceptance PASS；仅 docs-only，不推进 LKGC，不实施 ML-2 Delete，不开始
+C3 Edit/M12-D，不做 package/tag/push。」**验收对象边界**：ML-R1 post-commit 候选
+`candidate\ModbusLens\modbuslens.exe`（SHA-256
+`b80811bff2b0aba507cdcb5ca75b2f4b96357e405b8eb400110e85746c794a46`，behavior/data
+提交 `19e2f45341c3f15d1f27bc38a9ad728d268049e3`）；docs 归档提交本身非被测行为、
+非 LKGC。**Human 权威陈述（逐字）**：「冷启动两次都不用导入，旧说明书列表直接出现，
+点击后可以正常预览。」**授权解释（逐条 = HUMAN PASS）**：ML-1 Human cold-start
+acceptance = **PASS / HUMAN VERIFIED** · Cold-start hydration = AUTOMATED PASS /
+HUMAN PASS · 旧列表冷启动可见 = HUMAN PASS · 冷启动后既有手册选中 = HUMAN PASS ·
+冷启动后预览 = HUMAN PASS · 第二次重启可重复 = HUMAN PASS · 两次检查均**无新导入**。
+**缺陷 superseding 分类**：历史观察（启动空→导入后出现）原样保留；
+Cold-start hydration defect = **CONFIRMED BY SOURCE AUDIT → FIXED IN ML-R1 →
+AUTOMATED PASS → HUMAN PASS** ⇒ 历史 issue = **CLOSED / VERIFIED FIXED**
+（"NOT CURRENTLY REPRODUCED" 不再是最终分类）。**ML-1 最终分类**：**Manual Library
+ML-1 = COMPLETE / HUMAN ACCEPTED**；Synthetic samples = TRACKED / AUDITED /
+SYNTHETIC / **repository-only**；Manual Delete = NOT IMPLEMENTED（P0-ML-A/B/C/D/F/G/H
+HUMAN-FROZEN 为 ML-2 语义）；**ML-2 = NOT STARTED / NOT AUTHORIZED**；C3 first
+behavior slice = COMPLETE / HUMAN ACCEPTED；C3 overall = IN PROGRESS；**C3 Edit =
+NOT STARTED / NOT AUTHORIZED**；M12-C overall = IN PROGRESS；**M12-D = NOT STARTED /
+NOT AUTHORIZED**；canonical package = NOT CREATED。**verified LKGC =
+`bb996a5bfc5416e3392c6fd709508e21aeab62c2`（UNCHANGED）** · 无 push / 无 tag /
+无 amend。
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-1 — COLD-START HYDRATION + SYNTHETIC SAMPLES = IMPLEMENTED / AUTOMATED PASS（Session ML-R1 · 历史链一环）〕**
 档案 = **T027 §88**。**Human 授权**（逐字见 §88 头部）：SLICE-ML-1 = 修复 cold-start
 hydration + 正式纳入四份 synthetic samples（P0-ML-A/B/C/D/F/G/H 冻结政策归档 §88.0——
 均为 ML-2 未来语义）；暂不实施 ML-2 删除，不推进 LKGC，不开始 C3 Edit/M12-D。
