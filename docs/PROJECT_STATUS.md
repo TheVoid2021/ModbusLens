@@ -1,7 +1,46 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-1 — VERIFIED LKGC ADVANCE（Human 授权 · Session ML-R1B · docs-only · 以本块为准）〕**
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-2 — SAFE MANUAL DELETION = IMPLEMENTED / AUTOMATED PASS（Session ML-R2 · 以本块为准）〕**
+档案 = **T027 §91**。**Human 授权**（逐字见 §91）：按已冻结 P0-ML-A/B/C/D/F/G/H 实施
+删除选中说明书 + 确认 + Pending/Running 阻断 + metadata 权威删除 + shared-content
+引用保护 + unreferenced GC + GC 失败可见警告 + 删除后清除选择/预览 + restart
+persistence；不授权 C3 Edit/M12-D/LKGC/package/tag/push。**实现**：`ManualStore::
+deleteDocument`（metadata = 权威可见性点，失败零 GC 零伪成功；共享 contentHash 工件
+必须存活；按文档类型清理 .txt/.json 缓存 + .bin 源；SUCCESS/SUCCESS_WITH_CLEANUP_
+WARNING/FAILURE + manual_delete_* tokens；最小 test-only remove interposer seam）·
+`ManualImportController::deleteDocumentById`（身份保持重载：被删选中清空、他人选择
+按身份保持、绝无下一行静默重定向）· `CandidateExtractionController`
+checkManualDeleteAllowed（纯读 guard）+ deleteManualDocument（命令路径**复检**
+P0-ML-B/C：Pending 引用 ⇒ blocked；同文档 Running ⇒ blocked；consumed 永不阻断；
+按钮 enabled 永非权威）+ lastDeleteNotice 面 · QML 行内删除按钮 + 确认 Dialog
+（确切名 + 「不会删除电脑上的原始文件」）+ Cancel 零 mutation + blocker/notice 标签
+（无 Open 按钮）。**验证**（凭据缺席）：**REAL RED** manual_delete exit 11（2/13）→
+**GREEN 15/15**（ML2-01..30 等价 + ML2-14/15 fault seam）→ **MUTATION-NX5-SHARED**
+REAL RED（恰好共享内容测试）→ 精确逆向 residue 0 → **MUTATION-NX6**（bypass
+Pending 守卫）REAL RED（恰好 ML2-16）→ 逆向 residue 0 → 复绿 → QML 门禁新增 3 个
+ML2 阶段 PASS（期间发现并精确修复 gate 一处拼接结构缺陷）→ targeted **23/23** →
+pre-commit fresh 树 `session-ml-r2-release/`：configure RC0 / build 451/451 /
+inventory 66→**67** / **full 67/67 PASS / exit 0 / 197.5s**（manual_delete #32、
+manual gate #61、deployment #35 全 Passed）。**behavior 提交 =
+`9bb599a34c0f4bea9b3be791caab9a6bfc592407`**（10 files/+1345 −2，parent
+`3df4d71…`，NO AMEND，内无 docs；samples 零改动；提交后一致性 ✓）。
+**post-commit ratification**（新树 `session-ml-r2-postcommit-release/`）：
+configure RC0（150.8s）/ build 451/451（406.9s）/ **67/67 PASS / exit 0 /
+189.0s**。**新候选**：`candidate\ModbusLens\`，exe 6,487,562 B / SHA-256
+`830a84262e1a23c8198b78af09a66cbd6207eacd4158678515464e9a7a2ba9bd`（≡ source，
+manifest 1713 / root 1714）；qwindows `80473907…8ac`；pdfium `d42c452a…14b`；
+四样例字节与 §88.5 一致；**deployment gate 独立复跑 Passed 28.52s**。
+**状态**：**Manual Delete = IMPLEMENTED / AUTOMATED PASS**；**ML-2 = IMPLEMENTED /
+AUTOMATED PASS / HUMAN REVIEW PENDING**（checklist = §91.5，入口 = 新候选）；
+Manual Library ML-1 = COMPLETE / HUMAN ACCEPTED（不变）；Cold-start hydration =
+FIXED / AUTOMATED PASS / HUMAN PASS；Synthetic samples = TRACKED / AUDITED /
+repository-only；C3 first slice = COMPLETE / HUMAN ACCEPTED；C3 overall =
+IN PROGRESS；**C3 Edit = NOT STARTED / NOT AUTHORIZED**；**M12-D = NOT STARTED /
+NOT AUTHORIZED**；canonical package = NOT CREATED。**verified LKGC =
+`19e2f45341c3f15d1f27bc38a9ad728d268049e3`（UNCHANGED；behavior 提交不是 LKGC）** ·
+无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-1 — VERIFIED LKGC ADVANCE（Human 授权 · Session ML-R1B · docs-only · 历史链一环）〕**
 档案 = **T027 §90**。**Human 授权（逐字）**：「授权：将 Manual Library ML-1 Human
 acceptance 作为新的 verified behavior baseline，并将 verified LKGC 从
 `bb996a5bfc5416e3392c6fd709508e21aeab62c2` 推进到

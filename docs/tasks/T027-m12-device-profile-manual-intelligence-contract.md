@@ -8035,3 +8035,168 @@ canonical package    = NOT CREATED · tag = 仅 v1.0.0 · push = 未发生
 未生成候选 / 未跑 deployment gate · 无 live ModelScope / 凭据读取 ·
 未开始 ML-2 / C3 Edit / M12-D · 未创建 canonical package ·
 未 tag / 未 push · 本节所在提交 docs-only 永不作 LKGC。
+
+---
+
+## 91. MANUAL LIBRARY ML-2 — SAFE MANUAL DELETION（SESSION ML-R2 · behavior + docs）
+
+> 性质：append-only 归档。Human 授权（逐字见 §91.0 要点）：按已冻结的
+> P0-ML-A/B/C/D/F/G/H 实施删除选中说明书 + 确认 + Pending/Running 阻断 +
+> metadata 权威删除 + shared-content 引用保护 + unreferenced GC + GC 失败可见警告 +
+> 删除后清除选择/预览 + restart persistence；不授权 C3 Edit/M12-D/LKGC/package/tag/push。
+
+### 91.0 冻结政策摘要（product contract，非 advisory；逐字要点）
+
+```text
+A 删除成功后 selected=NONE / selectedIndex 无效 / preview 清空 / 文件名状态投影回
+  未选态 / AI extraction 禁用直至显式新选；禁止自动选下一/上一、禁止残留旧 preview、
+  禁止静默重定向 extraction。
+B 任何 PendingReview Candidate 引用目标手册 ⇒ DELETE 必须失败/阻断；确定性文案
+  「该说明书仍有待审核 AI 候选，请先接受或拒绝候选，再删除说明书。」；阻断时不打开
+  破坏性确认；禁止自动消费/拒绝/清空候选或留死候选。
+C Running extraction ∈ 目标 ⇒ DELETE 阻断（文案「该说明书正在进行 AI 提取，请等待
+  提取完成后再删除。」）；不得 cancel provider / 改 extraction 状态 / 消费未来结果。
+D documents/<documentId>.json = 权威可见性点；移除失败 ⇒ Delete FAIL、记录保持可见、
+  确定性错误、禁止伪成功、禁止 GC。
+F metadata 成功后：查剩余文档是否引用同 contentHash；有 ⇒ 共享工件（source/<hash>.bin
+  与文本缓存）必须存活；无 ⇒ 尝试清理该手册的 unreferenced 受管源+文本缓存（类型
+  决定 .txt/.json）；Human 原始外部文件永不删除/修改；GC 失败 ⇒ 记录仍删除 +
+  「说明书已从 ModbusLens 移除，但本地缓存清理失败。」；已缺失工件 = 已清理；
+  不引入新数据库/tombstone。
+G 不加显式 Open 按钮（列表选择 = 查看）。
+H 四份 synthetic samples 保持 TRACKED/AUDITED/repository-only，不改。
+架构：ManualStore 只负责持久化/权威删除/共享引用保护/清理结果；Candidate/Running
+  政策在其上层；唯一权威应用级删除入口 =
+  Human click → candidate/running guards → confirmation → Manual controller →
+  ManualStore 权威删除 → controller refresh → 清除选择/预览 → 结果/警告面；
+  guards 不得只存在于按钮 enabled 状态——实际命令路径必须复检；无第二 store /
+  第二持久化管线 / QML 文件删除 / QML JSON 编辑。
+```
+
+### 91.1 起始基线
+
+```text
+HEAD = 3df4d71942f234392377512670f2d933b9c150c2 · verified LKGC = 19e2f45…（UNCHANGED）
+tracked clean；四 samples tracked 未动。重建所有权（实测）：
+MANUAL STORE OWNER = ManualStore（deleteDocument 新 API + 最小 test-only remove
+  interposer）；MANUAL CONTROLLER OWNER = ManualImportController
+  （deleteDocumentById，身份保持重载）；ORCHESTRATION OWNER =
+  CandidateExtractionController（已安全持有 manualController_ 方向，无循环依赖）
+  —— checkManualDeleteAllowed（纯读 guard）+ deleteManualDocument（命令路径复检
+  guard 后委派）；QML OWNER = DeviceProfilePage 手册卡（行内删除按钮 + 确认
+  Dialog + blocker/notice Label）；确认对话框沿 profileDeleteDialog 惯例
+  （modal / Popup.NoAutoClose / 380 宽 / footer DialogButtonBox / objectName /
+  Accessible）。hasPendingCandidateForManual(documentId) = candidates_ 扫描
+  （consumed 列表除外）；isExtractionRunningForManual = state_==Running &&
+  activeAttempt_.documentId。ManualStore 新增枚举 Outcome
+  {Success, SuccessWithCleanupWarning, FailureDocumentNotFound, FailureMetadataRemove}
+  + token 常量 manual_delete_*（§7 语义，命名随仓库惯例）。
+```
+
+### 91.2 Store 删除算法（实现即 §8 等价）
+
+```text
+1 resolve（loadAll）→ 缺失 = FailureDocumentNotFound（零无关 mutation）
+2 metadata 移除失败 = FailureMetadataRemove（不 GC、不报成功）
+3 重载后仍引用同 contentHash ⇒ Success（共享工件保留）
+4 无引用 ⇒ 按文档自身类型清理 text/<hash>{.txt|.json} + source/<hash>.bin
+  （已缺失 = 已清理；逐路径，无 glob、无目录清扫）
+5 全部成功 ⇒ Success；任一步失败 ⇒ SuccessWithCleanupWarning（metadata 保持已删，
+  无回滚——P0-ML-F 明确不要求也不授权重建 metadata）
+Fault seam = ManualStore::setRemoveInterposerForAutomation（默认直连
+QFile::remove；测试注入确定性 metadata/GC 失败；无通用 FS 抽象、不碰真实目录权限）。
+```
+
+### 91.3 验证链（凭据缺席，全部实测）
+
+```text
+REAL RED = tests/test_manual_delete.cpp（新 target manual_delete；review API 缺失的
+  运行时语义断言）exit 11（2 passed / 13 failed）
+GREEN   = exit 0，15 passed / 0 failed（ML2-01/03/04-10/13/16-24/30 等价覆盖 +
+  ML2-14 metadata 移除失败原子 + ML2-15 cleanup 失败可见警告；ML2-11 共享内容：
+  同字节两记录 → 删一 → 另一记录仍在/仍可预览/source+text 工件存活 → 删尽 →
+  元数据消失 + 工件清理；ML2-18 Running 阻断 + extraction 状态不变；ML2-19 他人
+  Running 不阻断；ML2-20 consumed 不阻断；ML2-22 全路径零 runner 派发；
+  ML2-24 删除非选中记录时选择按身份保持、绝无下一行静默重定向）
+MUTATION-NX5-SHARED（bypass 共享引用保护）⇒ REAL RED exit 1，恰好
+  ml2_sharedContent 在 QFile::exists(managedSource) 失败（幸存记录失去工件）
+  → 精确逆向 → residue 0 → 复绿 15/15
+MUTATION-NX6（bypass Pending 守卫）⇒ REAL RED exit 1，恰好 ml2_16 在
+  !deleteOk(blocked) 失败 → 精确逆向 → residue 0 → 复绿 15/15
+QML runtime gate = qml_manual_import_check 扩展 3 个 ML2 阶段（真实行按钮 →
+  确认对话框显示「不会删除电脑上的原始文件」+ ModbusLens 边界文案 → Cancel 零
+  mutation（库/选择不变）→ Confirm 恰好删除一条 + 选择/预览清空 + extraction
+  禁用；相对计数断言）。工作期间发现并精确修复该 gate 的一处结构缺陷
+  （stage 3 的 push 闭合被此前拼接吞掉，导致 3b–3f 延迟注册且计数错位——
+  修复后按源码序执行）
+targeted = 23/23 PASS / exit 0 / 64.1s（§20 全清单）
+pre-commit fresh 树 = buildcceptance\session-ml-r2-release\（新建）
+  configure RC 0（51.1s）· build RC 0（451/451，412.7s）
+  inventory = 66 → **67**（+manual_delete）· full = **67/67 PASS / 0 failed /
+  exit 0 / 197.5s**（manual_delete #32 Passed 1.26s；qml_manual_import_check #61
+  Passed 1.78s；deployment_startup_check #35 Passed 34.89s）
+```
+
+### 91.4 提交 + post-commit ratification + 候选 + deployment
+
+```text
+behavior commit = 9bb599a34c0f4bea9b3be791caab9a6bfc592407
+  「M12: add safe manual library deletion」（10 files / +1345 −2，parent
+  3df4d71…，NO AMEND，内无 docs；samples 零改动）
+提交后一致性 = git diff HEAD -- src tests CMakeLists.txt samples 为空
+post-commit 树 = buildcceptance\session-ml-r2-postcommit-release\（新建）
+  configure RC 0（150.8s）· build RC 0（451/451，406.9s）
+  inventory = 67 · full = **67/67 PASS / 0 failed / exit 0 / 189.0s**
+  （manual_delete #32 Passed；deployment_startup_check #35 Passed 27.01s）
+候选 provenance = candidate\ModbusLens  exe = 6,487,562 B / SHA-256
+        830a84262e1a23c8198b78af09a66cbd6207eacd4158678515464e9a7a2ba9bd
+        （source exe ≡ candidate exe；manifest 1713 entries / root 1714 files）
+  qwindows.dll = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+  pdfium.dll   = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+  samples 边界 = 生成器不含 samples staging ⇒ 仍 repository-only；四样例 SHA-256
+  与 §88.5 逐字节一致（03a4f93e…/ad54598e…/cb90134c…/bfa9f83a…）
+deployment gate（独立复跑）= Passed 28.52s（sanitized 凭据缺席 env；
+  qwindows 确证从 candidate 树加载；启动零 ModelScope 请求）
+安全/数据权威审计 = 全过：删除路径零网络/零凭据；唯一触碰 = documents/、text/、
+  source/ 下精确路径；原始外部文件不可达（ManualStore 从不写 originalPath）；
+  无 glob/目录清扫；无 DeviceProfile 写入；无 Candidate 自动消费；无 Running
+  cancel；无 schema/迁移；无 Open 按钮；QML 无文件/JSON/目录操作。
+```
+
+### 91.5 HUMAN ML-2 CHECKLIST（Agent 不执行；候选 = §91.4 新候选；建议用样例 A/B）
+
+```text
+A. 启动 ML-R2 新候选；B. 确认既有手册列表无需导入即时出现（ML-1 保持）；
+C. 若库中无样例 A，则从 samples/ 复制到仓库外并导入
+   （注意：仓库内 sample 文件本身是 ORIGINAL，必须存活）；
+D. 选中该手册，确认预览可见；
+E. 点击「删除」——确认框须显示确切手册名 +
+   「将从 ModbusLens 删除已导入的说明书副本「…」。不会删除电脑上的原始文件。」；
+F. 点击「取消」⇒ 手册仍在、选中仍在、预览仍在（零 mutation）；
+G. 再次「删除」→ 确认 ⇒ 手册消失、选择清空、预览清空、
+   AI 提取在重新选择前不可用；
+H. 检查仓库内 samples 源文件仍在且未变；
+I. 完全关闭并重启 ⇒ 被删手册不再出现，其余手册正常出现/预览；
+J. （可选）同一样例导入两次（两条记录）→ 删一条 → 另一条仍可预览
+   （ML2-11 自动化证据为权威）；
+K. 无需触达 live ModelScope 即可完成 ML-2 验证；Pending/Running 阻断文案
+   如需人工查看需另行显式 live 动作，本清单不假设。
+```
+
+### 91.6 状态（本节归档时点）
+
+```text
+Manual Delete            = IMPLEMENTED / AUTOMATED PASS
+ML-2                     = IMPLEMENTED / AUTOMATED PASS / HUMAN REVIEW PENDING
+                           （checklist = §91.5，入口 = §91.4 新候选）
+Manual Library ML-1      = COMPLETE / HUMAN ACCEPTED（不变）
+Cold-start hydration     = FIXED / AUTOMATED PASS / HUMAN PASS（不变）
+Synthetic samples        = TRACKED / AUDITED / repository-only（不变，字节一致）
+C3 first slice           = COMPLETE / HUMAN ACCEPTED · C3 overall = IN PROGRESS
+C3 Edit                  = NOT STARTED / NOT AUTHORIZED
+M12-D                    = NOT STARTED / NOT AUTHORIZED
+canonical package        = NOT CREATED
+verified LKGC            = 19e2f45341c3f15d1f27bc38a9ad728d268049e3（UNCHANGED；
+                           behavior 提交不是 LKGC）
+无 push / 无 tag / 无 amend。
+```
