@@ -1,7 +1,41 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · M12-C C3 — HUMAN CONTRACT FREEZE C3-H1..H10（Session C3-R1 · docs-only 归档 · 以本块为准）〕**
+**〔2026-10-02 追加批注 · M12-C C3 — FIRST BEHAVIOR SLICE IMPLEMENTED / AUTOMATED PASS（Session C3-R2 · 以本块为准）〕**
+档案 = **T027 §82**。**Human 授权**（逐字见 §82 头部）：启动 C3 first behavior slice，
+严格按 C3-H1..H10 实施；不授权 Edit / batch / RegisterEntryCandidate / schema·provenance
+persistence / M12-D / LKGC advancement / package / tag / push。**实现**（唯一权威链 =
+Human action → C3 review controller → ProfileController draft → validateDeviceProfile →
+explicit Save → ProfileStore）：core lifecycle 消费态（Accepted/Rejected，session-only）+
+`revalidateCandidateEvidence`（C3-H3 freshness gate，复用同一 H6 规则）·
+`CandidateExtractionController::acceptCandidate/rejectCandidate`（单 Candidate、value 寻址、
+失败原子、Candidate 保持 PendingReview；Reject 零 mutation）·
+`ProfileController::applyCandidateField`（受控 staged-copy 写，白名单 = manufacturer，
+全量 validateDeviceProfile，commit-once，无 Save）· candidateCard 三方对照 + Accept/Reject +
+review 错误面 + **无 Edit** · automation seed 复用真实 validator（无 fake-AI 模式）。
+**验证**（fresh tree `build/acceptance/session-c3-r2-release/`，凭据缺席）：**REAL RED**
+candidate_review exit 18（3/21）+ QML 门禁 exit 1 → **GREEN** candidate_review **21/21** +
+`qml_candidate_review_check` PASS（offscreen+windows，诊断 0）→ **negative control
+MUTATION-NX2**（bypass evidence gate）**REAL RED exit 3（恰好 r2_08/09/10）** → 精确逆向
+residue 0 → 复绿 21/21 → **targeted 25/25**（o18 按 §81 修正：review 动作合法化，
+Edit/持久化动作仍禁止）→ **fresh Release full 66/66 PASS / exit 0 / 184.9s**
+（deployment_startup_check #34 Passed 31.25s）。**行为提交 =
+`61f641ef2d9045cd90dd7598dcf78ab36b5af800`**（12 files / +1879 −7，parent `b6cdd67…`，
+NO AMEND，内无 docs；提交后树一致性 diff-vs-HEAD = 空）。**候选 provenance**：
+`build\acceptance\session-c3-r2-release\candidate\ModbusLens\`，exe 6,443,540 B /
+SHA-256 `bd6133f0ad24091df152c8fe0a7789d3c5b3f9e42d89231add409ed6df2ea79f`
+（source ≡ candidate），manifest 1713 entries，qwindows `80473907…8ac`，pdfium
+`d42c452a…14b`；deployment gate POST-COMMIT Passed 25.31s（启动零 ModelScope 请求）。
+**状态**：**M12-C C3 = IN PROGRESS**；C3 first behavior slice / Accept / Reject =
+**IMPLEMENTED / AUTOMATED PASS**；C3 Edit = NOT IMPLEMENTED / DEFERRED（C3-H8）；
+batch = NOT IMPLEMENTED / DEFERRED（C3-H1）；RegisterEntryCandidate = NOT IN CURRENT
+SOURCE；Durable provenance = DEFERRED / NO SCHEMA CHANGE（C3-H7）；**C3 Human
+visual/functional = PENDING**（checklist = §82.6；候选 = 上表 candidate）；M12-C C1a/
+C1b/C2 = COMPLETE / HUMAN ACCEPTED；M12-C overall = IN PROGRESS；**M12-D = NOT
+STARTED / NOT AUTHORIZED**；canonical package = NOT CREATED。**verified LKGC =
+`613a32a0d6ca71ac53185779b7d5ab3b80c82870`（UNCHANGED；behavior 提交不是 LKGC）** ·
+无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · M12-C C3 — HUMAN CONTRACT FREEZE C3-H1..H10（Session C3-R1 · docs-only 归档 · 历史链一环）〕**
 档案 = **T027 §81**。**Human 授权（逐字归档 §81.0）**：C3-H1 Review granularity（v1 单
 Candidate 独立裁决，无 batch）· C3-H2 Accept semantics（写 ProfileController draft 对应
 字段；UI 三方对照 = proposal/target/draft；不触 persisted、不 auto-save；MANUAL SAVE 原样）·

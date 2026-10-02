@@ -7077,3 +7077,153 @@ REAL MODBUS HARDWARE   = NOT VERIFIED
 verified LKGC          = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED）
 无 push / 无 tag / 无 amend；本节所在提交 docs-only 永不作 LKGC。
 ```
+
+---
+
+## 82. M12-C C3 — FIRST BEHAVIOR SLICE ARCHIVE（SESSION C3-R2 · behavior + docs）
+
+> 性质：append-only 归档。授权 = Human「授权：启动 M12-C C3 first behavior slice，
+> 严格按 C3-H1..H10 和 H10 冻结范围实施；允许行为代码、测试、CMake/QML 的最小必要修改，
+> 以及 RED → GREEN → negative-control → targeted → fresh Release full regression →
+> behavior commit → candidate/deployment → docs archive；不授权 Edit / batch /
+> RegisterEntryCandidate / schema·provenance persistence / M12-D / LKGC advancement /
+> package / tag / push。」
+
+### 82.1 起始基线（实测）
+
+```text
+HEAD              = b6cdd678052e88a3907289cfc8738c3a1987e223（§81 归档提交）
+verified LKGC     = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED）
+tracked clean · cached 空 · diff --check rc 0 · tags = v1.0.0 · ls-files build = 空
+```
+
+### 82.2 实现架构（恢复的所有权 + 唯一权威链）
+
+```text
+CANDIDATE OWNER            = core::ProfileFieldCandidate（core/candidate/CandidateExtraction.h）
+CANDIDATE SET OWNER        = CandidateExtractionController（pending 集 + 会话消费列表）
+CANDIDATE EVIDENCE VALIDATOR = core::revalidateCandidateEvidence（新，复用
+                             locateUniqueExcerpt 的同一 H6 规则）
+PROFILE DRAFT OWNER        = ProfileController（m_draft；candidate-copy 纪律）
+PROFILE VALIDATION OWNER   = core::validateDeviceProfile（15 规则，pure）
+PROFILE PERSISTENCE OWNER  = ProfileStore（QSaveFile；经既有 saveCurrent）
+MANUAL CANONICAL TEXT OWNER = ManualStore::loadText(contentHash)（loadAll 解析 documentId）
+QML CANDIDATE OWNER        = candidateCard（DeviceProfilePage.qml）
+ERROR SURFACE              = 控制器新增 lastReviewError/lastReviewErrorToken +
+                             ProfileController 既有 lastActionError(+Token)
+TEST SEAMS                 = 注入 ctor + 计数 fake runner + setManagedRootOverride ×2 +
+                             QML 检查管道
+唯一权威链（C3-H10）       = Human action → C3 review controller →
+                             ProfileController draft → validateDeviceProfile →
+                             explicit Human Save → ProfileStore
+                           （candidateCard→profileController 受控引用 = H10 授权的
+                             有意架构变化；QML 不触 model/store，无第二条 pipeline）
+```
+
+改动文件：core CandidateExtraction.{h,cpp}（lifecycle 消费态 + evidence 重验证）·
+CandidateExtractionController.{h,cpp}（review API + 消费列表 + automation seed）·
+ProfileController.{h,cpp}（applyCandidateField 受控写）· Main.qml（1 行绑定）·
+DeviceProfilePage.qml（三方对照 + Accept/Reject + 错误面）· main.cpp（QML 门禁）·
+CMakeLists.txt（candidate_review 目标 + 2 个 QML 门禁）·
+tests/test_candidate_review.cpp（新）· tests/test_candidate_orchestration.cpp（o18 修正）。
+
+### 82.3 验证链（全部真实命令与输出，凭据缺席）
+
+```text
+REAL RED（实现前）
+  candidate_review          = exit 18（3 passed / 18 failed；失败全部为
+                              「review API 不存在」运行时语义断言）
+  qml_candidate_review_check = exit 1（seed API 缺失 + 控件缺失共 11 条 REVIEWFAIL）
+GREEN
+  candidate_review          = exit 0，21 passed / 0 failed（C3-R2-01..20 全覆盖，
+                              r2_19/r2_20 结构性证据内联）
+  qml_candidate_review_check = exit 0，CANDIDATE REVIEW CHECK PASS (R1..R5)，
+                              QML 诊断 0（offscreen + windows 双跑均绿）
+negative control（MUTATION-NX2：注释 acceptCandidate 的 evidence gate）
+  = REAL RED exit 3（18 passed / 3 failed，恰好 r2_08/09/10 —— 陈旧证据可达
+    controlled draft 路径）→ 精确逆向（未用 checkout/restore/reset）→
+    residue 0（grep 无残留）→ 复绿 21/21
+targeted 回归               = 25/25 PASS / exit 0 / 64.4s（含 candidate_review、
+                              2 个 QML 门禁、extraction/adapter/orchestration/transport、
+                              device_profile、profile_controller、manual 系、
+                              consent/editor/register_map/geometry/nav/focus/smoke、ai_client）
+  o18 修正（契约驱动，非削弱）：O 时代「controller 无 review 动作」被 §81 取代——
+    acceptCandidate/rejectCandidate/automation seed 现为 Human 批准动作；
+    o18 继续禁止 Edit 动作与一切持久化形态动作（save/persist/store/commit）。
+fresh Release full           = 66/66 PASS / 0 failed / exit 0 / 184.9s
+  （inventory = 66：63 + candidate_review + 2 个 QML 门禁；
+    deployment_startup_check #34 Passed 31.25s）
+```
+
+### 82.4 提交与候选 provenance
+
+```text
+behavior commit = 61f641ef2d9045cd90dd7598dcf78ab36b5af800
+                  「M12: add C3 candidate accept and reject」
+                  （12 files / +1879 −7，parent b6cdd67…，NO AMEND，内无 docs）
+提交后树一致性   = git diff HEAD -- src tests CMakeLists.txt 为空 ⇒ 被测源 ≡ 提交树
+candidate        = buildcceptance\session-c3-r2-release\candidate\ModbusLens  exe            = 6,443,540 B / SHA-256
+                   bd6133f0ad24091df152c8fe0a7789d3c5b3f9e42d89231add409ed6df2ea79f
+                   （source exe ≡ candidate exe，byte-identical）
+  manifest       = 1713 entries（root 1714 files），manifest 内 exe 哈希一致
+  qwindows.dll   = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+  pdfium.dll     = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+deployment gate  = deployment_startup_check POST-COMMIT Passed 25.31s
+                   （sanitized env：PATH = candidate root + 系统目录；
+                     qwindows.dll 确证从 candidate 树加载；启动零 ModelScope 请求）
+```
+
+### 82.5 安全 / 权威审计（提交前全部通过）
+
+```text
+无 live ModelScope · 无凭据读取（新增代码 0 处凭据）· C3 路径零网络
+（QNetworkAccessManager/Request 在 review 路径出现次数 = 0；r2_17 运行时证明）
+无 raw provider response 使用 · 无 Candidate/audit 持久化（r2_18：Profile JSON
+键集 = schema 键集）· 无 schema change / version bump / migration
+（DeviceProfile.h / ProfileStore.h 零改动）· 无 QML 直写 model/store ·
+无第二条持久化 pipeline · 无 auto-save（r2_06）· 无 Edit（r2_13 + QML 扫描）·
+无 batch（C3-H1）· 无 RegisterEntryCandidate（源码不存在）· 无 M12-D（r2_20 +
+QML 扫描）· Accept/Reject 对既有 Candidate 零 provider 调用（r2_17）
+```
+
+### 82.6 HUMAN ACCEPTANCE CHECKLIST（Agent 不执行；候选 = 上表 candidate）
+
+前置：Human 自行决定是否用 live ModelScope 产生真实 Candidate（沿用既有产品同意流；
+那一步是 Human 动作）。或由 Human 选择任何已导入 manual 触发提取。
+
+```text
+A. 通过已验收的 C2 流程生成一个真实 PendingReview Manufacturer Candidate。
+B. candidateCard 明确显示：目标 Profile/Manufacturer 字段、当前草稿值、
+   Candidate 提议值、接受、拒绝；且无 Edit 控件。
+C. 拒绝：Candidate 从待审核消失；Manufacturer 草稿不变；Save 状态不变；
+   持久化 Profile 不变。
+D. 再次提取，产生新 Candidate。
+E. 接受：点击前可见当前草稿值；Accept 只改 Manufacturer 草稿；
+   Candidate 消失；Profile 变 dirty；无自动保存。
+F. Accept 后 Discard：草稿/持久化状态恢复。
+G. 重新生成并 Accept，然后 Human 显式 Save：重启/重载确认 Manufacturer
+   已按正常 Profile 工作流持久化。
+H. 其余 Profile/Register 字段零变化。
+I. 1280x937 与 1000x700 下无可见裁切/越界。
+J. 界面无 M12-D / Edit / batch UI。
+```
+
+### 82.7 状态（本节归档时点）
+
+```text
+M12-C C3               = IN PROGRESS
+C3 first behavior slice = IMPLEMENTED / AUTOMATED PASS
+C3 Accept              = IMPLEMENTED / AUTOMATED PASS
+C3 Reject              = IMPLEMENTED / AUTOMATED PASS
+C3 Edit                = NOT IMPLEMENTED / DEFERRED（C3-H8 冻结语义）
+C3 batch               = NOT IMPLEMENTED / DEFERRED（C3-H1）
+RegisterEntryCandidate = NOT IMPLEMENTED / NOT IN CURRENT SOURCE
+Durable provenance     = DEFERRED / NO SCHEMA CHANGE（C3-H7）
+C3 Human visual/functional = PENDING（§82.6 checklist）
+M12-C overall          = IN PROGRESS
+M12-D                  = NOT STARTED / NOT AUTHORIZED
+canonical package      = NOT CREATED
+verified LKGC          = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED；
+                         behavior 提交不是 LKGC）
+无 push / 无 tag / 无 amend。
+```
