@@ -1,7 +1,25 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · M12-C C2 — HUMAN LIVE MODELSCOPE ACCEPTANCE = PASS（Session P-R1F · docs-only 归档 · 以本块为准）〕**
+**〔2026-10-02 追加批注 · M12-C C2 — VERIFIED LKGC ADVANCE THROUGH C2（Human 授权 · Session P-R1F · docs-only · 以本块为准）〕**
+档案 = **T027 §80**。**Human 授权（逐字）**：「授权：将 M12-C C2 Human acceptance 作为新的
+verified behavior baseline，并将 verified LKGC 从 `19f9738c980e0a8a31b557c346fb50a4af711cab`
+推进到 `613a32a0d6ca71ac53185779b7d5ab3b80c82870`。本授权仅推进 verified LKGC；不授权 C3、
+M12-D、package、tag 或 push。」**Git 实测验证**：`613a32a…` type = commit · 是 HEAD 祖先
+（exit 0）· `613a32a~1..613a32a` = 9 files / +1234 −40（**behavior-bearing**）·
+`613a32a..HEAD` = 3 提交（`c78c960`/`ca01025`/`6ab5abc`）非 docs 路径 diff = 空 ⇒ 其后提交
+全部 docs-only 永不作 LKGC ⇒ `613a32a` = C2 最后一个 behavior-bearing tree。**基线证据链** =
+P-R1D commit 审计（零凭据物料）+ P-R1D fresh ratification（凭据缺席、full Release 63/63 PASS /
+exit 0 / 182.9s、deployment_startup_check Passed）+ P-R1F Human live acceptance（C2 = PASS /
+HUMAN ACCEPTED；验收 candidate 即该 behavior 内容生成）。**当前 verified LKGC =
+`613a32a0d6ca71ac53185779b7d5ab3b80c82870`（Human authorized）**；前一 verified
+`19f9738c980e0a8a31b557c346fb50a4af711cab` 转历史链一环（原文保留不删）。**状态**：
+**M12-C C2 = COMPLETE / HUMAN ACCEPTED（新 verified behavior baseline）**；M12-C C1a · C1b =
+COMPLETE / HUMAN ACCEPTED；**M12-C overall = IN PROGRESS（C3 未启动，不推断收口）**；
+**C3 · M12-D = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）** · canonical package =
+NOT CREATED · tag = 仅 v1.0.0 · push 未发生 · REAL MODBUS HARDWARE = NOT VERIFIED ·
+本批注所在提交 docs-only 永不作 LKGC · 无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · M12-C C2 — HUMAN LIVE MODELSCOPE ACCEPTANCE = PASS（Session P-R1F · docs-only 归档 · 历史链一环）〕**
 档案 = **T027 §79**（+ ISSUE-020 最小澄清批注）。**Human 权威报告（逐字）**：「Agree 后进入
 Running，随后进入 PendingReview；Candidate 可见；Device Profile 未变化；无可见错误。」
 **授权解释（逐字归档）**：Human live ModelScope inference = **PASS / HUMAN VERIFIED** ·

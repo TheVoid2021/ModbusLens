@@ -6744,3 +6744,68 @@ verified LKGC                          = 19f9738c980e0a8a31b557c346fb50a4af711ca
 未执行任何 ModelScope 请求 · 未读取凭据值 · 无 token 值 / raw response 入档 ·
 未开始 C3 / M12-D · 未创建 canonical package · 未推进 verified LKGC ·
 未 push / 未 tag / 未 amend。
+
+---
+
+## 80. M12-C C2 — VERIFIED LKGC ADVANCE THROUGH C2（Session P-R1F · docs-only 归档）
+
+> 性质：append-only 归档。仅记录 Human 授权与 Git 实测验证；LKGC 推进本身是
+> canonical docs 的状态转移，**不是**任何新行为。
+
+### 80.1 Human 授权（逐字）
+
+```text
+授权：将 M12-C C2 Human acceptance 作为新的 verified behavior baseline，
+并将 verified LKGC 从
+19f9738c980e0a8a31b557c346fb50a4af711cab
+推进到
+613a32a0d6ca71ac53185779b7d5ab3b80c82870。
+
+本授权仅推进 verified LKGC；
+不授权 C3、M12-D、package、tag 或 push。
+```
+
+### 80.2 Git 实测验证（授权目标合法性）
+
+```text
+git cat-file -t 613a32a…                       = commit
+git merge-base --is-ancestor 613a32a… HEAD     = exit 0（是 HEAD 祖先）
+613a32a~1..613a32a changed paths               = 9 files / +1234 −40
+  （CMakeLists.txt · src/main.cpp · ModelScopeCandidateRunner.{h,cpp} ·
+   ModelScopeExtractionTransport.{h,cpp} · ModelScopeHttpClient.{h,cpp} ·
+   tests/test_candidate_transport.cpp）⇒ behavior-bearing
+613a32a..HEAD = 3 个提交（c78c960 · ca01025 · 6ab5abc），
+  非 docs 路径 diff = 空 ⇒ 其后提交全部 docs-only，永不作 LKGC
+⇒ 613a32a = C2 最后一个 behavior-bearing tree，为合法 LKGC 目标。
+```
+
+### 80.3 基线证据链（为什么是 613a32a）
+
+```text
+· P-R1D commit 审计：613a32a 内容 = SESSION P transport + §77 修复 + P-R1C
+  harness sanitization，零凭据物料、零 docs 混入。
+· P-R1D fresh ratification（build/acceptance/session-p-r1d-ratify/，凭据缺席）：
+  configure RC0 · build RC0（417/417）· inventory 63 ·
+  qml_consent_check / qml_consent_check_windows / candidate_transport 全 PASS ·
+  full Release 63/63 PASS / 0 failed / exit 0 / 182.9s（deployment_startup_check
+  Passed 26.37s）。
+· P-R1F Human live acceptance（§79）：live smoke = PASS / HUMAN VERIFIED，
+  C2 overall = PASS / HUMAN ACCEPTED —— Human 验收的目标 candidate 即由该
+  behavior 内容生成。
+```
+
+### 80.4 推进后的 canonical 状态
+
+```text
+verified LKGC = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（Human authorized）
+前一 verified  = 19f9738c980e0a8a31b557c346fb50a4af711cab（转历史链一环，原文保留）
+M12-C C2       = COMPLETE / HUMAN ACCEPTED（新 verified behavior baseline）
+M12-C overall  = IN PROGRESS（C3 未启动，不推断收口）
+C3 · M12-D     = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）
+canonical package = NOT CREATED · tag = 仅 v1.0.0 · push = 未发生
+REAL MODBUS HARDWARE = NOT VERIFIED
+```
+
+**本节动作边界（docs-only）**：仅归档授权 + Git 验证 + 状态转移记录；
+未改 source / CMake / tests · 未 build / test · 未执行任何网络请求 ·
+未创建 canonical package · 未 tag / 未 push · 本节所在提交 docs-only 永不作 LKGC。
