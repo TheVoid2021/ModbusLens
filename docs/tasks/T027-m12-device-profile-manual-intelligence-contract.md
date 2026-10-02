@@ -7955,3 +7955,83 @@ verified LKGC            = bb996a5bfc5416e3392c6fd709508e21aeab62c2（UNCHANGED�
 无 live ModelScope / 凭据读取 · 无 ManualStore/DeviceProfile 数据变更 ·
 未开始 ML-2 Delete / C3 Edit / M12-D / Manual Library 维护实现 ·
 未推进 LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+---
+
+## 90. MANUAL LIBRARY ML-1 — VERIFIED LKGC ADVANCE（SESSION ML-R1B · docs-only 归档）
+
+> 性质：append-only 归档。仅记录 Human 授权与 Git 实测验证；LKGC 推进本身是
+> canonical docs 的状态转移，**不是**任何新行为。
+
+### 90.0 Human 授权（逐字）
+
+```text
+授权：将 Manual Library ML-1 Human acceptance
+作为新的 verified behavior baseline，
+并将 verified LKGC 从
+
+bb996a5bfc5416e3392c6fd709508e21aeab62c2
+
+推进到
+
+19e2f45341c3f15d1f27bc38a9ad728d268049e3。
+
+本授权仅推进 verified LKGC；
+不授权 ML-2 implementation、C3 Edit、M12-D、
+package、tag 或 push。
+```
+
+### 90.1 Git 实测验证（授权目标合法性）
+
+```text
+git cat-file -t 19e2f45…                   = commit
+git merge-base --is-ancestor 19e2f45… HEAD = exit 0（是 HEAD 祖先）
+19e2f45~1..19e2f45 changed paths           = 7 files / +393
+  （ManualImportController.cpp ctor 冷启动水合 +9 ·
+    tests/test_manual_import.cpp ML1 矩阵 +219 · CMakeLists.txt 样例目录
+    编译定义 +4 · 四份 tracked synthetic samples 新增）
+  ⇒ **behavior/data-bearing ML-1 commit**（含生产行为 + 测试 + 数据；
+    如实记录其双重性质，不得描述为 docs-only）
+19e2f45..HEAD = 2 个提交（f80caf4 之……更正：a3bdd16 · 6bc4ee7），
+  非 docs 路径 diff = 空 ⇒ 其后提交全部 docs-only，永不作 LKGC
+⇒ 19e2f45 = ML-1 最后一个 behavior/data-bearing tree，为合法 LKGC 目标。
+```
+
+### 90.2 基线证据链（为什么是 19e2f45）
+
+```text
+· ML-R1：冷启动缺陷源码确证 + ctor refresh() 最小修复 +
+  REAL RED（manual_import exit 7，7 个水合断言，三次连跑一致）→
+  GREEN 31/31 → MUTATION-NX4 闭环（RED → 精确逆向 → residue 0 → 复绿）→
+  targeted 20/20 → pre-commit fresh 树 66/66 / 187.3s。
+· ML-R1（post-commit）：第二棵全新树 66/66 / 184.1s + 候选 b80811bf…
+  （manifest 1713）+ deployment gate 27.29s（独立复跑 24.13s）。
+· ML-R1A：Human cold-start acceptance = PASS（两次冷启动均零导入、
+  旧列表直接出现、选中/预览正常）——Human 验收对象候选即由
+  19e2f45 内容生成（session-ml-r1-postcommit-release 树）。
+```
+
+### 90.3 推进后的 canonical 状态
+
+```text
+verified LKGC = 19e2f45341c3f15d1f27bc38a9ad728d268049e3（Human authorized）
+前一 verified  = bb996a5bfc5416e3392c6fd709508e21aeab62c2（转历史链一环，原文保留）
+Manual Library ML-1 = COMPLETE / HUMAN ACCEPTED（新 verified behavior baseline）
+Cold-start hydration = FIXED / AUTOMATED PASS / HUMAN PASS
+Synthetic samples    = TRACKED / AUDITED / SYNTHETIC / repository-only
+Manual Delete        = NOT IMPLEMENTED
+ML-2 contract        = HUMAN-FROZEN（P0-ML-A/B/C/D/F/G/H，§88.0）
+ML-2 implementation  = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）
+C3 first slice       = COMPLETE / HUMAN ACCEPTED
+C3 overall           = IN PROGRESS（Edit 未实现未验收）
+C3 Edit              = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）
+M12-D                = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）
+REAL MODBUS HARDWARE = NOT VERIFIED
+canonical package    = NOT CREATED · tag = 仅 v1.0.0 · push = 未发生
+```
+
+**本节动作边界（docs-only）**：仅归档授权 + Git 验证 + 状态转移记录；
+未改 src/tests/CMake/QML/samples · 未 build / configure / CTest ·
+未生成候选 / 未跑 deployment gate · 无 live ModelScope / 凭据读取 ·
+未开始 ML-2 / C3 Edit / M12-D · 未创建 canonical package ·
+未 tag / 未 push · 本节所在提交 docs-only 永不作 LKGC。

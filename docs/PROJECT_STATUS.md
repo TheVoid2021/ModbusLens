@@ -1,7 +1,35 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-1 — HUMAN COLD-START ACCEPTANCE = PASS（Session ML-R1A · docs-only 归档 · 以本块为准）〕**
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-1 — VERIFIED LKGC ADVANCE（Human 授权 · Session ML-R1B · docs-only · 以本块为准）〕**
+档案 = **T027 §90**。**Human 授权（逐字）**：「授权：将 Manual Library ML-1 Human
+acceptance 作为新的 verified behavior baseline，并将 verified LKGC 从
+`bb996a5bfc5416e3392c6fd709508e21aeab62c2` 推进到
+`19e2f45341c3f15d1f27bc38a9ad728d268049e3`。本授权仅推进 verified LKGC；不授权
+ML-2 implementation、C3 Edit、M12-D、package、tag 或 push。」**Git 实测验证**：
+`19e2f45…` type = commit · 是 HEAD 祖先（exit 0）· `19e2f45~1..19e2f45` = 7 files /
++393（ManualImportController ctor 冷启动水合 + ML1 测试矩阵 + CMake 样例目录定义 +
+四份 tracked synthetic samples）⇒ **behavior/data-bearing ML-1 commit**（含生产行为
++ 测试 + 数据；如实记录其双重性质，非 docs-only）；`19e2f45..HEAD` = 2 提交
+（`a3bdd16`/`6bc4ee7`）非 docs 路径 diff = 空 ⇒ 其后提交全部 docs-only 永不作 LKGC
+⇒ `19e2f45` = ML-1 最后一个 behavior/data-bearing tree。**基线证据链** = ML-R1
+（冷启动缺陷源码确证 + ctor refresh() 修复 + REAL RED exit 7 → GREEN 31/31 +
+MUTATION-NX4 闭环 + targeted 20/20 + pre-commit fresh 66/66/187.3s）+ post-commit
+ratification 树 66/66/184.1s + 候选 `b80811bf…` + deployment 27.29s/24.13s +
+ML-R1A（**Human cold-start acceptance = PASS**，两次冷启动零导入、旧列表直接出现、
+选中/预览正常）。**当前 verified LKGC = `19e2f45341c3f15d1f27bc38a9ad728d268049e3`
+（Human authorized）**；前一 verified `bb996a5…` 转历史链一环（原文保留不删）。
+**状态**：**Manual Library ML-1 = COMPLETE / HUMAN ACCEPTED（新 verified behavior
+baseline）**；Cold-start hydration = FIXED / AUTOMATED PASS / HUMAN PASS；Synthetic
+samples = TRACKED / AUDITED / repository-only；Manual Delete = NOT IMPLEMENTED；
+ML-2 contract = HUMAN-FROZEN（P0-ML-A/B/C/D/F/G/H）；**ML-2 implementation = NOT
+STARTED / NOT AUTHORIZED（本授权明确不授权）**；C3 first slice = COMPLETE / HUMAN
+ACCEPTED；C3 overall = IN PROGRESS（Edit 未实现未验收）；**C3 Edit = NOT STARTED /
+NOT AUTHORIZED（本授权明确不授权）**；**M12-D = NOT STARTED / NOT AUTHORIZED（本
+授权明确不授权）**；REAL MODBUS HARDWARE = NOT VERIFIED；canonical package = NOT
+CREATED · tag = 仅 v1.0.0 · push = 未发生 · 本批注所在提交 docs-only 永不作 LKGC ·
+无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-1 — HUMAN COLD-START ACCEPTANCE = PASS（Session ML-R1A · docs-only 归档 · 历史链一环）〕**
 档案 = **T027 §89**。Human 授权（逐字）：「授权：归档 Manual Library ML-1 Human
 cold-start acceptance PASS；仅 docs-only，不推进 LKGC，不实施 ML-2 Delete，不开始
 C3 Edit/M12-D，不做 package/tag/push。」**验收对象边界**：ML-R1 post-commit 候选
