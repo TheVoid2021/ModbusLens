@@ -1,7 +1,35 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · M12-C C2 — VERIFIED LKGC ADVANCE THROUGH C2（Human 授权 · Session P-R1F · docs-only · 以本块为准）〕**
+**〔2026-10-02 追加批注 · M12-C C3 — HUMAN CONTRACT FREEZE C3-H1..H10（Session C3-R1 · docs-only 归档 · 以本块为准）〕**
+档案 = **T027 §81**。**Human 授权（逐字归档 §81.0）**：C3-H1 Review granularity（v1 单
+Candidate 独立裁决，无 batch）· C3-H2 Accept semantics（写 ProfileController draft 对应
+字段；UI 三方对照 = proposal/target/draft；不触 persisted、不 auto-save；MANUAL SAVE 原样）·
+C3-H3 Evidence freshness gate（Accept/edited-confirm 前重验 document/content/excerpt/
+location round-trip；失败原子、draft 不变、Candidate 保持 PendingReview；禁 silent stale
+acceptance）· C3-H4 Profile conflict semantics（v1 无 persisted fingerprint；权威目标 =
+UI 当前显示的 selected Profile + draft field；无有效 target 不得 Accept；仅限
+ProfileFieldCandidate v1）· C3-H5 Accepted lifecycle（consumed、移出 PendingReview、不得
+再次 Accept、零持久化）· C3-H6 Rejected lifecycle（零 mutation、consumed、无 undo、不影响
+未来 extraction、不持久化）· C3-H7 Durable provenance（v1 不写入 schema；无 version
+change/migration/audit store；DEFER ≠ 永不需要）· C3-H8 Edit authority semantics（Edit 不进
+首切片；后续 slice 冻结：Human-authored 值、原提案+evidence 仅会话上下文、同 gate/validator/
+原子失败/draft-only/不 auto-save）· C3-H9 无专用 undo（draft Discard + 新 extraction）·
+C3-H10 First slice boundary（ProfileFieldCandidate + Manufacturer + Accept + Reject +
+evidence revalidation + draft integration + 既有 validation/MANUAL SAVE；明确不实现 Edit UI/
+batch/RegisterEntryCandidate/schema change/durable provenance/auto-save/M12-D/package/tag/
+push/LKGC advancement；candidateCard 获受控 ProfileController mutation path = 有意架构变化；
+唯一权威链 Human action → C3 review controller → ProfileController draft →
+validateDeviceProfile → explicit Save → ProfileStore，禁止第二条 pipeline）。
+**C3-H1..H10 = HUMAN-APPROVED C3 CONTRACT**；C3-R0 审计的全部 P0-C3 未决项均已裁定
+（映射 = §81.2）。**状态**：**M12-C C3 = CONTRACT FROZEN · IMPLEMENTATION NOT STARTED /
+NOT AUTHORIZED（待 ChatGPT/Human review 本归档后另行授权 first behavior slice）**；
+M12-C C1a/C1b/C2 = COMPLETE / HUMAN ACCEPTED；M12-C overall = IN PROGRESS；
+M12-D = NOT STARTED / NOT AUTHORIZED；canonical package = NOT CREATED；
+REAL MODBUS HARDWARE = NOT VERIFIED。**verified LKGC =
+`613a32a0d6ca71ac53185779b7d5ab3b80c82870`（UNCHANGED）** · 本批注所在提交 docs-only
+永不作 LKGC · 无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · M12-C C2 — VERIFIED LKGC ADVANCE THROUGH C2（Human 授权 · Session P-R1F · docs-only · 历史链一环）〕**
 档案 = **T027 §80**。**Human 授权（逐字）**：「授权：将 M12-C C2 Human acceptance 作为新的
 verified behavior baseline，并将 verified LKGC 从 `19f9738c980e0a8a31b557c346fb50a4af711cab`
 推进到 `613a32a0d6ca71ac53185779b7d5ab3b80c82870`。本授权仅推进 verified LKGC；不授权 C3、

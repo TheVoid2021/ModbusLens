@@ -6809,3 +6809,271 @@ REAL MODBUS HARDWARE = NOT VERIFIED
 **本节动作边界（docs-only）**：仅归档授权 + Git 验证 + 状态转移记录；
 未改 source / CMake / tests · 未 build / test · 未执行任何网络请求 ·
 未创建 canonical package · 未 tag / 未 push · 本节所在提交 docs-only 永不作 LKGC。
+
+---
+
+## 81. M12-C C3 — HUMAN CONTRACT FREEZE C3-H1..H10（SESSION C3-R1 · docs-only 归档）
+
+> 性质：append-only 归档。Human 已明确授权以下 C3 Human contract decisions，
+> 并授权将其 docs-only 归档；**本授权本身不授权 behavior implementation**。
+> 下一会话先 docs-only 归档并复核 repository truth（本节即该归档）；
+> 完成并由 ChatGPT/Human review 后，才另行授权 C3 first behavior slice。
+
+### 81.0 Human 授权原文（逐字）
+
+```text
+同意以下 M12-C C3 Human contract decisions，并授权后续将其
+docs-only 归档；本授权本身不授权 behavior implementation。
+
+C3-H1 — Review granularity
+M12-C C3 v1 采用单 Candidate 独立裁决。
+不实现 batch Accept / batch Reject。
+未来 RegisterEntryCandidate 或 batch workflow 另行授权。
+
+C3-H2 — Accept semantics
+Accept 是 Human 对当前单个 Candidate 的显式确认。
+
+对当前已实现的 ProfileFieldCandidate：
+Accept 将 proposed value 写入当前选中 Device Profile 的
+ProfileController draft 对应字段。
+
+UI 在 Accept 前必须同时让 Human 看见：
+- Candidate proposed value
+- 当前目标 Profile / field
+- 当前 draft value
+
+Accept 可以覆盖当前 draft value，
+但不得直接修改 persisted Profile，
+不得 auto-save。
+
+持久化继续严格沿用现有 MANUAL SAVE：
+Human 之后显式 Save 才进入持久化 verified Profile。
+
+未涉及的 Profile 字段必须保持不变。
+
+C3-H3 — Evidence freshness gate
+每次 Accept / edited-confirm 前，
+必须针对当前 canonical Manual truth
+重新执行 deterministic evidence validation。
+
+至少验证：
+document identity
+content identity / contentHash
+exact excerpt
+canonical location / round-trip
+
+若 source 已不存在、content identity 不匹配、
+excerpt/location 无法重新验证或 evidence 已失效：
+
+操作必须原子失败；
+Profile draft 不得变化；
+Candidate 保持 PendingReview，
+供 Human 检查、重新提取或处理。
+
+不得 silent stale acceptance。
+
+C3-H4 — Profile conflict semantics
+当前 ProfileFieldCandidate v1 不增加 persisted profile fingerprint。
+
+Candidate 不自动绑定并写入某个隐藏的旧 Profile 状态。
+
+Human 点击 Accept 时，
+权威目标就是 UI 当前明确显示的 selected Profile + current draft field。
+
+如果 selected Profile 或该字段值自 Candidate 产生后已经变化，
+系统不得静默自动应用；
+UI 必须显示当前目标和当前值，
+Human 此时的显式 Accept 才表示"以 Candidate value 覆盖当前 draft value"。
+
+没有当前有效 Profile target 时不得 Accept。
+
+这一规则仅冻结当前 ProfileFieldCandidate v1。
+未来 RegisterEntryCandidate 的并发/冲突语义必须重新审计，
+不得从本规则自动外推。
+
+C3-H5 — Accepted lifecycle
+成功 Accept 后：
+Candidate 在当前 session 中标记为 Accepted/consumed，
+并移出 PendingReview 集合；
+同一 Candidate 不得再次 Accept。
+
+Accepted 状态/audit 不持久化到 DeviceProfile JSON、
+manual metadata 或其它长期存储。
+
+进程结束后该 Candidate/audit 消失。
+
+C3-H6 — Rejected lifecycle
+Reject 必须产生零 DeviceProfile mutation。
+
+成功 Reject 后：
+Candidate 在当前 session 中标记为 Rejected/consumed，
+并移出 PendingReview 集合。
+
+C3 v1 不提供 Reject undo。
+Reject 不影响未来重新运行 extraction；
+新的成功 extraction 可以重新产生新的 Candidate。
+
+Rejected 状态/audit 不长期持久化。
+
+C3-H7 — Durable provenance
+M12-C v1 不把 Candidate evidence / AI provenance /
+Accept/Reject audit 写入 DeviceProfile schema。
+
+Evidence 在 Human review 与 deterministic validation 阶段仍是必需的，
+但 accepted Profile truth 的 durable provenance
+明确 DEFER 到未来独立 Human decision。
+
+因此本决定：
+不授权 DeviceProfile schema version change，
+不授权 migration，
+不授权新的 persistent audit store。
+
+不得把"当前不持久化 provenance"
+写成"provenance 永远不需要"。
+
+C3-H8 — Edit authority semantics
+Edit 属于 C3，但不进入第一个 Accept/Reject implementation slice。
+
+后续 Edit slice 冻结为：
+
+Human Edit 后的值属于 Human-authored / Human-confirmed value，
+不得继续表示成 AI-proposed value。
+
+原 AI proposal + Evidence
+在当前 review session 内保留作为上下文。
+
+Human 可以把值修改为与 AI proposal 不同的值；
+Evidence 此时只是 source context，
+不得声称 Evidence 自动证明 Human 修改后的值。
+
+edited-confirm 必须：
+- 由 Human 显式确认
+- 走与 Accept 相同的 deterministic evidence freshness gate
+- 走相同 DeviceProfile validation
+- 原子失败
+- 失败后保持可继续编辑/审核
+- 成功后只写 ProfileController draft
+- 不 auto-save
+
+C3 v1 不持久化原 AI proposal、Edit audit 或 provenance。
+
+C3-H9 — Undo / re-review
+第一个 C3 slice 不增加专用 Accept undo / Reject undo。
+
+Accept 尚未 Save 时，
+继续使用现有 Profile draft Discard 语义撤销 Profile draft 变化。
+
+Reject 后如 Human 希望重新考虑，
+通过新的 extraction 产生新的 Candidate；
+不恢复旧 Rejected Candidate。
+
+C3-H10 — First implementation slice boundary
+第一个 C3 behavior slice 只实现：
+
+ProfileFieldCandidate
++
+当前实际可产的 Manufacturer target
++
+Accept
++
+Reject
++
+evidence revalidation
++
+ProfileController draft integration
++
+existing DeviceProfile validation
++
+existing MANUAL SAVE workflow
+
+明确不实现：
+
+Edit UI
+batch review
+RegisterEntryCandidate
+DeviceProfile schema change
+durable provenance/audit
+auto-save
+M12-D
+package
+tag
+push
+LKGC advancement
+
+candidateCard 获得受控 ProfileController mutation path
+是本 C3 slice 的有意架构变化，
+但必须保持唯一权威链：
+
+Human action
+→ C3 review controller
+→ ProfileController draft
+→ validateDeviceProfile
+→ existing explicit Save
+→ ProfileStore
+
+不得建立第二条 DeviceProfile mutation/persistence pipeline。
+
+本授权只冻结 C3 contract。
+下一会话先 docs-only 归档 C3-H1..H10 并复核 repository truth；
+完成并由 ChatGPT/Human review 后，
+才另行授权 C3 first behavior slice。
+
+verified LKGC 保持：
+613a32a0d6ca71ac53185779b7d5ab3b80c82870
+
+M12-D / package / tag / push 均未授权。
+```
+
+### 81.1 定性（HUMAN-APPROVED C3 CONTRACT）
+
+C3-H1..H10 = **HUMAN-APPROVED C3 CONTRACT**（非 pre-existing canonical，非工程推断；
+来源 = 本节 81.0 的 Human 逐字授权）。自此，C3-R0 审计报告中分类为
+REQUIRES HUMAN DECISION 的全部 P0-C3 项均有 Human 裁定；
+§47.11 的 PROPOSED lifecycle 建议由 H1..H6/H9 的具体冻结取代（历史原文保留）。
+
+### 81.2 与既有决策的关系（显式记录，禁止机械替换）
+
+| 新决定 | 解决的既往未决项（C3-R0 审计 §P） | 关系定性 |
+| --- | --- | --- |
+| C3-H1 | P0-C3-A（粒度） | RESOLVED：v1 = 单 Candidate 裁决；batch/RegisterEntryCandidate 另行授权（NOT silently deferred——明确排除出 v1） |
+| C3-H2 | P0-C3-B（变更语义）+ P0-C3-F（持久化时机） | RESOLVED：Accept = draft 覆盖 + UI 三方对照（proposal/target/draft）；不触 persisted、不 auto-save；MANUAL SAVE 冻结纪律原样沿用 |
+| C3-H3 | P0-C3-G（陈旧策略）+ §47.11.6（失败后 Candidate 可修正） | RESOLVED：Accept/edited-confirm 前 evidence freshness gate（document identity + content identity + excerpt + location round-trip）；失败 = 原子失败 + draft 不变 + Candidate 保持 PendingReview；禁止 silent stale acceptance |
+| C3-H4 | P0-C3-H（目标已变冲突） | RESOLVED：v1 无 persisted fingerprint；权威目标 = UI 当前显示的 selected Profile + current draft field；不得静默自动应用；无有效 target 不得 Accept；**仅限 ProfileFieldCandidate v1，RegisterEntryCandidate 须重新审计** |
+| C3-H5 | P0-C3-D（Accepted 生命周期/audit） | RESOLVED：Accepted/consumed + 移出 PendingReview + 不得再次 Accept + 零持久化（进程结束即消失） |
+| C3-H6 | P0-C3-E（Rejected 生命周期） | RESOLVED：零 Profile mutation + Rejected/consumed + 移出集合 + 无 undo + 不影响未来 extraction + 不持久化 |
+| C3-H7 | P0-C3-I（durable provenance）+ schema 问题 | RESOLVED（v1 = 不持久化）：无 schema version change、无 migration、无 persistent audit store；「当前不持久化」≠「永远不需要」（DEFER 语义冻结） |
+| C3-H8 | P0-C3-C（Edit 权威语义） | RESOLVED + DEFERRED-IMPLEMENTATION：Edit 不进首切片；后续 Edit slice 的权威语义已冻结（Human-authored 值、原提案+evidence 仅作会话上下文、edited-confirm 走同 gate/validator/原子失败/draft-only/不 auto-save、v1 不持久化 Edit audit） |
+| C3-H9 | P0-C3-J（undo/re-review） | RESOLVED：无专用 undo；未 Save 用既有 draft Discard；重新考虑 = 新 extraction |
+| C3-H10 | C3-R0 §Q 首切片提案 + candidateCard 受控引用设计点 | RESOLVED + BOUNDED：首切片范围逐项冻结（含明确不实现清单）；candidateCard 获得**受控** ProfileController mutation path = 有意架构变化；唯一权威链 = Human action → C3 review controller → ProfileController draft → validateDeviceProfile → existing explicit Save → ProfileStore；禁止第二条 pipeline |
+
+未被取代（原样保留）：§4/§13/§15 冻结能力句（C3-H 系是其具体化）· §47.12 M12-C/M12-D
+hard boundary · §66 H1–H10（C2 侧契约）· §17.2 M12-C exit 条件（C3 完成后链路可用）·
+§67/§71 已实现层语义 · ISSUE-020 历史与澄清批注。
+
+### 81.3 由此产生的实现边界（工程含义，本节不设计）
+
+- 权威链唯一：`Human action → C3 review controller → ProfileController draft →
+  validateDeviceProfile → existing explicit Save → ProfileStore`；
+  candidateCard 与 ProfileController 之间的受控引用是 H10 明示的有意架构变化。
+- 需要的域扩展 = additive：`CandidateLifecycleState` 增加Accepted/Rejected（consumed）
+  状态 + 消费语义；Candidate 域不新增持久化句柄（H4/H5/H7 不变）。
+- evidence freshness gate 复用既有确定性验证组件
+  （`locateUniqueExcerpt` round-trip + documentId/contentHash 比对），
+  不发明第二套 evidence 词汇。
+- 首切片验收必须覆盖（映射 C3-R0 §N 分类）：C3-A/B/C/E/I/J/L/M/N（REQUIRED）
+  + C3-K 由 H3/H4 取代（evidence gate + 显式目标对照）+ F/G/H NOT APPLICABLE
+  （Edit 不在首切片）+ 现有全量回归零回归。
+
+### 81.4 状态（本节归档时点）
+
+```text
+M12-C C1a / C1b / C2   = COMPLETE / HUMAN ACCEPTED
+M12-C C3               = CONTRACT FROZEN（C3-H1..H10）· IMPLEMENTATION NOT STARTED /
+                         NOT AUTHORIZED（待 ChatGPT/Human review 本归档后另行授权）
+M12-C overall          = IN PROGRESS
+M12-D                  = NOT STARTED / NOT AUTHORIZED
+canonical package      = NOT CREATED
+REAL MODBUS HARDWARE   = NOT VERIFIED
+verified LKGC          = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED）
+无 push / 无 tag / 无 amend；本节所在提交 docs-only 永不作 LKGC。
+```
