@@ -1,7 +1,41 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · M12-C C3 — VERIFIED LKGC ADVANCE THROUGH C3 FIRST SLICE（Human 授权 · Session C3-R2C · docs-only · 以本块为准）〕**
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-1 — COLD-START HYDRATION + SYNTHETIC SAMPLES = IMPLEMENTED / AUTOMATED PASS（Session ML-R1 · 以本块为准）〕**
+档案 = **T027 §88**。**Human 授权**（逐字见 §88 头部）：SLICE-ML-1 = 修复 cold-start
+hydration + 正式纳入四份 synthetic samples（P0-ML-A/B/C/D/F/G/H 冻结政策归档 §88.0——
+均为 ML-2 未来语义）；暂不实施 ML-2 删除，不推进 LKGC，不开始 C3 Edit/M12-D。
+**冷启动根因（源码确证）**：`ManualImportController` 构造函数为空、无启动期 refresh
+触发 ⇒ 持久化 store 存在时列表恒空，直至任何一次导入触发 `refresh()` 使全部记录出现
+（与 Human 观察逐条吻合；对照 `ProfileController` ctor 的 `refreshCatalog()` 先例）。
+**修复（最小）**：ctor 调用既有 `refresh()`（无 timer/异步/QML workaround/新持久化）。
+**验证**（凭据缺席）：**REAL RED** manual_import exit **7**（24/31，恰好 7 个水合断言，
+三次连跑一致；.ml1_samples 一次索引假设错误已修为按名查找）→ **GREEN 31/31**
+（ML1-01..10 等价覆盖 + 四样例经权威导入路由全部成功，D 为纯内容负例无 live 断言）→
+**MUTATION-NX4**（注释 ctor refresh）**REAL RED exit 7** → 精确逆向 residue 0 → 复绿
+31/31 → targeted **20/20** → pre-commit fresh 树 `session-ml-r1-release/`：
+configure RC0（38.5s）/ build 435/435（381.5s）/ **66/66 PASS / exit 0 / 187.3s**。
+**behavior/data 提交 = `19e2f45341c3f15d1f27bc38a9ad728d268049e3`**（7 files/+393，
+parent `3e27bbb…`，NO AMEND，内无 docs；含四样例逐路径 stage，样例 SHA 提交前后一致；
+`--check` 对 B 的 Markdown 行尾双空格告警按 P0-ML-H 冻结内容不重写，记录于 §88.5）。
+提交后一致性 ✓。**post-commit ratification**（新树
+`session-ml-r1-postcommit-release/`）：configure RC0（152.1s）/ build 435/435
+（369.3s）/ **66/66 PASS / exit 0 / 184.1s**（manual_import #26 Passed 1.56s；
+deployment #34 Passed 26.29s）。**新候选**：`candidate\ModbusLens\`，exe 6,449,983 B /
+SHA-256 `b80811bff2b0aba507cdcb5ca75b2f4b96357e405b8eb400110e85746c794a46`
+（≡ source），manifest 1713 entries（root 1714），qwindows `80473907…8ac`，pdfium
+`d42c452a…14b`；**deployment gate 独立复跑 Passed 24.13s**。**samples 边界**：
+生成器不含 samples staging ⇒ 四样例 repository-only（未授权扩展 package 政策）。
+**状态**：Manual Library ML-1 = IMPLEMENTED / AUTOMATED PASS / **HUMAN COLD-START
+REVIEW PENDING**（checklist = §88.8，入口 = 新候选）；Cold-start hydration =
+IMPLEMENTED / AUTOMATED PASS（缺陷 CONFIRMED / FIXED）；Synthetic samples = TRACKED /
+AUDITED；Manual Delete = NOT IMPLEMENTED（P0-ML 政策 HUMAN-FROZEN 为 ML-2 语义）；
+ML-2 = NOT STARTED / NOT AUTHORIZED；C3 first slice = COMPLETE / HUMAN ACCEPTED；
+C3 overall = IN PROGRESS；C3 Edit = NOT STARTED / NOT AUTHORIZED；M12-D = NOT
+STARTED / NOT AUTHORIZED；canonical package = NOT CREATED。**verified LKGC =
+`bb996a5bfc5416e3392c6fd709508e21aeab62c2`（UNCHANGED；behavior/data 提交不是
+LKGC）** · 无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · M12-C C3 — VERIFIED LKGC ADVANCE THROUGH C3 FIRST SLICE（Human 授权 · Session C3-R2C · docs-only · 历史链一环）〕**
 档案 = **T027 §86**。**Human 授权（逐字）**：「授权：将 M12-C C3 first behavior slice
 Human acceptance 作为新的 verified behavior baseline，并将 verified LKGC 从
 `613a32a0d6ca71ac53185779b7d5ab3b80c82870` 推进到

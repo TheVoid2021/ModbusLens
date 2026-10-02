@@ -7720,3 +7720,144 @@ REAL MODBUS HARDWARE = NOT VERIFIED
 **本节动作边界（docs-only）**：仅归档授权 + Git 验证 + 状态转移记录；
 未改 src/tests/QML/CMake · 未 build / test · 未执行任何网络请求 ·
 未创建 canonical package · 未 tag / 未 push · 本节所在提交 docs-only 永不作 LKGC。
+
+---
+
+## 88. MANUAL LIBRARY ML-1 — COLD-START HYDRATION + SYNTHETIC SAMPLES（SESSION ML-R1 · behavior/data + docs）
+
+> 性质：append-only 归档。Human 授权（逐字）：「同意上述 P0-ML-A/B/C/D/F/G/H 裁定；
+> 授权先执行 SLICE-ML-1：修复 cold-start hydration 并正式纳入四份 synthetic samples」，
+> 流程 = RED → GREEN → negative-control → targeted → fresh Release full regression →
+> behavior/data commit → post-commit fresh ratification → candidate/deployment →
+> docs archive；暂不实施 ML-2 删除功能，不推进 LKGC，不开始 C3 Edit/M12-D，
+> 不做 package/tag/push。
+
+### 88.0 P0-ML-A/B/C/D/F/G/H = HUMAN-FROZEN（ML-2 语义，逐字归档于 Human 授权记录）
+
+A 删除选中后 selected=NONE/preview 清空/提取按钮禁用（不自动换行、不残留旧 preview）·
+B PendingReview 引用目标手册时 **DELETE MUST BE BLOCKED**（确定性文案；不得自动消费/
+拒绝/留死候选）· C Running extraction 时 **DELETE MUST BE BLOCKED**（产品策略冻结，
+尽管内存隔离技术上安全）· D metadata record = 权威可见性点，删除失败必须显式报错 ·
+F 删除范围 = metadata record + **仅当无其他记录引用同 contentHash** 时的受管工件
+（共享工件必须存活；Human 原始外部文件永不删除/修改；GC 失败 ⇒ 记录仍删除 + 明确
+“本地缓存清理失败”警示；无新数据库/tombstone）· G ML-1/ML-2 v1 无显式 Open 按钮 ·
+H 四份样例按**确切现有文件名**纳入 tracked（不改名、不重写内容；A/B/C 支持确定性
+导入测试；D 仅支持确定性导入与 fake/replay 断言，禁止 live ModelScope 期望断言）。
+**以上均为 ML-2 未来语义；本 session 零 Delete 实现。**
+
+### 88.1 起始基线 + 样例字节审计（实现前）
+
+```text
+HEAD = 3e27bbb2a330af078279d00599bcce62759c17d8 · verified LKGC = bb996a5…（UNCHANGED）
+tracked clean · untracked = _ctx.py/_dump.py + 四样例（未动）
+A_Clear.txt       = 938 B / SHA-256 03a4f93e2208c9dede12699ac887b45cc663736ae2f6d7614ada7851d2413f74
+B_Chinese.md      = 895 B / SHA-256 ad54598e5f5fdd6f7ce3f85a56b4c31a2032aa9630cc9826da927bc31892b6b3
+C_Structured.txt  = 828 B / SHA-256 cb90134c09ff80d584d21804569358e36e6e5377cd9dabd58a4b7bf6af01d85f
+D_NoManufacturer  = 682 B / SHA-256 bfa9f83a92ca164f316cbf7685e28ef365ec9a2ffcf5f13a1b0386a59d8a3206
+均 valid UTF-8、无 BOM、全合成自述、无密钥/客户数据/绝对机器路径/可执行载荷；
+B 为 UTF-8 中文 Markdown（含 Markdown 行尾双空格硬换行——Human 冻结内容，
+  git diff --check 曾提示 trailing whitespace，按 P0-ML-H 不重写，SHA 提交前后一致）。
+```
+
+### 88.2 冷启动根因（源码确证，ML-R0 审计结论）
+
+`ManualImportController` 构造函数为空、不调用 `refresh()`；全仓无启动期 refresh
+触发（QML 无 Component.onCompleted/onVisibleChanged 触发）⇒ 持久化 store 存在时
+新 controller 的列表**恒为空**，直至任何一次成功导入触发 `refresh()`（loadAll）使
+全部持久化记录出现——与 Human 观察逐条吻合。决定性对照：`ProfileController` 构造
+函数调用 `refreshCatalog()`（Profile 目录启动即水合）。
+
+### 88.3 REAL RED → GREEN → MUTATION-NX4（凭据缺席）
+
+```text
+RED：tests/test_manual_import.cpp 新增 ML1 矩阵（ml1_01..09 + samples 路由测试）
+  manual_import = exit 7（24 passed / 7 failed，三次连跑完全一致）——失败恰好为
+  7 个水合断言：预填充 store（权威 API 导入）→ 销毁导入上下文 → 全新 controller
+  零导入 ⇒ manualDocuments 为空。
+GREEN：ManualImportController 构造函数调用既有 refresh()（与 ProfileController
+  构造刷新先例对称；无 timer/异步/QML workaround/新持久化路径）
+  manual_import = exit 0，31 passed / 0 failed（ML1-01..10 等价覆盖：
+  水合/立即可选/受管预览/原文件删除独立性/空 store 无伪错误/损坏元数据跳过/
+  零 Profile 副作用/顺序=loadAll 权威序/无隐式选中；样例 A/B/C/D 经权威导入
+  路由全部成功，D 为纯内容负例、无 live 断言）
+MUTATION-NX4（注释 ctor 的 refresh()）⇒ REAL RED exit 7（恰好同 7 个水合测试，
+  ml1_01 count 0 vs 2）→ 精确逆向（未用 checkout/restore/reset）→ residue 0 →
+  复绿 31/31
+```
+
+### 88.4 targeted + pre-commit fresh 树
+
+```text
+targeted = 20/20 PASS / exit 0 / 57.5s
+pre-commit fresh 树 = buildcceptance\session-ml-r1-release\（新建）
+  configure RC 0（38.5s）· build RC 0（435/435，381.5s）
+  inventory = 66 · full = 66/66 PASS / 0 failed / exit 0 / 187.3s
+  （manual_import #26 Passed 1.50s；deployment_startup_check #34 Passed 28.96s）
+```
+
+### 88.5 behavior/data 提交 + 样例 SHA（记录）
+
+```text
+commit = 19e2f45341c3f15d1f27bc38a9ad728d268049e3
+         「M12: hydrate manual library and add test manuals」
+         （7 files / +393，parent 3e27bbb…，NO AMEND；零 docs 混入；
+           四样例按确切路径逐个 stage）
+样例 SHA-256（提交前后一致）= §88.1 所列四个完整哈希
+git diff --cached --check 对 B 的 Markdown 行尾双空格提示 trailing whitespace
+  —— 属 Markdown 硬换行语义 + P0-ML-H 冻结内容，**不重写**（哈希不变证明字节级保留）
+提交后一致性 = tracked clean；git diff HEAD -- src tests CMakeLists.txt samples 为空
+```
+
+### 88.6 post-commit ratification（第二棵全新树）
+
+```text
+树   = buildcceptance\session-ml-r1-postcommit-release\（新建；凭据缺席；
+       configure RC 0 152.1s · build RC 0 435/435 369.3s）
+inventory = 66 · full = 66/66 PASS / 0 failed / exit 0 / 184.1s
+  manual_import #26 Passed 1.56s · deployment_startup_check #34 Passed 26.29s
+```
+
+### 88.7 候选 provenance + deployment（§20 边界：samples 不随候选发布）
+
+```text
+candidate root = buildcceptance\session-ml-r1-postcommit-release\candidate\ModbusLensexe            = 6,449,983 B / SHA-256
+                 b80811bff2b0aba507cdcb5ca75b2f4b96357e405b8eb400110e85746c794a46
+                 （source exe ≡ candidate exe，byte-identical）
+manifest       = 1713 entries（root 1714 files）
+qwindows.dll   = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+pdfium.dll     = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+samples 边界   = 生成器不含 samples staging（实测 grep 为空）⇒ 四样例
+                 repository-only，候选不携带（未授权扩展 package 政策）
+deployment     = deployment_startup_check 独立复跑 Passed 24.13s
+                 （sanitized 凭据缺席 env；qwindows 确证从 candidate 树加载；
+                   启动零 ModelScope 请求）
+```
+
+### 88.8 HUMAN COLD-START GATE（Agent 不执行；候选 = §88.7 新候选）
+
+```text
+1. 使用 ML-R1 post-commit 候选；生产 ManualStore 已含多本手册。
+2. 不点击「导入说明书」。
+3. 完全关闭 ModbusLens → 启动新候选 → 打开设备页。
+4. 确认：手册数量即时正确、旧列表即时可见、点击任一旧手册立即出预览。
+5. 再次关闭并重启 → 不导入 → 同样立即可见。
+6. （可选）从 samples/ 复制一份 tracked 样例到仓库外做导入 smoke
+   ——这不是冷启动水合的必要条件。
+```
+
+### 88.9 状态（本节归档时点）
+
+```text
+Manual Library ML-1   = IMPLEMENTED / AUTOMATED PASS / HUMAN COLD-START REVIEW PENDING
+Cold-start hydration  = IMPLEMENTED / AUTOMATED PASS（缺陷 CONFIRMED / FIXED）
+Synthetic samples     = TRACKED / AUDITED（repository-only，不随候选发布）
+Manual Delete         = NOT IMPLEMENTED（P0-ML-A/B/C/D/F 政策 HUMAN-FROZEN 为 ML-2 语义）
+ML-2                  = NOT STARTED / NOT AUTHORIZED
+C3 first slice        = COMPLETE / HUMAN ACCEPTED
+C3 overall            = IN PROGRESS · C3 Edit = NOT STARTED / NOT AUTHORIZED
+M12-D                 = NOT STARTED / NOT AUTHORIZED
+canonical package     = NOT CREATED
+verified LKGC         = bb996a5bfc5416e3392c6fd709508e21aeab62c2（UNCHANGED；
+                        behavior/data 提交不是 LKGC）
+无 push / 无 tag / 无 amend。
+```
