@@ -811,6 +811,8 @@ if(BUILD_TESTING)
         src/ui/manual/ManualPdfTextExtractor.cpp
         src/ui/manual/ManualDocxTextExtractor.h
         src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp)
     target_include_directories(modbuslens_candidate_orchestration_tests PRIVATE
@@ -866,6 +868,8 @@ if(BUILD_TESTING)
         src/ui/manual/ManualPdfTextExtractor.cpp
         src/ui/manual/ManualDocxTextExtractor.h
         src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp)
     target_include_directories(modbuslens_candidate_transport_tests PRIVATE
@@ -887,6 +891,64 @@ if(BUILD_TESTING)
 
     add_test(NAME candidate_transport
              COMMAND modbuslens_candidate_transport_tests)
+
+    # ---------------------------------------------------------------------------
+    # M12-C C3 FIRST BEHAVIOR SLICE (T027 §81): the Human authority boundary
+    # between PendingReview Candidates and the verified Device Profile. Accept
+    # goes through evidence revalidation (C3-H3) and a controlled
+    # ProfileController staged-copy write (C3-H2/H10); Reject mutates nothing.
+    # The suite reaches the review API exactly the way QML does (by name), and
+    # the automation seed reuses the REAL deterministic C2 evidence validator —
+    # there is no fake-AI mode here and no socket is ever opened.
+    add_executable(modbuslens_candidate_review_tests
+        tests/test_candidate_review.cpp
+        src/ui/ai/ModelScopeCandidateAdapter.h
+        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/candidate/CandidateExtractionRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateExtractionController.h
+        src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/candidate/ModelScopeHttpClient.h
+        src/ui/candidate/ModelScopeHttpClient.cpp
+        src/ui/candidate/ModelScopeExtractionTransport.h
+        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/manual/ManualStore.h
+        src/ui/manual/ManualStore.cpp
+        src/ui/manual/ManualImportController.h
+        src/ui/manual/ManualImportController.cpp
+        src/ui/manual/ManualTextExtraction.h
+        src/ui/manual/ManualTextExtraction.cpp
+        src/ui/manual/ManualPdfTextExtractor.h
+        src/ui/manual/ManualPdfTextExtractor.cpp
+        src/ui/manual/ManualDocxTextExtractor.h
+        src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_include_directories(modbuslens_candidate_review_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    # Qt6::Network mirrors the orchestration target: the controller constructs
+    # the PRODUCTION runner by default; this suite injects a counting fake and
+    # proves review actions never dispatch anything.
+    target_link_libraries(modbuslens_candidate_review_tests PRIVATE
+        modbuslens_core Qt6::Core Qt6::Test Qt6::Network modbuslens_pdfium
+        modbuslens_libzip modbuslens_zlib)
+    add_custom_command(TARGET modbuslens_candidate_review_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MODBUSLENS_C1B_PDFIUM_DLL}"
+                "$<TARGET_FILE_DIR:modbuslens_candidate_review_tests>/pdfium.dll"
+        COMMENT "Staging the pinned pdfium.dll next to the C3 review tests")
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_candidate_review_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME candidate_review
+             COMMAND modbuslens_candidate_review_tests)
 
     # ---------------------------------------------------------------------------
     # M12-C C2 SESSION P-R1 (T027 §77): the configuration contract is defined by
@@ -1462,6 +1524,25 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_ASSUME_STDERR_HAS_CONSOLE=1"
     )
 
+    # M12-C C3 first slice (T027 §81): the Human review runtime gate. It drives
+    # the REAL candidate card through REAL Accept/Reject interactions against a
+    # REAL imported manual, proves the three-way comparison is visible, that
+    # Accept reaches the controlled draft path (and never auto-saves), that
+    # evidence failure is visible and atomic, and that no Edit/batch control
+    # exists. The same stderr contract as the consent gate applies: a
+    # GUI-subsystem exe without QT_ASSUME_STDERR_HAS_CONSOLE swallows its own
+    # diagnostics under ctest (measured, SESSION P-R1C).
+    add_test(NAME qml_candidate_review_check
+             COMMAND modbuslens --qml-candidate-review-check)
+    set_tests_properties(qml_candidate_review_check PROPERTIES
+        ENVIRONMENT "QT_ASSUME_STDERR_HAS_CONSOLE=1"
+    )
+    add_test(NAME qml_candidate_review_check_windows
+        COMMAND modbuslens --qml-candidate-review-check)
+    set_tests_properties(qml_candidate_review_check_windows PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_ASSUME_STDERR_HAS_CONSOLE=1"
+    )
+
     # All QML gates above run under QT_QPA_PLATFORM=offscreen so they stay
     # headless-safe. Offscreen, however, does NOT use the shipped font
     # metrics: measured on the same binary, a line of text is 12px offscreen
@@ -1538,7 +1619,7 @@ if(BUILD_TESTING)
     #   Unable to assign           : a failed binding assigning undefined to a
     #                                typed property (absent map key, or a role
     #                                read against an invalidated model index)
-    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_manual_import_check qml_manual_import_check_windows qml_consent_check qml_consent_check_windows qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
+    set_tests_properties(qml_smoke qml_nav_check qml_geometry_check qml_focus_check qml_write_foundation_check qml_production_write_check qml_read_result_check qml_read_result_demo qml_read_result_demo32 qml_profile_editor_check qml_register_map_check qml_active_profile_check qml_manual_import_check qml_manual_import_check_windows qml_consent_check qml_consent_check_windows qml_candidate_review_check qml_candidate_review_check_windows qml_profile_semantic_check qml_profile_semantic_demo qml_write_foundation_check_windows PROPERTIES
         FAIL_REGULAR_EXPRESSION "ReferenceError;TypeError;Unable to assign;String.arg..: Invalid arguments"
     )
 endif()

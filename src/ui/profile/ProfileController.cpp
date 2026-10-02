@@ -754,6 +754,43 @@ bool ProfileController::removeRegisterEntry(int draftIndex)
     return true;
 }
 
+bool ProfileController::applyCandidateField(const QString &fieldToken,
+                                            const QString &value)
+{
+    // M12-C C3 (T027 §81): the controlled Candidate-value write. Same staged
+    // discipline as the register editor — whole-draft copy, one supported
+    // field, FULL profile validation, commit-once — and never a Save.
+    m_lastActionError.clear();
+    m_lastActionErrorToken.clear();
+    if (!m_hasOpenProfile) {
+        m_lastActionError = QStringLiteral("没有打开的设备档案");
+        emitEditorChanged();
+        return false;
+    }
+    // v1 whitelist (C3-H10): the C2 first slice can only produce a
+    // Manufacturer candidate. Everything else is an explicit refusal — never
+    // a silent generalization over the six enum members.
+    if (fieldToken != QStringLiteral("manufacturer")) {
+        m_lastActionErrorToken = QStringLiteral("unsupported_candidate_field");
+        m_lastActionError = QStringLiteral("暂不支持将该候选字段写入设备档案");
+        emitEditorChanged();
+        return false;
+    }
+    auto candidate = m_draft;
+    candidate.manufacturer = value.toStdString();
+    const auto validation = modbuslens::core::validateDeviceProfile(candidate);
+    if (!validation.ok()) {
+        m_lastActionErrorToken = QString::fromLatin1(
+            modbuslens::core::profileValidationCodeName(validation.code));
+        m_lastActionError = validationHumanText(candidate, validation);
+        emitEditorChanged();
+        return false;
+    }
+    m_draft = candidate;
+    emitEditorChanged();
+    return true;
+}
+
 void ProfileController::clearActionError()
 {
     if (m_lastActionError.isEmpty() && m_lastActionErrorToken.isEmpty()) {

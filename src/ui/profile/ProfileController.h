@@ -130,6 +130,19 @@ public:
     // opens, so a stale rejection text never pre-fills the dialog).
     Q_INVOKABLE void clearActionError();
 
+    // ------------------------------------------------------------------
+    // M12-C C3 controlled candidate write (T027 §81, C3-H2/H10). The ONLY
+    // entry point through which an AI Candidate value may reach the editor
+    // draft. Same candidate-copy discipline as the register editor: the whole
+    // draft is copied, exactly one supported field is applied, the FULL
+    // profile is validated, and only a valid copy is committed. No Save, no
+    // auto-persist, no second pipeline. v1 whitelist = {"manufacturer"} (the
+    // only target the C2 first slice can produce); anything else is an
+    // explicit refusal with the draft untouched.
+    // ------------------------------------------------------------------
+    Q_INVOKABLE bool applyCandidateField(const QString &fieldToken,
+                                         const QString &value);
+
 signals:
     void catalogChanged();
     void editorChanged();

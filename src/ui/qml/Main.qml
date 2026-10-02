@@ -154,6 +154,10 @@ ApplicationWindow {
         id: candidateController
         objectName: "candidateController"
         manualController: manualController
+        // M12-C C3 (T027 §81): the CONTROLLED draft path for Accept. This is
+        // the only reference from the AI surface to the profile editor, and
+        // the only way a Candidate value can reach the draft (C3-H10).
+        profileController: profileController
     }
 
     // ------------------------------------------------------------------

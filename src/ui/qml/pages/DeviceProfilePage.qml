@@ -1004,6 +1004,20 @@ Item {
                     width: parent.width
                     spacing: DS.spacingS
 
+                    // M12-C C3 first slice (T027 §81): the review error surface
+                    // of the last failed Accept/Reject (evidence freshness,
+                    // missing profile target, unsupported target). Empty while
+                    // everything succeeds.
+                    Label {
+                        objectName: "candidateReviewError"
+                        Layout.fillWidth: true
+                        visible: candidateController.lastReviewError !== ""
+                        wrapMode: Text.Wrap
+                        font.pixelSize: DS.fontCaption
+                        color: DS.error
+                        text: candidateController.lastReviewError
+                    }
+
                     Repeater {
                         objectName: "candidateRepeater"
                         model: candidateController.candidates
@@ -1034,6 +1048,36 @@ Item {
                                 font.pixelSize: DS.fontCaption
                                 elide: Text.ElideRight
                             }
+                            // C3-H2 three-way comparison: the Human must see
+                            // WHERE the value would go before Accepting.
+                            Label {
+                                objectName: "candidateRowTargetContext"
+                                Layout.fillWidth: true
+                                visible: modelData && modelData.targetField
+                                         !== ""
+                                text: (profileController.hasOpenProfile
+                                       ? qsTr("目标档案: %1 / %2").arg(
+                                             profileController.displayName).arg(
+                                             modelData && modelData.targetField
+                                             ? modelData.targetField : "")
+                                       : qsTr("目标档案: 未打开"))
+                                color: DS.textSecondary
+                                font.pixelSize: DS.fontCaption
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                objectName: "candidateRowDraftValue"
+                                Layout.fillWidth: true
+                                visible: modelData && modelData.targetField
+                                         !== ""
+                                text: (profileController.hasOpenProfile
+                                       ? qsTr("当前草稿值: %1").arg(
+                                             profileController.manufacturer)
+                                       : qsTr("当前草稿值: 无"))
+                                color: DS.textSecondary
+                                font.pixelSize: DS.fontCaption
+                                elide: Text.ElideRight
+                            }
                             Label {
                                 objectName: "candidateRowLifecycle"
                                 Layout.fillWidth: true
@@ -1042,6 +1086,34 @@ Item {
                                       ? qsTr("待审核") : ""
                                 color: DS.pending
                                 font.pixelSize: DS.fontCaption
+                            }
+                            // C3-H1/H2: single-Candidate review. Accept is
+                            // enabled only when a valid profile target exists
+                            // (C3-H4); the write itself goes through the
+                            // controlled candidate path, never this UI.
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: DS.spacingS
+                                AppButton {
+                                    objectName: "candidateAcceptButton_"
+                                                + index
+                                    Layout.fillWidth: true
+                                    Accessible.name: qsTr("接受该候选值")
+                                    text: qsTr("接受")
+                                    enabled: profileController.hasOpenProfile
+                                    onClicked: candidateController.acceptCandidate(
+                                                   modelData)
+                                }
+                                AppButton {
+                                    objectName: "candidateRejectButton_"
+                                                + index
+                                    Layout.fillWidth: true
+                                    Accessible.name: qsTr("拒绝该候选值")
+                                    text: qsTr("拒绝")
+                                    enabled: true
+                                    onClicked: candidateController.rejectCandidate(
+                                                   modelData)
+                                }
                             }
                         }
                     }

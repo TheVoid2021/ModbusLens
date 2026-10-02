@@ -54,6 +54,10 @@ std::string_view candidateLifecycleStateToken(CandidateLifecycleState state)
     switch (state) {
     case CandidateLifecycleState::PendingReview:
         return "pending_review";
+    case CandidateLifecycleState::Accepted:
+        return "accepted";
+    case CandidateLifecycleState::Rejected:
+        return "rejected";
     }
     return "unknown";
 }
@@ -141,6 +145,58 @@ CandidateExtractionResult extractProfileFieldCandidates(
     }
 
     return result;
+}
+
+std::string_view candidateEvidenceRevalidationCodeName(
+    CandidateEvidenceRevalidationCode code)
+{
+    switch (code) {
+    case CandidateEvidenceRevalidationCode::Ok:
+        return "evidence_ok";
+    case CandidateEvidenceRevalidationCode::EmptyExcerpt:
+        return "evidence_excerpt_missing";
+    case CandidateEvidenceRevalidationCode::InvalidRange:
+        return "evidence_range_invalid";
+    case CandidateEvidenceRevalidationCode::RoundTripFailed:
+        return "evidence_round_trip_failed";
+    case CandidateEvidenceRevalidationCode::NotUnique:
+        return "evidence_not_unique";
+    }
+    return "evidence_invalid";
+}
+
+CandidateEvidenceRevalidationCode revalidateCandidateEvidence(
+    const CandidateEvidence& evidence,
+    std::string_view canonicalExtractedText)
+{
+    if (evidence.excerpt.empty()) {
+        return CandidateEvidenceRevalidationCode::EmptyExcerpt;
+    }
+    if (evidence.textStart < 0 || evidence.textEnd <= evidence.textStart
+        || evidence.textEnd > static_cast<std::int64_t>(canonicalExtractedText.size())) {
+        return CandidateEvidenceRevalidationCode::InvalidRange;
+    }
+    // The recorded span must still round-trip to the exact excerpt. A position
+    // drift with identical content is caught by the uniqueness rule below; a
+    // content change is caught here.
+    if (canonicalExtractedText.substr(static_cast<std::size_t>(evidence.textStart),
+                                      static_cast<std::size_t>(
+                                          evidence.textEnd - evidence.textStart))
+        != evidence.excerpt) {
+        return CandidateEvidenceRevalidationCode::RoundTripFailed;
+    }
+    // The excerpt must STILL be uniquely locatable (same conservative H6 rule
+    // as generation time — the world may have made it ambiguous since).
+    std::int64_t locatedStart = -1;
+    std::int64_t locatedEnd = -1;
+    if (!locateUniqueExcerpt(canonicalExtractedText, evidence.excerpt, locatedStart,
+                             locatedEnd)) {
+        return CandidateEvidenceRevalidationCode::NotUnique;
+    }
+    if (locatedStart != evidence.textStart || locatedEnd != evidence.textEnd) {
+        return CandidateEvidenceRevalidationCode::RoundTripFailed;
+    }
+    return CandidateEvidenceRevalidationCode::Ok;
 }
 
 } // namespace modbuslens::core

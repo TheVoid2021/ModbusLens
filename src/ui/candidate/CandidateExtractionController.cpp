@@ -2,11 +2,13 @@
 
 #include <QVariantMap>
 
+#include <algorithm>
 #include <utility>
 
 #include "core/candidate/CandidateExtraction.h"
 #include "core/candidate/ProviderExtractionContract.h"
 #include "ui/manual/ManualStore.h"
+#include "ui/profile/ProfileController.h"
 
 namespace modbuslens::ui {
 namespace {
@@ -69,6 +71,33 @@ void CandidateExtractionController::setManualController(
     }
     manualController_ = controller;
     emit manualControllerChanged();
+}
+
+void CandidateExtractionController::setProfileController(
+    ProfileController *controller)
+{
+    if (profileController_ == controller) {
+        return;
+    }
+    profileController_ = controller;
+    emit profileControllerChanged();
+}
+
+void CandidateExtractionController::setReviewError(QString token, QString text)
+{
+    lastReviewErrorToken_ = std::move(token);
+    lastReviewError_ = std::move(text);
+    emit reviewChanged();
+}
+
+void CandidateExtractionController::clearReviewError()
+{
+    if (lastReviewErrorToken_.isEmpty() && lastReviewError_.isEmpty()) {
+        return;
+    }
+    lastReviewErrorToken_.clear();
+    lastReviewError_.clear();
+    emit reviewChanged();
 }
 
 QString CandidateExtractionController::stateToken() const
@@ -356,6 +385,246 @@ void CandidateExtractionController::completeAttempt(
     candidatesContentHash_ = activeAttempt_.contentHash;
     setState(State::Succeeded, QString(), QString());
     emit candidatesChanged();
+}
+
+// ---------------------------------------------------------------------------
+// M12-C C3 Human review (T027 §81). The ONLY bridge between the session-only
+// PendingReview set and the verified DeviceProfile draft. No persistence, no
+// provider call, no second pipeline: consumption is session-only (C3-H5/H6)
+// and the draft write goes through the single controlled ProfileController
+// staged-copy API (C3-H2/H10).
+// ---------------------------------------------------------------------------
+
+bool CandidateExtractionController::candidateFromVariant(
+    const QVariantMap &map, core::ProfileFieldCandidate &out)
+{
+    // Exact inverse of candidateToVariant: an unknown target token, a missing
+    // field or a malformed offset means this map was never a pending Candidate
+    // of this session — refuse, never guess.
+    const QString targetToken = map.value(QStringLiteral("targetField")).toString();
+    core::ProfileFieldTarget target{};
+    if (!core::profileFieldTargetFromToken(targetToken.toStdString(), target)) {
+        return false;
+    }
+    const QVariant evidenceStart =
+        map.value(QStringLiteral("textStart"), qlonglong{-1});
+    const QVariant evidenceEnd = map.value(QStringLiteral("textEnd"), qlonglong{-1});
+    if (!evidenceStart.canConvert<qlonglong>()
+        || !evidenceEnd.canConvert<qlonglong>()) {
+        return false;
+    }
+
+    core::ProfileFieldCandidate candidate;
+    candidate.target = target;
+    candidate.proposedValue =
+        map.value(QStringLiteral("proposedValue")).toString().toStdString();
+    candidate.evidence.documentId =
+        map.value(QStringLiteral("documentId")).toString().toStdString();
+    candidate.evidence.contentHash =
+        map.value(QStringLiteral("contentHash")).toString().toStdString();
+    candidate.evidence.textStart = evidenceStart.value<qlonglong>();
+    candidate.evidence.textEnd = evidenceEnd.value<qlonglong>();
+    candidate.evidence.excerpt =
+        map.value(QStringLiteral("evidenceExcerpt")).toString().toStdString();
+    candidate.lifecycle = core::CandidateLifecycleState::PendingReview;
+    out = std::move(candidate);
+    return true;
+}
+
+int CandidateExtractionController::findPendingCandidate(
+    const core::ProfileFieldCandidate &candidate)
+{
+    for (std::size_t i = 0; i < candidates_.size(); ++i) {
+        if (candidates_[i] == candidate) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+bool CandidateExtractionController::revalidateEvidence(
+    const core::ProfileFieldCandidate &candidate)
+{
+    // C3-H3 (1)/(2): the referenced document must still resolve, and its
+    // content identity must still be the one the evidence was bound to.
+    const std::vector<core::ManualDocument> documents = ManualStore::loadAll();
+    const auto record = std::find_if(
+        documents.begin(), documents.end(), [&](const core::ManualDocument &d) {
+            return d.documentId == candidate.evidence.documentId;
+        });
+    if (record == documents.end()) {
+        setReviewError(QString::fromLatin1(kReviewEvidenceDocumentMissing),
+                       tr("候选引用的说明书已不存在，无法接受"));
+        return false;
+    }
+    if (record->contentHash != candidate.evidence.contentHash) {
+        setReviewError(QString::fromLatin1(kReviewEvidenceContentMismatch),
+                       tr("候选引用的说明书内容已变化，无法接受"));
+        return false;
+    }
+    // C3-H3 (3): the canonical extracted text must still resolve.
+    bool textOk = false;
+    const QString canonicalText =
+        ManualStore::loadText(QString::fromStdString(candidate.evidence.contentHash),
+                              &textOk);
+    if (!textOk) {
+        setReviewError(QString::fromLatin1(kReviewEvidenceSourceMissing),
+                       tr("候选引用的已抽取文本无法读取，无法接受"));
+        return false;
+    }
+    // C3-H3 (4): the exact excerpt + location must still round-trip against
+    // the canonical truth, under the same deterministic rules as generation.
+    const auto revalidation = core::revalidateCandidateEvidence(
+        candidate.evidence, canonicalText.toStdString());
+    if (revalidation != core::CandidateEvidenceRevalidationCode::Ok) {
+        setReviewError(QString::fromLatin1(kReviewEvidenceInvalid),
+                       tr("候选证据未通过重新验证（%1）")
+                           .arg(QString::fromUtf8(
+                               core::candidateEvidenceRevalidationCodeName(
+                                   revalidation))));
+        return false;
+    }
+    return true;
+}
+
+void CandidateExtractionController::consumeCandidate(
+    core::ProfileFieldCandidate &pending,
+    core::CandidateLifecycleState consumedState)
+{
+    // C3-H5/H6: mark + remove. The consumed copy lives only in this session's
+    // list and is never persisted anywhere.
+    pending.lifecycle = consumedState;
+    if (consumedState == core::CandidateLifecycleState::Accepted) {
+        consumedAccepted_.push_back(pending);
+    } else {
+        consumedRejected_.push_back(pending);
+    }
+    candidates_.erase(candidates_.begin()
+                      + static_cast<std::ptrdiff_t>(
+                          &pending - candidates_.data()));
+    emit candidatesChanged();
+}
+
+bool CandidateExtractionController::acceptCandidate(const QVariantMap &candidateMap)
+{
+    clearReviewError();
+    core::ProfileFieldCandidate candidate;
+    if (!candidateFromVariant(candidateMap, candidate)) {
+        setReviewError(QString::fromLatin1(kReviewCandidateNotPending),
+                       tr("该候选不在待审核集合中"));
+        return false;
+    }
+    const int index = findPendingCandidate(candidate);
+    if (index < 0) {
+        // Already consumed (C3-H5/H6) or never pending: never act again.
+        setReviewError(QString::fromLatin1(kReviewCandidateNotPending),
+                       tr("该候选不在待审核集合中"));
+        return false;
+    }
+
+    // C3-H4: the authoritative target is the CURRENTLY shown selected Profile
+    // + draft. Without a valid target there is nothing to accept onto.
+    if (profileController_ == nullptr || !profileController_->hasOpenProfile()) {
+        setReviewError(QString::fromLatin1(kReviewProfileTargetMissing),
+                       tr("没有当前有效的设备档案目标，无法接受"));
+        return false;
+    }
+
+    // C3-H3: deterministic evidence freshness gate BEFORE any draft change.
+    if (!revalidateEvidence(candidates_[static_cast<std::size_t>(index)])) {
+        return false;
+    }
+
+    // C3-H2: the controlled draft write. Only the first-slice target is
+    // accepted there; anything else is an explicit refusal with the draft
+    // untouched (the Candidate stays pending for Human handling).
+    const bool applied = profileController_->applyCandidateField(
+        QString::fromUtf8(core::profileFieldTargetToken(candidates_[index].target)),
+        QString::fromStdString(candidates_[index].proposedValue));
+    if (!applied) {
+        setReviewError(QString::fromLatin1(kReviewApplyFailed),
+                       profileController_->lastActionError());
+        return false;
+    }
+
+    consumeCandidate(candidates_[static_cast<std::size_t>(index)],
+                     core::CandidateLifecycleState::Accepted);
+    return true;
+}
+
+bool CandidateExtractionController::rejectCandidate(const QVariantMap &candidateMap)
+{
+    clearReviewError();
+    core::ProfileFieldCandidate candidate;
+    if (!candidateFromVariant(candidateMap, candidate)) {
+        setReviewError(QString::fromLatin1(kReviewCandidateNotPending),
+                       tr("该候选不在待审核集合中"));
+        return false;
+    }
+    const int index = findPendingCandidate(candidate);
+    if (index < 0) {
+        setReviewError(QString::fromLatin1(kReviewCandidateNotPending),
+                       tr("该候选不在待审核集合中"));
+        return false;
+    }
+    // C3-H6: Reject mutates NOTHING — no draft, no persisted profile, no
+    // consent state, no future extraction behavior.
+    consumeCandidate(candidates_[static_cast<std::size_t>(index)],
+                     core::CandidateLifecycleState::Rejected);
+    return true;
+}
+
+bool CandidateExtractionController::seedReviewCandidatesForAutomation(
+    const QVariantMap &documentMap, const QString &canonicalExtractedText,
+    const QVariantList &proposals)
+{
+    // TEST/AUTOMATION seam: the proposals flow through the REAL deterministic
+    // C2 validator (same function, same H6/H8 rules as a live extraction), so
+    // what lands in the review set is exactly what production could produce —
+    // without any provider, credential or socket.
+    core::ManualDocument document;
+    document.documentId =
+        documentMap.value(QStringLiteral("documentId")).toString().toStdString();
+    document.contentHash =
+        documentMap.value(QStringLiteral("contentHash")).toString().toStdString();
+    document.originalFileName =
+        documentMap.value(QStringLiteral("originalFileName"))
+            .toString()
+            .toStdString();
+    document.originalPath =
+        documentMap.value(QStringLiteral("originalPath")).toString().toStdString();
+    document.documentType = core::ManualDocumentType::Txt;
+
+    std::vector<core::CandidateProposal> parsed;
+    parsed.reserve(static_cast<std::size_t>(proposals.size()));
+    for (const QVariant &entry : proposals) {
+        const QVariantMap map = entry.toMap();
+        core::ProfileFieldTarget target{};
+        if (!core::profileFieldTargetFromToken(
+                map.value(QStringLiteral("target")).toString().toStdString(),
+                target)) {
+            continue;
+        }
+        core::CandidateProposal proposal;
+        proposal.target = target;
+        proposal.proposedValue =
+            map.value(QStringLiteral("proposedValue")).toString().toStdString();
+        proposal.evidenceExcerpt =
+            map.value(QStringLiteral("evidenceExcerpt")).toString().toStdString();
+        parsed.push_back(std::move(proposal));
+    }
+
+    ProposalReplayProvider provider(std::move(parsed));
+    const core::CandidateExtractionResult validated = core::extractProfileFieldCandidates(
+        document, canonicalExtractedText.toStdString(), provider);
+
+    // Same atomic-replacement discipline as a successful extraction.
+    candidates_ = validated.candidates;
+    candidatesDocumentId_ = document.documentId;
+    candidatesContentHash_ = document.contentHash;
+    setState(State::Succeeded, QString(), QString());
+    emit candidatesChanged();
+    return true;
 }
 
 } // namespace modbuslens::ui

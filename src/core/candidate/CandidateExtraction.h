@@ -80,8 +80,13 @@ inline constexpr ProfileFieldTarget kC2FirstSliceProfileField =
 [[nodiscard]] bool isC2FirstSliceProfileField(ProfileFieldTarget target);
 
 // H7: C2 v1 only ever produces PendingReview. Accept / Edit / Reject are C3.
+// C3-H5/H6 (T027 §81): Accepted / Rejected are CONSUMED states — a consumed
+// Candidate has left the PendingReview set and can never be applied again.
+// They are session-only (H4) and never persisted anywhere.
 enum class CandidateLifecycleState {
     PendingReview,
+    Accepted,
+    Rejected,
 };
 
 [[nodiscard]] std::string_view candidateLifecycleStateToken(
@@ -172,5 +177,30 @@ struct CandidateExtractionResult {
     const ManualDocument& document,
     std::string_view canonicalExtractedText,
     ICandidateProposalProvider& provider);
+
+// ---------------------------------------------------------------------------
+// C3 evidence freshness gate (T027 §81, C3-H3). Before a Human Accept (or a
+// future edited-confirm) may reach the verified Profile, the STORED evidence
+// must be re-validated against the canonical extracted text it references —
+// the world may have changed since the Candidate was generated. This is the
+// SAME deterministic vocabulary as generation time: the excerpt must still be
+// uniquely locatable and the recorded [textStart, textEnd) span must still
+// round-trip to the exact excerpt. No provider input is consulted and nothing
+// is guessed: any failure is a refusal, never a repair.
+// ---------------------------------------------------------------------------
+enum class CandidateEvidenceRevalidationCode {
+    Ok,
+    EmptyExcerpt,     // the stored excerpt is empty
+    InvalidRange,     // textStart/textEnd do not describe a usable span
+    RoundTripFailed,  // canonical[start, end) != excerpt any more
+    NotUnique,        // the excerpt has become ambiguous in the canonical text
+};
+
+[[nodiscard]] std::string_view candidateEvidenceRevalidationCodeName(
+    CandidateEvidenceRevalidationCode code);
+
+[[nodiscard]] CandidateEvidenceRevalidationCode revalidateCandidateEvidence(
+    const CandidateEvidence& evidence,
+    std::string_view canonicalExtractedText);
 
 } // namespace modbuslens::core

@@ -7,6 +7,8 @@
 // The matrix is O01..O20 from the session contract.
 #include <QtTest>
 
+#include <QSet>
+
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -620,13 +622,32 @@ private slots:
         QVERIFY(invokables.contains(QStringLiteral("requestExtraction")));
         QVERIFY(invokables.contains(QStringLiteral("grantConsent")));
         QVERIFY(invokables.contains(QStringLiteral("rejectConsent")));
-        // ... and NO Candidate-level review action exists (C3 boundary).
+        // C3 AMENDMENT (T027 §81, HUMAN-APPROVED C3-H2/H6/H8/H10): the
+        // single-Candidate review actions acceptCandidate / rejectCandidate
+        // (and the automation seed that reuses the real validator) are now
+        // part of this controller. Everything the O-era boundary actually
+        // protected still holds and is asserted below:
+        //   · NO Edit action exists (C3-H8 — Edit is not in any slice yet);
+        //   · NO persistence-shaped action exists here — Save stays owned by
+        //     ProfileController and the only draft write path is the
+        //     controlled staged-copy API (C3-H10, no second pipeline).
+        const QSet<QString> approved{
+            QStringLiteral("requestExtraction"), QStringLiteral("grantConsent"),
+            QStringLiteral("rejectConsent"), QStringLiteral("acceptCandidate"),
+            QStringLiteral("rejectCandidate"),
+            QStringLiteral("seedReviewCandidatesForAutomation")};
         for (const QString &name : invokables) {
+            if (approved.contains(name)) {
+                continue;
+            }
             const QString lowered = name.toLower();
-            QVERIFY(!(lowered.contains(QStringLiteral("candidate"))
-                      && (lowered.contains(QStringLiteral("accept"))
-                          || lowered.contains(QStringLiteral("edit"))
-                          || lowered.contains(QStringLiteral("reject")))));
+            QVERIFY(!(lowered.contains(QStringLiteral("accept"))
+                      || lowered.contains(QStringLiteral("edit"))
+                      || lowered.contains(QStringLiteral("reject"))));
+            QVERIFY(!(lowered.contains(QStringLiteral("save"))
+                      || lowered.contains(QStringLiteral("persist"))
+                      || lowered.contains(QStringLiteral("store"))
+                      || lowered.contains(QStringLiteral("commit"))));
         }
     }
 

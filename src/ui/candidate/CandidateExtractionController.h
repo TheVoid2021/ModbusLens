@@ -14,6 +14,7 @@
 #include "ui/candidate/CandidateExtractionRunner.h"
 #include "ui/candidate/ModelScopeCandidateRunner.h"
 #include "ui/manual/ManualImportController.h"
+#include "ui/profile/ProfileController.h"
 
 namespace modbuslens::ui {
 
@@ -41,6 +42,17 @@ class CandidateExtractionController : public QObject
 
     Q_PROPERTY(ManualImportController *manualController READ manualController
                    WRITE setManualController NOTIFY manualControllerChanged)
+    // M12-C C3 (T027 §81, C3-H10): the CONTROLLED draft path. The review
+    // controller is the ONLY object allowed to hand a Candidate value to the
+    // editor draft; the QML never touches a Profile model or a store.
+    Q_PROPERTY(ProfileController *profileController READ profileController
+                   WRITE setProfileController NOTIFY profileControllerChanged)
+    // Machine token + human text of the last FAILED review action (Accept /
+    // Reject). Empty whenever the last review action succeeded. Consumed or
+    // unresolvable Candidates are refusals, never silent drops (C3-H3/H5/H6).
+    Q_PROPERTY(QString lastReviewError READ lastReviewError NOTIFY reviewChanged)
+    Q_PROPERTY(QString lastReviewErrorToken READ lastReviewErrorToken NOTIFY
+                   reviewChanged)
     // Machine tokens for the UI. Wording is a UI detail; the token set is the
     // contract: idle | consent_required | running | failed | succeeded
     Q_PROPERTY(QString stateToken READ stateToken NOTIFY stateChanged)
@@ -70,6 +82,18 @@ public:
     }
     void setManualController(ManualImportController *controller);
 
+    [[nodiscard]] ProfileController *profileController() const
+    {
+        return profileController_;
+    }
+    void setProfileController(ProfileController *controller);
+
+    [[nodiscard]] QString lastReviewError() const { return lastReviewError_; }
+    [[nodiscard]] QString lastReviewErrorToken() const
+    {
+        return lastReviewErrorToken_;
+    }
+
     [[nodiscard]] QString stateToken() const;
     [[nodiscard]] QString failureText() const;
     [[nodiscard]] QString failureToken() const;
@@ -97,6 +121,29 @@ public:
     void requestExtractionFor(const core::ManualDocument &document,
                               const std::string &canonicalExtractedText);
 
+    // --- M12-C C3 Human review (T027 §81) --------------------------------
+    // The candidate map is the SAME QVariantMap the UI received through the
+    // `candidates` property: review actions address a Candidate by value, so a
+    // stale or repeated action can never act on a different Candidate (C3-H10,
+    // no index shifting). Accept revalidates the evidence against the CURRENT
+    // canonical Manual truth (C3-H3) and — only on success — hands the value
+    // to the controlled ProfileController draft path (C3-H2). Reject mutates
+    // nothing (C3-H6). A failed action leaves the Candidate PendingReview.
+    // NO persistence anywhere; consumed Candidates live in session lists that
+    // die with the process (C3-H5/H6).
+    Q_INVOKABLE bool acceptCandidate(const QVariantMap &candidate);
+    Q_INVOKABLE bool rejectCandidate(const QVariantMap &candidate);
+
+    // TEST/AUTOMATION seam (same discipline as
+    // ProfileStore::setManagedRootOverride): installs proposals as PendingReview
+    // Candidates through the REAL deterministic C2 validator, without any
+    // provider call. It never runs in production: nothing in the UI reaches
+    // this, and production extraction always flows through the consent gate +
+    // runner seam above.
+    Q_INVOKABLE bool seedReviewCandidatesForAutomation(
+        const QVariantMap &document, const QString &canonicalExtractedText,
+        const QVariantList &proposals);
+
     // --- read-only accessors for tests -----------------------------------
     [[nodiscard]] const std::vector<core::ProfileFieldCandidate>
         &validatedCandidates() const
@@ -112,9 +159,22 @@ signals:
     void stateChanged();
     void candidatesChanged();
     void manualControllerChanged();
+    void profileControllerChanged();
+    void reviewChanged();
 
 private:
     enum class State { Idle, ConsentRequired, Running, Failed, Succeeded };
+
+    // Stable machine tokens of the review surface (C3-H2/H3/H4/H5/H6).
+    static constexpr char kReviewCandidateNotPending[] = "candidate_not_pending";
+    static constexpr char kReviewProfileTargetMissing[] = "profile_target_missing";
+    static constexpr char kReviewEvidenceDocumentMissing[] =
+        "evidence_document_missing";
+    static constexpr char kReviewEvidenceContentMismatch[] =
+        "evidence_content_mismatch";
+    static constexpr char kReviewEvidenceSourceMissing[] = "evidence_source_missing";
+    static constexpr char kReviewEvidenceInvalid[] = "evidence_invalid";
+    static constexpr char kReviewApplyFailed[] = "candidate_apply_failed";
 
     struct Attempt {
         std::uint64_t generation{0};
@@ -130,8 +190,25 @@ private:
                                         const std::string &contentHash) const;
     static QVariantMap candidateToVariant(
         const core::ProfileFieldCandidate &candidate);
+    [[nodiscard]] static bool candidateFromVariant(const QVariantMap &map,
+                                                   core::ProfileFieldCandidate &out);
+    // Locates the EXACT pending Candidate a review action refers to (value
+    // equality): consumed/stale actions can never address another Candidate.
+    [[nodiscard]] int findPendingCandidate(
+        const core::ProfileFieldCandidate &candidate);
+    // The C3-H3 freshness gate: document identity resolves, content identity
+    // matches, the canonical text loads, and the stored evidence round-trips.
+    [[nodiscard]] bool revalidateEvidence(
+        const core::ProfileFieldCandidate &candidate);
+    void setReviewError(QString token, QString text);
+    void clearReviewError();
+    // Moves a Candidate out of the pending set into its session-only consumed
+    // list (C3-H5/H6) and refreshes the UI projection.
+    void consumeCandidate(core::ProfileFieldCandidate &pending,
+                          core::CandidateLifecycleState consumedState);
 
     ManualImportController *manualController_{nullptr};
+    ProfileController *profileController_{nullptr};
     ICandidateExtractionRunner *runner_{nullptr};
     // Owned only in the production construction; empty when injected.
     std::unique_ptr<ModelScopeCandidateRunner> ownedRunner_;
@@ -139,6 +216,15 @@ private:
     State state_{State::Idle};
     QString failureToken_;
     QString failureText_;
+
+    // Session-only review surface (C3-H5/H6): consumed Candidates are marked
+    // and REMOVED from the pending set; they die with the process and are
+    // never persisted anywhere.
+    std::vector<core::ProfileFieldCandidate> candidates_;
+    std::vector<core::ProfileFieldCandidate> consumedAccepted_;
+    std::vector<core::ProfileFieldCandidate> consumedRejected_;
+    QString lastReviewError_;
+    QString lastReviewErrorToken_;
 
     std::uint64_t generation_{0};
     Attempt activeAttempt_;
@@ -152,7 +238,6 @@ private:
 
     // SESSION-ONLY, in-memory. No disk, no QSettings, no cache.
     std::vector<std::pair<std::string, std::string>> grantedConsents_;
-    std::vector<core::ProfileFieldCandidate> candidates_;
     std::string candidatesDocumentId_;
     std::string candidatesContentHash_;
 };

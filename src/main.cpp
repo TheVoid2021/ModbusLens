@@ -16600,6 +16600,401 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
+// ---------------------------------------------------------------------------
+// M12-C C3 first-slice REVIEW gate (T027 §81, C3-H1..H10). The Human review
+// boundary is exercised through the REAL candidate card with REAL mouse
+// interactions: the three-way comparison (proposal / target / current draft
+// value) must be visible, Accept must reach the controlled draft path WITHOUT
+// auto-saving, Reject must mutate nothing, evidence failure must be visible
+// and atomic, and no Edit control may exist. Candidates are installed through
+// the automation seed, which reuses the REAL deterministic C2 evidence
+// validator against a REAL imported manual — there is no fake-AI mode here
+// and no network path exists in this gate.
+// ---------------------------------------------------------------------------
+int runCandidateReviewCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    auto *manual = rootObj ? rootObj->findChild<QObject *>(
+                                 QStringLiteral("manualController"))
+                           : nullptr;
+    auto *candidate = rootObj ? rootObj->findChild<QObject *>(
+                                    QStringLiteral("candidateController"))
+                              : nullptr;
+    auto *profile = rootObj ? rootObj->findChild<QObject *>(
+                                  QStringLiteral("profileController"))
+                            : nullptr;
+    if (!window || !manual || !candidate || !profile) {
+        qWarning().noquote()
+            << QStringLiteral("REVIEWFAIL: window/controller not found");
+        return 1;
+    }
+    app.setQuitOnLastWindowClosed(false);
+
+    QTemporaryDir managedRoot;
+    if (!managedRoot.isValid()) {
+        qWarning().noquote() << QStringLiteral("REVIEWFAIL: temp root invalid");
+        return 1;
+    }
+    ManualStore::setManagedRootOverride(managedRoot.path());
+    ProfileStore::setManagedRootOverride(managedRoot.path());
+
+    // A REAL manual through the REAL import path, so the evidence round-trip
+    // runs against genuine managed artifacts.
+    const QString sourceDir = QDir(managedRoot.path()).filePath(QStringLiteral("sources"));
+    if (!QDir(managedRoot.path()).mkpath(QStringLiteral("sources"))) {
+        qWarning().noquote() << QStringLiteral("REVIEWFAIL: seed dir failed");
+        return 1;
+    }
+    const QString seedPath = QDir(sourceDir).filePath(QStringLiteral("review.txt"));
+    {
+        QFile seed(seedPath);
+        if (!seed.open(QIODevice::WriteOnly)) {
+            qWarning().noquote() << QStringLiteral("REVIEWFAIL: seed write failed");
+            return 1;
+        }
+        seed.write(QStringLiteral("ACME Power Systems Ltd. - Inverter Manual\n"
+                                  "Manufacturer: ACME Power Systems Ltd.\n"
+                                  "Model: INV-1000\n")
+                       .toUtf8());
+    }
+
+    const QString proposedValue = QStringLiteral("ACME Power Systems Ltd.");
+    const QString excerpt = QStringLiteral("Manufacturer: ACME Power Systems Ltd.");
+
+    auto failures = std::make_shared<QStringList>();
+    auto fail = [failures](const QString &m) { *failures << m; };
+    auto note = [](const QString &m) {
+        qInfo().noquote() << QStringLiteral("REVIEW: %1").arg(m);
+    };
+    auto itemOf = [&roots](const QString &name) { return findNamedItem(roots, name); };
+    const auto clickNamed = [&roots, window](const QString &name) {
+        auto *item = findNamedItem(roots, name);
+        if (!item || !item->isVisible())
+            return false;
+        const QPointF local(item->width() / 2.0, item->height() / 2.0);
+        const QPointF scene = item->mapToScene(local);
+        const QPointF global = window->mapToGlobal(scene);
+        QMouseEvent press(QEvent::MouseButtonPress, scene, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, scene, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return true;
+    };
+
+    // One review seed = install ONE validated Manufacturer Candidate into the
+    // session's PendingReview set through the REAL deterministic validator.
+    auto seedReviewCandidate = [&]() -> bool {
+        bool imported = false;
+        QMetaObject::invokeMethod(manual, "importManualFile", Qt::DirectConnection,
+                                  Q_RETURN_ARG(bool, imported),
+                                  Q_ARG(QUrl, QUrl::fromLocalFile(sourceDir
+                                                                       + QStringLiteral(
+                                                                       "/review.txt"))));
+        if (!imported) {
+            return false;
+        }
+        QMetaObject::invokeMethod(manual, "selectDocument", Qt::DirectConnection,
+                                  Q_ARG(int, 0));
+        const QVariantMap selected = manual->property("selectedDocument").toMap();
+        bool textOk = false;
+        const QString canonicalText =
+            ManualStore::loadText(
+                selected.value(QStringLiteral("contentHash")).toString(), &textOk);
+        if (!textOk) {
+            return false;
+        }
+        QVariantMap proposal;
+        proposal.insert(QStringLiteral("target"), QStringLiteral("manufacturer"));
+        proposal.insert(QStringLiteral("proposedValue"), proposedValue);
+        proposal.insert(QStringLiteral("evidenceExcerpt"), excerpt);
+        QVariantMap document;
+        document.insert(QStringLiteral("documentId"),
+                        selected.value(QStringLiteral("documentId")));
+        document.insert(QStringLiteral("contentHash"),
+                        selected.value(QStringLiteral("contentHash")));
+        document.insert(QStringLiteral("originalFileName"),
+                        selected.value(QStringLiteral("originalFileName")));
+        document.insert(QStringLiteral("originalPath"),
+                        selected.value(QStringLiteral("originalPath")));
+        QVariantList proposals{proposal};
+        return QMetaObject::invokeMethod(
+            candidate, "seedReviewCandidatesForAutomation", Q_ARG(QVariantMap, document),
+            Q_ARG(QString, canonicalText), Q_ARG(QVariantList, proposals));
+    };
+
+    const int settleMs = 80;
+    auto steps = std::make_shared<QList<std::function<void()>>>();
+    auto push = [steps](std::function<void()> step) { steps->append(std::move(step)); };
+
+    // Workspace + profile + manual + one pending Candidate.
+    push([&]() { clickNamed(QStringLiteral("navItem_5")); });
+    push([&]() {
+        QMetaObject::invokeMethod(profile, "newProfile", Qt::DirectConnection);
+        profile->setProperty("displayName", QStringLiteral("Review Profile"));
+        profile->setProperty("manufacturer", QStringLiteral("Old Co."));
+        if (!profile->property("hasOpenProfile").toBool()) {
+            fail(QStringLiteral("R00: the review profile did not open"));
+            return;
+        }
+        bool saved = false;
+        QMetaObject::invokeMethod(profile, "saveCurrent", Qt::DirectConnection,
+                                  Q_RETURN_ARG(bool, saved));
+        if (!saved) {
+            fail(QStringLiteral("R00: the baseline save failed"));
+            return;
+        }
+        if (!seedReviewCandidate()) {
+            fail(QStringLiteral("R00: the review Candidate seed did not install "
+                                "(C3 review API missing or validation refused)"));
+            return;
+        }
+        if (candidate->property("candidateCount").toInt() != 1) {
+            fail(QStringLiteral("R00: expected exactly 1 pending Candidate"));
+        }
+    });
+    // R1 — the three-way comparison and BOTH review controls are visible; no
+    // Edit control exists anywhere in the page (C3-H2/H8).
+    push([&]() {
+        auto *rowValue = itemOf(QStringLiteral("candidateRowValue"));
+        auto *rowDraft = itemOf(QStringLiteral("candidateRowDraftValue"));
+        auto *rowTarget = itemOf(QStringLiteral("candidateRowTargetContext"));
+        auto *accept = itemOf(QStringLiteral("candidateAcceptButton_0"));
+        auto *reject = itemOf(QStringLiteral("candidateRejectButton_0"));
+        if (!rowValue || !rowValue->isVisible()
+            || !rowValue->property("text").toString().contains(proposedValue)) {
+            fail(QStringLiteral("R1: the Candidate proposed value is not visible"));
+        }
+        if (!rowDraft || !rowDraft->isVisible()
+            || !rowDraft->property("text").toString().contains(
+                   QStringLiteral("Old Co."))) {
+            fail(QStringLiteral("R1: the current draft value is not visible"));
+        }
+        if (!rowTarget || !rowTarget->isVisible()
+            || !rowTarget->property("text").toString().contains(
+                   QStringLiteral("Review Profile"))) {
+            fail(QStringLiteral("R1: the target Profile context is not visible"));
+        }
+        if (!accept || !accept->isVisible()) {
+            fail(QStringLiteral("R1: the Accept control is missing"));
+        }
+        if (!reject || !reject->isVisible()) {
+            fail(QStringLiteral("R1: the Reject control is missing"));
+        }
+        QStringList allNames;
+        std::function<void(QQuickItem *)> collect =
+            [&](QQuickItem *item) {
+                allNames << item->objectName();
+                for (QQuickItem *child : item->childItems()) {
+                    collect(child);
+                }
+            };
+        collect(window->contentItem());
+        for (const QString &name : allNames) {
+            if (name.startsWith(QStringLiteral("candidateEdit"),
+                                Qt::CaseInsensitive)) {
+                fail(QStringLiteral("R1: an Edit control exists (C3-H8 violation): ")
+                     + name);
+            }
+        }
+        if (!failures->isEmpty()) {
+            return;
+        }
+        note(QStringLiteral(
+            "R1: three-way comparison visible; Accept/Reject reachable; no Edit"));
+    });
+    // R2 — REAL Accept: draft Manufacturer changes, Candidate is consumed,
+    // the persisted profile is NOT touched (C3-H2/H5, no auto-save).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateAcceptButton_0"))) {
+            fail(QStringLiteral("R2: candidateAcceptButton_0 is not clickable"));
+            return;
+        }
+        if (candidate->property("candidateCount").toInt() != 0) {
+            fail(QStringLiteral("R2: the accepted Candidate is still pending"));
+        }
+        if (profile->property("manufacturer").toString() != proposedValue) {
+            fail(QStringLiteral("R2: Accept did not apply the proposed value to "
+                                "the draft"));
+        }
+        if (!profile->property("dirty").toBool()) {
+            fail(QStringLiteral("R2: the draft change is not reflected as dirty"));
+        }
+        const QString profilePath = ProfileStore::defaultFilePathFor(
+            profile->property("currentProfileId").toString());
+        const auto persisted = ProfileStore::loadFromFile(profilePath);
+        if (!persisted.ok()
+            || QString::fromStdString(persisted.profile.manufacturer)
+                   != QStringLiteral("Old Co.")) {
+            fail(QStringLiteral("R2: Accept mutated the persisted profile "
+                                "(auto-save / second pipeline)"));
+        }
+    });
+    // R3a — REAL Reject setup: a fresh pending Candidate, list scrolled to
+    // the top (the click below must hit what a Human sees).
+    push([&]() {
+        if (!seedReviewCandidate()) {
+            fail(QStringLiteral("R3: the second review Candidate did not install"));
+            return;
+        }
+        if (auto *list = itemOf(QStringLiteral("candidateList"))) {
+            list->setProperty("contentY", 0);
+        }
+        if (candidate->property("candidateCount").toInt() != 1) {
+            fail(QStringLiteral("R3: expected exactly 1 pending Candidate before "
+                                "Reject (count=%1)")
+                     .arg(candidate->property("candidateCount").toInt()));
+        }
+    });
+    // R3b — REAL Reject: consumed, zero draft mutation, no review error.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateRejectButton_0"))) {
+            fail(QStringLiteral("R3: candidateRejectButton_0 is not clickable"));
+            return;
+        }
+        if (candidate->property("candidateCount").toInt() != 0) {
+            fail(QStringLiteral("R3: the rejected Candidate is still pending "
+                                "(count=%1, reviewToken='%2')")
+                     .arg(candidate->property("candidateCount").toInt())
+                     .arg(candidate->property("lastReviewErrorToken").toString()));
+        }
+        if (profile->property("manufacturer").toString() != proposedValue) {
+            fail(QStringLiteral("R3: Reject mutated the draft Manufacturer"));
+        }
+        if (!profile->property("lastActionErrorToken").toString().isEmpty()) {
+            fail(QStringLiteral("R3: Reject produced a profile action error"));
+        }
+    });
+    // R4a — evidence freshness setup: a fresh pending Candidate, then the
+    // managed text cache changes UNDER it.
+    push([&]() {
+        if (!seedReviewCandidate()) {
+            fail(QStringLiteral("R4: the third review Candidate did not install"));
+            return;
+        }
+        if (auto *list = itemOf(QStringLiteral("candidateList"))) {
+            list->setProperty("contentY", 0);
+        }
+        QVariantMap selected = manual->property("selectedDocument").toMap();
+        const QString cachePath =
+            ManualStore::textDirectory() + QStringLiteral("/")
+            + selected.value(QStringLiteral("contentHash")).toString()
+            + QStringLiteral(".txt");
+        QFile cache(cachePath);
+        if (!cache.open(QIODevice::WriteOnly | QIODevice::Truncate)
+            || cache.write(QByteArrayLiteral("CORRUPTED CACHE CONTENT")) == -1) {
+            fail(QStringLiteral("R4: could not corrupt the managed text cache"));
+            return;
+        }
+        cache.close();
+    });
+    // R4b — the Accept must fail ATOMICALLY, visibly, and leave the Candidate
+    // pending (C3-H3, no silent stale acceptance).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateAcceptButton_0"))) {
+            fail(QStringLiteral("R4: the Accept control is not clickable"));
+            return;
+        }
+        if (candidate->property("candidateCount").toInt() != 1) {
+            fail(QStringLiteral("R4: a stale-evidence Accept consumed the "
+                                "Candidate (silent stale acceptance)"));
+        }
+        if (profile->property("manufacturer").toString() != proposedValue) {
+            fail(QStringLiteral("R4: the draft changed on a failed Accept"));
+        }
+        auto *reviewError = itemOf(QStringLiteral("candidateReviewError"));
+        if (!reviewError || !reviewError->isVisible()
+            || reviewError->property("text").toString().isEmpty()) {
+            fail(QStringLiteral("R4: the evidence failure is not visible"));
+        }
+    });
+    // R5 — canonical geometry: card + controls stay inside the window at the
+    // accepted sizes (Session J / O baselines must not regress).
+    push([&]() {
+        window->resize(1280, 937);
+    });
+    push([&]() {
+        auto *card = itemOf(QStringLiteral("candidateCard"));
+        auto *accept = itemOf(QStringLiteral("candidateAcceptButton_0"));
+        if (!card) {
+            fail(QStringLiteral("R5: the candidate card is missing"));
+            return;
+        }
+        const QRectF windowRect(QPointF(0, 0),
+                                QSizeF(window->width(), window->height()));
+        const QPointF cardTopLeft = card->mapToScene(QPointF(0, 0));
+        const QRectF cardRect(cardTopLeft,
+                              QSizeF(card->width(), card->height()));
+        if (!windowRect.contains(cardRect)) {
+            fail(QStringLiteral("R5: the candidate card escapes the window at "
+                                "%1x%2")
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
+        if (!accept || !accept->isVisible()) {
+            fail(QStringLiteral("R5: the Accept control is not present at %1x%2")
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
+        window->resize(1000, 700);
+    });
+    push([&]() {
+        auto *card = itemOf(QStringLiteral("candidateCard"));
+        auto *accept = itemOf(QStringLiteral("candidateAcceptButton_0"));
+        if (!card) {
+            fail(QStringLiteral("R5b: the candidate card is missing"));
+            return;
+        }
+        const QRectF windowRect(QPointF(0, 0),
+                                QSizeF(window->width(), window->height()));
+        const QPointF cardTopLeft = card->mapToScene(QPointF(0, 0));
+        const QRectF cardRect(cardTopLeft,
+                              QSizeF(card->width(), card->height()));
+        if (!windowRect.contains(cardRect)) {
+            fail(QStringLiteral("R5b: the candidate card escapes the window at "
+                                "%1x%2")
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
+        if (!accept || !accept->isVisible()) {
+            fail(QStringLiteral("R5b: the Accept control is not present at %1x%2")
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
+    });
+
+    auto index = std::make_shared<int>(0);
+    auto finish = std::make_shared<std::function<void()>>();
+    *finish = [&, index, finish]() {
+        if (*index >= steps->size()) {
+            if (!failures->isEmpty()) {
+                for (const QString &m : *failures) {
+                    qWarning().noquote() << QStringLiteral("REVIEWFAIL: %1").arg(m);
+                }
+                app.exit(1);
+                return;
+            }
+            qInfo().noquote()
+                << QStringLiteral(
+                       "CANDIDATE REVIEW CHECK PASS (R1..R5): the three-way "
+                       "comparison is visible; a REAL Accept applies the proposed "
+                       "value to the draft only (no auto-save); a REAL Reject "
+                       "mutates nothing; stale evidence fails atomically and "
+                       "visibly; no Edit control exists; geometry holds at "
+                       "1280x937 and 1000x700");
+            app.exit(0);
+            return;
+        }
+        (*steps)[(*index)++]();
+        QTimer::singleShot(settleMs, &app, *finish);
+    };
+    QTimer::singleShot(settleMs, &app, *finish);
+    return app.exec();
+}
+
 int runManualImportCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 {
     const auto roots = engine.rootObjects();
@@ -18391,6 +18786,11 @@ int main(int argc, char *argv[])
     // Cancel / Agree controls must be reachable by a real mouse interaction.
     if (app.arguments().contains(QStringLiteral("--qml-consent-check"))) {
         return runConsentCheck(engine, app);
+    }
+
+    // M12-C C3 first slice (T027 §81): the Human review runtime gate.
+    if (app.arguments().contains(QStringLiteral("--qml-candidate-review-check"))) {
+        return runCandidateReviewCheck(engine, app);
     }
 
     // M12-B slice 4: the Read Result semantic overlay (check + visual demo).
