@@ -7654,3 +7654,69 @@ B. Manual Delete UI
 configure / CTest / 候选重生成 · 无 live ModelScope / 凭据读取 · 无 Profile/manual
 数据变更 · 未开始 Edit / M12-D / Manual Library 维护 · 未推进 LKGC ·
 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+
+---
+
+## 86. M12-C C3 — VERIFIED LKGC ADVANCE THROUGH C3 FIRST SLICE（SESSION C3-R2C · docs-only 归档）
+
+> 性质：append-only 归档。仅记录 Human 授权与 Git 实测验证；LKGC 推进本身是
+> canonical docs 的状态转移，**不是**任何新行为。
+
+### 86.0 Human 授权（逐字）
+
+```text
+授权：将 M12-C C3 first behavior slice Human acceptance 作为新的 verified
+behavior baseline，并将 verified LKGC 从
+613a32a0d6ca71ac53185779b7d5ab3b80c82870 推进到
+bb996a5bfc5416e3392c6fd709508e21aeab62c2。
+本授权仅推进 verified LKGC；不授权 Edit、Manual Library maintenance、
+M12-D、package、tag 或 push。
+```
+
+### 86.1 Git 实测验证（授权目标合法性）
+
+```text
+git cat-file -t bb996a5…                   = commit
+git merge-base --is-ancestor bb996a5… HEAD = exit 0（是 HEAD 祖先）
+bb996a5~1..bb996a5 changed paths           = 2 files / +69 −1
+  （src/main.cpp + src/ui/qml/pages/DeviceProfilePage.qml）⇒ behavior-bearing
+bb996a5..HEAD = 2 个提交（f80caf4 · 783bf06），非 docs 路径 diff = 空
+  ⇒ 其后提交全部 docs-only，永不作 LKGC
+⇒ bb996a5 = C3 first slice（含 standing Discard action）最后一个
+  behavior-bearing tree，为合法 LKGC 目标。
+```
+
+### 86.2 基线证据链（为什么是 bb996a5）
+
+```text
+· C3-R2：slice 实现 + REAL RED/GREEN + MUTATION-NX2 负向对照闭环 +
+  fresh Release full 66/66（当时树）。
+· C3-R2A：两个验收证据缺口测试 + MUTATION-NX3 闭环 + 第二棵全新
+  post-commit 树 66/66 ratification。
+· C3-R2B：standing Discard action 实现 + editor gate stage 16
+  RED→GREEN + 提交源码上 full 66/66 + 第三棵全新 post-commit ratification
+  树 66/66（bb996a5 所在链）+ 候选 0bc2e6a2… + deployment gate 27.29s。
+· C3-R2C：Human first-slice acceptance = PASS（§85：Reject/Accept/Discard/
+  Save+Restart 五项 HUMAN PASS）——Human 验收的对象候选即由 bb996a5
+  内容生成。
+```
+
+### 86.3 推进后的 canonical 状态
+
+```text
+verified LKGC = bb996a5bfc5416e3392c6fd709508e21aeab62c2（Human authorized）
+前一 verified  = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（转历史链一环，原文保留）
+M12-C C3 first behavior slice = COMPLETE / HUMAN ACCEPTED（新 verified baseline）
+C3 Accept / Reject / Standing Discard = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+C3 overall     = IN PROGRESS（Edit 未实现未验收）
+Edit           = NOT IMPLEMENTED / DEFERRED（本授权明确不授权）
+Manual Library maintenance（含 Manual Delete UI）= NOT AUTHORIZED（本授权明确不授权）
+M12-D          = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）
+canonical package = NOT CREATED · tag = 仅 v1.0.0 · push = 未发生
+REAL MODBUS HARDWARE = NOT VERIFIED
+```
+
+**本节动作边界（docs-only）**：仅归档授权 + Git 验证 + 状态转移记录；
+未改 src/tests/QML/CMake · 未 build / test · 未执行任何网络请求 ·
+未创建 canonical package · 未 tag / 未 push · 本节所在提交 docs-only 永不作 LKGC。

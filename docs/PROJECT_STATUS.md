@@ -1,7 +1,33 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · M12-C C3 — FIRST-SLICE HUMAN ACCEPTANCE = PASS（Session C3-R2C · docs-only 归档 · 以本块为准）〕**
+**〔2026-10-02 追加批注 · M12-C C3 — VERIFIED LKGC ADVANCE THROUGH C3 FIRST SLICE（Human 授权 · Session C3-R2C · docs-only · 以本块为准）〕**
+档案 = **T027 §86**。**Human 授权（逐字）**：「授权：将 M12-C C3 first behavior slice
+Human acceptance 作为新的 verified behavior baseline，并将 verified LKGC 从
+`613a32a0d6ca71ac53185779b7d5ab3b80c82870` 推进到
+`bb996a5bfc5416e3392c6fd709508e21aeab62c2`。本授权仅推进 verified LKGC；不授权
+Edit、Manual Library maintenance、M12-D、package、tag 或 push。」**Git 实测验证**：
+`bb996a5…` type = commit · 是 HEAD 祖先（exit 0）· `bb996a5~1..bb996a5` = 2 files /
++69 −1（src/main.cpp + DeviceProfilePage.qml）⇒ **behavior-bearing**；
+`bb996a5..HEAD` = 2 提交（`f80caf4`/`783bf06`）非 docs 路径 diff = 空 ⇒ 其后提交全部
+docs-only 永不作 LKGC ⇒ `bb996a5` = C3 first slice（含 standing Discard action）最后
+一个 behavior-bearing tree。**基线证据链** = C3-R2（slice 实现 + RED/GREEN +
+MUTATION-NX2 闭环 + fresh full 66/66）+ C3-R2A（缺口测试 + MUTATION-NX3 闭环 +
+第二棵 post-commit 树 66/66）+ C3-R2B（standing Discard + editor gate stage 16 +
+第三棵 post-commit 树 66/66 + 候选 `0bc2e6a2…` + deployment 27.29s）+ C3-R2C
+（Human first-slice acceptance = PASS，验收候选即该 behavior 内容生成）。
+**当前 verified LKGC = `bb996a5bfc5416e3392c6fd709508e21aeab62c2`（Human
+authorized）**；前一 verified `613a32a0d6ca71ac53185779b7d5ab3b80c82870` 转历史链
+一环（原文保留不删）。**状态**：**M12-C C3 first behavior slice = COMPLETE / HUMAN
+ACCEPTED（新 verified behavior baseline）**；C3 Accept / Reject / Standing Discard =
+IMPLEMENTED / AUTOMATED PASS / HUMAN PASS；**C3 overall = IN PROGRESS**（Edit 未
+实现未验收）；**Edit = NOT IMPLEMENTED / DEFERRED（本授权明确不授权）**；
+**Manual Library maintenance（含 Manual Delete UI）= NOT AUTHORIZED（本授权明确
+不授权）**；**M12-D = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）**；
+canonical package = NOT CREATED · tag = 仅 v1.0.0 · push = 未发生 ·
+REAL MODBUS HARDWARE = NOT VERIFIED · 本批注所在提交 docs-only 永不作 LKGC ·
+无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · M12-C C3 — FIRST-SLICE HUMAN ACCEPTANCE = PASS（Session C3-R2C · docs-only 归档 · 历史链一环）〕**
 档案 = **T027 §85**。Human 授权（逐字）：「授权：归档 M12-C C3 first behavior slice
 Human acceptance PASS；仅 docs-only，不推进 LKGC，不开始 Edit，不开始 M12-D。」
 **验收对象边界**：R2B 候选 `candidate\ModbusLens\modbuslens.exe`（SHA-256
