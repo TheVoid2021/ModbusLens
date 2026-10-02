@@ -15036,6 +15036,58 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         note(QStringLiteral("stage 15: exit + failed save keeps the window "
                            "and the dialog"));
     });
+    // Stage 16 (M12-C C3, T027 §84): the standing Discard action — the
+    // EXISTING authoritative discardCurrentChanges workflow exposed as a
+    // Human button. Enabled only while unsaved changes exist; clicking it
+    // restores the persisted draft, never saves, and never touches the
+    // session Candidate lifecycle.
+    push([&]() {
+        auto *discard = itemOf(QStringLiteral("profileDiscardButton"));
+        if (!discard || !discard->isVisible())
+            fail(QStringLiteral("the standing Discard action is missing"));
+        // Stage 15's cleanup left the draft clean: no unsaved changes, the
+        // action must be disabled.
+        if (discard && discard->property("enabled").toBool())
+            fail(QStringLiteral("Discard is enabled without unsaved changes"));
+        // An unsaved change, made the way the Human makes it (real field).
+        if (!setField("profileDisplayNameField",
+                      QStringLiteral("Unsaved discard draft"))) {
+            fail(QStringLiteral("the displayName field is not editable"));
+            return;
+        }
+        if (!controller->property("dirty").toBool())
+            fail(QStringLiteral("the discard setup is not dirty"));
+        if (discard && !discard->property("enabled").toBool())
+            fail(QStringLiteral("Discard is not enabled with unsaved changes"));
+        const QString profilePath = ProfileStore::defaultFilePathFor(
+            controller->property("currentProfileId").toString());
+        QFile persistedFile(profilePath);
+        const QByteArray persistedBefore = persistedFile.open(QIODevice::ReadOnly)
+                                               ? persistedFile.readAll()
+                                               : QByteArray();
+        if (!clickNamed(QStringLiteral("profileDiscardButton")))
+            fail(QStringLiteral("the Discard action is not clickable"));
+        auto *nameField = itemOf(QStringLiteral("profileDisplayNameField"));
+        if (nameField
+            && nameField->property("text").toString()
+                   == QStringLiteral("Unsaved discard draft"))
+            fail(QStringLiteral("Discard did not restore the persisted "
+                                "displayName"));
+        if (controller->property("dirty").toBool())
+            fail(QStringLiteral("Discard left the draft dirty"));
+        QFile persistedAfter(profilePath);
+        const QByteArray persistedCheck = persistedAfter.open(QIODevice::ReadOnly)
+                                              ? persistedAfter.readAll()
+                                              : QByteArray();
+        if (persistedCheck != persistedBefore)
+            fail(QStringLiteral("Discard wrote the persisted profile"));
+        auto *candidate = rootObj->findChild<QObject *>(
+            QStringLiteral("candidateController"));
+        if (candidate && candidate->property("candidateCount").toInt() != 0)
+            fail(QStringLiteral("Discard changed the session Candidate set"));
+        note(QStringLiteral("stage 16: standing Discard restores the persisted "
+                           "draft; enabled follows dirty; nothing saved"));
+    });
 
     const int settleMs = 60;
     auto step = std::make_shared<int>(0);
@@ -15060,7 +15112,8 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                "malformed catalog non-blocking; 1000x700 "
                                "reachable incl. both dialogs; exit dirty "
                                "guard denies close on Cancel and on a failed "
-                               "save"));
+                               "save; the standing Discard action follows "
+                               "dirty and restores the persisted draft"));
             app.exit(0);
             return;
         }

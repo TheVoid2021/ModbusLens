@@ -257,6 +257,21 @@ Item {
                 enabled: profileController.hasOpenProfile
                 onClicked: profileController.saveCurrent()
             }
+            // M12-C C3 (T027 §84): the EXISTING authoritative Discard workflow
+            // (discardCurrentChanges), exposed as a standing Human action.
+            // Enabled only while unsaved changes exist; it restores the whole
+            // draft to the persisted baseline, never saves, and never touches
+            // the session Candidate lifecycle (consumed Candidates stay
+            // consumed). No second rollback path: this IS the authoritative
+            // workflow the exit guard already used.
+            AppButton {
+                objectName: "profileDiscardButton"
+                Accessible.name: qsTr("放弃未保存的设备档案修改")
+                text: qsTr("放弃修改")
+                enabled: profileController.dirty
+                         && profileController.hasOpenProfile
+                onClicked: profileController.discardCurrentChanges()
+            }
             AppButton {
                 objectName: "profileDeleteButton"
                 Accessible.name: qsTr("删除设备档案")
