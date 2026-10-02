@@ -92,6 +92,15 @@ namespace {
 ManualImportController::ManualImportController(QObject *parent)
     : QObject(parent)
 {
+    // M12-C ML-1 (T027 §88): COLD-START HYDRATION. The persisted manual
+    // library belongs to THIS controller's visible state, so construction
+    // owns loading it — exactly like ProfileController::refreshCatalog() in
+    // its own constructor. Without this, a pre-existing managed store
+    // surfaced an empty list until an import happened (the Human-reported
+    // defect). refresh() is the same authoritative loadAll() path an import
+    // uses; it performs no I/O beyond the metadata directory and selects
+    // nothing.
+    refresh();
 }
 
 QString ManualImportController::scopeText() const

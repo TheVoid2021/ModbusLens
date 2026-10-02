@@ -712,6 +712,10 @@ if(BUILD_TESTING)
         src/ui/profile/ActiveProfileController.cpp)
     target_include_directories(modbuslens_manual_import_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    # ML-1 (T027 §88): the sample import tests consume the four tracked
+    # synthetic manuals straight from the source tree (read-only).
+    target_compile_definitions(modbuslens_manual_import_tests PRIVATE
+        MODBUSLENS_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/samples")
     target_link_libraries(modbuslens_manual_import_tests PRIVATE
         modbuslens_core Qt6::Qml Qt6::Test modbuslens_pdfium modbuslens_libzip
         modbuslens_zlib)

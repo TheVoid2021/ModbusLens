@@ -1,0 +1,47 @@
+ORION MOTION TECHNOLOGIES
+OMX-32 Servo Controller - Modbus Communication Reference
+
+Manual Number: OMX32-MB-2026
+Revision: A
+
+Manufacturer: Orion Motion Technologies
+
+COMMUNICATION
+Interface: RS-485
+Protocol: Modbus RTU
+Baud Rate: 19200
+Frame: 8N1
+Default Device Address: 5
+
+REGISTER DEFINITIONS
+
+Register 0x0300
+Name: Servo Status
+Read Function Code: 0x03
+Data Type: UInt16
+Register Count: 1
+Scale: 1
+Offset: 0
+Unit: status_code
+
+Register 0x0301
+Name: Actual Speed
+Read Function Code: 0x03
+Data Type: Int16
+Register Count: 1
+Scale: 1
+Offset: 0
+Unit: rpm
+
+Register 0x0302
+Name: Torque Feedback
+Read Function Code: 0x03
+Data Type: Int16
+Register Count: 1
+Scale: 0.1
+Offset: 0
+Unit: percent
+
+IMPORTANT
+All addresses are zero-based PDU addresses.
+This manual is a synthetic test document created for ModbusLens acceptance testing.

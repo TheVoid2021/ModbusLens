@@ -1,0 +1,44 @@
+NovaDrive NDV-200 Variable Frequency Drive
+Quick Technical Manual
+Document ID: NDV200-QM-01
+Revision: 1.0
+
+Manufacturer: NovaDrive Automation Ltd.
+
+1. Product Overview
+The NDV-200 is a compact variable frequency drive for industrial motor control.
+Communication interface: RS-485
+Protocol: Modbus RTU
+Default serial settings: 9600 baud, 8N1
+Default slave address: 1
+
+2. Holding Register Map
+Address 0x0100
+Name: Output Frequency
+Function Code: 0x03
+Data Type: UInt16
+Register Count: 1
+Scale: 0.01
+Unit: Hz
+Description: Current output frequency.
+
+Address 0x0101
+Name: Output Current
+Function Code: 0x03
+Data Type: UInt16
+Register Count: 1
+Scale: 0.1
+Unit: A
+Description: Current motor output current.
+
+Address 0x0102
+Name: DC Bus Voltage
+Function Code: 0x03
+Data Type: UInt16
+Register Count: 1
+Scale: 1
+Unit: V
+
+3. Notes
+Register addresses in this document are Modbus PDU zero-based addresses.
+Do not infer undocumented register meanings.

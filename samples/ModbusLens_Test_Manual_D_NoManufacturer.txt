@@ -1,0 +1,25 @@
+Industrial RS-485 Controller
+Synthetic Negative Test Manual
+Document ID: NEGATIVE-NO-MANUFACTURER-01
+
+1. Overview
+This controller supports Modbus RTU over RS-485.
+Default serial settings are 9600 baud, 8N1.
+The default slave address is 1.
+
+2. Distribution
+Regional distributor: Example Industrial Supply Center.
+Technical support contact: support@example.invalid
+
+3. Register
+Address: 0x0400
+Name: Process Value
+Function Code: 0x03
+Data Type: UInt16
+Register Count: 1
+Scale: 0.1
+Unit: engineering_unit
+
+4. Test Purpose
+This synthetic document intentionally does not state a manufacturer.
+An extraction system should not guess a manufacturer from the distributor or support contact.

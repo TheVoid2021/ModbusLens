@@ -511,6 +511,225 @@ private slots:
             }
         }
     }
+    // ---- M12-C ML-1: cold-start hydration (Human defect, T027 §88) ----
+    // The Human defect: with a PRE-EXISTING managed store, a brand-new
+    // controller exposed an EMPTY manual list until an import happened. The
+    // pre-fix constructor never loaded the persisted store.
+
+    void ml1_01_prePopulatedStoreHydratesOnFreshControllerConstruction()
+    {
+        ManagedRootScope root;
+        QVERIFY(root.valid());
+        const QString first = writeSource(root.path(), "first.txt",
+                                          QByteArray("First manual\n"));
+        const QString second = writeSource(root.path(), "second.md",
+                                           QByteArray("# Second manual\n"));
+        {
+            // First context: import through the authoritative API only.
+            ManualImportController importer;
+            QVERIFY(importer.importManualFile(QUrl::fromLocalFile(first)));
+            QVERIFY(importer.importManualFile(QUrl::fromLocalFile(second)));
+        } // the importing context is destroyed here
+
+        // A BRAND-NEW controller with ZERO import calls must hydrate on
+        // construction (ML1-01/05: no import is needed for visibility).
+        ManualImportController controller;
+        QCOMPARE(controller.manualDocuments().size(), 2);
+    }
+
+    void ml1_02_hydratedRecordsSelectableWithNoImplicitSelection()
+    {
+        ManagedRootScope root;
+        QVERIFY(root.valid());
+        const QString first = writeSource(root.path(), "first.txt",
+                                          QByteArray("First manual\n"));
+        {
+            ManualImportController importer;
+            QVERIFY(importer.importManualFile(QUrl::fromLocalFile(first)));
+        }
+        ManualImportController controller;
+        QCOMPARE(controller.manualDocuments().size(), 1);
+        // ML1-10: hydration is NOT silent auto-selection.
+        QCOMPARE(controller.selectedIndex(), -1);
+        QVERIFY(controller.selectedDocument().isEmpty());
+
+        // ML1-02: the hydrated record can be selected immediately.
+        controller.selectDocument(0);
+        QCOMPARE(controller.selectedIndex(), 0);
+        QVERIFY(!controller.selectedDocument().isEmpty());
+        QCOMPARE(controller.selectedDocument().value("originalFileName"),
+                 QStringLiteral("first.txt"));
+    }
+
+    void ml1_03_selectionProducesManagedPreview()
+    {
+        ManagedRootScope root;
+        QVERIFY(root.valid());
+        const QByteArray content = "Managed canonical preview text\n";
+        const QString first = writeSource(root.path(), "first.txt", content);
+        {
+            ManualImportController importer;
+            QVERIFY(importer.importManualFile(QUrl::fromLocalFile(first)));
+        }
+        // ML1-03: a fresh controller previews the MANAGED canonical text.
+        ManualImportController controller;
+        QVERIFY(!controller.manualDocuments().isEmpty());
+        controller.selectDocument(0);
+        QCOMPARE(controller.previewStateToken(), QStringLiteral("text"));
+        QCOMPARE(controller.previewText(), QString::fromUtf8(content));
+    }
+
+    void ml1_04_managedCopySurvivesOriginalDeletionAcrossFreshController()
+    {
+        ManagedRootScope root;
+        QVERIFY(root.valid());
+        const QString original = writeSource(root.path(), "original.txt",
+                                             QByteArray("Managed only\n"));
+        {
+            ManualImportController importer;
+            QVERIFY(importer.importManualFile(QUrl::fromLocalFile(original)));
+        }
+        // The ORIGINAL external file is deleted after import: the managed
+        // copy must keep hydrating and previewing (frozen hybrid semantics).
+        QVERIFY(QFile::remove(original));
+
+        ManualImportController controller;
+        QCOMPARE(controller.manualDocuments().size(), 1);
+        controller.selectDocument(0);
+        QCOMPARE(controller.previewText(), QStringLiteral("Managed only\n"));
+    }
+
+    void ml1_06_emptyStoreExposesEmptyListWithoutFalseError()
+    {
+        ManagedRootScope root;
+        QVERIFY(root.valid());
+        ManualImportController controller;
+        QCOMPARE(controller.manualDocuments().size(), 0);
+        QCOMPARE(controller.selectedIndex(), -1);
+        // An empty store is not an error.
+        QVERIFY(controller.lastErrorToken().isEmpty());
+        QVERIFY(controller.lastErrorText().isEmpty());
+    }
+
+    void ml1_07_malformedMetadataSkippedWithoutFakeDocuments()
+    {
+        ManagedRootScope root;
+        QVERIFY(root.valid());
+        const QString valid = writeSource(root.path(), "valid.txt",
+                                          QByteArray("Valid manual\n"));
+        {
+            ManualImportController importer;
+            QVERIFY(importer.importManualFile(QUrl::fromLocalFile(valid)));
+        }
+        // Malformed and wrong-version metadata files: consistent with
+        // ManualStore::loadAll() they are skipped, never fabricated.
+        const auto writeRaw = [](const QString &path, const QByteArray &bytes) {
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(bytes);
+        };
+        writeRaw(QDir(ManualStore::documentsDirectory())
+                     .filePath(QStringLiteral("garbage.json")),
+                 QByteArray("not json at all"));
+        writeRaw(QDir(ManualStore::documentsDirectory())
+                     .filePath(QStringLiteral("future.json")),
+                 QByteArray("{\"schemaVersion\": 99, \"documentId\": \"x\"}"));
+
+        ManualImportController controller;
+        QCOMPARE(controller.manualDocuments().size(), 1);
+        QCOMPARE(controller.manualDocuments().front().toMap()
+                     .value("originalFileName"),
+                 QStringLiteral("valid.txt"));
+    }
+
+    void ml1_08_hydrationCausesZeroProfileSideEffects()
+    {
+        ManagedRootScope root;
+        QVERIFY(root.valid());
+        const QString first = writeSource(root.path(), "first.txt",
+                                          QByteArray("First manual\n"));
+        {
+            ManualImportController importer;
+            QVERIFY(importer.importManualFile(QUrl::fromLocalFile(first)));
+        }
+        ManualImportController controller;
+        QCOMPARE(controller.manualDocuments().size(), 1);
+        // ML1-08: hydration is manual-library-only - the controller owns no
+        // DeviceProfile write path. The deterministic proof: a fresh
+        // ProfileController sees an EMPTY catalog (hydration never created
+        // profile data).
+        ProfileController profiles;
+        QCOMPARE(profiles.profileCatalog().size(), 0);
+    }
+
+    void ml1_09_hydrationOrderMatchesAuthoritativeLoadAll()
+    {
+        ManagedRootScope root;
+        QVERIFY(root.valid());
+        const QString first = writeSource(root.path(), "first.txt",
+                                          QByteArray("First manual\n"));
+        const QString second = writeSource(root.path(), "second.md",
+                                           QByteArray("# Second manual\n"));
+        {
+            ManualImportController importer;
+            QVERIFY(importer.importManualFile(QUrl::fromLocalFile(second)));
+            QVERIFY(importer.importManualFile(QUrl::fromLocalFile(first)));
+        }
+        // ML1-09: hydration introduces NO new sorting - the fresh controller
+        // exposes exactly the authoritative ManualStore::loadAll() order.
+        ManualImportController controller;
+        const QVariantList hydrated = controller.manualDocuments();
+        const auto stored = ManualStore::loadAll();
+        QCOMPARE(static_cast<int>(stored.size()), hydrated.size());
+        for (int i = 0; i < hydrated.size(); ++i) {
+            QCOMPARE(hydrated.at(i).toMap().value("documentId").toString(),
+                     QString::fromStdString(stored.at(static_cast<std::size_t>(i))
+                                                .documentId));
+        }
+    }
+
+    // ---- M12-C ML-1: the four tracked synthetic samples ----
+    // MODBUSLENS_SAMPLES_DIR is provided by CMake as the source-tree samples
+    // directory; import goes through the authoritative controller route and
+    // stays fully deterministic (no provider, no network, no live AI).
+
+    void ml1_samples_importThroughTheAuthoritativeRoute()
+    {
+        ManagedRootScope root;
+        QVERIFY(root.valid());
+        const QDir samplesDir(QStringLiteral(MODBUSLENS_SAMPLES_DIR));
+        QVERIFY(samplesDir.exists());
+        const QStringList sampleNames{
+            QStringLiteral("ModbusLens_Test_Manual_A_Clear.txt"),
+            QStringLiteral("ModbusLens_Test_Manual_B_Chinese.md"),
+            QStringLiteral("ModbusLens_Test_Manual_C_Structured.txt"),
+            QStringLiteral("ModbusLens_Test_Manual_D_NoManufacturer.txt")};
+
+        ManualImportController controller;
+        for (const QString &name : sampleNames) {
+            QVERIFY2(QFile::exists(samplesDir.filePath(name)),
+                     qPrintable(QStringLiteral("missing sample: ") + name));
+            QVERIFY2(controller.importManualFile(
+                         QUrl::fromLocalFile(samplesDir.filePath(name))),
+                     qPrintable(QStringLiteral("import refused: ") + name));
+        }
+        QCOMPARE(controller.manualDocuments().size(), 4);
+        // List order is the authoritative loadAll() order (documentId-keyed
+        // metadata names), so D is located BY NAME, never by index.
+        QVariantMap d;
+        for (const QVariant &entry : controller.manualDocuments()) {
+            const QVariantMap record = entry.toMap();
+            if (record.value("originalFileName")
+                    == QStringLiteral(
+                        "ModbusLens_Test_Manual_D_NoManufacturer.txt")) {
+                d = record;
+                break;
+            }
+        }
+        QVERIFY(!d.isEmpty());
+        QCOMPARE(d.value("documentType"), QStringLiteral("txt"));
+    }
+
 };
 
 QTEST_GUILESS_MAIN(ManualImportTest)
