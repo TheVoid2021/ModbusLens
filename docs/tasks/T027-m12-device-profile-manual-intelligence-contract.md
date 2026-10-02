@@ -7230,6 +7230,113 @@ verified LKGC          = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED；
 
 ---
 
+## 85. M12-C C3 — FIRST-SLICE HUMAN ACCEPTANCE（SESSION C3-R2C · docs-only 归档）
+
+> 性质：append-only 归档。Human 授权（逐字）：「授权：归档 M12-C C3 first behavior
+> slice Human acceptance PASS；仅 docs-only，不推进 LKGC，不开始 Edit，不开始 M12-D。」
+> 仅记录 Human 观察到的证据；**不**发明时序、内部状态、网络包、provider HTTP 状态或
+> Human 未观察的字段。本节为对 §82.6 PENDING 状态的 current superseding note；
+> §82 历史原文不改写。
+
+### 85.1 验收对象边界（artifact boundary）
+
+```text
+Human acceptance 覆盖的候选 = R2B 候选（§84.3）：
+  buildcceptance\session-c3-r2b-postcommit-release\candidate\ModbusLens\modbuslens.exe
+  exe SHA-256 = 0bc2e6a23b7b0142612c8e31387bbc603b7afbd3ad2943a55405c0eb5ae083fa
+其行为提交 = bb996a5bfc5416e3392c6fd709508e21aeab62c2（§84）
+本 docs 归档提交本身**不是**被测行为，**不是** LKGC。
+```
+
+### 85.2 Human 权威验收证据（逐条归档，分类 = HUMAN PASS）
+
+```text
+CHECK 1 — REJECT
+  起始：Profile「1111」已打开；Manufacturer 草稿为空；真实 PendingReview
+  Candidate 可见（manufacturer: ACME）。Human 点击 Reject。
+  观察：Pending Candidate 消失；pending count = 0；Manufacturer 保持为空；
+  无可见错误。
+  ⇒ C3 Reject = HUMAN PASS；Reject 零可见 Profile mutation = HUMAN PASS。
+
+CHECK 2 — ACCEPT TO DRAFT
+  Human 重新提取产生新真实 Candidate（manufacturer: ACME）；点击 Accept。
+  观察：Manufacturer 草稿变为「ACME」；Candidate 消失 / pending count = 0；
+  UI 显示「未保存修改」；应用未自动保存；无可见错误。
+  ⇒ C3 Accept to draft = HUMAN PASS；Candidate consumption = HUMAN PASS；
+  No auto-save = HUMAN PASS。
+
+CHECK 3 — DISCARD（使用含「放弃修改」常驻动作的 R2B 候选）
+  Human 点击 Accept 后点击「放弃修改」。
+  观察：Manufacturer 从「ACME」恢复为先前值（本验收 Profile 中为空）；
+  「未保存修改」消失；「放弃修改」回到禁用态；Pending Candidate count 保持 0；
+  已消费 Candidate 未复活；无可见错误。
+  ⇒ Standing Discard = HUMAN PASS；Accept-before-Save rollback = HUMAN PASS；
+  Consumed Candidate non-resurrection = HUMAN PASS。
+
+CHECK 4 — EXPLICIT SAVE + RESTART
+  Human 再产生新 Candidate（manufacturer: ACME）→ Accept → 显式 Save →
+  关闭应用 → 重启应用 → 重新打开 Profile「1111」。
+  观察：Manufacturer 仍显示「ACME」；验收的持久化跨重启存活；
+  Pending Candidate count = 0；无可见错误。
+  ⇒ Explicit Save persistence = HUMAN PASS；Restart persistence = HUMAN PASS；
+  既有 Profile 持久化工作流 = HUMAN FUNCTIONAL PASS。
+
+CHECK 5 — SCOPE BOUNDARY
+  本次验收期间：未使用 C3 Edit workflow；未使用 batch review；未使用
+  RegisterEntryCandidate workflow；未使用 M12-D workflow。
+  ⇒ **不得**推断这些 deferred 特性已实现。
+```
+
+### 85.3 C3 first-slice 最终分类
+
+```text
+C3 contract                 = FROZEN / HUMAN APPROVED（§81，C3-H1..H10）
+C3 first behavior slice     = COMPLETE / HUMAN ACCEPTED
+C3 Accept                   = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+C3 Reject                   = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+Standing Discard            = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+Explicit Save persistence   = AUTOMATED FOUNDATION PASS / HUMAN PASS
+C3 Edit                     = NOT IMPLEMENTED / DEFERRED（C3-H8 冻结语义）
+C3 batch                    = NOT IMPLEMENTED / DEFERRED（C3-H1）
+RegisterEntryCandidate      = NOT IMPLEMENTED / NOT IN CURRENT SOURCE
+Durable provenance          = DEFERRED / NO SCHEMA CHANGE（C3-H7）
+C3 overall                  = IN PROGRESS —— 原因：canonical C3 capability
+                              （§13/§17.2）仍包含 Edit，而 Edit 尚未实现或
+                              被 Human 验收
+M12-C overall               = IN PROGRESS
+M12-D                       = NOT STARTED / NOT AUTHORIZED
+verified LKGC               = 613a32a0d6ca71ac53185779b7d5ab3b80c82870
+                              （UNCHANGED；docs-only 提交永不作 LKGC）
+```
+
+### 85.4 相邻产品观察（与 C3 PASS 分立记录，非 C3 blocker，本 session 不实现）
+
+```text
+A. Manual 启动列表观察
+   较早的一次 Human 运行曾观察到：应用启动时已导入手册列表为零，
+   执行一次导入操作后，先前存储的手册才出现。其后 R2B 冷启动/重启运行
+   均立即显示既有的 15/16 本已导入手册。
+   当前分类 = HISTORICAL HUMAN OBSERVATION / NOT CURRENTLY REPRODUCED。
+   不得在无可复现案例时称之为 confirmed open regression。
+   未来自动化应覆盖 cold-start hydration。
+
+B. Manual Delete UI
+   Human 确认产品具有 import / selection / preview，但没有用户可见的
+   删除已导入手册的操作。C1a 文档（§60/§61 时代）早已记录 Manual Delete UI
+   缺席。当前分类 = KNOWN PRODUCT GAP / HUMAN REQUESTED FOR FUTURE
+   MAINTENANCE。本 session 不实现；不是 C3 blocker；不启动该维护切片
+   （是否立项由 Human 另行决定）。
+```
+
+### 85.5 本节动作边界（docs-only）
+
+仅归档 Human 权威验收证据与分类；未改 src/tests/QML/CMake · 未 build /
+configure / CTest / 候选重生成 · 无 live ModelScope / 凭据读取 · 无 Profile/manual
+数据变更 · 未开始 Edit / M12-D / Manual Library 维护 · 未推进 LKGC ·
+未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+---
+
 ## 83. M12-C C3 — ACCEPTANCE EVIDENCE ADDENDUM（SESSION C3-R2A · test-only + ratification）
 
 > 性质：append-only 归档。Human 授权范围 = 仅关闭三项验收证据缺口
@@ -7440,3 +7547,110 @@ verified LKGC          = 613a32a0d6ca71ac53185779b7d5ab3b80c82870（UNCHANGED；
                          behavior 提交不是 LKGC）
 无 push / 无 tag / 无 amend。
 ```
+
+---
+
+## 85. M12-C C3 — FIRST-SLICE HUMAN ACCEPTANCE（SESSION C3-R2C · docs-only 归档）
+
+> 性质：append-only 归档。Human 授权（逐字）：「授权：归档 M12-C C3 first behavior
+> slice Human acceptance PASS；仅 docs-only，不推进 LKGC，不开始 Edit，不开始 M12-D。」
+> 仅记录 Human 观察到的证据；**不**发明时序、内部状态、网络包、provider HTTP 状态或
+> Human 未观察的字段。本节为对 §82.6 PENDING 状态的 current superseding note；
+> §82 历史原文不改写。
+
+### 85.1 验收对象边界（artifact boundary）
+
+```text
+Human acceptance 覆盖的候选 = R2B 候选（§84.3）：
+  buildcceptance\session-c3-r2b-postcommit-release\candidate\ModbusLens\modbuslens.exe
+  exe SHA-256 = 0bc2e6a23b7b0142612c8e31387bbc603b7afbd3ad2943a55405c0eb5ae083fa
+其行为提交 = bb996a5bfc5416e3392c6fd709508e21aeab62c2（§84）
+本 docs 归档提交本身**不是**被测行为，**不是** LKGC。
+```
+
+### 85.2 Human 权威验收证据（逐条归档，分类 = HUMAN PASS）
+
+```text
+CHECK 1 — REJECT
+  起始：Profile「1111」已打开；Manufacturer 草稿为空；真实 PendingReview
+  Candidate 可见（manufacturer: ACME）。Human 点击 Reject。
+  观察：Pending Candidate 消失；pending count = 0；Manufacturer 保持为空；
+  无可见错误。
+  ⇒ C3 Reject = HUMAN PASS；Reject 零可见 Profile mutation = HUMAN PASS。
+
+CHECK 2 — ACCEPT TO DRAFT
+  Human 重新提取产生新真实 Candidate（manufacturer: ACME）；点击 Accept。
+  观察：Manufacturer 草稿变为「ACME」；Candidate 消失 / pending count = 0；
+  UI 显示「未保存修改」；应用未自动保存；无可见错误。
+  ⇒ C3 Accept to draft = HUMAN PASS；Candidate consumption = HUMAN PASS；
+  No auto-save = HUMAN PASS。
+
+CHECK 3 — DISCARD（使用含「放弃修改」常驻动作的 R2B 候选）
+  Human 点击 Accept 后点击「放弃修改」。
+  观察：Manufacturer 从「ACME」恢复为先前值（本验收 Profile 中为空）；
+  「未保存修改」消失；「放弃修改」回到禁用态；Pending Candidate count 保持 0；
+  已消费 Candidate 未复活；无可见错误。
+  ⇒ Standing Discard = HUMAN PASS；Accept-before-Save rollback = HUMAN PASS；
+  Consumed Candidate non-resurrection = HUMAN PASS。
+
+CHECK 4 — EXPLICIT SAVE + RESTART
+  Human 再产生新 Candidate（manufacturer: ACME）→ Accept → 显式 Save →
+  关闭应用 → 重启应用 → 重新打开 Profile「1111」。
+  观察：Manufacturer 仍显示「ACME」；验收的持久化跨重启存活；
+  Pending Candidate count = 0；无可见错误。
+  ⇒ Explicit Save persistence = HUMAN PASS；Restart persistence = HUMAN PASS；
+  既有 Profile 持久化工作流 = HUMAN FUNCTIONAL PASS。
+
+CHECK 5 — SCOPE BOUNDARY
+  本次验收期间：未使用 C3 Edit workflow；未使用 batch review；未使用
+  RegisterEntryCandidate workflow；未使用 M12-D workflow。
+  ⇒ **不得**推断这些 deferred 特性已实现。
+```
+
+### 85.3 C3 first-slice 最终分类
+
+```text
+C3 contract                 = FROZEN / HUMAN APPROVED（§81，C3-H1..H10）
+C3 first behavior slice     = COMPLETE / HUMAN ACCEPTED
+C3 Accept                   = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+C3 Reject                   = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+Standing Discard            = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+Explicit Save persistence   = AUTOMATED FOUNDATION PASS / HUMAN PASS
+C3 Edit                     = NOT IMPLEMENTED / DEFERRED（C3-H8 冻结语义）
+C3 batch                    = NOT IMPLEMENTED / DEFERRED（C3-H1）
+RegisterEntryCandidate      = NOT IMPLEMENTED / NOT IN CURRENT SOURCE
+Durable provenance          = DEFERRED / NO SCHEMA CHANGE（C3-H7）
+C3 overall                  = IN PROGRESS —— 原因：canonical C3 capability
+                              （§13/§17.2）仍包含 Edit，而 Edit 尚未实现或
+                              被 Human 验收
+M12-C overall               = IN PROGRESS
+M12-D                       = NOT STARTED / NOT AUTHORIZED
+verified LKGC               = 613a32a0d6ca71ac53185779b7d5ab3b80c82870
+                              （UNCHANGED；docs-only 提交永不作 LKGC）
+```
+
+### 85.4 相邻产品观察（与 C3 PASS 分立记录，非 C3 blocker，本 session 不实现）
+
+```text
+A. Manual 启动列表观察
+   较早的一次 Human 运行曾观察到：应用启动时已导入手册列表为零，
+   执行一次导入操作后，先前存储的手册才出现。其后 R2B 冷启动/重启运行
+   均立即显示既有的 15/16 本已导入手册。
+   当前分类 = HISTORICAL HUMAN OBSERVATION / NOT CURRENTLY REPRODUCED。
+   不得在无可复现案例时称之为 confirmed open regression。
+   未来自动化应覆盖 cold-start hydration。
+
+B. Manual Delete UI
+   Human 确认产品具有 import / selection / preview，但没有用户可见的
+   删除已导入手册的操作。C1a 文档（§60/§61 时代）早已记录 Manual Delete UI
+   缺席。当前分类 = KNOWN PRODUCT GAP / HUMAN REQUESTED FOR FUTURE
+   MAINTENANCE。本 session 不实现；不是 C3 blocker；不启动该维护切片
+   （是否立项由 Human 另行决定）。
+```
+
+### 85.5 本节动作边界（docs-only）
+
+仅归档 Human 权威验收证据与分类；未改 src/tests/QML/CMake · 未 build /
+configure / CTest / 候选重生成 · 无 live ModelScope / 凭据读取 · 无 Profile/manual
+数据变更 · 未开始 Edit / M12-D / Manual Library 维护 · 未推进 LKGC ·
+未创建 canonical package · 未 push / 未 tag / 未 amend。

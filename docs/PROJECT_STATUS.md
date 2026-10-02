@@ -1,7 +1,34 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · M12-C C3 — STANDING DISCARD ACTION EXPOSED（Session C3-R2B · 以本块为准）〕**
+**〔2026-10-02 追加批注 · M12-C C3 — FIRST-SLICE HUMAN ACCEPTANCE = PASS（Session C3-R2C · docs-only 归档 · 以本块为准）〕**
+档案 = **T027 §85**。Human 授权（逐字）：「授权：归档 M12-C C3 first behavior slice
+Human acceptance PASS；仅 docs-only，不推进 LKGC，不开始 Edit，不开始 M12-D。」
+**验收对象边界**：R2B 候选 `candidate\ModbusLens\modbuslens.exe`（SHA-256
+`0bc2e6a23b7b0142612c8e31387bbc603b7afbd3ad2943a55405c0eb5ae083fa`，行为提交
+`bb996a5bfc5416e3392c6fd709508e21aeab62c2`）；docs 归档提交本身非被测行为、非 LKGC。
+**Human 权威证据（逐条 = HUMAN PASS）**：CHECK 1 Reject（Candidate 消失、count=0、
+Manufacturer 保持空、无错误）· CHECK 2 Accept to draft（草稿变「ACME」、count=0、
+「未保存修改」出现、**无自动保存**、无错误）· CHECK 3 Discard（「放弃修改」把
+Manufacturer 恢复为先前值、「未保存修改」消失、按钮回禁用态、consumed 不复活、
+count=0）· CHECK 4 显式 Save + 重启（Manufacturer「ACME」跨重启存活、count=0、
+无错误；既有持久化工作流 = HUMAN FUNCTIONAL PASS）· CHECK 5 范围边界（验收期间
+未用 Edit/batch/RegisterEntryCandidate/M12-D workflow ⇒ **不得**推断已实现）。
+**最终分类**：**C3 first behavior slice = COMPLETE / HUMAN ACCEPTED**；C3 Accept /
+Reject / Standing Discard = **IMPLEMENTED / AUTOMATED PASS / HUMAN PASS**；
+Explicit Save persistence = AUTOMATED FOUNDATION PASS / HUMAN PASS；C3 Edit =
+NOT IMPLEMENTED / DEFERRED；batch = NOT IMPLEMENTED / DEFERRED；
+RegisterEntryCandidate = NOT IMPLEMENTED / NOT IN CURRENT SOURCE；Durable
+provenance = DEFERRED / NO SCHEMA CHANGE；**C3 overall = IN PROGRESS**（canonical
+C3 capability 仍含 Edit，未实现未验收）；M12-C overall = IN PROGRESS；**M12-D =
+NOT STARTED / NOT AUTHORIZED**。**相邻产品观察（与 C3 PASS 分立，非 blocker，
+不实现）**：A. Manual 启动列表一次历史观察（0 列表→导入后出现）= HISTORICAL /
+NOT CURRENTLY REPRODUCED（其后 R2B 冷启动均立即显示 15/16 本），未来自动化应覆盖
+cold-start hydration；B. **Manual Delete UI = KNOWN PRODUCT GAP / HUMAN REQUESTED
+FOR FUTURE MAINTENANCE**（C1a 时代已记录缺席；是否立项由 Human 另行决定）。
+**verified LKGC = `613a32a0d6ca71ac53185779b7d5ab3b80c82870`（UNCHANGED）** ·
+无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · M12-C C3 — STANDING DISCARD ACTION EXPOSED（Session C3-R2B · 历史链一环）〕**
 档案 = **T027 §84**。**实现**（2 files / +69 −1）：Device Profile 工作区动作行
 （Save 与 Delete 之间）新增 `profileDiscardButton`「放弃修改」——把**既有**权威
 `discardCurrentChanges()` workflow 暴露为常驻 Human 动作；`enabled = dirty &&
