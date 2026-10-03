@@ -1,7 +1,38 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-2 — SAFE MANUAL DELETION = IMPLEMENTED / AUTOMATED PASS（Session ML-R2 · 以本块为准）〕**
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-2 — HUMAN DELETE ACCEPTANCE = PASS（Session ML-R2A · docs-only 归档 · 以本块为准）〕**
+档案 = **T027 §92**。Human 授权（逐字）：「授权：归档 Manual Library ML-2 Human
+Delete acceptance PASS；仅 docs-only。将 ML-2 标记为 COMPLETE / HUMAN ACCEPTED；
+Human PASS 仅覆盖本次实际执行的删除用户工作流，Pending/Running 删除阻断保持
+IMPLEMENTED / AUTOMATED PASS，不虚构 Human live verification。不推进 LKGC，不开始
+C3 Edit/M12-D，不做 package/tag/push。」**验收对象边界**：ML-R2 post-commit 候选
+`candidate\ModbusLens\modbuslens.exe`（SHA-256
+`830a84262e1a23c8198b78af09a66cbd6207eacd4158678515464e9a7a2ba9bd`，behavior 提交
+`9bb599a34c0f4bea9b3be791caab9a6bfc592407`）；docs 归档提交本身非被测行为、非
+LKGC。**Human 权威陈述（逐字）**：「这部分没有任何问题了。」——按授权仅解释为其
+前准备的 ML-2 normal Manual Delete checklist（§91.5 A–K）；冻结措辞 = **HUMAN PASS
+against the prepared ML-R2 normal Manual Delete acceptance flow; no issue
+reported**。**授权分类**：Manual Library ML-2 Human Delete acceptance = **PASS /
+HUMAN VERIFIED**；**Manual Library ML-2 = COMPLETE / HUMAN ACCEPTED**；Manual
+Delete normal Human workflow = **HUMAN PASS**；Delete confirmation / Cancel /
+Confirmed delete / Post-delete user workflow / Restart persistence = AUTOMATED
+PASS / HUMAN PASS（以准备的 normal workflow 覆盖为准）；Original external source
+safety = AUTOMATED PASS + normal-flow acceptance（**不声称**文件系统取证级证明）。
+**AUTOMATED 证据边界（不升级不削弱）**：Pending Candidate guard =
+IMPLEMENTED / AUTOMATED PASS / **HUMAN LIVE NOT RUN**；Running extraction guard =
+IMPLEMENTED / AUTOMATED PASS / **HUMAN LIVE NOT RUN**；Shared-content protection /
+Metadata failure atomicity / GC failure warning semantics = IMPLEMENTED /
+AUTOMATED PASS。**状态**：Manual Library ML-1 = COMPLETE / HUMAN ACCEPTED；
+**Manual Library ML-2 = COMPLETE / HUMAN ACCEPTED**；Manual Delete = IMPLEMENTED /
+AUTOMATED PASS / HUMAN PASS；Cold-start hydration = FIXED / AUTOMATED PASS / HUMAN
+PASS；Synthetic samples = TRACKED / AUDITED / repository-only；C3 first slice =
+COMPLETE / HUMAN ACCEPTED；C3 overall = IN PROGRESS；**C3 Edit = NOT STARTED /
+NOT AUTHORIZED**；M12-C overall = IN PROGRESS；**M12-D = NOT STARTED / NOT
+AUTHORIZED**；REAL MODBUS HARDWARE = NOT VERIFIED；canonical package = NOT
+CREATED。**verified LKGC = `19e2f45341c3f15d1f27bc38a9ad728d268049e3`
+（UNCHANGED；docs-only 提交永不作 LKGC）** · 无 push / 无 tag / 无 amend。
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-2 — SAFE MANUAL DELETION = IMPLEMENTED / AUTOMATED PASS（Session ML-R2 · 历史链一环）〕**
 档案 = **T027 §91**。**Human 授权**（逐字见 §91）：按已冻结 P0-ML-A/B/C/D/F/G/H 实施
 删除选中说明书 + 确认 + Pending/Running 阻断 + metadata 权威删除 + shared-content
 引用保护 + unreferenced GC + GC 失败可见警告 + 删除后清除选择/预览 + restart

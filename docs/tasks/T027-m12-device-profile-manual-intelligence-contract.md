@@ -8200,3 +8200,97 @@ verified LKGC            = 19e2f45341c3f15d1f27bc38a9ad728d268049e3（UNCHANGED�
                            behavior 提交不是 LKGC）
 无 push / 无 tag / 无 amend。
 ```
+
+---
+
+## 92. MANUAL LIBRARY ML-2 — HUMAN DELETE ACCEPTANCE（SESSION ML-R2A · docs-only 归档）
+
+> 性质：append-only 归档。Human 授权（逐字）：「授权：归档 Manual Library ML-2
+> Human Delete acceptance PASS；仅 docs-only。将 ML-2 标记为 COMPLETE / HUMAN
+> ACCEPTED；Human PASS 仅覆盖本次实际执行的删除用户工作流，Pending/Running 删除
+> 阻断保持 IMPLEMENTED / AUTOMATED PASS，不虚构 Human live verification。不推进
+> LKGC，不开始 C3 Edit/M12-D，不做 package/tag/push。」本节为 §91.6
+> 「HUMAN REVIEW PENDING」的 current superseding note；§91 历史原文不改写。
+
+### 92.1 验收对象边界（artifact boundary）
+
+```text
+Human acceptance 覆盖的候选 = ML-R2 post-commit 候选（§91.4）：
+  buildcceptance\session-ml-r2-postcommit-release\candidate\ModbusLens\modbuslens.exe
+  exe SHA-256 = 830a84262e1a23c8198b78af09a66cbd6207eacd4158678515464e9a7a2ba9bd
+其 behavior 提交 = 9bb599a34c0f4bea9b3be791caab9a6bfc592407（§91.5）
+本 docs 归档提交本身**不是**被测行为，**不是** LKGC。
+```
+
+### 92.2 Human 权威陈述（逐字）
+
+```text
+「这部分没有任何问题了。」
+```
+
+解释边界（授权范围内）：该结论**仅**针对其前准备的 ML-2 normal Manual Delete
+checklist（§91.5 A–K）——即准备好的正常删除用户工作流无报告问题。采用冻结措辞：
+**HUMAN PASS against the prepared ML-R2 normal Manual Delete acceptance flow;
+no issue reported.** 不发明：精确点击时序、手册精确数量、所见警告文本、文件系统
+痕迹、哈希痕迹、内部选择索引、精确缓存删除观察、网络痕迹。
+
+### 92.3 Human 实际验证的 normal Delete workflow（授权边界内）
+
+```text
+A. ML-R2 候选启动；B. 既有 Manual library 保持可用；C. 可弃置/合成 Manual
+作为删除目标；D. 被选手册删除前预览正常；E. 删除确认工作流可用；
+F. Cancel 路径未产生意外删除；G. Confirm Delete 将已导入手册从 ModbusLens
+库中移除；H. 删除后用户状态正常（含冻结的选择/预览语义）；
+I. 原始源手册本就不应由 ModbusLens 删除；J. 重启持久化在 Human 删除
+checklist 范围内：被删已导入记录不得复活，其余手册保持可用。
+```
+
+### 92.4 分类（归档）
+
+```text
+Manual Library ML-2 Human Delete acceptance = PASS / HUMAN VERIFIED
+Manual Delete normal Human workflow         = HUMAN PASS
+Delete confirmation normal workflow         = AUTOMATED PASS / HUMAN PASS
+Cancel delete normal workflow               = AUTOMATED PASS / HUMAN PASS
+Confirmed delete normal workflow            = AUTOMATED PASS / HUMAN PASS
+Post-delete user workflow                   = AUTOMATED PASS / HUMAN PASS
+Restart persistence after delete            = AUTOMATED PASS / HUMAN PASS
+  （仅以准备的 normal Human workflow 覆盖程度为准）
+Original external source safety             = AUTOMATED PASS + Human
+                                              normal-flow acceptance
+  （不得声称文件系统取证级 Human 证明）
+Manual Library ML-2                         = COMPLETE / HUMAN ACCEPTED
+
+—— 以下保持 AUTOMATED 证据边界，不升级为 HUMAN PASS ——
+Pending Candidate delete guard   = IMPLEMENTED / AUTOMATED PASS / HUMAN LIVE NOT RUN
+Running extraction delete guard  = IMPLEMENTED / AUTOMATED PASS / HUMAN LIVE NOT RUN
+Shared-content protection        = IMPLEMENTED / AUTOMATED PASS
+Metadata failure atomicity       = IMPLEMENTED / AUTOMATED PASS
+GC failure warning semantics     = IMPLEMENTED / AUTOMATED PASS
+```
+
+### 92.5 ML-2 最终分类
+
+```text
+Manual Library ML-1      = COMPLETE / HUMAN ACCEPTED
+Manual Library ML-2      = COMPLETE / HUMAN ACCEPTED
+Manual Delete            = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+Cold-start hydration     = FIXED / AUTOMATED PASS / HUMAN PASS
+C3 first behavior slice  = COMPLETE / HUMAN ACCEPTED
+C3 overall               = IN PROGRESS（Edit 未实现未验收）
+C3 Edit                  = NOT STARTED / NOT AUTHORIZED
+M12-C overall            = IN PROGRESS
+M12-D                    = NOT STARTED / NOT AUTHORIZED
+REAL MODBUS HARDWARE     = NOT VERIFIED
+canonical package        = NOT CREATED
+verified LKGC            = 19e2f45341c3f15d1f27bc38a9ad728d268049e3
+                           （UNCHANGED；docs-only 提交永不作 LKGC）
+```
+
+### 92.6 本节动作边界（docs-only）
+
+仅归档 Human 权威验收证据与 superseding 分类；未改 src/tests/CMake/QML/samples ·
+未 build / configure / CTest / 候选重生成 / deployment 复跑 / 生产 app 启动 ·
+无 live ModelScope / 凭据读取 · 无 ManualStore/DeviceProfile 数据变更 ·
+未开始 ML-2 Delete 实现（已归档为完成）/ C3 Edit / M12-D ·
+未推进 LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。
