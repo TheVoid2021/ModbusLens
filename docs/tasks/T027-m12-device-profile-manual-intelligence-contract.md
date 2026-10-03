@@ -8380,3 +8380,106 @@ canonical package        = NOT CREATED · tag = 仅 v1.0.0 · push = 未发生
 未生成候选 / 未跑 deployment gate · 无 live ModelScope / 凭据读取 ·
 未开始 ML-2 追加实现 / C3 Edit / M12-D · 未创建 canonical package ·
 未 tag / 未 push · 本节所在提交 docs-only 永不作 LKGC。
+
+## 94. C3 EDIT IMPLEMENTATION SLICE（SESSION C3-R3B · HUMAN-AUTHORED CANDIDATE VALUE CONFIRMATION）
+
+> 会话 packet 授权（逐字）：「授权：启动 M12-C C3 Edit implementation slice，
+> 严格按 C3-H1..H10，尤其 C3-H8 冻结语义实施」。本节记录该 slice 的完整
+> 协议链：Preflight / contract review → RED → GREEN → 负向对照 → targeted →
+> fresh full → behavior commit → post-commit ratification → 候选 → deployment。
+> **Human 视觉/功能验收 = PENDING**（本 slice 不推进 LKGC）。
+
+### 94.1 实施范围（C3-H8 冻结语义落地）
+
+- `CandidateExtractionController::confirmEditedCandidate(QVariantMap, QString)`：
+  编辑确认 = **一次显式 Human authority 动作**。链路 = 值寻址定位 Pending
+  Candidate（防陈旧 UI 对象）→ C3-H4 目标存在性 → **C3-H3/4.5 与 Accept 同一
+  evidence freshness gate**（证据仅作 SOURCE CONTEXT，永不"证明"编辑后的值）
+  → C3-H8/4.6 经 `ProfileController::applyCandidateField` 同一受控 staged-copy
+  写（全量 validateDeviceProfile / commit-once / 无 Save）→ C3-H5 以 Accepted
+  消费。失败原子：Candidate 保持 PendingReview、draft 不动。
+- QML（DeviceProfilePage）：行内「编辑」按钮 + 有界模态编辑对话框
+  （Popup.NoAutoClose），四向上下文显式分离：当前档案值 / **AI 原始建议** /
+  说明书依据（只读，措辞明确"不自动证明修改后的值"）/ 人工确认值（可编辑）。
+  Cancel = 零 mutation；确认成功关闭对话框；确认失败对话框保持打开并在
+  **对话框内**显示确定性错误。页面级 candidateEditNotice（含 token 着色）。
+- QML review 门禁（`--qml-candidate-review-check`）：R1 翻转为"行内 Edit 控制
+  必须存在"（C3-R2 时代的"无 Edit"断言随 C3-H8 冻结语义失效）；新增
+  E1（修缓存→seed→四向上下文可见）→ E2（Cancel 零 mutation）→
+  E3（人工值权威 + 消费 + dirty）→ E4（无自动保存 + 显式 Save 持久人工值）→
+  E5（陈旧证据确认在对话框内原子可见失败）。
+- 单元测试：`test_candidate_review.cpp` 新增 edit_00..edit_12（13 个用例）。
+
+### 94.2 过程缺陷（V2 Debug/Issue Trace，真实留痕）
+
+1. **QML 对话框内错误不可见**。Observed：E5 FAIL
+   （"freshness failure is not visible inside the edit dialog"）+
+   运行时 `ReferenceError: editErrorText is not defined`（qml:1329/1330）。
+   Expected：确认失败时错误必须在保持打开的模态对话框内可见。Evidence：
+   gate 输出 + QML 行号。Root Cause：Popup content 内的子项绑定对
+   Dialog 自身属性**不能非限定解析**；`candidateEditError` 的
+   `visible/text` 用了非限定 `editErrorText`，而失败通知只写在页面级
+   （被模态遮挡）。Fix：`confirmCandidateEdit()` 失败分支显式
+   `candidateEditDialog.editErrorText = result.text`；绑定限定为
+   `candidateEditDialog.editErrorText`（与全文件限定引用惯例一致）。
+   Verification：重建后 E5 PASS、全门禁 PASS。Regression protection：
+   E5 阶段本身（对话框内错误可见性断言）。
+2. **o18 陈旧期望修正（非删测试）**。`o18_noCandidateLevelReviewActions`
+   沿用 C3-R2 时代"无 Edit 动作"断言；C3-H8 冻结后 `confirmEditedCandidate`
+   成为合法动作。按 C3-R2 对 o18 的同一修正模式，将
+   `confirmEditedCandidate` 加入 approved 集合并更新注释；**persistence-shape
+   守卫（save/persist/store/commit）原样保留**——O 时代边界真正保护的部分
+   继续被断言。22/22 PASS。
+3. **agent_runtime b04 负载抖动（与本 slice 无关）**。fresh full 第 2 轮
+   `b04_maxToolRounds` FAIL（`h.failed.count()==1`）；同树第 1 轮 PASS、
+   独立复跑 3×28/28 PASS；本 slice 改动文件与 agent_runtime 零交集。
+   判定：ctest 并行负载下的时序型 flake，非本 slice 引入；不在本 slice
+   修复（纪律 9），留待专门任务。
+4. **凭据环境说明**：用户环境 ambient 存在 `MODBUSLENS_MODELSCOPE_MODEL`
+   （模型名 override，非 secret）；`MODELSCOPE_API_KEY` 全程缺席。
+   全部 ctest / 门禁运行以 `env -u` 双变量剥离启动；`--qml-*` harness
+   依 P-R1C 设计在控制器存在前自行 qunsetenv。无 live ModelScope 调用。
+
+### 94.3 验证链（真实命令与数字）
+
+- **REAL RED**：candidate_review 2/13（11 个 Edit 语义失败）→ GREEN：
+  candidate_review **36/36**（含 edit_00..12）。
+- **QML 门禁**：`--qml-candidate-review-check` PASS
+  （R1..R5+E1..E5；offscreen **与** windows 双平台，exit 0 / REVIEWFAIL 0）。
+- **负向对照**：**NX7**（`if (false && !revalidateEvidence(...))` 屏蔽
+  freshness gate）REAL RED **恰好** edit_05/06/07 → 精确逆向 → 36/36 复绿；
+  **NX8**（`applyCandidateField` 改用 AI proposedValue 忽略人工值）REAL RED
+  **恰好** edit_01/02/04/09/10 → 精确逆向 → 36/36 复绿。两次还原后
+  `git diff` residue 0，无 mutation 进入提交。
+- **targeted**：manual_delete 15/15；manual_import 31/31；
+  `--qml-manual-import-check` PASS；`--qml-profile-editor-check` PASS
+  （共享 QML 回归）。
+- **pre-commit fresh 树** `build/acceptance/session-c3-r3b-release/`（凭据缺席）：
+  configure RC0 / build **451/451** / full ctest：第 1 轮 65/66（o18 陈旧期望，
+  见 94.2-2）→ 修正 → 第 2 轮 65/66（b04 负载抖动，见 94.2-3）→ 第 3 轮
+  **66/66 PASS / exit 0 / 148.36s**（deployment_startup_check #35 Passed）。
+- **behavior 提交 = `4a77673`**（subject `M12: add Human-authored candidate
+  value edit (C3-H8)`；6 files / +874 −29；parent `6ce54f7…`；**NO AMEND**；
+  内无 docs；提交后 tree-vs-HEAD diff = 空）。
+- **post-commit ratification**（新树
+  `build/acceptance/session-c3-r3b-postcommit-release/`）：configure RC0 /
+  build 全量 / **66/66 PASS / exit 0 / 185.87s**。
+- **候选**：`candidate\ModbusLens\` 由 canonical `modbuslens_candidate`
+  target 从零重建（1713 files，manifest written）；exe 6,529,589 B，
+  SHA-256 `6370c55347a861caa50638ef87cde26bd509d40b8ec65a92f540ee2bba19ffd5`
+  （candidate ≡ source 同值）；**deployment gate 独立复跑 Passed 25.92s**。
+
+### 94.4 实施后 canonical 状态
+
+- **C3 Edit = IMPLEMENTED / AUTOMATED PASS（行为提交 `4a77673`）**；
+  **C3 Edit Human 视觉/功能验收 = PENDING**（本会话为"仅准备"清单；
+  checklist 沿 §82.6 模式 + E1..E5 人工对应项）。
+- **verified LKGC = `9bb599a…`（UNCHANGED）**：行为提交不是 LKGC；
+  LKGC 推进需 Human acceptance + 独立授权（§93 模式）。
+- 其余不变：C3 first slice / ML-1 / ML-2 = COMPLETE / HUMAN ACCEPTED；
+  C3 batch / durable provenance / schema change = DEFERRED（C3-H1/H7）；
+  M12-D = NOT STARTED / NOT AUTHORIZED；canonical package = NOT CREATED；
+  无 tag / 无 push。
+- 本节动作边界（实现 + 自动化验证）：改 src/QML/tests 并构建/测试；
+  **未**推进 LKGC、未创建 canonical package 目录之外的分发物、未 tag、
+  未 push、无凭据读取 / 无 live ModelScope。

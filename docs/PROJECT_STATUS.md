@@ -1,6 +1,45 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-03 追加批注 · M12-C C3 — EDIT IMPLEMENTATION SLICE（Session C3-R3B · behavior `4a77673` · Human 验收 PENDING · 以本块为准）〕**
+档案 = **T027 §94**。Session packet 授权（逐字）：「授权：启动 M12-C C3 Edit
+implementation slice，严格按 C3-H1..H10，尤其 C3-H8 冻结语义实施」。
+**实施**（C3-H8 冻结语义）：`CandidateExtractionController::confirmEditedCandidate`
+= 一次显式 Human authority 动作（值寻址定位 → C3-H4 目标存在 → **与 Accept 同一
+evidence freshness gate**（证据仅 SOURCE CONTEXT）→ `applyCandidateField` 同一
+staged-copy 写（全量 validateDeviceProfile / commit-once / 无 Save）→ 以 Accepted
+消费；失败原子）；QML 行内「编辑」按钮 + 有界模态编辑对话框（四向上下文：当前
+档案值 / AI 原始建议 / 说明书依据（只读、措辞明确不自动证明修改值）/ 人工确认值；
+Cancel 零 mutation；失败对话框内原子可见错误）；单元 edit_00..edit_12；
+review 门禁 R1 翻转 + E1..E5 新增。**验证链（凭据缺席，ctest 以 env -u 双变量
+剥离启动；ambient `MODBUSLENS_MODELSCOPE_MODEL` 为用户环境既有模型名 override，
+非 secret；`MODELSCOPE_API_KEY` 全程缺席；`--qml-*` harness 依设计自行剥离）**：
+REAL RED candidate_review 2/13 → GREEN **36/36**；QML 门禁 R1..R5+E1..E5 PASS
+（offscreen+windows 双平台）；**NX7**（屏蔽 freshness gate）REAL RED 恰好
+edit_05/06/07 → 精确逆向 residue 0 → 36/36 复绿；**NX8**（改用 AI proposedValue
+忽略人工值）REAL RED 恰好 edit_01/02/04/09/10 → 精确逆向 residue 0 → 36/36
+复绿；targeted：manual_delete 15/15 + manual_import 31/31 + manual-import /
+profile-editor 两 QML 门禁 PASS；**pre-commit fresh 树
+`session-c3-r3b-release/`**：configure RC0 / build 451/451 / full 66/66 PASS /
+exit 0 / 148.36s（第 1 轮 65/66 = o18 陈旧期望按 C3-H8 修正 approved 集合
+（persistence-shape 守卫原样保留）；第 2 轮 65/66 = agent_runtime b04 负载
+抖动（与本 slice 零文件交集；独立复跑 3×28/28 PASS；留待专门任务））。
+**behavior 提交 = `4a77673`**（`M12: add Human-authored candidate value edit
+(C3-H8)`；6 files / +874 −29；parent `6ce54f7…`；NO AMEND；内无 docs；提交后
+tree-vs-HEAD diff = 空）。**post-commit ratification**
+（新树 `session-c3-r3b-postcommit-release/`）：66/66 PASS / exit 0 / 185.87s。
+**候选**：`candidate\ModbusLens\`（1713 files / manifest written），exe
+6,529,589 B / SHA-256
+`6370c55347a861caa50638ef87cde26bd509d40b8ec65a92f540ee2bba19ffd5`（≡ source）；
+**deployment gate 独立复跑 Passed 25.92s**。**状态**：**C3 Edit = IMPLEMENTED /
+AUTOMATED PASS（behavior `4a77673`）；C3 Edit Human 视觉/功能验收 = PENDING**
+（本会话仅为验收准备；checklist 沿 §82.6 模式）；C3 overall = IN PROGRESS；
+C3 first slice / ML-1 / ML-2 = COMPLETE / HUMAN ACCEPTED（边界不升级）；
+C3 batch / durable provenance / schema change = DEFERRED（C3-H1/H7）；
+**verified LKGC = `9bb599a…`（UNCHANGED——行为提交不是 LKGC；推进需 Human
+acceptance + 独立授权）**；M12-D = NOT STARTED / NOT AUTHORIZED；canonical
+package = NOT CREATED；本批注所在提交 docs-only 永不作 LKGC · 无 push /
+无 tag / 无 amend。
 **〔2026-10-02 追加批注 · MANUAL LIBRARY ML-2 — VERIFIED LKGC ADVANCE（Human 授权 · Session ML-R1B · docs-only · 以本块为准）〕**
 档案 = **T027 §93**。**Human 授权（逐字）**：「授权：将 Manual Library ML-2 Human
 acceptance 作为新的 verified behavior baseline，并将 verified LKGC 从

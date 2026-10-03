@@ -1112,3 +1112,37 @@
   `resize(1000,700)` 后立即测量，读到的是 resize 前的布局，产生了假的 16px 溢出；
   修复分两步：① resize/measure 拆成两个事件循环步；② 移除页根 `clip: true`，
   让 containment 断言度量真实可见区域（列表 Flickable 的 clip 属设计内）。
+
+## T027 §94（Session C3-R3B · C3 Edit · 2026-10-03）
+
+- **Q：Edit 和 Accept 的本质区别是什么？为什么 Edit 需要单独一个确认动作？**
+  A：Accept 写入的是**被验证过证据支撑的 AI 提议值**；Edit 写入的是**人工键入
+  的值**——证据上下文（excerpt）不随编辑改变，所以它**逻辑上不能"证明"编辑后
+  的值**。因此 C3-H8 冻结语义是：Edit = 一次显式 Human authority 动作，对话框
+  四向上下文（当前档案值 / AI 原始建议 / 证据只读上下文 / 人工确认值）同屏，
+  措辞明确"不自动证明修改后的值"；证据仍走 freshness gate——它证明的是**来源
+  上下文仍然真实可回溯**，而不是新值的正确性。
+- **Q：编辑确认的实现为什么复用 Accept 的 freshness gate 和 staged-copy 写？**
+  A：因为两条路径在**写入面**上是同一件事：目标定位（值寻址、防陈旧 UI 对象）、
+  evidence 重新验证（文档唯一可定位 + [start,end) 精确回读）、
+  `applyCandidateField`（白名单字段 + 全量 validateDeviceProfile + commit-once +
+  无 Save）。区别只在**值的来源**（提议 vs 人工）。复用保证"无第二条管线"
+  （C3-H10）：不会出现一条绕过校验的写路径。
+- **Q：这轮 QML ReferenceError（editErrorText is not defined）根因是什么？**
+  A：Popup 的 content 里声明子项时，子项绑定对 Dialog 自身属性**不能非限定
+  解析**（运行时 ReferenceError）——同文件其他对话框全用
+  `deviceProfileRoot.xxx` / `candidateEditDialog.xxx` 限定引用正是这个原因。
+  修复：失败分支显式写 `candidateEditDialog.editErrorText`，绑定限定到 id。
+  附带产品语义修复：失败通知原本只出现在页面级，会被保持打开的模态对话框
+  **遮住**——错误必须显示在对话框内部。
+- **Q：负向对照 NX7/NX8 各证明什么？** A：NX7 屏蔽 freshness gate → 恰好
+  edit_05/06/07 红：证明这三个测试**真的**守着证据新鲜性；NX8 让确认动作改写
+  AI proposedValue（忽略人工值）→ 恰好 edit_01/02/04/09/10 红：证明这些测试
+  **真的**守住"人工值权威"。两次都精确逆向、residue 0、复绿 36/36——负向对照
+  同时检验测试自身的有效性。
+- **Q：o18 失败为什么不算是回归？** A：`o18_noCandidateLevelReviewActions`
+  是 C3-R2 时代的边界测试（"无 Edit 动作"）；C3-H8 冻结后 Edit 成为**设计内**
+  能力，这是合同演化而非行为破坏。修正模式沿用 C3-R2 对 o18 的先例：更新
+  approved 集合并注明出处，**persistence-shape 守卫（save/persist/store/commit）
+  原样保留**——O 时代真正保护的"候选层无持久化动作"继续被断言。删测试 ≠
+  修测试，这条线从不越过。
