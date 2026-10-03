@@ -16659,7 +16659,10 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 // interactions: the three-way comparison (proposal / target / current draft
 // value) must be visible, Accept must reach the controlled draft path WITHOUT
 // auto-saving, Reject must mutate nothing, evidence failure must be visible
-// and atomic, and no Edit control may exist. Candidates are installed through
+// and atomic. The EDIT stages (C3-R3B, C3-H8) drive the real edit dialog:
+// the HUMAN-confirmed value is authoritative, Cancel is zero mutation, and a
+// stale-evidence confirm fails atomically inside the dialog. Candidates are
+// installed through
 // the automation seed, which reuses the REAL deterministic C2 evidence
 // validator against a REAL imported manual — there is no fake-AI mode here
 // and no network path exists in this gate.
@@ -16738,6 +16741,17 @@ int runCandidateReviewCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         return true;
     };
 
+    const auto visibleOf = [&roots](const QString &name) -> bool {
+        // Dialogs are QQuickPopup (QObject-only, NOT a QQuickItem): read the
+        // visible property through the QObject tree.
+        for (QObject *root : roots) {
+            if (auto *popup = root->findChild<QObject *>(name)) {
+                return popup->property("visible").toBool();
+            }
+        }
+        return false;
+    };
+
     // One review seed = install ONE validated Manufacturer Candidate into the
     // session's PendingReview set through the REAL deterministic validator.
     auto seedReviewCandidate = [&]() -> bool {
@@ -16809,8 +16823,8 @@ int runCandidateReviewCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("R00: expected exactly 1 pending Candidate"));
         }
     });
-    // R1 — the three-way comparison and BOTH review controls are visible; no
-    // Edit control exists anywhere in the page (C3-H2/H8).
+    // R1 — the three-way comparison and the review controls are visible; the
+    // per-row Edit control exists (C3-R3B C3-H8: edit = Human authority).
     push([&]() {
         auto *rowValue = itemOf(QStringLiteral("candidateRowValue"));
         auto *rowDraft = itemOf(QStringLiteral("candidateRowDraftValue"));
@@ -16837,27 +16851,18 @@ int runCandidateReviewCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         if (!reject || !reject->isVisible()) {
             fail(QStringLiteral("R1: the Reject control is missing"));
         }
-        QStringList allNames;
-        std::function<void(QQuickItem *)> collect =
-            [&](QQuickItem *item) {
-                allNames << item->objectName();
-                for (QQuickItem *child : item->childItems()) {
-                    collect(child);
-                }
-            };
-        collect(window->contentItem());
-        for (const QString &name : allNames) {
-            if (name.startsWith(QStringLiteral("candidateEdit"),
-                                Qt::CaseInsensitive)) {
-                fail(QStringLiteral("R1: an Edit control exists (C3-H8 violation): ")
-                     + name);
-            }
+        // C3-R3B (C3-H8 frozen): the per-row Edit control now EXISTS - the
+        // edit dialog is the one Human-authority path for a proposed value.
+        auto *editButton = itemOf(QStringLiteral("candidateEditButton_0"));
+        if (!editButton || !editButton->isVisible()) {
+            fail(QStringLiteral("R1: the per-row Edit control is missing "
+                                "(C3-H8 edit path)"));
         }
         if (!failures->isEmpty()) {
             return;
         }
         note(QStringLiteral(
-            "R1: three-way comparison visible; Accept/Reject reachable; no Edit"));
+            "R1: three-way comparison visible; Accept/Reject/Edit reachable"));
     });
     // R2 — REAL Accept: draft Manufacturer changes, Candidate is consumed,
     // the persisted profile is NOT touched (C3-H2/H5, no auto-save).
@@ -17019,6 +17024,194 @@ int runCandidateReviewCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
     });
 
+    // ---- EDIT stages (C3-R3B, C3-H8): the edit dialog is the ONE
+    // Human-authority path for a proposed value. The four-way context is
+    // visible, Cancel is zero mutation, a HUMAN-confirmed value applies to
+    // the draft only (no auto-save), and a stale-evidence confirm fails
+    // atomically INSIDE the open dialog. ----
+
+    // E1 — repair the R4-corrupted cache deterministically (remove the cache
+    // artefact; the next import rewrites it from the source), seed a fresh
+    // Candidate (atomic replacement), open the Edit dialog and verify the
+    // four-way context.
+    push([&]() {
+        QVariantMap selected = manual->property("selectedDocument").toMap();
+        const QString cachePath =
+            ManualStore::textDirectory() + QStringLiteral("/")
+            + selected.value(QStringLiteral("contentHash")).toString()
+            + QStringLiteral(".txt");
+        QFile::remove(cachePath);
+        if (!seedReviewCandidate()) {
+            fail(QStringLiteral("E1: the edit-flow Candidate did not install"));
+            return;
+        }
+        if (candidate->property("candidateCount").toInt() != 1) {
+            fail(QStringLiteral("E1: expected exactly 1 pending Candidate "
+                                "(atomic seed replacement)"));
+        }
+        if (!clickNamed(QStringLiteral("candidateEditButton_0"))) {
+            fail(QStringLiteral("E1: the Edit action is not clickable"));
+            return;
+        }
+        if (!visibleOf(QStringLiteral("candidateEditDialog"))) {
+            fail(QStringLiteral("E1: the edit dialog did not open"));
+            return;
+        }
+        auto *proposal = itemOf(QStringLiteral("candidateEditOriginalProposal"));
+        auto *draftValue = itemOf(QStringLiteral("candidateEditProfileValue"));
+        auto *evidence = itemOf(QStringLiteral("candidateEditEvidence"));
+        auto *field = itemOf(QStringLiteral("candidateEditValueField"));
+        if (!proposal || !proposal->isVisible()
+            || !proposal->property("text").toString().contains(proposedValue)) {
+            fail(QStringLiteral("E1: the AI original proposal is not visible"));
+        }
+        if (!draftValue || !draftValue->isVisible()
+            || draftValue->property("text").toString().isEmpty()) {
+            fail(QStringLiteral("E1: the current profile value is not visible"));
+        }
+        if (!evidence || !evidence->isVisible()
+            || !evidence->property("text").toString().contains(excerpt)) {
+            fail(QStringLiteral("E1: the evidence context is not visible"));
+        }
+        if (!field || field->property("text").toString() != proposedValue) {
+            fail(QStringLiteral("E1: the editable value does not initialize to "
+                                "the AI proposal"));
+        }
+    });
+    // E2 — Cancel: dialog closes, Candidate stays PendingReview, zero draft
+    // mutation (C3-H8).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateEditCancelButton"))) {
+            fail(QStringLiteral("E2: the edit Cancel is not clickable"));
+            return;
+        }
+        if (visibleOf(QStringLiteral("candidateEditDialog"))) {
+            fail(QStringLiteral("E2: the edit dialog stayed open after Cancel"));
+        }
+        if (candidate->property("candidateCount").toInt() != 1) {
+            fail(QStringLiteral("E2: Cancel consumed the Candidate"));
+        }
+        if (profile->property("manufacturer").toString() != proposedValue) {
+            fail(QStringLiteral("E2: Cancel mutated the draft"));
+        }
+    });
+    // E3 — REAL edited-confirm: the HUMAN value is authoritative; the
+    // Candidate is consumed; the draft changes to the HUMAN value.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateEditButton_0"))) {
+            fail(QStringLiteral("E3: the Edit action is not clickable"));
+            return;
+        }
+        if (!visibleOf(QStringLiteral("candidateEditDialog"))) {
+            fail(QStringLiteral("E3: the edit dialog did not reopen"));
+            return;
+        }
+        auto *field = itemOf(QStringLiteral("candidateEditValueField"));
+        if (!field) {
+            fail(QStringLiteral("E3: the editable value field is missing"));
+            return;
+        }
+        field->setProperty("text",
+                           QVariant(QStringLiteral("Human-Verified-Co")));
+        if (!clickNamed(QStringLiteral("candidateEditConfirmButton"))) {
+            fail(QStringLiteral("E3: the Confirm button is not clickable"));
+            return;
+        }
+        if (visibleOf(QStringLiteral("candidateEditDialog"))) {
+            fail(QStringLiteral("E3: the edit dialog stayed open after a "
+                                "successful confirm"));
+        }
+        if (candidate->property("candidateCount").toInt() != 0) {
+            fail(QStringLiteral("E3: the confirmed Candidate is still pending"));
+        }
+        if (profile->property("manufacturer").toString()
+                != QStringLiteral("Human-Verified-Co")) {
+            fail(QStringLiteral("E3: the draft does not carry the HUMAN value"));
+        }
+        if (!profile->property("dirty").toBool()) {
+            fail(QStringLiteral("E3: the edit did not mark the draft dirty"));
+        }
+    });
+    // E4 — no auto-save: the persisted profile still holds the R00 baseline
+    // until the explicit Save; after it, the HUMAN value is what persists.
+    push([&]() {
+        const QString profilePath = ProfileStore::defaultFilePathFor(
+            profile->property("currentProfileId").toString());
+        const auto before = ProfileStore::loadFromFile(profilePath);
+        if (!before.ok()
+            || QString::fromStdString(before.profile.manufacturer)
+                   != QStringLiteral("Old Co.")) {
+            fail(QStringLiteral("E4: the edit auto-saved (persisted profile "
+                                "changed without the explicit Save)"));
+        }
+        bool saved = false;
+        QMetaObject::invokeMethod(profile, "saveCurrent", Qt::DirectConnection,
+                                  Q_RETURN_ARG(bool, saved));
+        if (!saved) {
+            fail(QStringLiteral("E4: the explicit Save failed"));
+            return;
+        }
+        const auto after = ProfileStore::loadFromFile(profilePath);
+        if (!after.ok()
+            || QString::fromStdString(after.profile.manufacturer)
+                   != QStringLiteral("Human-Verified-Co")) {
+            fail(QStringLiteral("E4: the explicit Save did not persist the "
+                                "HUMAN value"));
+        }
+    });
+    // E5 — stale evidence: the managed text cache changes UNDER the pending
+    // Candidate; the edited-confirm must fail ATOMICALLY and VISIBLY INSIDE
+    // the open dialog (C3-H3/H8), leaving the Candidate PendingReview and the
+    // draft untouched.
+    push([&]() {
+        if (!seedReviewCandidate()) {
+            fail(QStringLiteral("E5: the freshness Candidate did not install"));
+            return;
+        }
+        if (!clickNamed(QStringLiteral("candidateEditButton_0"))) {
+            fail(QStringLiteral("E5: the Edit action is not clickable"));
+            return;
+        }
+        if (!visibleOf(QStringLiteral("candidateEditDialog"))) {
+            fail(QStringLiteral("E5: the edit dialog did not open"));
+            return;
+        }
+        QVariantMap selected = manual->property("selectedDocument").toMap();
+        const QString cachePath =
+            ManualStore::textDirectory() + QStringLiteral("/")
+            + selected.value(QStringLiteral("contentHash")).toString()
+            + QStringLiteral(".txt");
+        QFile cache(cachePath);
+        if (!cache.open(QIODevice::WriteOnly | QIODevice::Truncate)
+            || cache.write(QByteArrayLiteral("CORRUPTED CACHE CONTENT")) == -1) {
+            fail(QStringLiteral("E5: could not corrupt the managed text cache"));
+            return;
+        }
+        cache.close();
+        if (!clickNamed(QStringLiteral("candidateEditConfirmButton"))) {
+            fail(QStringLiteral("E5: the Confirm button is not clickable"));
+            return;
+        }
+        if (candidate->property("candidateCount").toInt() != 1) {
+            fail(QStringLiteral("E5: a stale-evidence confirm consumed the "
+                                "Candidate"));
+        }
+        if (profile->property("manufacturer").toString()
+                != QStringLiteral("Human-Verified-Co")) {
+            fail(QStringLiteral("E5: the draft changed on a failed "
+                                "edited-confirm"));
+        }
+        auto *error = itemOf(QStringLiteral("candidateEditError"));
+        if (!error || !error->isVisible()
+            || error->property("text").toString().isEmpty()) {
+            fail(QStringLiteral("E5: the freshness failure is not visible "
+                                "inside the edit dialog"));
+        }
+        if (!visibleOf(QStringLiteral("candidateEditDialog"))) {
+            fail(QStringLiteral("E5: the dialog closed on a failed confirm"));
+        }
+    });
+
     auto index = std::make_shared<int>(0);
     auto finish = std::make_shared<std::function<void()>>();
     *finish = [&, index, finish]() {
@@ -17032,12 +17225,16 @@ int runCandidateReviewCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             }
             qInfo().noquote()
                 << QStringLiteral(
-                       "CANDIDATE REVIEW CHECK PASS (R1..R5): the three-way "
-                       "comparison is visible; a REAL Accept applies the proposed "
-                       "value to the draft only (no auto-save); a REAL Reject "
-                       "mutates nothing; stale evidence fails atomically and "
-                       "visibly; no Edit control exists; geometry holds at "
-                       "1280x937 and 1000x700");
+                       "CANDIDATE REVIEW CHECK PASS (R1..R5+E1..E5): the "
+                       "three-way comparison is visible; a REAL Accept applies "
+                       "the proposed value to the draft only (no auto-save); a "
+                       "REAL Reject mutates nothing; stale evidence fails "
+                       "atomically and visibly; the Edit dialog shows the "
+                       "four-way context, Cancel is zero mutation, the "
+                       "HUMAN-confirmed value applies to the draft only and "
+                       "persists through the explicit Save; a stale-evidence "
+                       "edited-confirm fails atomically inside the dialog; "
+                       "geometry holds at 1280x937 and 1000x700");
             app.exit(0);
             return;
         }

@@ -215,6 +215,73 @@ QVariantMap CandidateExtractionController::deleteManualDocument(
                         tr("删除说明书失败，请重试。"));
 }
 
+QVariantMap CandidateExtractionController::confirmEditedCandidate(
+    const QVariantMap &candidateMap, const QString &editedValue)
+{
+    // C3-H8: edited-confirm = ONE explicit Human authority action. The Human
+    // value is authoritative; the evidence is revalidated as SOURCE CONTEXT
+    // only (C3-H3) and never claimed to prove the edited value. Failure is
+    // atomic: Candidate stays PendingReview, draft untouched (C3-H8/4.8).
+    clearReviewError();
+
+    core::ProfileFieldCandidate candidate;
+    if (!candidateFromVariant(candidateMap, candidate)) {
+        return deleteResult(false,
+                            QStringLiteral("edit_candidate_not_pending"),
+                            tr("该候选不在待审核集合中。"));
+    }
+    const int index = findPendingCandidate(candidate);
+    if (index < 0) {
+        // EDIT-23: the Candidate was consumed/replaced while the dialog was
+        // open - a stale UI object must never mutate the Profile.
+        setReviewError(QStringLiteral("edit_candidate_not_pending"),
+                       tr("该候选不在待审核集合中。"));
+        return deleteResult(false,
+                            QStringLiteral("edit_candidate_not_pending"),
+                            tr("该候选不在待审核集合中。"));
+    }
+
+    // C3-H4: the authoritative target is the CURRENTLY shown selected
+    // Profile + draft. Without a valid target the confirm must fail.
+    if (profileController_ == nullptr || !profileController_->hasOpenProfile()) {
+        setReviewError(QStringLiteral("edit_profile_target_missing"),
+                       tr("没有当前有效的设备档案目标，无法确认修改。"));
+        return deleteResult(false,
+                            QStringLiteral("edit_profile_target_missing"),
+                            tr("没有当前有效的设备档案目标，无法确认修改。"));
+    }
+
+    // C3-H8/4.5: the SAME evidence freshness gate as Accept.
+    if (!revalidateEvidence(candidates_[static_cast<std::size_t>(index)])) {
+        setReviewError(QStringLiteral("edit_evidence_freshness_failed"),
+                       tr("候选证据未通过重新验证，无法确认修改。"));
+        return deleteResult(false,
+                            QStringLiteral("edit_evidence_freshness_failed"),
+                            tr("候选证据未通过重新验证，无法确认修改。"));
+    }
+
+    // C3-H8/4.6: the Human-edited value goes through the SAME controlled
+    // staged-copy write as Accept - full profile validation, commit-once.
+    const bool applied = profileController_->applyCandidateField(
+        QString::fromUtf8(
+            core::profileFieldTargetToken(candidates_[index].target)),
+        editedValue);
+    if (!applied) {
+        setReviewError(profileController_->lastActionErrorToken(),
+                       profileController_->lastActionError());
+        return deleteResult(false,
+                            profileController_->lastActionErrorToken(),
+                            profileController_->lastActionError());
+    }
+
+    // C3-H5: consumed as Accepted under the existing lifecycle semantics.
+    consumeCandidate(candidates_[static_cast<std::size_t>(index)],
+                     core::CandidateLifecycleState::Accepted);
+    clearReviewError();
+    return deleteResult(true, QStringLiteral("edit_confirm_success"),
+                        QString());
+}
+
 void CandidateExtractionController::clearReviewError()
 {
     if (lastReviewErrorToken_.isEmpty() && lastReviewError_.isEmpty()) {

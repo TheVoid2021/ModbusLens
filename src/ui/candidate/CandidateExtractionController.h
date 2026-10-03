@@ -160,6 +160,20 @@ public:
         const QVariantMap &document);
     Q_INVOKABLE QVariantMap deleteManualDocument(const QVariantMap &document);
 
+    // ------------------------------------------------------------------
+    // M12-C C3-R3B (C3-H8): edited-confirm - ONE explicit Human authority
+    // action. The edited value is HUMAN-AUTHORED / HUMAN-CONFIRMED (never
+    // an AI proposal); the ORIGINAL pending Candidate is re-resolved by
+    // value (stale UI objects fail safely), the SAME evidence freshness
+    // gate as Accept re-runs, and the SAME controlled staged-copy write
+    // applies the value with FULL profile validation. Atomic: any failure
+    // leaves the Candidate PendingReview and the draft untouched. Success
+    // consumes the Candidate (Accepted) and writes the draft only - never
+    // persisted storage. No provenance is recorded (C3-H7).
+    // ------------------------------------------------------------------
+    Q_INVOKABLE QVariantMap confirmEditedCandidate(
+        const QVariantMap &candidate, const QString &editedValue);
+
     // TEST/AUTOMATION seam (same discipline as
     // ProfileStore::setManagedRootOverride): installs proposals as PendingReview
     // Candidates through the REAL deterministic C2 validator, without any

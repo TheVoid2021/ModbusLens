@@ -69,6 +69,41 @@ Item {
         pendingManualDelete = null
     }
 
+    // M12-C C3-R3B (C3-H8): Edit dialog state. The edited value is
+    // HUMAN-AUTHORED / HUMAN-CONFIRMED; the AI proposal + evidence remain
+    // session context and never claim to prove the edited value.
+    property string editNotice: ""
+    property string editNoticeToken: ""
+    property var pendingEditRecord: null
+
+    function openCandidateEdit(record) {
+        pendingEditRecord = record
+        editNotice = ""
+        editNoticeToken = ""
+        candidateEditDialog.editRecord = record
+        candidateEditValueField.text = record
+            && record.proposedValue !== undefined ? record.proposedValue : ""
+        candidateEditDialog.open()
+    }
+
+    function confirmCandidateEdit() {
+        if (!pendingEditRecord) {
+            return
+        }
+        const result = candidateController.confirmEditedCandidate(
+            pendingEditRecord, candidateEditValueField.text)
+        editNotice = result.text
+        editNoticeToken = result.token
+        if (result.ok) {
+            pendingEditRecord = null
+            candidateEditDialog.close()
+        } else {
+            // The dialog stays open (NoAutoClose); the failure must be visible
+            // INSIDE it - a page-level notice alone hides behind the modal.
+            candidateEditDialog.editErrorText = result.text
+        }
+    }
+
     // Three-way dirty resolution (Save / Discard / Cancel) before any action
     // that would abandon the current draft. pendingAction carries what to run
     // after the resolution.
@@ -1073,6 +1108,20 @@ Item {
 
                 ColumnLayout {
                     id: candidateListColumn
+
+                    // C3-R3B (C3-H8): edit/confirm notice surface. Evidence
+                    // stays context; it never proves a Human-edited value.
+                    Label {
+                        objectName: "candidateEditNotice"
+                        visible: deviceProfileRoot.editNotice !== ""
+                        text: deviceProfileRoot.editNotice
+                        wrapMode: Text.Wrap
+                        font.pixelSize: DS.fontCaption
+                        color: deviceProfileRoot.editNoticeToken
+                                   === "edit_evidence_freshness_failed"
+                                   ? DS.error : DS.textSecondary
+                        Layout.fillWidth: true
+                    }
                     width: parent.width
                     spacing: DS.spacingS
 
@@ -1163,6 +1212,20 @@ Item {
                             // enabled only when a valid profile target exists
                             // (C3-H4); the write itself goes through the
                             // controlled candidate path, never this UI.
+                            // C3-R3B (C3-H8): Edit opens a dialog where the
+                            // Human-authored value is confirmed explicitly;
+                            // the AI proposal + evidence remain session
+                            // context and never auto-prove the edited value.
+                            AppButton {
+                                objectName: "candidateEditButton_"
+                                            + index
+                                Layout.fillWidth: true
+                                Accessible.name: qsTr("编辑该候选值")
+                                text: qsTr("编辑")
+                                enabled: profileController.hasOpenProfile
+                                onClicked: deviceProfileRoot
+                                               .openCandidateEdit(modelData)
+                            }
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: DS.spacingS
@@ -1193,6 +1256,104 @@ Item {
             }
         }
     }
+    }
+
+    // ---- Candidate edit dialog (M12-C C3-R3B, C3-H8) ----
+    // Bounded modal per the profile-delete convention. It visibly separates
+    // the four elements: current profile value, AI ORIGINAL proposal,
+    // Evidence/source context (read-only), and the HUMAN-CONFIRMED editable
+    // value. The wording never claims Evidence proves the edited value. On
+    // failure the dialog stays open with a deterministic error and the
+    // Candidate remains PendingReview.
+    Dialog {
+        id: candidateEditDialog
+        objectName: "candidateEditDialog"
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        anchors.centerIn: parent
+        width: 420
+        title: qsTr("编辑候选值")
+
+        property var editRecord: null
+        property string editErrorText: ""
+
+        onOpened: {
+            editErrorText = ""
+            candidateEditValueField.text = editRecord
+                && editRecord.proposedValue !== undefined
+                ? editRecord.proposedValue : ""
+        }
+
+        ColumnLayout {
+            width: parent.width
+            Label {
+                objectName: "candidateEditProfileValue"
+                text: qsTr("当前档案值: %1").arg(profileController.manufacturer)
+                wrapMode: Text.Wrap
+                font.pixelSize: DS.fontCaption
+                Layout.fillWidth: true
+            }
+            Label {
+                objectName: "candidateEditOriginalProposal"
+                text: qsTr("AI 原始建议: %1").arg(
+                          candidateEditDialog.editRecord
+                          && candidateEditDialog.editRecord.proposedValue
+                              !== undefined
+                          ? candidateEditDialog.editRecord.proposedValue : "")
+                wrapMode: Text.Wrap
+                font.pixelSize: DS.fontCaption
+                Layout.fillWidth: true
+            }
+            TextField {
+                id: candidateEditValueField
+                objectName: "candidateEditValueField"
+                Accessible.name: qsTr("人工确认值")
+                Layout.fillWidth: true
+                placeholderText: qsTr("人工确认值")
+            }
+            Label {
+                objectName: "candidateEditEvidence"
+                text: qsTr("说明书依据（原 AI 建议上下文，不自动证明修改后的值）: %1")
+                          .arg(candidateEditDialog.editRecord
+                               && candidateEditDialog.editRecord.evidenceExcerpt
+                                   !== undefined
+                               ? candidateEditDialog.editRecord.evidenceExcerpt
+                               : "")
+                wrapMode: Text.Wrap
+                color: DS.textSecondary
+                font.pixelSize: DS.fontCaption
+                Layout.fillWidth: true
+            }
+            Label {
+                objectName: "candidateEditError"
+                // Qualified on purpose: bindings inside a Popup's content
+                // cannot resolve the dialog's own properties unqualified
+                // (ReferenceError at runtime - gate-verified).
+                visible: candidateEditDialog.editErrorText !== ""
+                text: candidateEditDialog.editErrorText
+                wrapMode: Text.Wrap
+                color: DS.error
+                font.pixelSize: DS.fontCaption
+                Layout.fillWidth: true
+            }
+        }
+        footer: DialogButtonBox {
+            AppButton {
+                objectName: "candidateEditConfirmButton"
+                Accessible.name: qsTr("确认修改")
+                text: qsTr("确认修改")
+                onClicked: deviceProfileRoot.confirmCandidateEdit()
+            }
+            AppButton {
+                objectName: "candidateEditCancelButton"
+                Accessible.name: qsTr("取消编辑")
+                text: qsTr("取消")
+                onClicked: {
+                    deviceProfileRoot.pendingEditRecord = null
+                    candidateEditDialog.close()
+                }
+            }
+        }
     }
 
     // ---- Manual delete confirmation (M12-C ML-2, T027 §91) ----

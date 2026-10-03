@@ -34,6 +34,7 @@
 #include "core/profile/DeviceProfile.h"
 #include "ui/candidate/CandidateExtractionController.h"
 #include "ui/candidate/CandidateExtractionRunner.h"
+#include "ui/manual/ManualImportController.h"
 #include "ui/manual/ManualStore.h"
 #include "ui/profile/ProfileController.h"
 #include "ui/profile/ProfileStore.h"
@@ -76,10 +77,60 @@ private:
     int calls_{0};
 };
 
+// Starts attempts that NEVER complete: the deterministic RUNNING state for
+// the delete-guard tests (ML2-18/19) and any future Running-state coverage.
+class HangingCountingRunner : public ICandidateExtractionRunner
+{
+public:
+    bool begin(const modbuslens::core::ExtractionRequest & /*request*/,
+               std::uint64_t /*generation*/,
+               const CompletionHandler & /*onDone*/) override
+    {
+        ++calls_;
+        return true;
+    }
+
+    [[nodiscard]] int beginCount() const override { return calls_; }
+    [[nodiscard]] int callCount() const { return calls_; }
+
+private:
+    int calls_{0};
+};
+
 [[nodiscard]] bool hasMethod(const QObject *object, const char *signature)
 {
     return object != nullptr
         && object->metaObject()->indexOfMethod(signature) >= 0;
+}
+
+[[nodiscard]] bool deleteOk(const QVariantMap &result)
+{
+    return !result.isEmpty() && result.value("ok").toBool();
+}
+
+[[nodiscard]] QString resultToken(const QVariantMap &result)
+{
+    return result.value("token").toString();
+}
+
+[[nodiscard]] QVariantMap invokeDelete(QObject *controller,
+                                       const QVariantMap &document)
+{
+    QVariantMap result;
+    QMetaObject::invokeMethod(controller, "deleteManualDocument",
+                              Q_RETURN_ARG(QVariantMap, result),
+                              Q_ARG(QVariantMap, document));
+    return result;
+}
+
+[[nodiscard]] QVariantMap invokeCheckAllowed(QObject *controller,
+                                             const QVariantMap &document)
+{
+    QVariantMap result;
+    QMetaObject::invokeMethod(controller, "checkManualDeleteAllowed",
+                              Q_RETURN_ARG(QVariantMap, result),
+                              Q_ARG(QVariantMap, document));
+    return result;
 }
 
 // Invokable-shaped helpers: the review API is reached exactly the way QML
@@ -822,6 +873,356 @@ private slots:
         QCOMPARE(controller.property("candidateCount").toInt(), 0);
         QCOMPARE(runner.callCount(), 0);
     }
+
+    // ---- M12-C C3-R3B: EDIT (C3-H8 Human-authored override) ----
+    // edited-confirm = ONE explicit Human authority action: the same
+    // evidence freshness gate as Accept, the same full-profile validation,
+    // success writes the HUMAN value to the draft only (no auto-save) and
+    // consumes the Candidate. The edited value may differ from what the
+    // Evidence literally states: authority = the Human, never the Evidence.
+
+    [[nodiscard]] QVariantMap invokeConfirmEdit(
+        QObject *controller, const QVariantMap &candidate,
+        const QString &editedValue)
+    {
+        QVariantMap result;
+        QMetaObject::invokeMethod(controller, "confirmEditedCandidate",
+                                  Q_RETURN_ARG(QVariantMap, result),
+                                  Q_ARG(QVariantMap, candidate),
+                                  Q_ARG(QString, editedValue));
+        return result;
+    }
+
+    [[nodiscard]] bool confirmOk(const QVariantMap &result)
+    {
+        return !result.isEmpty() && result.value("ok").toBool();
+    }
+
+    void edit_00_apisExist()
+    {
+        CandidateExtractionController controller;
+        QVERIFY(hasMethod(&controller,
+                          "confirmEditedCandidate(QVariantMap,QString)"));
+    }
+
+    void edit_01_confirmAppliesHumanValueToDraft()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+
+        const QVariantMap result =
+            invokeConfirmEdit(&controller, candidate,
+                              QStringLiteral("Human-Verified-Co"));
+        QVERIFY2(confirmOk(result), qPrintable(resultToken(result)));
+
+        // EDIT-09: the HUMAN value reached the draft - not the AI proposal.
+        QCOMPARE(profiles.manufacturer(), QStringLiteral("Human-Verified-Co"));
+        // EDIT-10: consumed exactly once.
+        QCOMPARE(controller.property("candidateCount").toInt(), 0);
+        // EDIT-11: draft only - a never-saved profile has no file yet.
+        QVERIFY(!QFile::exists(ProfileStore::defaultFilePathFor(
+            profiles.currentProfileId())));
+        // EDIT-22: zero provider dispatches.
+        QCOMPARE(runner.callCount(), 0);
+    }
+
+    void edit_02_confirmConsumesExactlyOnce()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(confirmOk(invokeConfirmEdit(&controller, candidate,
+                                            QStringLiteral("Human-Verified-Co"))));
+
+        // A stale/repeated confirm must be refused and must not re-apply.
+        QVERIFY(!confirmOk(invokeConfirmEdit(&controller, candidate,
+                                             QStringLiteral("Second Value"))));
+        QCOMPARE(controller.property("candidateCount").toInt(), 0);
+        QCOMPARE(profiles.manufacturer(), QStringLiteral("Human-Verified-Co"));
+    }
+
+    void edit_03_cancelLeavesEverythingUntouched()
+    {
+        // Unit equivalent of dialog-Cancel: no confirm call is made, so the
+        // Candidate stays pending and the draft stays byte-identical
+        // (EDIT-06; the dialog interaction itself is gate-covered).
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QStringList before = draftSnapshot(&profiles);
+
+        QCOMPARE(controller.property("candidateCount").toInt(), 1);
+        QCOMPARE(draftSnapshot(&profiles), before);
+        QCOMPARE(profiles.manufacturer(), QString::fromUtf8(kOldManufacturer));
+    }
+
+    void edit_04_editedValueMayDifferFromEvidence()
+    {
+        // EDIT-20: the Human value differs from what the Evidence literally
+        // states; authority = the Human - freshness+validation are the only
+        // gates, and none of them may refuse the edit for "not matching the
+        // evidence text".
+        HangingCountingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+
+        QVERIFY(confirmOk(invokeConfirmEdit(&controller, candidate,
+                                            QStringLiteral("Human-Verified-Co"))));
+        QCOMPARE(profiles.manufacturer(), QStringLiteral("Human-Verified-Co"));
+    }
+
+    void edit_05_evidenceFreshnessBlocksConfirm()
+    {
+        // EDIT-15: the managed text cache changed UNDER the pending
+        // Candidate - the stored excerpt can no longer round-trip.
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(writeTextCache(
+            QString::fromStdString(harness.document.contentHash),
+                               QStringLiteral("CORRUPTED CACHE CONTENT\n")));
+        const QStringList before = draftSnapshot(&profiles);
+
+        const QVariantMap result =
+            invokeConfirmEdit(&controller, candidate,
+                              QStringLiteral("Human-Verified-Co"));
+        QVERIFY(!confirmOk(result));
+        QCOMPARE(resultToken(result),
+                 QStringLiteral("edit_evidence_freshness_failed"));
+        // Atomic: Candidate stays pending, draft untouched.
+        QCOMPARE(controller.property("candidateCount").toInt(), 1);
+        QCOMPARE(draftSnapshot(&profiles), before);
+        QCOMPARE(runner.callCount(), 0);
+    }
+
+    void edit_06_documentMissingBlocksConfirm()
+    {
+        // EDIT-16: the referenced Manual record disappears before confirm.
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(QFile::remove(
+            ManualStore::documentsDirectory() + QStringLiteral("/")
+            + candidate.value("documentId").toString()
+            + QStringLiteral(".json")));
+
+        const QVariantMap result =
+            invokeConfirmEdit(&controller, candidate,
+                              QStringLiteral("Human-Verified-Co"));
+        QVERIFY(!confirmOk(result));
+        QCOMPARE(resultToken(result),
+                 QStringLiteral("edit_evidence_freshness_failed"));
+        QCOMPARE(controller.property("candidateCount").toInt(), 1);
+        QCOMPARE(profiles.manufacturer(), QString::fromUtf8(kOldManufacturer));
+    }
+
+    void edit_07_contentHashMismatchBlocksConfirm()
+    {
+        // EDIT-17: the record's content identity no longer matches the
+        // Candidate's bound evidence identity.
+        HangingCountingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(rewriteDocumentContentHash(
+            candidate.value("documentId").toString(),
+            QString(64, QChar(u'0'))));
+
+        const QVariantMap result =
+            invokeConfirmEdit(&controller, candidate,
+                              QStringLiteral("Human-Verified-Co"));
+        QVERIFY(!confirmOk(result));
+        QCOMPARE(resultToken(result),
+                 QStringLiteral("edit_evidence_freshness_failed"));
+        QCOMPARE(controller.property("candidateCount").toInt(), 1);
+        QCOMPARE(profiles.manufacturer(), QString::fromUtf8(kOldManufacturer));
+    }
+
+    // ------------------------------------------------ EDIT-19 strong case -
+    // The whole-profile validation inside the controlled write must be
+    // load-bearing for edited-confirm too: an unrelated invalid draft state
+    // (missing displayName) makes the confirm fail atomically even though
+    // the Candidate and its evidence are perfectly valid.
+    void edit_08_invalidWholeProfileBlocksEditedConfirm()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+        QVERIFY(profiles.saveCurrent());
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        // An EXISTING legal editor seam makes the draft invalid: the frozen
+        // rule display_name_missing now fails on the draft.
+        QVERIFY(profiles.setProperty("displayName", QString()));
+        QCOMPARE(profiles.validationText(),
+                 QStringLiteral("设备名称必填"));
+        const QStringList before = draftSnapshot(&profiles);
+
+        const QVariantMap result =
+            invokeConfirmEdit(&controller, candidate,
+                              QStringLiteral("Human-Verified-Co"));
+        QVERIFY(!confirmOk(result));
+        // The error token identifies the ACTUAL validation failure.
+        QCOMPARE(resultToken(result),
+                 QStringLiteral("display_name_missing"));
+        // Atomic: Candidate stays pending, draft untouched.
+        QCOMPARE(controller.property("candidateCount").toInt(), 1);
+        QCOMPARE(draftSnapshot(&profiles), before);
+        QCOMPARE(runner.callCount(), 0);
+    }
+
+    void edit_09_explicitSavePersistsEditedValue()
+    {
+        // EDIT-13: persistence stays MANUAL SAVE - after a successful
+        // edited-confirm the explicit Save persists the HUMAN value.
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap confirmOne =
+            invokeConfirmEdit(&controller, pendingCandidateAt(&controller, 0),
+                              QStringLiteral("Human-Verified-Co"));
+        QVERIFY(confirmOk(confirmOne));
+        QVERIFY(profiles.dirty());
+        QVERIFY(profiles.saveCurrent());
+
+        const auto loaded = ProfileStore::loadFromFile(
+            ProfileStore::defaultFilePathFor(profiles.currentProfileId()));
+        QVERIFY(loaded.ok());
+        QCOMPARE(QString::fromStdString(loaded.profile.manufacturer),
+                 QStringLiteral("Human-Verified-Co"));
+    }
+
+    void edit_10_discardAfterConfirmRestoresBaseline()
+    {
+        // EDIT-14: the EXISTING authoritative Discard restores the persisted
+        // baseline; the consumed Candidate does NOT resurrect.
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+        QVERIFY(profiles.saveCurrent());
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap confirmTwo =
+            invokeConfirmEdit(&controller, pendingCandidateAt(&controller, 0),
+                              QStringLiteral("Human-Verified-Co"));
+        QVERIFY(confirmOk(confirmTwo));
+        QCOMPARE(profiles.manufacturer(), QStringLiteral("Human-Verified-Co"));
+
+        profiles.discardCurrentChanges();
+        QCOMPARE(profiles.manufacturer(), QString::fromUtf8(kOldManufacturer));
+        QCOMPARE(profiles.dirty(), false);
+        QCOMPARE(controller.property("candidateCount").toInt(), 0);
+    }
+
+    void edit_11_acceptAndRejectUnchanged()
+    {
+        // EDIT-24/25: Accept/Reject semantics are untouched by Edit.
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profiles;
+        wire(&controller, &profiles);
+        openProfileWithOldManufacturer(&profiles);
+
+        const ReviewHarness harness(tempRoot_.path());
+        // EDIT-24: the plain Accept path still applies the AI proposal.
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        QVERIFY(invokeAccept(&controller, pendingCandidateAt(&controller, 0)));
+        QCOMPARE(profiles.manufacturer(), QString::fromUtf8(kProposed));
+        QCOMPARE(controller.property("candidateCount").toInt(), 0);
+
+        // EDIT-25: the plain Reject path still consumes without mutation.
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        QVERIFY(invokeReject(&controller, pendingCandidateAt(&controller, 0)));
+        QCOMPARE(controller.property("candidateCount").toInt(), 0);
+        QCOMPARE(profiles.manufacturer(), QString::fromUtf8(kProposed));
+    }
+
+    void edit_12_pendingEditedCandidateStillBlocksManualDelete()
+    {
+        // EDIT-26 controller-equivalent: the ML-2 delete guard still blocks
+        // while the Candidate (possibly edited in a dialog) is pending.
+        HangingCountingRunner runner;
+        CandidateExtractionController controller(runner);
+        modbuslens::ui::ManualImportController manuals;
+        QVERIFY(controller.setProperty("manualController",
+                                        QVariant::fromValue(&manuals)));
+
+        const ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        const QVariantMap blocked = invokeDelete(&controller, harness.documentMap);
+        QVERIFY(!deleteOk(blocked));
+        QCOMPARE(resultToken(blocked),
+                 QStringLiteral("manual_delete_blocked_pending"));
+        QCOMPARE(controller.property("candidateCount").toInt(), 1);
+    }
+
+private:
 
 private:
     static void wire(CandidateExtractionController *controller,

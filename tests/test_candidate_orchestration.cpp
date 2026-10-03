@@ -625,9 +625,13 @@ private slots:
         // C3 AMENDMENT (T027 §81, HUMAN-APPROVED C3-H2/H6/H8/H10): the
         // single-Candidate review actions acceptCandidate / rejectCandidate
         // (and the automation seed that reuses the real validator) are now
-        // part of this controller. Everything the O-era boundary actually
-        // protected still holds and is asserted below:
-        //   · NO Edit action exists (C3-H8 — Edit is not in any slice yet);
+        // part of this controller. C3-R3B (C3-H8, HUMAN-FROZEN): the edit
+        // dialog's confirmEditedCandidate is ALSO part of this controller —
+        // the ONE Human-authority path that applies a HUMAN-CONFIRMED value
+        // through the same staged-copy gate as Accept (no persistence here:
+        // Save stays owned by ProfileController, C3-H10, no second pipeline).
+        // Everything the O-era boundary actually protects still holds and is
+        // asserted below:
         //   · NO persistence-shaped action exists here — Save stays owned by
         //     ProfileController and the only draft write path is the
         //     controlled staged-copy API (C3-H10, no second pipeline).
@@ -635,7 +639,8 @@ private slots:
             QStringLiteral("requestExtraction"), QStringLiteral("grantConsent"),
             QStringLiteral("rejectConsent"), QStringLiteral("acceptCandidate"),
             QStringLiteral("rejectCandidate"),
-            QStringLiteral("seedReviewCandidatesForAutomation")};
+            QStringLiteral("seedReviewCandidatesForAutomation"),
+            QStringLiteral("confirmEditedCandidate")};
         for (const QString &name : invokables) {
             if (approved.contains(name)) {
                 continue;
