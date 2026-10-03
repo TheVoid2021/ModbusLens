@@ -1,7 +1,38 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
-**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-2 — HUMAN DELETE ACCEPTANCE = PASS（Session ML-R2A · docs-only 归档 · 以本块为准）〕**
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-2 — VERIFIED LKGC ADVANCE（Human 授权 · Session ML-R1B · docs-only · 以本块为准）〕**
+档案 = **T027 §93**。**Human 授权（逐字）**：「授权：将 Manual Library ML-2 Human
+acceptance 作为新的 verified behavior baseline，并将 verified LKGC 从
+`19e2f45341c3f15d1f27bc38a9ad728d268049e3` 推进到
+`9bb599a34c0f4bea9b3be791caab9a6bfc592407`。本授权仅推进 verified LKGC；不授权
+C3 Edit、M12-D、package、tag 或 push。」**Git 实测验证**：`9bb599a…` type = commit ·
+是 HEAD 祖先（exit 0）· `9bb599a~1..9bb599a` = 10 files / +1345 −2（ManualStore
+删除 API+interposer seam · ManualImportController deleteDocumentById ·
+CandidateExtractionController guards/命令/notice 面 · QML 删除按钮/确认框/标签 ·
+main.cpp 门禁 stages · test_manual_delete.cpp · CMake target）⇒
+**behavior/data-bearing ML-2 commit**（含生产行为 + 测试 + 数据；如实记录其双重
+性质，非 docs-only）；`9bb599a..HEAD` = 2 提交（`b588997`/`04427fb`）非 docs 路径
+diff = 空 ⇒ 其后提交全部 docs-only 永不作 LKGC ⇒ `9bb599a` = ML-2 最后一个
+behavior/data-bearing tree。**基线证据链** = ML-R2（REAL RED exit 11 → GREEN
+15/15 → NX5-SHARED 与 NX6 双负向对照闭环 → targeted 23/23 → pre-commit fresh
+67/67/197.5s）+ post-commit ratification 树 67/67/189.0s + 候选 `830a8426…` +
+deployment 28.52s + ML-R2A（**Human Delete acceptance = PASS**，normal workflow
+HUMAN PASS；验收候选即该 behavior 内容生成）。**当前 verified LKGC =
+`9bb599a34c0f4bea9b3be791caab9a6bfc592407`（Human authorized）**；前一 verified
+`19e2f45…` 转历史链一环（原文保留不删）。**状态**：**Manual Library ML-1 =
+COMPLETE / HUMAN ACCEPTED**；**Manual Library ML-2 = COMPLETE / HUMAN ACCEPTED
+（新 verified behavior baseline）**；Manual Delete = IMPLEMENTED / AUTOMATED
+PASS / HUMAN PASS；Pending/Running delete guards = IMPLEMENTED / AUTOMATED PASS /
+**HUMAN LIVE NOT RUN**（边界保持，不升级）；Cold-start hydration = FIXED /
+AUTOMATED PASS / HUMAN PASS；Synthetic samples = TRACKED / AUDITED /
+repository-only；C3 first slice = COMPLETE / HUMAN ACCEPTED；C3 overall = IN
+PROGRESS（Edit 未实现未验收）；**C3 Edit = NOT STARTED / NOT AUTHORIZED（本授权
+明确不授权）**；**M12-D = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）**；
+REAL MODBUS HARDWARE = NOT VERIFIED；canonical package = NOT CREATED · tag = 仅
+v1.0.0 · push = 未发生 · 本批注所在提交 docs-only 永不作 LKGC · 无 push / 无
+tag / 无 amend。
+**〔2026-10-02 追加批注 · MANUAL LIBRARY ML-2 — HUMAN DELETE ACCEPTANCE = PASS（Session ML-R2A · docs-only 归档 · 历史链一环）〕**
 档案 = **T027 §92**。Human 授权（逐字）：「授权：归档 Manual Library ML-2 Human
 Delete acceptance PASS；仅 docs-only。将 ML-2 标记为 COMPLETE / HUMAN ACCEPTED；
 Human PASS 仅覆盖本次实际执行的删除用户工作流，Pending/Running 删除阻断保持

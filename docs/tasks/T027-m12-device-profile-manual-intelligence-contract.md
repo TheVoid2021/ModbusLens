@@ -8294,3 +8294,89 @@ verified LKGC            = 19e2f45341c3f15d1f27bc38a9ad728d268049e3
 无 live ModelScope / 凭据读取 · 无 ManualStore/DeviceProfile 数据变更 ·
 未开始 ML-2 Delete 实现（已归档为完成）/ C3 Edit / M12-D ·
 未推进 LKGC · 未创建 canonical package · 未 push / 未 tag / 未 amend。
+
+
+---
+
+## 93. MANUAL LIBRARY ML-2 — VERIFIED LKGC ADVANCE（SESSION ML-R1B · docs-only 归档）
+
+> 性质：append-only 归档。仅记录 Human 授权与 Git 实测验证；LKGC 推进本身是
+> canonical docs 的状态转移，**不是**任何新行为。
+
+### 93.0 Human 授权（逐字）
+
+```text
+授权：将 Manual Library ML-2 Human acceptance
+作为新的 verified behavior baseline，
+并将 verified LKGC 从
+
+19e2f45341c3f15d1f27bc38a9ad728d268049e3
+
+推进到
+
+9bb599a34c0f4bea9b3be791caab9a6bfc592407。
+
+本授权仅推进 verified LKGC；
+不授权 C3 Edit、M12-D、package、tag 或 push。
+```
+
+### 93.1 Git 实测验证（授权目标合法性）
+
+```text
+git cat-file -t 9bb599a…                   = commit
+git merge-base --is-ancestor 9bb599a… HEAD = exit 0（是 HEAD 祖先）
+9bb599a~1..9bb599a changed paths           = 10 files / +1345 −2
+  （ManualStore 删除 API + interposer seam · ManualImportController
+    deleteDocumentById · CandidateExtractionController guards/命令/notice 面 ·
+    DeviceProfilePage.qml 删除按钮/确认框/标签 · main.cpp 门禁 stages ·
+    tests/test_manual_delete.cpp · CMakeLists target）
+  ⇒ **behavior/data-bearing ML-2 commit**（含生产行为 + 测试 + 数据；
+    如实记录其双重性质，不得描述为 docs-only）
+9bb599a..HEAD = 2 个提交（b588997 · 04427fb），非 docs 路径 diff = 空
+  ⇒ 其后提交全部 docs-only，永不作 LKGC
+⇒ 9bb599a = ML-2 最后一个 behavior/data-bearing tree，为合法 LKGC 目标。
+```
+
+### 93.2 基线证据链（为什么是 9bb599a）
+
+```text
+· ML-R2：REAL RED（manual_delete exit 11，2/13）→ GREEN 15/15
+  （ML2-01..30 等价覆盖）→ MUTATION-NX5-SHARED REAL RED（恰好共享内容测试）
+  → 精确逆向 residue 0 → MUTATION-NX6 REAL RED（恰好 Pending 阻断测试）
+  → 精确逆向 residue 0 → 复绿 15/15 → QML 门禁 3 个 ML2 阶段 PASS（含
+  修复 gate 一处拼接结构缺陷）→ targeted 23/23 → pre-commit fresh 树
+  67/67 PASS / 197.5s。
+· ML-R2（post-commit）：第二棵全新树 66→67/67 PASS / 189.0s + 候选
+  830a84262e1a23c8198b78af09a66cbd6207eacd4158678515464e9a7a2ba9bd
+  （manifest 1713）+ deployment gate 28.52s。
+· ML-R2A：Human Delete acceptance = PASS（§92：normal Delete workflow
+  HUMAN PASS，两次分类归档）——Human 验收对象候选即由 19e2f45 之后的
+  bb996a5 基线…（更正：验收候选由 19e2f45..9bb599a 链上的 9bb599a
+  内容生成）。
+```
+
+### 93.3 推进后的 canonical 状态
+
+```text
+verified LKGC = 9bb599a34c0f4bea9b3be791caab9a6bfc592407（Human authorized）
+前一 verified  = 19e2f45341c3f15d1f27bc38a9ad728d268049e3（转历史链一环，原文保留）
+Manual Library ML-1 = COMPLETE / HUMAN ACCEPTED
+Manual Library ML-2 = COMPLETE / HUMAN ACCEPTED（新 verified behavior baseline）
+Manual Delete            = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+Pending Candidate delete guard = IMPLEMENTED / AUTOMATED PASS / HUMAN LIVE NOT RUN
+Running extraction delete guard = IMPLEMENTED / AUTOMATED PASS / HUMAN LIVE NOT RUN
+Cold-start hydration     = FIXED / AUTOMATED PASS / HUMAN PASS
+Synthetic samples        = TRACKED / AUDITED / SYNTHETIC / repository-only
+C3 first slice           = COMPLETE / HUMAN ACCEPTED
+C3 overall               = IN PROGRESS（Edit 未实现未验收）
+C3 Edit                  = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）
+M12-D                    = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）
+REAL MODBUS HARDWARE     = NOT VERIFIED
+canonical package        = NOT CREATED · tag = 仅 v1.0.0 · push = 未发生
+```
+
+**本节动作边界（docs-only）**：仅归档授权 + Git 验证 + 状态转移记录；
+未改 src/tests/CMake/QML/samples · 未 build / configure / CTest ·
+未生成候选 / 未跑 deployment gate · 无 live ModelScope / 凭据读取 ·
+未开始 ML-2 追加实现 / C3 Edit / M12-D · 未创建 canonical package ·
+未 tag / 未 push · 本节所在提交 docs-only 永不作 LKGC。
