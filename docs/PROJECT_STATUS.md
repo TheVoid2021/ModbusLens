@@ -1,6 +1,53 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-04 追加批注 · M12-C C3 — EDIT CANONICAL RELEASE RATIFICATION = 67/67 PASS（Session C3-R3B-R2 · Human 授权补证 · docs-only addendum · superseding evidence · 以本块为准）〕**
+档案 = **T027 §95**。Human 授权（逐字）：「授权：执行 C3-R3B canonical
+ratification 补证，仅使用包含 -DMODBUSLENS_PYTHON_EXECUTABLE=D:/Anaconda3/
+python.exe 的 canonical fresh Release 配置，从当前已提交行为树重新
+configure/build，确认 inventory=67 并完成 full 67/67；若通过，则从该
+post-commit canonical tree 重新生成 Human acceptance candidate、运行
+deployment gate，并仅做 docs-only addendum。不得修改行为代码/测试/CMake，
+不重做 RED/GREEN/NX7/NX8，不推进 LKGC，不开始 M12-D，不做 package/tag/push。」
+**背景**：R1 对账证明 §94 两次 full 树 configure 遗漏 canonical 显式变量
+`MODBUSLENS_PYTHON_EXECUTABLE`（CMakeLists.txt:1118 显式 opt-in，PATH 永不
+探测）→ `c1b_dependency_materializer` 未注册（66 vs 基线 67）；仓库层面零
+丢失（`git diff 9bb599a..4a77673 -- CMakeLists.txt` 空）。**前置证明**：
+RESYNC 实测 HEAD = `8b4d2d4…`（tracked clean / cached 空 / diff-check PASS /
+untracked 仅 `_ctx.py`/`_dump.py` / tag 仅 v1.0.0 / `git ls-files build` 空）；
+`git diff 4a77673..HEAD -- src tests CMakeLists.txt samples` = 空 ⇒ 行为树
+≡ `4a77673`。**canonical 执行**（凭据缺席 env -u 双变量；无 live ModelScope）：
+新树 `build/acceptance/session-c3-r3b-r2-canonical-release/`（不复用旧树）；
+configure RC 0（cache 实测 Python 变量 = D:/Anaconda3/python.exe，输出不含
+"not registered"；PDFium 156.0.8066.0 pinned `d42c452a…f14b` + libzip
+static 离线物化）；build RC 0 **451/451**；`ctest -N` = **67**（#29
+candidate_orchestration / #30 candidate_transport / #31 candidate_review /
+#32 manual_delete / #35 deployment_startup_check / **#36
+c1b_dependency_materializer** / #64 qml_candidate_review_check /
+#65 qml_candidate_review_check_windows 全部在位）；full unfiltered
+（无 -R/-E/-L/-LE/--tests-regex/--exclude-regex）= **67/67 PASS / 0 failed /
+exit 0 / 191.77s（一次通过，未触发 flake 补救路径）**；关键计时：
+c1b_dependency_materializer #36 Passed 26.71s（首次纳入）· candidate_review
+#31 1.50s · candidate_orchestration #29 0.44s · manual_delete #32 1.01s ·
+agent_runtime #47 6.61s · qml_candidate_review_check #64 3.40s ·
+qml_candidate_review_check_windows #65 3.15s · deployment_startup_check #35
+35.79s。**canonical 候选（唯一推荐 C3 Edit Human 验收入口）**：同树
+`modbuslens_candidate` FROM ZERO → `candidate\ModbusLens\`；candidate exe ≡
+source exe（均 6,529,589 B，SHA-256
+`16d05557f103432dd8fe0740e1abcd7f0a8dbe780b0a37018bb08c425e4faa20`）；
+manifest `files` = 1713 条 / root 实际文件含 manifest = 1714 / 目录 = 90；
+qwindows `80473907…8ac`；pdfium `d42c452a…f14b`；**deployment gate 独立复跑
+Passed 26.48s**（净环境）。**候选取代**：旧候选 `6370c553…`（§94）转历史
+pre-canonical-ratification 候选（行为来源相同、provenance 有效，仅附着于
+66-test 非 canonical configure），不作推荐 Human gate 工件；旧证据树保留
+不删。**状态（superseding）**：**C3 Edit = IMPLEMENTED / AUTOMATED PASS
+（behavior `4a77673`）；C3 Edit canonical Release ratification = 67/67
+PASS**——§94 evidence limitation 由本节取代，§94 历史 66/66 记录保留不删；
+**C3 Edit Human acceptance = PENDING**（16 步 checklist 不变，入口改为
+§95.3 canonical 候选）；C3 overall = IN PROGRESS；**verified LKGC =
+`9bb599a…`（UNCHANGED）**；M12-D = NOT AUTHORIZED；canonical package =
+NOT CREATED；无 tag / 无 push / 无 amend；本批注所在提交 docs-only 永不作
+LKGC。
 **〔2026-10-03 追加批注 · M12-C C3 — EDIT IMPLEMENTATION SLICE（Session C3-R3B · behavior `4a77673` · Human 验收 PENDING · 以本块为准）〕**
 档案 = **T027 §94**。Session packet 授权（逐字）：「授权：启动 M12-C C3 Edit
 implementation slice，严格按 C3-H1..H10，尤其 C3-H8 冻结语义实施」。
