@@ -31,6 +31,7 @@
 #include <QSerialPortInfo>
 #include <QStringList>
 #include <QTextStream>
+#include <QEventLoop>
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QStandardPaths>
@@ -38,6 +39,7 @@
 #include "core/manual/ManualDocument.h"
 #include "ui/profile/ProfileStore.h"
 #include "ui/manual/ManualStore.h"
+#include "ui/candidate/CandidateExtractionController.h"
 #include "ui/candidate/ModelScopeCandidateRunner.h"
 
 #include <zip.h>
@@ -16377,7 +16379,13 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     auto *candidate = rootObj ? rootObj->findChild<QObject *>(
                                     QStringLiteral("candidateController"))
                               : nullptr;
-    if (!window || !manual || !candidate) {
+    // C3-R3C: typed handle for the TEST-ONLY runner seam (blocking runner).
+    auto *candidateCtrl =
+        rootObj
+            ? rootObj->findChild<modbuslens::ui::CandidateExtractionController *>(
+                  QStringLiteral("candidateController"))
+            : nullptr;
+    if (!window || !manual || !candidate || !candidateCtrl) {
         qWarning().noquote()
             << QStringLiteral("CONSENTFAIL: window/controller not found");
         return 1;
@@ -16440,6 +16448,47 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     const auto stateToken = [candidate]() {
         return candidate->property("stateToken").toString();
     };
+    // C3-R3C: flags captured by the mid-dispatch probe (see AUTOCLOSE below).
+    struct ConsentProbeFlags {
+        bool sawRunning{false};
+        bool sawDialogOpen{false};
+    };
+    // A deterministic runner that reproduces the PRODUCTION synchronous
+    // dispatch window: the real ModelScope HTTP client spins a NESTED event
+    // loop until the reply finishes, so the QML click handler stays blocked
+    // inside grantConsent() for the whole provider round-trip. This fake spins
+    // for 400ms and then completes with a FAILURE (never a Candidate), which
+    // is enough to observe the dialog lifetime without any network.
+    class BlockingConsentRunner final
+        : public modbuslens::ui::ICandidateExtractionRunner
+    {
+    public:
+        void reset() { count_ = 0; }
+        [[nodiscard]] int beginCount() const override { return count_; }
+        [[nodiscard]] bool begin(
+            const modbuslens::core::ExtractionRequest &request,
+            std::uint64_t generation,
+            const CompletionHandler &onDone) override
+        {
+            ++count_;
+            QEventLoop spin;
+            QTimer::singleShot(400, &spin, &QEventLoop::quit);
+            spin.exec();
+            if (onDone) {
+                modbuslens::ui::ICandidateExtractionRunner::Completion done;
+                done.generation = generation;
+                done.ok = false;
+                done.failure =
+                    modbuslens::core::ProviderExtractionFailure::None;
+                onDone(done);
+            }
+            return true;
+        }
+
+    private:
+        int count_{0};
+    };
+    auto blockingRunner = std::make_shared<BlockingConsentRunner>();
     const auto dialogVisible = [objectOf]() {
         QObject *popup = objectOf(QStringLiteral("candidateConsentDialog"));
         return popup != nullptr && popup->property("visible").toBool();
@@ -16501,6 +16550,8 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     const int settleMs = 80;
     auto steps = std::make_shared<QList<std::function<void()>>>();
     auto push = [steps](std::function<void()> step) { steps->append(std::move(step)); };
+    std::shared_ptr<ConsentProbeFlags> probe_;
+    QString firstDocId; // the R00 selection's documentId (O04-granted document)
 
     push([&]() { clickNamed(QStringLiteral("navItem_5")); });
     push([&]() {
@@ -16514,6 +16565,8 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         QMetaObject::invokeMethod(manual, "selectDocument", Qt::DirectConnection,
                                   Q_ARG(int, 0));
+        firstDocId = manual->property("selectedDocument").toMap()
+                         .value(QStringLiteral("documentId")).toString();
     });
     // R01/R02/R03 — open the REAL dialog at 1280x937 and measure it.
     push([&]() {
@@ -16624,6 +16677,157 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
     });
 
+    // ---- C3-R3C stages. Setup first: a SECOND manual with a DIFFERENT
+    // content identity, because the R05 Agree already granted session consent
+    // for the first document (O04) and a re-trigger there would never open
+    // the consent dialog again. This also covers CD-16: the accepted 1000x700
+    // geometry with a consent dialog OPEN (O06 re-consent for new content). ----
+    push([&]() {
+        const QString secondPath =
+            QDir(sourceDir).filePath(QStringLiteral("consent-b.txt"));
+        {
+            QFile seed2(secondPath);
+            if (!seed2.open(QIODevice::WriteOnly)) {
+                fail(QStringLiteral("CD-16: the second seed write failed"));
+                return;
+            }
+            seed2.write(QStringLiteral("Brand: Beta Industries\n"
+                                       "Model: INV-2000\n")
+                            .toUtf8());
+        }
+        bool imported = false;
+        QMetaObject::invokeMethod(manual, "importManualFile",
+                                  Qt::DirectConnection,
+                                  Q_RETURN_ARG(bool, imported),
+                                  Q_ARG(QUrl, QUrl::fromLocalFile(secondPath)));
+        if (!imported) {
+            fail(QStringLiteral("CD-16: the second manual did not import"));
+            return;
+        }
+        // importManualFile already selects the freshly imported document;
+        // verify the selection is the NEW identity (the metadata listing is
+        // UUID-ordered, so a hard-coded index is meaningless here).
+        const QString selectedNow =
+            manual->property("selectedDocument").toMap()
+                .value(QStringLiteral("documentId")).toString();
+        if (selectedNow.isEmpty() || selectedNow == firstDocId) {
+            fail(QStringLiteral("CD-16: the second manual was not selected after "
+                                "import"));
+            return;
+        }
+        if (!clickNamed(QStringLiteral("candidateExtractButton"))) {
+            fail(QStringLiteral("CD-16: candidateExtractButton is not clickable"));
+            return;
+        }
+        if (stateToken() != QStringLiteral("consent_required")) {
+            fail(QStringLiteral("CD-16: extraction did not stop at consent_required "
+                                "for the new content identity (got '%1')")
+                     .arg(stateToken()));
+            return;
+        }
+        if (!dialogVisible()) {
+            fail(QStringLiteral("CD-16: the consent dialog did not open for the "
+                                "new content identity (O06 re-consent)"));
+            return;
+        }
+        window->resize(1000, 700);
+        requireConsentGeometry(QStringLiteral("CD-16"));
+    });
+    // ---- CONSENT-AUTOCLOSE-01: schedule the mid-dispatch probe while the
+    // dialog is open. The probe fires inside the blocking runner's nested
+    // event loop, exactly where the Human observed the dialog still open
+    // while the page showed the extraction as running. ----
+    push([&]() {
+        if (!dialogVisible()) {
+            fail(QStringLiteral("AUTOCLOSE: the consent dialog is not open before "
+                                "the blocked Agree click"));
+            return;
+        }
+        auto probe = std::make_shared<ConsentProbeFlags>();
+        probe_ = probe;
+        QTimer::singleShot(150, &app, [&, probe]() {
+            probe->sawRunning = stateToken() == QStringLiteral("running");
+            probe->sawDialogOpen = dialogVisible();
+            note(QStringLiteral("AUTOCLOSE probe: running=%1 dialogOpen=%2")
+                     .arg(probe->sawRunning ? QStringLiteral("true")
+                                            : QStringLiteral("false"))
+                     .arg(probe->sawDialogOpen ? QStringLiteral("true")
+                                               : QStringLiteral("false")));
+        });
+    });
+    push([&]() {
+        blockingRunner->reset();
+        candidateCtrl->setRunnerForAutomation(blockingRunner.get());
+        // This click BLOCKS ~400ms inside grantConsent()'s synchronous
+        // dispatch (the production ModelScope path behaves the same way for
+        // the whole HTTP round-trip); the 150ms probe fires mid-window.
+        if (!clickNamed(QStringLiteral("candidateConsentGrantButton"))) {
+            fail(QStringLiteral("AUTOCLOSE: candidateConsentGrantButton is not "
+                                "clickable"));
+            candidateCtrl->setRunnerForAutomation(nullptr);
+            return;
+        }
+        // CD-09: exactly one dispatch for one Agree.
+        if (blockingRunner->beginCount() != 1) {
+            fail(QStringLiteral("AUTOCLOSE: expected exactly one dispatch, got %1")
+                     .arg(blockingRunner->beginCount()));
+        }
+        // The round-trip is over: the deterministic failure landed (CD-08).
+        if (stateToken() == QStringLiteral("running")) {
+            fail(QStringLiteral("AUTOCLOSE: the provider attempt never completed"));
+        }
+        if (stateToken() == QStringLiteral("consent_required")) {
+            fail(QStringLiteral("AUTOCLOSE: Agree did not advance the "
+                                "orchestration"));
+        }
+        // CD-07/CD-08: completion (success OR failure) must NOT reopen the
+        // dialog.
+        if (dialogVisible()) {
+            fail(QStringLiteral("AUTOCLOSE: the dialog re-appeared after the "
+                                "provider completion"));
+        }
+        candidateCtrl->setRunnerForAutomation(nullptr);
+        // CD-04/CD-05/CD-06 - the core regression: during the Running window
+        // (provider result NOT yet arrived) the dialog must be GONE.
+        if (probe_ == nullptr || !probe_->sawRunning) {
+            fail(QStringLiteral("AUTOCLOSE: the probe never observed the Running "
+                                "window (blocking runner broken)"));
+        } else if (probe_->sawDialogOpen) {
+            fail(QStringLiteral("AUTOCLOSE: the consent dialog stayed open during "
+                                "the synchronous dispatch (Human defect)"));
+        }
+    });
+    push([&]() {
+        // CD-12 - re-triggering the FIRST document under its already-granted
+        // session consent must follow the canonical no-popup path. (Cancel
+        // semantics CD-02/CD-03 are already asserted by R04 above; the dialog
+        // from the AUTOCLOSE stage is already closed by then.)
+        const QVariantList docs =
+            manual->property("manualDocuments").toList();
+        int firstIndex = -1;
+        for (int i = 0; i < docs.size(); ++i) {
+            if (docs.at(i).toMap().value(QStringLiteral("documentId")).toString()
+                    == firstDocId) {
+                firstIndex = i;
+                break;
+            }
+        }
+        if (firstIndex < 0) {
+            fail(QStringLiteral("CD-12: the first document is no longer listed"));
+            return;
+        }
+        QMetaObject::invokeMethod(manual, "selectDocument",
+                                  Qt::DirectConnection, Q_ARG(int, firstIndex));
+        if (!clickNamed(QStringLiteral("candidateExtractButton"))) {
+            fail(QStringLiteral("CD-12: candidateExtractButton is not clickable"));
+            return;
+        }
+        if (dialogVisible()) {
+            fail(QStringLiteral("CD-12: the consent dialog re-appeared for "
+                                "already-granted session consent"));
+        }
+    });
+
     auto index = std::make_shared<int>(0);
     auto finish = std::make_shared<std::function<void()>>();
     *finish = [&, index, finish]() {
@@ -16636,13 +16840,17 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 return;
             }
             qInfo().noquote()
-                << QStringLiteral("CONSENT CHECK PASS (R01..R07 + R2-01..R2-07): "
-                                  "consent dialog contained in the usable window at "
-                                  "%1x%2; body wraps inside the dialog; a REAL "
-                                  "outside press does not dismiss it; Cancel and "
-                                  "Agree reachable by a real mouse interaction")
-                       .arg(window->width())
-                       .arg(window->height());
+                << QStringLiteral("CONSENT CHECK PASS (R01..R07 + R2-01..R2-07 + "
+                                  "AUTOCLOSE + CD-12/CD-16): consent dialog "
+                                  "contained in the usable window at 1280x937 "
+                                  "and 1000x700; body wraps inside the dialog; a "
+                                  "REAL outside press does not dismiss it; "
+                                  "Cancel and Agree reachable by a real mouse "
+                                  "interaction; the dialog is GONE during the "
+                                  "synchronous Running window and stays closed "
+                                  "through the provider completion; one dispatch "
+                                  "per Agree; already-granted session consent "
+                                  "re-triggers without a popup");
             app.exit(0);
             return;
         }

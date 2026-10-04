@@ -1473,8 +1473,19 @@ Item {
                     objectName: "candidateConsentGrantButton"
                     text: qsTr("同意并提取")
                     onClicked: {
-                        candidateController.grantConsent()
+                        // C3-R3C: close BEFORE granting. The production
+                        // ModelScope path spins a NESTED event loop inside
+                        // grantConsent() for the whole HTTP round-trip, so a
+                        // close() written after it could only run once the
+                        // provider result had arrived - the Human saw the
+                        // modal survive the entire extraction. While this
+                        // dialog is open the state is ConsentRequired (the
+                        // only opener path), so closing first is safe: if the
+                        // state has moved on anyway, grantConsent() is a
+                        // no-op and the close is the same outcome Cancel
+                        // would produce.
                         candidateConsentDialog.close()
+                        candidateController.grantConsent()
                     }
                 }
             }

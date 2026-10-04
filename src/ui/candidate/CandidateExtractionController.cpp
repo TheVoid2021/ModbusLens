@@ -63,6 +63,13 @@ CandidateExtractionController::CandidateExtractionController(
 {
 }
 
+void CandidateExtractionController::setRunnerForAutomation(
+    ICandidateExtractionRunner *runner)
+{
+    // nullptr restores the production owned runner (see the header contract).
+    runner_ = runner != nullptr ? runner : ownedRunner_.get();
+}
+
 void CandidateExtractionController::setManualController(
     ManualImportController *controller)
 {

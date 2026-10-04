@@ -83,6 +83,15 @@ public:
     explicit CandidateExtractionController(ICandidateExtractionRunner &runner,
                                            QObject *parent = nullptr);
 
+    // TEST-ONLY harness seam (C3-R3C, same class of minimal automation hook as
+    // ManualStore::setRemoveInterposerForAutomation): temporarily routes the
+    // orchestration through a caller-owned deterministic runner so the consent
+    // QML gate can observe the REAL synchronous-dispatch window (the production
+    // ModelScope path spins a nested event loop inside begin()). Passing
+    // nullptr restores the production owned runner. Never used by the product
+    // UI; a harness that installs one must restore nullptr before it exits.
+    void setRunnerForAutomation(ICandidateExtractionRunner *runner);
+
     [[nodiscard]] ManualImportController *manualController() const
     {
         return manualController_;
