@@ -1,6 +1,50 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-04 追加批注 · M12-C C3 — CONSENT DIALOG LIFECYCLE REPAIR（Session C3-R3C · behavior `c68d2bb` · Human retest PENDING · 以本块为准）〕**
+档案 = **T027 §96**。Human 授权（逐字）：「授权：修复 C3 Human gate 中发现的
+Consent Dialog 生命周期缺陷：Human 点击'同意并提取'并成功进入提取流程后，
+Consent Dialog 必须立即自动关闭，不得等待 provider 结果或 Candidate 生成；
+Cancel 行为、session consent、provider dispatch、Candidate 生命周期及 C3 Edit
+语义均不得改变。允许最小 QML/main harness/test 修改，执行 REAL
+RED→GREEN→targeted→canonical fresh full regression→behavior
+commit→post-commit candidate/deployment→docs addendum；不授权其他行为修改、
+不推进 LKGC、不开始 M12-D/package/tag/push。」**Human live defect**（canonical
+C3 Edit 候选实测）：Agree 后「正在提取…」与 Candidate 正常，但 Consent Dialog
+不自动关闭（modal 覆盖）→ C3 Edit acceptance 暂被阻塞。**RCA**：生产
+ModelScope HTTP 客户端以 `QEventLoop::exec()` 同步执行往返 → Agree handler
+阻塞在 grantConsent() 内，写在后面的 close() 只能在 provider 结果之后执行；
+harness 无凭据路径同步失败故 R05 一直绿。**修复**（最小 QML）：close 先于
+grant（dialog 打开期间 state 必为 ConsentRequired；陈旧 dialog 场景
+grantConsent 为 no-op，与 Cancel 等价）；consent 存储/dispatch/Candidate
+生命周期/Cancel/C3 Edit 语义零改动。**测试**：test-only
+`setRunnerForAutomation` seam（nullptr 恢复 owned runner）+ runConsentCheck
+新增 BlockingConsentRunner（QEventLoop spin 400ms 复现同步窗口、失败完成永不
+产生 Candidate）+ CD-16（新 content identity 重 consent + 1000x700 geometry，
+按 documentId 身份选择）+ **AUTOCLOSE**（150ms 探针断言 Running 窗口内
+dialog 不可见 + 恰好一次 dispatch + 完成不重开）+ CD-12（已 grant 重触发不弹
+dialog）。**验证链**（凭据缺席，无 live ModelScope）：REAL RED（probe
+running=true dialogOpen=true → CONSENTFAIL Human defect，单点失败）→ GREEN
+（probe dialogOpen=false；CONSENT CHECK PASS 含 AUTOCLOSE + CD-12/CD-16；offscreen + windows 双平台）→ **NX-CONSENT-CLOSE**（close 移回 grant 后 =
+原始缺陷顺序）REAL RED 恰好核心断言 → 精确逆向 → 复绿 → targeted 16/16 →
+**pre-commit canonical fresh 树 `session-c3-r3c-release/`**（含 Python 变量）：
+configure RC0 / build 451/451 / inventory 67（c1b #36 在位）/ full unfiltered
+**67/67 PASS / exit 0 / 194.74s 一次通过**（agent_runtime 6.47s 无 flake）。
+**behavior 提交 = `c68d2bb`**（4 files / +244 −9；parent `09646c2…`；NO
+AMEND；内无 docs；提交后 `git diff HEAD -- src tests CMakeLists.txt` = 空）。
+**post-commit canonical 树 `session-c3-r3c-postcommit-release/`**：configure/
+build RC0（451/451）/ inventory 67；**新候选（唯一推荐 Human retest 入口）**：
+candidate exe ≡ source exe（6,553,611 B / SHA-256
+`66bef371a0ee556ee06165bd92dbdbe8f805d787377db4fe124fe2dd45957225`）；manifest
+1713 条 / root 含 manifest 1714 / 目录 90；qwindows `80473907…8ac`；pdfium
+`d42c452a…f14b`；**deployment gate 独立复跑 Passed 27.39s**。**状态**：
+**Consent Dialog auto-dismiss = IMPLEMENTED / AUTOMATED PASS / HUMAN RETEST
+PENDING**；**C3 Edit = IMPLEMENTED / AUTOMATED PASS / HUMAN ACCEPTANCE IN
+PROGRESS**（retest 短清单见 §96.7；无需重做 ML-1/ML-2/67-test 工程验证）；
+ML-1 / ML-2 = COMPLETE / HUMAN ACCEPTED；C3 overall = IN PROGRESS；**verified
+LKGC = `9bb599a…` UNCHANGED**；M12-D = NOT STARTED / NOT AUTHORIZED；
+canonical package = NOT CREATED；tag = 仅 v1.0.0；push = 无；本批注所在提交
+docs-only 永不作 LKGC。
 **〔2026-10-04 追加批注 · M12-C C3 — EDIT CANONICAL RELEASE RATIFICATION = 67/67 PASS（Session C3-R3B-R2 · Human 授权补证 · docs-only addendum · superseding evidence · 以本块为准）〕**
 档案 = **T027 §95**。Human 授权（逐字）：「授权：执行 C3-R3B canonical
 ratification 补证，仅使用包含 -DMODBUSLENS_PYTHON_EXECUTABLE=D:/Anaconda3/

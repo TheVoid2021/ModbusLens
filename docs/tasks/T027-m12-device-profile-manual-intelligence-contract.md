@@ -8576,3 +8576,119 @@ canonical package        = NOT CREATED · tag = 仅 v1.0.0 · push = 未发生
 - 本节动作边界（docs-only）：本会话零 src/tests/CMake/QML/samples 改动、
   零行为语义改动、零 RED/GREEN/NX 重做；仅 configure/build/test/候选/
   deployment 只读性质运行 + 本 docs addendum。
+
+## 96. CONSENT DIALOG LIFECYCLE REPAIR（SESSION C3-R3C · behavior `c68d2bb` · HUMAN RETEST PENDING）
+
+> Human 授权（逐字）：「授权：修复 C3 Human gate 中发现的 Consent Dialog
+> 生命周期缺陷：Human 点击'同意并提取'并成功进入提取流程后，Consent Dialog
+> 必须立即自动关闭，不得等待 provider 结果或 Candidate 生成；Cancel 行为、
+> session consent、provider dispatch、Candidate 生命周期及 C3 Edit 语义均
+> 不得改变。允许最小 QML/main harness/test 修改，执行 REAL
+> RED→GREEN→targeted→canonical fresh full regression→behavior
+> commit→post-commit candidate/deployment→docs addendum；不授权其他行为
+> 修改、不推进 LKGC、不开始 M12-D/package/tag/push。」
+
+### 96.1 Human live defect（真实观察，T027 档案）
+
+Human 使用 canonical C3 Edit 候选（`session-c3-r3b-r2-canonical-release`
+树候选，exe `16d05557…`）实际操作：选择 Manual → 点击 AI 提取 → Consent
+Dialog 出现 → 点击「同意并提取」→ 页面后台进入「正在提取…」且 Candidate
+正常产生进入 PendingReview，**但 Consent Dialog 不自动关闭**，仍以 modal
+覆盖页面。判定：consent Agree / provider dispatch / Candidate 生成均
+WORKING，**Dialog lifecycle = HUMAN FAIL**；C3 Edit Human acceptance 暂被
+此窄 UI 缺陷阻塞。
+
+### 96.2 RCA（真实机制）
+
+生产 `ModelScopeCandidateRunner::begin()` → `ModelScopeHttpClient` 用
+**`QEventLoop::exec()` 同步执行整个 HTTP 往返**（56-67 行）。QML Agree
+handler 原顺序 = `grantConsent()` 先、`close()` 后：真实路径上 handler
+**阻塞在 grantConsent() 的嵌套事件循环里**直至 provider 完成，close() 只能
+在其后执行——modal 对话框因此活过整个提取过程。harness（runConsentCheck）
+无凭据 → `begin()` 本地拒绝同步失败 → close() 立即执行 → R05 断言一直
+PASS，缺陷从未被现有 gate 覆盖。
+
+### 96.3 修复（最小 QML 变更）
+
+Agree handler 改为 **close 先于 grant**（`candidateConsentDialog.close()` →
+`candidateController.grantConsent()`）。语义安全论证：dialog 打开期间 state
+必为 ConsentRequired（唯一 open 路径）；close 先行后 grant 同步阻塞期间
+对话框已消失（Human 语义 3.1「立即」）；若 state 已迁移（陈旧 dialog），
+grantConsent() 幂等 no-op，close 与 Cancel 结果一致（§7B 本地拒绝语义保持）。
+**零改动**：consent 存储/会话语义、requestExtraction/grantConsent/runner/
+transport/HTTP/parser、Candidate 生命周期、Cancel、C3 Edit/Accept/Reject、
+evidence freshness、ProfileController、ManualStore。
+
+### 96.4 测试基础设施（test-only seam + gate 扩展）
+
+- `CandidateExtractionController::setRunnerForAutomation(ICandidateExtractionRunner*)`
+  = 最小 test-only seam（同 `ManualStore::setRemoveInterposerForAutomation`
+  类），传 nullptr 恢复生产 owned runner；产品 UI 不可达。
+- `runConsentCheck` 新增 **BlockingConsentRunner**（QEventLoop spin 400ms
+  再同步失败完成，复现生产同步窗口；永不产生 Candidate）+ 4 个 stage：
+  CD-16（第二文档不同 content identity → O06 重新 consent → 1000x700
+  geometry with dialog OPEN；metadata 目录为 UUID 序，选择按 documentId
+  身份而非硬编码 index）→ **AUTOCLOSE**（150ms 探针在 Running 窗口内触发：
+  断言 state=running 且 **dialog 不可见**；点击阻塞 ~400ms；断言恰好一次
+  dispatch、完成后不重开、状态推进）→ CD-12（已 grant 的 session consent
+  重触发不弹 dialog）。PASS note 更新。
+
+### 96.5 验证链（凭据缺席，无 live ModelScope）
+
+- **REAL RED**：`AUTOCLOSE probe: running=true dialogOpen=true` →
+  CONSENTFAIL "the consent dialog stayed open during the synchronous
+  dispatch (Human defect)"（exit 1；单点失败，其余 stage 全过）。
+- **GREEN**：修复后 `AUTOCLOSE probe: running=true dialogOpen=false`，
+  CONSENT CHECK PASS（R01..R07 + R2-01..R2-07 + AUTOCLOSE + CD-12/CD-16），
+  exit 0；windows 平台 gate exit 0 / CONSENTFAIL 0。
+- **NX-CONSENT-CLOSE**：把 close 移回 grant 之后（原始缺陷顺序）→ REAL RED
+  恰好 AUTOCLOSE 核心断言 → 精确逆向（无 checkout/restore/reset）→ 复绿
+  （CONSENTFAIL 0）。
+- **targeted**：consent 双平台 + candidate_review / orchestration /
+  extraction / transport / qml_candidate_review 双平台 + manual_delete +
+  qml_manual_import 双平台 + qml_profile_editor + smoke / geometry / nav /
+  focus = **16/16 PASS**（orchestration exe 因 controller 头改动重建后通过）。
+- **pre-commit canonical fresh 树**
+  `build/acceptance/session-c3-r3c-release/`（含
+  `-DMODBUSLENS_PYTHON_EXECUTABLE=D:/Anaconda3/python.exe`，凭据缺席）：
+  configure RC0（"not registered" 消息缺席）/ build **451/451** / inventory
+  **67**（c1b_dependency_materializer #36 在位）/ full unfiltered
+  **67/67 PASS / exit 0 / 194.74s 一次通过**（agent_runtime #47 Passed
+  6.47s 无 flake；deployment #35 35.92s；c1b #36 27.47s；candidate_review
+  #31 1.59s；manual_delete #32 1.09s）。
+- **behavior 提交 = `c68d2bb`**（`M12: close consent dialog when extraction
+  starts`；4 files / +244 −9；parent `09646c2…`；NO AMEND；内无 docs；
+  `git diff HEAD -- src tests CMakeLists.txt` = 空）。
+
+### 96.6 post-commit canonical 候选（唯一推荐的 Human retest 入口）
+
+- 新树 `build/acceptance/session-c3-r3c-postcommit-release/`（同 canonical
+  configure）：configure/build RC0（451/451）/ `ctest -N` = **67**。
+- **candidate exe ≡ source exe**：6,553,611 B，SHA-256
+  **`66bef371a0ee556ee06165bd92dbdbe8f805d787377db4fe124fe2dd45957225`**。
+- 计数：manifest `files` = **1713 条**；root 实际文件含 manifest = **1714**；
+  目录 = **90**。qwindows `80473907…8ac`；pdfium `d42c452a…f14b`。
+- **deployment gate 独立复跑 Passed 27.39s**（净环境、候选树内 qwindows、
+  零 provider 请求）。
+
+### 96.7 状态与 Human retest checklist（仅准备，不执行）
+
+- **Consent Dialog auto-dismiss = IMPLEMENTED / AUTOMATED PASS / HUMAN
+  RETEST PENDING**；**C3 Edit = IMPLEMENTED / AUTOMATED PASS / HUMAN
+  ACCEPTANCE IN PROGRESS**；C3 overall = IN PROGRESS；ML-1 / ML-2 =
+  COMPLETE / HUMAN ACCEPTED；**verified LKGC = `9bb599a…` UNCHANGED**；
+  M12-D = NOT STARTED / NOT AUTHORIZED；canonical package = NOT CREATED；
+  tag = 仅 v1.0.0；push = 无；本节所在提交 docs-only 永不作 LKGC。
+- Human retest（使用 `session-c3-r3c-postcommit-release/candidate/ModbusLens/`
+  候选，**无需重做 ML-1/ML-2/67-test 工程验证**）：
+  1. 选择能产生 Candidate 的 Manual；
+  2. 点击 AI 提取候选；
+  3. Consent Dialog 出现；
+  4. 点击「同意并提取」；
+  5. **要求：Consent Dialog 立即消失**；
+  6. 页面可显示「正在提取…」；
+  7. 等待 Candidate；
+  8. **要求：Candidate 出现且 Consent Dialog 保持关闭**；
+  9. 从被中断处继续既有 C3 Edit Human acceptance（§16 的 16 步清单）。
+  Human 不执行 live inference 授权之外的动作；本 session 不做 live
+  ModelScope。
