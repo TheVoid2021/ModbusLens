@@ -296,6 +296,8 @@ private slots:
     void qa31_newControllerHasNoHistory();
     void qa32_noPersistenceArtifacts();
     void qa34_productionRunnerFailsClosedWithoutCredential();
+    void qa36_qaRequestDisablesThinking();
+    void qa37_roundSucceededExtractsTopLevelContent();
 
     // Parser / validator semantics
     void parser_validStates();
@@ -969,6 +971,73 @@ void ManualQaTest::qa34_productionRunnerFailsClosedWithoutCredential()
     QVERIFY(!started);
     QVERIFY(!completed);
     QCOMPARE(runner.beginCount(), 1);
+}
+
+// M12-D-R2B (RCA-confirmed thinking-mode defect): the Q&A provider request
+// MUST explicitly disable thinking for the strict structured-output task.
+// Proven against the real provider (safe structural diagnostics, T027
+// packet §11 allowlist): without the flag the thinking pass consumes
+// thousands of completion tokens and can starve/truncate the final JSON;
+// with chat_template_kwargs.enable_thinking=false the provider returns
+// reasoning-free content (completion tokens 4000-6000 -> 63-65).
+void ManualQaTest::qa36_qaRequestDisablesThinking()
+{
+    // The Q&A request body is built by a pure function, so the thinking-mode
+    // contract is asserted directly: the Q&A task MUST request non-thinking
+    // behavior (RCA-confirmed defect: the thinking pass consumes thousands of
+    // completion tokens and can starve/truncate the final JSON).
+    core::ManualQaRequest request;
+    request.question = "Who is the manufacturer?";
+    request.documentId = "doc-diag";
+    request.contentHash = "hash-diag";
+    core::ManualQaContextBlock block;
+    block.start = 0;
+    block.end = 5;
+    block.text = "Hello";
+    request.blocks.push_back(block);
+
+    const QJsonObject body = ModelScopeManualQaRunner::buildRequestBody(request);
+    const QJsonObject templateKwargs =
+        body.value(QStringLiteral("chat_template_kwargs")).toObject();
+    QVERIFY(!templateKwargs.isEmpty());
+    QCOMPARE(templateKwargs.value(QStringLiteral("enable_thinking")),
+             QJsonValue(false));
+    // Shared fields stay intact (diagnosis contract untouched).
+    QCOMPARE(body.value(QStringLiteral("max_tokens")), QJsonValue(768));
+    QCOMPARE(body.value(QStringLiteral("stream")), QJsonValue(false));
+    QVERIFY(body.value(QStringLiteral("messages")).isArray());
+    QCOMPARE(body.value(QStringLiteral("model")),
+             QJsonValue(QStringLiteral("Qwen/Qwen3.5-27B")));
+}
+
+// M12-D-R2B root-cause regression: ModelScopeAgentClient emits the assistant
+// MESSAGE object; the answer content lives at its TOP LEVEL. The pre-fix
+// runner re-applied choices[0].message extraction and always produced empty
+// content, so every live Q&A parse failed with qa_malformed_output.
+void ManualQaTest::qa37_roundSucceededExtractsTopLevelContent()
+{
+    QJsonObject assistantMessage;
+    assistantMessage.insert(
+        QStringLiteral("role"), QStringLiteral("assistant"));
+    assistantMessage.insert(
+        QStringLiteral("content"),
+        QStringLiteral("{\"status\":\"found\",\"answer\":\"ACME\","
+                       "\"citations\":[]}"));
+    // The message shape deliberately does NOT contain a nested "choices" or
+    // "message" key: re-applying choices[0].message extraction on it must
+    // yield empty content (the pre-fix behavior).
+    const QString content =
+        ModelScopeManualQaRunner::extractAssistantContent(assistantMessage);
+    QVERIFY(!content.isEmpty());
+    QVERIFY(content.startsWith(QStringLiteral("{\"status\"")));
+
+    // Defensive contract: reasoning_content never leaks into the answer.
+    QJsonObject withReasoning = assistantMessage;
+    withReasoning.insert(QStringLiteral("reasoning_content"),
+                         QStringLiteral("REASONING MUST NOT LEAK"));
+    const QString content2 =
+        ModelScopeManualQaRunner::extractAssistantContent(withReasoning);
+    QVERIFY(!content2.contains(QStringLiteral("REASONING")));
 }
 
 void ManualQaTest::parser_validStates()

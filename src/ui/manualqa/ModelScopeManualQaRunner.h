@@ -52,6 +52,22 @@ public:
 
     [[nodiscard]] int beginCount() const override;
 
+    // Pure request-body builder (M12-D-R2B): exposed for deterministic
+    // tests of the provider contract — the Q&A task requests NON-THINKING
+    // behavior (chat_template_kwargs.enable_thinking=false) because the
+    // thinking pass can starve/truncate the final structured JSON.
+    [[nodiscard]] static QJsonObject buildRequestBody(
+        const core::ManualQaRequest& request);
+
+    // Pure assistant-content extractor (M12-D-R2B root-cause fix):
+    // ModelScopeAgentClient emits the assistant MESSAGE object
+    // (choices[0].message), so the answer content lives at its TOP LEVEL.
+    // The pre-fix code re-applied choices[0].message extraction and always
+    // produced empty content (every live Q&A parse failed). Exposed for
+    // deterministic regression tests of that exact contract.
+    [[nodiscard]] static QString extractAssistantContent(
+        const QJsonObject& assistantMessage);
+
 private:
     void handleRoundSucceeded(std::uint64_t generation,
                               const QJsonObject& assistantMessage);

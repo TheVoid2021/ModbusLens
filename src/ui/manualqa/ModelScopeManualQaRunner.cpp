@@ -384,29 +384,21 @@ ModelScopeManualQaRunner::parseProviderResult(const std::string& json)
     return result;
 }
 
-bool ModelScopeManualQaRunner::begin(const core::ManualQaRequest& request,
-                                     std::uint64_t generation,
-                                     const CompletionHandler& onDone)
+QString ModelScopeManualQaRunner::extractAssistantContent(
+    const QJsonObject& assistantMessage)
 {
-    ++beginCount_;
-    pendingGeneration_ = generation;
-    pendingOnDone_ = onDone;
+    // ModelScopeAgentClient emits the assistant MESSAGE object
+    // (choices[0].message) - the content lives at its TOP LEVEL. The
+    // pre-fix code re-applied choices[0].message extraction here and always
+    // produced empty content, which made every live Q&A parse fail (the R2B
+    // Human defect). reasoning_content is a separate field and is never
+    // treated as answer content (T011 contract).
+    return assistantMessage.value(QStringLiteral("content")).toString();
+}
 
-    // Fail-closed credential boundary (D4): no ambient key -> zero network.
-    const QString apiKey = qEnvironmentVariable(kApiKeyEnv.toUtf8().constData());
-    if (apiKey.isEmpty()) {
-        return false;
-    }
-    const QString modelId =
-        qEnvironmentVariable(kModelOverrideEnv.toUtf8().constData());
-    const ModelScopeClientConfig config{
-        .endpoint = kOfficialEndpoint,
-        .apiKey = apiKey,
-        .modelId = modelId.isEmpty() ? kDefaultModel : modelId,
-        .timeout = std::chrono::seconds(kTimeoutSeconds),
-    };
-    client_.configure(config);
-
+QJsonObject ModelScopeManualQaRunner::buildRequestBody(
+    const core::ManualQaRequest& request)
+{
     // §16 prompt/trust boundary: manual text is UNTRUSTED source data and
     // must never override the task contract; answer only from supplied
     // evidence; never general knowledge; choose one of the three semantic
@@ -448,6 +440,50 @@ bool ModelScopeManualQaRunner::begin(const core::ManualQaRequest& request,
     user.insert(QStringLiteral("content"), userPrompt);
     messages.append(user);
 
+    QJsonObject body{
+        {QStringLiteral("model"), kDefaultModel},
+        {QStringLiteral("messages"), messages},
+        {QStringLiteral("tools"), QJsonArray{}},
+        {QStringLiteral("stream"), false},
+        {QStringLiteral("max_tokens"), 768},
+        // M12-D-R2B RCA fix: the thinking pass consumes thousands of
+        // completion tokens and can starve/truncate the final structured
+        // JSON (live-diagnosed: completion_tokens 4082-6060 with thinking
+        // vs 63-65 without). The Q&A task explicitly requests non-thinking
+        // behavior; the strict parser and citation validator are unchanged.
+        {QStringLiteral("chat_template_kwargs"),
+         QJsonObject{{QStringLiteral("enable_thinking"), false}}},
+    };
+    return body;
+}
+
+bool ModelScopeManualQaRunner::begin(const core::ManualQaRequest& request,
+                                     std::uint64_t generation,
+                                     const CompletionHandler& onDone)
+{
+    ++beginCount_;
+    pendingGeneration_ = generation;
+    pendingOnDone_ = onDone;
+
+    // Fail-closed credential boundary (D4): no ambient key -> zero network.
+    const QString apiKey = qEnvironmentVariable(kApiKeyEnv.toUtf8().constData());
+    if (apiKey.isEmpty()) {
+        return false;
+    }
+    const QString modelId =
+        qEnvironmentVariable(kModelOverrideEnv.toUtf8().constData());
+    const ModelScopeClientConfig config{
+        .endpoint = kOfficialEndpoint,
+        .apiKey = apiKey,
+        .modelId = modelId.isEmpty() ? kDefaultModel : modelId,
+        .timeout = std::chrono::seconds(kTimeoutSeconds),
+    };
+    client_.configure(config);
+
+    const QJsonObject body = buildRequestBody(request);
+    const QJsonArray messages =
+        body.value(QStringLiteral("messages")).toArray();
+
     client_.requestRound(generation, messages, QJsonArray{});
     return true;
 }
@@ -471,18 +507,7 @@ void ModelScopeManualQaRunner::handleRoundSucceeded(
     if (pendingOnDone_ == nullptr || generation != pendingGeneration_) {
         return; // stale/generation-mismatched round: drop
     }
-    // Extract the assistant content text (whole assistant message comes back
-    // from the shared client; reasoning_content is never treated as answer
-    // content per the T011 contract).
-    QString content;
-    const QJsonValue choices = assistantMessage.value(QStringLiteral("choices"));
-    if (choices.isArray() && choices.toArray().size() > 0) {
-        const QJsonObject message = choices.toArray().at(0)
-                                        .toObject()
-                                        .value(QStringLiteral("message"))
-                                        .toObject();
-        content = message.value(QStringLiteral("content")).toString();
-    }
+    const QString content = extractAssistantContent(assistantMessage);
     CompletionHandler onDone = std::move(pendingOnDone_);
     pendingOnDone_ = nullptr;
     onDone(IManualQaRunner::Completion{generation, true, std::string(),
@@ -498,9 +523,10 @@ void ModelScopeManualQaRunner::handleRoundFailed(
     }
     CompletionHandler onDone = std::move(pendingOnDone_);
     pendingOnDone_ = nullptr;
-    onDone(IManualQaRunner::Completion{generation, false,
-                                       "qa_provider_failure",
-                                       sanitized.toStdString()});
+    onDone(IManualQaRunner::Completion{
+        generation, false,
+        "qa_provider_failure:" + sanitized.toStdString(),
+        std::string()});
 }
 
 } // namespace modbuslens::ui
