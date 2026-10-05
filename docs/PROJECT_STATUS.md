@@ -1,6 +1,50 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-05 追加批注 · M12-C C3 — EDIT + CONSENT HUMAN ACCEPTANCE = PASS（Session C3-R3D · docs-only closure · 以本块为准）〕**
+档案 = **T027 §97**。Human 授权（逐字）：「授权：归档 M12-C C3 Edit 与
+Consent Dialog lifecycle Human acceptance PASS；仅 docs-only。将 C3 Edit 标记
+为 COMPLETE / HUMAN ACCEPTED，Consent Dialog auto-dismiss 标记为 IMPLEMENTED /
+AUTOMATED PASS / HUMAN PASS，并逐项归档本次：Cancel、edited-confirm、Discard、
+Save+restart 的 Human 结果；C3 overall 仅标记 READY FOR FINAL CLOSURE AUDIT，
+不直接推断 COMPLETE。不推进 LKGC，不开始 M12-D，不做 package/tag/push。」
+**验收对象边界**：Human 验收针对
+`buildcceptance\session-c3-r3c-postcommit-release\candidate\ModbusLensModbusLens.exe`（SHA-256
+`66bef371a0ee556ee06165bd92dbdbe8f805d787377db4fe124fe2dd45957225`，behavior
+提交 `c68d2bbb277096fd7fb9a76d99d7b588da6461f0`——候选行为树**同时包含** Edit
+`4a77673…` 与 Consent repair `c68d2bb…`）；docs 提交本身非被测行为、非 LKGC。
+**Human 权威观察（逐字，T027 §97.2）**：Consent = 「点'同意并提取'后，同意框
+马上消失；之后 Candidate 正常出现，同意框没有再回来。」；Edit Cancel =
+「编辑窗口四项信息正常，改值后点取消，Candidate 还在，厂商没变，也没有未保存
+修改。」；edited-confirm = 「确认后 Candidate 消失，厂商变成我输入的值，出现
+未保存修改，没有自动保存。」；Discard = 「放弃修改后厂商恢复旧值，未保存修改
+消失，Candidate 没有重新出现。」；Save+restart = 「重新 Edit 后保存，完全重启
+后人工修改的厂商值仍然存在，Candidate 没有重新出现。」→ 逐项 **HUMAN PASS**
+（Consent auto-dismiss / context visibility / Cancel zero-mutation / Candidate
+remains Pending / no dirty after Cancel / Human-authored value authority /
+Candidate consumption / draft-only / dirty / no auto-save / Discard restore /
+dirty clear / non-resurrection / explicit Save / restart persistence /
+session-only restart）。**Evidence boundary（不升级）**：stale evidence /
+document missing / contentHash mismatch / ambiguous excerpt / full-profile
+invalid / NX7 / NX8 / zero-network automation / schema key-set / 1000×700
+exact geometry / keyboard automation / all 67 tests = **保持 AUTOMATED PASS，
+不升级 HUMAN PASS**。**C3-H8 authority（冻结归档）**：Human-edited value =
+HUMAN-AUTHORED / HUMAN-CONFIRMED；AI proposal + Evidence = session context 且
+不自动证明编辑值；edited-confirm = 显式 Human authority 动作；success = 仅
+draft；persistence = 仅显式 Save；durable provenance = NONE / DEFERRED
+（C3-H7）；schema change = NONE；single Candidate；no batch（C3-H1）。
+**状态**：**C3 Edit = COMPLETE / HUMAN ACCEPTED**（IMPLEMENTED / AUTOMATED
+PASS / HUMAN PASS；authority = HUMAN-AUTHORED / HUMAN-CONFIRMED）；**Consent
+Dialog auto-dismiss = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS**；C3 first
+slice = COMPLETE / HUMAN ACCEPTED（不变）；**C3 overall = READY FOR FINAL
+CLOSURE AUDIT（不关闭——final closure 审计确认 C3-H1..H10 全满足、无 PENDING
+必需能力、deferred 项确属 deferred、无矛盾状态后方可推断 COMPLETE）**；
+M12-C overall = IN PROGRESS；Manual Library ML-1 / ML-2 = COMPLETE / HUMAN
+ACCEPTED；**verified LKGC = `9bb599a…` UNCHANGED**；**latest Human-tested
+behavior-bearing commit = `c68d2bbb277096fd7fb9a76d99d7b588da6461f0`**（任何
+LKGC 推进需独立授权）；M12-D = NOT STARTED / NOT AUTHORIZED；REAL MODBUS
+HARDWARE = NOT VERIFIED；canonical package = NOT CREATED；tag = 仅 v1.0.0；
+push = 无；本批注所在提交 docs-only 永不作 LKGC。
 **〔2026-10-04 追加批注 · M12-C C3 — CONSENT DIALOG LIFECYCLE REPAIR（Session C3-R3C · behavior `c68d2bb` · Human retest PENDING · 以本块为准）〕**
 档案 = **T027 §96**。Human 授权（逐字）：「授权：修复 C3 Human gate 中发现的
 Consent Dialog 生命周期缺陷：Human 点击'同意并提取'并成功进入提取流程后，

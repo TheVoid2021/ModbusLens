@@ -8692,3 +8692,122 @@ evidence freshness、ProfileController、ManualStore。
   9. 从被中断处继续既有 C3 Edit Human acceptance（§16 的 16 步清单）。
   Human 不执行 live inference 授权之外的动作；本 session 不做 live
   ModelScope。
+
+## 97. C3 EDIT + CONSENT HUMAN ACCEPTANCE ARCHIVE（SESSION C3-R3D · docs-only CLOSURE）
+
+> Human 授权（逐字）：「授权：归档 M12-C C3 Edit 与 Consent Dialog lifecycle
+> Human acceptance PASS；仅 docs-only。将 C3 Edit 标记为 COMPLETE / HUMAN
+> ACCEPTED，Consent Dialog auto-dismiss 标记为 IMPLEMENTED / AUTOMATED PASS /
+> HUMAN PASS，并逐项归档本次：Cancel、edited-confirm、Discard、Save+restart
+> 的 Human 结果；C3 overall 仅标记 READY FOR FINAL CLOSURE AUDIT，不直接推断
+> COMPLETE。不推进 LKGC，不开始 M12-D，不做 package/tag/push。」
+> 本节动作边界：纯 docs 归档——零 src/tests/CMake/QML/samples 改动、零
+> build/configure/CTest/candidate/deployment/app launch、零 live ModelScope、
+> 零凭据读取。
+
+### 97.1 验收对象边界（Human-tested artifact）
+
+Human acceptance 针对 **`buildcceptance\session-c3-r3c-postcommit-releasecandidate\ModbusLens\ModbusLens.exe`**（SHA-256
+`66bef371a0ee556ee06165bd92dbdbe8f805d787377db4fe124fe2dd45957225`，
+behavior 提交 `c68d2bbb277096fd7fb9a76d99d7b588da6461f0`）。该候选行为树
+**同时包含** C3 Edit（`4a77673da719d5626024f5e4c5d8c9e86e56f0fd`）与 Consent
+lifecycle repair（`c68d2bbb277096fd7fb9a76d99d7b588da6461f0`）两个行为变更。
+**不得声称** 本 docs 提交本身被 Human 测试（docs-only 提交非被测行为、非
+LKGC）。
+
+### 97.2 Human 权威观察（逐字归档 · 授权分类）
+
+**4.1 Consent lifecycle**：
+「点'同意并提取'后，同意框马上消失；之后 Candidate 正常出现，同意框没有
+再回来。」
+分类：Consent Dialog auto-dismiss = **HUMAN PASS**；Candidate-after-consent
+flow = **HUMAN PASS**；No dialog re-open after Candidate = **HUMAN PASS**。
+（不虚构毫秒级时序。）
+
+**4.2 Edit Cancel**：
+「编辑窗口四项信息正常，改值后点取消，Candidate 还在，厂商没变，也没有未
+保存修改。」
+分类：Edit dialog context visibility = **HUMAN PASS**；Edit Cancel =
+**HUMAN PASS**；Cancel zero Profile mutation = **HUMAN PASS**；Candidate
+remains Pending after Cancel = **HUMAN PASS**；No dirty state after Cancel =
+**HUMAN PASS**。
+
+**4.3 Edited-confirm**：
+「确认后 Candidate 消失，厂商变成我输入的值，出现未保存修改，没有自动
+保存。」
+分类：Human-authored value authority = **HUMAN PASS**；edited-confirm =
+**HUMAN PASS**；Candidate consumption = **HUMAN PASS**；draft-only mutation =
+**HUMAN PASS**；dirty state = **HUMAN PASS**；no auto-save = **HUMAN PASS**。
+
+**4.4 Discard**：
+「放弃修改后厂商恢复旧值，未保存修改消失，Candidate 没有重新出现。」
+分类：Discard after edited-confirm = **HUMAN PASS**；persisted baseline
+restoration = **HUMAN PASS**；dirty clear = **HUMAN PASS**；consumed
+Candidate non-resurrection = **HUMAN PASS**。
+
+**4.5 Explicit Save + restart**：
+「重新 Edit 后保存，完全重启后人工修改的厂商值仍然存在，Candidate 没有重新
+出现。」
+分类：explicit Save after Human Edit = **HUMAN PASS**；restart persistence =
+**HUMAN PASS**；Human-authored edited value persistence = **HUMAN PASS**；
+Candidate session-only semantics = **HUMAN PASS**。
+
+### 97.3 Evidence boundary（不升级不削弱）
+
+Human **直接验证**：normal live Consent flow；Consent auto-dismiss；
+Candidate generation；Edit dialog context presentation；Cancel behavior；
+Human value winning over original proposal；Candidate consumption；draft-only
+/ dirty behavior；no auto-save；Discard rollback；Candidate
+non-resurrection；explicit Save；restart persistence；Candidate
+session-only restart behavior。
+
+Human **未直接验证**（保持 **AUTOMATED PASS**，不升级为 HUMAN PASS）：stale
+evidence failure；document missing；contentHash mismatch；ambiguous excerpt；
+full-profile invalid negative case；NX7 mutation；NX8 mutation；Edit automation
+zero-network behavior；schema key-set invariant；1000×700 exact geometry
+measurements；keyboard automation；all 67 tests。
+
+### 97.4 C3-H8 Human authority classification（冻结语义归档）
+
+- Human-edited value = **HUMAN-AUTHORED / HUMAN-CONFIRMED**（非 AI-proposed）；
+- Original AI proposal + Evidence = session context；
+- Original Evidence = **不自动证明** Human-edited value；
+- edited-confirm = 一次显式 Human authority 动作；
+- success = 仅 Profile draft；persistence = 仅显式 Save；
+- Candidate = 按既有 Accepted 语义消费；
+- durable provenance = **NONE / DEFERRED**（C3-H7）；schema change = **NONE**；
+- single Candidate only；no batch（C3-H1）。
+
+### 97.5 最终分类（superseding §94/§95/§96 的 PENDING/IN PROGRESS 状态）
+
+- **C3 Edit = COMPLETE / HUMAN ACCEPTED**（实现 = IMPLEMENTED / AUTOMATED
+  PASS / HUMAN PASS；authority = HUMAN-AUTHORED / HUMAN-CONFIRMED）；
+- Edit Cancel = AUTOMATED PASS / HUMAN PASS；
+- edited-confirm = AUTOMATED PASS / HUMAN PASS；
+- Discard after Edit = AUTOMATED PASS / HUMAN PASS；
+- Explicit Save persistence = AUTOMATED PASS / HUMAN PASS；
+- Candidate session-only behavior = AUTOMATED PASS / HUMAN PASS；
+- **Consent Dialog auto-dismiss = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS**；
+- C3 first slice（Accept/Reject）= COMPLETE / HUMAN ACCEPTED（不升级不削弱）。
+
+### 97.6 C3 overall = READY FOR FINAL CLOSURE AUDIT（不关闭）
+
+C3 overall **不**标记 COMPLETE。设为 **READY FOR FINAL CLOSURE AUDIT**：
+Accept/Reject first slice、Edit、Consent repair 均已 Human accepted，但
+canonical closure 仍需一次只读审计确认：C3-H1..H10 全部满足；无必需 C3
+能力仍 PENDING；deferred 项确属 deferred / 不在 C3 完成范围；无过时
+canonical 状态与 closure 矛盾。该审计**不在本 session 执行**。
+
+### 97.7 LKGC 与里程碑状态
+
+- **verified LKGC = `9bb599a34c0f4bea9b3be791caab9a6bfc592407`（UNCHANGED）**
+  ——不自动推进到 `4a77673…` 或 `c68d2bb…`；任何 LKGC 推进需独立 Human
+  授权。
+- **事实记录**：latest Human-tested behavior-bearing commit =
+  **`c68d2bbb277096fd7fb9a76d99d7b588da6461f0`**（Human 验收候选同时包含
+  Edit 与 Consent lifecycle repair）。
+- Manual Library ML-1 = COMPLETE / HUMAN ACCEPTED；ML-2 = COMPLETE / HUMAN
+  ACCEPTED；**M12-C overall = IN PROGRESS**（至 C3 final closure audit
+  完成）；**M12-D = NOT STARTED / NOT AUTHORIZED**；REAL MODBUS HARDWARE =
+  NOT VERIFIED；canonical package = NOT CREATED；tag = 仅 v1.0.0；push =
+  无；本节所在提交 docs-only 永不作 LKGC。
