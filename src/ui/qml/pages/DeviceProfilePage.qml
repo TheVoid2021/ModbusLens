@@ -18,6 +18,9 @@ import ModbusLens
 Item {
     id: deviceProfileRoot
 
+    // M12-D first slice (T027 §100): the independent Manual Q&A owner.
+    property ManualQaController manualQaController
+
     // No clip: the 1000x700 reachability contract is measured on real scene
     // geometry (see --qml-profile-editor-check stage 11), never hidden by
     // clipping. The only intentional clip in this page is the catalog
@@ -102,6 +105,28 @@ Item {
             // INSIDE it - a page-level notice alone hides behind the modal.
             candidateEditDialog.editErrorText = result.text
         }
+    }
+
+    // ---- M12-D Q&A (T027 §100, D1-D5) ----
+    // The Q&A consent is SEPARATE from extraction consent and owned by
+    // ManualQaController. Cancel closes the dialog with zero dispatch; Agree
+    // grants the session consent and dispatches exactly once.
+    property string pendingQaQuestion: ""
+
+    function confirmManualQaConsent() {
+        manualQaController.grantConsent()
+        manualQaConsentDialog.close()
+        const question = pendingQaQuestion
+        pendingQaQuestion = ""
+        if (question !== "") {
+            manualQaController.ask(question)
+        }
+    }
+
+    function cancelManualQaConsent() {
+        // Zero dispatch; the entered question stays available for retry.
+        pendingQaQuestion = ""
+        manualQaConsentDialog.close()
     }
 
     // Three-way dirty resolution (Save / Discard / Cancel) before any action
@@ -1078,6 +1103,15 @@ Item {
                     }
                 }
             }
+            AppButton {
+                objectName: "manualQaOpenButton"
+                Accessible.name: qsTr("打开手册问答")
+                text: qsTr("手册问答")
+                Layout.fillWidth: true
+                enabled: manualQaController
+                         && manualQaController.hasSelectedManual
+                onClicked: manualQaCard.open()
+            }
             Label {
                 objectName: "candidateStateLabel"
                 Layout.fillWidth: true
@@ -1256,6 +1290,173 @@ Item {
             }
         }
     }
+    }
+
+    // ---- M12-D Manual Q&A surface (T027 §100, D1-D5) ----
+    // A non-modal right-side Drawer: minimal, read-only, no chat transcript,
+    // no Accept/Edit/Save for an answer. The selected Manual identity is
+    // always displayed so the question scope is unambiguous (D1).
+    Drawer {
+        id: manualQaCard
+        objectName: "manualQaCard"
+        edge: Qt.RightEdge
+        modal: false
+        closePolicy: Popup.NoAutoClose
+        width: 360
+        height: Overlay.overlay ? Overlay.overlay.height : 600
+
+        ColumnLayout {
+            width: parent.width
+            spacing: DS.spacingM
+
+            SectionHeader {
+                objectName: "manualQaHeader"
+                Layout.fillWidth: true
+                title: qsTr("手册问答（基于所选说明书证据）")
+            }
+            Label {
+                objectName: "manualQaSelectedManual"
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                font.pixelSize: DS.fontCaption
+                color: DS.textSecondary
+                text: manualQaController.hasSelectedManual
+                      ? qsTr("所选说明书: %1")
+                            .arg(manualQaController.selectedManualLabel)
+                      : qsTr("所选说明书: 未选择")
+            }
+            TextField {
+                id: manualQaQuestionInput
+                objectName: "manualQaQuestionInput"
+                Accessible.name: qsTr("手册问答输入")
+                Layout.fillWidth: true
+                placeholderText: qsTr("输入关于所选说明书的问题")
+                enabled: manualQaController.hasSelectedManual
+            }
+            AppButton {
+                objectName: "manualQaAskButton"
+                Accessible.name: qsTr("向手册提问")
+                text: qsTr("提问")
+                Layout.fillWidth: true
+                enabled: manualQaController.hasSelectedManual
+                         && manualQaQuestionInput.text.trim() !== ""
+                         && !manualQaController.busy
+                onClicked: {
+                    manualQaController.ask(manualQaQuestionInput.text)
+                    if (manualQaController.stateToken
+                        === "consent_required") {
+                        deviceProfileRoot.pendingQaQuestion =
+                            manualQaQuestionInput.text
+                        manualQaConsentDialog.open()
+                    }
+                }
+            }
+            Label {
+                objectName: "manualQaRunningLabel"
+                visible: manualQaController.busy
+                Layout.fillWidth: true
+                font.pixelSize: DS.fontCaption
+                color: DS.textSecondary
+                text: qsTr("正在基于所选说明书检索证据…")
+            }
+            Label {
+                objectName: "manualQaResultStatus"
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                font.pixelSize: DS.fontCaption
+                color: manualQaController.resultStatusToken === "error"
+                       ? DS.error : DS.textSecondary
+                text: manualQaController.resultStatusToken === "found"
+                      ? qsTr("已找到说明书依据")
+                      : manualQaController.resultStatusToken === "not_found"
+                        ? qsTr("未在所选说明书中找到相关证据")
+                        : manualQaController.resultStatusToken
+                          === "insufficient_evidence"
+                          ? qsTr("所选说明书中的证据不足以可靠回答")
+                          : manualQaController.resultStatusToken === "error"
+                            ? manualQaController.failureText
+                            : qsTr("尚未提问")
+            }
+            Label {
+                objectName: "manualQaAnswer"
+                visible: manualQaController.resultStatusToken === "found"
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                font.pixelSize: DS.fontBody
+                text: manualQaController.answerText
+            }
+            Label {
+                objectName: "manualQaCitationsHeader"
+                visible: manualQaController.citations.length > 0
+                Layout.fillWidth: true
+                font.pixelSize: DS.fontCaption
+                text: qsTr("说明书依据（来源/支撑上下文，不构成对回答绝对正确性的证明）:")
+            }
+            Repeater {
+                objectName: "manualQaCitations"
+                model: manualQaController.citations
+                delegate: ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Label {
+                        Layout.fillWidth: true
+                        font.pixelSize: DS.fontCaption
+                        color: DS.textSecondary
+                        text: qsTr("依据 %1（范围 [%2,%3)）")
+                                  .arg(index + 1)
+                                  .arg(modelData.textStart)
+                                  .arg(modelData.textEnd)
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        font.pixelSize: DS.fontCaption
+                        text: modelData.excerpt
+                    }
+                }
+            }
+        }
+    }
+
+    // Independent M12-D Q&A consent dialog (D4): modal, no auto-close,
+    // disclosure states that the question AND bounded selected-Manual
+    // excerpts/context are sent to cloud AI. Cancel = zero dispatch.
+    Dialog {
+        id: manualQaConsentDialog
+        objectName: "manualQaConsentDialog"
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        anchors.centerIn: parent
+        width: Math.min(480, Overlay.overlay ? Overlay.overlay.width
+                                             - 2 * DS.spacingXL : 440)
+        title: qsTr("云端 AI 手册问答需要你的同意")
+
+        ColumnLayout {
+            width: manualQaConsentDialog.availableWidth
+            spacing: DS.spacingM
+            Label {
+                objectName: "manualQaConsentScope"
+                Layout.fillWidth: true
+                Layout.maximumWidth: manualQaConsentDialog.availableWidth
+                wrapMode: Text.Wrap
+                text: manualQaController.consentScopeText
+                font.pixelSize: DS.fontBody
+            }
+        }
+        footer: DialogButtonBox {
+            AppButton {
+                objectName: "manualQaConsentCancelButton"
+                Accessible.name: qsTr("取消手册问答")
+                text: qsTr("取消")
+                onClicked: deviceProfileRoot.cancelManualQaConsent()
+            }
+            AppButton {
+                objectName: "manualQaConsentGrantButton"
+                Accessible.name: qsTr("同意并进行手册问答")
+                text: qsTr("同意并提问")
+                onClicked: deviceProfileRoot.confirmManualQaConsent()
+            }
+        }
     }
 
     // ---- Candidate edit dialog (M12-C C3-R3B, C3-H8) ----

@@ -34,6 +34,7 @@ add_library(modbuslens_core STATIC
     src/core/manual/ManualDocument.cpp
     src/core/candidate/CandidateExtraction.cpp
     src/core/candidate/ProviderExtractionContract.cpp
+    src/core/manualqa/ManualQaContract.cpp
     src/core/analysis/PassiveTransactionAnalysis.cpp
     src/core/analysis/TransactionProvenance.cpp
     src/core/analysis/TransactionStatistics.cpp
@@ -192,7 +193,9 @@ target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/u
 # M12-C C1a: same qmltyperegistrar requirement for the manual controllers.
 target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/manual")
 # M12-C C2 third slice: same requirement for the candidate orchestration owner.
-target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/candidate")
+target_include_directories(modbuslens PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/candidate"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/manualqa")
 if(WIN32)
     set(MODBUSLENS_ICO_PATH
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/brand/windows/ModbusLens.ico")
@@ -259,6 +262,11 @@ qt_add_qml_module(modbuslens
         src/ui/candidate/ModelScopeExtractionTransport.cpp
         src/ui/ai/ModelScopeCandidateAdapter.h
         src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/manualqa/IManualQaRunner.h
+        src/ui/manualqa/ManualQaController.h
+        src/ui/manualqa/ManualQaController.cpp
+        src/ui/manualqa/ModelScopeManualQaRunner.h
+        src/ui/manualqa/ModelScopeManualQaRunner.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -955,6 +963,68 @@ if(BUILD_TESTING)
              COMMAND modbuslens_candidate_review_tests)
 
     # ---------------------------------------------------------------------------
+    # M12-D first slice (T027 §100, D1-D5): Manual Q&A controller/parser/
+    # validator semantics against a fake runner and a temporary managed root.
+    # Zero network, zero credential, zero live provider; the isolation
+    # invariants (no Profile/Candidate/Manual mutation, session-only state)
+    # are asserted the same way the C3 review suite proves them.
+    add_executable(modbuslens_manual_qa_tests
+        tests/test_manual_qa.cpp
+        src/ui/ai/ModelScopeCandidateAdapter.h
+        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/agent/ModelScopeAgentClient.h
+        src/ui/agent/ModelScopeAgentClient.cpp
+        src/ui/ai/ModelScopeDiagnosisClient.h
+        src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/candidate/CandidateExtractionRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.h
+        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateExtractionController.h
+        src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/candidate/ModelScopeHttpClient.h
+        src/ui/candidate/ModelScopeHttpClient.cpp
+        src/ui/candidate/ModelScopeExtractionTransport.h
+        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/manualqa/IManualQaRunner.h
+        src/ui/manualqa/ManualQaController.h
+        src/ui/manualqa/ManualQaController.cpp
+        src/ui/manualqa/ModelScopeManualQaRunner.h
+        src/ui/manualqa/ModelScopeManualQaRunner.cpp
+        src/ui/manual/ManualStore.h
+        src/ui/manual/ManualStore.cpp
+        src/ui/manual/ManualImportController.h
+        src/ui/manual/ManualImportController.cpp
+        src/ui/manual/ManualTextExtraction.h
+        src/ui/manual/ManualTextExtraction.cpp
+        src/ui/manual/ManualPdfTextExtractor.h
+        src/ui/manual/ManualPdfTextExtractor.cpp
+        src/ui/manual/ManualDocxTextExtractor.h
+        src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_include_directories(modbuslens_manual_qa_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(modbuslens_manual_qa_tests PRIVATE
+        modbuslens_core Qt6::Core Qt6::Test Qt6::Network Qt6::Qml Qt6::Quick
+        modbuslens_pdfium modbuslens_libzip modbuslens_zlib)
+    add_custom_command(TARGET modbuslens_manual_qa_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MODBUSLENS_C1B_PDFIUM_DLL}"
+                "$<TARGET_FILE_DIR:modbuslens_manual_qa_tests>/pdfium.dll"
+        COMMENT "Staging the pinned pdfium.dll next to the M12-D Q&A tests")
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_manual_qa_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME manual_qa
+             COMMAND modbuslens_manual_qa_tests)
+
+    # ---------------------------------------------------------------------------
     # M12-C ML-2 (Manual Library maintenance, T027 §91): DELETE of one selected
     # Manual under the frozen P0-ML-A/B/C/D/F/G/H policies - guards, confirmation
     # semantics, authoritative metadata removal, shared-content protection and
@@ -1629,6 +1699,17 @@ if(BUILD_TESTING)
     # Requires an interactive Windows session (a desktop is present).
     add_test(NAME qml_manual_import_check_windows
         COMMAND modbuslens --qml-manual-import-check)
+
+    # M12-D first slice (T027 §100, D1-D5): the Manual Q&A runtime gate.
+    # Drives the REAL Q&A surface (question entry, the SEPARATE Q&A consent,
+    # answer/citation rendering, deterministic non-FOUND states, manual
+    # switch/delete invalidation) through a fake runner -- never a live
+    # provider. Offscreen + windows variants follow the established gate
+    # convention.
+    add_test(NAME qml_manual_qa_check
+             COMMAND modbuslens --qml-manual-qa-check)
+    add_test(NAME qml_manual_qa_check_windows
+             COMMAND modbuslens --qml-manual-qa-check)
 
     # M9-B4.3 scenario fixtures (repo-relative: copied into the build tree,
     # same mechanism as the demo_v1 test_data above -- no absolute paths).

@@ -160,6 +160,17 @@ ApplicationWindow {
         profileController: profileController
     }
 
+    // M12-D first slice (T027 §100, D1-D5): the independent Manual Q&A
+    // orchestration owner. Deliberately a SEPARATE controller: its consent is
+    // separate from extraction consent, its answers are INFORMATIONAL ONLY
+    // (zero Profile/Candidate/Manual mutation authority), and its session
+    // state is session-only (no history, no persistence).
+    ManualQaController {
+        id: manualQaController
+        objectName: "manualQaController"
+        manualController: manualController
+    }
+
     // ------------------------------------------------------------------
     // Application Shell (M9-B1): AppBar + compact NavigationRail +
     // WorkspaceHost (StackLayout) -> LegacyWorkspace.
@@ -368,6 +379,7 @@ ApplicationWindow {
                     profileController: profileController
                     manualController: manualController
                     candidateController: candidateController
+                    manualQaController: manualQaController
                     enabled: workspaceHost.currentIndex === workspaceDeviceIndex
                 }
             }
