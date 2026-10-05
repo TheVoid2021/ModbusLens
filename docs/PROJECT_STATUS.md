@@ -1,6 +1,45 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-05 追加批注 · M12-D V1 CONTRACT FREEZE D1–D5（Session M12-D-R1 · docs-only · Human 授权「D1～D5 全部同意，按你修正后的方案冻结。」）〕**
+档案 = **T027 §100**。**R0 HOLD provenance（M12-D-R0 只读审计，无 repo
+commit）**：无 M12-D production skeleton；architecture feasibility = YES；
+R0 HOLD 原因 = 产品语义未决（P0-D-A..H），非工程不可行——现由 Human
+D1–D5 裁定解除。**冻结语义**：**D1** question scope = selected single
+Manual（无选中拒绝 Ask；切换清空 context/answer/citations；无 multi-manual /
+whole-library / batch / RAG 聚合——future 非缺陷）；**D2** citation identity
+复用 manual evidence identity 形状（documentId/contentHash/pageNumber/
+textStart/textEnd/excerpt，不引入 Candidate-provenance 语义全集）；FOUND
+要求 ≥1 有效 citation；本地 deterministic 校验 = document 归属 + contentHash
+匹配 + range 合法 + range→excerpt 精确 round-trip；**修正**：不要求 global
+excerpt uniqueness（他处重复文本本身不使 citation 失效）；citation = 来源/
+支撑上下文，非数学证明；显示的 citations 必须全部有效。**D3** 用户可见态 =
+FOUND / NOT_FOUND / INSUFFICIENT_EVIDENCE + 独立技术态 ERROR（不得互相转换；
+FOUND 显示必须过本地 deterministic 校验，provider 声明不足）；**authority =
+INFORMATIONAL ONLY**（无权触 Candidate/Profile/Manual/Modbus/M10/M11；无
+Accept/Edit/Save 动作；C3-H10 原样不动）。**D4** provider = 复用 ModelScope
+基础设施（无第二凭据 store/新 provider UX）；**Q&A consent 与 extraction
+consent 分离**（session 级显式同意；披露 question + selected Manual
+excerpts 发送；不复用/不改 C3 Consent Dialog lifecycle；独立 consent
+surface）。**D5** session-only（不持久化 question/answer/citation/raw
+response/memory；零 schema change；restart 不恢复）；Running Q&A **不阻止**
+ML-2 Manual Delete（删除时失效 generation + best-effort cancel + 清空
+context/answer/citations + late response 必弃；ML-2 权威不变）。工程细节
+（独立 controller、fail-closed parser、single-flight、generation supersession、
+fake provider、citation validator、retrieval/chunking 选择、UI placement 等）
+降级为实现层，不再询问 Human。**FUTURE / OUT-OF-V1**：multi-manual /
+whole-library Q&A、whole-library RAG、conversation memory、durable history/
+provenance、cross-session history、new provider families、provider-selection
+UI、M12-D 对 Profile/Candidate mutation、OCR expansion、automatic device
+inference、M12-C reopening。**状态**：**M12-D CONTRACT = HUMAN-FROZEN**；
+**M12-D ARCHITECTURE FEASIBILITY = GO**；**M12-D IMPLEMENTATION = NOT
+STARTED / NOT YET AUTHORIZED**；**M12-D FIRST IMPLEMENTATION SLICE = READY
+FOR SEPARATE HUMAN AUTHORIZATION**（推荐首切片已归档 §100.8，非授权）。
+M12-C = COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN；verified LKGC =
+`c68d2bbb277096fd7fb9a76d99d7b588da6461f0` UNCHANGED；canonical package =
+NOT CREATED；REAL MODBUS HARDWARE = NOT VERIFIED；tag = 仅 v1.0.0；push =
+无；本批注所在提交 docs-only 永不作 LKGC。**NEXT = HUMAN / REVIEWER 对 R1
+合同归档的 review，THEN SEPARATE IMPLEMENTATION AUTHORIZATION。**
 **〔2026-10-05 追加批注 · M12-C — VERIFIED LKGC ADVANCE TO FINAL HUMAN-ACCEPTED M12-C BASELINE（Session C3-R3G · docs-only · 以本块为准）〕**
 档案 = **T027 §99**。Human 授权（逐字）：「授权：将已完成并 Human Accepted
 的 M12-C final behavior 作为新的 verified behavior baseline，并将 verified

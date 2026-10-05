@@ -8987,3 +8987,185 @@ M12-D；real Modbus hardware validation；canonical package/publication。
   MODBUS HARDWARE = NOT VERIFIED；canonical package = NOT CREATED；tag = 仅
   v1.0.0；push = 无；本节所在提交 docs-only 永不作 LKGC。**NEXT =
   SEPARATE HUMAN DECISION ON M12-D**。
+
+## 100. M12-D V1 HUMAN CONTRACT FREEZE D1–D5（SESSION M12-D-R1 · docs-only · HUMAN AUTHORIZED）
+
+> Human 授权原文（逐字）：「D1～D5 全部同意，按你修正后的方案冻结。」
+> 本节动作边界：纯 docs——零 src/tests/CMake/QML/samples 改动、零
+> build/CTest/candidate/deployment/app launch、零 ModelScope、零凭据读取。
+> 本授权不授权 M12-D implementation、LKGC advancement、package/tag/push。
+
+### 100.0 R0 HOLD provenance（保留原文，不重写）
+
+Session M12-D-R0（strict read-only，无 repo commit——不虚构）实测归档：
+无任何 M12-D production skeleton；**architecture feasibility = YES**；
+`ManualStore` canonical text path 存在；ModelScope HTTP / Agent 基础设施
+存在；M12-C Evidence helpers 机械可复用；`CandidateExtractionController`
+不得成为 Q&A owner；Diagnosis Agent Q&A（M10）**不是** M12-D；M12-C
+Candidate Evidence 语义**不自动**成为 M12-D citation 语义。R0 HOLD 的原因
+= 产品语义未决（P0-D-A..H），非工程不可行。本节由 Human D1–D5 裁定解除
+HOLD。
+
+### 100.1 D1 — Question / Manual scope（HUMAN-FROZEN）
+
+M12-D v1 question scope = **当前选中的单个 Manual**。
+1. 无选中 Manual ⇒ Ask 不可用/拒绝。
+2. 一次 Ask 属于一个 selected Manual identity/context。
+3. 切换 selected Manual ⇒ 清空当前 Q&A context、answer、citations。
+4. 无多 Manual 选择。
+5. 无 whole-library Q&A。
+6. 无 batch Manual Q&A。
+7. 无 whole-library RAG 聚合。
+多 Manual = **FUTURE / OUT OF CURRENT V1**（非缺陷）。
+
+### 100.2 D2 — Citation contract（HUMAN-FROZEN）
+
+FOUND 的 citation identity 复用既有 manual evidence identity **形状**：
+`documentId` / `contentHash` / `pageNumber` / `textStart` / `textEnd` /
+`excerpt`。**措辞冻结**：复用字段/identity 形状与适用的 deterministic
+mechanics；**不引入** M12-C Candidate-provenance 语义全集。
+- **FOUND 要求 ≥ 1 个有效 citation**（cardinality 只冻结下界；不发明
+  per-sentence / per-claim / global uniqueness 等更强要求）。
+- 本地 deterministic citation 校验要求：
+  (A) citation document identity 属于 selected Manual context；
+  (B) contentHash 与当前 managed Manual 内容匹配；
+  (C) range 合法；
+  (D) range → excerpt **精确 round-trip**。
+- **显式冻结（修正后的方案）**：**不要求** global excerpt uniqueness——
+  手册内他处存在重复文本**本身不**使 citation 失效（document/hash/range/
+  excerpt round-trip 精确即有效）。
+- Citation 语义含义 = 「该 Manual evidence 是该 answer 主张的来源/支撑
+  上下文」；**不**等于数学证明，**不**自动保证任意模型推理正确。
+- 若实现允许多 citations，则所有**显示的** citations 必须全部通过校验；
+  不得呈现无效 citation。
+
+### 100.3 D3 — Answer states + authority consequence（HUMAN-FROZEN）
+
+用户可见语义状态：**FOUND / NOT_FOUND / INSUFFICIENT_EVIDENCE**；独立技术
+状态：**ERROR**。
+- **FOUND** = 存在足够有效 Manual evidence 支持设备/手册事实性回答。要求
+  = 非空 answer + ≥1 个本地校验通过的 citation。
+- **NOT_FOUND** = 在 selected Manual 内的本次检索未找到相关证据。**不得**
+  表述为「该事实在 Manual 中任何位置都不存在」。无 general-knowledge 替代。
+- **INSUFFICIENT_EVIDENCE** = 找到相关 Manual 材料，但不足以可靠回答。
+  系统不得猜测。
+- **ERROR** = 网络/provider 失败、provider 输出 malformed、parser 失败、
+  未知 document citation、stale contentHash、invalid range、excerpt
+  mismatch、本地校验失败等。**ERROR 不得转换为 NOT_FOUND 或
+  INSUFFICIENT_EVIDENCE**。provider 可返回结构化语义 status，但**显示
+  FOUND 必须经过本地 deterministic 校验**（provider 声明本身不足）。
+
+**Authority consequence（INFORMATIONAL ONLY）**：M12-D answer **无权**：
+create/modify/Accept/Edit/Reject Candidate；modify DeviceProfile draft /
+Save DeviceProfile / modify ProfileStore；modify Manual metadata / delete
+Manual；dispatch Modbus transaction；write M10/M11 truth。M12-D v1 对
+answer **无 Accept / Edit / Save 动作**——Human 仅阅读 answer/citations。
+**不得建立第二条 Profile authority pipeline；M12-C C3-H10 原样不动。**
+
+### 100.4 D4 — Provider / Consent / Privacy（HUMAN-FROZEN）
+
+- Provider family = 复用既有 ModelScope 基础设施；**不**创建第二凭据
+  store、新 provider-selection UI、新 provider family、新 durable credential
+  机制。底层 ModelScope credential/model 配置可复用既有 accepted
+  mechanics；本授权**不**创建新 provider/model 配置 UX。
+- **Q&A consent 与 M12-C extraction consent 分离**：既有 extraction consent
+  **不**自动授予 Q&A consent。Q&A 需要当前应用 session 内、针对 M12-D Q&A
+  feature 的**显式 Human consent**。
+- Consent 披露必须以 Human 可读措辞声明：云端 AI 将接收 **Human 的
+  question** 与 **selected Manual 的必要 excerpts/context**。
+- **不修改、不复用**已 accepted 的 C3 Consent Dialog lifecycle 语义
+  （C3-R3C）；M12-D 拥有**独立** consent surface/state。
+
+### 100.5 D5 — Session / persistence + Manual delete interaction（HUMAN-FROZEN）
+
+**Session-only persistence**：不持久化 question history / answer history /
+citation history / raw provider response / conversation memory；不创建新
+Q&A schema、history database、audit store、migration、DeviceProfile 字段。
+Restart 后 Q&A history 不恢复。v1 不要求 durable M12-D provenance。
+
+**Manual delete interaction**：Running M12-D Q&A **不阻止**既有 ML-2
+Manual Delete 工作流（**不**复制 extraction 的 Pending/Running delete-block
+政策）。selected/referenced Manual 被成功删除时：
+1. 使该 Q&A request/generation 失效；
+2. best-effort cancel 在途 provider 工作；
+3. 清空 selected Q&A context；
+4. 清空已显示 answer；
+5. 清空已显示 citations；
+6. 不把 stale answer 保留为当前 truth；
+7. 属于被失效 generation 的 late response **必须丢弃**。
+ML-2 delete authority 与确认工作流原样不变；M12-D 不成为 Manual deletion
+owner。
+
+### 100.6 工程细节（降级为 implementation details，不再问 Human）
+
+在满足 D1–D5 前提下属于工程细节：独立 ManualQaController（或等效隔离
+Q&A orchestration surface）；strict structured provider output；fail-closed
+parser；single-flight；Idle/Running/Completed/Failed 内部状态模型；
+request generation / supersession token；late-response drop；best-effort
+cancel；deterministic fake provider；zero-network automation path；
+credential-absence 测试；本地 citation validator 实现；防御性资源/尺寸
+限制（不改变已批准产品语义）；QML geometry/focus/accessibility mechanics；
+selected Manual 内的 chunking/retrieval 实现选择；UI placement（只要
+selected Manual identity/context 无歧义）。**除非实现暴露真实的对外语义
+冲突，不再询问 Human。**
+
+**Output contract engineering boundary**：确切 JSON/provider 响应语法 =
+工程细节，但必须能表示 semantic status / answer / citations[] 并允许对
+D2/D3 的 deterministic 校验；strict / fail-closed——malformed 输出不得成为
+FOUND、invalid citation 不得成为 FOUND、provider 声明本身不足以授权 FOUND
+显示。除非 deterministic 实现所必需，不把任意 JSON key 名冻结为 Human
+产品政策。
+
+**Search / RAG boundary**：v1 不授权跨 manual retrieval、whole-library
+vector search、多 manual synthesis、conversation memory。selected Manual
+内的确定性 retrieval/chunking 策略 = 工程选择；embedding / reranker /
+search backend 选择 = 工程/依赖工作（除非实质改变隐私或对外可见语义）。
+
+### 100.7 M12-C 保护 + future/out-of-v1 边界
+
+M12-C = COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN。M12-D 不得修改
+Manual import 语义、Candidate extraction 语义、Candidate lifecycle、
+Accept/Edit/Reject、C3-H1..H10、ProfileController authority、ProfileStore
+persistence、Consent lifecycle repair、Manual Library ML-1/ML-2 行为；共享
+低层 utility 仅可在不引入错误语义合同的前提下复用。
+
+**FUTURE / OUT-OF-V1（不得分类为当前缺陷）**：multi-manual Q&A；
+whole-library Q&A；whole-library RAG；conversation memory；durable Q&A
+history；durable Q&A provenance/audit；cross-session history；new provider
+families；provider-selection UI；M12-D 对 Profile/Candidate 的 mutation；
+OCR expansion；automatic device inference；M12-C reopening。
+
+### 100.8 Entry gate after freeze + provisional first slice（RECOMMENDED / IMPLEMENTATION-READY · NOT AUTHORIZED）
+
+**M12-D CONTRACT = HUMAN-FROZEN**；**M12-D ARCHITECTURE FEASIBILITY = GO**；
+**M12-D IMPLEMENTATION = NOT STARTED**；**M12-D FIRST IMPLEMENTATION SLICE
+= READY FOR SEPARATE HUMAN AUTHORIZATION**（本 session 不实现）。
+
+推荐首切片（归档为推荐，非授权）：独立 Manual Q&A orchestration +
+selected single Manual + single question + independent Q&A consent +
+ModelScope request seam + strict structured answer + FOUND / NOT_FOUND /
+INSUFFICIENT_EVIDENCE / ERROR + local citation validation + session-only
+state + zero Profile/Candidate mutation + late-response invalidation +
+Manual Delete invalidation integration + deterministic fake-provider tests
++ minimal QML Human surface。Explicit non-goals：multi-manual；history
+persistence；schema change；Profile/Candidate mutation；M12-C 行为变更；
+OCR；M12-D package work。
+
+未来 test matrix（feasibility 推荐，非 canonical）：QA-01 selected manual
+required · QA-02 empty question rejected · QA-03 consent semantics ·
+QA-04 exactly one dispatch · QA-05 Running state · QA-06 valid structured
+answer · QA-07 citation round-trip · QA-08 wrong document rejected ·
+QA-09 contentHash mismatch rejected · QA-10 invalid range rejected ·
+QA-11 excerpt mismatch rejected · QA-12 malformed provider output ·
+QA-13 no Profile mutation · QA-14 no Candidate mutation · QA-15 no
+auto-save · QA-16 delete interaction · QA-17 stale/late response ·
+QA-18 restart/session semantics · QA-19 credential absence · QA-20
+zero-network fake path · QA-21 geometry · QA-22 keyboard/focus · QA-23
+M12-C regression。
+
+### 100.9 本节动作边界
+
+仅 docs：T027 §100 + PROJECT_STATUS + BACKLOG + devlog。零 src/tests/CMake/
+QML/samples 改动；零工程重跑；无 tag / 无 push / 无 amend。本节所在提交
+docs-only 永不作 LKGC。**NEXT = HUMAN / REVIEWER 对本合同归档的 review，
+THEN SEPARATE IMPLEMENTATION AUTHORIZATION。**
