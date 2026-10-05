@@ -1,6 +1,39 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-05 追加批注 · M12-D FIRST BEHAVIOR SLICE = IMPLEMENTED / AUTOMATED PASS（Session M12-D-R2 · behavior `80e4326` · Human acceptance PENDING · 以本块为准）〕**
+档案 = **T027 §101**。Human 授权（逐字）：「授权：启动 M12-D first behavior
+slice，严格按 T027 §100 已冻结的 D1～D5 实施 single-selected-Manual /
+single-question / session-only evidence-backed Q&A。……不得推进 LKGC，不得做
+package/tag/push。」**实现**（§100 D1–D5 逐条）：core/manualqa 契约（citation
+五元组 + D2 A–D 本地校验（无 global uniqueness）+ FOUND 全有效要求 +
+deterministic bounded 检索）· IManualQaRunner seam · ModelScopeManualQaRunner
+（复用 AgentClient 异步；凭据缺席 fail-closed；strict fail-closed parser）·
+ManualQaController（独立 owner；Q&A consent 与 extraction consent 分离；
+generation 单飞行；switch/delete 失效 + late drop；零文件 I/O）· QML Drawer +
+独立 consent dialog（披露 question + 摘录；不动 C3 consent lifecycle）。
+**验证链（凭据缺席、零 live provider）**：REAL RED（surface 反射 7 项 FAIL）→
+GREEN（manual_qa **36/36** + QML 门禁双平台 exit 0；修复 gate-caught 缺陷 ×2：
+Drawer 内容 id 缺失 + hasSelectedManual NOTIFY 缺失）→ **NX-QA-CITATION** RED
+恰好 qa10 → 逆向 → 复绿；**NX-QA-LATE** RED 恰好 qa24/25/28/30 → 逆向 → 复绿
+（residue 0）→ targeted **24/24** → pre-commit fresh 树
+`session-m12d-r2-release/`：configure RC0（python 变量生效）/ inventory
+**70 = 67+3 精确命中**（基线名全在）/ build **474/474** / full unfiltered
+**70/70 PASS / exit 0 / 275.35s**。**行为提交 = `80e4326…`**（12 files /
++3527 −1；parent `7f85485…`；NO AMEND；内无 docs；提交后 diff = 空）。
+**post-commit 树**：inventory 70 / full **70/70 / 232.33s**。**候选**（唯一
+推荐 Human 验收入口）：candidate exe ≡ source exe（**6,795,902 B，SHA-256
+`5324e0fbb699dd500d763dfc23e2d154478149b64f296abacdfb84abd41f7dae`**）；manifest
+1713 条 / root 含 manifest 1714 / 目录 90。**deployment gate 环境事件（如实
+归档）**：post-commit 树的 gate 被 candidate exe 的系统级文件锁阻塞（无任何
+进程/模块持有者可查，40+ 分钟不释放）；deployment 验证改在 pre-commit
+canonical 树 `session-m12d-r2-release/` 运行 **Passed 43.79s**（该树源码 ≡
+`80e4326` 提交内容）；锁释放后可在 post-commit 树补跑。**状态**：**M12-D
+first slice = IMPLEMENTED / AUTOMATED PASS；M12-D Human acceptance =
+PENDING；M12-D overall = IN PROGRESS**；M12-D contract = HUMAN-FROZEN
+（§100）；M12-C = COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN；
+verified LKGC = `c68d2bb…` UNCHANGED；canonical package = NOT CREATED；tag =
+仅 v1.0.0；push = 无；本批注所在提交 docs-only 永不作 LKGC。
 **〔2026-10-05 追加批注 · M12-D V1 CONTRACT FREEZE D1–D5（Session M12-D-R1 · docs-only · Human 授权「D1～D5 全部同意，按你修正后的方案冻结。」）〕**
 档案 = **T027 §100**。**R0 HOLD provenance（M12-D-R0 只读审计，无 repo
 commit）**：无 M12-D production skeleton；architecture feasibility = YES；

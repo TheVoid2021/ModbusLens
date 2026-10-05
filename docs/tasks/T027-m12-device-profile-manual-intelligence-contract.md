@@ -9169,3 +9169,137 @@ M12-C regression。
 QML/samples 改动；零工程重跑；无 tag / 无 push / 无 amend。本节所在提交
 docs-only 永不作 LKGC。**NEXT = HUMAN / REVIEWER 对本合同归档的 review，
 THEN SEPARATE IMPLEMENTATION AUTHORIZATION。**
+
+## 101. M12-D FIRST BEHAVIOR SLICE — SINGLE-MANUAL EVIDENCE-BACKED Q&A（SESSION M12-D-R2 · behavior `80e4326` · HUMAN RETEST PENDING）
+
+> Human 授权（逐字）：「授权：启动 M12-D first behavior slice，严格按 T027
+> §100 已冻结的 D1～D5 实施 single-selected-Manual / single-question /
+> session-only evidence-backed Q&A。……允许最小必要的
+> core/controller/provider/QML/test/CMake 修改，并执行：REAL RED→GREEN→至少
+> 一个 citation-validator negative control→至少一个 late-response/delete
+> negative control→targeted regression→canonical fresh Release full
+> regression→behavior commit→post-commit fresh ratification→candidate/
+> deployment→docs archive。不得实现：multi-manual、whole-library RAG、
+> history persistence、schema change、Profile/Candidate mutation、OCR、新
+> provider family；不得推进 LKGC，不得做 package/tag/push。」
+
+### 101.1 架构与实现（D1–D5 逐条落地）
+
+- **core/manualqa/ManualQaContract.{h,cpp}**（纯 C++20，零 Qt）：
+  `ManualQaStatus`（found/not_found/insufficient_evidence）、
+  `ManualQaCitation`（documentId/contentHash/pageNumber/textStart/textEnd/
+  excerpt 五元组形状）、`validateManualQaCitation`（D2 A–D：document 归属 +
+  contentHash 新鲜度 + range 合法 + 精确 round-trip；**无 global uniqueness**
+  ——§100.2 修正方案）、`validateManualQaFoundResult`（FOUND = 非空 answer +
+  ≥1 全部有效的 citation；任一 citation 失效 ⇒ 整体 ERROR，绝不降级为
+  INSUFFICIENT）、`buildManualQaContextBlocks`（deterministic bounded 检索：
+  行锚定 chunk + 问题 token overlap 排序，≤6 块——§100.6 工程细节）。
+- **ui/manualqa/IManualQaRunner.h**：Q-free runner seam（begin/cancel/
+  beginCount；completion 绑定 generation）——语义面不暴露任何 C2
+  extraction 类型。
+- **ui/manualqa/ModelScopeManualQaRunner.{h,cpp}**：生产 runner，复用既有
+  `ModelScopeAgentClient` 异步模型（单 timeout owner、同源重定向、TLS on、
+  generation 守卫、无 token 日志）；凭据缺席 = fail-closed begin false（零
+  网络）；strict fail-closed JSON reader（未知 status/malformed/缺字段/错
+  型 = 解析失败 ⇒ ERROR，绝不 coerce 成语义态）；raw payload 仅内存（D5）。
+  prompt 冻结信任边界（说明书文本 = 不可信源数据、仅依证据回答、三态输出、
+  strict JSON 形状）。
+- **ui/manualqa/ManualQaController.{h,cpp}**：**独立** Q&A orchestration
+  owner（不改 CandidateExtractionController / ProfileController）。D4：
+  Q&A consent = session 级独立 grant（不读不写 extraction consent）；D1：
+  观察既有 Manual selection（switch ⇒ 失效 + 清空）；D5：documentsChanged
+  观察 bound Manual 消失（成功删除 ⇒ 失效 + best-effort cancel + 清空
+  context/answer/citations，late response 必弃）；generation 单飞行；零
+  文件 I/O（static audit：0 QFile/QSaveFile；仅 ManualStore::loadText 只读）。
+- **QML（DeviceProfilePage/Main）**：candidateCard 内「手册问答」触发钮 +
+  非模态右侧 Drawer（manualQaCard：所选说明书标识/问题输入/提问/Running/
+  FOUND answer + citation 卡（"来源/支撑上下文，不构成绝对正确性证明"措辞）/
+  NOT_FOUND / INSUFFICIENT_EVIDENCE 本地文案 / ERROR）+ **独立**
+  manualQaConsentDialog（modal、NoAutoClose、披露 question + 摘录发送）。
+  无 chat transcript、无 Accept/Edit/Save answer 控件（gate 反射断言）。
+
+### 101.2 测试与验证链（凭据缺席、零 live provider）
+
+- **REAL RED**：`--qml-manual-qa-check` 的 surface 反射 stages 先于实现
+  运行——7 项 Q&A surface 断言全 FAIL（exit 1；compile-safe reflection，
+  runtime semantic RED）。
+- **GREEN 单元**：`manual_qa`（tests/test_manual_qa.cpp）**36/36**——
+  QA-01..QA-35 语义矩阵（本地拒绝/consent 分离与单次派发/citation 四门/
+  重复文本不失效/零 citations/空 answer/NOT_FOUND·INSUFFICIENT 不显示
+  provider 文本/malformed/provider failure/零 Profile·Candidate·Manual
+  mutation/switch·delete 失效与 late drop/cancel 计数/supersession/新
+  controller 无历史/无持久化 artifact/生产 runner 无凭据 fail-closed/
+  parser 变体/context blocks 确定性有界）。
+- **GREEN QML 门禁**：`--qml-manual-qa-check` **exit 0**（S1..S10：面板打
+  开/selected Manual 标识/首次 Ask 停在 Q&A consent/披露文案/Cancel 零
+  dispatch/Agree 恰一次 dispatch/FOUND answer+citation 渲染/三态本地文案/
+  switch 失效 + late drop/delete 清空 + late drop/无 mutation 控件/
+  1000×700 + 1280×937 containment）；windows 平台 exit 0 / FAIL 0。
+  期间发现并修复两个 gate-caught 缺陷：① Drawer 内容 id 缺失
+  （manualQaQuestionInput ReferenceError——补 id）；②
+  hasSelectedManual 的 NOTIFY 缺失（首次 import 后 QML enabled 绑定 stale
+  ——handleManualContextChanged 无条件 emit manualContextChanged）。
+- **MUTATION-NX-QA-CITATION**（`false &&` 屏蔽 contentHash 新鲜度门）：
+  REAL RED **恰好 qa10** → 精确逆向 → 36/36 复绿（residue 0）。
+- **MUTATION-NX-QA-LATE**（`false &&` 屏蔽 late-response generation drop）：
+  REAL RED **恰好 qa24/25/28/30** → 精确逆向 → 36/36 复绿（residue 0）。
+- **targeted regression**：manual_qa + qml_manual_qa_check(+windows) +
+  manual_import(+windows gate) + manual_delete + candidate×4 + C3 review
+  gates + consent gates + profile_controller/device_profile/editor gate +
+  agent_runtime/ai_client + smoke/geometry/nav/focus = **24/24 PASS**（期间
+  修复 Drawer 内容 id 缺失导致的 ReferenceError）。
+- **inventory ledger**（§22 HARD RULE）：BASELINE = 67
+  （session-c3-r3c-postcommit-release 实测）；NEW = 3（#32 manual_qa、
+  #69 qml_manual_qa_check、#70 qml_manual_qa_check_windows）⇒ EXPECTED 70；
+  fresh 树 configure 后实测 **ctest -N = 70** 且 67 基线名全在
+  （manual_delete #33、c1b_dependency_materializer #37 等）——configure 含
+  `-DMODBUSLENS_PYTHON_EXECUTABLE=D:/Anaconda3/python.exe`，"not registered"
+  消息缺席。
+- **pre-commit fresh 树 `session-m12d-r2-release/`**（凭据缺席）：configure
+  RC0 / build RC0 **474/474** / full unfiltered **70/70 PASS / exit 0 /
+  275.35s**（manual_qa #32 2.94s、deployment #36 44.21s、c1b #37 70.32s、
+  qml_manual_qa_check #69 3.63s、#70 windows 3.74s）。
+- **行为提交 = `80e43261597532dcc8d9f45b5372117c6e684674`**
+  （`M12: add evidence-backed single-manual Q&A`；12 files / +3527 −1；
+  parent `7f85485…`；NO AMEND；内无 docs；提交后
+  `git diff HEAD -- src tests CMakeLists.txt samples` = 空）。
+- **post-commit 树 `session-m12d-r2-postcommit-release/`**：configure RC0 /
+  `ctest -N` = **70** / build RC0 / full unfiltered **70/70 PASS / exit 0 /
+  232.33s**（manual_qa #32 2.21s、deployment #36 36.90s、c1b #37 37.57s、
+  qml_manual_qa #69/#70 3.86s/3.43s）。
+- **candidate**（post-commit 树，canonical generator FROM ZERO）：
+  candidate exe ≡ source exe（**6,795,902 B，SHA-256
+  `5324e0fbb699dd500d763dfc23e2d154478149b64f296abacdfb84abd41f7dae`**）；
+  manifest `files` = **1713 条** / root 实际文件含 manifest = **1714** /
+  目录 = **90**；qwindows `80473907…8ac`；pdfium `d42c452a…f14b`。
+- **deployment gate（环境事件如实归档）**：post-commit 树的 gate 因
+  **环境级文件锁**无法运行——generator 的 REMOVE_RECURSE 撞上
+  `candidate/ModbusLens/modbuslens.exe` 的系统级句柄锁（无任何进程/模块
+  持有者可查，Get-Process/Get-CimInstance/Modules 扫描均为空；等 40+ 分钟
+  不释放；MsMpEng 在位）。**deployment 验证改在 pre-commit canonical 树
+  `session-m12d-r2-release/` 运行：Passed 43.79s**（该树源码 ≡ `80e4326`
+  提交内容——`git diff HEAD -- src tests CMakeLists.txt samples` 在提交后
+  为空；锁释放后可在 post-commit 树补跑）。**无任何伪造/绕过**。
+
+### 101.3 状态与 Human 验收清单（仅准备，不执行）
+
+- **M12-D first behavior slice = IMPLEMENTED / AUTOMATED PASS**；
+  **M12-D Human acceptance = PENDING**；**M12-D overall = IN PROGRESS**；
+  M12-D contract = HUMAN-FROZEN（§100）；multi-manual / whole-library RAG /
+  history persistence / schema changes / Profile·Candidate mutation = NONE /
+  FUTURE（§100.7 边界原样）；M12-C = COMPLETE / HUMAN ACCEPTED / FINAL
+  BASELINE FROZEN；**verified LKGC = `c68d2bb…` UNCHANGED**；canonical
+  package = NOT CREATED；tag = 仅 v1.0.0；push = 无；本节所在提交 docs-only
+  永不作 LKGC。
+- **Human 验收候选（唯一推荐入口）** =
+  `build\acceptance\session-m12d-r2-postcommit-release\candidate\ModbusLens\
+  ModbusLens.exe`（SHA-256
+  `5324e0fbb699dd500d763dfc23e2d154478149b64f296abacdfb84abd41f7dae`）。
+  **短清单**：① 启动候选；② 导入/选中能产出答案的说明书；③ Q&A 面板
+  显示所选说明书；④ 输入说明书中有明确答案的问题；⑤ 首次提问弹出
+  **独立的 Q&A consent**（明确提到提问 + 摘录/上下文发送云端）；⑥ Cancel
+  一次：零回答/零请求；⑦ 再提问 + 同意；⑧ consent 关闭、Running 出现、
+  结果随后出现；⑨ FOUND 回答可见；⑩ ≥1 条 citation 可见且摘录与所选
+  说明书对应；⑪ 无 Candidate 产生；⑫ 无 Profile dirty/mutation；
+  ⑬ 切换说明书：旧回答/引用清空；⑭ 重启：无问答历史。（citation-hash
+  破坏与 late-response 竞态由自动化覆盖，无需 Human 复现。）
