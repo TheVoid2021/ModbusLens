@@ -1,6 +1,31 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-05 追加批注 · M12-C — VERIFIED LKGC ADVANCE TO FINAL HUMAN-ACCEPTED M12-C BASELINE（Session C3-R3G · docs-only · 以本块为准）〕**
+档案 = **T027 §99**。Human 授权（逐字）：「授权：将已完成并 Human Accepted
+的 M12-C final behavior 作为新的 verified behavior baseline，并将 verified
+LKGC 从 9bb599a34c0f4bea9b3be791caab9a6bfc592407 推进到
+c68d2bbb277096fd7fb9a76d99d7b588da6461f0。本授权仅推进 verified LKGC 并做
+docs/governance 归档；不授权 M12-D、package、tag 或 push。」**Git 合法性实测
+（写前）**：`c68d2bb…` type = commit · 是 HEAD 祖先（exit 0）·
+`c68d2bb~1..c68d2bb` = 4 files（src/main.cpp + CandidateExtractionController.{h,cpp} +
+DeviceProfilePage.qml，无 docs）⇒ **behavior-bearing（Consent lifecycle
+repair；祖先已含 first-slice core 61f641ef / standing Discard bb996a5 / C3
+Edit 4a77673）**；`c68d2bb..HEAD` = 3 后代（`c1ef03f`/`8bb1205`/`67474c7`）
+非 docs 路径 diff = 空 ⇒ 其后提交全部 docs-only 永不作 LKGC ⇒ `c68d2bb` =
+latest Human-tested behavior-bearing tree（Human 验收候选 `66bef371…` ≡ 同树
+source exe；验收链见 §97.2/§99.2）。**当前 verified LKGC =
+`c68d2bbb277096fd7fb9a76d99d7b588da6461f0`（HUMAN AUTHORIZED · VERIFIED
+BEHAVIOR BASELINE）**；前一 verified `9bb599a…` 转历史链一环（原文保留不删）。
+**状态**：**M12-C = COMPLETE / HUMAN ACCEPTED**（C1a/C1b/C2/C3 各自既有
+accepted 状态保持不变）；C3 = COMPLETE / HUMAN ACCEPTED；latest
+Human-tested behavior-bearing commit = c68d2bb；Deferred/future = batch、
+RegisterEntryCandidate、durable provenance、provenance schema changes、
+dedicated undo、OCR、M12-D、real hardware、canonical package（不得重新分类
+为缺陷）；**M12-D = NOT STARTED / NOT AUTHORIZED（本授权明确不授权）**；
+REAL MODBUS HARDWARE = NOT VERIFIED；canonical package = NOT CREATED · tag =
+仅 v1.0.0 · push = 无 · 本批注所在提交 docs-only 永不作 LKGC。**NEXT =
+SEPARATE HUMAN DECISION ON M12-D**。
 **〔2026-10-05 追加批注 · M12-C — C3 + M12-C OVERALL FINAL CLOSURE = COMPLETE / HUMAN ACCEPTED（Session C3-R3F · docs-only · 以本块为准）〕**
 档案 = **T027 §98**。Human 授权（逐字）：「授权：执行 M12-C C3 与 M12-C
 overall 的 docs-only final closure。依据 C3-R3E GO 结论，将 C3 overall 归档为

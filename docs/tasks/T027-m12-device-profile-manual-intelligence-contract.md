@@ -8922,3 +8922,68 @@ M12-D；real Modbus hardware validation；canonical package/publication。
   M12-D）；REAL MODBUS HARDWARE = NOT VERIFIED；canonical package =
   NOT CREATED；tag = 仅 v1.0.0；push = 无；本节所在提交 docs-only 永不作
   LKGC。
+
+## 99. VERIFIED LKGC ADVANCE TO FINAL HUMAN-ACCEPTED M12-C BASELINE（SESSION C3-R3G · docs-only · HUMAN AUTHORIZED）
+
+> Human 授权（逐字）：「授权：将已完成并 Human Accepted 的 M12-C final
+> behavior 作为新的 verified behavior baseline，并将 verified LKGC 从
+> 9bb599a34c0f4bea9b3be791caab9a6bfc592407 推进到
+> c68d2bbb277096fd7fb9a76d99d7b588da6461f0。本授权仅推进 verified LKGC 并做
+> docs/governance 归档；不授权 M12-D、package、tag 或 push。」本节动作边界：
+> 纯 docs/governance——零 src/tests/CMake/QML/samples 改动、零
+> build/configure/CTest/candidate/deployment/app launch、零 live ModelScope、
+> 零凭据读取。
+
+### 99.1 Git 合法性证明（写前实测，只读）
+
+- `git cat-file -t c68d2bbb277096fd7fb9a76d99d7b588da6461f0` = **commit**。
+- `git merge-base --is-ancestor c68d2bb… HEAD` = exit 0（**HEAD 祖先**）。
+- **behavior-bearing**（changed paths 实测，非 subject 推断）：
+  `c68d2bb~1..c68d2bb` = `src/main.cpp`、
+  `src/ui/candidate/CandidateExtractionController.{h,cpp}`、
+  `src/ui/qml/pages/DeviceProfilePage.qml` —— Consent Dialog lifecycle
+  repair；其祖先已含 C3 first-slice core（`61f641ef…`）、standing Discard
+  （`bb996a5…`）、C3 Edit（`4a77673…`）。
+- **post-target descendants 审计（本 session docs commit 之前）**：
+  `c68d2bb..HEAD` = 恰好 3 个后代（`c1ef03f…`、`8bb1205…`、`67474c7…`），
+  `git diff --name-status c68d2bb..HEAD` 全部为 docs 路径
+  （docs/BACKLOG.md、docs/PROJECT_STATUS.md、docs/devlog/2026-10-04.md、
+  docs/devlog/2026-10-05.md、docs/tasks/T027-…md）⇒ **无任何后续行为变更**。
+  （本 session 的 docs 提交之后将为第 4 个 docs-only 后代——时间口径以此
+  为准，不沿用 pre-commit 计数。）
+
+### 99.2 Human 验收 provenance（canonical evidence 引用，不重跑）
+
+- Human-tested candidate =
+  `buildcceptance\session-c3-r3c-postcommit-release\candidate\ModbusLens  ModbusLens.exe`（SHA-256
+  `66bef371a0ee556ee06165bd92dbdbe8f805d787377db4fe124fe2dd45957225`，≡ 同树
+  source exe），行为树 = `c68d2bbb277096fd7fb9a76d99d7b588da6461f0`。
+- Human acceptance（§97.2 逐字归档）：Consent auto-dismiss PASS；Edit Cancel
+  PASS；Human-edited value authority PASS；Candidate consumption PASS；
+  draft-only / no auto-save PASS；Discard rollback PASS；Candidate
+  non-resurrection PASS；explicit Save PASS；restart persistence PASS；
+  Candidate session-only restart behavior PASS。**docs 提交非被测行为。**
+- canonical 自动化证据（既有，不重跑）：C3 Edit RED/GREEN + NX7/NX8 +
+  targeted + canonical Release 67/67（§94/§95）；Consent RED/GREEN +
+  NX-CONSENT-CLOSE + targeted + canonical Release 67/67（§96）；post-commit
+  candidate provenance + deployment gate Passed（§96.6）；C3-R3E closure
+  audit = GO（§98.1 引）；C3-R3F M12-C = CLOSED / HUMAN ACCEPTED（§98）。
+
+### 99.3 LKGC 推进后的 canonical 状态
+
+- **verified LKGC = `c68d2bbb277096fd7fb9a76d99d7b588da6461f0`（HUMAN
+  AUTHORIZED · VERIFIED BEHAVIOR BASELINE）**；前一 verified
+  `9bb599a34c0f4bea9b3be791caab9a6bfc592407` 转历史链一环（原文保留不删）。
+- 选择依据 = c68d2bb 为 latest Human-tested behavior-bearing commit；其后
+  （含本 session）docs 提交**永不作 LKGC**。
+- **M12-C = COMPLETE / HUMAN ACCEPTED**（C1a/C1b/C2/C3 各自既有 accepted
+  状态保持不变，不重开、无新 acceptance claim）；C3 = COMPLETE / HUMAN
+  ACCEPTED；latest Human-tested behavior-bearing commit = c68d2bb。
+- Deferred / future（不得重新分类为缺陷）：batch review、
+  RegisterEntryCandidate、durable Candidate provenance / audit store、
+  provenance schema changes、dedicated Candidate undo、OCR、M12-D、real
+  Modbus hardware validation、canonical package/publication。
+- **M12-D = NOT STARTED / NOT AUTHORIZED**（LKGC 推进不授权 M12-D）；REAL
+  MODBUS HARDWARE = NOT VERIFIED；canonical package = NOT CREATED；tag = 仅
+  v1.0.0；push = 无；本节所在提交 docs-only 永不作 LKGC。**NEXT =
+  SEPARATE HUMAN DECISION ON M12-D**。
