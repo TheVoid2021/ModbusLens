@@ -8811,3 +8811,114 @@ canonical 状态与 closure 矛盾。该审计**不在本 session 执行**。
   完成）；**M12-D = NOT STARTED / NOT AUTHORIZED**；REAL MODBUS HARDWARE =
   NOT VERIFIED；canonical package = NOT CREATED；tag = 仅 v1.0.0；push =
   无；本节所在提交 docs-only 永不作 LKGC。
+
+## 98. M12-C C3 + M12-C OVERALL — DOCS-ONLY FINAL CLOSURE（SESSION C3-R3F · HUMAN AUTHORIZED）
+
+> Human 授权（逐字）：「授权：执行 M12-C C3 与 M12-C overall 的 docs-only
+> final closure。依据 C3-R3E GO 结论，将 C3 overall 归档为 COMPLETE / HUMAN
+> ACCEPTED，并将 M12-C overall 归档为 COMPLETE / HUMAN ACCEPTED；保持
+> C1a/C1b/C2/C3 各自既有 accepted evidence 与历史原文，不重写历史。最终
+> closure 中准确记录 C3 behavior lineage（first-slice 主体、standing Discard、
+> Edit、Consent repair 分立），并记录 latest Human-tested behavior-bearing
+> commit = c68d2bbb277096fd7fb9a76d99d7b588da6461f0。本授权仅 docs/governance
+> closure；verified LKGC 仍保持 9bb599a34c0f4bea9b3be791caab9a6bfc592407 不
+> 推进；不开始 M12-D，不做 package/tag/push。」本节动作边界：纯 docs——零
+> src/tests/CMake/QML/samples 改动、零 build/configure/CTest/candidate/
+> deployment/app launch、零 live ModelScope、零凭据读取。
+
+### 98.1 依据：C3-R3E 只读 closure audit = GO（2026-10-05，会话内判定）
+
+C3-R3E（strict read-only，无 docs 提交）实测结论：C3-H1..H10 全部 SATISFIED
+（H1、H7 = SATISFIED — HUMAN-APPROVED DEFERRED PART），0 BLOCKER；
+Accept/Edit/Reject 全链路可用；AI 无法直接写入 verified Profile（C3-H10
+唯一权威链 + MANUAL SAVE）；OCR = future capability 非阻塞。本 closure 前
+已重新实测其关键事实：§81.0 C3-H1..H10 合同原文在档；lineage 四 commit
+（98.2）type=commit 且均为 HEAD 祖先；§94–§97 档案在位。
+
+### 98.2 C3 behavior lineage（Git 实测 changed paths，非 subject 推断）
+
+| Commit | 角色 | 实测 changed paths |
+| --- | --- | --- |
+| `61f641ef2d9045cd90dd7598dcf78ab36b5af800` | **C3 first-slice core**：ProfileFieldCandidate review / Accept / Reject / evidence revalidation / ProfileController draft 集成 / Human review UI + tests（**非** standing Discard） | CMakeLists.txt、core/candidate/CandidateExtraction.{h,cpp}、main.cpp、CandidateExtractionController.{h,cpp}、ProfileController.{h,cpp}、Main.qml、DeviceProfilePage.qml、tests×2 |
+| `bb996a5bfc5416e3392c6fd709508e21aeab62c2` | **Standing Discard**（「放弃修改」常驻动作，走既有权威 discard 工作流） | main.cpp、DeviceProfilePage.qml |
+| `4a77673da719d5626024f5e4c5d8c9e86e56f0fd` | **C3 Edit**（Human-authored/confirmed 值、同 freshness gate、全量校验、draft-only、不 auto-save） | main.cpp、CandidateExtractionController.{h,cpp}、DeviceProfilePage.qml、tests×2 |
+| `c68d2bbb277096fd7fb9a76d99d7b588da6461f0` | **Consent lifecycle repair**（Agree 进入提取后立即关闭对话框；consent/dispatch/Candidate/Edit 语义不变） | main.cpp、CandidateExtractionController.{h,cpp}、DeviceProfilePage.qml |
+
+支持性非行为提交（不作为 behavior baseline，不作 LKGC）：`f5c1c906` =
+C3-R2A test-only strengthening（仅 tests/test_candidate_review.cpp）；及
+§94–§97 等 docs 归档提交。**latest Human-tested behavior-bearing commit =
+`c68d2bbb277096fd7fb9a76d99d7b588da6461f0`**（`c68d2bb..HEAD` 非 docs 路径
+diff = 空）；Human 验收候选 =
+`buildcceptance\session-c3-r3c-postcommit-release\candidate\ModbusLensModbusLens.exe`（SHA-256
+`66bef371a0ee556ee06165bd92dbdbe8f805d787377db4fe124fe2dd45957225`，≡ 同树
+source exe）。
+
+### 98.3 C3-H1..H10 closure matrix（依据 C3-R3E，不重复完整报告）
+
+| 项 | Closure status | 证据指针 |
+| --- | --- | --- |
+| C3-H1（单 Candidate 裁决） | SATISFIED — HUMAN-APPROVED DEFERRED PART（batch/RegisterEntryCandidate 明确排除出 v1，另行授权） | §81.0 H1；o18；first-slice acceptance |
+| C3-H2（Accept 语义） | SATISFIED | §81.0 H2；acceptCandidate + 三方对照；first-slice Human acceptance |
+| C3-H3（Evidence freshness gate） | SATISFIED | §81.0 H3；revalidateEvidence 四级 + core round-trip/uniqueness；edit_05/06/07 + NX7 + QML R4/E5 |
+| C3-H4（Profile conflict） | SATISFIED（RegisterEntryCandidate 并发语义须未来重新审计——合同原文） | §81.0 H4；hasOpenProfile 守卫；o14 |
+| C3-H5（Accepted lifecycle） | SATISFIED | §81.0 H5；consumeCandidate；o13/edit_10/§97 non-resurrection |
+| C3-H6（Rejected lifecycle） | SATISFIED | §81.0 H6；rejectCandidate 零 mutation；r3 系列 |
+| C3-H7（Durable provenance） | SATISFIED — HUMAN-APPROVED DEFERRED PART（v1 不持久化 = 冻结要求；DEFER 到未来独立 Human decision） | §81.0 H7；DeviceProfile schema 无 Candidate 字段；o18 persistence-shape 守卫 |
+| C3-H8（Edit authority） | SATISFIED（HUMAN-AUTHORED / HUMAN-CONFIRMED） | §81.0 H8；confirmEditedCandidate + 四向对话框；edit_00..12 + NX8 + §97 五组 HUMAN PASS |
+| C3-H9（Undo / re-review） | SATISFIED | §81.0 H9；无专用 undo；standing Discard；edit_10/11；§97 |
+| C3-H10（架构边界） | SATISFIED | §81.0 H10；applyCandidateField 白名单 + validateDeviceProfile + MANUAL SAVE 唯一持久化；o18 形状守卫 |
+
+**0 BLOCKER。** batch / RegisterEntryCandidate / durable provenance / 专用
+undo / OCR / M12-D / real hardware = 明确 deferred/future（98.6），非缺陷。
+
+### 98.4 C3 final status（canonical current truth）
+
+- **M12-C C3 = COMPLETE / HUMAN ACCEPTED**；C3 overall = COMPLETE / HUMAN
+  ACCEPTED。
+- C3 first slice = COMPLETE / HUMAN ACCEPTED；C3 Edit = COMPLETE / HUMAN
+  ACCEPTED（authority = HUMAN-AUTHORED / HUMAN-CONFIRMED）。
+- Accept = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS；Reject =
+  IMPLEMENTED / AUTOMATED PASS / HUMAN PASS；Standing Discard = IMPLEMENTED /
+  AUTOMATED PASS / HUMAN PASS；Consent Dialog auto-dismiss = IMPLEMENTED /
+  AUTOMATED PASS / HUMAN PASS；Explicit Save persistence = AUTOMATED PASS /
+  HUMAN PASS；Candidate session-only lifecycle = AUTOMATED PASS / HUMAN PASS。
+- 自动化-only 负向/故障路径（stale evidence / document missing /
+  contentHash mismatch / ambiguous excerpt / full-profile invalid / NX7 /
+  NX8 / zero-network automation / schema key-set / 1000×700 exact geometry /
+  keyboard automation / all 67 tests）**保持 AUTOMATED PASS，不升级**（§97.3
+  boundary 沿用）。
+
+### 98.5 M12-C exit condition closure（§17.2 原文映射，canonical truth 实读）
+
+| §17.2 M12-C exit 要素 | 满足证据 |
+| --- | --- |
+| 说明书导入 PDF/DOCX/TXT/MD 产生 Candidate 列表 | C1a（TXT/MD）= COMPLETE / HUMAN ACCEPTED（§79.5 时点 + 后续 §89–§93）；C1b（PDF/DOCX）= COMPLETE / HUMAN ACCEPTED |
+| 每项带 evidence/source/confirmation 契约 | C2 = COMPLETE / HUMAN ACCEPTED（§79.5；含 Candidate/Evidence foundation、ModelScope adapter + strict parser、production orchestration、consent = HUMAN PASS、transport/credential = HUMAN LIVE PASS） |
+| **Accept/Edit/Reject 全链路可用** | C3 = COMPLETE / HUMAN ACCEPTED（本节；98.3/98.4） |
+| AI 无法直接写入 verified Profile | C3-H10 唯一权威链：Human → review controller → ProfileController draft → validateDeviceProfile → explicit MANUAL SAVE → ProfileStore |
+| OCR = future capability | 非阻塞（canonical 原文，§15/§17.2） |
+
+**M12-C overall = COMPLETE / HUMAN ACCEPTED**——frozen M12-C scope（C1a +
+C1b + C2 + C3）完整满足 §17.2 exit。**边界保持**：这不表示未来 Manual
+intelligence 工作永久完成、OCR 已实现、RegisterEntryCandidate/batch/durable
+provenance 已存在、M12-D 已完成或 real hardware 已验证。
+
+### 98.6 Deferred / future boundary（不得重新分类为缺陷）
+
+batch review；RegisterEntryCandidate；durable provenance / Candidate audit
+store；provenance 所需 schema change；dedicated Candidate undo；OCR；
+M12-D；real Modbus hardware validation；canonical package/publication。
+
+### 98.7 LKGC 与里程碑边界
+
+- **verified LKGC = `9bb599a34c0f4bea9b3be791caab9a6bfc592407`（UNCHANGED，
+  不推进）**；latest Human-tested behavior-bearing commit =
+  `c68d2bbb277096fd7fb9a76d99d7b588da6461f0`。
+- **LKGC TARGET READINESS = READY FOR SEPARATE HUMAN AUTHORIZATION**（依据
+  C3-R3E：commit 存在、HEAD 祖先、behavior-bearing（changed paths 实测）、
+  其后提交全部 docs-only、Human 候选含该树、canonical 67/67 覆盖同一代码
+  谱系）。推进与否 = 独立 Human 决定。
+- **M12-D = NOT STARTED / NOT AUTHORIZED**（M12-C closure 不隐式授权
+  M12-D）；REAL MODBUS HARDWARE = NOT VERIFIED；canonical package =
+  NOT CREATED；tag = 仅 v1.0.0；push = 无；本节所在提交 docs-only 永不作
+  LKGC。

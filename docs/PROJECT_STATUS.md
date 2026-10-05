@@ -1,6 +1,44 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-05 追加批注 · M12-C — C3 + M12-C OVERALL FINAL CLOSURE = COMPLETE / HUMAN ACCEPTED（Session C3-R3F · docs-only · 以本块为准）〕**
+档案 = **T027 §98**。Human 授权（逐字）：「授权：执行 M12-C C3 与 M12-C
+overall 的 docs-only final closure。依据 C3-R3E GO 结论，将 C3 overall 归档为
+COMPLETE / HUMAN ACCEPTED，并将 M12-C overall 归档为 COMPLETE / HUMAN
+ACCEPTED；保持 C1a/C1b/C2/C3 各自既有 accepted evidence 与历史原文，不重写
+历史。最终 closure 中准确记录 C3 behavior lineage（first-slice 主体、standing
+Discard、Edit、Consent repair 分立），并记录 latest Human-tested
+behavior-bearing commit = c68d2bbb277096fd7fb9a76d99d7b588da6461f0。本授权仅
+docs/governance closure；verified LKGC 仍保持
+9bb599a34c0f4bea9b3be791caab9a6bfc592407 不推进；不开始 M12-D，不做
+package/tag/push。」**依据**：C3-R3E 只读 closure audit = **GO**（C3-H1..H10
+全部 SATISFIED，H1/H7 = SATISFIED — HUMAN-APPROVED DEFERRED PART，0
+BLOCKER；Accept/Edit/Reject 全链路可用；AI 无法直写 verified Profile；OCR =
+future 非阻塞）。**C3 behavior lineage（Git 实测 changed paths，分立不合并）**：
+first-slice core = `61f641ef…`；standing Discard = `bb996a5…`；C3 Edit =
+`4a77673…`；Consent lifecycle repair = `c68d2bb…`；支持性 test-only（非
+baseline）= `f5c1c906…`。**M12-C exit（§17.2）closure 映射**：导入四格式 =
+C1a/C1b accepted ✓；Candidate/Evidence/confirmation 契约 = C2 accepted ✓；
+**Accept/Edit/Reject 全链路 = C3 accepted ✓**；AI 直写 verified Profile =
+被唯一权威链排除 ✓；OCR = future 非阻塞 ✓。**状态**：**M12-C C3 = COMPLETE /
+HUMAN ACCEPTED**；**M12-C overall = COMPLETE / HUMAN ACCEPTED**（frozen
+scope = C1a + C1b + C2 + C3 完整满足 exit；不暗示 OCR/RegisterEntryCandidate/
+batch/durable provenance/M12-D/real hardware 已完成）；C3 first slice / C3
+Edit = COMPLETE / HUMAN ACCEPTED（authority = HUMAN-AUTHORED / HUMAN-
+CONFIRMED）；Accept / Reject / Standing Discard / Consent Dialog
+auto-dismiss = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS；Explicit Save
+persistence / Candidate session-only lifecycle = AUTOMATED PASS / HUMAN
+PASS；自动化-only 负向路径保持 AUTOMATED PASS 不升级（§97.3）。Deferred /
+future（不得重新分类为缺陷）= batch review、RegisterEntryCandidate、durable
+provenance / audit store、provenance schema change、dedicated undo、OCR、
+M12-D、real hardware、canonical package。**verified LKGC =
+`9bb599a34c0f4bea9b3be791caab9a6bfc592407`（UNCHANGED，不推进）**；latest
+Human-tested behavior-bearing commit = `c68d2bbb277096fd7fb9a76d99d7b588da6461f0`；
+**LKGC TARGET READINESS = READY FOR SEPARATE HUMAN AUTHORIZATION**（推进与否
+= 独立 Human 决定）；**M12-D = NOT STARTED / NOT AUTHORIZED**；REAL MODBUS
+HARDWARE = NOT VERIFIED；canonical package = NOT CREATED；tag = 仅 v1.0.0；
+push = 无；本批注所在提交 docs-only 永不作 LKGC。**NEXT = SEPARATE HUMAN
+DECISION: ADVANCE LKGC OR KEEP CURRENT BASELINE**。
 **〔2026-10-05 追加批注 · M12-C C3 — EDIT + CONSENT HUMAN ACCEPTANCE = PASS（Session C3-R3D · docs-only closure · 以本块为准）〕**
 档案 = **T027 §97**。Human 授权（逐字）：「授权：归档 M12-C C3 Edit 与
 Consent Dialog lifecycle Human acceptance PASS；仅 docs-only。将 C3 Edit 标记
