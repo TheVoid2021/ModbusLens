@@ -1,6 +1,40 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-05 追加批注 · M12-D — HUMAN-LIVE STRUCTURED OUTPUT DEFECT REPAIRED（Session M12-D-R2B · behavior `777f783` · Human re-test PENDING · 以本块为准）〕**
+档案 = **T027 §103**。Human 授权（逐字）：「授权：针对 M12-D Human live Q&A
+中出现的'云端返回的问答结果无法解析'执行窄范围 RCA。……若确认是 provider
+structured-output compatibility 缺陷，可做最小必要修复及针对性自动化验证、
+canonical regression、behavior commit、fresh candidate/deployment 与 docs
+addendum；不得改变 D1～D5 产品语义，不推进 LKGC，不开始第二
+slice/package/tag/push。」**RCA**：错误串唯一来源 = parseProviderResult 失败
+（排除 L1/L2/L5/L6）；安全 live 诊断 ×5（结构元数据 only）：thinking 默认
+开启消耗 4082–6060 completion tokens（content 本身两次采样均为合法 JSON 且
+schema 形状正确）——**双层根因**：① **提取层缺陷（主因）**：AgentClient 发
+射的 assistant MESSAGE 对象被再取 choices[0].message ⇒ content 恒空 ⇒ live
+parse 100% 失败；② **thinking 兼容性（次因）**：thinking 可挤占/截断 final
+JSON。**修复（最小面，strictness 零放松）**：纯函数
+extractAssistantContent（message 顶层 content；reasoning 不泄漏）+
+buildRequestBody（Q&A 请求显式 chat_template_kwargs.enable_thinking=false，
+provider 实测生效：completion 63–65；共享 diagnosis 契约字段原样）；parser/
+citation validator 零改动。**测试**：PRE-FIX RED ×2（变异重现 pre-fix：提取
+回退 ⇒ 恰好 qa37；kwargs 移除 ⇒ 恰好 qa36）→ 各精确逆向 → manual_qa
+**38/38**（qa36 请求体契约 + qa37 顶层 content 契约 + reasoning 不泄漏防御）
+→ targeted 11/11（含 agent_runtime/consent）→ pre-commit fresh 树
+`session-m12d-r2b-release/`（python 变量生效）：inventory **70** / build
+474/474 / full **70/70 / 215.51s**。**行为提交 = `777f783…`**（3 files /
++147 −36；parent `ff5f371…`；NO AMEND；内无 docs；提交后 diff = 空）。
+**post-commit 树**：inventory 70 / full **70/70 / 213.81s**。**R2B 候选
+（唯一推荐 Human re-test 入口）**：candidate exe ≡ source exe（**6,799,524 B，
+SHA-256 `e41caf8e8647a7578d049a8d5dfe45f61230f321d74892a8f7b47f5502d3aa46`**）；
+manifest 1713 条 / root 含 manifest 1714 / 目录 90；**EXACT deployment gate
+Passed 27.99s**。R2A 候选 `6563ea1b…` 转历史缺陷重现工件。**状态**：**M12-D
+Human-live structured-output defect = REPAIRED / AUTOMATED PASS；M12-D Human
+re-test = REQUIRED（复测 FOUND + citation）；M12-D Human acceptance = IN
+PROGRESS**（§102 部分 PASS 不升级）；M12-D overall = IN PROGRESS；M12-D
+contract = HUMAN-FROZEN；M12-C = COMPLETE / HUMAN ACCEPTED / FROZEN；
+verified LKGC = `c68d2bb…` UNCHANGED；M12-D second slice / package / tag /
+push = 未授权未发生；本批注所在提交 docs-only 永不作 LKGC。
 **〔2026-10-05 追加批注 · M12-D — EXACT HUMAN CANDIDATE DEPLOYMENT = PASS（Session M12-D-R2A · docs-only superseding · 以本块为准）〕**
 档案 = **T027 §102**。Human 授权（逐字）：「授权：执行 M12-D-R2A
 post-commit deployment provenance 补证。仅解决 M12-D-R2 留下的 exact

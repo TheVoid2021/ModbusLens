@@ -9385,3 +9385,111 @@ ModbusLens.exe`**，SHA-256
   M12-D（second slice）/ package / tag / push = 未授权未发生；本节所在
   提交 docs-only 永不作 LKGC。**NEXT = HUMAN M12-D Q&A ACCEPTANCE**
   （候选 = §102.3；清单 = §101.3）。
+
+## 103. M12-D HUMAN-LIVE STRUCTURED OUTPUT COMPATIBILITY RCA + REPAIR（SESSION M12-D-R2B · behavior `777f783` · HUMAN RE-TEST PENDING）
+
+> Human 授权（逐字）：「授权：针对 M12-D Human live Q&A 中出现的'云端返回的
+> 问答结果无法解析'执行窄范围 RCA。先只读定位失败发生在 HTTP/provider、JSON
+> syntax、structured result schema/parser，还是后续 citation validation；不得
+> 读取/打印 token、Authorization 或完整 raw provider response，不得为了通过
+> 而放宽 fail-closed parser/citation validation。若确认是 provider
+> structured-output compatibility 缺陷，可做最小必要修复及针对性自动化验证、
+> canonical regression、behavior commit、fresh candidate/deployment 与 docs
+> addendum；不得改变 D1～D5 产品语义，不推进 LKGC，不开始第二
+> slice/package/tag/push。」
+
+### 103.1 Human live defect（逐字保留）
+
+- 选中：`ModbusLens_Test_Manual_A_Clear.txt`；提问：「这台设备的厂商是
+  什么？」；UI 显示：「云端返回的问答结果无法解析。」
+- 已获 Human 部分确认：Q&A 入口/consent 路径「没问题的」（PARTIAL PASS，
+  不升级）；FOUND + citation = 未验收；M12-D Human acceptance = PENDING /
+  DEFECT OPEN。
+
+### 103.2 RCA（先只读，后受控 live 诊断）
+
+- **错误串唯一来源**：`ManualQaController::completeAttempt` 中
+  `parseProviderResult` 返回 nullopt ⇒ `qa_malformed_output` ⇒ 「云端返回的
+  问答结果无法解析。」——**排除断言**：L1/L2（provider/HTTP 失败走 `!ok`
+  分支，文案不同）；L5（citation 校验在其后，失败 token 为 `qa_citation_*`，
+  文案不同）；L6（映射正确）。失败层 = **L3（final content 非合法 JSON）**
+  及其下游 schema 细分。
+- **请求侧审计**（AgentClient 共享 body）：`{model, messages, tools:[],
+  stream:false, max_tokens:768}`——无 enable_thinking/response_format/
+  temperature；**max_tokens=768 为 T011 diagnosis 契约的共享硬编码**。
+- **响应提取审计**：AgentClient 发射 `choices[0].message` **整对象**；
+  reasoning_content 为独立字段（T011 契约，不混入 content）。
+- **安全 live 诊断 ×5**（packet §11 allowlist：仅结构元数据；合成手册
+  + 非敏感问题；不打印/不落盘任何内容/凭据/raw response）：
+  ①② thinking 开启（默认）：HTTP 2xx、reasoning_content = yes、
+  completion_tokens = **4082/6060**、content 212/286 B、首 token =
+  object-open、无 `<think>`/fence、JSON 合法、keys/形状正确（含
+  citations[0] 六字段全 str/int 正确类型）。
+  ③④⑤ `chat_template_kwargs:{enable_thinking:false}` 与顶层
+  `enable_thinking:false`：**均被 provider 接受并生效**——reasoning 消失、
+  completion_tokens 骤降 **63–65**、content 仍为合法 JSON。
+- **根因（两层，均在授权兼容性范围内）**：
+  1. **提取层缺陷（主因，L4'/提取）**：`handleRoundSucceeded` 对
+     AgentClient **已发射的 assistant MESSAGE 对象**再取
+     `choices[0].message.content` ⇒ **content 恒为空** ⇒ 每次 live Q&A 的
+     parse 必然失败——与 Human 100% 失败、自动化不失败（单元不走该层）
+     完全吻合。
+  2. **thinking 兼容性（次因，L3 加剧项）**：thinking 消耗 4082–6060
+     completion tokens，复杂真实手册问题上可挤占/截断 final JSON——
+     请求层显式禁用为 §14 首选路径。
+
+### 103.3 修复（最小面，strictness 零放松）
+
+- **提取修复**：新增纯函数
+  `ModelScopeManualQaRunner::extractAssistantContent(assistantMessage)`
+  （message **顶层** content；reasoning_content 永不进入 answer——T011）；
+  `handleRoundSucceeded` 改用之。
+- **请求修复**：新增纯函数 `buildRequestBody(request)`（请求体构造自
+  begin 抽出，供确定性测试）——Q&A 请求显式
+  `chat_template_kwargs:{enable_thinking:false}`（provider 实测支持生效）；
+  其余字段（model/messages/tools/stream:false/max_tokens:768）与 diagnosis
+  共享契约原样；AgentRuntime 等其他消费者零变化。
+- **不变式**：strict fail-closed parser、citation A–D 校验、ERROR 三态
+  分离、session-only、consent 分离、零 mutation 边界——全部原样（§103.2
+  诊断的 schema 形状本就正确，无 parser 放松理由）。
+- **无 raw response 日志/持久化**；live 诊断脚本位于 git-ignored `build/`
+  （临时、不提交）。
+
+### 103.4 测试与验证链（凭据缺席、零 live provider 于 CTest）
+
+- **PRE-FIX RED ×2（变异重现 pre-fix 状态，§18）**：
+  RED-1（提取回退变异）⇒ **恰好 qa37** FAIL（content empty）；
+  RED-2（kwargs 移除变异）⇒ **恰好 qa36** FAIL——均精确逆向、residue 0。
+- **GREEN**：`manual_qa` **38/38**（含新增 qa36 请求体契约、qa37 顶层
+  content 契约 + reasoning 不泄漏防御断言）；targeted（manual_qa +
+  agent_runtime/agent_integration/ai_client + manual_import/delete +
+  candidate_review + consent gate）**11/11 PASS**。
+- **pre-commit fresh 树 `session-m12d-r2b-release/`**（python 变量生效）：
+  configure RC0 / inventory **70** / build **474/474** / full unfiltered
+  **70/70 PASS / exit 0 / 215.51s**（manual_qa #32 2.15s、agent_runtime
+  #48 6.44s、deployment #36 47.21s、c1b #37 28.38s）。
+- **行为提交 = `777f783f8532c7481eb5bd615cacb0d26b60f4a2`**
+  （`M12: fix manual Q&A structured output compatibility`；3 files /
+  +147 −36；parent `ff5f371…`；NO AMEND；内无 docs；提交后
+  `git diff HEAD -- src tests CMakeLists.txt samples` = 空）。
+- **post-commit 树 `session-m12d-r2b-postcommit-release/`**：configure RC0 /
+  inventory **70** / build RC0 / full **70/70 PASS / exit 0 / 213.81s**。
+- **R2B candidate**（canonical generator FROM ZERO）：candidate exe ≡
+  source exe（**6,799,524 B，SHA-256
+  `e41caf8e8647a7578d049a8d5dfe45f61230f321d74892a8f7b47f5502d3aa46`**）；
+  manifest `files` = **1713 条** / root 实际文件含 manifest = **1714** /
+  目录 = **90**；qwindows `80473907…8ac`；pdfium `d42c452a…f14b`。
+- **EXACT deployment gate**：对该 exact candidate 运行 = **Passed
+  27.99s**（净环境、候选树内 qwindows、启动 exit 0、零 provider request）。
+
+### 103.5 状态与 Human re-test
+
+- **M12-D Human-live structured-output defect = REPAIRED / AUTOMATED
+  PASS**；**M12-D Human re-test = REQUIRED**（用 §103.4 R2B 候选复测
+  FOUND + citation）；**M12-D Human acceptance = IN PROGRESS**（§102 部分
+  PASS 的入口/consent 项不升级）；**M12-D overall = IN PROGRESS**；M12-D
+  contract = HUMAN-FROZEN（§100）；M12-C = COMPLETE / HUMAN ACCEPTED /
+  FROZEN；**verified LKGC = `c68d2bb…` UNCHANGED**；M12-D second slice /
+  package / tag / push = 未授权未发生；本节所在提交 docs-only 永不作 LKGC。
+- **R2A 候选 `6563ea1b…` 转历史缺陷重现工件**；**唯一推荐 Human 候选 =
+  R2B `e41caf8e…`**。
