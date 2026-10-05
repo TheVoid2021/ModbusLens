@@ -9303,3 +9303,85 @@ THEN SEPARATE IMPLEMENTATION AUTHORIZATION。**
   说明书对应；⑪ 无 Candidate 产生；⑫ 无 Profile dirty/mutation；
   ⑬ 切换说明书：旧回答/引用清空；⑭ 重启：无问答历史。（citation-hash
   破坏与 late-response 竞态由自动化覆盖，无需 Human 复现。）
+
+## 102. M12-D EXACT HUMAN CANDIDATE DEPLOYMENT RATIFICATION（SESSION M12-D-R2A · docs-only superseding addendum）
+
+> Human 授权（逐字）：「授权：执行 M12-D-R2A post-commit deployment
+> provenance 补证。仅解决 M12-D-R2 留下的 exact post-commit Human candidate
+> deployment gate 缺口；不得修改行为代码、测试、CMake、QML 或 M12-D 合同，
+> 不重做 RED/GREEN/NX，不推进 LKGC。……deployment 必须验证的就是最终推荐给
+> Human 的那个 exact candidate。通过后仅追加 docs-only superseding addendum
+> ……不重写 §101 历史。不得 package/tag/push。」
+
+### 102.1 前置证明与 PATH A 判定
+
+- **行为树等价硬门禁**：`80e4326…` type = commit、是 HEAD 祖先；
+  `git diff 80e4326..HEAD -- src tests CMakeLists.txt samples` = **空**；
+  唯一后代 = `2e2cfc1…`（docs-only）⇒ 当前 HEAD 行为/测试/CMake 树 ≡
+  `80e4326` 行为树。
+- **PATH A 判定（如实）**：重测既有 R2 post-commit candidate 时发现其
+  工件**不完整**——R2 会话的 deployment gate 尝试（REMOVE_RECURSE）已把
+  `candidate/ModbusLens/` 半删，仅剩被环境级文件锁持有的 `modbuslens.exe`
+  （SHA-256 仍为 `5324e0fb…`，但 manifest 与其余 1712 个文件已失）。
+  candidate exe 的锁在本 session 开始时**已自行释放**（约 1 小时后）。
+  按 packet §7「artifact identity changed ⇒ 不再称为旧 candidate」→
+  **PATH B**。
+
+### 102.2 PATH B — 新 canonical post-commit 树 + exact candidate
+
+- 新树 `build/acceptance/session-m12d-r2a-deployment-release/`（当前 HEAD
+  源码；configure 含 `-DMODBUSLENS_PYTHON_EXECUTABLE=D:/Anaconda3/python.exe`
+  与既有 canonical Release toolchain；凭据缺席；"not registered" 消息缺席）。
+- **inventory 硬门禁**：`ctest -N` = **Total Tests: 70**（= 67 + 3，与 R2
+  archive 精确一致），manual_qa #32 / qml_manual_qa_check #69 /
+  qml_manual_qa_check_windows #70 / manual_delete #33 / candidate_review #31 /
+  c1b_dependency_materializer #37 / deployment_startup_check #36 全部注册。
+- **build**：`ninja modbuslens` RC 0（**116/116** 步——仅 app 链路，按
+  §13 无需重跑 full 70/70；R2 post-commit 70/70 已覆盖同一行为树）。
+- **candidate FROM ZERO**（canonical generator；无手工 DLL/EXE 复制、无
+  ZIP）：**candidate exe ≡ source exe**（均 6,795,902 B，SHA-256
+  **`6563ea1b33d22ff4511c6bb480bc48e2d1f6c3ae852c8001d1f45244c4a5f629`**；
+  manifest exe entry 同值）。
+- 计数（精确措辞）：manifest `files` = **1713 条**；root 实际文件
+  **含 manifest = 1714**、**不含 manifest = 1713**；目录 = **90**；
+  qwindows `80473907…8ac`；pdfium `d42c452a…f14b`。
+- **EXACT deployment gate**：对该 exact candidate 运行
+  `deployment_startup_check`（凭据缺席净环境）= **Passed 34.42s**——
+  manifest/runtime closure、candidate 树内 qwindows 加载（QT_DEBUG_PLUGINS
+  证据）、`--qml-smoke-test` 启动 exit 0、零 provider request。
+
+### 102.3 FINAL HUMAN CANDIDATE（唯一推荐）
+
+**`build\acceptance\session-m12d-r2a-deployment-release\candidate\ModbusLens\
+ModbusLens.exe`**，SHA-256
+`6563ea1b33d22ff4511c6bb480bc48e2d1f6c3ae852c8001d1f45244c4a5f629`
+（6,795,902 B；behavior 树 = `80e4326…`）。旧 R2 候选
+`5324e0fb…` 转为**历史 R2 post-commit 工件**（其 exact deployment 因环境
+文件锁事件未证；工件已在锁事件中不完整）——不再推荐，不删除其历史记录。
+
+### 102.4 措辞澄清（不重写 §101）
+
+- **新文件计数**：R2 行为 diff 总计 = **12 files = 8 新文件
+  （core/manualqa ×2 + ui/manualqa ×5 + tests ×1）+ 4 修改文件
+  （CMakeLists.txt、main.cpp、Main.qml、DeviceProfilePage.qml）**——§101
+  报告中「7 新」为计数笔误；行为本身无任何差异主张。
+- **I/O 措辞**：准确的安全陈述 = 「Q&A 实现对 Q&A 状态/持久化执行
+  **零写 I/O**；仅执行经授权的**只读 I/O**（如 `ManualStore::loadText`
+  读取 canonical Manual 数据）」——不再使用歧义的「零文件 I/O」
+  （loadText 本身是文件读 I/O）。
+- **main.cpp 截断事件分类**：操作型编辑事故（失败补丁脚本截断），在
+  canonical validation **之前**通过 HEAD 基线 + 已知补丁序列精确重建；
+  **无语义残留**——fresh 70/70 与 post-commit 70/70 覆盖的均为最终提交
+  源码。不淡化事故本身。
+
+### 102.5 状态
+
+- **M12-D first behavior slice = IMPLEMENTED / AUTOMATED PASS**；
+  **M12-D EXACT HUMAN CANDIDATE DEPLOYMENT = PASS**；
+  **M12-D HUMAN GATE = READY**；**M12-D Human acceptance = PENDING**；
+  M12-D overall = IN PROGRESS；M12-D contract = HUMAN-FROZEN（§100）；
+  M12-C = COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN；
+  **verified LKGC = `c68d2bbb277096fd7fb9a76d99d7b588da6461f0` UNCHANGED**；
+  M12-D（second slice）/ package / tag / push = 未授权未发生；本节所在
+  提交 docs-only 永不作 LKGC。**NEXT = HUMAN M12-D Q&A ACCEPTANCE**
+  （候选 = §102.3；清单 = §101.3）。

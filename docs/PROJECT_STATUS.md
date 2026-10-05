@@ -1,6 +1,36 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-05 追加批注 · M12-D — EXACT HUMAN CANDIDATE DEPLOYMENT = PASS（Session M12-D-R2A · docs-only superseding · 以本块为准）〕**
+档案 = **T027 §102**。Human 授权（逐字）：「授权：执行 M12-D-R2A
+post-commit deployment provenance 补证。仅解决 M12-D-R2 留下的 exact
+post-commit Human candidate deployment gate 缺口；不得修改行为代码、测试、
+CMake、QML 或 M12-D 合同，不重做 RED/GREEN/NX，不推进 LKGC。……不得
+package/tag/push。」**行为树等价证明**：`80e4326…` 是 HEAD 祖先；
+`git diff 80e4326..HEAD -- src tests CMakeLists.txt samples` = 空；唯一后代
+`2e2cfc1…` docs-only。**PATH A（如实）**：既有 R2 候选工件已被 R2 的
+REMOVE_RECURSE 半删（仅剩锁定的 exe，manifest 丢失）→ 按 packet 转 PATH B；
+exe 的环境锁在本 session 已自行释放（约 1 小时后）。**PATH B**：新树
+`session-m12d-r2a-deployment-release/`（canonical configure 含 python 变量）
+→ inventory **70**（=67+3 精确，基线名全在）→ build `ninja modbuslens` RC0
+（116/116）→ candidate FROM ZERO：**candidate exe ≡ source exe**（6,795,902 B，
+SHA-256 `6563ea1b33d22ff4511c6bb480bc48e2d1f6c3ae852c8001d1f45244c4a5f629`）
+→ **EXACT deployment gate Passed 34.42s**（manifest/runtime closure +
+candidate 树内 qwindows + startup exit 0 + 零 provider request）。计数：
+manifest 1713 条 / root 含 manifest 1714、不含 1713 / 目录 90。**FINAL
+HUMAN CANDIDATE = `session-m12d-r2a-deployment-release/candidate/ModbusLens/
+ModbusLens.exe`（唯一推荐）**；旧 `5324e0fb…` 转历史 R2 工件（exact
+deployment 未证 + 工件不完整），不再推荐。**措辞澄清（§101 历史不改）**：
+R2 diff = 12 files = **8 新 + 4 改**（「7 新」为计数笔误）；安全陈述 =
+「**零写 I/O**（Q&A 状态/持久化）+ 仅授权**只读 I/O**（loadText）」；
+main.cpp 截断 = 操作型编辑事故、canonical validation 前精确重建、无语义
+残留（fresh + post-commit 70/70 均覆盖最终提交源码）。**状态**：M12-D first
+slice = IMPLEMENTED / AUTOMATED PASS；**EXACT HUMAN CANDIDATE DEPLOYMENT =
+PASS**；**M12-D HUMAN GATE = READY**；M12-D Human acceptance = PENDING；
+M12-D overall = IN PROGRESS；M12-C = COMPLETE / HUMAN ACCEPTED / FROZEN；
+verified LKGC = `c68d2bb…` UNCHANGED；M12-D second slice / package / tag /
+push = 未授权未发生；本批注所在提交 docs-only 永不作 LKGC。**NEXT = HUMAN
+M12-D Q&A ACCEPTANCE**（候选 = §102.3；清单 = §101.3）。
 **〔2026-10-05 追加批注 · M12-D FIRST BEHAVIOR SLICE = IMPLEMENTED / AUTOMATED PASS（Session M12-D-R2 · behavior `80e4326` · Human acceptance PENDING · 以本块为准）〕**
 档案 = **T027 §101**。Human 授权（逐字）：「授权：启动 M12-D first behavior
 slice，严格按 T027 §100 已冻结的 D1～D5 实施 single-selected-Manual /
