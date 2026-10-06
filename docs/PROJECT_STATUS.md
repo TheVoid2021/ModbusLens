@@ -1,6 +1,8 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-06 追加批注 · POST-M12-UX-R1 = COMPLETE / HUMAN ACCEPTED；MANUAL Q&A PANEL RETRACT / REOPEN = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS（Session POST-M12-UX-R1A · docs-only superseding note · 以本块为准）〕**
+档案 = **T027 §110**（supersede §109 的 "HUMAN UX RETEST = PENDING"，§109 其余内容原文保留）。**Human 实际观察（packet §4 逐字）**：「关闭按钮正常；设备页和诊断页都能收回并恢复完整区域；重新打开后状态还在；关闭不会取消问答；没有 Candidate、档案变化或未保存修改。」**Human PASS scope（仅此 8 项，不扩写）**：(1) close button works；(2) Device page retracts and recovers full area；(3) Diagnostics page retracts and recovers full area；(4) reopen preserves state；(5) close does not cancel Q&A；(6) no Candidate；(7) no DeviceProfile mutation；(8) no dirty / no「未保存修改」。**明确未声称**：timing 数值、像素数值、全页面覆盖、「关闭不会取消问答」之外的 Running 边界情形（迟到完成落库 / generation 不变等仍为 automated 证据，见 §109.6 UX-08/UX-09）。**Human-tested baseline 更新（不推进 LKGC）**：latest Human-tested behavior-bearing commit = **`dde40024632aa8f8ab0de6d8cb86ce28d811f944`**（supersede 旧 `8416fe7…`）；**verified LKGC = `c68d2bbb277096fd7fb9a76d99d7b588da6461f0` UNCHANGED（NO advance）**；Human acceptance ≠ verified LKGC，也非 package 授权。**M12 OVERALL = COMPLETE / HUMAN ACCEPTED（UNCHANGED；NOT REOPENED）**；canonical package = NOT CREATED；REAL HARDWARE = NOT VERIFIED；tag = v1.0.0 only；push = NONE。本节为 **docs-only**（永不作 LKGC）；零 src/tests/QML/CMake 改动；无 build/test/candidate。**NEXT = POST-M12-UX-R2（Manual Q&A result scrolling，单独授权范围内）。**
 **〔2026-10-06 追加批注 · POST-M12 HUMAN UX REPAIR — MANUAL Q&A PANEL RETRACT / REOPEN = IMPLEMENTED / AUTOMATED PASS（Session POST-M12-UX-R1 · 以本块为准）〕**
 档案 = **T027 §109**。触发 = Human 观测缺陷（packet §1 描述，非逐字引用）：
 Manual Q&A 右侧面板打开后无法收回；切换到诊断页后仍占据右侧。

@@ -10404,3 +10404,100 @@ NEXT = HUMAN PANEL RETRACT / REOPEN RETEST USING THE NEW CANDIDATE
 本节所在 docs-only 提交永不作 LKGC。未 package / tag / push / amend；
 未开始新 milestone / 新 behavior slice。**NEXT = HUMAN PANEL RETRACT /
 REOPEN RETEST USING THE NEW CANDIDATE**。
+
+## 110. POST-M12-UX-R1 HUMAN ACCEPTANCE ARCHIVE — MANUAL Q&A PANEL
+RETRACT / REOPEN（2026-10-06，docs-only superseding acceptance note）
+
+> 本轮为 **docs-only Human 验收归档**：未修改 src / tests / QML /
+> CMakeLists.txt，未 build / test / candidate，未推进 LKGC，未
+> package/tag/push/amend，未开始任何新 milestone 或新 behavior slice。
+> 本节 supersede（不覆盖）§109 中"Human UX RETEST = PENDING"的旧状态。
+
+### 110.1 Human 授权与原文
+
+本次 packet 记录的 Human 授权（PHASE 1）：先 docs-only 归档
+POST-M12-UX-R1 Manual Q&A panel retract/reopen 的 Human acceptance PASS。
+
+Human 实际观察（packet §4 逐字归档块）：
+
+```text
+关闭按钮正常；设备页和诊断页都能收回并恢复完整区域；
+重新打开后状态还在；关闭不会取消问答；
+没有 Candidate、档案变化或未保存修改。
+```
+
+Human 授权的验收条目（packet §0 逐字条目）：
+
+```text
+- 关闭按钮正常；
+- 设备页和诊断页均可收回并恢复完整区域；
+- 重新打开后状态保留；
+- 关闭不会取消问答；
+- 无 Candidate；
+- 无 DeviceProfile mutation；
+- 无未保存修改。
+```
+
+### 110.2 Human PASS scope（仅此 8 项，不做任何扩写）
+
+```text
+1. close button works（关闭按钮正常）
+2. Device page retracts and recovers full area（设备页可收回并恢复完整区域）
+3. Diagnostics page retracts and recovers full area（诊断页可收回并恢复完整区域）
+4. reopen preserves state（重新打开后状态保留）
+5. close does not cancel Q&A（关闭不会取消问答）
+6. no Candidate（无 Candidate）
+7. no DeviceProfile mutation（无 DeviceProfile 变化）
+8. no dirty / no "未保存修改"（无未保存修改）
+```
+
+**明确未声称**（Human 原文与条目均未提及，故不得写入归档）：
+具体 timing 数值；像素数值；"所有页面"覆盖；"关闭不会取消问答"之外的
+任何 Running 边界情形（例如迟到完成落库、generation 不变等——这些仍只是
+automated 证据，见 §109.6 UX-08/UX-09）。
+
+### 110.3 与 automated 证据的分层（不得互相替代）
+
+```text
+automated（§109，已执行）= QML gate UX-01..UX-12 PASS + fresh 70/70 +
+                            candidate + deployment gate
+Human（本节，已发生）      = 上述 8 项 Human PASS
+两者不得互相替代，也不得把任何 automated-only 路径改写为 Human PASS。
+```
+
+### 110.4 分类收口
+
+```text
+POST-M12-UX-R1 = COMPLETE / HUMAN ACCEPTED
+Manual Q&A retract / reopen = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+```
+
+§109 中的 `HUMAN UX RETEST = PENDING` 由本节 supersede 为
+**HUMAN PASS（范围见 110.2）**；§109 其余内容（审计、RED/GREEN、
+negative control、candidate/deployment 证据）原文保留，不修改。
+
+### 110.5 Human-tested baseline 更新（不推进 LKGC）
+
+```text
+latest Human-tested behavior-bearing commit =
+  dde40024632aa8f8ab0de6d8cb86ce28d811f944
+（supersede 旧的 8416fe7a26eaa8c79ab8186513b60af5954a18b9）
+verified LKGC = c68d2bbb277096fd7fb9a76d99d7b588da6461f0（UNCHANGED，NO advance）
+```
+
+口径：Human acceptance **不等于** verified LKGC；本次归档不构成 LKGC 推进，
+也不构成 package 授权。
+
+### 110.6 M12 overall
+
+```text
+M12 OVERALL = COMPLETE / HUMAN ACCEPTED（UNCHANGED；NOT REOPENED）
+M12-A = FOUNDATION ACCEPTED；M12-B = COMPLETE；
+M12-C = COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN；
+M12-D = COMPLETE / HUMAN ACCEPTED
+```
+
+### 110.7 action boundary
+
+本节所在提交为 **docs-only**（永不作 LKGC）；无 build / test / candidate /
+package / tag / push / amend / reset / rebase；无新 milestone。
