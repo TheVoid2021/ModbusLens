@@ -1,6 +1,42 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-06 追加批注 · M12-D — INTERMITTENT STRUCTURED-OUTPUT DEFECT: OBSERVABILITY HARDENED / ROOT CAUSE OPEN（Session M12-D-R2D · behavior `a0146b7` · Human gate HOLD · 以本块为准）〕**
+档案 = **T027 §104**。Human 授权（逐字）：「授权：执行 M12-D-R2D
+intermittent structured-output failure observability + RCA。新的 Human
+evidence 再次复现'云端返回的问答结果无法解析'，因此 R2C 的 transient-only
+推定被 supersede。首先不得修改 strict parser/citation validator 的接受
+范围；先把 parseProviderResult 的失败原因拆成安全、确定性的内部分类，并
+增加测试……随后用最多 2 次受控 live probe 复现并只记录……」**Human 重复
+证据**：R2B 候选上**第二次独立复现** parse 失败 ⇒ 间歇性生产缺陷成立；
+R2C transient 推定仅对那一次 runner !ok 事件有效（历史保留）。**Phase A
+观测性（接受集零变化，全 pre-R2D parser 测试不变通过）**：
+parseProviderResult 增加安全失败类别（qa_parse_empty_content /
+markdown_fence / think_envelope / json_syntax / top_level_not_object /
+missing_status / status_wrong_type / status_unknown / missing_answer /
+answer_wrong_type / missing_citations / citations_wrong_type /
+citation_not_object / citation_missing_required_field /
+citation_wrong_field_type——纯 token，零内容）；controller 将类别进
+lastErrorToken 并追加到 failureText（Human 复测截图即可报告精确失败类）；
+观测性测试 **qa38**（15+ 类别矩阵断言 + 成功类别为空 + prose 仍拒）+
+qa18 更新为新 token 契约。**live probe ×2（元数据 only）**：probe1 生产
+等价请求 = 200 / category ok / citation reached yes（未重现）；probe2
+`response_format=json_object` 能力探测 = provider **接受但不可靠**（顶层
+非 object，category=qa_parse_top_level_not_object）⇒ 不采用。fence/think/
+截断无本 session 证据 ⇒ 按 §18/§20/§21 不加。**根因 = OPEN**（间歇性；
+等待带类别的下一次复现后走确定性修复）。**状态**：M12-D first slice =
+IMPLEMENTED / AUTOMATED PASS；**M12-D STRUCTURED OUTPUT DEFECT = OPEN**；
+**OBSERVABILITY = IMPROVED**；**M12-D HUMAN GATE = HOLD**（下一次复现将
+自动携带精确类别 → Agent 据类别直接走确定性修复）；M12-D Human acceptance
+= IN PROGRESS；M12-D overall = IN PROGRESS；M12-C = COMPLETE / HUMAN
+ACCEPTED / FROZEN；**verified LKGC = `c68d2bb…` UNCHANGED**。本 session
+行为提交 = `a0146b7…`（4 files / +194 −21；parent `6618673…`；NO AMEND）；
+pre-commit 树 `session-m12d-r2d-release/` full 70/70 / 193.31s；post-commit
+树 70/70 / 199.22s；**R2D 候选（唯一推荐 Human 工件，含观测性）**：exe ≡
+source（6,802,378 B / SHA-256
+`cc839d36144724947da4f7578f7f91fac38c286088b3a6f96000d227c8a75ca6`）+
+EXACT deployment gate Passed 23.50s；package/tag/push 未发生；本批注所在
+提交 docs-only 永不作 LKGC。
 **〔2026-10-05 追加批注 · M12-D — HUMAN-LIVE STRUCTURED OUTPUT DEFECT REPAIRED（Session M12-D-R2B · behavior `777f783` · Human re-test PENDING · 以本块为准）〕**
 档案 = **T027 §103**。Human 授权（逐字）：「授权：针对 M12-D Human live Q&A
 中出现的'云端返回的问答结果无法解析'执行窄范围 RCA。……若确认是 provider

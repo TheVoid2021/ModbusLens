@@ -9493,3 +9493,86 @@ ModbusLens.exe`**，SHA-256
   package / tag / push = 未授权未发生；本节所在提交 docs-only 永不作 LKGC。
 - **R2A 候选 `6563ea1b…` 转历史缺陷重现工件**；**唯一推荐 Human 候选 =
   R2B `e41caf8e…`**。
+
+## 104. M12-D INTERMITTENT STRUCTURED-OUTPUT DEFECT — SAFE OBSERVABILITY + CAPABILITY AUDIT（SESSION M12-D-R2D · behavior `a0146b7` · ROOT CAUSE OPEN · HUMAN GATE HOLD）
+
+> Human 授权（逐字）：「授权：执行 M12-D-R2D intermittent structured-output
+> failure observability + RCA。新的 Human evidence 再次复现'云端返回的问答
+> 结果无法解析'，因此 R2C 的 transient-only 推定被 supersede。首先不得修改
+> strict parser/citation validator 的接受范围；先把 parseProviderResult 的
+> 失败原因拆成安全、确定性的内部分类，并增加测试……随后用最多 2 次受控
+> live probe 复现并只记录……若确认 provider 存在稳定或间歇性的结构化输出
+> 兼容问题，再判断实际 ModelScope endpoint/model 是否支持 provider-side
+> structured-output / JSON response mode……禁止任意 prose 中抽取 JSON，禁止
+> 放宽 citation validation，禁止改变 D1～D5。」
+
+### 104.1 Human 重复证据（权威）与 R2C 推定取代
+
+Human 在 **R2B 候选上独立复现**「云端返回的问答结果无法解析。」（第二次，
+与 R2 修复后的首次相互独立）⇒ **间歇性生产缺陷成立**；R2C 的
+transient-only 推定**仅对其那一次 runner !ok 事件有效**（该事件历史保留，
+§103），**不构成**对结构化输出缺陷的关闭。FOUND + citation 仍未验收；
+**M12-D Human gate = HOLD**（本节末状态）。
+
+### 104.2 Phase A — 安全观测性（接受集零变化）
+
+- `parseProviderResult(json, failureCategory*)` 增加安全失败类别（§7 最小
+  集，匹配实际 parser 契约）：`qa_parse_empty_content` /
+  `qa_parse_markdown_fence` / `qa_parse_think_envelope` /
+  `qa_parse_json_syntax` / `qa_parse_top_level_not_object` /
+  `qa_parse_missing_status` / `qa_parse_status_wrong_type` /
+  `qa_parse_status_unknown` / `qa_parse_missing_answer` /
+  `qa_parse_answer_wrong_type` / `qa_parse_missing_citations` /
+  `qa_parse_citations_wrong_type` / `qa_parse_citation_not_object` /
+  `qa_parse_citation_missing_required_field` /
+  `qa_parse_citation_wrong_field_type`。类别 = **纯 token**（零
+  question/answer/excerpt/reasoning/raw content）。citation freshness
+  校验仍在 parse 之后的独立层（不混入 parse 类别）。
+- **接受集等价证明**：全部 pre-R2D parser 测试（合法 + malformed 变体）
+  **不变通过**（manual_qa 38/38 → 39/39），无输入新通过、无合法输入新失败。
+- `ManualQaController`：`lastErrorToken` 携带类别 token；failureText 追加
+  「（类别: qa_parse_*）」——**content-free**，Human 复测截图即可报告精确
+  失败类；通用文案主干不变（§22）。
+- **观测性测试 qa38**：15+ 断言覆盖 envelope/schema/prose 全类别矩阵 +
+  成功时类别为空 + prose 环绕仍拒绝；qa18 更新为新 token 契约。
+
+### 104.3 live probe ×2（元数据 only）+ capability 审计
+
+- **probe 1（生产等价请求，R2B 请求体含 enable_thinking=false）**：HTTP
+  200 / reasoning absent / content 242 B / finish=stop / **safe category =
+  ok** / citations 1 / citation validator reached = yes——**未重现**。
+- **probe 2（response_format={"type":"json_object"} 能力探测）**：HTTP
+  **200**（provider 接受该参数）**但不可靠**——content 首非空白 token 非
+  object-open，safe category = **qa_parse_top_level_not_object**、completion
+  353——**response_format 不被采用为修复**（引入新失败类，违反 §16/§17 的
+  可靠性要求）。
+- **fence / `<think>` / 截断**：本 session 探针均未重现（categories 无样本）
+  ⇒ 按 §18/§20/§21 **不加** fence 归一化/`<think>` 容忍/max_tokens 调整
+  （无 finish_reason=length 证据）。
+- **§13 纪律**：两次探针成功 ≠ 无缺陷（Human 两次独立复现已成立）；间歇性
+  缺陷保持 OPEN，等待带类别的下一次复现。
+
+### 104.4 状态（§41 路径）
+
+- **M12-D STRUCTURED OUTPUT DEFECT = OPEN**（间歇性；根因未闭合到单一
+  可修点）；**OBSERVABILITY = IMPROVED**（安全类别体系 + qa38 + 类别直达
+  failureText/lastErrorToken）；**M12-D HUMAN GATE = HOLD**——但**下一次
+  Human 复现将自动携带精确类别**（failureText 内嵌），Agent 下一会话可据
+  类别直接走 §18 的确定性修复（fence ⇒ 归一化；think ⇒ 请求层强化；
+  json_syntax+length ⇒ max_tokens；schema ⇒ prompt/schema 对齐）。
+- 本 session 工程产出已走完整链：**行为提交 =
+  `a0146b777c682a785d27bdad324968cf6555e3de`**（observability hardening；
+  4 files / +194 −21；parent `6618673…`；NO AMEND；内无 docs）；
+  pre-commit fresh 树 `session-m12d-r2d-release/`：configure RC0（python
+  变量生效）/ inventory **70** / build **474/474** / full **70/70 PASS /
+  exit 0 / 193.31s**；post-commit 树 `session-m12d-r2d-postcommit-release/`：
+  inventory 70 / full **70/70 / 199.22s**；**R2D 候选（唯一推荐 Human 工件，
+  含观测性）**：candidate exe ≡ source exe（**6,802,378 B，SHA-256
+  `cc839d36144724947da4f7578f7f91fac38c286088b3a6f96000d227c8a75ca6`**）；
+  manifest 1713 条 / root 含 manifest 1714 / 目录 90；**EXACT deployment
+  gate Passed 23.50s**。
+- M12-D first slice = IMPLEMENTED / AUTOMATED PASS；M12-D Human acceptance
+  = IN PROGRESS；M12-D overall = IN PROGRESS；M12-C = COMPLETE / HUMAN
+  ACCEPTED / FROZEN；**verified LKGC = `c68d2bb…` UNCHANGED**；M12-D second
+  slice / package / tag / push = 未授权未发生；本节所在提交 docs-only 永不
+  作 LKGC。
