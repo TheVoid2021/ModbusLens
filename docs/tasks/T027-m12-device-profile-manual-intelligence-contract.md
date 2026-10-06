@@ -11062,3 +11062,90 @@ CMakeLists.txt / samples / QML / scripts / configs 改动；无 build / test /
 candidate / deployment / package / tag / push / amend / rebase / reset；
 未开始新 milestone / behavior slice。**NEXT = SEPARATE HUMAN DECISION ON
 ANY POST-M12 RELEASE / GOVERNANCE ACTION。**
+
+## 114. POST-M12-REL-R2 PHASE 1 — RELEASE CONTRACT FREEZE（R1–R3）
+（2026-10-07，docs / governance only，先于任何 tooling 改动）
+
+### 114.0 Human authorization（逐字，scope ceiling）
+
+本次 packet §0 记录的 Human 已冻结 release decisions：
+
+> **R1.** Canonical package source-of-truth = verified LKGC 对应的 canonical
+> candidate tree。Windows canonical packaging MUST consume candidate tree。
+> 不得：从 raw target output 直接打包；从独立 windeployqt deploy tree 重新
+> 构造发布根；通过放宽 AGENTS.md durable rule 来恢复旧双重真相。保留：
+> candidate tree = 唯一 deployable artifact root。允许：最小必要修改
+> scripts/make_package.py 或新增等价 canonical packaging path，使打包逻辑
+> 直接接受 candidate/ModbusLens 根作为输入。
+>
+> **R2.** M12 canonical package content contract 必须覆盖当前 M12 runtime。
+> 至少 pdfium.dll = REQUIRED RELEASE RUNTIME；并以 verified candidate
+> manifest / exact deployment 已经验证的 runtime set 为依据复核 Qt / QML /
+> platforms runtime 完备性。不得仅沿用 M9-E 旧 REQUIRED_FILES 列表；不得
+> 遗漏 M12 新增 runtime；不得无依据新增未被当前 runtime 需要的文件。
+>
+> **R3.** samples/ModbusLens_Test_Manual_* = repository-only /
+> acceptance-test-only，MUST NOT enter canonical release package。保持现有
+> samples/demo_v1.mlog 是否发布的既有 canonical policy，本授权不改写其他
+> 样本政策。
+
+授权允许：docs/governance 冻结；最小必要 packaging script/test 修改；
+deterministic RED→GREEN；candidate-input packaging tests；package contents /
+exclusion / secret / user-data checks；按需 canonical regression；tooling
+behavior commit；docs archive；重新执行一次 Post-M12 Release Readiness
+Audit。授权不允许：修改 M12 产品行为（Q&A / Profile / Candidate / Manual /
+Modbus 语义）；推进 verified LKGC；创建最终 canonical release package；打
+tag；push；publication；开始新 milestone。若发现新的 package naming/version、
+license/signing、hardware timing、release artifact policy canonical 冲突：
+HOLD，不得自行补全。
+
+### 114.1 冻结内容（本节即为 canonical contract 记录）
+
+```text
+R1  canonical packaging input =
+      verified-LKGC 对应的 canonical candidate tree
+      （<build-config>/candidate/ModbusLens，由
+       cmake/modbuslens_generate_candidate.cmake FROM ZERO 生成）
+    打包器必须把 candidate tree 当作 immutable package input：
+    校验 candidate-manifest.json → 复制 → 显式 release-only
+    inclusions/exclusions → package metadata/checksums → staging/ZIP。
+    禁止：invoke windeployqt / deploy_windows.bat 重建运行时真相；
+    静默修补缺失 runtime；从 build tree 拉取运行时文件；回退 raw output。
+    scripts/make_package.py 的旧 deploy-tree 入口自此转为
+    HISTORICAL LEGACY PROCEDURE（M9-E/M10/M11 时代有效记录不改写）。
+
+R2  pdfium.dll = REQUIRED RELEASE RUNTIME（M12 PDF/DOCX 手册导入能力）。
+    内容完备性以 verified candidate manifest / exact deployment 已验证的
+    runtime set 为准（exe / pdfium / platforms/qwindows.dll / qt.conf /
+    compiler runtime / Qt runtime+plugins / qml import closure），
+    不以 M9-E 旧 REQUIRED_FILES 为充分依据；
+    不无依据新增未被当前 runtime 需要的文件。
+
+R3  samples/ModbusLens_Test_Manual_* = repository-only /
+    acceptance-test-only，MUST NOT enter canonical release package
+    （staging/ZIP 均不得出现，打包器 fail-closed）。
+    samples/demo_v1.mlog 政策 = UNCHANGED（沿用既有 canonical 规则：
+    user-facing 样本随包发布）。
+```
+
+### 114.2 不变项（本冻结不改写）
+
+```text
+verified LKGC = 9c065f23a7f06beb73beedb680a3fe3b03e4c596（UNCHANGED）
+latest Human-tested behavior-bearing commit = 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+M12 OVERALL = COMPLETE / HUMAN ACCEPTED（UNCHANGED / NOT REOPENED）
+POST-M12-UX-R1 / UX-R2 = COMPLETE / HUMAN ACCEPTED
+canonical package = NOT CREATED
+version = 2.0.0（CMake 单源；package stem 派生，不发明新版本）
+tag = v1.0.0 only（v2.0.0 tag/publication 维持 NOT AUTHORIZED）
+push = NONE
+license 缺失 = 既有 accepted limitation；signing = LATER-GATE；
+real hardware = LATER-GATE / NON-BLOCKER FOR PACKAGING（均不扩大）
+```
+
+### 114.3 action boundary
+
+本节所在提交 = docs / governance only（永不作 LKGC）；零 src / tests /
+CMakeLists.txt / samples / QML 改动；无 build / test / candidate /
+package / tag / push。R1–R3 的 tooling 实施与 RED→GREEN 在后续工具提交中
+单独归档（§115）。
