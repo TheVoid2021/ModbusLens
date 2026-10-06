@@ -16982,7 +16982,7 @@ int runManualQaCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     {
     public:
         enum class Mode { Found, NotFound, Insufficient, Malformed, Failure,
-                          Deferred };
+                          Deferred, LongFound };
         void configure(Mode mode) { mode_ = mode; }
         void resetCounters()
         {
@@ -17020,6 +17020,8 @@ int runManualQaCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             std::string json;
             if (mode_ == Mode::Found) {
                 json = resultJson("found", request, excerpt, start, end);
+            } else if (mode_ == Mode::LongFound) {
+                json = longResultJson(request, excerpt, start, end);
             } else if (mode_ == Mode::NotFound) {
                 json =
                     "{\"status\":\"not_found\",\"answer\":\"general "
@@ -17077,6 +17079,30 @@ int runManualQaCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         int beginCount_{0};
         int cancelCount_{0};
         std::vector<DeferredEntry> deferred_;
+
+        // POST-M12-UX-R2 long-result fixture: same canonical six-field
+        // citation shape as resultJson (so local citation validation still
+        // passes against the REAL request block, UNTRUNCATED), plus a long
+        // deterministic answer that must overflow the result viewport. No
+        // network, no provider.
+        [[nodiscard]] static std::string longResultJson(
+            const modbuslens::core::ManualQaRequest& request,
+            const std::string& excerpt, std::int64_t start, std::int64_t end)
+        {
+            std::string answer;
+            for (int i = 1; i <= 30; ++i) {
+                answer += "第 " + std::to_string(i)
+                          + " 条依据说明：额定输入电压 380 V AC 三相，"
+                            "请以说明书原文为准。";
+            }
+            return "{\"status\":\"found\",\"answer\":\"" + answer
+                   + "\",\"citations\":[{\"documentId\":\""
+                   + request.documentId + "\",\"contentHash\":\""
+                   + request.contentHash + "\",\"pageNumber\":-1,"
+                   "\"textStart\":" + std::to_string(start)
+                   + ",\"textEnd\":" + std::to_string(end)
+                   + ",\"excerpt\":\"" + excerpt + "\"}]}";
+        }
     };
     auto qaFake = std::make_shared<GateQaRunner>();
     auto *qaController =
@@ -17663,6 +17689,57 @@ int runManualQaCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
     };
 
+    // POST-M12-UX-R2 helpers: every item with a given objectName (the
+    // citation Repeater delegates share one), the bottom citation sentinel,
+    // and scene-space rectangles for the visible-layout assertions.
+    const auto itemsNamed = [&roots](const QString &name) {
+        QList<QQuickItem *> hits;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            if (item->objectName() == name) {
+                hits << item;
+            }
+            for (QQuickItem *child : item->childItems()) {
+                walk(child);
+            }
+        };
+        for (QObject *root : roots) {
+            if (auto *w = qobject_cast<QQuickWindow *>(root)) {
+                walk(w->contentItem());
+            }
+        }
+        return hits;
+    };
+    const auto lastCitationItem = [&itemsNamed]() -> QQuickItem * {
+        const QList<QQuickItem *> hits =
+            itemsNamed(QStringLiteral("manualQaCitationItem"));
+        return hits.isEmpty() ? nullptr : hits.last();
+    };
+    const auto sceneRectOf = [](QQuickItem *item) {
+        const QPointF p = item->mapToScene(QPointF(0, 0));
+        return QRectF(p, QSizeF(item->width(), item->height()));
+    };
+    const auto fixedQaItemNames = []() {
+        return QList<QString>{QStringLiteral("manualQaHeader"),
+                              QStringLiteral("manualQaCloseButton"),
+                              QStringLiteral("manualQaSelectedManual"),
+                              QStringLiteral("manualQaQuestionInput"),
+                              QStringLiteral("manualQaAskButton")};
+    };
+    const auto fixedQaRects = [&itemOf, &sceneRectOf, &fixedQaItemNames]() {
+        QVariantMap m;
+        for (const QString &name : fixedQaItemNames()) {
+            if (auto *item = itemOf(name)) {
+                const QRectF r = sceneRectOf(item);
+                m.insert(name, QStringLiteral("%1,%2 %3x%4")
+                                   .arg(r.x())
+                                   .arg(r.y())
+                                   .arg(r.width())
+                                   .arg(r.height()));
+            }
+        }
+        return m;
+    };
+
     // UX-A — arm a REAL populated FOUND state while the panel is open, so
     // the close/reopen cycle acts on a real answer with a locally validated
     // citation (bound to a Manual imported through the real import path).
@@ -18091,6 +18168,610 @@ int runManualQaCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                          .arg(drift.join(QStringLiteral("; "))));
             }
         }
+    });
+
+    // =====================================================================
+    // POST-M12-UX-R2 — Manual Q&A long-result bounded vertical scrolling
+    // (narrow display/layout repair). Contract: header / close / selected
+    // Manual / question input / Ask stay FIXED and visible; ONLY the result
+    // region (status / answer / citation context / long evidence) gets a
+    // bounded vertical scrolling surface (vertical AsNeeded, horizontal
+    // off); short results display normally; scrolling is purely visual (no
+    // ask / cancel / generation / result / question / Manual / consent /
+    // provider / parser / citation / Candidate / DeviceProfile / dirty /
+    // storage / Modbus change); UX-R1 close/reopen and Running semantics are
+    // unchanged. Source truth before the repair (read-only audit): the
+    // Drawer content is a single ColumnLayout with NO Flickable / ScrollView
+    // / ScrollBar / clip anywhere, so the result region and the fixed
+    // controls share one unconstrained vertical flow and the overflowing
+    // bottom of a long answer/citation is simply cut off by the Drawer.
+    // =====================================================================
+    auto scrollBefore = std::make_shared<QVariantMap>();
+    auto scrollUiBefore = std::make_shared<QVariantMap>();
+    auto scrollFixedBefore = std::make_shared<QVariantMap>();
+
+    // SCROLL-A (SCROLL-01, §18) — deterministic long fixture: a long Manual
+    // through the REAL import path plus a LongFound answer (30 display
+    // lines) whose citation is the real request block, untruncated, so local
+    // citation validation still passes. Zero network.
+    push([&]() {
+        if (!uxPanelOpen()) {
+            fail(QStringLiteral("SCROLL-01: the Q&A panel is not open"));
+            return;
+        }
+        setCitationMode(GateQaRunner::Mode::LongFound);
+        const QString longPath = QDir(managedRoot.path())
+                                     .filePath(QStringLiteral(
+                                         "sources/qa-long.txt"));
+        {
+            QFile longSeed(longPath);
+            if (!longSeed.open(QIODevice::WriteOnly)) {
+                fail(QStringLiteral("SCROLL-A: the long fixture seed write "
+                                    "failed"));
+                return;
+            }
+            QString body = QStringLiteral("Device: QA-2000 Inverter\n");
+            for (int i = 1; i <= 40; ++i) {
+                body += QStringLiteral("  Clause %1: the rated input voltage "
+                                       "is 380 V AC three-phase; refer to the "
+                                       "manual text for the exact limit "
+                                       "values and the installation "
+                                       "notes.\n")
+                            .arg(i);
+            }
+            longSeed.write(body.toUtf8());
+        }
+        bool imported = false;
+        QMetaObject::invokeMethod(manual, "importManualFile",
+                                  Qt::DirectConnection,
+                                  Q_RETURN_ARG(bool, imported),
+                                  Q_ARG(QUrl, QUrl::fromLocalFile(longPath)));
+        if (!imported) {
+            fail(QStringLiteral("SCROLL-A: the long fixture manual did not "
+                                "import"));
+            return;
+        }
+        askViaController(
+            QStringLiteral("\u989d\u5b9a\u8f93\u5165\u7535\u538b\u662f\u591a"
+                           "\u5c11\uff1f"));
+        if (qaResult() != QStringLiteral("found")) {
+            fail(QStringLiteral("SCROLL-A: the long FOUND result did not land "
+                                "(got '%1')")
+                     .arg(qaResult()));
+            return;
+        }
+        if (qaController->property("citations").toList().isEmpty()) {
+            fail(QStringLiteral("SCROLL-A: the long FOUND result carries no "
+                                "citation"));
+            return;
+        }
+        if (lastCitationItem() == nullptr) {
+            fail(QStringLiteral("SCROLL-A: the citation sentinel is missing"));
+        }
+        *scrollBefore = uxStateSnapshot();
+        *scrollUiBefore = uxUiTexts();
+        *scrollFixedBefore = fixedQaRects();
+    });
+    // SCROLL-B (SCROLL-07/08, REAL RED) — the long result must overflow its
+    // region AND expose a bounded vertical scrolling surface.
+    push([&]() {
+        auto *status = itemOf(QStringLiteral("manualQaResultStatus"));
+        auto *sentinel = lastCitationItem();
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (status == nullptr || sentinel == nullptr || card == nullptr) {
+            fail(QStringLiteral("SCROLL-B: the result surfaces are missing"));
+            return;
+        }
+        const double top = sceneRectOf(status).top();
+        const double needed = sceneRectOf(sentinel).bottom() - top;
+        const double available =
+            card->property("y").toDouble()
+            + card->property("height").toDouble() - top;
+        note(QStringLiteral("SCROLL-B: the long result needs %1px, the region "
+                            "offers %2px (panel %3x%4 window %5x%6)")
+                 .arg(needed)
+                 .arg(available)
+                 .arg(card->property("width").toDouble())
+                 .arg(card->property("height").toDouble())
+                 .arg(window->width())
+                 .arg(window->height()));
+        if (needed <= available) {
+            fail(QStringLiteral("SCROLL-B: the long fixture does not overflow "
+                                "(needed %1px <= available %2px); the fixture "
+                                "cannot prove the scrolling defect")
+                     .arg(needed)
+                     .arg(available));
+        }
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        if (scroll == nullptr) {
+            fail(QStringLiteral("SCROLL-07/08 (REAL RED): the long FOUND "
+                                "result needs %1px but the result region only "
+                                "offers %2px, and there is NO bounded "
+                                "vertical scrolling surface (no "
+                                "manualQaResultScroll in the visual tree) - "
+                                "the bottom citation cannot be reached")
+                     .arg(needed)
+                     .arg(available));
+        }
+    });
+    // SCROLL-C (SCROLL-07, §12.G/H, §21) — the scrolling surface is bounded,
+    // vertical-only, clipping, and AsNeeded.
+    push([&]() {
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        if (scroll == nullptr) {
+            fail(QStringLiteral("SCROLL-07: the result scrolling surface is "
+                                "missing"));
+            return;
+        }
+        const double contentHeight =
+            scroll->property("contentHeight").toDouble();
+        const double viewportHeight = scroll->property("height").toDouble();
+        auto *bar = itemOf(QStringLiteral("manualQaResultScrollBar"));
+        note(QStringLiteral("SCROLL-07: result contentHeight=%1 viewport=%2 "
+                            "contentY=%3 contentWidth=%4 width=%5")
+                 .arg(contentHeight)
+                 .arg(viewportHeight)
+                 .arg(scroll->property("contentY").toDouble())
+                 .arg(scroll->property("contentWidth").toDouble())
+                 .arg(scroll->property("width").toDouble()));
+        if (contentHeight <= viewportHeight) {
+            fail(QStringLiteral("SCROLL-07: the long result content (%1px) "
+                                "does not exceed the viewport (%2px)")
+                     .arg(contentHeight)
+                     .arg(viewportHeight));
+        }
+        if (viewportHeight <= 0.0) {
+            fail(QStringLiteral("SCROLL-08: the result viewport has no height "
+                                "(%1px)").arg(viewportHeight));
+        }
+        if (!scroll->property("clip").toBool()) {
+            fail(QStringLiteral("SCROLL-C: the result viewport does not clip"));
+        }
+        if (scroll->property("flickableDirection").toInt() != 2) {
+            fail(QStringLiteral("SCROLL-21: the result viewport is not "
+                                "vertical-only (flickableDirection=%1)")
+                     .arg(scroll->property("flickableDirection").toInt()));
+        }
+        if (std::abs(scroll->property("contentWidth").toDouble()
+                     - scroll->property("width").toDouble())
+            > 1.0) {
+            fail(QStringLiteral("SCROLL-21: the result viewport allows "
+                                "horizontal overflow (contentWidth=%1 "
+                                "width=%2)")
+                     .arg(scroll->property("contentWidth").toDouble())
+                     .arg(scroll->property("width").toDouble()));
+        }
+        uxShot(QStringLiteral("ux-r2-01-long-result-top"));
+        if (bar == nullptr) {
+            fail(QStringLiteral("SCROLL-C: the vertical scrollbar is missing"));
+        } else {
+            const int policy = bar->property("policy").toInt();
+            if (policy != 0) {
+                fail(QStringLiteral("SCROLL-C: the vertical scrollbar policy "
+                                    "is not AsNeeded (%1)").arg(policy));
+            }
+        }
+    });
+    // SCROLL-D (SCROLL-08) — a REAL flick moves the result content.
+    push([&]() {
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        if (scroll == nullptr) {
+            fail(QStringLiteral("SCROLL-08: the result scrolling surface is "
+                                "missing"));
+            return;
+        }
+        if (!QMetaObject::invokeMethod(scroll, "flick", Q_ARG(qreal, 0.0),
+                                       Q_ARG(qreal, -1200.0))) {
+            fail(QStringLiteral("SCROLL-08: the result viewport does not "
+                                "expose a flick action"));
+        }
+    });
+    pushAfterSettle(3, [&]() {
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        if (scroll == nullptr) {
+            fail(QStringLiteral("SCROLL-08: the result scrolling surface is "
+                                "missing"));
+            return;
+        }
+        QMetaObject::invokeMethod(scroll, "cancelFlick");
+        const double moved = scroll->property("contentY").toDouble();
+        note(QStringLiteral("SCROLL-08: contentY after a real flick = %1")
+                 .arg(moved));
+        if (moved <= 0.0) {
+            fail(QStringLiteral("SCROLL-08: a flick did not move the result "
+                                "content (contentY=%1)").arg(moved));
+        }
+    });
+    // SCROLL-E (SCROLL-09) — the bottom citation sentinel becomes reachable,
+    // and the citation text is not truncated or replaced by an ellipsis.
+    push([&]() {
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        if (scroll == nullptr) {
+            fail(QStringLiteral("SCROLL-09: the result scrolling surface is "
+                                "missing"));
+            return;
+        }
+        const double maxY = scroll->property("contentHeight").toDouble()
+                            - scroll->property("height").toDouble();
+        scroll->setProperty("contentY", maxY);
+    });
+    push([&]() {
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        auto *sentinel = lastCitationItem();
+        if (scroll == nullptr || sentinel == nullptr) {
+            fail(QStringLiteral("SCROLL-09: the result viewport or the "
+                                "citation sentinel is missing"));
+            return;
+        }
+        const QRectF viewport = sceneRectOf(scroll);
+        const QRectF lastRect = sceneRectOf(sentinel);
+        note(QStringLiteral("SCROLL-09: sentinel bottom=%1 viewport bottom=%2 "
+                            "(contentY=%3)")
+                 .arg(lastRect.bottom())
+                 .arg(viewport.bottom())
+                 .arg(scroll->property("contentY").toDouble()));
+        if (lastRect.bottom() > viewport.bottom() + 1.0) {
+            fail(QStringLiteral("SCROLL-09: the bottom citation is not "
+                                "reachable inside the result viewport "
+                                "(sentinel bottom=%1, viewport bottom=%2)")
+                     .arg(lastRect.bottom())
+                     .arg(viewport.bottom()));
+        }
+        // No truncation: what is displayed must equal the validated citation
+        // excerpts, character for character.
+        const QVariantList citations =
+            qaController->property("citations").toList();
+        const QList<QQuickItem *> excerpts =
+            itemsNamed(QStringLiteral("manualQaCitationExcerpt"));
+        if (excerpts.size() != citations.size()) {
+            fail(QStringLiteral("SCROLL-09: %1 of %2 citation excerpts are "
+                                "displayed")
+                     .arg(excerpts.size())
+                     .arg(citations.size()));
+            return;
+        }
+        uxShot(QStringLiteral("ux-r2-02-scroll-bottom"));
+        for (int i = 0; i < excerpts.size(); ++i) {
+            const QString shown = excerpts.at(i)->property("text").toString();
+            const QString expected = citations.at(i)
+                                         .toMap()
+                                         .value(QStringLiteral("excerpt"))
+                                         .toString();
+            if (shown != expected) {
+                fail(QStringLiteral("SCROLL-09: citation %1 is truncated or "
+                                    "altered on screen (%2 displayed chars "
+                                    "vs %3 validated chars)")
+                         .arg(i + 1)
+                         .arg(shown.size())
+                         .arg(expected.size()));
+            }
+            // The wrapped excerpt must get its full implicit height: a
+            // squeezed label would be a visual truncation even though the
+            // text property still carries every character.
+            const double given = excerpts.at(i)->height();
+            const double needed = excerpts.at(i)->implicitHeight();
+            if (given + 2.0 < needed) {
+                fail(QStringLiteral("SCROLL-09: citation %1 is vertically "
+                                    "clipped on screen (%2px given vs %3px "
+                                    "needed)")
+                         .arg(i + 1)
+                         .arg(given)
+                         .arg(needed));
+            }
+        }
+    });
+    // SCROLL-F (SCROLL-02..06/10, §15) — the fixed block stays visible, stays
+    // outside the scrolling surface, and does not move while the result
+    // scrolls (structurally and geometrically).
+    push([&]() {
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        if (scroll == nullptr) {
+            fail(QStringLiteral("SCROLL-10: the result scrolling surface is "
+                                "missing"));
+            return;
+        }
+        for (const QString &name : fixedQaItemNames()) {
+            auto *item = itemOf(name);
+            if (item == nullptr) {
+                fail(QStringLiteral("SCROLL-10: the fixed control %1 is "
+                                    "missing").arg(name));
+                continue;
+            }
+            if (!item->isVisible() || !item->isEnabled()) {
+                fail(QStringLiteral("SCROLL-10: the fixed control %1 is not "
+                                    "visible and enabled after scrolling")
+                         .arg(name));
+            }
+            if (underItem(item, scroll)) {
+                fail(QStringLiteral("SCROLL-10: the fixed control %1 lives "
+                                    "inside the scrolling surface (it would "
+                                    "scroll away)")
+                         .arg(name));
+            }
+        }
+        const QStringList drift = uxDrift(*scrollFixedBefore, fixedQaRects());
+        if (!drift.isEmpty()) {
+            fail(QStringLiteral("SCROLL-10: scrolling moved the fixed block: "
+                                "%1")
+                     .arg(drift.join(QStringLiteral("; "))));
+        }
+    });
+    // SCROLL-G (SCROLL-14..18, §12.I) — scrolling is purely visual.
+    push([&]() {
+        const QStringList uiDrift =
+            uxDrift(*scrollUiBefore, uxUiTexts());
+        if (!uiDrift.isEmpty()) {
+            fail(QStringLiteral("SCROLL-14/15: scrolling changed the selected "
+                                "Manual or the question draft: %1")
+                     .arg(uiDrift.join(QStringLiteral("; "))));
+        }
+        const QStringList stateDrift =
+            uxDrift(*scrollBefore, uxStateSnapshot());
+        if (!stateDrift.isEmpty()) {
+            fail(QStringLiteral("SCROLL-16: scrolling changed the session "
+                                "state: %1")
+                     .arg(stateDrift.join(QStringLiteral("; "))));
+        }
+        const QStringList stableDrift =
+            uxStableDrift(*scrollBefore, uxStateSnapshot());
+        if (!stableDrift.isEmpty()) {
+            fail(QStringLiteral("SCROLL-17/18: scrolling touched Manual / "
+                                "Candidate / DeviceProfile state: %1")
+                     .arg(stableDrift.join(QStringLiteral("; "))));
+        }
+    });
+    // SCROLL-L (SCROLL-06, §22) — the Ask action is still activatable after
+    // scrolling (real click, exactly one new dispatch).
+    push([&]() {
+        const int before = qaFake->beginCount();
+        *scrollBefore = uxStateSnapshot();
+        if (!clickNamed(QStringLiteral("manualQaAskButton"))) {
+            fail(QStringLiteral("SCROLL-06: the Ask action is not clickable "
+                                "after scrolling"));
+            return;
+        }
+        if (qaFake->beginCount() != before + 1) {
+            fail(QStringLiteral("SCROLL-06: the Ask action did not dispatch "
+                                "exactly once after scrolling (%1 -> %2)")
+                     .arg(before)
+                     .arg(qaFake->beginCount()));
+        }
+        if (qaResult() != QStringLiteral("found")) {
+            fail(QStringLiteral("SCROLL-06: the post-scroll Ask did not land "
+                                "a FOUND result (got '%1')")
+                     .arg(qaResult()));
+        }
+    });
+    // SCROLL-H (SCROLL-12) — closing while the long result is visible still
+    // retracts the panel fully (UX-R1 behaviour unchanged).
+    push([&]() {
+        if (!clickNamed(QStringLiteral("manualQaCloseButton"))) {
+            fail(QStringLiteral("SCROLL-12: the retract control is not usable "
+                                "with a long result displayed"));
+            return;
+        }
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (card != nullptr && card->property("opened").toBool()) {
+            if (auto *close = itemOf(QStringLiteral("manualQaCloseButton"))) {
+                QMetaObject::invokeMethod(close, "clicked");
+            }
+        }
+    });
+    pushAfterSettle(6, [&]() {
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (card == nullptr) {
+            fail(QStringLiteral("SCROLL-12: the panel object is missing"));
+            return;
+        }
+        const bool opened = card->property("opened").toBool();
+        const double position = card->property("position").toDouble();
+        note(QStringLiteral("SCROLL-12 (settled): opened=%1 position=%2 "
+                            "panelX=%3")
+                 .arg(opened)
+                 .arg(position)
+                 .arg(card->property("x").toDouble()));
+        uxShot(QStringLiteral("ux-r2-04-closed-with-long-result"));
+        if (opened || position > 0.0) {
+            fail(QStringLiteral("SCROLL-12: the panel did not retract fully "
+                                "with a long result displayed (opened=%1 "
+                                "position=%2)")
+                     .arg(opened)
+                     .arg(position));
+        }
+    });
+    // SCROLL-I (SCROLL-13, §12.J/K) — reopen preserves the long answer and
+    // its citations, and the result stays scrollable.
+    pushReopenAndAssert(QStringLiteral("SCROLL-13"));
+    push([&]() {
+        const QStringList uiDrift =
+            uxDrift(*scrollUiBefore, uxUiTexts());
+        if (!uiDrift.isEmpty()) {
+            fail(QStringLiteral("SCROLL-13: reopening lost the long result "
+                                "state: %1")
+                     .arg(uiDrift.join(QStringLiteral("; "))));
+        }
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        if (scroll == nullptr) {
+            fail(QStringLiteral("SCROLL-13: the result scrolling surface is "
+                                "missing after reopening"));
+            return;
+        }
+        if (scroll->property("contentHeight").toDouble()
+            <= scroll->property("height").toDouble()) {
+            fail(QStringLiteral("SCROLL-13: the reopened long result is no "
+                                "longer scrollable (contentHeight=%1 "
+                                "viewport=%2)")
+                     .arg(scroll->property("contentHeight").toDouble())
+                     .arg(scroll->property("height").toDouble()));
+        }
+    });
+    // SCROLL-J (SCROLL-11, §12.F) — a short result still displays normally:
+    // no scrolling needed, nothing clipped, no scrollbar shown.
+    push([&]() {
+        setCitationMode(GateQaRunner::Mode::Found);
+        const QString shortPath = QDir(managedRoot.path())
+                                      .filePath(QStringLiteral(
+                                          "sources/qa-ux.txt"));
+        bool imported = false;
+        QMetaObject::invokeMethod(manual, "importManualFile",
+                                  Qt::DirectConnection,
+                                  Q_RETURN_ARG(bool, imported),
+                                  Q_ARG(QUrl, QUrl::fromLocalFile(shortPath)));
+        if (!imported) {
+            fail(QStringLiteral("SCROLL-11: the short fixture manual did not "
+                                "import"));
+            return;
+        }
+        askViaController(
+            QStringLiteral("\u989d\u5b9a\u8f93\u5165\u7535\u538b\u662f\u591a"
+                           "\u5c11\uff1f"));
+        if (qaResult() != QStringLiteral("found")) {
+            fail(QStringLiteral("SCROLL-11: the short FOUND result did not "
+                                "land (got '%1')")
+                     .arg(qaResult()));
+        }
+    });
+    push([&]() {
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        auto *sentinel = lastCitationItem();
+        auto *answer = itemOf(QStringLiteral("manualQaAnswer"));
+        if (scroll == nullptr || sentinel == nullptr || answer == nullptr) {
+            fail(QStringLiteral("SCROLL-11: the result surfaces are missing"));
+            return;
+        }
+        const double contentHeight =
+            scroll->property("contentHeight").toDouble();
+        const double viewportHeight = scroll->property("height").toDouble();
+        note(QStringLiteral("SCROLL-11: short result contentHeight=%1 "
+                            "viewport=%2")
+                 .arg(contentHeight)
+                 .arg(viewportHeight));
+        if (contentHeight > viewportHeight + 1.0) {
+            fail(QStringLiteral("SCROLL-11: the short result should fit "
+                                "without scrolling (contentHeight=%1 "
+                                "viewport=%2)")
+                     .arg(contentHeight)
+                     .arg(viewportHeight));
+        }
+        uxShot(QStringLiteral("ux-r2-03-short-result"));
+        if (!answer->isVisible()) {
+            fail(QStringLiteral("SCROLL-11: the short answer is not displayed"));
+        }
+        const QRectF viewport = sceneRectOf(scroll);
+        const QRectF lastRect = sceneRectOf(sentinel);
+        if (lastRect.bottom() > viewport.bottom() + 1.0) {
+            fail(QStringLiteral("SCROLL-11: the short result is clipped "
+                                "(sentinel bottom=%1, viewport bottom=%2)")
+                     .arg(lastRect.bottom())
+                     .arg(viewport.bottom()));
+        }
+        if (auto *bar = itemOf(QStringLiteral("manualQaResultScrollBar"))) {
+            if (bar->isVisible()) {
+                // The AsNeeded bar item stays instantiated; the style drives
+                // the painted thumb, so size == 1 (nothing to scroll) means
+                // no thumb is drawn.
+                note(QStringLiteral("SCROLL-11: the AsNeeded scrollbar item "
+                                    "exists with size=%1 (policy=%2)")
+                         .arg(bar->property("size").toDouble())
+                         .arg(bar->property("policy").toInt()));
+            }
+        }
+    });
+    // SCROLL-K (SCROLL-19) — the smallest canonical size stays usable: the
+    // long result is scrollable, its sentinel reachable, the panel inside the
+    // window and the fixed block visible.
+    push([&]() { window->resize(1000, 700); });
+    push([&]() {
+        setCitationMode(GateQaRunner::Mode::LongFound);
+        const QString longPath = QDir(managedRoot.path())
+                                     .filePath(QStringLiteral(
+                                         "sources/qa-long.txt"));
+        bool imported = false;
+        QMetaObject::invokeMethod(manual, "importManualFile",
+                                  Qt::DirectConnection,
+                                  Q_RETURN_ARG(bool, imported),
+                                  Q_ARG(QUrl, QUrl::fromLocalFile(longPath)));
+        if (!imported) {
+            fail(QStringLiteral("SCROLL-19: the long fixture manual did not "
+                                "re-import"));
+            return;
+        }
+        askViaController(
+            QStringLiteral("\u989d\u5b9a\u8f93\u5165\u7535\u538b\u662f\u591a"
+                           "\u5c11\uff1f"));
+        if (qaResult() != QStringLiteral("found")) {
+            fail(QStringLiteral("SCROLL-19: the long FOUND result did not "
+                                "land at 1000x700 (got '%1')")
+                     .arg(qaResult()));
+        }
+    });
+    push([&]() {
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        auto *sentinel = lastCitationItem();
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (scroll == nullptr || sentinel == nullptr || card == nullptr) {
+            fail(QStringLiteral("SCROLL-19: the result surfaces are missing"));
+            return;
+        }
+        const QRectF windowRect(QPointF(0, 0),
+                                QSizeF(window->width(), window->height()));
+        const QRectF panelRect(card->property("x").toDouble(),
+                               card->property("y").toDouble(),
+                               card->property("width").toDouble(),
+                               card->property("height").toDouble());
+        const double contentHeight =
+            scroll->property("contentHeight").toDouble();
+        const double viewportHeight = scroll->property("height").toDouble();
+        note(QStringLiteral("SCROLL-19: at %1x%2 contentHeight=%3 "
+                            "viewport=%4 panel=%5,%6 %7x%8")
+                 .arg(window->width())
+                 .arg(window->height())
+                 .arg(contentHeight)
+                 .arg(viewportHeight)
+                 .arg(panelRect.x())
+                 .arg(panelRect.y())
+                 .arg(panelRect.width())
+                 .arg(panelRect.height()));
+        if (!windowRect.contains(panelRect)) {
+            fail(QStringLiteral("SCROLL-19: the panel escapes the window at "
+                                "1000x700"));
+        }
+        if (contentHeight <= viewportHeight) {
+            fail(QStringLiteral("SCROLL-19: the long result is not scrollable "
+                                "at 1000x700 (contentHeight=%1 viewport=%2)")
+                     .arg(contentHeight)
+                     .arg(viewportHeight));
+        }
+        scroll->setProperty(
+            "contentY",
+            scroll->property("contentHeight").toDouble()
+                - scroll->property("height").toDouble());
+    });
+    push([&]() {
+        auto *scroll = itemOf(QStringLiteral("manualQaResultScroll"));
+        auto *sentinel = lastCitationItem();
+        if (scroll == nullptr || sentinel == nullptr) {
+            fail(QStringLiteral("SCROLL-19: the result surfaces are missing"));
+            return;
+        }
+        const QRectF viewport = sceneRectOf(scroll);
+        const QRectF lastRect = sceneRectOf(sentinel);
+        if (lastRect.bottom() > viewport.bottom() + 1.0) {
+            fail(QStringLiteral("SCROLL-19: the bottom citation is not "
+                                "reachable at 1000x700 (sentinel bottom=%1, "
+                                "viewport bottom=%2)")
+                     .arg(lastRect.bottom())
+                     .arg(viewport.bottom()));
+        }
+        for (const QString &name : fixedQaItemNames()) {
+            auto *item = itemOf(name);
+            if (item == nullptr || !item->isVisible() || !item->isEnabled()) {
+                fail(QStringLiteral("SCROLL-19: the fixed control %1 is not "
+                                    "usable at 1000x700").arg(name));
+            }
+        }
+        uxShot(QStringLiteral("ux-r2-05-scroll-1000x700"));
+        window->resize(1280, 937);
     });
 
     auto index = std::make_shared<int>(0);

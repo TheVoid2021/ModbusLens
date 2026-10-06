@@ -1307,6 +1307,7 @@ Item {
 
         ColumnLayout {
             width: parent.width
+            height: parent.height
             spacing: DS.spacingM
 
             RowLayout {
@@ -1374,59 +1375,89 @@ Item {
                 color: DS.textSecondary
                 text: qsTr("正在基于所选说明书检索证据…")
             }
-            Label {
-                objectName: "manualQaResultStatus"
+            // POST-M12-UX-R2: ONLY the result region scrolls. The fixed
+            // block above (header + close, selected Manual, question input,
+            // Ask, running indicator) never scrolls away; the bounded
+            // viewport consumes the remaining Drawer height and the citation
+            // text is never truncated or elided. Scrolling is purely visual.
+            Flickable {
+                id: manualQaResultScroll
+                objectName: "manualQaResultScroll"
                 Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                font.pixelSize: DS.fontCaption
-                color: manualQaController.resultStatusToken === "error"
-                       ? DS.error : DS.textSecondary
-                text: manualQaController.resultStatusToken === "found"
-                      ? qsTr("已找到说明书依据")
-                      : manualQaController.resultStatusToken === "not_found"
-                        ? qsTr("未在所选说明书中找到相关证据")
-                        : manualQaController.resultStatusToken
-                          === "insufficient_evidence"
-                          ? qsTr("所选说明书中的证据不足以可靠回答")
-                          : manualQaController.resultStatusToken === "error"
-                            ? manualQaController.failureText
-                            : qsTr("尚未提问")
-            }
-            Label {
-                objectName: "manualQaAnswer"
-                visible: manualQaController.resultStatusToken === "found"
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                font.pixelSize: DS.fontBody
-                text: manualQaController.answerText
-            }
-            Label {
-                objectName: "manualQaCitationsHeader"
-                visible: manualQaController.citations.length > 0
-                Layout.fillWidth: true
-                font.pixelSize: DS.fontCaption
-                text: qsTr("说明书依据（来源/支撑上下文，不构成对回答绝对正确性的证明）:")
-            }
-            Repeater {
-                objectName: "manualQaCitations"
-                model: manualQaController.citations
-                delegate: ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 2
+                Layout.fillHeight: true
+                Layout.minimumHeight: 0
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
+                contentWidth: width
+                contentHeight: manualQaResultContent.implicitHeight
+                ScrollBar.vertical: ScrollBar {
+                    objectName: "manualQaResultScrollBar"
+                    policy: ScrollBar.AsNeeded
+                }
+
+                ColumnLayout {
+                    id: manualQaResultContent
+                    width: manualQaResultScroll.width
+                    spacing: DS.spacingM
+
                     Label {
-                        Layout.fillWidth: true
-                        font.pixelSize: DS.fontCaption
-                        color: DS.textSecondary
-                        text: qsTr("依据 %1（范围 [%2,%3)）")
-                                  .arg(index + 1)
-                                  .arg(modelData.textStart)
-                                  .arg(modelData.textEnd)
-                    }
-                    Label {
+                        objectName: "manualQaResultStatus"
                         Layout.fillWidth: true
                         wrapMode: Text.Wrap
                         font.pixelSize: DS.fontCaption
-                        text: modelData.excerpt
+                        color: manualQaController.resultStatusToken === "error"
+                               ? DS.error : DS.textSecondary
+                        text: manualQaController.resultStatusToken === "found"
+                              ? qsTr("已找到说明书依据")
+                              : manualQaController.resultStatusToken === "not_found"
+                                ? qsTr("未在所选说明书中找到相关证据")
+                                : manualQaController.resultStatusToken
+                                  === "insufficient_evidence"
+                                  ? qsTr("所选说明书中的证据不足以可靠回答")
+                                  : manualQaController.resultStatusToken === "error"
+                                    ? manualQaController.failureText
+                                    : qsTr("尚未提问")
+                    }
+                    Label {
+                        objectName: "manualQaAnswer"
+                        visible: manualQaController.resultStatusToken === "found"
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        font.pixelSize: DS.fontBody
+                        text: manualQaController.answerText
+                    }
+                    Label {
+                        objectName: "manualQaCitationsHeader"
+                        visible: manualQaController.citations.length > 0
+                        Layout.fillWidth: true
+                        font.pixelSize: DS.fontCaption
+                        text: qsTr("说明书依据（来源/支撑上下文，不构成对回答绝对正确性的证明）:")
+                    }
+                    Repeater {
+                        objectName: "manualQaCitations"
+                        model: manualQaController.citations
+                        delegate: ColumnLayout {
+                            objectName: "manualQaCitationItem"
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Label {
+                                Layout.fillWidth: true
+                                font.pixelSize: DS.fontCaption
+                                color: DS.textSecondary
+                                text: qsTr("依据 %1（范围 [%2,%3)）")
+                                          .arg(index + 1)
+                                          .arg(modelData.textStart)
+                                          .arg(modelData.textEnd)
+                            }
+                            Label {
+                                objectName: "manualQaCitationExcerpt"
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                font.pixelSize: DS.fontCaption
+                                text: modelData.excerpt
+                            }
+                        }
                     }
                 }
             }
