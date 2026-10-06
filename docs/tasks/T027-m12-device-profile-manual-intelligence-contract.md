@@ -9694,3 +9694,102 @@ unknown_id）；`ManualQaController::completeAttempt` 改用 resolve pass
   HUMAN-FROZEN（§100）；M12-C = COMPLETE / HUMAN ACCEPTED / FROZEN；
   **verified LKGC = `c68d2bb…` UNCHANGED**；M12-D second slice / package /
   tag / push = 未授权未发生；本节所在提交 docs-only 永不作 LKGC。
+
+## 106. M12-D R2E HUMAN LIVE Q&A ACCEPTANCE ARCHIVE（SESSION M12-D-R2E-A · docs-only · Human 授权归档）
+
+> Human 授权（逐字）：「授权：归档 M12-D R2E Human live Q&A acceptance
+> PASS；仅 docs-only。Human PASS 仅覆盖本次实际执行的 single-selected-Manual
+> / single-question FOUND + citation 正向工作流：选中
+> ModbusLens_Test_Manual_A_Clear.txt 提问'这台设备的厂商是什么？'成功得到
+> 厂商答案并显示说明书引用，本地 citation validation 通过，不再出现
+> provider / structured parse / citation validation 错误。若 Human 已确认
+> 问答后无 Candidate、无 DeviceProfile mutation、无'未保存修改'，则一并按
+> 实际观察归档；未实际 Human 执行的 NOT_FOUND / INSUFFICIENT_EVIDENCE /
+> ERROR、Manual switch/delete invalidation、late-response drop、session-only
+> restart 等路径保持 IMPLEMENTED / AUTOMATED PASS，不虚构 Human live
+> verification。将 M12-D first behavior slice 标记为 COMPLETE / HUMAN
+> ACCEPTED；M12-D overall 仅标记 READY FOR FINAL CLOSURE AUDIT，不直接推断
+> COMPLETE。verified LKGC 保持 c68d2bbb277096fd7fb9a76d99d7b588da6461f0 不
+> 变；不开始第二切片，不做 package/tag/push。」
+
+### 106.0 Human 授权原文
+
+见本节引文（逐字，未删改）。
+
+### 106.1 验收对象 / candidate identity
+
+- **behavior commit = `8416fe7a26eaa8c79ab8186513b60af5954a18b9`**（type =
+  commit、HEAD 祖先 exit 0；`8416fe7..HEAD -- src tests CMakeLists.txt
+  samples` = 空 ⇒ 其后仅 docs 提交 `487061f…`，本 docs commit 非被测行为、
+  非 LKGC）。
+- **Human-tested candidate** =
+  `build\acceptance\session-m12d-r2e-postcommit-release\candidate\ModbusLens\
+  ModbusLens.exe`，本 session 只读重测 SHA-256 =
+  **`658f0ff6102eebb170d15d0e89fcddb9312dbfdf7593a129418835dc2e96c4b9`**
+  （在档一致，未重建）。
+
+### 106.2 Human 实际执行（逐字记录，不增不减）
+
+- Manual = `ModbusLens_Test_Manual_A_Clear.txt`；question = 「这台设备的
+  厂商是什么？」。
+- Human 观察：① Q&A 成功返回设备厂商答案；② 显示了说明书引用（来源证据
+  块）；③ 引用通过本地 deterministic validation；④ 本次成功运行中**未**
+  出现「问答未成功，请稍后重试。」「云端返回的问答结果无法解析。」「回答
+  的说明书依据未通过本地校验。」三种先前失败；⑤ Human 额外确认：「问答后
+  没有 Candidate，设备档案没有变化，也没有出现未保存修改。」
+
+### 106.3 Human PASS scope（严格限定）
+
+单 selected Manual / 单 question / FOUND / 非空 answer / 可见 citation /
+本地 citation validation 通过 / 零 Candidate 产生 / 零 DeviceProfile
+mutation / 零 dirty「未保存修改」——**仅此实际工作流** ⇒
+**M12-D FIRST-SLICE POSITIVE WORKFLOW = HUMAN PASS**。
+
+### 106.4 automated-only boundary（不升级）
+
+以下保持 **IMPLEMENTED / AUTOMATED PASS / HUMAN LIVE NOT RUN**（§7 清单，
+不虚构 Human 证据）：NOT_FOUND；INSUFFICIENT_EVIDENCE；ERROR 路径；Manual
+switch invalidation；Manual delete invalidation；late-response drop；
+session-only restart；unknown citationId fail-closed；generation-scoped
+citationId。
+
+### 106.5 R2E 架构 current truth
+
+**APP-RESOLVED CITATION SELECTION = IMPLEMENTED / AUTOMATED PASS / HUMAN
+POSITIVE-FLOW PASS**：provider 仅选择 app 签发的 opaque citationId；app 将
+选中 id 映射回 canonical D2 citation（documentId/contentHash = 请求绑定、
+offsets/excerpt = 所引真实块）；**D2 CANONICAL VALIDATOR = UNCHANGED /
+AUTHORITATIVE**（六字段形状 + A–D 校验 + 无 uniqueness，逐字未动）；
+**Provider authority = INFORMATIONAL SELECTION ONLY**。citationId 本身
+**不是** canonical 权威。
+
+### 106.6 历史 superseding statement
+
+R2（parse 失败）/ R2B 修复 / R2C runner !ok（transient 推定，仅对那次
+事件有效）/ R2D 观测性 + §29 编辑事故 / R2D-A recovery audit PASS / R2E
+repair——全部历史证据**保留原样**（含 R2D §29 PROCESS VIOLATION =
+PERMANENT HISTORICAL INCIDENT，R2D-A recovery audit = PASS，行为树
+RECOVERED AS VALID）。**当前真值**：R2E 正向 FOUND + citation 工作流 =
+HUMAN PASS；历史失败是已被修复/加装观测的缺陷的有效历史证据。
+
+### 106.7 first-slice 最终分类
+
+**M12-D first behavior slice = COMPLETE / HUMAN ACCEPTED**
+（IMPLEMENTED / AUTOMATED PASS / HUMAN PASS；正向 Human acceptance 严格
+限定于 §106.3 范围；automated-only 负向/状态路径按 §106.4 保持原状——
+Human 明确限定了验收范围，故不要求 Human 重放全部自动化路径）。
+
+### 106.8 overall boundary
+
+**M12-D overall = READY FOR FINAL CLOSURE AUDIT**（**不**标记 COMPLETE）。
+独立只读 final closure audit 须确认：D1–D5 全满足；无必需 first-slice
+能力 pending；automated-only 路径在冻结合同下是否充分；second-slice 能力
+是否为 M12-D exit 所必需；无未决 P0；canonical docs 无矛盾。该审计不在本
+session 执行。
+
+### 106.9 动作边界
+
+verified LKGC = `c68d2bbb277096fd7fb9a76d99d7b588da6461f0` UNCHANGED
+（`8416fe7…` 与任何 docs commit 均**不是** LKGC；不准备 LKGC 推进提交）；
+second slice = NOT STARTED / NOT AUTHORIZED；canonical package = NOT
+CREATED；tag = 仅 v1.0.0；push = 无；本节所在提交 docs-only 永不作 LKGC。

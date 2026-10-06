@@ -1,6 +1,37 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-06 追加批注 · M12-D — R2E HUMAN LIVE Q&A ACCEPTANCE = PASS（Session M12-D-R2E-A · docs-only 归档 · first slice COMPLETE / HUMAN ACCEPTED · 以本块为准）〕**
+档案 = **T027 §106**。Human 授权（逐字）：「授权：归档 M12-D R2E Human live
+Q&A acceptance PASS；仅 docs-only。Human PASS 仅覆盖本次实际执行的
+single-selected-Manual / single-question FOUND + citation 正向工作流……将
+M12-D first behavior slice 标记为 COMPLETE / HUMAN ACCEPTED；M12-D overall
+仅标记 READY FOR FINAL CLOSURE AUDIT，不直接推断 COMPLETE。verified LKGC
+保持 c68d2bbb277096fd7fb9a76d99d7b588da6461f0 不变；不开始第二切片，不做
+package/tag/push。」**验收对象**：behavior commit `8416fe7…`（HEAD 祖先、
+其后 docs-only）+ R2E 候选 `658f0ff6…c4b9`（本 session 只读 SHA 重测一致，
+未重建）。**Human 实际执行（逐字）**：选中
+`ModbusLens_Test_Manual_A_Clear.txt`、问「这台设备的厂商是什么？」→ 成功
+返回厂商答案 + 显示说明书引用 + 引用通过本地 deterministic validation +
+三种先前失败均未出现 + 「问答后没有 Candidate，设备档案没有变化，也没有
+出现未保存修改」。**PASS scope（严格限定 §106.3）**：single selected
+Manual / single question / FOUND / answer / citation / local validation /
+零 Candidate / 零 Profile mutation / 零 dirty ⇒ **M12-D FIRST-SLICE
+POSITIVE WORKFLOW = HUMAN PASS**。**automated-only boundary（不升级）**：
+NOT_FOUND / INSUFFICIENT_EVIDENCE / ERROR / switch·delete invalidation /
+late-response drop / session-only restart / unknown citationId fail-closed
+/ generation-scoped citationId = **HUMAN LIVE NOT RUN**。**R2E 架构**：
+APP-RESOLVED CITATION SELECTION = IMPLEMENTED / AUTOMATED PASS / HUMAN
+POSITIVE-FLOW PASS；D2 CANONICAL VALIDATOR = UNCHANGED / AUTHORITATIVE；
+provider authority = INFORMATIONAL SELECTION ONLY（citationId 非 canonical
+权威）。**历史保留**：R2/R2B/R2C/R2D/R2D §29 editing incident/R2D-A
+recovery audit——全部原样，不重写。**状态**：**M12-D first behavior slice
+= COMPLETE / HUMAN ACCEPTED**；**M12-D overall = READY FOR FINAL CLOSURE
+AUDIT（不标记 COMPLETE；独立只读 closure audit 待另行授权）**；M12-D second
+slice = NOT STARTED / NOT AUTHORIZED；**verified LKGC =
+`c68d2bbb277096fd7fb9a76d99d7b588da6461f0` UNCHANGED**（8416fe7/docs commit
+均非 LKGC；不准备 LKGC 推进提交）；canonical package = NOT CREATED；tag =
+仅 v1.0.0；push = 无；本批注所在提交 docs-only 永不作 LKGC。
 **〔2026-10-06 追加批注 · M12-D — CITATION VALIDATION HUMAN-LIVE DEFECT REPAIRED（Session M12-D-R2E · behavior `8416fe7` · Human re-test PENDING · 以本块为准）〕**
 档案 = **T027 §105**。Human 授权（逐字）：「授权：执行 M12-D-R2E citation
 validation Human-live RCA。……若确认是当前 provider citation contract 设计
