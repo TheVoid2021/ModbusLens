@@ -1,6 +1,36 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-06 追加批注 · M12 — OVERALL DOCS-ONLY FINAL CLOSURE = COMPLETE / HUMAN ACCEPTED（Session M12-R3 · 依据 Overall Final Closure Audit = GO · 以本块为准）〕**
+档案 = **T027 §108**。Human 授权（逐字）：「授权：执行 M12 docs-only final
+closure。依据 M12 Overall Final Closure Audit = GO，将 M12 overall 正式归档
+为 COMPLETE / HUMAN ACCEPTED。保持各子 milestone 的 canonical 状态与证据
+分层不变：M12-A = FOUNDATION ACCEPTED；M12-B = COMPLETE；M12-C = COMPLETE
+/ HUMAN ACCEPTED / FINAL BASELINE FROZEN；M12-D = COMPLETE / HUMAN
+ACCEPTED。不得因为 M12 overall closure 将任何 automated-only 路径升级为
+Human PASS……verified LKGC 保持 c68d2bbb277096fd7fb9a76d99d7b588da6461f0
+不变；不 package/tag/push；不开始任何新 milestone 或 behavior slice。」
+**closure authority**：M12 Overall Final Closure Audit（read-only）= GO
+（四子 exit 全满足；无独立 overall exit；无未决必需 P0；无矛盾；无必需 open
+defect；isolation 完好）。**最终 canonical 状态**：**M12 OVERALL = COMPLETE /
+HUMAN ACCEPTED**；M12-A = FOUNDATION ACCEPTED；M12-B = COMPLETE；M12-C =
+COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN；M12-D = COMPLETE / HUMAN
+ACCEPTED；**ALL CANONICAL M12 EXIT CONDITIONS = SATISFIED**；**UNRESOLVED
+REQUIRED P0 / HUMAN DECISION = NONE**；**CURRENT REQUIRED DEFECT BLOCKER =
+NONE**；M12 HUMAN / AUTOMATED EVIDENCE LAYERING = PRESERVED（M12-D
+automated-only 负向/状态路径保持 HUMAN LIVE NOT RUN，不升级）；REQUIRED =
+全 satisfied；DEFERRED/FUTURE = 按 canonical 原分类保持非阻塞边界（含
+M12-A DEFER 项、C3-H7/§100.7 durable provenance、OCR/multi-manual/
+whole-library RAG/conversation memory/durable history/cross-session state/
+新 provider families/provider-selection UI/M12-D mutation/M12-C
+reopening）；历史 defect/incident 全部原文保留（R2D §29 = PERMANENT
+HISTORICAL INCIDENT 不软化）；latest Human-tested behavior-bearing commit =
+`8416fe7…`（NOT yet verified LKGC；其后 docs commits 非 behavior baseline）；
+**SEPARATE RELEASE / GOVERNANCE ITEMS（非 M12 功能 blocker）**：verified
+LKGC advancement（**`c68d2bbb…` UNCHANGED**，推进需独立授权）、canonical
+package（NOT CREATED）、tag（仅 v1.0.0）、push（NONE）、real Modbus hardware
+（NOT VERIFIED / separate）。**NEXT = SEPARATE HUMAN DECISION ON LKGC
+ADVANCEMENT OR OTHER POST-M12 RELEASE / GOVERNANCE ACTION**。
 **〔2026-10-06 追加批注 · M12-D — DOCS-ONLY FINAL CLOSURE = COMPLETE / HUMAN ACCEPTED（Session M12-D-R2G · 依据 R2F GO · 以本块为准）〕**
 档案 = **T027 §107**。Human 授权（逐字）：「授权：执行 M12-D docs-only
 final closure。依据 M12-D-R2F Final Closure Audit = GO，将 M12-D overall

@@ -9920,3 +9920,138 @@ HEAD 祖先；其后全部 docs-only）。
 SEPARATE HUMAN AUTHORIZATION），推进与否 = 独立 Human 决定；M12-C =
 COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN；canonical package = NOT
 CREATED；tag = 仅 v1.0.0；push = 无；本节所在提交 docs-only 永不作 LKGC。
+
+## 108. M12 OVERALL DOCS-ONLY FINAL CLOSURE（SESSION M12-R3 · Human 授权 · M12 overall = COMPLETE / HUMAN ACCEPTED）
+
+> Human 授权（逐字）：「授权：执行 M12 docs-only final closure。依据 M12
+> Overall Final Closure Audit = GO，将 M12 overall 正式归档为 COMPLETE /
+> HUMAN ACCEPTED。保持各子 milestone 的 canonical 状态与证据分层不变：
+> M12-A = FOUNDATION ACCEPTED；M12-B = COMPLETE；M12-C = COMPLETE / HUMAN
+> ACCEPTED / FINAL BASELINE FROZEN；M12-D = COMPLETE / HUMAN ACCEPTED。不得
+> 因为 M12 overall closure 将任何 automated-only 路径升级为 Human PASS，也
+> 不得扩大既有 Human acceptance scope。归档：ALL CANONICAL M12 EXIT
+> CONDITIONS = SATISFIED；UNRESOLVED REQUIRED P0 / HUMAN DECISION = NONE；
+> CURRENT REQUIRED DEFECT BLOCKER = NONE。并记录：latest Human-tested
+> behavior-bearing commit = 8416fe7a26eaa8c79ab8186513b60af5954a18b9。准确
+> 保留 REQUIRED / DEFERRED / FUTURE 边界及全部历史 defect / incident /
+> superseding evidence，不重写历史；canonical package、real Modbus hardware
+> validation、LKGC advancement 应保持为独立 release / governance decision，
+> 不得误写成 M12 功能 closure blocker。仅修改 canonical docs / governance
+> records，不得修改代码/tests/CMake/QML/samples；不得 build/test/生成
+> candidate。verified LKGC 保持 c68d2bbb277096fd7fb9a76d99d7b588da6461f0
+> 不变；不 package/tag/push；不开始任何新 milestone 或 behavior slice。
+> 完成后提交独立 docs-only commit，并报告：最终 HEAD、docs diff、
+> behavior-tree no-drift proof、repository integrity。」
+
+### 108.1 起始基线 / closure authority
+
+- 起始 HEAD = `2e9d7890c9d9f9c66ff449cc26869cf287aa3301`（RESYNC 实测：
+  tracked clean / cached 空 / diff-check PASS / untracked 仅 `_ctx.py`、
+  `_dump.py` / tag 仅 v1.0.0 / `git ls-files build` 空）。
+- **closure authority**：M12 Overall Final Closure Audit（strict
+  read-only，session M12-RFINAL-AUDIT）= **GO**——M12-A/B/C/D canonical
+  exit 全部满足；无独立 M12 overall exit（M12 overall exit = 四个子里程碑
+  canonical exit 的 conjunction）；无未决必需 P0；无当前矛盾；无必需 open
+  defect；跨 milestone isolation 完好。本节仅归档该 GO，不新增工程证据。
+
+### 108.2 M12-A/B/C/D canonical state matrix
+
+| Milestone | Canonical state | 依据 |
+| --- | --- | --- |
+| M12-A | **FOUNDATION ACCEPTED**（含 readFunctionCode amendment；A01–A20 matrix；零 UI 不制造 Human PASS） | §17.1 / §28 / §30 / §45.10 |
+| M12-B | **COMPLETE**（Slice 1–4 全部 HUMAN ACCEPTED，§45.1 逐字 7 项；最后 behavior tree `13799d6…`） | §45 / §17.2 |
+| M12-C | **COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN**（C1a/C1b/C2/C3 各自 accepted；唯一权威链 + MANUAL SAVE；AI 无法直写 verified Profile） | §79.5 / §86 / §93 / §98 / §99 / §17.2 |
+| M12-D | **COMPLETE / HUMAN ACCEPTED**（D1–D5 SATISFIED；无 canonical 必需 second slice） | §100–§107 / §17.2 |
+
+**M12 overall = COMPLETE / HUMAN ACCEPTED**（四者 conjunction + §18 per-stage
+closure policy 全部满足）。
+
+### 108.3 M12 overall exit mapping
+
+M12-A exit = satisfied；M12-B exit = satisfied；M12-C exit = satisfied；
+M12-D exit = satisfied ⇒ **ALL CANONICAL M12 EXIT CONDITIONS = SATISFIED**。
+无独立 hidden functional exit、无新增 cross-cutting 需求、无由历史名称
+（"second slice" 等）创造的新能力。
+
+### 108.4 Human / automated evidence layering（精确保留）
+
+- M12-A：FOUNDATION ACCEPTED 按其既有证据层（零 UI 不主张 Human）。
+- M12-B：Human acceptance = §45.1 逐字 7 项范围（未扩写）。
+- M12-C：component/slice 级 Human acceptance 边界（含 HUMAN LIVE PASS /
+  AUTOMATED PASS 分层）原样。
+- M12-D：**HUMAN PASS 仅覆盖实际执行的正向工作流**（单 selected Manual /
+  单问题 / FOUND + citation / 本地校验通过 / 零 Candidate / 零
+  DeviceProfile mutation / 零 dirty）；**NOT_FOUND /
+  INSUFFICIENT_EVIDENCE / ERROR / Manual switch·delete invalidation /
+  late-response drop / session-only restart = IMPLEMENTED / AUTOMATED PASS
+  / HUMAN LIVE NOT RUN——不因 overall closure 升级**。
+
+### 108.5 REQUIRED / DEFERRED / FUTURE boundary（不移动分类）
+
+- **REQUIRED**：M12-A/B/C/D canonical exit 全部能力——已全部 satisfied。
+- **DEFERRED（canonical 明示）**：M12-A DEFER 项（Float64/string/bit-field/
+  自动设备推断/厂商云/自动单位换算/auto 40001 映射）；M12-C durable
+  provenance/schema（C3-H7）；M12-D durable provenance（§100.7）。
+- **FUTURE / OUT-OF-SCOPE（canonical 明示）**：OCR expansion、multi-manual
+  Q&A、whole-library Q&A/RAG、conversation memory、durable Q&A history、
+  cross-session state、新 provider families、provider-selection UI、M12-D
+  mutation、M12-C reopening。
+- deferred/future 项**不是**缺陷、**不是** blocker。
+
+### 108.6 historical defect / incident preservation
+
+M12-A/B 历史缺陷与修复；M12-C：cold-start hydration、C3 first slice、
+Standing Discard、C3 Edit、Consent lifecycle repair、canonical 66→67
+ratification correction、其他归档证据边界；M12-D：R2 初版行为、R2A
+provenance closure、R2B structured-output 修复、R2C runner/provider
+transient 事件、R2D observability、**R2D §29 process violation =
+PERMANENT HISTORICAL INCIDENT**、R2D-A recovery audit = PASS、R2E
+app-resolved citation 修复、R2E Human acceptance、R2F final closure audit
+GO、R2G M12-D final closure——**全部原文保留，不重写、不软化**。
+
+### 108.7 latest Human-tested behavior lineage
+
+M12-A anchors：`1c42aaf`（first slice）→ `5d4d9c2`（lookup foundation）；
+M12-B anchors：`becadc5`（Register Map Editor）→ … → `13799d6`（M12-B 最后
+behavior tree）；M12-C anchors：`61f641ef` → `bb996a5` → `4a77673` →
+`c68d2bb`；M12-D anchors：`80e4326` → `777f783` → `a0146b7` → `8416fe7`。
+全部为 HEAD 祖先（实测）。**latest Human-tested behavior-bearing commit =
+`8416fe7a26eaa8c79ab8186513b60af5954a18b9`**（Human-tested M12-D final
+behavior tree；latest behavior-bearing tree across M12；**NOT yet verified
+LKGC**；其后 docs commits 非 behavior baseline）。no-drift 实测：
+`git diff 8416fe7..HEAD -- src tests CMakeLists.txt samples` = 空。
+
+### 108.8 release / governance boundary（独立决策，非 M12 功能 blocker）
+
+**SEPARATE RELEASE / GOVERNANCE ITEMS**：verified LKGC advancement（保持
+`c68d2bbb…` UNCHANGED；推进需独立 Human 授权）；canonical package
+creation/publication（NOT CREATED）；tag creation（仅 v1.0.0 既有）；
+push（NONE）；real Modbus hardware validation（canonical = NOT VERIFIED /
+future / separate hardware validation——非 M12 功能 closure 必需）。以上
+**不得**误写为 M12 功能 closure blocker。
+
+### 108.9 final M12 canonical state
+
+```text
+M12-A  = FOUNDATION ACCEPTED
+M12-B  = COMPLETE
+M12-C  = COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN
+M12-D  = COMPLETE / HUMAN ACCEPTED
+M12 OVERALL = COMPLETE / HUMAN ACCEPTED
+ALL CANONICAL M12 EXIT CONDITIONS = SATISFIED
+UNRESOLVED REQUIRED P0 / HUMAN DECISION = NONE
+CURRENT REQUIRED DEFECT BLOCKER = NONE
+latest Human-tested behavior-bearing commit = 8416fe7a26eaa8c79ab8186513b60af5954a18b9
+verified LKGC = c68d2bbb277096fd7fb9a76d99d7b588da6461f0（UNCHANGED）
+canonical package = NOT CREATED
+REAL MODBUS HARDWARE = NOT VERIFIED
+tag = v1.0.0 only
+push = NONE
+```
+
+### 108.10 action boundary
+
+本节所在提交 docs-only 永不作 LKGC；无新 milestone / behavior slice 启动；
+无 build/test/candidate；无 package/tag/push/amend。**NEXT = SEPARATE HUMAN
+DECISION ON LKGC ADVANCEMENT OR OTHER POST-M12 RELEASE / GOVERNANCE
+ACTION**。
