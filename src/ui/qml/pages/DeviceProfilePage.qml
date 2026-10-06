@@ -1309,10 +1309,25 @@ Item {
             width: parent.width
             spacing: DS.spacingM
 
-            SectionHeader {
-                objectName: "manualQaHeader"
+            RowLayout {
                 Layout.fillWidth: true
-                title: qsTr("手册问答（基于所选说明书证据）")
+                spacing: DS.spacingS
+
+                SectionHeader {
+                    objectName: "manualQaHeader"
+                    Layout.fillWidth: true
+                    title: qsTr("手册问答（基于所选说明书证据）")
+                }
+                // POST-M12-UX-R1: the panel is an explicit retract-only
+                // surface. This control is the single close path and is
+                // always usable, including while an attempt is running:
+                // closing is VISUAL ONLY (no cancel, no state clear).
+                AppButton {
+                    objectName: "manualQaCloseButton"
+                    Accessible.name: qsTr("关闭手册问答")
+                    text: qsTr("关闭")
+                    onClicked: manualQaCard.close()
+                }
             }
             Label {
                 objectName: "manualQaSelectedManual"

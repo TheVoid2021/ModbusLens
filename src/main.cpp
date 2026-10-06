@@ -17482,6 +17482,617 @@ int runManualQaCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         window->resize(1280, 937);
     });
 
+    // =====================================================================
+    // POST-M12-UX-R1 — Manual Q&A panel retract / reopen lifecycle (narrow
+    // UI repair). Human contract: the open panel must expose an explicit
+    // retract control in its header; retracting must remove it from the
+    // visible layout on every workspace page; the open action must stay
+    // available; retracting must be VISUAL ONLY (no state clear, no Cancel,
+    // no generation invalidation, no consent/session/selection/Candidate/
+    // DeviceProfile change, no delete, no Modbus dispatch); retracting a
+    // RUNNING attempt must not be a Cancel; close -> reopen preserves the
+    // answer and its citations; NO automatic close on navigation is added.
+    // Source truth before the repair (read-only audit): `manualQaCard.` has
+    // exactly one use in the whole page (`manualQaCard.open()` on
+    // manualQaOpenButton), `closePolicy: Popup.NoAutoClose` suppresses the
+    // Escape / outside-press paths, and no close() call exists anywhere -
+    // so after opening there is no Human-visible way to retract the panel.
+    // =====================================================================
+    auto *uxCandidate = rootObj ? rootObj->findChild<QObject *>(
+                                     QStringLiteral("candidateController"))
+                                : nullptr;
+    auto *uxProfile = rootObj ? rootObj->findChild<QObject *>(
+                                   QStringLiteral("profileController"))
+                              : nullptr;
+    // State-level facts only (popup-independent): these are the D-contract
+    // facts that must survive a close.
+    const auto uxStateSnapshot = [qaController, qaFake, manual, uxCandidate,
+                                  uxProfile]() {
+        QVariantMap m;
+        m.insert(QStringLiteral("state"),
+                 qaController->property("stateToken"));
+        m.insert(QStringLiteral("resultStatus"),
+                 qaController->property("resultStatusToken"));
+        m.insert(QStringLiteral("answerText"),
+                 qaController->property("answerText"));
+        m.insert(QStringLiteral("citations"),
+                 qaController->property("citations"));
+        m.insert(QStringLiteral("beginCount"), qaFake->beginCount());
+        m.insert(QStringLiteral("cancelCount"), qaFake->cancelCount());
+        if (manual) {
+            m.insert(QStringLiteral("documentId"),
+                     manual->property("selectedDocument")
+                         .toMap()
+                         .value(QStringLiteral("documentId")));
+        }
+        if (uxCandidate) {
+            m.insert(QStringLiteral("candidateCount"),
+                     uxCandidate->property("candidateCount"));
+        }
+        if (uxProfile) {
+            m.insert(QStringLiteral("profileDirty"),
+                     uxProfile->property("dirty"));
+        }
+        return m;
+    };
+    // Widget-level facts, only readable while the panel content is realized
+    // (used around the close -> reopen cycle).
+    const auto uxUiTexts = [&roots]() {
+        QVariantMap m;
+        if (auto *q =
+                findNamedItem(roots, QStringLiteral("manualQaQuestionInput"))) {
+            m.insert(QStringLiteral("question"), q->property("text"));
+        }
+        if (auto *s =
+                findNamedItem(roots, QStringLiteral("manualQaSelectedManual"))) {
+            m.insert(QStringLiteral("selectedLabel"), s->property("text"));
+        }
+        if (auto *a = findNamedItem(roots, QStringLiteral("manualQaAnswer"))) {
+            m.insert(QStringLiteral("answer"), a->property("text"));
+        }
+        return m;
+    };
+    // The panel's layout fact: a Drawer is position-driven, so `opened`
+    // (fully open) and `position` (0 = fully retracted) are the truth about
+    // whether it occupies the window; the raw `visible` flag is kept by the
+    // Drawer through its transition and is not a layout signal.
+    const auto uxPanelOpen = [&roots]() -> bool {
+        for (QObject *root : roots) {
+            if (auto *card = root->findChild<QObject *>(
+                    QStringLiteral("manualQaCard"))) {
+                return card->property("opened").toBool()
+                    || card->property("position").toDouble() > 0.0;
+            }
+        }
+        return false;
+    };
+    const auto uxDrift = [](const QVariantMap &before,
+                            const QVariantMap &after) {
+        QStringList drift;
+        for (auto it = before.constBegin(); it != before.constEnd(); ++it) {
+            const QVariant now = after.value(it.key());
+            if (now != it.value()) {
+                drift << QStringLiteral("%1('%2' -> '%3')")
+                             .arg(it.key(), it.value().toString(),
+                                  now.toString());
+            }
+        }
+        return drift;
+    };
+    // The three facts this repair must NEVER touch, compared across the whole
+    // UX sequence: Manual selection identity, Candidate authority, Device
+    // Profile dirty state.
+    const auto uxStableDrift = [&uxDrift](const QVariantMap &before,
+                                          const QVariantMap &after) {
+        QStringList drift;
+        for (const QString &key :
+             {QStringLiteral("documentId"), QStringLiteral("candidateCount"),
+              QStringLiteral("profileDirty")}) {
+            if (before.value(key) != after.value(key)) {
+                drift << QStringLiteral("%1('%2' -> '%3')")
+                             .arg(key, before.value(key).toString(),
+                                  after.value(key).toString());
+            }
+        }
+        return drift;
+    };
+    auto uxBaseline = std::make_shared<QVariantMap>();
+    auto uxUiBaseline = std::make_shared<QVariantMap>();
+
+    // The Drawer slides out through a ~300ms exit transition, so a retraction
+    // claim must be measured after the transition, never during it. Push
+    // `count` plain settle steps (80ms each) and then the assertion step.
+    const auto pushAfterSettle = [&push](int count,
+                                         std::function<void()> step) {
+        for (int i = 0; i < count; ++i) {
+            push([]() {});
+        }
+        push(std::move(step));
+    };
+    // Reopening goes through the same Human path as the first open, and the
+    // Drawer's enter transition is delayed, so the "is open" claim is taken
+    // after the transition has settled.
+    const auto pushReopenAndAssert = [&](const QString &tag) {
+        push([&, tag]() {
+            if (!clickNamed(QStringLiteral("manualQaOpenButton"))) {
+                fail(QStringLiteral("%1: the Q&A open control is not "
+                                    "clickable")
+                         .arg(tag));
+            }
+        });
+        pushAfterSettle(3, [&, tag]() {
+            QObject *card = objectOf(QStringLiteral("manualQaCard"));
+            const bool opened =
+                card != nullptr && card->property("opened").toBool();
+            if (!opened) {
+                fail(QStringLiteral("%1: the panel did not reopen (opened=%2 "
+                                    "position=%3)")
+                         .arg(tag)
+                         .arg(opened)
+                         .arg(card != nullptr
+                                  ? card->property("position").toDouble()
+                                  : -1.0));
+            }
+        });
+    };
+    // Optional visual evidence for this UI repair (never an oracle
+    // substitute): screenshots are written only when the harness is asked for
+    // them, same convention as the other QML gates.
+    QString uxDumpDir;
+    {
+        const QStringList args = app.arguments();
+        const int idx = args.indexOf(QStringLiteral("--qml-write-dump"));
+        if (idx >= 0 && idx + 1 < args.size()) {
+            uxDumpDir = args.at(idx + 1);
+        }
+    }
+    const auto uxShot = [window, &uxDumpDir, &note](const QString &tag) {
+        if (uxDumpDir.isEmpty() || window == nullptr) {
+            return;
+        }
+        const QImage image = window->grabWindow();
+        const QString path =
+            QDir(uxDumpDir).filePath(tag + QStringLiteral(".png"));
+        if (image.save(path)) {
+            note(QStringLiteral("WRITE [UX-R1]: %1 %2x%3")
+                     .arg(path)
+                     .arg(image.width())
+                     .arg(image.height()));
+        } else {
+            note(QStringLiteral("WRITE [UX-R1]: FAILED %1").arg(path));
+        }
+    };
+
+    // UX-A — arm a REAL populated FOUND state while the panel is open, so
+    // the close/reopen cycle acts on a real answer with a locally validated
+    // citation (bound to a Manual imported through the real import path).
+    push([&]() {
+        if (!uxPanelOpen()) {
+            fail(QStringLiteral("UX-A: the Q&A panel is not open"));
+            return;
+        }
+        setCitationMode(GateQaRunner::Mode::Found);
+        const QString uxSeedPath =
+            QDir(managedRoot.path())
+                .filePath(QStringLiteral("sources/qa-ux.txt"));
+        {
+            QFile uxSeed(uxSeedPath);
+            if (!uxSeed.open(QIODevice::WriteOnly)) {
+                fail(QStringLiteral("UX-A: the UX seed write failed"));
+                return;
+            }
+            uxSeed.write(QStringLiteral("Device: QA-1000 Inverter\n"
+                                        "Rated input voltage: 380 V AC "
+                                        "three-phase.\n")
+                             .toUtf8());
+        }
+        bool imported = false;
+        QMetaObject::invokeMethod(manual, "importManualFile",
+                                  Qt::DirectConnection,
+                                  Q_RETURN_ARG(bool, imported),
+                                  Q_ARG(QUrl, QUrl::fromLocalFile(uxSeedPath)));
+        if (!imported) {
+            fail(QStringLiteral("UX-A: the UX seed manual did not import"));
+            return;
+        }
+        askViaController(
+            QStringLiteral("\u989d\u5b9a\u8f93\u5165\u7535\u538b\u662f\u591a"
+                           "\u5c11\uff1f"));
+        if (qaState() == QStringLiteral("consent_required")) {
+            fail(QStringLiteral("UX-A: an unexpected consent prompt appeared "
+                                "(the Q&A consent must persist in-session)"));
+            return;
+        }
+        if (qaResult() != QStringLiteral("found")) {
+            fail(QStringLiteral("UX-A: the seeded FOUND result did not land "
+                                "(got '%1')")
+                     .arg(qaResult()));
+            return;
+        }
+        auto *answer = itemOf(QStringLiteral("manualQaAnswer"));
+        if (answer == nullptr || !answer->isVisible()) {
+            fail(QStringLiteral("UX-A: the FOUND answer is not displayed"));
+        }
+        if (qaController->property("citations").toList().isEmpty()) {
+            fail(QStringLiteral("UX-A: the FOUND result carries no citation"));
+        }
+    });
+    // UX-01 (REAL RED) — the OPEN panel must expose a Human-visible retract
+    // control in its header. Before the repair this is the defect itself: no
+    // such control exists, and NoAutoClose removes the Escape/outside-press
+    // paths, so an opened panel could only be removed by restarting.
+    push([&]() {
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (card == nullptr || !card->property("visible").toBool()) {
+            fail(QStringLiteral("UX-01: the Q&A panel is not open"));
+            return;
+        }
+        auto *close = itemOf(QStringLiteral("manualQaCloseButton"));
+        if (close == nullptr) {
+            fail(QStringLiteral("UX-01 (REAL RED): the open Manual Q&A panel "
+                                "exposes NO Human-visible retract control (no "
+                                "manualQaCloseButton in the visual tree) - "
+                                "and closePolicy NoAutoClose suppresses Escape "
+                                "and outside-press, so the panel cannot be "
+                                "retracted at all"));
+            return;
+        }
+        if (!close->isVisible() || !close->isEnabled()) {
+            fail(QStringLiteral("UX-01: the retract control exists but is not "
+                                "visible and enabled (visible=%1 enabled=%2)")
+                     .arg(close->isVisible())
+                     .arg(close->isEnabled()));
+        }
+    });
+    // UX-02 — the retract control is a real button with a Human-facing close
+    // label, and it lives inside the panel (not behind an obscure gesture).
+    push([&]() {
+        auto *close = itemOf(QStringLiteral("manualQaCloseButton"));
+        if (close == nullptr) {
+            fail(QStringLiteral("UX-02: the retract control is missing"));
+            return;
+        }
+        const QString cls =
+            QString::fromLatin1(close->metaObject()->className());
+        if (!cls.contains(QStringLiteral("Button"))) {
+            fail(QStringLiteral("UX-02: the retract control is not a button "
+                                "(%1)")
+                     .arg(cls));
+        }
+        const QString text = close->property("text").toString();
+        if (!text.contains(QStringLiteral("\u5173\u95ed"))) {
+            fail(QStringLiteral("UX-02: the retract control is not labelled "
+                                "as a close action ('%1')")
+                     .arg(text));
+        }
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (card == nullptr) {
+            fail(QStringLiteral("UX-02: the panel object is missing"));
+            return;
+        }
+        const QRectF panelRect(card->property("x").toDouble(),
+                               card->property("y").toDouble(),
+                               card->property("width").toDouble(),
+                               card->property("height").toDouble());
+        const QPointF closeScene = close->mapToScene(QPointF(0, 0));
+        const QRectF closeRect(closeScene,
+                              QSizeF(close->width(), close->height()));
+        const QRectF windowRect(QPointF(0, 0),
+                                QSizeF(window->width(), window->height()));
+        if (!panelRect.contains(closeRect)) {
+            fail(QStringLiteral("UX-02: the retract control is outside the "
+                                "panel (control=%1,%2 %3x%4 panel=%5,%6 "
+                                "%7x%8)")
+                     .arg(closeRect.x())
+                     .arg(closeRect.y())
+                     .arg(closeRect.width())
+                     .arg(closeRect.height())
+                     .arg(panelRect.x())
+                     .arg(panelRect.y())
+                     .arg(panelRect.width())
+                     .arg(panelRect.height()));
+        }
+        if (!windowRect.contains(closeRect)) {
+            fail(QStringLiteral("UX-02: the retract control is outside the "
+                                "window"));
+        }
+        uxShot(QStringLiteral("ux-r1-01-panel-open"));
+    });
+    // UX-03 — capture the pre-close baseline (state + widget facts) and use
+    // the control on the REAL Human path (a window-level synthetic click,
+    // the same delivery path a mouse uses).
+    push([&]() {
+        *uxBaseline = uxStateSnapshot();
+        *uxUiBaseline = uxUiTexts();
+        auto *card = objectOf(QStringLiteral("manualQaCard"));
+        if (!clickNamed(QStringLiteral("manualQaCloseButton"))) {
+            fail(QStringLiteral("UX-03: the retract control is not clickable"));
+            return;
+        }
+        if (card != nullptr && card->property("opened").toBool()) {
+            // The Drawer is a popup on the window overlay: if the synthetic
+            // window-level event was not hit-tested into the popup content,
+            // exercise the exact same QML wiring at the signal level and
+            // record which path was used.
+            auto *close = itemOf(QStringLiteral("manualQaCloseButton"));
+            if (close != nullptr) {
+                QMetaObject::invokeMethod(close, "clicked");
+                note(QStringLiteral("UX-03: the window-level click was not "
+                                    "hit-tested into the popup content; the "
+                                    "panel was retracted through the same "
+                                    "button's clicked signal"));
+            }
+        } else {
+            note(QStringLiteral("UX-03: the real window-level click on the "
+                                "retract control closed the panel"));
+        }
+    });
+    // UX-04 — the panel is retracted: the popup is no longer open (semantic
+    // state) and, once the Drawer's exit transition has finished, nothing of
+    // it is painted any more (visible layout proof).
+    push([&]() {
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (card == nullptr) {
+            fail(QStringLiteral("UX-04: the panel object is missing"));
+            return;
+        }
+        if (card->property("opened").toBool()) {
+            fail(QStringLiteral("UX-04: the panel is still open after the "
+                                "retract control was used"));
+        }
+        note(QStringLiteral("UX-04: after the retract control, opened=%1 "
+                            "visible=%2")
+                 .arg(card->property("opened").toBool())
+                 .arg(card->property("visible").toBool()));
+    });
+    // Separate step: the Drawer slides out through its exit transition (it
+    // is position-driven and keeps `visible` through the slide), so the
+    // visible-layout proof is taken only after the transition has settled.
+    pushAfterSettle(6, [&]() {
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (card == nullptr) {
+            fail(QStringLiteral("UX-04: the panel object is missing"));
+            return;
+        }
+        const bool opened = card->property("opened").toBool();
+        const double position = card->property("position").toDouble();
+        const QRectF windowRect(QPointF(0, 0),
+                                QSizeF(window->width(), window->height()));
+        auto *close = itemOf(QStringLiteral("manualQaCloseButton"));
+        QRectF closeRect;
+        bool closePainted = false;
+        if (close != nullptr) {
+            const QPointF scene = close->mapToScene(QPointF(0, 0));
+            closeRect = QRectF(scene, QSizeF(close->width(), close->height()));
+            closePainted = close->isVisible();
+        }
+        note(QStringLiteral("UX-04 (settled): opened=%1 position=%2 panelX=%3 "
+                            "controlScene=%4,%5 %6x%7 painted=%8 window=%9x%10")
+                 .arg(opened)
+                 .arg(position)
+                 .arg(card->property("x").toDouble())
+                 .arg(closeRect.x())
+                 .arg(closeRect.y())
+                 .arg(closeRect.width())
+                 .arg(closeRect.height())
+                 .arg(closePainted)
+                 .arg(window->width())
+                 .arg(window->height()));
+        uxShot(QStringLiteral("ux-r1-02-device-closed"));
+        if (opened || position > 0.0) {
+            fail(QStringLiteral("UX-04: the panel is still open after its "
+                                "exit transition settled (opened=%1 "
+                                "position=%2)")
+                     .arg(opened)
+                     .arg(position));
+        }
+        if (closePainted && windowRect.intersects(closeRect)) {
+            fail(QStringLiteral("UX-04: the retract control is still inside "
+                                "the window layout after the close (%1,%2 "
+                                "%3x%4 in %5x%6)")
+                     .arg(closeRect.x())
+                     .arg(closeRect.y())
+                     .arg(closeRect.width())
+                     .arg(closeRect.height())
+                     .arg(window->width())
+                     .arg(window->height()));
+        }
+    });
+    // UX-05 — closing is VISUAL ONLY: the question draft, the selected
+    // Manual, the FOUND answer, the validated citations, the dispatch and
+    // cancel counters, the Candidate count and the DeviceProfile dirty state
+    // are all unchanged. The cancel counter is cumulative across the gate
+    // (earlier invalidation stages already spent cancellations), so this is
+    // a before/after drift comparison, never an absolute count.
+    push([&]() {
+        if (uxBaseline->isEmpty()) {
+            fail(QStringLiteral("UX-05: no pre-close baseline was captured"));
+            return;
+        }
+        const QStringList drift = uxDrift(*uxBaseline, uxStateSnapshot());
+        if (!drift.isEmpty()) {
+            fail(QStringLiteral("UX-05: closing the panel changed session "
+                                "state: %1")
+                     .arg(drift.join(QStringLiteral("; "))));
+        }
+    });
+    // UX-06 — the open action is still available after closing.
+    pushReopenAndAssert(QStringLiteral("UX-06"));
+    // UX-07 — close -> reopen preserves the answer, its citations, the
+    // question draft and the selected Manual identity.
+    push([&]() {
+        if (uxUiBaseline->isEmpty()) {
+            fail(QStringLiteral("UX-07: no pre-close widget baseline was "
+                                "captured"));
+            return;
+        }
+        const QStringList drift = uxDrift(*uxUiBaseline, uxUiTexts());
+        if (!drift.isEmpty()) {
+            fail(QStringLiteral("UX-07: reopening lost on-screen state: %1")
+                     .arg(drift.join(QStringLiteral("; "))));
+        }
+        auto *answer = itemOf(QStringLiteral("manualQaAnswer"));
+        if (answer == nullptr || !answer->isVisible()) {
+            fail(QStringLiteral("UX-07: the FOUND answer is not displayed "
+                                "after reopening"));
+        }
+        if (itemOf(QStringLiteral("manualQaCloseButton")) == nullptr) {
+            fail(QStringLiteral("UX-07: the retract control is gone after "
+                                "reopening"));
+        }
+    });
+    // UX-08 — retracting a RUNNING attempt is not a Cancel: the attempt
+    // keeps running, no generation is invalidated, no Cancel is issued, and
+    // the completion is still pending.
+    push([&]() {
+        setCitationMode(GateQaRunner::Mode::Deferred);
+        askViaController(
+            QStringLiteral("\u989d\u5b9a\u8f93\u5165\u7535\u538b\u662f\u591a"
+                           "\u5c11\uff1f"));
+        if (qaState() != QStringLiteral("running")) {
+            fail(QStringLiteral("UX-08: the deferred attempt did not enter "
+                                "Running (got '%1')")
+                     .arg(qaState()));
+            return;
+        }
+        const QVariantMap before = uxStateSnapshot();
+        if (!clickNamed(QStringLiteral("manualQaCloseButton"))) {
+            fail(QStringLiteral("UX-08: the retract control is not usable "
+                                "while an attempt is running"));
+            return;
+        }
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (card != nullptr && card->property("opened").toBool()) {
+            if (auto *close = itemOf(QStringLiteral("manualQaCloseButton"))) {
+                QMetaObject::invokeMethod(close, "clicked");
+            }
+        }
+        const QStringList drift = uxDrift(before, uxStateSnapshot());
+        if (!drift.isEmpty()) {
+            fail(QStringLiteral("UX-08: retracting a RUNNING panel changed "
+                                "state: %1")
+                     .arg(drift.join(QStringLiteral("; "))));
+        }
+        if (qaFake->cancelCount() != 0) {
+            fail(QStringLiteral("UX-08: retracting a RUNNING panel issued a "
+                                "provider Cancel"));
+        }
+        if (!qaFake->hasDeferred()) {
+            fail(QStringLiteral("UX-08: the in-flight attempt was dropped"));
+        }
+    });
+    // UX-09 — the pending completion still lands while the panel is closed:
+    // the panel is a view over the session state, not its owner.
+    push([&]() {
+        qaFake->deliverDeferred();
+        if (qaResult() != QStringLiteral("found")) {
+            fail(QStringLiteral("UX-09: the completion that arrived while the "
+                                "panel was closed was dropped (result '%1')")
+                     .arg(qaResult()));
+        }
+    });
+    // UX-10 — this repair invents NO navigation semantics: with the panel
+    // open (UX-08 left it retracted on purpose), switching to the Diagnosis
+    // workspace does not auto-close it - the retract control stays the
+    // single, explicit close path.
+    pushReopenAndAssert(QStringLiteral("UX-10"));
+    push([&]() { clickNamed(QStringLiteral("navItem_4")); });
+    push([&]() {
+        auto *page = itemOf(QStringLiteral("diagnosisPage"));
+        if (page == nullptr || !page->isVisible()) {
+            fail(QStringLiteral("UX-10: the Diagnosis workspace did not open"));
+        }
+        if (!uxPanelOpen()) {
+            fail(QStringLiteral("UX-10: the panel was auto-closed by "
+                                "navigation - no navigation semantics may be "
+                                "invented by this repair"));
+        }
+    });
+    // UX-11 — the retract control works from the Diagnosis workspace: the
+    // panel leaves the visible layout there too, and the Diagnosis page stays
+    // usable.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("manualQaCloseButton"))) {
+            fail(QStringLiteral("UX-11: the retract control is not usable "
+                                "from the Diagnosis workspace"));
+            return;
+        }
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (card != nullptr && card->property("opened").toBool()) {
+            if (auto *close = itemOf(QStringLiteral("manualQaCloseButton"))) {
+                QMetaObject::invokeMethod(close, "clicked");
+            }
+        }
+    });
+    pushAfterSettle(6, [&]() {
+        QObject *card = objectOf(QStringLiteral("manualQaCard"));
+        if (card == nullptr) {
+            fail(QStringLiteral("UX-11: the panel object is missing"));
+            return;
+        }
+        const bool opened = card->property("opened").toBool();
+        const double position = card->property("position").toDouble();
+        note(QStringLiteral("UX-11 (settled): opened=%1 position=%2 panelX=%3 "
+                            "windowWidth=%4")
+                 .arg(opened)
+                 .arg(position)
+                 .arg(card->property("x").toDouble())
+                 .arg(window->width()));
+        uxShot(QStringLiteral("ux-r1-03-diagnosis-closed"));
+        if (opened || position > 0.0) {
+            fail(QStringLiteral("UX-11: the panel still occupies the window "
+                                "after retracting from the Diagnosis page "
+                                "(opened=%1 position=%2)")
+                     .arg(opened)
+                     .arg(position));
+        }
+        auto *page = itemOf(QStringLiteral("diagnosisPage"));
+        if (page == nullptr || !page->isVisible() || !page->isEnabled()) {
+            fail(QStringLiteral("UX-11: the Diagnosis workspace is not usable "
+                                "after the retract"));
+            return;
+        }
+        auto *baselineRun =
+            itemOf(QStringLiteral("diagnosisRunBaselineButton"));
+        if (baselineRun == nullptr || !baselineRun->isVisible()
+            || !baselineRun->isEnabled()) {
+            fail(QStringLiteral("UX-11: the Diagnosis baseline control is not "
+                                "usable after the retract"));
+        }
+    });
+    // UX-12 — back on the Device workspace the open action is available
+    // again, the panel reopens, and the Manual identity / Candidate count /
+    // DeviceProfile dirty state are exactly what they were before the close
+    // sequence.
+    push([&]() { clickNamed(QStringLiteral("navItem_5")); });
+    pushReopenAndAssert(QStringLiteral("UX-12"));
+    push([&]() {
+        uxShot(QStringLiteral("ux-r1-04-device-reopened"));
+        auto *close = itemOf(QStringLiteral("manualQaCloseButton"));
+        if (close == nullptr || !close->isVisible() || !close->isEnabled()) {
+            fail(QStringLiteral("UX-12: the retract control is not available "
+                                "again after reopening"));
+        }
+        if (!uxUiBaseline->isEmpty()) {
+            const QStringList drift = uxDrift(*uxUiBaseline, uxUiTexts());
+            if (!drift.isEmpty()) {
+                fail(QStringLiteral("UX-12: on-screen session state was lost "
+                                    "across the page round-trip: %1")
+                         .arg(drift.join(QStringLiteral("; "))));
+            }
+        }
+        if (!uxBaseline->isEmpty()) {
+            const QStringList drift =
+                uxStableDrift(*uxBaseline, uxStateSnapshot());
+            if (!drift.isEmpty()) {
+                fail(QStringLiteral("UX-12: the close/reopen cycle touched "
+                                    "Manual / Candidate / DeviceProfile "
+                                    "state: %1")
+                         .arg(drift.join(QStringLiteral("; "))));
+            }
+        }
+    });
+
     auto index = std::make_shared<int>(0);
     auto finish = std::make_shared<std::function<void()>>();
     *finish = [&, index, finish]() {
