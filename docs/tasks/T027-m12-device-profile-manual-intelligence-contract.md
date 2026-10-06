@@ -11149,3 +11149,171 @@ real hardware = LATER-GATE / NON-BLOCKER FOR PACKAGING（均不扩大）
 CMakeLists.txt / samples / QML 改动；无 build / test / candidate /
 package / tag / push。R1–R3 的 tooling 实施与 RED→GREEN 在后续工具提交中
 单独归档（§115）。
+
+## 115. POST-M12-REL-R2 PHASE 2/3 — CANDIDATE-TREE PACKAGING IMPLEMENTATION
+AND READINESS RE-AUDIT（2026-10-07）
+
+### 115.1 tooling architecture（旧 → 新）
+
+```text
+旧（HISTORICAL LEGACY，M9-E/M10/M11 有效记录不改写）:
+  raw Release build → deploy_windows.bat(windeployqt) deploy 树
+  → make_package.py 两参数入口 → staging/ZIP
+  REAL RED 实测：--candidate 输入被当作位置参数
+  （"Release CMakeCache.txt not found in E:\desktop\ModbusLens\--candidate"）；
+  candidate 根作为 build dir 亦被拒（CMakeCache 假设）；
+  legacy REQUIRED_FILES 与 deploy 复制集均无 pdfium.dll；
+  structural_checks 对 ModbusLens_Test_Manual_A_Clear.txt PASS（无排除规则）。
+  → 证据 = build/_evidence/relr2-red.txt
+
+新（canonical，--candidate <candidate-root>）:
+  verified behavior source → modbuslens_generate_candidate.cmake
+  → candidate/ModbusLens（immutable input）
+  → make_package.py --candidate：
+     load_candidate_manifest（generator 身份/64-hex sha256/安全相对路径，
+     fail-closed）
+     → verify_candidate_root（逐文件存在 + SHA-256 实测一致；
+        必需 runtime 底线 = modbuslens.exe / pdfium.dll /
+        platforms/qwindows.dll / qt.conf；synthetic Manual 样本
+        fail-closed）
+     → stage_candidate_package（仅复制 manifest-listed 文件；
+        唯一显式排除 = candidate-manifest.json；
+        modbuslens.exe → ModbusLens.exe 同字节改名；
+        显式 release-only inclusion = samples/demo_v1.mlog（既有政策）；
+        生成 README.txt；structural_checks + negative scans）
+     → write_manifest / make_zip / verify_zip_entries /
+        extract_and_verify
+     → extracted exe ≡ candidate exe（SHA-256）
+     → PE Machine/ProductVersion（2.0.0）恒等
+     → minimal-PATH（smoke/nav/geometry）+ external-CWD gates
+  打包器不 invoke windeployqt / deploy_windows.bat（静态源 + 动态
+  monkeypatch 双证）；不从 build tree 拉运行时；不静默修补；全部失败
+  SystemExit(1)。
+  版本来源：repo CMakeLists.txt 单源 VERSION（candidate 无 build header），
+  与 PE ProductVersion 交叉验证；stem 派生不变（2.0.0 → x64）。
+  共享健壮性修复：make_zip 现创建输出目录（修复 legacy 首次运行于
+  全新机器的潜在失败）。
+```
+
+### 115.2 RED / GREEN / negative control
+
+```text
+REAL RED（修复前，build/_evidence/relr2-red.txt）:
+  RED-PKG-01  旧 CLI 无 candidate 模式（--candidate 被当位置参数）
+  RED-PKG-02  candidate 根无法作为输入（CMakeCache/raw-build 假设）
+  RED-PKG-02b legacy 内容契约无 pdfium.dll（REQUIRED_FILES + deploy 复制集）
+  RED-PKG-03  旧 structural_checks 对 synthetic Manual sample PASS
+
+GREEN（scripts/test_make_canonical_package.py，一次性 temp fixtures +
+fake payload，无真实 build / launch / provider）:
+  PKG-01..PKG-24 全 PASS（exit 0；
+  build/_evidence/relr2-green.txt / relr2-green-postcommit.txt）
+  覆盖：candidate 输入被接受 / 无 CMakeCache 依赖 / 无 windeployqt·
+  deploy_windows·run_deploy 可达（静态+动态）/ exe 字节同一 /
+  pdfium 必需且入包 / runtime 底线 / manifest 校验与
+  missing·malformed·foreign-generator fail-closed / 未列名 synthetic
+  sample 不复制 + 列名即拒绝 / demo_v1 政策不变 / credential 文件名·
+  文本 pattern / 绝对机器路径 / 用户数据缺席 / 两轮 manifest 逐字节一致
+  （幂等见证）/ ZIP·manifest 生成 / 2.0.0 stem / candidate 零突变 /
+  staging 内容集 == candidate − manifest + 授权 release metadata。
+
+Negative control（§16）:
+  精确 mutate = 从 CANDIDATE_REQUIRED_RUNTIME 移除 pdfium.dll（测试零改动）
+  → 确定性 RED：恰好 PKG-05b FAIL（其余 25 项保持 PASS）
+  → 精确逆向 patch → md5 双文件 byte-exact
+    （834da7665f14af6f70f7a1e921d6265c / f882c12b8a61f453159f6350568b6aa9）
+  → 复绿 exit 0；residue = 0。
+```
+
+### 115.3 verification（targeted + canonical regression）
+
+```text
+Targeted（§18）:
+  python scripts/test_make_canonical_package.py  → PASS（exit 0）
+  python scripts/test_make_package_freshness.py  → PASS（exit 0，
+  legacy freshness 语义未受影响）
+Canonical regression（§19；rationale = V2 规则"全部 task：full
+regression PASS" + scripts 为 tracked 内容被 CTest 目标消费 + M9-E 先例）:
+  build/acceptance/session-post-m12-rel-r2-release
+  configure RC 0（MODBUSLENS_PYTHON_EXECUTABLE 在 cache；"not registered"=0）
+  build 474/474 RC 0；ctest -N = 70（无新增 CTest 目标）
+  full unfiltered ctest = 70/70 PASS，exit 0，real 227.57s
+Post-commit（§22）: 两套件复跑 PASS；行为路径 9c065f2..HEAD 仍 EMPTY。
+```
+
+### 115.4 tooling commit
+
+```text
+commit   = 4643e31e6e475c00c684b029d3de6a383a104e59
+subject  = Release: package canonical candidate tree
+parent   = 751eed412645a89f79612ec340c9600ae080803f
+files    = scripts/make_package.py（+277/−18）
+           scripts/test_make_canonical_package.py（新增，376 行）
+总计     2 files changed, 653 insertions(+), 18 deletions(-)
+分类     = RELEASE TOOLING / INFRASTRUCTURE
+           （非 M12 产品行为；非 Human-tested 产品基线；非 verified LKGC；
+            NO AMEND；无 docs 混入）
+产品行为边界：9c065f23..HEAD 的 src/tests/CMakeLists.txt/samples diff
+持续 EMPTY；`git diff --name-status -- src/core src/ui samples
+CMakeLists.txt`（工具改动前后）= EMPTY。
+```
+
+### 115.5 PHASE 3 readiness re-audit（REL-01..REL-21，只读）
+
+```text
+REL-01 verified LKGC identity        PASS（9c065f2… = commit，canonical 分类在案）
+REL-02 ancestry                      PASS（target 为 HEAD 祖先）
+REL-03 descendant classification     PASS（LKGC 后代 = 2 docs + 1
+                                     release-tooling；产品行为路径 diff EMPTY，
+                                     见 §26 的 PRODUCT/TOOLING 分离口径）
+REL-04 behavior no-drift             PASS（name-status + stat EMPTY）
+REL-05 M12 closure                   PASS（§108）
+REL-06 UX-R1 Human acceptance        PASS（§110）
+REL-07 UX-R2 canonical 70/70         PASS（§111 + 本轮 fresh 70/70/227.57s）
+REL-08 candidate provenance          PASS（§111；exe SHA-256 只读复验一致）
+REL-09 exact deployment              PASS（§111；Passed 26.57s）
+REL-10 UX-R2 Human acceptance        PASS（§112）
+REL-11 package source-of-truth       PASS（R1 冻结 + --candidate 实装：
+                                     只消费 verified-LKGC candidate tree）
+REL-12 package contents contract     PASS（R2 实装：pdfium 必需 + manifest
+                                     对账 + 显式排除/包含清单）
+REL-13 synthetic sample exclusion    PASS（R3 实装：未列名不复制、列名
+                                     fail-closed、structural gate 双路径拒绝）
+REL-14 credential exclusion          PASS（负向扫描保留并被测试钉住）
+REL-15 user/runtime-data exclusion   PASS
+REL-16 runtime dependency readiness  PASS（candidate manifest runtime set
+                                     为准；pdfium/qwindows/qt.conf 底线）
+REL-17 version/tag policy            PASS（2.0.0 CMake 单源；stem 派生；
+                                     tag = LATER-GATE；不创建 tag）
+REL-18 real hardware policy          PASS（NON-BLOCKER / LATER-GATE，不扩大）
+REL-19 notes/license/checksum/signing PASS（README 生成；license 缺失 =
+                                     accepted limitation；checksum =
+                                     package-manifest.sha256 + ZIP sha；
+                                     signing = LATER-GATE）
+REL-20 procedure reproducibility     PASS（--candidate fail-fast 幂等 +
+                                     PKG 套件 + 输入 = candidate root 一项）
+REL-21 current blocker audit         PASS（无未闭合 required P0 / defect
+                                     blocker；R2D §29 为 historical incident）
+```
+
+### 115.6 readiness verdict
+
+```text
+POST-M12 RELEASE READINESS RE-AUDIT = GO
+READY FOR CANONICAL RELEASE PACKAGING = YES
+CANONICAL PACKAGING SOURCE = VERIFIED-LKGC CANONICAL CANDIDATE TREE
+CANONICAL PACKAGE CONTENT CONTRACT = M12-RUNTIME-COMPLETE
+SYNTHETIC MANUAL SAMPLES = EXCLUDED
+CANONICAL PACKAGE = NOT CREATED（本会话未创建最终包；测试用一次性
+  fixture 包仅存在于确定性 temp 目录，未晋升未归档）
+verified LKGC = 9c065f23a7f06beb73beedb680a3fe3b03e4c596（UNCHANGED）
+tag = v1.0.0 only；push = NONE
+NEXT = SEPARATE HUMAN AUTHORIZATION TO CREATE THE CANONICAL RELEASE PACKAGE
+```
+
+### 115.7 action boundary
+
+本节所在提交 = docs only（永不作 LKGC）。工具提交 `4643e31…` 为
+release tooling（授权的后代；不改变产品行为；不进入 verified LKGC）。
+未创建最终 canonical package；未 tag / push / publication；未推进
+LKGC；未开始新 milestone。
