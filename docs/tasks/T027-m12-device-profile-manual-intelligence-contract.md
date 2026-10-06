@@ -9576,3 +9576,121 @@ transient-only 推定**仅对其那一次 runner !ok 事件有效**（该事件�
   ACCEPTED / FROZEN；**verified LKGC = `c68d2bb…` UNCHANGED**；M12-D second
   slice / package / tag / push = 未授权未发生；本节所在提交 docs-only 永不
   作 LKGC。
+
+## 105. M12-D CITATION VALIDATION HUMAN-LIVE RCA + APP-RESOLVED CITATIONS（SESSION M12-D-R2E · behavior `8416fe7` · HUMAN RE-TEST PENDING）
+
+> Human 授权（逐字）：「授权：执行 M12-D-R2E citation validation Human-live
+> RCA。新的 Human evidence 已出现'回答的说明书依据未通过本地校验'，证明本次
+> 请求已成功通过 provider/runner 与 structured parser，失败发生在本地
+> deterministic citation validation。……若确认是当前 provider citation
+> contract 设计导致模型需要自行生成不可可靠复现的 canonical identity/range，
+> 则先做 source/contract feasibility audit，判断能否在不改变 D1～D5 的前提下
+> 由应用提供稳定 chunk/citation identity、由 provider 仅选择引用、再由本地
+> 映射回 D2 canonical citation shape……不得放宽 document/hash/range/excerpt
+> round-trip 校验，不推进 LKGC，不开始第二切片/package/tag/push。任何大文件
+> 损坏立即 STOP，不得同 session 重建。」
+
+### 105.1 Human live defect（逐字保留）
+
+选中 `ModbusLens_Test_Manual_A_Clear.txt`、问「这台设备的厂商是什么？」→
+UI「回答的说明书依据未通过本地校验。」——与 R2C 的「问答未成功」（runner
+!ok）和 R2 的「云端返回的问答结果无法解析」（parse 失败）**类别不同**：
+provider/runner/structured parser **全部成功**，FOUND 进入本地 citation
+validation 且**失败**。
+
+### 105.2 Phase A — 只读 RCA（错误源/validator 契约/类别保留/权威表）
+
+- **错误串唯一来源**：`ManualQaController::completeAttempt` 的
+  `validateManualQaFoundResult` 失败分支 → `citationCodeToErrorToken`
+  （ManualQaController.cpp:29）→ 「回答的说明书依据未通过本地校验。」。
+- **类别保留审计（§8）**：validator 的四个类别
+  （DocumentMismatch/ContentHashMismatch/InvalidRange/RoundTripFailed）
+  **已经**通过 `citationCodeToErrorToken` 完整保留进
+  `lastErrorToken`/`failureText`——无 collapse，**不加重复观测性**。
+- **校验顺序（§9）**：empty answer → zero citations → 逐 citation
+  [documentId → contentHash → range → round-trip]，首败即返（先败屏蔽后败
+  ——探针解读时已考虑）。
+- **citation contract 权威表（§10/§11，源码实测）**：prompt 将
+  documentId/contentHash 与每块 [start,end) 偏移**明文交给模型**，并要求
+  模型在输出中原样复制 identity/hash、**自行生成数值偏移**、**逐字复制
+  excerpt** ⇒ 权威分类：documentId = MODEL-COPIED；contentHash =
+  MODEL-COPIED；pageNumber = 未提供（模型输出 -1）；textStart/textEnd =
+  **MODEL-GENERATED**；excerpt = MODEL-COPIED。**模型必须从 prompt 文本中
+  精确再现 canonical identity/range = YES**——这就是确定性弱点。
+
+### 105.3 live probe ×2（§18/§19：结构元数据 + 安全类别 only）
+
+对合成 Manual A + 合成问题、生产等价请求（enable_thinking=false）执行 D2
+校验镜像：**两次均为 HTTP 200 / parse ok / citations 1 /
+D2 validation category = round_trip_failed**，且 citation[0] offsets
+均在提供的块边界内——模型**试图**按块边界引用但 excerpt/偏移组合无法逐字
+对齐 canonical 切片。**R2E-C4 RoundTripFailed 确定性重现**（×2），子类 =
+§21-C（模型数值偏移生成不可靠）+ §21-D（excerpt 非精确切片副本）。
+
+### 105.4 修复（§22 Option 1 — APP-RESOLVED CITATIONS，§14 A–G 全部证实）
+
+- **A**：失败由模型生成/复制 canonical identity/range 导致（105.2/105.3）；
+- **B**：app 在 dispatch 前已拥有确定性块表（buildManualQaContextBlocks 的
+  [start,end,text]）；citationId = "c1".."cN"（会话内、非密、opaque、按
+  generation 失效）；
+- **C**：映射产出的最终 citation 仍为精确 D2 六字段；
+- **D**：`validateManualQaCitation`/`validateManualQaFoundResult` **零改动**
+  ——映射后的 canonical citation 必然通过 round-trip（excerpt 即真实切片）；
+- **E**：provider 权威**缩小**（只能选择，不能创作 canonical 值）；
+- **F**：D1–D5 用户可见语义零变化；
+- **G**：映射与篡改拒绝可确定性测试。
+
+**实现**：`buildRequestBody` prompt 改为 **citationId 选择契约**（每块前
+标注 `citationId: cN`；输出只能 `{"citationId":"cN"}`，禁止自行编造
+documentId/contentHash/偏移/原文）；`parseProviderResult` 接受
+`{"citationId":…}` 形状并把 opaque id 暂存；新增纯函数
+`resolveProviderResult(json, request, failureCategory*)`：parse + 将
+selected id 映射回 canonical citation（documentId/contentHash 取请求绑定、
+offsets/excerpt 取所引块）——**未知 id fail-closed**（qa_parse_citation_
+unknown_id）；`ManualQaController::completeAttempt` 改用 resolve pass
+（activeRequest_ 保存当前请求块表）。**validator/A–D 校验零改动**；provider
+无法再供给 canonical 值 ⇒ 篡改面消失。
+
+### 105.5 测试与验证链（凭据缺席、零 live provider 于 CTest）
+
+- **PRE-FIX RED（live）**：R2E 探针 ×2 round_trip_failed（Human live 类）
+  + Human 本体两次失败 = 历史 REAL RED。
+- **qa40（新契约 GREEN）**：citationId 选择 → canonical citation 映射
+  （documentId/contentHash = 绑定值、offsets = 块界、excerpt = 真实切片）
+  → FOUND；**unknown id "c99" ⇒ ERROR `qa_parse_citation_unknown_id`**
+  （strictness counter-test，fail-closed）。
+- **qa41（失败类确定性重现）**：provider-authored excerpt/offsets 不匹配
+  ⇒ ERROR `qa_citation_round_trip_failed`——锁定旧失败类在任意 legacy 输出
+  下仍 fail-closed。
+- **NX-QA-CITID**：临时允许未知 citationId 回落 block 0 ⇒ RED **恰好
+  qa40** → 精确逆向 → 41/41 复绿（residue 0）。
+- **targeted**：manual_qa 41/41 + agent_runtime/ai_client + manual_import/
+  delete + candidate_review + consent gate = **10/10 PASS**。
+- **pre-commit fresh 树 `session-m12d-r2e-release/`**（python 变量生效）：
+  configure RC0 / inventory **70** / build **474/474** / full unfiltered
+  **70/70 PASS / exit 0**（manual_qa #32 2.74s、deployment #36 33.65s、
+  c1b #37 26.67s、agent_runtime #48 6.86s、qml_manual_qa #69/#70）。
+- **行为提交 = `8416fe7a26eaa8c79ab8186513b60af5954a18b9`**
+  （`M12: make manual Q&A citations app-resolved`；5 files / +221 −11；
+  parent `918c028…`；NO AMEND；内无 docs；提交后
+  `git diff HEAD -- src tests CMakeLists.txt samples` = 空）。
+- **post-commit 树 `session-m12d-r2e-postcommit-release/`**：configure RC0 /
+  inventory **70** / build RC0 / full **70/70 PASS / exit 0 / 205.06s**。
+- **R2E candidate**（canonical generator FROM ZERO）：candidate exe ≡
+  source exe（**6,814,977 B，SHA-256
+  `658f0ff6102eebb170d15d0e89fcddb9312dbfdf7593a129418835dc2e96c4b9`**）；
+  manifest `files` = **1713 条** / root 实际文件含 manifest = **1714** /
+  目录 = **90**；qwindows `80473907…8ac`；pdfium `d42c452a…f14b`。
+- **EXACT deployment gate**：对该 exact candidate = **Passed 27.55s**
+  （净环境、候选树内 qwindows、启动 exit 0、零 provider request）。
+
+### 105.6 状态与 Human re-test
+
+- **M12-D citation validation Human-live defect = REPAIRED / AUTOMATED
+  PASS**；**D2 canonical citation validation = UNCHANGED / AUTHORITATIVE**
+  （六字段形状与 A–D 校验逐字未动；无 uniqueness）；**M12-D HUMAN RE-TEST =
+  REQUIRED**（复测 FOUND + citation，唯一入口 = R2E 候选）；M12-D Human
+  acceptance = IN PROGRESS；M12-D overall = IN PROGRESS；M12-D contract =
+  HUMAN-FROZEN（§100）；M12-C = COMPLETE / HUMAN ACCEPTED / FROZEN；
+  **verified LKGC = `c68d2bb…` UNCHANGED**；M12-D second slice / package /
+  tag / push = 未授权未发生；本节所在提交 docs-only 永不作 LKGC。

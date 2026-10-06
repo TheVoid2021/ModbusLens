@@ -1,6 +1,47 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-06 追加批注 · M12-D — CITATION VALIDATION HUMAN-LIVE DEFECT REPAIRED（Session M12-D-R2E · behavior `8416fe7` · Human re-test PENDING · 以本块为准）〕**
+档案 = **T027 §105**。Human 授权（逐字）：「授权：执行 M12-D-R2E citation
+validation Human-live RCA。……若确认是当前 provider citation contract 设计
+导致模型需要自行生成不可可靠复现的 canonical identity/range，则先做
+source/contract feasibility audit，判断能否在不改变 D1～D5 的前提下由应用
+提供稳定 chunk/citation identity、由 provider 仅选择引用、再由本地映射回 D2
+canonical citation shape……不得放宽 document/hash/range/excerpt round-trip
+校验……任何大文件损坏立即 STOP，不得同 session 重建。」**Human live
+defect**：R2E 候选复测出现「回答的说明书依据未通过本地校验。」——
+provider/runner/parser 全部成功、FOUND 进入本地 citation validation 且失败
+（类别与 R2C runner !ok、R2 parse 失败均不同）。**RCA**：错误串唯一来源 =
+validateManualQaFoundResult 失败分支（四类别经 citationCodeToErrorToken
+**已完整保留**进 lastErrorToken——无 collapse，未加重复观测性）；安全 live
+探针 ×2（结构元数据 + 安全类别 only）：**round_trip_failed 双次确定性重现**，
+offsets 在块内但 excerpt/偏移组合无法逐字对齐 canonical 切片 ⇒ 契约设计缺陷
+= 模型必须自行生成/复制 canonical identity/range。**修复（§22 Option 1，
+§14 A–G 全证实）**：**APP-RESOLVED CITATIONS**——请求块表附 opaque
+citationId（c1..cN），prompt 契约改为 provider 仅**选择** id；新增纯函数
+resolveProviderResult 把选中 id 映射回 canonical D2 citation（identity/
+hash 取请求绑定、offsets/excerpt 取所引块）——未知 id fail-closed（
+qa_parse_citation_unknown_id）；**validator 与最终 D2 citation 形状零改动**
+（映射产物必然 round-trip 通过；provider 权威缩小为选择）。**测试**：qa40
+（app-resolved 流 + unknown id fail-closed）+ qa41（Human 失败类确定性
+重现）+ **NX-QA-CITID**（未知 id 回落 block 0）RED 恰好 qa40 → 逆向 →
+41/41 复绿 → targeted 10/10 → pre-commit fresh 树
+`session-m12d-r2e-release/`（python 变量生效）：inventory **70** / build
+474/474 / full **70/70 PASS**（manual_qa #32 2.74s、deployment #36 33.65s、
+c1b #37 26.67s）。**行为提交 = `8416fe7…`**（5 files / +221 −11；parent
+`918c028…`；NO AMEND；内无 docs；提交后 diff = 空）。**post-commit 树**：
+inventory 70 / full **70/70 / 205.06s**。**R2E 候选（唯一推荐 Human
+re-test 入口）**：candidate exe ≡ source exe（**6,814,977 B，SHA-256
+`658f0ff6102eebb170d15d0e89fcddb9312dbfdf7593a129418835dc2e96c4b9`**）；
+manifest 1713 条 / root 含 manifest 1714 / 目录 90；**EXACT deployment gate
+Passed 27.55s**。R2D 候选 `cc839d36…` 转历史观测性工件。**状态**：**M12-D
+citation validation Human-live defect = REPAIRED / AUTOMATED PASS**；**D2
+canonical citation validation = UNCHANGED / AUTHORITATIVE**；**M12-D HUMAN
+RE-TEST = REQUIRED（复测 FOUND + citation）**；M12-D Human acceptance = IN
+PROGRESS；M12-D overall = IN PROGRESS；M12-D contract = HUMAN-FROZEN；
+M12-C = COMPLETE / HUMAN ACCEPTED / FROZEN；**verified LKGC = `c68d2bb…`
+UNCHANGED**；M12-D second slice / package / tag / push = 未授权未发生；本
+批注所在提交 docs-only 永不作 LKGC。
 **〔2026-10-06 追加批注 · M12-D — INTERMITTENT STRUCTURED-OUTPUT DEFECT: OBSERVABILITY HARDENED / ROOT CAUSE OPEN（Session M12-D-R2D · behavior `a0146b7` · Human gate HOLD · 以本块为准）〕**
 档案 = **T027 §104**。Human 授权（逐字）：「授权：执行 M12-D-R2D
 intermittent structured-output failure observability + RCA。新的 Human
