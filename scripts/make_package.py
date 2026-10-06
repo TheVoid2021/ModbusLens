@@ -1,21 +1,47 @@
 #!/usr/bin/env python
 """M9-E E3 packaging helper (maintainer tool, NOT part of the normal build).
 
-Builds the scripted portable ZIP from a Release deployed tree:
-  Release deploy -> staging -> integrity/negative checks -> manifest
-  -> ZIP -> fresh extraction -> manifest re-check -> minimal-PATH run.
+POST-M12-REL-R2 (T027 §114, Human decisions R1-R3): the CANONICAL
+packaging entry is the candidate-tree mode. The canonical flow is
 
-Fail-fast: every gate exits non-zero on failure. Idempotent: staging,
-ZIP and extraction directories are rebuilt from scratch on every run.
-The ZIP is a SCRIPTED PORTABLE ZIP - byte reproducibility is NOT
-claimed. This script is never invoked by the normal configure/build.
+    verified behavior source
+    -> canonical candidate generation (modbuslens_generate_candidate.cmake)
+    -> candidate/ModbusLens
+    -> canonical packaging (this script, --candidate mode)
+    -> staging / manifest / ZIP / checksums
 
-Usage:
+The candidate root is an IMMUTABLE package input: it is validated against
+its own candidate-manifest.json (every listed file present, SHA-256
+match), never repaired, never re-derived through windeployqt or
+scripts/deploy_windows.bat, and never mixed with raw build output.
+pdfium.dll is a REQUIRED release runtime (R2) and synthetic Manual
+samples (samples/ModbusLens_Test_Manual_*) must never enter staging or
+the ZIP (R3, fail-closed).
+
+Usage (canonical):
+  python scripts/make_package.py --candidate <candidate-root>
+e.g.
+  python scripts/make_package.py --candidate build/release/candidate/ModbusLens
+
+The historical two-argument entry below is the M9-E/M10/M11 LEGACY
+procedure (Release build dir + windeployqt deploy dir). It remains for
+provenance and its tests; it is NOT the canonical release path anymore
+and must not be used for post-M12 canonical packaging.
+
+Legacy behavior (unchanged): builds the scripted portable ZIP from a
+Release deployed tree. Fail-fast: every gate exits non-zero on failure.
+Idempotent: staging, ZIP and extraction directories are rebuilt from
+scratch on every run. The ZIP is a SCRIPTED PORTABLE ZIP - byte
+reproducibility is NOT claimed. This script is never invoked by the
+normal configure/build.
+
+Legacy usage:
   python scripts/make_package.py <release-build-dir> <deploy-dir>
 e.g.
   python scripts/make_package.py build/release build/release/deploy
 """
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -209,10 +235,17 @@ def stage_package(deploy_dir, staging):
           % sum(len(files) for _, _, files in os.walk(staging)))
 
 
-def structural_checks(staging):
-    for required in REQUIRED_FILES:
-        if not os.path.isfile(os.path.join(staging, required)):
-            fail("required package file missing: %s" % required)
+def structural_checks(staging, required_files=None):
+    """Structural gate shared by both packaging paths.
+
+    `required_files` defaults to the LEGACY M9-E list (historical entry).
+    The canonical candidate path passes CANDIDATE_REQUIRED_FILES instead.
+    The R3 rule (no synthetic Manual sample) is enforced for BOTH paths.
+    """
+    required = REQUIRED_FILES if required_files is None else required_files
+    for req in required:
+        if not os.path.isfile(os.path.join(staging, req)):
+            fail("required package file missing: %s" % req)
     for root, dirs, files in os.walk(staging):
         rel_root = os.path.relpath(root, staging)
         for name in dirs + files:
@@ -223,14 +256,16 @@ def structural_checks(staging):
             for suffix in FORBIDDEN_SUFFIXES:
                 if name.lower().endswith(suffix):
                     fail("forbidden package suffix: %s" % rel)
+            if name.lower().startswith("modbuslens_test_manual_"):
+                fail("synthetic Manual sample must not enter the package: "
+                     "%s" % rel)
     for fixture in ["t014_protocol_error.mlog", "t015_broadcast.mlog",
                     "t015_unsupported_fc08.mlog"]:
         for root, _, files in os.walk(staging):
             if fixture in files:
                 fail("regression fixture leaked into package: %s" % fixture)
     print("make_package: structural checks PASS (required present, "
-          "forbidden absent, StatisticsOverview retained, samples policy "
-          "PASS)")
+          "forbidden absent, samples policy PASS)")
 
 
 def negative_scans(staging):
@@ -279,6 +314,7 @@ def write_manifest(staging):
 
 def make_zip(staging, stem):
     zip_path = os.path.join(PACKAGE_ROOT, stem + ".zip")
+    os.makedirs(os.path.dirname(zip_path), exist_ok=True)
     if os.path.isfile(zip_path):
         os.remove(zip_path)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -378,13 +414,236 @@ def external_cwd_run(extract_dir):
 AUTHORITY_VERSION = ""
 ARCH_LABEL = ""
 
+# ---------------------------------------------------------------------------
+# POST-M12-REL-R2 canonical candidate-tree packaging (T027 §114, R1-R3).
+#
+# The candidate root produced by cmake/modbuslens_generate_candidate.cmake
+# is the ONLY package input. This path never invokes windeployqt or
+# scripts/deploy_windows.bat, never reads the raw build tree for runtime
+# files, and never repairs the candidate: anything wrong fails closed.
+# ---------------------------------------------------------------------------
+CANDIDATE_GENERATOR = "modbuslens_generate_candidate.cmake"
+CANDIDATE_MANIFEST_NAME = "candidate-manifest.json"
+# The candidate manifest is build provenance, not product runtime: it is
+# consumed for validation and intentionally NOT shipped. This is the single
+# explicit exclusion; everything else manifest-listed ships unchanged
+# (modbuslens.exe is renamed to its historical product name ModbusLens.exe,
+# same bytes).
+CANDIDATE_EXCLUDED_FROM_PACKAGE = ["candidate-manifest.json"]
+# R2: the release runtime set that the candidate contract guarantees. The
+# full content set comes from the candidate manifest itself; this list is
+# the fail-closed floor (missing any of it stops packaging).
+CANDIDATE_REQUIRED_RUNTIME = [
+    "modbuslens.exe",
+    "pdfium.dll",
+    "platforms/qwindows.dll",
+    "qt.conf",
+]
+# Required content of the canonical package AFTER staging (renames and the
+# explicit release-only sample inclusion included).
+CANDIDATE_REQUIRED_PACKAGE_FILES = [
+    "ModbusLens.exe",
+    "pdfium.dll",
+    "platforms/qwindows.dll",
+    "qt.conf",
+    "qml/ModbusLens/qmldir",
+    "samples/demo_v1.mlog",
+    "README.txt",
+]
+
+
+def candidate_authority_version(repo_root):
+    """Derive the package version from the repo's single CMake source.
+
+    The candidate tree carries no version header (it is not a build tree),
+    so the authority is the same CMake project VERSION the generated
+    modbuslens_version.h is derived from. The PE ProductVersion of the
+    packaged exe is cross-checked against this value in candidate mode.
+    """
+    cmake_lists = os.path.join(repo_root, "CMakeLists.txt")
+    if not os.path.isfile(cmake_lists):
+        fail("CMakeLists.txt not found next to the packaging script")
+    for line in open(cmake_lists, encoding="utf-8", errors="ignore"):
+        stripped = line.strip()
+        if stripped.startswith("VERSION "):
+            return stripped.split()[1]
+    fail("project VERSION not found in %s" % cmake_lists)
+
+
+def load_candidate_manifest(candidate_root):
+    """Fail-closed load of the candidate root's own manifest."""
+    path = os.path.join(candidate_root, CANDIDATE_MANIFEST_NAME)
+    if not os.path.isfile(path):
+        fail("candidate manifest missing: %s" % path)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            doc = json.load(handle)
+    except ValueError as exc:
+        fail("candidate manifest is not valid JSON: %s" % exc)
+    if not isinstance(doc, dict):
+        fail("candidate manifest is not a JSON object")
+    if doc.get("generated-by") != CANDIDATE_GENERATOR:
+        fail("candidate manifest was not generated by %s (got %r)"
+             % (CANDIDATE_GENERATOR, doc.get("generated-by")))
+    files = doc.get("files")
+    if not isinstance(files, list) or not files:
+        fail("candidate manifest lists no files")
+    for entry in files:
+        if not isinstance(entry, dict):
+            fail("candidate manifest entry is not an object: %r" % (entry,))
+        rel = entry.get("path")
+        digest = entry.get("sha256")
+        if not isinstance(rel, str) or not rel:
+            fail("candidate manifest entry has no path: %r" % (entry,))
+        if not isinstance(digest, str) or len(digest) != 64 \
+                or any(c not in "0123456789abcdef" for c in digest.lower()):
+            fail("candidate manifest entry has a malformed sha256: %s"
+                 % rel)
+        normalized = os.path.normpath(rel).replace(os.sep, "/")
+        if (normalized != rel or rel.startswith("/")
+                or rel.startswith("..") or ":" in rel):
+            fail("unsafe candidate manifest path: %s" % rel)
+    return doc
+
+
+def verify_candidate_root(candidate_root, manifest):
+    """Every manifest-listed file must exist with the manifest's SHA-256.
+
+    Fail-closed floor (R2): the required M12 release runtime must be part
+    of the candidate set. Missing/mismatched anything stops packaging.
+    """
+    listed = set()
+    for entry in manifest["files"]:
+        rel = entry["path"]
+        full = os.path.join(candidate_root, *rel.split("/"))
+        if not os.path.isfile(full):
+            fail("candidate file listed in manifest is missing: %s" % rel)
+        if sha256_file(full) != entry["sha256"]:
+            fail("candidate file hash mismatch vs manifest: %s" % rel)
+        listed.add(rel)
+    for required in CANDIDATE_REQUIRED_RUNTIME:
+        if required not in listed:
+            fail("candidate root is missing required release runtime: %s"
+                 % required)
+    for entry in manifest["files"]:
+        base = os.path.basename(entry["path"]).lower()
+        if base.startswith("modbuslens_test_manual_"):
+            fail("synthetic Manual sample must not be packaged: %s"
+                 % entry["path"])
+    return listed
+
+
+def stage_candidate_package(candidate_root, manifest, version, staging):
+    """Build the release staging tree from the validated candidate root.
+
+    Content set = manifest-listed candidate files (minus the explicit
+    exclusion) + the canonical sample (existing policy, R3 keeps it) +
+    the generated README. Nothing else; no repair, no fallback.
+    """
+    if os.path.isdir(staging):
+        shutil.rmtree(staging)
+    os.makedirs(staging)
+    for entry in manifest["files"]:
+        rel = entry["path"]
+        if rel in CANDIDATE_EXCLUDED_FROM_PACKAGE:
+            continue
+        src = os.path.join(candidate_root, *rel.split("/"))
+        dst_rel = "ModbusLens.exe" if rel == "modbuslens.exe" else rel
+        dst = os.path.join(staging, *dst_rel.split("/"))
+        parent = os.path.dirname(dst)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        shutil.copyfile(src, dst)
+    demo_src = os.path.join(REPO_ROOT, "samples", "demo_v1.mlog")
+    if not os.path.isfile(demo_src):
+        fail("canonical sample missing from the repository: %s" % demo_src)
+    os.makedirs(os.path.join(staging, "samples"), exist_ok=True)
+    shutil.copyfile(demo_src, os.path.join(staging, "samples",
+                                           "demo_v1.mlog"))
+    readme = os.path.join(staging, "README.txt")
+    with open(readme, "w", encoding="utf-8", newline="\r\n") as handle:
+        handle.write(README_TEMPLATE.format(version=version))
+    structural_checks(staging, CANDIDATE_REQUIRED_PACKAGE_FILES)
+    negative_scans(staging)
+    print("make_package: staged %d entries + README.txt (candidate tree)"
+          % sum(len(files) for _, _, files in os.walk(staging)))
+
+
+def package_candidate_root(candidate_root, output_root=PACKAGE_ROOT):
+    """Deterministic candidate-tree packaging WITHOUT the runtime gates.
+
+    Validates the candidate root, stages it, writes the package manifest,
+    builds the ZIP, verifies the entry set, and re-extracts it against the
+    manifest. Returns the package identity. This function alone does NOT
+    constitute an accepted package: the canonical CLI additionally runs
+    the PE identity check and the extracted minimal-PATH / external-CWD
+    runtime gates on the real application.
+    """
+    manifest = load_candidate_manifest(candidate_root)
+    verify_candidate_root(candidate_root, manifest)
+    version = candidate_authority_version(REPO_ROOT)
+    stem = "ModbusLens-%s-windows-x64" % version
+    staging = os.path.join(output_root, stem)
+    stage_candidate_package(candidate_root, manifest, version, staging)
+    write_manifest(staging)
+    zip_path, size, digest = make_zip(staging, stem)
+    verify_zip_entries(zip_path, staging, stem)
+    extract_dir = extract_and_verify(zip_path, stem)
+    return {
+        "stem": stem,
+        "version": version,
+        "staging": staging,
+        "zip_path": zip_path,
+        "zip_size": size,
+        "zip_sha256": digest,
+        "extract_dir": extract_dir,
+        "candidate_root": candidate_root,
+    }
+
+
+def run_candidate_mode(candidate_root):
+    """Canonical CLI entry: full pipeline including the runtime gates."""
+    if not os.path.isdir(candidate_root):
+        fail("candidate root not found: %s" % candidate_root)
+    global AUTHORITY_VERSION
+    AUTHORITY_VERSION = candidate_authority_version(REPO_ROOT)
+    result = package_candidate_root(candidate_root)
+    # The exe a user runs after unzipping must be byte-identical to the
+    # candidate application (same bytes, historical product name).
+    extracted_exe = os.path.join(result["extract_dir"], "ModbusLens.exe")
+    candidate_exe = os.path.join(candidate_root, "modbuslens.exe")
+    if not os.path.isfile(extracted_exe):
+        fail("extracted exe missing: %s" % extracted_exe)
+    if sha256_file(extracted_exe) != sha256_file(candidate_exe):
+        fail("extracted exe does not match the candidate exe (%s)"
+             % candidate_exe)
+    print("make_package: extract identity OK vs candidate (sha256=%s)"
+          % sha256_file(extracted_exe))
+    pe_machine_and_version(os.path.join(result["staging"],
+                                        "ModbusLens.exe"))
+    minimal_path_run(result["extract_dir"])
+    external_cwd_run(result["extract_dir"])
+    print("make_package PASS: %s (zip %d bytes, sha256 %s)"
+          % (result["stem"], result["zip_size"], result["zip_sha256"]))
+
 
 def main():
-    if len(sys.argv) != 3:
-        fail("usage: make_package.py <release-build-dir> <release-deploy-dir>")
+    argv = sys.argv[1:]
+    if argv and argv[0] == "--candidate":
+        if len(argv) != 2:
+            fail("usage: make_package.py --candidate <candidate-root>")
+        run_candidate_mode(os.path.abspath(argv[1]))
+        return
+    # HISTORICAL legacy entry (M9-E/M10/M11): Release build dir + windeployqt
+    # deploy dir. Not the canonical post-M12 packaging path (see module
+    # docstring); retained for provenance and its tests.
+    if len(argv) != 2:
+        fail("usage: make_package.py --candidate <candidate-root> "
+             "(canonical) or <release-build-dir> <release-deploy-dir> "
+             "(legacy)")
     global AUTHORITY_VERSION
-    release_build_dir = os.path.abspath(sys.argv[1])
-    deploy_dir = os.path.abspath(sys.argv[2])
+    release_build_dir = os.path.abspath(argv[0])
+    deploy_dir = os.path.abspath(argv[1])
     if not os.path.isfile(os.path.join(release_build_dir, "CMakeCache.txt")):
         fail("Release CMakeCache.txt not found in %s" % release_build_dir)
     AUTHORITY_VERSION = read_authority_version(release_build_dir)
