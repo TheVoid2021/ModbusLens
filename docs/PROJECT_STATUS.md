@@ -1,6 +1,50 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-06 追加批注 · M12-D — DOCS-ONLY FINAL CLOSURE = COMPLETE / HUMAN ACCEPTED（Session M12-D-R2G · 依据 R2F GO · 以本块为准）〕**
+档案 = **T027 §107**。Human 授权（逐字）：「授权：执行 M12-D docs-only
+final closure。依据 M12-D-R2F Final Closure Audit = GO，将 M12-D overall
+正式归档为 COMPLETE / HUMAN ACCEPTED，并保持 M12-D first behavior slice =
+COMPLETE / HUMAN ACCEPTED。准确保留 Human acceptance 分层：本次 Human PASS
+仅覆盖 single-selected-Manual / single-question FOUND + citation 正向工作流
+及实际观察到的零 Candidate、零 DeviceProfile mutation、零 dirty；
+NOT_FOUND / INSUFFICIENT_EVIDENCE / ERROR、Manual switch/delete
+invalidation、late-response drop、session-only restart 继续保持 IMPLEMENTED
+/ AUTOMATED PASS / HUMAN LIVE NOT RUN，不升级为 Human PASS。归档 D1～D5 =
+SATISFIED、first behavior slice 覆盖全部 canonical v1 required
+capabilities、CANONICAL REQUIRED SECOND SLICE = NONE，并仅按 T027 §100 的
+真实 canonical 边界记录 deferred/future 项，不把其他 milestone 的历史
+deferred 能力混入 M12-D。保持全部历史 defect / incident / superseding
+evidence 原文，不重写历史。记录 latest Human-tested M12-D
+behavior-bearing commit = 8416fe7a26eaa8c79ab8186513b60af5954a18b9。本授权
+仅 docs/governance closure；verified LKGC 保持
+c68d2bbb277096fd7fb9a76d99d7b588da6461f0 不变，不推进；不开始任何新
+behavior slice，不做 package/tag/push。」**closure 依据**：R2F Final
+Closure Audit = GO（D1–D5 全 SATISFIED；first slice 覆盖全部 canonical v1
+必需能力；无 canonical 必需 second slice；automated-only 路径按冻结合同
+sufficient；无未决 P0；无矛盾）。**Human PASS 分层（精确）**：HUMAN PASS
+仅限实际执行的正向工作流（FOUND + citation + 零 Candidate/零 mutation/零
+dirty）；NOT_FOUND / INSUFFICIENT_EVIDENCE / ERROR / switch·delete
+invalidation / late-response drop / session-only restart 保持
+IMPLEMENTED / AUTOMATED PASS / HUMAN LIVE NOT RUN。**v1 exit mapping**：仅
+基于已导入证据 ✓ · 三态可区分 ✓ · 无证据不回答 ✓ · ERROR 独立 ✓ ·
+citation deterministic/local-authoritative ✓ · INFORMATIONAL ONLY ✓ ·
+session-only ✓。**deferred/future（M12-D only，§100 原分类）**：
+multi-manual / whole-library Q&A / whole-library RAG / conversation memory
+/ durable Q&A history / cross-session state / 新 provider families /
+provider-selection UI / OCR expansion / automatic device inference /
+M12-D mutation / M12-C reopening。**历史保留**：R2/R2B/R2C/R2D/R2E 全
+evidence 原文；R2D §29 violation = PERMANENT HISTORICAL INCIDENT；R2D-A
+recovery audit = PASS。**状态**：**M12-D overall = COMPLETE / HUMAN
+ACCEPTED**；**M12-D first behavior slice = COMPLETE / HUMAN ACCEPTED**；
+D1–D5 = SATISFIED；CANONICAL REQUIRED SECOND SLICE = NONE；latest
+Human-tested M12-D behavior-bearing commit = `8416fe7…`；M12-C = COMPLETE
+/ HUMAN ACCEPTED / FINAL BASELINE FROZEN；**verified LKGC =
+`c68d2bbb277096fd7fb9a76d99d7b588da6461f0` UNCHANGED**（8416fe7 与 docs
+commit 均非 LKGC；不准备 LKGC 推进提交）；canonical package = NOT CREATED；
+tag = 仅 v1.0.0；push = 无；本批注所在提交 docs-only 永不作 LKGC。**NEXT =
+SEPARATE HUMAN DECISION ON M12 OVERALL CLOSURE AUDIT（如需）/ FUTURE LKGC
+ADVANCEMENT / M12-D SECOND SLICE（均需独立授权）**。
 **〔2026-10-06 追加批注 · M12-D — R2E HUMAN LIVE Q&A ACCEPTANCE = PASS（Session M12-D-R2E-A · docs-only 归档 · first slice COMPLETE / HUMAN ACCEPTED · 以本块为准）〕**
 档案 = **T027 §106**。Human 授权（逐字）：「授权：归档 M12-D R2E Human live
 Q&A acceptance PASS；仅 docs-only。Human PASS 仅覆盖本次实际执行的

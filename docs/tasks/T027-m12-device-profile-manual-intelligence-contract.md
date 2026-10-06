@@ -9793,3 +9793,130 @@ verified LKGC = `c68d2bbb277096fd7fb9a76d99d7b588da6461f0` UNCHANGED
 （`8416fe7…` 与任何 docs commit 均**不是** LKGC；不准备 LKGC 推进提交）；
 second slice = NOT STARTED / NOT AUTHORIZED；canonical package = NOT
 CREATED；tag = 仅 v1.0.0；push = 无；本节所在提交 docs-only 永不作 LKGC。
+
+## 107. M12-D DOCS-ONLY FINAL CLOSURE（SESSION M12-D-R2G · Human 授权 · overall = COMPLETE / HUMAN ACCEPTED）
+
+> Human 授权（逐字）：「授权：执行 M12-D docs-only final closure。依据
+> M12-D-R2F Final Closure Audit = GO，将 M12-D overall 正式归档为 COMPLETE /
+> HUMAN ACCEPTED，并保持 M12-D first behavior slice = COMPLETE / HUMAN
+> ACCEPTED。准确保留 Human acceptance 分层：本次 Human PASS 仅覆盖
+> single-selected-Manual / single-question FOUND + citation 正向工作流及实际
+> 观察到的零 Candidate、零 DeviceProfile mutation、零 dirty；NOT_FOUND /
+> INSUFFICIENT_EVIDENCE / ERROR、Manual switch/delete invalidation、
+> late-response drop、session-only restart 继续保持 IMPLEMENTED / AUTOMATED
+> PASS / HUMAN LIVE NOT RUN，不升级为 Human PASS。归档 D1～D5 = SATISFIED、
+> first behavior slice 覆盖全部 canonical v1 required capabilities、
+> CANONICAL REQUIRED SECOND SLICE = NONE，并仅按 T027 §100 的真实 canonical
+> 边界记录 deferred/future 项，不把其他 milestone 的历史 deferred 能力混入
+> M12-D。保持全部历史 defect / incident / superseding evidence 原文，不重写
+> 历史。记录 latest Human-tested M12-D behavior-bearing commit =
+> 8416fe7a26eaa8c79ab8186513b60af5954a18b9。本授权仅 docs/governance
+> closure；verified LKGC 保持 c68d2bbb277096fd7fb9a76d99d7b588da6461f0 不
+> 变，不推进；不开始任何新 behavior slice，不做 package/tag/push。」
+
+### 107.1 起始基线 / provenance
+
+- 起始 HEAD = `138af14d20f5457aa83d10ec80229f5e47f9b812`（RESYNC 实测：
+  tracked clean / cached 空 / diff-check PASS / untracked 仅 `_ctx.py`、
+  `_dump.py` / tag 仅 v1.0.0 / `git ls-files build` 空）。
+- **行为谱系（实测）**：`8416fe7…` type = commit、HEAD 祖先（exit 0）；
+  `git diff 8416fe7..HEAD -- src tests CMakeLists.txt samples` = **空** ⇒
+  当前 HEAD 行为树 = Human-tested `8416fe7` 行为树。**latest Human-tested
+  M12-D behavior-bearing commit = `8416fe7a26eaa8c79ab8186513b60af5954a18b9`**
+  （docs commit 非 behavior-bearing、非 LKGC）。
+
+### 107.2 R2F GO authority（closure 依据）
+
+M12-D-R2F Final Closure Audit（strict read-only）= **GO**：D1–D5 全
+SATISFIED；first behavior slice 覆盖全部 canonical M12-D v1 required
+capabilities；CANONICAL REQUIRED SECOND SLICE = NONE；automated-only
+负向/状态路径按冻结合同判定 sufficient（确定性、fail-closed、非
+mutation/session-only、D1–D5 完整规约、稳定自动化覆盖，canonical 未要求
+Human live）；无未决必需 P0；无当前状态矛盾；M12-C isolation 无漂移。
+本 closure 仅归档该 GO 结论，不新增工程证据。
+
+### 107.3 D1–D5 final closure matrix
+
+| 项 | Closure | 要点 |
+| --- | --- | --- |
+| D1 单 selected Manual / 单问题 | SATISFIED | hasSelectedManual 前置拒绝；单 generation；switch 失效+清空；无多手册/全库/RAG/batch |
+| D2 canonical citation 契约 | SATISFIED | citationId（app-resolved）选择 → 映射回六字段 canonical citation（identity/hash 请求绑定、offsets/excerpt 真实块）；A–D 校验（identity/hash/range/精确 round-trip）逐字未动、无 global uniqueness；FOUND ≥1 有效 citation |
+| D3 四态 + INFORMATIONAL ONLY | SATISFIED | FOUND/NOT_FOUND/INSUFFICIENT_EVIDENCE 与 ERROR 分离不互转；FOUND = 非空 answer + ≥1 有效 citation；answer 无 Accept/Edit/Save、零 Candidate/Profile/Manual/Modbus 权威 |
+| D4 独立 consent | SATISFIED | Q&A consent 独立成员/独立 dialog（披露提问+摘录）；与 extraction consent 无共享；ModelScope 基础设施复用、无第二凭据 store/provider UI |
+| D5 session-only + delete 交互 | SATISFIED | 零持久化/零 schema；switch/delete 失效 generation + best-effort cancel + 清空 + late drop；Running 不阻 ML-2 delete |
+
+### 107.4 Human acceptance evidence boundary（分层精确）
+
+HUMAN PASS **仅限**实际执行的正向工作流：单 selected Manual
+（`ModbusLens_Test_Manual_A_Clear.txt`）/ 单问题（「这台设备的厂商是
+什么？」）/ FOUND / 非空 answer / 可见 citation / 本地 citation validation
+通过 / 零 Candidate / 零 DeviceProfile mutation / 零「未保存修改」。
+**NOT_FOUND / INSUFFICIENT_EVIDENCE / ERROR / switch·delete invalidation /
+late-response drop / session-only restart = IMPLEMENTED / AUTOMATED PASS /
+HUMAN LIVE NOT RUN**——不升级、不虚构。
+
+### 107.5 automated-only path evidence boundary
+
+上述 automated-only 路径的 closure sufficiency 依据（R2F 判定）：确定性、
+fail-closed、非 mutation/session-only、被 D1–D5 完整规约、稳定自动化覆盖
+（qa16/qa17/qa18/qa19/qa24/qa25/qa26/qa27/qa28/qa29/qa31/qa32/qa33/qa40/
+qa41 + QML 门禁 S 阶段 + NX-QA-LATE/NX-QA-CITID/NX-QA-CITID-unknown 历史
+负向对照）；canonical 未要求 Human live proof ⇒ closure 充分。
+
+### 107.6 v1 exit mapping（§17.2 canonical）
+
+问答仅基于已导入证据 ✓ · FOUND/NOT_FOUND/INSUFFICIENT_EVIDENCE 可区分 ✓ ·
+无证据不回答 ✓ · ERROR 独立 ✓ · 单 selected Manual 范围 ✓ · citation
+deterministic/local-authoritative ✓ · INFORMATIONAL ONLY ✓ · 零
+Profile/Candidate/Manual/Modbus mutation 权威 ✓ · session-only ✓。
+
+### 107.7 first-slice coverage / no canonical second slice
+
+First behavior slice **覆盖全部 canonical M12-D v1 required capabilities**
+（D1–D5 矩阵 + §17.2 exit）；**CANONICAL REQUIRED SECOND SLICE = NONE**——
+canonical 中无任何段落为 M12-D 冻结必需的第二切片能力；历史 "second slice"
+字样 = 历史/其他 milestone 标签，不转化为新需求。
+
+### 107.8 M12-D-only deferred/future boundary（§100 原分类，不混入他 milestone 项）
+
+multi-manual Q&A · whole-library Q&A · whole-library RAG · conversation
+memory · durable Q&A history · cross-session Q&A history/state · 新
+provider families · provider-selection UI · OCR expansion · automatic
+device inference · M12-D 对 Profile/Candidate 的 mutation · M12-C
+reopening——均为 **FUTURE / OUT-OF-SCOPE**（§100 原分类），非缺陷。
+
+### 107.9 historical incident/defect preservation
+
+R2 初版实现 · R2B structured-output 修复 · R2C 通用 runner 失败事件 ·
+R2D parse 观测性 · **R2D §29 process violation = PERMANENT HISTORICAL
+INCIDENT** · R2D-A recovery audit = PASS / 行为树 RECOVERED AS VALID ·
+R2E app-resolved citation 修复 · R2E Human positive acceptance——全部
+原文保留；R2B/R2E 缺陷已修复、R2C 为 transient/未分类历史事件 ⇒ 当前行为
+树中**无 OPEN 且必需的缺陷**。
+
+### 107.10 行为谱系
+
+80e4326（first slice）→ 777f783（structured-output 修复）→ a0146b7（观测
+性硬化）→ 8416fe7（app-resolved citations）→ …docs-only 提交至 HEAD。
+**latest Human-tested M12-D behavior-bearing commit = `8416fe7…`**（实测
+HEAD 祖先；其后全部 docs-only）。
+
+### 107.11 M12-D final state
+
+- **M12-D overall = COMPLETE / HUMAN ACCEPTED**；
+- **M12-D first behavior slice = COMPLETE / HUMAN ACCEPTED**；
+- positive FOUND + citation workflow = HUMAN PASS；NOT_FOUND /
+  INSUFFICIENT_EVIDENCE / ERROR / switch·delete invalidation /
+  late-response drop / session-only restart = IMPLEMENTED / AUTOMATED PASS
+  / HUMAN LIVE NOT RUN（不升级）；
+- D1–D5 = SATISFIED；CANONICAL REQUIRED SECOND SLICE = NONE；
+- Human-tested candidate = R2E 候选 `658f0ff6…c4b9`（6,814,977 B，行为树
+  `8416fe7…`）。
+
+### 107.12 动作边界 / LKGC
+
+**verified LKGC = `c68d2bbb277096fd7fb9a76d99d7b588da6461f0` UNCHANGED（不
+推进）**；8416fe7 可记录为 future LKGC target（R2F §36 advisory：READY FOR
+SEPARATE HUMAN AUTHORIZATION），推进与否 = 独立 Human 决定；M12-C =
+COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN；canonical package = NOT
+CREATED；tag = 仅 v1.0.0；push = 无；本节所在提交 docs-only 永不作 LKGC。
