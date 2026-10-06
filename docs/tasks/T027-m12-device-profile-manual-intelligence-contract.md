@@ -10803,3 +10803,118 @@ NEXT = HUMAN LONG-RESULT SCROLLING RETEST USING THE NEW UX-R2 CANDIDATE
 `src/` 与 QML），但 **本期不推进 LKGC**；本节所在 docs-only 提交永不作
 LKGC。未 package / tag / push / amend / reset / rebase；未开始新 milestone。
 **NEXT = HUMAN LONG-RESULT SCROLLING RETEST USING THE NEW UX-R2 CANDIDATE**。
+
+## 112. POST-M12-UX-R2A HUMAN ACCEPTANCE ARCHIVE — MANUAL Q&A RESULT
+SCROLLING（2026-10-06，docs / governance only superseding acceptance note）
+
+### 112.0 Human authorization（逐字）
+
+本次 packet §0 记录的 Human 授权原文：
+
+> “授权：归档 POST-M12-UX-R2 Manual Q&A result scrolling Human acceptance
+> PASS；仅 docs-only。Human 实际观察为：长回答和说明书依据可以完整上下滚动
+> 到底；顶部标题、关闭按钮、所选说明书、问题框和提问按钮在滚动期间保持固定；
+> 关闭并重新打开后结果仍然保留；诊断页收回正常；没有 Candidate、没有
+> DeviceProfile mutation、没有‘未保存修改’。将 POST-M12-UX-R2 RESULT
+> SCROLLING 标记为 COMPLETE / HUMAN ACCEPTED，并将 latest Human-tested
+> behavior-bearing commit 更新为 `9c065f23a7f06beb73beedb680a3fe3b03e4c596`。
+> 保持 POST-M12-UX-R1 = COMPLETE / HUMAN ACCEPTED；M12 overall =
+> COMPLETE / HUMAN ACCEPTED（UNCHANGED / NOT REOPENED）。本授权仅
+> docs/governance 归档，不修改行为代码/tests/CMake/QML/samples，不
+> build/test/candidate，不推进 verified LKGC；verified LKGC 仍为
+> `c68d2bbb277096fd7fb9a76d99d7b588da6461f0`；不 package/tag/push，不开始
+> 新 milestone。”
+
+授权中的规范化措辞（作为验收分类的权威口径）：**「所选说明书」**（=
+Manual Q&A 面板中显示的所选 Manual 标识行）与**「没有 DeviceProfile
+mutation」**（= 设备档案无任何变化）。
+
+### 112.1 behavior / candidate identity（引用既有证据，不重跑）
+
+```text
+UX-R2 behavior commit = 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+  （"UI: make Manual Q&A results scrollable"，parent ce49f1c0…；
+   src/main.cpp + src/ui/qml/pages/DeviceProfilePage.qml，2 files +757/−45）
+Human 所测候选 = UX-R2 post-commit tree 的 exact candidate
+  （FROM ZERO 生成；candidate exe ≡ source exe，7,029,729 B，
+   SHA-256 8cd860c95656d999535ade43dded2c80ff71ce671ba3d7a3244176be0234bc53；
+   qwindows 80473907… / pdfium d42c452a…；deployment gate Passed 26.57s）
+```
+
+### 112.2 Human 实际观察（packet §5 逐字归档块）
+
+```text
+长回答和说明书依据现在可以完整上下滚动到底；
+顶部标题、关闭按钮、说明书、问题框和提问按钮保持固定；
+关闭重开后结果还在；
+诊断页收回正常；
+没有 Candidate、档案变化或未保存修改。
+```
+
+### 112.3 Human PASS exact scope（仅此 11 项，不扩写）
+
+```text
+ 1. long answer and Manual evidence can scroll fully to the bottom
+ 2. header/title remains fixed during scrolling
+ 3. close button remains fixed during scrolling
+ 4. selected Manual remains fixed during scrolling
+ 5. question field remains fixed during scrolling
+ 6. Ask button remains fixed during scrolling
+ 7. close → reopen preserves the displayed result
+ 8. Diagnostics page retract behavior remains normal
+ 9. no Candidate
+10. no DeviceProfile mutation
+11. no dirty / no "未保存修改"
+```
+
+**明确未声称**（Human 原文与条目均未提及）：具体滚动像素值；具体
+contentHeight 数值；scrollbar 精确几何；所有可能的 long-result 形态；所有
+页面；所有窗口尺寸；「关闭不取消问答」等 Running 边界之外的任何 Running
+情形；provider / 网络行为；citation 正确性的任何**新增** Human 确认（引用
+相关正确性维持 §110 之前的既有 Human 验收口径，不因本轮扩大）。
+
+### 112.4 UX-R1 preservation（独立切片，不合并不改写）
+
+```text
+POST-M12-UX-R1 = COMPLETE / HUMAN ACCEPTED（T027 §110，原文保留）
+Manual Q&A panel retract / reopen = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+```
+
+UX-R1 与 UX-R2 是两个**独立的 post-M12 维护切片**：不合并为单一行为声明、
+不改写 UX-R1 历史、不宣称 UX-R1 历史行为失效。
+
+### 112.5 evidence layering（不得互相替代）
+
+```text
+automated（T027 §111，引用不重跑）= REAL RED + SCROLL-01..20 + targeted
+  16/16 + fresh 70/70（pre/post-commit）+ candidate（exe ≡ source，
+  8cd860c9…4bc53）+ deployment gate Passed 26.57s
+Human（本节）                    = 112.3 的 11 项 PASS
+automated PASS ≠ Human accepted；Human accepted ≠ verified LKGC；
+本节不产生任何新工程证据。
+```
+
+### 112.6 latest Human-tested behavior-bearing commit
+
+```text
+LATEST HUMAN-TESTED BEHAVIOR-BEARING COMMIT =
+  9c065f23a7f06beb73beedb680a3fe3b03e4c596
+（仅以 "latest Human-tested" 身份 supersede dde40024632aa8f8ab0de6d8cb86ce28d811f944；
+  不擦除、不降级 UX-R1 的 Human acceptance）
+```
+
+### 112.7 M12 / LKGC boundary
+
+```text
+M12 OVERALL = COMPLETE / HUMAN ACCEPTED（UNCHANGED / NOT REOPENED）
+M12-A/B/C/D canonical 状态不变（§108）
+verified LKGC = c68d2bbb277096fd7fb9a76d99d7b588da6461f0（UNCHANGED）
+Human acceptance 不自动推进 LKGC；任何未来 LKGC 推进需要单独 Human 授权。
+```
+
+### 112.8 action boundary
+
+本节所在提交为 **docs / governance only**（永不作 LKGC）：零 src / tests /
+CMakeLists.txt / samples / QML / scripts / configs 改动；无 build / test /
+candidate / deployment / package / tag / push / amend / rebase / reset；
+未开始新 milestone。
