@@ -319,12 +319,23 @@ void ManualQaController::completeAttempt(std::uint64_t generation, bool ok,
     }
 
     // Strict, fail-closed parse (§100.6). Malformed output is ERROR — never a
-    // semantic state.
+    // semantic state. M12-D-R2D: the parse failure carries a SAFE category
+    // token (no content) in lastErrorToken for RCA observability; the Human
+    // UI text stays generic.
+    QString parseCategory;
     const std::optional<core::ManualQaParsedResult> parsed =
-        ModelScopeManualQaRunner::parseProviderResult(rawJson);
+        ModelScopeManualQaRunner::parseProviderResult(rawJson, &parseCategory);
     if (!parsed.has_value()) {
-        localReject(kTokenMalformedOutput,
-                    tr("云端返回的问答结果无法解析。"));
+        // The category token is content-free (no question/answer/excerpt/
+        // reasoning/raw payload): attaching it to the failure text lets a
+        // Human re-test report the exact intermittent failure class from a
+        // screenshot, without exposing any provider or Manual content.
+        const QString category =
+            parseCategory.isEmpty() ? QLatin1String(kTokenMalformedOutput)
+                                    : parseCategory;
+        localReject(category.toUtf8().constData(),
+                    tr("云端返回的问答结果无法解析。（类别: %1）").arg(
+                        category));
         return;
     }
 

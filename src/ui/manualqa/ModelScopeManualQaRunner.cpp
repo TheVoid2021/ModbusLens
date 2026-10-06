@@ -337,16 +337,54 @@ ModelScopeManualQaRunner::ModelScopeManualQaRunner(QObject* parent)
 }
 
 std::optional<core::ManualQaParsedResult>
-ModelScopeManualQaRunner::parseProviderResult(const std::string& json)
+ModelScopeManualQaRunner::parseProviderResult(const std::string& json,
+                                              QString* failureCategory)
 {
+    // M12-D-R2D observability: every rejection path assigns a SAFE
+    // deterministic category token (category name only - never question,
+    // answer, excerpt, reasoning or any raw content). The ACCEPTED input set
+    // is byte-for-byte identical to the pre-R2D parser; only the failure
+    // reporting gained a category.
+    const auto reject = [failureCategory](const char* category)
+        -> std::optional<core::ManualQaParsedResult> {
+        if (failureCategory != nullptr) {
+            *failureCategory = QLatin1String(category);
+        }
+        return std::nullopt;
+    };
+    if (json.empty()) {
+        return reject("qa_parse_empty_content");
+    }
+    // Structural envelope probes (classification only; acceptance unchanged):
+    // a single outer markdown fence or a <think> wrapper is still REJECTED,
+    // but with its own category so intermittent provider envelopes become
+    // observable.
+    std::string_view view(json);
+    const auto firstNonWs = view.find_first_not_of(" \t\r\n");
+    const std::string_view trimmed = firstNonWs == std::string_view::npos
+        ? std::string_view{}
+        : view.substr(firstNonWs);
+    if (trimmed.rfind("```", 0) == 0) {
+        return reject("qa_parse_markdown_fence");
+    }
+    if (trimmed.rfind("<think>", 0) == 0) {
+        return reject("qa_parse_think_envelope");
+    }
+
     JsonReader reader(json);
     JsonValue root;
-    if (!reader.parse(root) || root.type != JsonValue::Type::Object) {
-        return std::nullopt;
+    if (!reader.parse(root)) {
+        return reject("qa_parse_json_syntax");
+    }
+    if (root.type != JsonValue::Type::Object) {
+        return reject("qa_parse_top_level_not_object");
     }
     const JsonValue* status = root.find("status");
-    if (status == nullptr || status->type != JsonValue::Type::String) {
-        return std::nullopt;
+    if (status == nullptr) {
+        return reject("qa_parse_missing_status");
+    }
+    if (status->type != JsonValue::Type::String) {
+        return reject("qa_parse_status_wrong_type");
     }
     core::ManualQaParsedResult result;
     if (status->stringValue == "found") {
@@ -356,30 +394,52 @@ ModelScopeManualQaRunner::parseProviderResult(const std::string& json)
     } else if (status->stringValue == "insufficient_evidence") {
         result.status = core::ManualQaStatus::InsufficientEvidence;
     } else {
-        return std::nullopt; // unknown status -> ERROR, never coerced
+        // unknown status -> ERROR, never coerced
+        return reject("qa_parse_status_unknown");
     }
     if (!requireStringMember(root, "answer", result.answer)) {
-        return std::nullopt;
+        const JsonValue* answer = root.find("answer");
+        if (answer == nullptr) {
+            return reject("qa_parse_missing_answer");
+        }
+        return reject("qa_parse_answer_wrong_type");
     }
     const JsonValue* citations = root.find("citations");
-    if (citations == nullptr || citations->type != JsonValue::Type::Array) {
-        return std::nullopt;
+    if (citations == nullptr) {
+        return reject("qa_parse_missing_citations");
+    }
+    if (citations->type != JsonValue::Type::Array) {
+        return reject("qa_parse_citations_wrong_type");
     }
     for (const JsonValue& entry : citations->items) {
         if (entry.type != JsonValue::Type::Object) {
-            return std::nullopt;
+            return reject("qa_parse_citation_not_object");
         }
         core::ManualQaCitation citation;
+        static const char* const kRequiredCitationFields[] = {
+            "documentId", "contentHash", "pageNumber",
+            "textStart",  "textEnd",    "excerpt",
+        };
+        for (const char* required : kRequiredCitationFields) {
+            if (entry.find(required) == nullptr) {
+                return reject("qa_parse_citation_missing_required_field");
+            }
+        }
         if (!requireStringMember(entry, "documentId", citation.documentId)
             || !requireStringMember(entry, "contentHash",
                                     citation.contentHash)
-            || !requireIntMember(entry, "pageNumber", citation.pageNumber)
-            || !requireIntMember(entry, "textStart", citation.textStart)
-            || !requireIntMember(entry, "textEnd", citation.textEnd)
             || !requireStringMember(entry, "excerpt", citation.excerpt)) {
-            return std::nullopt;
+            return reject("qa_parse_citation_wrong_field_type");
+        }
+        if (!requireIntMember(entry, "pageNumber", citation.pageNumber)
+            || !requireIntMember(entry, "textStart", citation.textStart)
+            || !requireIntMember(entry, "textEnd", citation.textEnd)) {
+            return reject("qa_parse_citation_wrong_field_type");
         }
         result.citations.push_back(std::move(citation));
+    }
+    if (failureCategory != nullptr) {
+        failureCategory->clear();
     }
     return result;
 }

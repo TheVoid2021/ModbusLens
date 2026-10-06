@@ -298,6 +298,7 @@ private slots:
     void qa34_productionRunnerFailsClosedWithoutCredential();
     void qa36_qaRequestDisablesThinking();
     void qa37_roundSucceededExtractsTopLevelContent();
+    void qa38_parseFailureCategoriesAreSafeAndDeterministic();
 
     // Parser / validator semantics
     void parser_validStates();
@@ -645,7 +646,8 @@ void ManualQaTest::qa18_malformedOutputIsError()
     qa_->grantConsent();
     qa_->ask("Who is the manufacturer?");
     QCOMPARE(qa_->resultStatusToken(), QStringLiteral("error"));
-    QCOMPARE(qa_->lastErrorToken(), QStringLiteral("qa_malformed_output"));
+    // M12-D-R2D: the token now carries the SAFE parse-failure category.
+    QCOMPARE(qa_->lastErrorToken(), QStringLiteral("qa_parse_json_syntax"));
     // ERROR must not be converted into a semantic state.
     QVERIFY(qa_->resultStatusToken() != QStringLiteral("not_found"));
     QVERIFY(qa_->resultStatusToken()
@@ -1038,6 +1040,101 @@ void ManualQaTest::qa37_roundSucceededExtractsTopLevelContent()
     const QString content2 =
         ModelScopeManualQaRunner::extractAssistantContent(withReasoning);
     QVERIFY(!content2.contains(QStringLiteral("REASONING")));
+}
+
+// M12-D-R2D observability: the SAME malformed inputs stay rejected (the
+// accepted input set is unchanged), but each rejection now carries a SAFE
+// deterministic category token (never question/answer/excerpt/reasoning/
+// raw content). This is what makes the intermittent live structured-output
+// defect RCA-able.
+void ManualQaTest::qa38_parseFailureCategoriesAreSafeAndDeterministic()
+{
+    QString category;
+    const auto parse = [&category](const char* json) {
+        const auto result = ModelScopeManualQaRunner::parseProviderResult(
+            json, &category);
+        return result.has_value();
+    };
+
+    // Envelope classifications (still rejected — observability only).
+    QCOMPARE(parse(""), false);
+    QCOMPARE(category, QStringLiteral("qa_parse_empty_content"));
+
+    QCOMPARE(parse("```json\" \"{\"status\":\"found\"}\" \"```"), false);
+    QCOMPARE(category, QStringLiteral("qa_parse_markdown_fence"));
+
+    QCOMPARE(parse("<think>{\"status\":\"found\"}</think>"), false);
+    QCOMPARE(category, QStringLiteral("qa_parse_think_envelope"));
+
+    QCOMPARE(parse("{broken"), false);
+    QCOMPARE(category, QStringLiteral("qa_parse_json_syntax"));
+
+    QCOMPARE(parse("[\"array\"]"), false);
+    QCOMPARE(category, QStringLiteral("qa_parse_top_level_not_object"));
+
+    // Schema classifications.
+    QCOMPARE(parse("{}"), false);
+    QCOMPARE(category, QStringLiteral("qa_parse_missing_status"));
+
+    QCOMPARE(parse("{\"status\":42}"), false);
+    QCOMPARE(category, QStringLiteral("qa_parse_status_wrong_type"));
+
+    QCOMPARE(parse("{\"status\":\"bogus\",\"answer\":\"x\","
+                   "\"citations\":[]}"),
+             false);
+    QCOMPARE(category, QStringLiteral("qa_parse_status_unknown"));
+
+    QCOMPARE(parse("{\"status\":\"found\",\"citations\":[]}"), false);
+    QCOMPARE(category, QStringLiteral("qa_parse_missing_answer"));
+
+    QCOMPARE(parse("{\"status\":\"found\",\"answer\":42,"
+                   "\"citations\":[]}"),
+             false);
+    QCOMPARE(category, QStringLiteral("qa_parse_answer_wrong_type"));
+
+    QCOMPARE(parse("{\"status\":\"found\",\"answer\":\"x\"}"), false);
+    QCOMPARE(category, QStringLiteral("qa_parse_missing_citations"));
+
+    QCOMPARE(parse("{\"status\":\"found\",\"answer\":\"x\","
+                   "\"citations\":\"not-a-list\"}"),
+             false);
+    QCOMPARE(category, QStringLiteral("qa_parse_citations_wrong_type"));
+
+    QCOMPARE(parse("{\"status\":\"found\",\"answer\":\"x\","
+                   "\"citations\":[\"str\"]}"),
+             false);
+    QCOMPARE(category, QStringLiteral("qa_parse_citation_not_object"));
+
+    QCOMPARE(parse("{\"status\":\"found\",\"answer\":\"x\","
+                   "\"citations\":[{\"documentId\":\"d\"}]}"),
+             false);
+    QCOMPARE(category,
+             QStringLiteral("qa_parse_citation_missing_required_field"));
+
+    QCOMPARE(parse("{\"status\":\"found\",\"answer\":\"x\","
+                   "\"citations\":[{\"documentId\":\"d\","
+                   "\"contentHash\":\"h\",\"pageNumber\":\"-1\","
+                   "\"textStart\":0,\"textEnd\":5,\"excerpt\":\"e\"}]}"),
+             false);
+    QCOMPARE(category, QStringLiteral("qa_parse_citation_wrong_field_type"));
+
+    // Prose around JSON remains rejected (arbitrary extraction forbidden).
+    QCOMPARE(parse("Here is the answer: {\"status\":\"found\","
+                   "\"answer\":\"x\",\"citations\":[]}"),
+             false);
+    QVERIFY(category == QStringLiteral("qa_parse_json_syntax")
+            || category == QStringLiteral("qa_parse_top_level_not_object"));
+    QCOMPARE(parse("{\"status\":\"found\",\"answer\":\"x\","
+                   "\"citations\":[]} trailing"),
+             false);
+    QVERIFY(category == QStringLiteral("qa_parse_json_syntax")
+            || category == QStringLiteral("qa_parse_top_level_not_object"));
+
+    // Valid input: category stays empty on success.
+    QCOMPARE(parse("{\"status\":\"not_found\",\"answer\":\"\","
+                   "\"citations\":[]}"),
+             true);
+    QCOMPARE(category, QString());
 }
 
 void ManualQaTest::parser_validStates()

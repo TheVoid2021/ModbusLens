@@ -40,9 +40,14 @@ public:
 
     // Strict, fail-closed parse of the provider payload into the core result.
     // nullopt on ANY deviation (malformed JSON, wrong shape, wrong types,
-    // unknown status, broken citation shape).
+    // unknown status, broken citation shape). Since M12-D-R2D, a parse
+    // failure ALSO carries a SAFE deterministic category token through
+    // failureCategory (category name only — never question/answer/excerpt/
+    // reasoning/raw content) so the intermittent live structured-output
+    // defect can be RCA'd without weakening the parser acceptance set.
     [[nodiscard]] static std::optional<core::ManualQaParsedResult>
-    parseProviderResult(const std::string& json);
+    parseProviderResult(const std::string& json,
+                        QString* failureCategory = nullptr);
 
     [[nodiscard]] bool begin(const core::ManualQaRequest& request,
                              std::uint64_t generation,
