@@ -10918,3 +10918,147 @@ Human acceptance 不自动推进 LKGC；任何未来 LKGC 推进需要单独 Hum
 CMakeLists.txt / samples / QML / scripts / configs 改动；无 build / test /
 candidate / deployment / package / tag / push / amend / rebase / reset；
 未开始新 milestone。
+
+## 113. POST-M12-GOV-R1 — VERIFIED LKGC ADVANCEMENT TO THE FINAL
+HUMAN-ACCEPTED M12 + POST-M12 UX BASELINE（2026-10-06，docs / governance only）
+
+### 113.0 Human authorization（逐字）
+
+本次 packet 记录的 Human 授权原文：
+
+> “Advance verified LKGC from: `c68d2bbb277096fd7fb9a76d99d7b588da6461f0`
+> to: `9c065f23a7f06beb73beedb680a3fe3b03e4c596`。Scope: verified LKGC
+> advancement + docs/governance archive only; first prove target exists, is
+> current HEAD ancestor, behavior-bearing; prove `9c065f23..HEAD` has NO
+> behavior difference in src/ tests/ CMakeLists.txt samples/; cite existing
+> evidence（M12 overall closure / UX-R1 Human acceptance / UX-R2 canonical
+> 70/70 / UX-R2 exact deployment / UX-R2 Human acceptance）; do NOT modify
+> behavior code/tests/CMake/QML/samples; do NOT build/test/candidate; do NOT
+> package/tag/push; do NOT start new milestone/behavior slice; preserve
+> post-target docs commits as non-LKGC descendants.”
+
+### 113.1 starting / previous LKGC
+
+```text
+starting HEAD         = bce2e96d6297f48e3177bbfe2bb89b313324844f
+previous verified LKGC = c68d2bbb277096fd7fb9a76d99d7b588da6461f0
+authorized target      = 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+```
+
+会话前 canonical docs 实测：PROJECT_STATUS 最新块与 T027 §110/§112 均记载
+`verified LKGC = c68d2bbb…`，无任何文档已把 target 记为 LKGC（无 baseline
+mismatch）。
+
+### 113.2 target legality（全部实测）
+
+```text
+git cat-file -t 9c065f23…                                   = commit
+git show -s 9c065f23…    parent = ce49f1c0cd13e886c549a0faa55c4ddae40b57d0
+                         subject = "UI: make Manual Q&A results scrollable"
+merge-base --is-ancestor 9c065f23… HEAD                     = exit 0
+merge-base --is-ancestor c68d2bbb… 9c065f23…                = exit 0
+diff-tree -r 9c065f23…   M src/main.cpp
+                         M src/ui/qml/pages/DeviceProfilePage.qml
+git show --stat 9c065f23…  2 files changed, 757 insertions(+), 45 deletions(-)
+diff 9c065f23..HEAD -- src tests CMakeLists.txt samples      = EMPTY
+   （--name-status 与 --stat 双证；无任何 behavior/test/CMake/sample 漂移）
+```
+
+### 113.3 descendant audit（pre-commit = 2，全部 docs-only）
+
+```text
+git log --reverse --format="%H %s" 9c065f23..HEAD：
+  1. 5c4772de3099b8ba18eda18e01d8e2ed888be9b6  Docs: archive Manual Q&A
+     result scrolling repair —— 仅 docs/ 四文件
+  2. bce2e96d6297f48e3177bbfe2bb89b313324844f  Docs: archive Manual Q&A
+     scrolling Human acceptance —— 仅 docs/ 四文件
+本会话治理提交后 descendants = 3（全部 docs/governance-only，永不作 LKGC）。
+```
+
+### 113.4 cited evidence（引用既有档案，不重跑）
+
+```text
+M12 overall closure（T027 §108）:
+  M12 OVERALL = COMPLETE / HUMAN ACCEPTED
+  ALL CANONICAL M12 EXIT CONDITIONS = SATISFIED
+  UNRESOLVED REQUIRED P0 / HUMAN DECISION = NONE
+  CURRENT REQUIRED DEFECT BLOCKER = NONE
+UX-R1（T027 §109/§110）:
+  behavior commit dde40024632aa8f8ab0de6d8cb86ce28d811f944
+  POST-M12-UX-R1 = COMPLETE / HUMAN ACCEPTED
+  Human scope（8 项，原文保留）: close works; Device/Diagnostics
+  retract+recover; reopen preserves state; close does not cancel Q&A;
+  no Candidate; no DeviceProfile mutation; no dirty.
+UX-R2 automated（T027 §111）:
+  behavior commit 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+  inventory 70；pre-commit 70/70 PASS exit 0 / 220.28s；
+  post-commit 70/70 PASS exit 0 / 215.17s
+  candidate = build/acceptance/session-post-m12-ux-r2-postcommit-release/
+              candidate/ModbusLens/modbuslens.exe
+              SHA-256 8cd860c95656d999535ade43dded2c80ff71ce671ba3d7a3244176be0234bc53
+  exact deployment PASS / 26.57s
+UX-R2 Human acceptance（T027 §112）:
+  POST-M12-UX-R2 RESULT SCROLLING = COMPLETE / HUMAN ACCEPTED
+  Human scope（11 项，原文保留）: long answer/evidence scrolls fully to
+  bottom; title/close/selected Manual/question/Ask stay fixed; close+reopen
+  preserves result; Diagnostics retract works; no Candidate; no
+  DeviceProfile mutation; no "未保存修改".
+latest Human-tested behavior-bearing commit = 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+```
+
+### 113.5 legality table（全部 PASS 后才执行推进）
+
+```text
+Target exists as commit                = YES
+Target is HEAD ancestor                = YES
+Previous LKGC is target ancestor       = YES
+Target behavior-bearing                = YES
+Target changed paths                   = src/main.cpp,
+                                         src/ui/qml/pages/DeviceProfilePage.qml
+9c065f23..HEAD behavior-path diff      = EMPTY
+Pre-session descendants                = 2（5c4772de…, bce2e96d…）
+All descendants docs-only              = YES
+M12 closure                            = PASS
+UX-R1 Human acceptance                 = PASS
+UX-R2 canonical 70/70                  = PASS
+UX-R2 exact deployment                 = PASS
+UX-R2 Human acceptance                 = PASS
+Latest Human-tested behavior           = 9c065f23…
+Current verified LKGC                  = c68d2bbb…
+Authorized advancement                 = c68d2bbb… -> 9c065f23…
+```
+
+### 113.6 LKGC advancement
+
+```text
+verified LKGC: c68d2bbb277096fd7fb9a76d99d7b588da6461f0
+           -> 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+new classification = HUMAN AUTHORIZED / VERIFIED BEHAVIOR BASELINE
+```
+
+推进的合法性依据：target 是**行为承载**提交（真实 changed paths 含 `src/`
+与 QML，§113.2 实测）；其行为树与 `HEAD` 的行为路径**零差异**（§113.2）；
+target 之上的 2 个后代全部 docs-only（§113.3）；target 的行为已由
+canonical 70/70（两棵 fresh 树）、exact candidate（exe ≡ source）与
+deployment gate 证明，并由 Human 对 UX-R1（8 项）与 UX-R2（11 项）分别
+验收。**本节所在的 docs 提交本身不是 LKGC**（docs 永不作 LKGC）。
+
+### 113.7 lineage（各自独立，不互相覆盖）
+
+```text
+M12-C final baseline            = c68d2bbb277096fd7fb9a76d99d7b588da6461f0
+                                  （旧 verified LKGC，转为 historical baseline）
+M12-D Human-tested baseline     = 8416fe7a26eaa8c79ab8186513b60af5954a18b9
+POST-M12-UX-R1                  = dde40024632aa8f8ab0de6d8cb86ce28d811f944
+POST-M12-UX-R2（新 verified LKGC）= 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+```
+
+历史引用不改写、不删除；旧 verified LKGC 保留为 historical baseline。
+
+### 113.8 action boundary
+
+本节所在提交 = docs / governance only（永不作 LKGC）；零 src / tests /
+CMakeLists.txt / samples / QML / scripts / configs 改动；无 build / test /
+candidate / deployment / package / tag / push / amend / rebase / reset；
+未开始新 milestone / behavior slice。**NEXT = SEPARATE HUMAN DECISION ON
+ANY POST-M12 RELEASE / GOVERNANCE ACTION。**
