@@ -10501,3 +10501,305 @@ M12-D = COMPLETE / HUMAN ACCEPTED
 
 本节所在提交为 **docs-only**（永不作 LKGC）；无 build / test / candidate /
 package / tag / push / amend / reset / rebase；无新 milestone。
+
+## 111. POST-M12-UX-R2 — MANUAL Q&A RESULT SCROLLING（2026-10-06，narrow
+display/layout repair + governance addendum）
+
+> 本轮为 **narrow display/layout repair**（Human 观测缺陷 → 只读 QML 审计 →
+> REAL RED → QML-only GREEN → targeted → negative control → fresh canonical
+> full → behavior commit → post-commit tree → candidate FROM ZERO →
+> deployment gate → 本节归档）。
+> 未触碰 M12-D D1–D5 语义；未修改 ManualQaController /
+> ModelScopeManualQaRunner / ManualQaContract（citation validator）/ consent /
+> generation / ManualStore / ML-2 / Candidate / DeviceProfile / Modbus；
+> 未推进 LKGC；未 package/tag/push/amend；未开始任何新 milestone。
+> **M12 overall 结论保持 COMPLETE / HUMAN ACCEPTED 不变，未被重新开启。**
+
+### 111.1 Human 缺陷（来源）
+
+本次 packet §11 记录的 Human 观测：
+
+```text
+长 FOUND answer / citation 内容超出右侧 Manual Q&A Drawer 的可视高度；
+结果区域没有可用的垂直滚动，下部 answer / citation 无法完整查看。
+```
+
+这是 **DISPLAY / LAYOUT 缺陷**；不是 provider / parser / citation-validator /
+controller / consent 缺陷（§26 行为边界实测亦证明）。
+
+### 111.2 只读 QML 布局审计（§13，先于任何编辑）
+
+审计对象 = `src/ui/qml/pages/DeviceProfilePage.qml`（HEAD `ce49f1c`）。
+
+```text
+manualQaCard          Drawer，edge RightEdge，modal:false，NoAutoClose，
+                      width 360，height = Overlay.overlay.height
+  └── ColumnLayout    width: parent.width（height 未绑定 → implicit）
+      ├── RowLayout（固定）    SectionHeader manualQaHeader +
+      │                        AppButton manualQaCloseButton（UX-R1 关闭）
+      ├── Label    manualQaSelectedManual
+      ├── TextField manualQaQuestionInput
+      ├── AppButton manualQaAskButton
+      ├── Label    manualQaRunningLabel（visible: busy）
+      ├── Label    manualQaResultStatus
+      ├── Label    manualQaAnswer
+      ├── Label    manualQaCitationsHeader
+      └── Repeater manualQaCitations（delegate ColumnLayout：范围行 +
+                                   excerpt Label，wrap）
+ScrollView/Flickable/ScrollBar/clip   全 Drawer 内一处都不存在
+contentHeight/implicitHeight          无任何滚动相关绑定
+```
+
+结构性事实：固定控件与结果区在同一**未约束** ColumnLayout 中垂直排布；
+ColumnLayout 的 height 未绑定 → 内容超出 Drawer 可视高度时，超出部分被
+popup item 边界裁掉且**没有任何滚动途径**——与 Human 观测一致。
+
+### 111.3 根因分类（§14，按源码事实）
+
+```text
+UX-R2-A（成立，唯一根因）  结果内容位于未约束 ColumnLayout，
+                          无 Flickable/ScrollView/ScrollBar/clip。
+UX-R2-B（不成立）          不存在 ScrollView。
+UX-R2-C（不成立）          不存在 contentHeight 绑定可言。
+UX-R2-D（不成立）          不存在 scroll bar。
+UX-R2-E（不成立）          不存在 child width/height 绑定阻止 flick。
+```
+
+### 111.4 GREEN 设计（§15，QML-only）
+
+`DeviceProfilePage.qml`（+75 / −44，唯一行为变更）：
+
+```text
+外层 ColumnLayout 增加 height: parent.height（受 Drawer 约束）；
+仅结果区（resultStatus / answer / citationsHeader / Repeater）
+移入有界 Flickable：
+    manualQaResultScroll   Layout.fillWidth/fillHeight、
+                           Layout.minimumHeight: 0、clip:true、
+                           boundsBehavior: StopAtBounds、
+                           flickableDirection: VerticalFlick、
+                           contentWidth: width（无水平滚动）、
+                           contentHeight: manualQaResultContent.implicitHeight、
+                           ScrollBar.vertical: ScrollBar { policy: AsNeeded }
+固定块不滚动：header + 关闭 / 所选说明书 / 问题输入 / 提问 /
+Running 指示器全部留在 Flickable 之外。
+```
+
+约定选择（记录在案）：`manualQaRunningLabel` 留在固定块（它是 Ask 的进行中
+指示器，滚走会造成误导）；结果状态 `manualQaResultStatus` 属于结果区（§12.E
+"status"），可随内容滚动。为 gate 可观测性新增两个**惰性** objectName：
+`manualQaCitationItem`（delegate 根）与 `manualQaCitationExcerpt`（excerpt
+Label）——纯命名，无语义。
+
+### 111.5 REAL RED（先于 GREEN，runtime UI semantic RED）
+
+`--qml-manual-qa-check` 新增确定性长结果 fixture（§18）：gate 专用
+`GateQaRunner::Mode::LongFound`——30 行确定性 answer + **真实 request block
+未截断 citation**（同一 canonical 六字段形状，本地 citation 校验照常通过），
+零网络；并经 REAL import 导入 40 条款长手册。修复前实测（工作树）：
+
+```text
+QAGATE: SCROLL-B: the long result needs 898px, the region offers 786px
+(panel 360x937 window 1280x937)
+QAGATE FAIL: SCROLL-07/08 (REAL RED): the long FOUND result needs 898px but
+the result region only offers 786px, and there is NO bounded vertical
+scrolling surface (no manualQaResultScroll in the visual tree) - the bottom
+citation cannot be reached
+（级联：SCROLL-07/08/09/10/13/11/19 各自缺面失败）EXIT=1
+```
+
+### 111.6 Negative control（真实 mutate → RED → 精确逆向还原 → GREEN）
+
+- 变体：对 QML 施加精确逆向 patch —— **仅移除滚动面**（删除 Flickable 包装
+  与 `height: parent.height`，保留惰性 objectName）→ 重建 → 运行。
+- 实测 RED（`build/_evidence/uxr2-nx-red.txt`，EXIT=1）首条断言与 111.5
+  完全一致 → 证明该断言由滚动面缺失直接导致。
+- 还原：精确正向 patch，**byte-for-byte**（QML md5
+  `732b0201650d5392ddee3b07f5782a6f` `md5sum -c` = OK），gate 复跑
+  EXIT=0（GREEN 复原）。未使用 `git checkout/restore/reset`。
+
+### 111.7 GREEN matrix（SCROLL-01..SCROLL-20，提交后树 canonical 实测）
+
+提交后树 `build/acceptance/session-post-m12-ux-r2-postcommit-release` 实测
+（transcript = `build/_evidence/uxr2-green-postcommit.txt`，EXIT=0，0 FAIL）：
+
+```text
+QAGATE: SCROLL-B: the long result needs 898px, the region offers 786px
+QAGATE: SCROLL-07: result contentHeight=898 viewport=786 contentY=0
+        contentWidth=359 width=359
+QAGATE: SCROLL-08: contentY after a real flick = 112
+QAGATE: SCROLL-09: sentinel bottom=937 viewport bottom=937 (contentY=112)
+QAGATE: SCROLL-12 (settled): opened=0 position=0 panelX=1280
+QAGATE: SCROLL-11: short result contentHeight=128 viewport=786
+QAGATE: SCROLL-11: the AsNeeded scrollbar item exists with size=1 (policy=0)
+QAGATE: SCROLL-19: at 1000x700 contentHeight=898 viewport=549 panel=640,0
+        360x700
+MANUAL QA CHECK PASS: ...
+```
+
+| 契约项 | 断言（摘要） | 实测 |
+| --- | --- | --- |
+| 01 | 面板正常打开（长 fixture 载入前 UX 阶段已绿） | PASS |
+| 02–06 | header / 关闭 / 所选说明书 / 问题输入 / 提问 **可见、enabled**，且**结构上不在滚动面内**（`underItem` 反证） | PASS |
+| 07 | `contentHeight(898) > viewport(786)`；`contentWidth == width`（无水平溢出）；`flickableDirection == VerticalFlick(2)`；`clip == true`；垂直 bar `policy == AsNeeded(0)` | PASS |
+| 08 | **真实 flick**（`QMetaObject::invokeMethod(scroll,"flick",0,-1200)`）移动 `contentY → 112`（= max，StopAtBounds 收敛） | PASS |
+| 09 | 滚到最底后 **底部 citation sentinel 进入视口**（`sentinel bottom=937 == viewport bottom=937`）；展示文本逐字等于已校验 excerpt（逐条比较）；每条 excerpt Label `height == implicitHeight`（±2px，无垂直裁切） | PASS |
+| 10 | 滚动前后固定块 scene rect **零 drift**（`fixedQaRects` 比对）+ 结构性不在滚动面内 | PASS |
+| 11 | 短结果 `contentHeight(128) < viewport(786)`、无裁切、无 thumb（bar `size=1`、policy=0；像素实测：短结果滚动条区域 **min=255 全白**） | PASS |
+| 12 | 长结果展示中点击「关闭」→ 沉降后 `opened=0 position=0 panelX=1280`（UX-R1 行为不变） | PASS |
+| 13 | 重开后 answer / citation 保留（UI 文本零 drift）且结果仍可滚动 | PASS |
+| 14–15 | 滚动不改变所选说明书 / 问题草稿（UI snapshot 零 drift） | PASS |
+| 16 | 滚动不改变 generation / cancel 计数（state snapshot 零 drift） | PASS |
+| 17–18 | 滚动不产生 Candidate、不改 DeviceProfile/dirty（stable 零 drift） | PASS |
+| 19 | 1000×700：面板在窗口内（panel 640,0 360×700）、`contentHeight 898 > viewport 549`、sentinel 可达、固定控件可用 | PASS |
+| 20 | Windows paired gate = ctest `qml_manual_qa_check_windows` PASS | PASS（9.10s） |
+
+**像素级证据**（post-commit 树截图，1280×937）：
+
+```text
+固定块 y0..151：滚动前后 changed px = 0（header/关闭/输入/提问逐像素不动）
+结果区 y185..937：changed px = 54458（内容确实滚动）
+短结果滚动条区域 x1266..1280 min = 255（无 thumb 绘制）
+长结果滚动后右缘出现 AsNeeded bar 的浅色带（min=229，随交互出现/消退）
+```
+
+截图目录：`build/_evidence/uxr2-shots-postcommit/`（ux-r2-01..05；
+工作树先跑的 `uxr2-shots/` 与其一致）。
+
+**UX-R1 回归（§20）**：同一 gate 内 UX-01..UX-12 全部保持 PASS
+（0 FAIL）；关闭/重开/Running 语义未变。
+
+### 111.8 Targeted regression + fresh canonical full
+
+```text
+Targeted（工作树，16 tests，含 §22 focus gate）:
+  manual_qa / manual_import / manual_delete
+  / qml_manual_qa_check(+windows) / qml_manual_import_check(+windows)
+  / qml_candidate_review_check(+windows) / qml_consent_check(+windows)
+  / qml_active_profile_check / qml_profile_editor_check
+  / qml_nav_check / qml_geometry_check / qml_focus_check
+  → 100% tests passed, 0 failed out of 16（real 76.58s）
+
+Fresh canonical tree（pre-commit）= build/acceptance/session-post-m12-ux-r2-release
+  configure RC 0（cache 实测 MODBUSLENS_PYTHON_EXECUTABLE=
+  D:/Anaconda3/python.exe；"not registered" = 0）
+  build 474/474 RC 0（error: = 0）
+  ctest -N = 70；full unfiltered ctest = 70/70 PASS，exit 0，real 220.28s
+
+Fresh canonical tree（post-commit）= build/acceptance/session-post-m12-ux-r2-postcommit-release
+  configure RC 0（同上）；build 474/474 RC 0；
+  full unfiltered ctest = 70/70 PASS，exit 0，real 215.17s
+```
+
+### 111.9 Behavior commit
+
+```text
+commit   = 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+subject  = UI: make Manual Q&A results scrollable
+parent   = ce49f1c0cd13e886c549a0faa55c4ddae40b57d0
+files    = src/main.cpp（+683/−1；hunk 全部位于 runManualQaCheck 内：
+           fixture mode、SCROLL stages、截图点位）
+           src/ui/qml/pages/DeviceProfilePage.qml（+75/−44：结果区重构）
+总计     2 files changed, 757 insertions(+), 45 deletions(-)
+NO AMEND；无 docs 混入
+```
+
+**行为边界证明（§26）**：
+
+```text
+git diff --name-only -- src/core src/ui/manualqa src/ui/manual
+    src/ui/candidate src/ui/profile tests CMakeLists.txt samples
+= （空）
+```
+
+即 ManualQaController 语义 / ModelScopeManualQaRunner / provider request /
+structured parser / citation resolver / citation validator / consent /
+generation / Candidate / Profile / ManualStore / ML-2 delete rules / Modbus /
+schema / persistence **零改动**。
+
+### 111.10 Candidate（FROM ZERO）+ deployment gate
+
+```text
+候选生成   ninja modbuslens_candidate（post-commit tree）
+           → "candidate ready at …/session-post-m12-ux-r2-postcommit-release/
+             candidate/ModbusLens (1713 files, manifest written)"
+           生成器第 1 步 file(REMOVE_RECURSE) → 每次 FROM ZERO
+
+exe 身份   source  modbuslens.exe = 7,029,729 B
+                    SHA-256 8cd860c95656d999535ade43dded2c80ff71ce671ba3d7a
+                            3244176be0234bc53
+           candidate modbuslens.exe = 7,029,729 B / 同 SHA-256（**identical**）
+           manifest entries = 1713 / root 实际文件（含 manifest）= 1714 /
+           root 目录数 = 90 / generated-by = modbuslens_generate_candidate.cmake
+           platforms/qwindows.dll SHA-256 = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+           pdfium.dll               SHA-256 = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+
+deployment gate（该 exact candidate；凭据缺席 + 净化环境
+  env -u MODELSCOPE_API_KEY -u MODBUSLENS_MODELSCOPE_MODEL
+      -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH
+      -u QML_IMPORT_PATH -u QML2_IMPORT_PATH）
+  ctest -R "^deployment_startup_check$"        → Passed 26.57s
+  （-V：manifest verified, sanitized launch PASSED (exit 0,
+   SMOKE IDENTITY PASS, qwindows from candidate)）
+```
+
+**推荐 Human UX-R2 重测入口 = 且仅 = 该 candidate。**
+
+### 111.11 状态收口
+
+```text
+POST-M12-UX-R1 = COMPLETE / HUMAN ACCEPTED（§110）
+MANUAL Q&A PANEL RETRACT / REOPEN = IMPLEMENTED / AUTOMATED PASS / HUMAN PASS
+POST-M12-UX-R2 RESULT SCROLLING = IMPLEMENTED / AUTOMATED PASS
+M12 OVERALL = COMPLETE / HUMAN ACCEPTED（UNCHANGED；NOT REOPENED）
+UX-R2 HUMAN RETEST = PENDING
+latest Human-tested behavior-bearing commit =
+  dde40024632aa8f8ab0de6d8cb86ce28d811f944（不变；
+  本轮新 behavior commit 9c065f2… **尚未**经 Human 验证）
+verified LKGC = c68d2bbb277096fd7fb9a76d99d7b588da6461f0（UNCHANGED，NO advance）
+canonical package = NOT CREATED；REAL HARDWARE = NOT VERIFIED
+tag = v1.0.0 only；push = NONE
+NEXT = HUMAN LONG-RESULT SCROLLING RETEST USING THE NEW UX-R2 CANDIDATE
+```
+
+### 111.12 Human UX-R2 重测清单（§33）
+
+```text
+ 1. 启动 UX-R2 新候选（candidate/ModbusLens/modbuslens.exe）。
+ 2. 进入「设备」，选择已有 Manual。
+ 3. 打开「手册问答」。
+ 4. 确认顶部标题/关闭/所选说明书/问题框/提问按钮都正常可见。
+ 5. 使用已有长 FOUND 结果，或正常提问得到较长 answer + citation。
+ 6. 确认结果区域出现可用的垂直滚动能力。
+ 7. 向下滚动，确认能够看到 citation 最底部内容。
+ 8. 滚动期间确认 header/关闭/问题框/提问按钮没有一起滚走。
+ 9. 点击「关闭」，确认 Drawer 收回。
+10. 重新打开，确认答案/citation 没有因为关闭被清空。
+11. 切到「诊断」，如 Drawer 仍打开，可关闭并恢复完整区域。
+12. 确认没有 Candidate、没有 DeviceProfile 变化、没有「未保存修改」。
+```
+
+### 111.13 Knowledge Learned / Interview Notes
+
+- **有界滚动的最小结构**：外层布局必须先"被约束"（`height: parent.height`），
+  否则 `Layout.fillHeight` 无从分配"剩余空间"；只给结果区 `fillHeight` +
+  `Layout.minimumHeight: 0`，固定块保持 implicit 高度。
+- **Flickable 直用 vs ScrollView**：仓库 canonical 惯例（DiagnosisPage）是
+  `Flickable + clip + StopAtBounds + VerticalFlick + contentWidth: width +
+  ScrollBar.vertical`；直用 Flickable 让 gate 可以确定性读写
+  `contentY` / 调用 `flick()`。
+- **`contentWidth: width` 是防水平滚动的关键**；配合 `VerticalFlick` 使
+  长文本换行宽度稳定。
+- **AsNeeded 的绘制语义**：bar item 始终存在（`visible` 可为 true），
+  实际是否绘制由 style/active 决定；断言"无 thumb"要用像素证据或
+  `size`（=1 即无可滚动），不能只看 `visible`。
+- **截图分区像素 diff** 是"固定块不动 + 内容滚动"最直接的自动化证据
+  （固定区 changed px = 0）。
+- **负向对照的精度**：只 mutate 行为本体（滚动面），保留惰性观测命名，
+  使 RED 首条断言与真实 RED 一致；还原必须 byte-for-byte（md5 校验）。
+
+### 111.14 action boundary
+
+本轮 behavior commit `9c065f2…` 为 **LKGC candidate**（真实改动路径含
+`src/` 与 QML），但 **本期不推进 LKGC**；本节所在 docs-only 提交永不作
+LKGC。未 package / tag / push / amend / reset / rebase；未开始新 milestone。
+**NEXT = HUMAN LONG-RESULT SCROLLING RETEST USING THE NEW UX-R2 CANDIDATE**。
