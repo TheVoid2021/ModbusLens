@@ -121,6 +121,9 @@ private:
     // Identity of the Manual the current attempt/context is bound to.
     QString boundDocumentId_;
     QString boundContentHash_;
+    // M12-D-R2E: the exact request of the in-flight/last attempt — provides
+    // the deterministic block table the citationId resolution maps against.
+    core::ManualQaRequest activeRequest_;
 
     QString resultStatus_{"none"}; // none|found|not_found|insufficient_evidence|error
     QString answerText_;

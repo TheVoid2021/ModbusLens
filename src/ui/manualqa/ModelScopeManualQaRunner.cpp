@@ -411,9 +411,29 @@ ModelScopeManualQaRunner::parseProviderResult(const std::string& json,
     if (citations->type != JsonValue::Type::Array) {
         return reject("qa_parse_citations_wrong_type");
     }
+    // M12-D-R2E: two citation shapes exist. The APP-RESOLVED shape is
+    // {"citationId": "cN"} — the provider only SELECTS one of the opaque
+    // ids the app attached to its own deterministic context blocks, and the
+    // app maps the id back to the canonical D2 citation fields. The
+    // legacy shape (model-authored documentId/contentHash/offsets/excerpt)
+    // is still parsed for compatibility but is deterministic-weakness-prone
+    // (R2E live probes: round_trip_failed twice) and is no longer requested.
     for (const JsonValue& entry : citations->items) {
         if (entry.type != JsonValue::Type::Object) {
             return reject("qa_parse_citation_not_object");
+        }
+        const JsonValue* citationId = entry.find("citationId");
+        if (citationId != nullptr
+            && citationId->type == JsonValue::Type::String) {
+            // App-resolved shape: carry the raw opaque id in documentId for
+            // resolveProviderResult to map against the request blocks.
+            core::ManualQaCitation pending;
+            pending.documentId = citationId->stringValue;
+            pending.pageNumber = -1;
+            pending.textStart = -1;
+            pending.textEnd = -1;
+            result.citations.push_back(std::move(pending));
+            continue;
         }
         core::ManualQaCitation citation;
         static const char* const kRequiredCitationFields[] = {
@@ -444,6 +464,86 @@ ModelScopeManualQaRunner::parseProviderResult(const std::string& json,
     return result;
 }
 
+std::optional<core::ManualQaParsedResult>
+ModelScopeManualQaRunner::resolveProviderResult(
+    const std::string& json, const core::ManualQaRequest& request,
+    QString* failureCategory)
+{
+    QString parseCategory;
+    std::optional<core::ManualQaParsedResult> parsed =
+        parseProviderResult(json, &parseCategory);
+    if (!parsed.has_value()) {
+        if (failureCategory != nullptr) {
+            *failureCategory = parseCategory;
+        }
+        return std::nullopt;
+    }
+    // M12-D-R2E: resolve app-resolved citationIds to canonical D2 citations.
+    // The provider can only SELECT ids the app attached to its own
+    // deterministic context blocks; it cannot author canonical identity,
+    // hash or offsets. Unknown ids / wrong-generation ids are fail-closed.
+    bool hasAppResolved = false;
+    for (const auto& citation : parsed->citations) {
+        if (!citation.documentId.empty() && citation.contentHash.empty()
+            && citation.excerpt.empty() && citation.textStart < 0
+            && citation.textEnd < 0) {
+            hasAppResolved = true;
+            break;
+        }
+    }
+    if (!hasAppResolved) {
+        if (failureCategory != nullptr) {
+            failureCategory->clear();
+        }
+        return parsed;
+    }
+    core::ManualQaParsedResult resolved;
+    resolved.status = parsed->status;
+    resolved.answer = parsed->answer;
+    for (const auto& entry : parsed->citations) {
+        const bool appResolved = !entry.documentId.empty()
+            && entry.contentHash.empty() && entry.excerpt.empty()
+            && entry.textStart < 0 && entry.textEnd < 0;
+        if (!appResolved) {
+            resolved.citations.push_back(entry);
+            continue;
+        }
+        // citationId was carried in documentId by the parse pass (the parse
+        // layer stores the raw opaque id there for app-resolved entries).
+        const std::string& id = entry.documentId;
+        int index = -1;
+        for (std::size_t i = 0; i < request.blocks.size(); ++i) {
+            const std::string expected = "c"
+                + std::to_string(static_cast<int>(i) + 1);
+            if (expected == id) {
+                index = static_cast<int>(i);
+                break;
+            }
+        }
+        if (index < 0
+            || index >= static_cast<int>(request.blocks.size())) {
+            if (failureCategory != nullptr) {
+                *failureCategory = QLatin1String(
+                    "qa_parse_citation_unknown_id");
+            }
+            return std::nullopt;
+        }
+        const auto& block = request.blocks[static_cast<std::size_t>(index)];
+        core::ManualQaCitation canonical;
+        canonical.documentId = request.documentId;
+        canonical.contentHash = request.contentHash;
+        canonical.pageNumber = -1;
+        canonical.textStart = block.start;
+        canonical.textEnd = block.end;
+        canonical.excerpt = block.text;
+        resolved.citations.push_back(std::move(canonical));
+    }
+    if (failureCategory != nullptr) {
+        failureCategory->clear();
+    }
+    return resolved;
+}
+
 QString ModelScopeManualQaRunner::extractAssistantContent(
     const QJsonObject& assistantMessage)
 {
@@ -469,12 +569,11 @@ QJsonObject ModelScopeManualQaRunner::buildRequestBody(
         "不得把通用知识当作说明书事实。若摘录不足以回答，请如实选择对应的"
         "状态。必须只输出一个 JSON 对象，格式为："
         "{\"status\":\"found|not_found|insufficient_evidence\","
-        "\"answer\":\"...\",\"citations\":[{\"documentId\":\"...\","
-        "\"contentHash\":\"...\",\"pageNumber\":整数,\"textStart\":整数,"
-        "\"textEnd\":整数,\"excerpt\":\"...\"}]}。"
-        "citations 中的 textStart/textEnd 必须是所引用摘录在说明书原文中的"
-        "字符偏移（含于提供的上下文块边界信息中），excerpt 必须与该范围逐字"
-        "一致。not_found 或 insufficient_evidence 时 citations 可为空数组。");
+        "\"answer\":\"...\",\"citations\":[{\"citationId\":\"c1\"}]}。"
+        "citations 中只能填写提供的上下文块标记 citationId（如 c1、c2），"
+        "每个被引用的块一个条目；不得自行编造 documentId、contentHash、偏移"
+        "或原文。found 状态必须至少引用一个块；not_found 或 "
+        "insufficient_evidence 时 citations 可为空数组。");
 
     QString userPrompt;
     userPrompt += QStringLiteral("说明书编号: %1\n内容指纹: %2\n")
@@ -482,9 +581,11 @@ QJsonObject ModelScopeManualQaRunner::buildRequestBody(
                            QString::fromStdString(request.contentHash));
     userPrompt += QStringLiteral("问题: %1\n\n").arg(
         QString::fromStdString(request.question));
-    userPrompt += QStringLiteral("说明书摘录（可信来源数据，含字符偏移）:\n");
-    for (const auto& block : request.blocks) {
-        userPrompt += QStringLiteral("[%1,%2) %3\n")
+    userPrompt += QStringLiteral("说明书摘录（可信来源数据，每块前标注 citationId）:\n");
+    for (std::size_t bi = 0; bi < request.blocks.size(); ++bi) {
+        const auto& block = request.blocks[bi];
+        userPrompt += QStringLiteral("citationId: c%1\n[%2,%3) %4\n")
+                          .arg(static_cast<int>(bi) + 1)
                           .arg(block.start)
                           .arg(block.end)
                           .arg(QString::fromStdString(block.text));

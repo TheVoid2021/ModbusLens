@@ -285,6 +285,7 @@ void ManualQaController::beginAttempt(const QString& question)
     request.contentHash = boundContentHash_.toStdString();
     request.blocks = core::buildManualQaContextBlocks(
         canonicalText.toStdString(), request.question);
+    activeRequest_ = request;
 
     ++generation_;
     const std::uint64_t generation = generation_;
@@ -321,10 +322,13 @@ void ManualQaController::completeAttempt(std::uint64_t generation, bool ok,
     // Strict, fail-closed parse (§100.6). Malformed output is ERROR — never a
     // semantic state. M12-D-R2D: the parse failure carries a SAFE category
     // token (no content) in lastErrorToken for RCA observability; the Human
-    // UI text stays generic.
+    // UI text stays generic. M12-D-R2E: citationIds from the provider are
+    // resolved to canonical D2 citations against the request's own
+    // deterministic block table before validation.
     QString parseCategory;
     const std::optional<core::ManualQaParsedResult> parsed =
-        ModelScopeManualQaRunner::parseProviderResult(rawJson, &parseCategory);
+        ModelScopeManualQaRunner::resolveProviderResult(
+            rawJson, activeRequest_, &parseCategory);
     if (!parsed.has_value()) {
         // The category token is content-free (no question/answer/excerpt/
         // reasoning/raw payload): attaching it to the failure text lets a

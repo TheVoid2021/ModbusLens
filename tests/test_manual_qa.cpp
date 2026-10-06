@@ -54,8 +54,14 @@ public:
         Malformed,
         Failure,
         Deferred, // completion is captured, delivered by deliverDeferred()
+        Scripted, // delivers the exact scripted rawJson (contract fixtures)
     };
 
+    void script(const std::string& rawJson)
+    {
+        mode_ = Mode::Scripted;
+        scriptedJson_ = rawJson;
+    }
     void configure(Mode mode, const ManualQaParsedResult& result)
     {
         mode_ = mode;
@@ -101,6 +107,11 @@ public:
             deferred.rawJson = foundJsonFor(request, -1, -1, std::string(),
                                             false, false);
             deferred_.push_back(std::move(deferred));
+            return true;
+        }
+        if (mode_ == Mode::Scripted) {
+            onDone(IManualQaRunner::Completion{generation, true, std::string(),
+                                               scriptedJson_});
             return true;
         }
         const auto emitFound = [&](const std::string& documentId,
@@ -252,6 +263,7 @@ private:
         std::string rawJson;
     };
     std::vector<DeferredCompletion> deferred_;
+    std::string scriptedJson_;
 };
 
 } // namespace
@@ -299,6 +311,8 @@ private slots:
     void qa36_qaRequestDisablesThinking();
     void qa37_roundSucceededExtractsTopLevelContent();
     void qa38_parseFailureCategoriesAreSafeAndDeterministic();
+    void qa40_appResolvedCitationIds();
+    void qa41_providerAuthoredOffsetsReproduceLiveFailureClass();
 
     // Parser / validator semantics
     void parser_validStates();
@@ -1135,6 +1149,81 @@ void ManualQaTest::qa38_parseFailureCategoriesAreSafeAndDeterministic()
                    "\"citations\":[]}"),
              true);
     QCOMPARE(category, QString());
+}
+
+// M12-D-R2E: the APP-RESOLVED citation contract. The provider only SELECTS
+// opaque citationIds the app attached to its own deterministic context
+// blocks; the controller maps the ids back to canonical D2 citations
+// (documentId/contentHash from the request binding, offsets/excerpt from
+// the referenced block) and the UNCHANGED local validator remains the final
+// authority. Provider authority is reduced: it can no longer author
+// canonical identity/hash/offsets at all.
+void ManualQaTest::qa40_appResolvedCitationIds()
+{
+    manual_ = importSeed(seedPath_);
+    QVERIFY(manual_ != nullptr);
+    qa_ = new ManualQaController();
+    fake_ = new FakeManualQaRunner();
+    qa_->setRunnerForAutomation(fake_);
+    qa_->setManualController(manual_);
+    qa_->grantConsent();
+
+    // Provider selects citationId "c1" — the new output contract.
+    const auto selectedIdJson =
+        "{\"status\":\"found\",\"answer\":\"The manufacturer is ACME "
+        "Power Systems Ltd.\",\"citations\":[{\"citationId\":\"c1\"}]}";
+    fake_->script(selectedIdJson);
+    qa_->ask("Who is the manufacturer?");
+    QCOMPARE(qa_->resultStatusToken(), QStringLiteral("found"));
+    const QVariantList citations = qa_->citations();
+    QCOMPARE(citations.size(), 1);
+    const QVariantMap citation = citations.first().toMap();
+    // The mapped citation is the CANONICAL D2 shape with REAL block data.
+    QCOMPARE(citation.value(QStringLiteral("documentId")).toString(),
+             manual_->selectedDocument()
+                 .value(QStringLiteral("documentId"))
+                 .toString());
+    QCOMPARE(citation.value(QStringLiteral("contentHash")).toString(),
+             manual_->selectedDocument()
+                 .value(QStringLiteral("contentHash"))
+                 .toString());
+    QVERIFY(citation.value(QStringLiteral("textStart")).toLongLong() >= 0);
+    QVERIFY(citation.value(QStringLiteral("textEnd")).toLongLong()
+            > citation.value(QStringLiteral("textStart")).toLongLong());
+    // The excerpt is the REAL block slice: exact round-trip by construction.
+    const QString excerpt = citation.value(QStringLiteral("excerpt")).toString();
+    QVERIFY(!excerpt.isEmpty());
+
+    // Strictness: an UNKNOWN citationId is fail-closed ERROR.
+    fake_->script(
+        "{\"status\":\"found\",\"answer\":\"x\","
+        "\"citations\":[{\"citationId\":\"c99\"}]}");
+    qa_->ask("Who is the manufacturer?");
+    QCOMPARE(qa_->resultStatusToken(), QStringLiteral("error"));
+    QCOMPARE(qa_->lastErrorToken(),
+             QStringLiteral("qa_parse_citation_unknown_id"));
+}
+
+// Deterministic reproduction of the Human live failure class (R2E probes x2:
+// provider-authored offsets inside the block but excerpt/offsets not exactly
+// matching the canonical slice -> round_trip_failed). Under the repaired
+// contract the provider can no longer author offsets, but the class remains
+// ERROR fail-closed for any legacy-shaped output.
+void ManualQaTest::qa41_providerAuthoredOffsetsReproduceLiveFailureClass()
+{
+    manual_ = importSeed(seedPath_);
+    QVERIFY(manual_ != nullptr);
+    qa_ = new ManualQaController();
+    fake_ = new FakeManualQaRunner();
+    fake_->configure(FakeManualQaRunner::Mode::FoundExcerptMismatch,
+                     ManualQaParsedResult{});
+    qa_->setRunnerForAutomation(fake_);
+    qa_->setManualController(manual_);
+    qa_->grantConsent();
+    qa_->ask("Who is the manufacturer?");
+    QCOMPARE(qa_->resultStatusToken(), QStringLiteral("error"));
+    QCOMPARE(qa_->lastErrorToken(),
+             QStringLiteral("qa_citation_round_trip_failed"));
 }
 
 void ManualQaTest::parser_validStates()

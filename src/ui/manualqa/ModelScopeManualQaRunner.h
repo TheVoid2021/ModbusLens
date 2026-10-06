@@ -49,6 +49,19 @@ public:
     parseProviderResult(const std::string& json,
                         QString* failureCategory = nullptr);
 
+    // M12-D-R2E: parse + resolve pass. Provider responses now use the
+    // APP-RESOLVED citation shape ({"citationId": "cN"}) — the provider only
+    // SELECTS opaque ids the app attached to its own deterministic context
+    // blocks; this pass maps the selected ids back to the canonical D2
+    // citation fields (documentId/contentHash from the request binding,
+    // offsets/excerpt from the referenced block) so the unchanged local
+    // citation validator remains the final authority. Unknown ids /
+    // wrong-generation ids are fail-closed (ERROR, never coerced).
+    [[nodiscard]] static std::optional<core::ManualQaParsedResult>
+    resolveProviderResult(const std::string& json,
+                          const core::ManualQaRequest& request,
+                          QString* failureCategory = nullptr);
+
     [[nodiscard]] bool begin(const core::ManualQaRequest& request,
                              std::uint64_t generation,
                              const CompletionHandler& onDone) override;
