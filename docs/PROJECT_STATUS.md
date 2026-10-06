@@ -1,6 +1,61 @@
 # PROJECT_STATUS — 项目状态单一事实源
 
 > 规则：本文件在每个任务**完成时**更新（AGENTS.md 工作纪律 5）。任何协作者以此文件为真相，其次才是聊天上下文。
+**〔2026-10-06 追加批注 · POST-M12 HUMAN UX REPAIR — MANUAL Q&A PANEL RETRACT / REOPEN = IMPLEMENTED / AUTOMATED PASS（Session POST-M12-UX-R1 · 以本块为准）〕**
+档案 = **T027 §109**。触发 = Human 观测缺陷（packet §1 描述，非逐字引用）：
+Manual Q&A 右侧面板打开后无法收回；切换到诊断页后仍占据右侧。
+**只读审计（先于编辑）**：面板 = `Drawer`（`manualQaCard`，`edge:
+Qt.RightEdge`，`modal: false`，`closePolicy: Popup.NoAutoClose`）；
+`manualQaCard.` 全页仅 1 处使用（`manualQaOpenButton.onClicked →
+manualQaCard.open()`）；**全仓无 close() 调用**；面板内容清单中无任何
+close/retract 控件；Drawer 挂窗口 Overlay 层，页面 StackLayout 的
+`enabled` 切换不影响 popup → 与 Human 观测一致。
+**根因分类**：UX-R1-A（面板无 Human 可见关闭控件，主根因）+ UX-R1-E
+（打开路径单向 open-only，配合 NoAutoClose 抑制 Escape/外部点击 →
+打开后不存在任何收回路径）；UX-R1-B/C/D/F 经源码证据判定**不成立**。
+**REAL RED**（runtime UI semantic RED，非编译失败；compile-safe
+objectName 反射）：`UX-01 (REAL RED): the open Manual Q&A panel exposes NO
+Human-visible retract control (no manualQaCloseButton in the visual tree) -
+and closePolicy NoAutoClose suppresses Escape and outside-press, so the
+panel cannot be retracted at all`（EXIT=1；RED 同时暴露两处 gate 自身缺陷：
+`property("open")` 应为 `opened`、`cancelCount` 绝对断言应改为 drift，
+均已当场修正并记录）。
+**GREEN（QML-only）**：`DeviceProfilePage.qml` +18/−3 —— 面板 header 改为
+`RowLayout { SectionHeader + AppButton(manualQaCloseButton, text「关闭」)
+→ manualQaCard.close() }`；打开入口保留；控件永不 disabled；不触碰
+controller/provider/citation/consent/persistence/Candidate/DeviceProfile/
+Modbus；**不引入导航自动关闭语义**。**GREEN matrix UX-01..UX-12**（提交后
+树实测，0 FAIL，EXIT=0）：真实窗口级点击即收回（未走 fallback）；
+沉降后 `opened=0 position=0 panelX=1280`（= 窗口宽度，完全移出可见布局）；
+状态零 drift（question/selectedManual/answer/citations/documentId/
+candidateCount/profileDirty/begin+cancel 计数）；运行中关闭**不是 Cancel**
+且迟到完成仍落库；**关闭→重开截图逐像素相同（changed px = 0，1280×937）**；
+诊断页关闭后 `opened=0 position=0 panelX=1280` 且诊断页控件可用。
+**Negative control**：精确逆向 patch → 同一断言 RED（沉降态 `opened=1
+position=1 panelX=920`）→ 精确正向 patch 还原（QML md5
+`577a65a02712d646cb2ab03726cdfbde` 校验 OK）→ 复绿；未用
+`git checkout/restore/reset`。**验证**：targeted 15/15 PASS（60.95s）；
+fresh canonical pre-commit 树 `session-post-m12-ux-r1-release`（configure
+RC0 含 `MODBUSLENS_PYTHON_EXECUTABLE`、"not registered"=0；build 474/474
+RC0；`ctest -N`=70）full unfiltered **70/70 PASS exit 0 / 234.97s**；
+post-commit 树 full **70/70 PASS exit 0 / 211.48s**。
+**behavior commit = `dde40024632aa8f8ab0de6d8cb86ce28d811f944`**（subject
+`M12: make manual Q&A panel retractable`，parent `b56ef61…`，2 files
++629/−3；行为边界实测：`src/core` / `src/ui/manualqa` / `src/ui/manual` /
+`src/ui/candidate` / `src/ui/profile` / `tests` / `CMakeLists.txt` 零改动）。
+**candidate（FROM ZERO）**：`ninja modbuslens_candidate` → 1713 files +
+manifest（root 1714 / 目录 90）；candidate exe ≡ source exe（6,886,038 B，
+SHA-256 `c2c35d11577ede0f3950ddadbb487b8b0441e2390ca88a0d0f0da614b12f0e92`）；
+`qwindows.dll 804739071bba619b…` / `pdfium.dll d42c452a4cf8ca19…`。
+**deployment gate**（该 exact candidate，凭据缺席 + 净化 PATH）= **Passed
+28.00s / -V 27.34s**（"manifest verified, sanitized launch PASSED (exit 0,
+SMOKE IDENTITY PASS, qwindows from candidate)"）。**状态**：**M12 OVERALL =
+COMPLETE / HUMAN ACCEPTED（UNCHANGED；NOT REOPENED）**；D1–D5 未变更；
+**HUMAN UX RETEST = PENDING**；latest Human-tested behavior commit =
+`8416fe7…`（不变，`dde4002…` 尚未经 Human 验证）；**verified LKGC =
+`c68d2bbb277096fd7fb9a76d99d7b588da6461f0` UNCHANGED**；canonical package =
+NOT CREATED；REAL HARDWARE = NOT VERIFIED；tag = v1.0.0 only；push = NONE。
+**NEXT = HUMAN PANEL RETRACT / REOPEN RETEST USING THE NEW CANDIDATE**。
 **〔2026-10-06 追加批注 · M12 — OVERALL DOCS-ONLY FINAL CLOSURE = COMPLETE / HUMAN ACCEPTED（Session M12-R3 · 依据 Overall Final Closure Audit = GO · 以本块为准）〕**
 档案 = **T027 §108**。Human 授权（逐字）：「授权：执行 M12 docs-only final
 closure。依据 M12 Overall Final Closure Audit = GO，将 M12 overall 正式归档

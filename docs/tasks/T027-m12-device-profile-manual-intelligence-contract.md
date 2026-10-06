@@ -10055,3 +10055,352 @@ push = NONE
 无 build/test/candidate；无 package/tag/push/amend。**NEXT = SEPARATE HUMAN
 DECISION ON LKGC ADVANCEMENT OR OTHER POST-M12 RELEASE / GOVERNANCE
 ACTION**。
+
+## 109. POST-M12 HUMAN UX REPAIR — MANUAL Q&A PANEL RETRACT / REOPEN
+（2026-10-06，narrow UI lifecycle repair + governance addendum）
+
+> 本轮为 **narrow UI lifecycle repair**：Human 观测缺陷 → 只读源码审计 →
+> REAL RED → QML-only GREEN → targeted → negative control → fresh canonical
+> full → behavior commit → post-commit tree → candidate FROM ZERO →
+> deployment gate → 本节归档。
+> 未触碰 M12-D D1–D5 语义；未修改 ManualQaController /
+> ModelScopeManualQaRunner / ManualQaContract（citation validator）/
+> ManualStore / ML-2 delete / Candidate / DeviceProfile / Modbus；
+> 未推进 LKGC；未 package/tag/push/amend；未开始任何新 milestone 或新
+> behavior slice。**M12 overall 结论保持 COMPLETE / HUMAN ACCEPTED 不变，
+> 未被重新开启。**
+
+### 109.1 Human 观测（来源与口径）
+
+本次 packet §1 记录的 Human 观测（**原文措辞未在本会话上下文中逐字保留，
+因此本条按 packet 描述记录，不作为逐字引用**）：
+
+```text
+Manual Q&A 右侧面板在打开之后无法收回；
+切换到诊断（Diagnosis）页之后，该面板仍占据窗口右侧。
+```
+
+**未声称**：真实硬件验证；package 验证；M12-D D1–D5 语义变更；任何
+automated-only 路径升级为 Human PASS。
+
+### 109.2 只读源码审计（§4，先于任何编辑）
+
+审计对象 = `src/ui/qml/pages/DeviceProfilePage.qml`（当前 HEAD `b56ef61`）。
+
+```text
+面板实现          Drawer { id: manualQaCard; objectName: "manualQaCard";
+                  edge: Qt.RightEdge; modal: false;
+                  closePolicy: Popup.NoAutoClose; width: 360;
+                  height: Overlay.overlay ? Overlay.overlay.height : 600 }
+打开路径          manualQaOpenButton.onClicked -> manualQaCard.open()
+                  （第 1113 行，全页唯一 open 调用）
+关闭路径          `grep -n "manualQaCard\." DeviceProfilePage.qml`
+                  → 仅 1 处命中：`manualQaCard.open()`；**全仓无 close() 调用**
+面板内容 objectName
+                  manualQaHeader / manualQaSelectedManual /
+                  manualQaQuestionInput / manualQaAskButton /
+                  manualQaRunningLabel / manualQaResultStatus /
+                  manualQaAnswer / manualQaCitationsHeader / manualQaCitations
+                  —— 无任何 close / retract / 关闭 控件
+Escape / 外部点击  closePolicy: Popup.NoAutoClose → 两条内置关闭路径均被抑制
+导航宿主          Main.qml StackLayout，页面用
+                  `enabled: currentIndex === <index>` 切换
+                  （诊断 = navItem_4 / index 4；设备 = navItem_5 / index 5）
+```
+
+关键结构性事实：`Drawer` 是 `QQuickPopup`，其 popup item 挂在**窗口 Overlay
+层**，不属于页面的 StackLayout 子树。页面切换只改变页面的 `enabled`，
+**不改变 popup 的 `open` / `position`**——因此面板在切到诊断页后继续占据
+右侧，与 Human 观测完全一致。
+
+另注（本轮 gate 实测语义，供后续引用）：Drawer 关闭时 `opened` 立即变
+false，但 `visible` 在滑出过渡期间（exit transition）**保持 true**；布局事实
+由 `position`（0 = 完全收回）与 `x`（RightEdge 收回时 = 窗口宽度）表达。
+
+### 109.3 根因分类（§5，按源码事实，不猜）
+
+```text
+UX-R1-A（主根因，成立）  面板没有任何 Human 可见的关闭 / 收回控件。
+                        证据：`manualQaCard.` 全页仅 1 处使用（open）；
+                        面板内容清单中无 close/retract 控件。
+UX-R1-E（并存根因，成立）打开路径单向（open-only），无 toggle /
+                        close 语义；配合 NoAutoClose 抑制 Escape 与
+                        外部点击 → 打开之后**不存在任何收回路径**。
+UX-R1-B（不成立）        "存在关闭动作但无效"——不存在任何关闭动作。
+UX-R1-C（不成立）        "关闭清空状态 / 取消请求"——无关闭路径可触发。
+UX-R1-D（不成立）        "关闭后打开入口不可用"——打开入口与面板状态无关。
+UX-R1-F（不成立）        "导航自动关闭"——源码中不存在任何导航联动。
+```
+
+结论：**A 是缺陷主体，E 是其放大器**（两者共同构成"打开即不可撤回"）；
+本轮修复只针对 A + E，并显式**不引入** F（不发明导航语义），也不改变
+C/D 判定所依赖的任何行为（修复后以 gate 正向证明 C/D 仍然成立）。
+
+### 109.4 REAL RED（先于 GREEN，runtime UI semantic RED）
+
+在既有 `--qml-manual-qa-check`（`src/main.cpp::runManualQaCheck`）追加
+UX-A / UX-01..UX-12 stages。断言全部基于 **objectName 运行时反射**，
+不引用任何新符号 → **compile-safe**；RED 是运行时 UI 语义失败，不是编译失败。
+
+修复前（原始源码）实测首条失败与级联：
+
+```text
+QAGATE FAIL: UX-01 (REAL RED): the open Manual Q&A panel exposes NO
+Human-visible retract control (no manualQaCloseButton in the visual tree)
+- and closePolicy NoAutoClose suppresses Escape and outside-press, so the
+panel cannot be retracted at all
+QAGATE FAIL: UX-02: the retract control is missing
+QAGATE FAIL: UX-03: the retract control is not clickable
+QAGATE FAIL: UX-04: the panel is still visible after the retract control
+was used
+QAGATE FAIL: UX-07 / UX-08 / UX-11 / UX-12: the retract control is gone /
+not usable / not available again
+EXIT=1
+```
+
+RED 阶段同时暴露两处**本 gate 自身的缺陷**（已当场修正，属 gate 侧而非
+产品侧，记录在案以免误读）：
+
+1. 首版断言用 `property("open")` 读取 Drawer 状态——Qt 的属性名是
+   `opened`（`QQuickPopup`），`open` 取值为空 → 检查静默失效。
+   实测修正为 `opened`。
+2. 首版 UX-05 断言 `cancelCount() != 0`（绝对计数）——该计数器在 gate 内
+   **跨 stage 累积**（S7/S8 的 invalidation 两次已消耗取消），
+   会误报。改为与基线做 before/after drift 比较。
+
+### 109.5 GREEN（QML-only 修复）
+
+变更文件：`src/ui/qml/pages/DeviceProfilePage.qml`（+18 / −3，唯一行为变更）。
+面板 header 由裸 `SectionHeader` 改为 `RowLayout { SectionHeader +
+AppButton }`：
+
+```qml
+RowLayout {
+    Layout.fillWidth: true
+    spacing: DS.spacingS
+
+    SectionHeader {
+        objectName: "manualQaHeader"
+        Layout.fillWidth: true
+        title: qsTr("手册问答（基于所选说明书证据）")
+    }
+    // POST-M12-UX-R1: the panel is an explicit retract-only
+    // surface. This control is the single close path and is
+    // always usable, including while an attempt is running:
+    // closing is VISUAL ONLY (no cancel, no state clear).
+    AppButton {
+        objectName: "manualQaCloseButton"
+        Accessible.name: qsTr("关闭手册问答")
+        text: qsTr("关闭")
+        onClicked: manualQaCard.close()
+    }
+}
+```
+
+设计要点：`AppButton` 是 presentation-only 组件，业务语义留在调用点
+（`manualQaCard.close()`），符合 M9-A 组件约定；控件**永不 disabled**
+（运行中也可关闭，见 109.6 UX-08）；`onClicked` 只调用 popup 的 `close()`，
+不触碰 controller → 关闭天生是"纯视觉"操作。
+
+### 109.6 GREEN matrix（UX-01..UX-12，提交后树 canonical 实测）
+
+提交后树 `build/acceptance/session-post-m12-ux-r1-postcommit-release` 实测
+（transcript = `build/_evidence/uxr1-green-postcommit.txt`，EXIT=0，0 FAIL）：
+
+```text
+QAGATE: WRITE [UX-R1]: …/ux-r1-01-panel-open.png 1280x937
+QAGATE: UX-03: the real window-level click on the retract control closed the panel
+QAGATE: UX-04: after the retract control, opened=0 visible=1
+QAGATE: UX-04 (settled): opened=0 position=0 panelX=1280 controlScene=0,0 0x0
+        painted=0 window=1280x937
+QAGATE: WRITE [UX-R1]: …/ux-r1-02-device-closed.png 1280x937
+QAGATE: UX-11 (settled): opened=0 position=0 panelX=1280 windowWidth=1280
+QAGATE: WRITE [UX-R1]: …/ux-r1-03-diagnosis-closed.png 1280x937
+QAGATE: WRITE [UX-R1]: …/ux-r1-04-device-reopened.png 1280x937
+MANUAL QA CHECK PASS: the M12-D Q&A surface is present with an unambiguous
+selected Manual context
+```
+
+| Stage | 契约 | 断言（摘要） | 实测 |
+| --- | --- | --- | --- |
+| UX-01 | A | 面板打开时存在 Human 可见的 retract 控件（存在/可见/enabled） | PASS（RED 时失败） |
+| UX-02 | A | 控件是 Button（class 含 "Button"）、文案含「关闭」、位于面板矩形内且在窗口内 | PASS |
+| UX-03 | A | **真实 Human 路径**：窗口级合成点击控件 → 面板关闭（未走 fallback：note 明示 real click） | PASS |
+| UX-04 | B | 关闭后 `opened=0`；**exit transition 沉降后** `position=0`、`panelX=1280`（= 窗口宽度，完全移出可见布局）、控件不再 paint | PASS |
+| UX-05 | D | 关闭前后 state/result/answer/citations/beginCount/cancelCount/documentId/candidateCount/profileDirty **零 drift** | PASS |
+| UX-06 | C | 关闭后原打开入口仍可点击并重开（enter transition 沉降后 `opened=1`） | PASS |
+| UX-07 | F | 重开后 question / selectedLabel / answer 文本与关闭前一致；retract 控件仍在 | PASS |
+| UX-08 | E | 运行中关闭：state 仍 running、`cancelCount` 不变、Deferred 完成仍 pending（**关闭 ≠ Cancel**） | PASS |
+| UX-09 | D/E | 面板关闭期间到达的完成**仍然落库**（result=found）——面板是视图，不是会话 owner | PASS |
+| UX-10 | G | 切到诊断页**不自动关闭**（gate 显式先重开再导航，断言仍 opened） | PASS |
+| UX-11 | B | 在诊断页关闭：`opened=0 position=0 panelX=1280`；诊断页 visible+enabled、`diagnosisRunBaselineButton` visible+enabled（页面可用） | PASS |
+| UX-12 | C/F | 回到设备页重开成功；控件再次可用；UI 文本与 stable 状态（documentId / candidateCount / profileDirty）与关闭前一致 | PASS |
+
+**像素级证据**（post-commit 树截图，1280×937，脚本实测）：
+
+```text
+open vs reopened  : changed px = 0        ← 关闭→重开状态被逐像素保留
+open vs closed    : changed px = 52684    ← 关闭确实移除了面板区域
+右侧区域 x920–1280 非白像素：
+  01 open 20764 / 02 device closed 34228（页面内容回到该区域）
+  / 03 diagnosis closed 12182 / 04 reopened 20764（= 01）
+```
+
+截图目录：`build/_evidence/uxr1-shots-postcommit/`（git-ignored 证据区，
+与 `uxr1-shots/` 两轮一致）。
+
+### 109.7 Negative control（真实 mutate → RED → 精确逆向还原 → GREEN）
+
+- 变体：对 QML 施加**精确逆向 patch**（移除 RowLayout 包装与
+  `manualQaCloseButton`，恢复原 `SectionHeader`）→ 重建 → 运行 gate。
+- 实测 RED（`build/_evidence/uxr1-nx-red.txt`，EXIT=1）首条断言与 109.4
+  完全一致；且沉降状态为 `opened=1 position=1 panelX=920`（完全打开、
+  占据 920..1280）→ 证明该断言**由缺失的控件直接导致**。
+- 还原：**精确正向 patch**（同一文本），未使用
+  `git checkout -- <file>` / `git restore` / `git reset`；
+  还原后 `md5sum -c` 校验 = `577a65a02712d646cb2ab03726cdfbde …: OK`，
+  gate 复跑 EXIT=0（GREEN 复原）。
+
+### 109.8 Targeted regression + fresh canonical full
+
+```text
+Targeted（工作树，15 tests）:
+  manual_qa / manual_import / manual_delete / qml_manual_qa_check(+windows)
+  / qml_manual_import_check(+windows) / qml_candidate_review_check(+windows)
+  / qml_consent_check(+windows) / qml_active_profile_check
+  / qml_profile_editor_check / qml_nav_check / qml_geometry_check
+  → 100% tests passed, 0 failed out of 15（real 60.95s）
+
+Fresh canonical tree（pre-commit）= build/acceptance/session-post-m12-ux-r1-release
+  configure RC 0（57.5s + generate 2.6s；cache 实测
+  MODBUSLENS_PYTHON_EXECUTABLE:FILEPATH=D:/Anaconda3/python.exe；
+  "not registered" 计数 = 0）
+  build 474/474 RC 0（error: 计数 = 0）
+  ctest -N = 70（含 #36 deployment_startup_check / #37 c1b_dependency_materializer）
+  full unfiltered ctest = 70/70 PASS，exit 0，real 234.97s（一次通过）
+
+Fresh canonical tree（post-commit）= build/acceptance/session-post-m12-ux-r1-postcommit-release
+  configure RC 0（Python 变量在 cache；"not registered" = 0）
+  build 474/474 RC 0（error: = 0）
+  full unfiltered ctest = 70/70 PASS，exit 0，real 211.48s
+```
+
+### 109.9 Behavior commit
+
+```text
+commit   = dde40024632aa8f8ab0de6d8cb86ce28d811f944
+subject  = M12: make manual Q&A panel retractable
+parent   = b56ef61a38c28c5a7c3cbec0008da41e4df2b0ac
+files    = src/main.cpp (+611 / −0，全部位于 runManualQaCheck 的单个 hunk)
+           src/ui/qml/pages/DeviceProfilePage.qml (+18 / −3)
+总计     2 files changed, 629 insertions(+), 3 deletions(-)
+NO AMEND；untracked 仅 _ctx.py / _dump.py（未触碰）
+```
+
+**行为边界证明**（`git diff --name-only` 实测）：
+
+```text
+git diff --name-only -- src/core src/ui/manualqa src/ui/manual
+    src/ui/candidate src/ui/profile tests CMakeLists.txt
+= （空）
+```
+
+即：citation validator / D1–D5 语义 / runner / controller / ManualStore /
+ML-2 / Candidate / DeviceProfile / Modbus **零改动**；本轮唯一行为变更是
+面板 header 的关闭控件（QML）与对应 gate stages。
+
+### 109.10 Candidate（FROM ZERO）+ deployment gate
+
+```text
+候选生成   ninja modbuslens_candidate（post-commit tree）
+           → "generate_candidate: candidate ready at
+             …/session-post-m12-ux-r1-postcommit-release/candidate/ModbusLens
+             (1713 files, manifest written)"
+           生成器第 1 步即 file(REMOVE_RECURSE) 清空候选根 → 每次 FROM ZERO
+
+exe 身份   source  modbuslens.exe = 6,886,038 B
+                    SHA-256 c2c35d11577ede0f3950ddadbb487b8b0441e2390ca88a0d0f0da614b12f0e92
+           candidate modbuslens.exe = 6,886,038 B / 同 SHA-256（**identical**）
+           manifest entries = 1713 / root 实际文件（含 manifest）= 1714 /
+           root 目录数 = 90 / generated-by = modbuslens_generate_candidate.cmake
+           platforms/qwindows.dll SHA-256 = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+           pdfium.dll               SHA-256 = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+
+deployment gate（该 exact candidate；凭据缺席 + 净化环境：
+    env -u MODELSCOPE_API_KEY -u MODBUSLENS_MODELSCOPE_MODEL
+        -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH
+        -u QML_IMPORT_PATH -u QML2_IMPORT_PATH）
+  ctest -R "^deployment_startup_check$"        → Passed 28.00s
+  ctest -R "^deployment_startup_check$" -V     → Passed 27.34s
+      "-- deployment_startup_check: candidate …/candidate/ModbusLens —
+        manifest verified, sanitized launch PASSED (exit 0,
+        SMOKE IDENTITY PASS, qwindows from candidate)"
+PATH 只含 candidate root + Windows 系统目录；零 provider 请求（--qml-smoke-test
+为有限启动，无网络路径）。
+```
+
+### 109.11 状态收口
+
+```text
+MANUAL Q&A PANEL RETRACT UX REPAIR = IMPLEMENTED / AUTOMATED PASS
+M12 OVERALL = COMPLETE / HUMAN ACCEPTED（UNCHANGED；NOT REOPENED）
+  M12-A = FOUNDATION ACCEPTED；M12-B = COMPLETE；
+  M12-C = COMPLETE / HUMAN ACCEPTED / FINAL BASELINE FROZEN；
+  M12-D = COMPLETE / HUMAN ACCEPTED
+D1–D5 = 未变更（零源码改动；fresh full 70/70 复证）
+HUMAN UX RETEST（面板收回/重开） = PENDING
+latest Human-tested behavior-bearing commit = 8416fe7a26eaa8c79ab8186513b60af5954a18b9
+  （不变；本轮新 behavior commit dde4002… **尚未**经 Human 验证）
+verified LKGC = c68d2bbb277096fd7fb9a76d99d7b588da6461f0（UNCHANGED，NO advance）
+canonical package = NOT CREATED
+REAL MODBUS HARDWARE = NOT VERIFIED
+tag = v1.0.0 only；push = NONE
+NEXT = HUMAN PANEL RETRACT / REOPEN RETEST USING THE NEW CANDIDATE
+```
+
+### 109.12 Human 重测清单（12 步，使用 109.10 的 candidate）
+
+```text
+ 1. 用 candidate/ModbusLens/modbuslens.exe 启动（无需开发环境 Qt/MinGW）。
+ 2. 进入「设备」页，导入或选中一本说明书。
+ 3. 点击「手册问答」打开右侧面板；确认面板右上角有明确的「关闭」按钮。
+ 4. （可选）等待/执行一次提问，得到 FOUND 答案与引用。
+ 5. 点击「关闭」：确认面板从右侧**滑出并消失**，页面恢复完整宽度。
+ 6. 确认问题草稿、所选说明书、答案与引用在面板上仍然保留（重开后一致）。
+ 7. 再次点击「手册问答」重开：确认内容与关闭前一致，可继续使用。
+ 8. 提问后（Running 期间）点击「关闭」：确认**不是取消**，请求继续。
+ 9. 关闭状态下等待回答返回，再重开面板：确认答案/引用已呈现。
+10. 面板打开时切到「诊断」页：确认页面没有被面板挡住（面板仍可关闭
+    ——这是刻意的显式收回设计，本轮不引入导航自动关闭）。
+11. 在诊断页点击「关闭」：确认面板消失且诊断页操作正常（运行基线等）。
+12. 回到「设备」页再次打开/关闭：确认无异常、无状态丢失。
+```
+
+### 109.13 Knowledge Learned / Interview Notes
+
+- **Qt Quick 的 popup 层次与页面导航正交**：`Drawer`/`Popup` 挂在窗口
+  `Overlay`，页面 `StackLayout` 的 `enabled` 切换不影响 popup → "面板跟着
+  页面走"必须由显式状态或显式关闭控件解决，不能靠页面可见性。
+- **`closePolicy: Popup.NoAutoClose` 是双刃剑**：它消除了误触关闭，但同时
+  移除 Escape 与外部点击两条内置路径 → 必须自备显式关闭控件，否则面板
+  变成"单向上屏"。
+- **Drawer 的关闭是位置驱动**：`opened` 立即 false，`visible` 在 exit
+  transition 期间保持 true，布局事实由 `position`（0=收回）与 `x`（RightEdge
+  收回 = 窗口宽度）表达 → 断言必须在过渡**沉降后**取，且不能用 `visible`
+  当布局信号。
+- **属性名即契约**：`QObject::property("open")` 对 `opened` 静默返回空值，
+  使断言"看起来通过"——反射式断言必须对关键属性做存在性/取值校验。
+- **计数器式断言的陷阱**：跨 stage 累积的计数字段只能做 before/after
+  drift，不能做绝对值断言。
+- **负向对照的纪律**：真实 mutate → RED → 精确逆向 patch → 复原校验
+  （md5 一致）→ 复绿；禁止 `git checkout/restore/reset` 还原。
+- **UI 缺陷的像素级证据**：关闭→重开后截图逐像素相同（0 changed px）
+  是"状态未被关闭动作破坏"的最强自动化证据之一（仍非 Human PASS）。
+
+### 109.14 action boundary
+
+本轮 behavior commit `dde4002…` 为 **LKGC candidate**（真实改动路径含
+`src/` 与 QML），但 **本期不推进 LKGC**（无人验收项完成前不得推进）。
+本节所在 docs-only 提交永不作 LKGC。未 package / tag / push / amend；
+未开始新 milestone / 新 behavior slice。**NEXT = HUMAN PANEL RETRACT /
+REOPEN RETEST USING THE NEW CANDIDATE**。
