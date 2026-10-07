@@ -1146,3 +1146,142 @@
   approved 集合并注明出处，**persistence-shape 守卫（save/persist/store/commit）
   原样保留**——O 时代真正保护的"候选层无持久化动作"继续被断言。删测试 ≠
   修测试，这条线从不越过。
+
+---
+
+# POST-M12-CLOSE-R1 — v2.0.0 FINAL INTERVIEW PACK（2026-10-07 追加）
+
+> v2.0.0 已公开发布并被独立验证（T027 §116–§118）。本节是**收口面试包**：
+> 叙事、要点、简历、题库。历史细节不重复，指向既有条目与 docs/07 第十章。
+
+## F1. 电梯叙事（30s / 90s / 3min）
+
+**30 秒**：「ModbusLens 是我用 C++20 + Qt6 做的 Modbus RTU 通信诊断台。
+核心是一个零 Qt 的确定性分析库——CRC、事务、统计、规则诊断全部由它决定，
+AI 只做解释。Simulator/Replay/Serial 三种数据源共享同一分析核心，
+v2.0.0 已在 GitHub 公开发布，发布包经过自动化验证和人工 H1–H8 验收。」
+
+**90 秒**：在 30 秒版上加三点：①为什么 AI 不当裁决者——CRC/状态/异常码
+是确定性事实，幻觉会破坏诊断口径，无 Key 时产品仍完整可用；②发布工程——
+candidate 契约（generator 从零重建 + manifest 逐文件哈希）+ fail-fast
+打包器（9 类 fail-closed）+ 公开资产逐字节 SHA-256 验证；③可追溯——490
+commits、25 份任务档案、append-only 档案区，换任何平台都能接手。
+
+**3 分钟**：再加一个完整 RCA 故事（推荐部署哈希溯源或 AI 引用
+app-resolved 化，见 F5）+ 工程纪律（每任务 RED→GREEN→负向对照→全量回归
+→文档→commit；自动化与人工视觉是两个闸门——T013 自动全绿仍被人工视觉
+连打两次 FAIL 的真实经历）。
+
+## F2. 架构 talking points（最终态）
+
+- QML UI（5 workspace + Device Profile）→ App/Controller 层 → **modbuslens_core
+  （Zero Qt）** → Simulator/Replay/Serial 数据源边界。
+- 事务模型：7 状态（Pending/Success/Exception/CrcError/Timeout/
+  ProtocolError/ExpectedNoResponse）+ 13 个正交结构化 Issue。
+- AI 层：one-shot 解释 + Agent Runtime（3 只读工具、rounds=3、calls≤6、
+  batchRevision×generation 双维 stale 守卫）+ Manual Q&A（引用校验问答，
+  citationId 由 app 分配）。
+- 详细图与边界理由：docs/02_ARCHITECTURE.md + docs/07 第二章。
+
+## F3. C++ talking points
+
+- `std::variant` 错误模型（T004/T009 帧与回放）、`std::optional` 防假 0
+  （T007/T011）、`string_view` 生命周期纪律（T009）、穷举 switch 无 default
+  防静默扩展、`const&` 注入 + 不可变快照（T012 R3）。
+- 真实反例：ISSUE-001 悬垂指针 = "把辅助函数当所有权"。
+
+## F4. Qt talking points
+
+- QML↔C++ property/notify 桥；QAbstractListModel 角色；QtSerialPort 异步 +
+  PE-4 反馈风暴；QNetworkAccessManager errorString ≠ 用户文案（ISSUE-005
+  双超时竞态）；Qt Quick Controls style 静默忽略自定义（T013→Fusion）；
+  **Layout 附加属性在非 Layout 父下被静默忽略**（ISSUE-004，runtime
+  geometry 取证方法论）；**Drawer 是 position-driven**（opened/position 才
+  是布局事实，`visible` 穿越过渡；UX-R1 实测）。
+
+## F5. 最难问题 / RCA 三连（面试主打）
+
+1. **部署哈希溯源（ISSUE-002）**：Explorer 启动崩在缺 pmr 符号 → 用
+   SHA-256 provenance 证明加载了 Anaconda 的旧 libstdc++ → 修复 = 独立
+   部署目录 + minimal-PATH 纪律 → 这条纪律后来成为**所有**打包/部署门
+   （deployment gate、canonical package runtime gates）的底座。
+2. **AI 引用权威化（M12-D R2E）**：让 provider 编造 citation offset 不可靠
+   （本地 round-trip 失败）→ 修复 = **app-resolved citationIds**：模型只能
+   在 app 给的上下文块里"选择"，offset/hash 由 app 回填，未知 id
+   fail-closed → 教训："LLM 输出只能做选择，不能做权威数据"。
+3. **双超时竞态（ISSUE-005）**："操作被取消" 是本地 abort 文案从
+   errorString 泄漏 + 两个组件都在管超时 → AiAbortReason 枚举 + 单一
+   QTimer owner → 文案与机制解耦。
+
+## F6. Testing talking points
+
+- 分层矩阵：单元 → 集成（fake serial/fake HTTP）→ QML 桥 → smoke →
+  deployment → 人工视觉 → Live provider（审批制预算）。
+- 70 个 CTest 目标是发布硬门；T013 证明自动全绿 ≠ 人工可接受。
+- fake Chat Completions 服务器把"模型行为"变成确定性输入。
+- 负向对照纪律：真实 mutate → RED → 精确逆向 → 复绿（两次 tooling 负向
+  对照都是这么做的）。
+
+## F7. AI / Agent talking points
+
+- 三层宪法：Deterministic Core（唯一 authority）/ AI Explanation / Agent
+  Tool Calling（只读、有界、白名单）。
+- Manual Q&A 的引用校验：D2 六字段 citation 本地验证 + R2E 的
+  app-resolved id。
+- 结构化输出契约：显式 enable_thinking=false + max_tokens + 契约测试
+  （qa36）；15 类解析失败类别可观测。
+
+## F8. 已知限制（正面陈述，勿回避）
+
+- REAL MODBUS HARDWARE = NOT VERIFIED（无多设备现场泛化）。
+- 无 register map/工程单位语义层（0x02 只能指向"核对地址映射"）。
+- Agent 只读、无 RAG/MCP/多智能体/持久历史；provider 配置是桌面级 BYOK。
+- 包未签名；无 installer；无 Modbus TCP。
+- ISSUE-008/009 保持 MONITORING/NON-BLOCKING（无 exact RCA 不编造）。
+
+## F9. "如果现在重做……"
+
+- 会让 CI 从第一天就跑（本地 CTest 纪律很好，但 CI 能防环境漂移——
+  M12-C2 的 fresh-tree 凭据 crash 就是例子）。
+- 会更早引入 candicdate/manifest 思路（M12 才有；它让发布验证变成逐文件
+  哈希断言）。
+- 会把 QML 的 Layout/Popup 语义做成团队内清单（ISSUE-004/UX-R1 的两次
+  学费）。
+- 会坚持 SQLite/JSON 持久化层设计先行（ManualStore 现为文件型 JSON）。
+
+## F10. Resume bullets（可直接用，全部可验证）
+
+- 使用 C++20/Qt6（Quick/QML）实现 Modbus RTU 通信诊断桌面应用：协议核心
+  （CRC-16/帧/编解码/FC03/FC06/FC16 语义）为零 Qt 静态库，三数据源
+  （Simulator/Replay/Serial）共享同一事务分析管线。
+- 设计确定性诊断 + 只读 AI/Agent 架构：规则引擎产出结构化事实，LLM 仅做
+  解释；Agent 限 3 个只读工具、3 轮 6 次调用预算、双重陈旧数据守卫。
+- 实现 PDF/DOCX 手册导入与引用校验式手册问答：pinned PDFium/libzip 离线
+  物化、AI 提取候选人工审核、app-resolved citation 防幻觉引用。
+- 建立 Windows 发布工程：candidate 契约（从零重建 + 逐文件哈希 manifest）、
+  fail-fast 打包器（26 项自动化断言）、deployment 门、公开资产逐字节
+  SHA-256 独立验证（v2.0.0 已发布）。
+- 全程可追溯工程纪律：490 commits、25 份任务档案、9+ Issue RCA、2 份 ADR、
+  70 个 CTest 目标全量回归为每任务硬门。
+
+## F11. 题库增补（Release/Traceability 方向，此前题库未覆盖）
+
+- **Q：为什么 v2.0.0 tag 打在归档 HEAD 而不是 LKGC？** A：产品源码两者
+  零差异（src/tests/CMakeLists/samples/cmake diff 全空），但归档 HEAD 额外
+  携带 ratified 打包工具与完整发布文档（§114–§118）——tag 要代表"完成的
+  发布状态"，不只是裸产品快照。
+- **Q：tag-only push 会公开什么？** A：不移动 main 分支 ref，但会传输 tag
+  target 可达而远端没有的对象——实测 329 个 commit 经由 v2.0.0 变为公开
+  可达；这个口径在 push 前就向用户明示过。
+- **Q：怎么证明 GitHub 上的 ZIP 就是被验收的那个？** A：不解压重打包，直接
+  公开下载 35,814,735 B 并算 SHA-256（6db918f3…）与验收档案比对——字节级
+  一致；另用未认证页面 HTML 确认非 draft/非 prerelease（REST API 403 不
+  影响验证，换公开页面+下载两条独立通道）。
+- **Q：打包器怎么防"打包错产品"？** A：candidate 契约 + 逐文件 SHA-256
+  manifest 校验（0 mismatch 才继续）+ extract-exe≡candidate-exe 身份链 +
+  fail-fast（9 类异常全部 SystemExit(1)）。
+- **Q：项目怎么保证跨 AI 平台可接手？** A：真相全在 repo（AGENTS.md +
+  PROJECT_STATUS + 任务档案 + devlog + Git 历史）；交接清单与 onboarding
+  prompt 在 T027 §119.17——新 agent 必须先复述项目状态再动代码。
+
+（其余 C++/Qt/Modbus/测试/AI 题库见本文件前 104 条与 docs/12。）

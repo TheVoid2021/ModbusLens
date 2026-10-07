@@ -4,7 +4,9 @@
 
 - **Simulator** — 零硬件产生确定性 Modbus 流量（黄金演示批次）
 - **Replay** — 加载 `.mlog` 历史日志离线重新分析（开发、测试、演示、复盘）
-- **Serial** — 经真实串口（USB-RS485）执行**单次 FC03 读**并分析（主动能力边界见 Limitations）
+- **Serial** — 经真实串口（USB-RS485）执行 FC03 读与 **FC06 / Function 0x10 写**（写操作带确认 UI，一次一笔事务）
+- **Device Profile / Manual Intelligence** — 手册导入（PDF/DOCX/TXT）、AI 提取候选人工审核、引用校验式手册问答
+- **Release** — v2.0.0 已发布：[Releases](https://github.com/TheVoid2021/ModbusLens/releases/tag/v2.0.0)（便携包 SHA-256 见 Release 页）
 - **Pure C++ 确定性分析核心** — CRC / 事务 / 统计 / 基线诊断全部零 Qt、零 LLM 依赖
 - **Baseline Diagnosis** — 确定性规则诊断，无需 API Key、无需网络
 - **AI Explanation** — 可选的 LLM 自然语言解释（ModelScope）
@@ -32,7 +34,7 @@ Serial    (单次 FC03)   ─┘            │
 
 ### 1. Pure C++ 的 Modbus RTU 协议核心
 
-- CRC-16/MODBUS（按位实现 + 规范向量对拍验证）、RTU 帧模型与编解码、FC03 语义解码器、**FC06 与 Function 0x10（Write Multiple Registers）的被动（passive）语义分析**——注意：被动理解**不等于**主动写能力，产品不提供写寄存器功能。
+- CRC-16/MODBUS（按位实现 + 规范向量对拍验证）、RTU 帧模型与编解码、FC03 语义解码器、**FC06 与 Function 0x10（Write Multiple Registers）的被动语义分析**；M10 起另具备**主动写能力**（FC06/0x10，带准备快照 + 确认 UI 的两步式下发）。
 - 每笔事务归一为 **7 类事务状态**（Pending / Success / Exception / CrcError / Timeout / ProtocolError / ExpectedNoResponse），并正交保留 13 个结构化业务 Issue：**9 类响应侧 business Issue（TransactionIssue）+ 4 类请求侧 Issue（TransactionRequestIssue）**。
 - 协议核心零 Qt、零网络、零 LLM——可独立单元测试与复用。
 
@@ -60,7 +62,7 @@ Simulator / Serial / Replay 三种模式最终复用同一个 deterministic anal
 | Mode | Purpose | Input | Key Behavior |
 | --- | --- | --- | --- |
 | Simulator | 零硬件演示 / 确定性流量 | 内置虚拟从站 | 一键生成 4 笔黄金批次（Success / Exception 0x02 / CRC Error / Timeout） |
-| Serial | 真实设备单次读取 | USB-RS485 串口（8N1） | **只读 FC03**；一次一笔事务；transport error 与 Modbus Timeout 严格分离 |
+| Serial | 真实设备读写 | USB-RS485 串口（8N1） | FC03 读 + FC06/0x10 写（确认式下发）；一次一笔事务；transport error 与 Modbus Timeout 严格分离 |
 | Replay | 历史日志离线复盘 | `.mlog` 文本日志 | 整批瞬间重新分析；语法错误整体失败、坏请求/不支持功能码按记录保留事实 |
 
 ## 诊断架构
@@ -89,7 +91,7 @@ Modbus Core（协议事实）
 
 ## 工程与验证
 
-设计 → 实现 → 构建 → 测试 → Review → 文档 → Git 提交，闭环可追溯。验证链包括：协议/CRC 单元测试、Replay 解析与回放矩阵、Serial 会话测试、规则诊断、AI 客户端（localhost fake provider，零真实网络）、Agent 工具/Runtime、UI bridge、QML 加载 smoke、独立部署 + minimal-PATH 冒烟，以及多个阶段的人工视觉验收（Manual Review PASS 记录在案）。当前自动测试：**ctest 24/24**（详见 [PROJECT_STATUS](docs/PROJECT_STATUS.md)）；任务档案、Issue、ADR、每日 devlog 全部留存于 `docs/`。
+设计 → 实现 → 构建 → 测试 → Review → 文档 → Git 提交，闭环可追溯。验证链包括：协议/CRC 单元测试、Replay 解析与回放矩阵、Serial 会话测试、规则诊断、AI 客户端（localhost fake provider，零真实网络）、Agent 工具/Runtime、UI bridge、QML 加载 smoke、独立部署 + minimal-PATH 冒烟，以及多个阶段的人工视觉验收（Manual Review PASS 记录在案）。当前自动测试：**ctest 70/70**（详见 [PROJECT_STATUS](docs/PROJECT_STATUS.md)）；任务档案、Issue、ADR、每日 devlog 全部留存于 `docs/`。
 
 ## Build & Run
 
@@ -119,18 +121,19 @@ scripts\deploy_windows.bat   # 产出 build\deploy\ModbusLens.exe + 全部运行
 ## 当前能力边界（Current Scope & Limitations）
 
 - **不是**完整 SCADA、不是完整 Modbus Master、**没有** AI 自动控制设备的能力。
-- Serial 主动能力 = **单次 FC03 读**；FC06 / Function 0x10 仅存在于 **Replay 被动分析**（passive understanding），没有任何写寄存器通道。
+- Serial 主动能力 = FC03 读与 **FC06 / Function 0x10 写**（M10 起，确认式两步下发）；**Agent 仍无任何写工具**，主动写不经 AI。
 - Replay 是 transaction-oriented 批量重析（无实时播放/调速）；`.mlog` v1 语法保持稳定。
 - 未实现 t1.5/t3.5 时序分析（Serial 采用 transaction-aware framing）；未采集 UART parity/framing error 明细。
 - 没有 register map / 工程单位与业务语义层（异常码 0x02 可指向“非法数据地址”并建议核对寄存器映射，但不回答具体哪个寄存器）。
 - Agent 永远 read-only（三个工具），无写工具、无 RAG/MCP/multi-agent、无对话历史。
+- 未实现 Modbus TCP；REAL MODBUS HARDWARE（多设备现场泛化）= NOT VERIFIED。
 - AI/Agent 依赖可选的环境变量 API Key（BYOK）；核心诊断与全部三模式**不依赖** LLM。
 
 ## 仓库结构
 
 ```text
 src/      C++20 生产代码（core/ 纯逻辑 · replay/ · serial/ · ui/ QML adapter）
-tests/    ctest 24 个测试目标（单元 / 组件 / 集成）
+tests/    ctest 70 个测试目标（单元 / 组件 / 集成）
 samples/  .mlog 演示与验收样本（demo_v1.mlog 为 canonical 黄金样本）
 docs/     架构 · 测试策略 · 性能基准 · 任务档案 · Issue · ADR · devlog
 scripts/  deploy_windows.bat · bench_replay（性能复现工具）

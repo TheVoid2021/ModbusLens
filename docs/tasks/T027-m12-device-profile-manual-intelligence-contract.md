@@ -11829,3 +11829,282 @@ NEXT = SEPARATE HUMAN RELEASE-PUBLICATION DECISION
 samples / scripts / packaging tooling / candidate / package / ZIP 改动；
 未 rebuild / repackage / re-deploy / regenerate candidate；未修改被验收
 ZIP。本节所在提交永不作 LKGC。
+
+## 119. POST-M12-CLOSE-R1 — v2.0.0 RELEASE CLOSURE & INTERVIEW ARCHIVE
+（2026-10-07，docs-only post-release closure）
+
+> 定位：v2.0.0 公开发布（§116–§118，R5G = PASS）之后的**收口与交接档案**。
+> 所有内容只陈述 repo 可证事实；无法证明处标注 NOT VERIFIED / DEFERRED。
+> 本节所在提交为 docs-only（永不作 LKGC）；v2.0.0 tag（→ `b18e378…`）不动。
+
+### 119.1 Product Definition（6.1）
+
+ModbusLens 是一个 **C++20 / Qt6（Quick/QML）/ CMake** 的桌面工业通信分析与智能诊断项目，以 **Modbus RTU** 为中心。产品原则（项目宪法）：
+
+```text
+deterministic protocol / transaction / diagnostic logic first,
+AI explanation second.
+```
+
+CRC 真值、TransactionStatus、Timeout、ProtocolError、异常码、统计与延时全部由 **Zero Qt 的 modbuslens_core** 决定；LLM 只解释既有事实（"AI is interpreter, not detector"）；**核心分析在无 LLM / 无网络 / 无 API Key 时完整可用**。
+
+### 119.2 Original Engineering Requirements（6.2）
+
+三个原始约束及其对架构的影响：
+
+1. **Full development traceability**——每一步的 why / 技术 / 决策 / 问题 / RCA / 验证 / 结果全部落在仓库。影响：AGENTS.md 工作规约（一次一个任务：读→做→验→档→commit）、任务档案 25 份（T001–T027）、Issue 档案 9+、ADR 2 份、每日 devlog、append-only 档案区纪律。
+2. **AI coding platform portability**——项目真相必须活在 Git-tracked 文档而非任何聊天/记忆。影响：单一事实源 Markdown（PROJECT_STATUS / BACKLOG / tasks）、状态等式纪律（implemented ≠ tested ≠ Human accepted ≠ verified LKGC）、"Agent 记忆不是事实来源，repo 胜"。
+3. **Real + simulated execution**——Simulator / Replay / Serial 三种数据源尽可能复用同一协议/事务/分析核心。影响：modbuslens_core 静态库（Zero Qt）作为唯一事实源，三模式只换 transport/data-source 边界；黄金演示批次与 demo_v1.mlog 回放的统计快照严格相等由测试锁定。
+
+### 119.3 Technology Stack（6.3，全部来自 repo 实测）
+
+| 技术 | 用在哪 | 为什么 | 解决什么 | 面试点 |
+| --- | --- | --- | --- | --- |
+| C++20 | src/core + 全部生产代码（`CMAKE_CXX_STANDARD 20`） | 值语义/variant 错误模型/系统边界控制 | 协议核心的可测性与纪律 | variant/optional/span 的真实用例（T004/T007/T009） |
+| Qt 6.11.1（MinGW 64，Quick/QML） | UI 全部（QML）+ App/Controller 桥 | ADR001：现代 Qt 桌面形态 | UI 与核心解耦 | property/notify 桥、QAbstractListModel 角色 |
+| Qt SerialPort | Serial 模式 | 官方异步串口 API | 真实 RS-485 链路 | 异步 readyRead + transaction-aware framing |
+| Qt Network（HTTP/TLS） | AI/Agent 客户端 | OpenAI-compatible Chat Completions | 可选解释层 | errorString ≠ 用户文案、单一 timeout owner（ISSUE-005） |
+| QJsonDocument（ui 层） | provider 响应/持久化解析 | Qt 自带、零额外依赖 | 结构化解析 | 不可信输入分层校验 |
+| CMake 3.21+ / Ninja | 全部构建 | presets + 多目标 | 可构建性（NFR-01） | qt_add_qml_module、presets 迁移 |
+| CTest | 70 个测试目标 | 单一测试入口 | 可测试性（NFR-02） | 全量 70/70 是发布硬门 |
+| 手写断言 harness（无 QTest/Catch2/gtest） | tests/*.cpp + fake_chat_completions_server / fake_serial_transport | 依赖最小化、行为完全可控 | 确定性 fake（模型行为=本地输入） | "模型行为脚本化"的测试哲学 |
+| Python（维护者工具，不入产品） | make_package.py / materialize_c1b_deps.py / 测试脚本 | stdlib 脚本惯例 | 打包/依赖冻结的自动化 | fail-fast 打包管道 9 类 fail-closed |
+| PDFium（pinned 156.0.8066.0）+ libzip/zlib（static） | M12-C 手册导入 | 离线物化 + hash 冻结 | PDF/DOCX 手册解析 | 依赖物化与配置期 hash 断言 |
+| Git/GitHub | 全程 | 可追溯 + 发布 | 发布/交接 | annotated tag + tag-only push 的发布语义 |
+| ModelScope（OpenAI-compatible，BYOK） | AI/Agent + Manual Q&A | 可选增强 | 自然语言解释/问答 | 结构化事实之上的解释层 |
+
+未使用（如实）：CI 工作流（无 .github）、数据库、RAG/MCP、多语言框架、第三方测试框架。
+
+### 119.4 Architecture Summary（6.4）
+
+最终架构（现状，非 Day-1 设计）：
+
+```text
+QML UI（5 workspace：Transactions / Dashboard / Communication /
+        Replay / Diagnosis + Device Profile）
+   ↓ property/notify 桥
+App/Controller 层（ManualImport / Profile / Candidate / ManualQa /
+                   Analysis / SerialSession / Replay / AiClient / Agent）
+   ↓
+modbuslens_core（Zero Qt）
+   Protocol: CRC-16 / RtuFrame / RtuCodec / FC03 / FC06 / FC16 语义
+   Simulator / Replay / Serial 数据源边界
+   TransactionAnalysis（7 状态 + 正交 Issue 集）→ Statistics → Baseline Diagnosis
+   ↓ 结构化事实（不可变快照）
+AI 解释层（one-shot）/ Agent Runtime（3 只读工具，rounds=3，calls≤6）
+Manual Intelligence（ManualStore → PDF/DOCX 提取 → AI 提取候选 →
+                     人工 Review → Manual Q&A 引用校验问答）
+```
+
+四个"为什么"：
+
+- **协议分析不依赖 LLM**：CRC/状态/异常码是确定性事实，LLM 幻觉会破坏诊断口径；无 Key 时产品必须完整可用。
+- **三模式共享 core**：口径一致（Simulator 与 Replay 统计严格相等，测试锁定）；换数据源不换分析。
+- **Qt 的边界**：Qt 类型只允许在 App/Adapter 层；core 零 Qt，无头可测。
+- **LLM 不成为协议 authority 的机制**：结构化事实由 core 产生 → LLM 只消费；Agent 工具是只读白名单（get_session_summary / get_recent_anomalies / get_transaction_detail），写能力在类型层面不存在；stale 双维守卫（batchRevision × generation）防跨批不一致。
+- **UI 如何接收状态**：Controller 暴露 Q_PROPERTY/NOTIFY；QML 绑定；跨 workspace 状态由 App 层编排。
+
+演进保留：M4 时 UI 曾是 QWidget scaffold，ADR001 定案 QML；FC06/FC16 主动写在 M10 才出现（M8 时 README 曾声明"无写能力"——该限制已被演进打破并如实改写）。
+
+### 119.5 Development Evolution — M1 → v2.0.0（6.5）
+
+（M1–M7 详表见 docs/07_FINAL_PROJECT_REVIEW.md 第五章；此处为全弧线。）
+
+```text
+M1  T001/T001.1   bootstrap：工程骨架 + 文档体系 + 最小 Qt 应用
+M2  T002–T004    Modbus 协议核心：CRC-16/帧模型/编解码/FC03（Zero Qt 静态库）
+M3  T005–T006    确定性模拟器 + 故障注入（无硬件演示能力）
+M4  T007–T008    事务分析 + 统计 + Qt Dashboard（可演示闭环）
+M5  T009–T010    Replay（.mlog 离线重析）+ Serial（真实数据源）
+M6  T011–T012    确定性基线诊断 → LLM 解释 → 只读 Agent 工具调用
+M7  T013        最终视觉/文档/演示包装 + 人工验收收口
+M8  （复盘）      07_FINAL_PROJECT_REVIEW（事实总账，115 commits 时点）
+M9  T016–T021    UI 现代化六连：A 设计系统 → B 应用壳/导航 → C Dashboard
+                → D 事务诊断工作台 → E 品牌/图标/打包（make_package 诞生）
+                → F 最终视觉/可访问性验收
+M10 T022–T023    Active Master：FC06/FC16 主动写（学习门→契约→写安全 UI→
+                确认派发→真机 probe/热拔检测→FC16→收口）
+M11 T024/T026    Register readout/decode 契约 + 32-bit 视图 + word order
+M12 T027        Device Profile + Manual Intelligence：
+                A 地基 → B 手册库/ML-1/ML-2 → C PDF/DOCX 提取(C1b
+                PDFium/libzip 冻结) + AI 提取候选 + 人工 Review/Edit →
+                D Manual Q&A（D1–D5 契约 + 双根因修复 + 引用 app-resolved
+                citationIds）→ UX-R1/R2 人工验收修复（面板收回/结果滚动）
+REL R1–R5G      v2.0.0 发布链：契约冻结 → candidate-tree 打包器（RED→
+                GREEN+PKG 套件）→ LKGC worktree 重建/70/70 → candidate →
+                deployment gate → canonical package → 验收 → v2.0.0
+                annotated tag → tag-only push → GitHub Release（网页）→
+                公开资产独立验证
+```
+
+### 119.6 Major Technical Problems / RCA（6.6，全部有档案）
+
+精选 8 个（完整 Issue 表见 07 第七章；每条含面试答法要点）：
+
+1. **部署机 Explorer 启动失败（ISSUE-002）**。症状：用户双击崩溃（缺 pmr 符号）。错因：Anaconda 旧 libstdc++ 通过 PATH 抢占。定位：SHA-256 provenance 证明加载了错误运行时。修复：独立部署目录 + **minimal-PATH 纪律**（PATH 只含应用目录与系统目录）。验证：双击 PASS。教训：部署正确性是内容身份问题，不是"文件在不在"。面试答法："我用哈希溯源发现部署机加载了别的 DLL，从此所有部署/打包门都做 sanitized-PATH + 身份断言。"
+2. **QML Layout 附加属性静默失效（ISSUE-004）**。症状：Diagnosis 页纵向溢出。错因：以为 GroupBox contentItem 是 Layout parent——`Layout.*` 附加属性在非 Layout 父下被**静默忽略**。定位：runtime geometry 取证。修复：SplitView workspace 重构。验证：用户 Layout PASS（四轮）。教训：QML 的静默失败需要测量证据链。
+3. **AI "操作被取消"（ISSUE-005）**。症状：Ask AI 报取消。错因：本地 abort 文案经 errorString 泄漏 + 双 timeout owner 竞态。修复：AiAbortReason 枚举 + 单一 QTimer owner + 90s。教训：Qt 网络错误分层映射要显式设计。
+4. **Agent 工具预算误伤（ISSUE-007）**。症状：合法多步诊断触发 ToolCallLimitExceeded。错因：round 深度与 call 总量混为一谈。修复：round=3 不变、total 3→6 + planning discipline 提示词。验证：同题 Live re-validation PASS。教训：资源上界要按维度分别治理。
+5. **M12-C2 consent CTest "crash"**。症状：fresh-tree CTest 段错误。根因：测试 harness 的凭据注入假设（已被 CTest 环境改变）。修复：harness 凭据纪律。教训：测试进程环境是被测契约的一部分。
+6. **Manual Q&A "无法解析"（M12-D R2B，双根因）**。症状：真实 provider 返回解析失败。根因×2：响应抽取层 + thinking 模式（enable_thinking 未关）。修复：抽取层 + 请求契约（chat_template_kwargs/max_tokens）。教训：结构化输出必须显式禁用思考并做契约测试（qa36）。
+7. **引用校验失败（M12-D R2E）**。症状：本地 citation round-trip 失败。根因：让 provider 编造 offset 不可靠。修复：**app-resolved citationIds**——provider 只能引用 app 提供的上下文块 id，offset/hash 由 app 侧回填；未知 id fail-closed。教训：LLM 输出只能做"选择"，不能做"权威数据"。
+8. **发布链两个 fail-closed（REL-R3）+ 候选不可重生成**。症状：真实 candidate 打包被 icon 镜像与 .a/.prl/.obj/.qrc 工件规则拦截；worktree 缺 git-ignored distfiles。根因：REL-R2 fixture 未覆盖真实 candidate 内容；worktree 不携带 ignored 文件。修复：显式排除规则 + PKG-25/26 + distfiles 补齐。教训：fixture 必须来自真实制品；"ignored ≠ 无关"。
+9. **gate 自身缺陷两例（如实记录）**：`property("open")` 应为 `opened`（反射断言静默失效）；`cancelCount` 绝对断言应为 drift 比较（跨 stage 累积）。教训：反射断言要对关键属性做存在性校验；计数器只能做 before/after。
+
+### 119.7 Modbus Knowledge Summary（6.7，项目导向；细节见 docs/03）
+
+- **Modbus RTU**：主从串行协议；一问一答。→ 用在 TransactionAnalysis 的请求/响应配对。
+- **RS485 vs Modbus**：物理层 vs 应用协议。→ Serial 模式用 USB-RS485 适配器承载 RTU。
+- **slave/unit address**：帧首字节。→ 帧模型/编解码（T003/T004）。
+- **function code**：0x03 读保持寄存器（核心链）；0x06 写单寄存器、0x10 写多寄存器（M10 主动写 + 被动分析）。→ Function03/06/16 语义解码器。
+- **holding register**：0x03 的读对象。→ FC03 解码与 M11 读数解码（含 32-bit/word order）。
+- **request/response 配对**：单事务状态机。→ SerialSession 的 transaction-aware framing。
+- **exception response**：FC|0x80 + 异常码（0x01 非法功能、0x02 非法数据地址、0x03 非法数据值、0x04 从站故障…）。→ 七状态中的 Exception + 诊断文案（0x02→核对寄存器映射）。
+- **CRC16**：CRC-16/MODBUS 按位实现；**计算值低字节先上线**（线上字节序反转）。→ T002 KAT 对拍 + 编解码显式字节序。
+- **timeout**：无响应≠CRC 错；超时语义独立成状态。→ Timeout 状态 + 90s AI 类比（ISSUE-005）。
+- **frame boundaries**：RTU 无帧间隔保证，按"期望响应长度 + 超时"定界。→ SerialSession framing。
+- **transaction**：请求+响应（或超时/异常）的原子分析单元。→ TransactionAnalysis 7 状态 + 13 个正交 Issue。
+- **unsupported function**：按记录保留事实，不中断整批。→ Replay 按记录分类（T015）。
+- **protocol error**：响应合法但与请求不匹配（如 echo 错乱）。→ ProtocolError 状态。
+
+### 119.8 Three Runtime Modes（6.8，事实矩阵）
+
+| | Simulator | Replay | Serial |
+| --- | --- | --- | --- |
+| 目的 | 零硬件确定性演示/测试 | 历史日志离线重析 | 真实设备交互 |
+| 输入 | 内置虚拟从站 | .mlog 文本日志 | USB-RS485 串口 |
+| 硬件要求 | 无 | 无 | USB-RS485 适配器 + 从站设备 |
+| 共享 core | 是 | 是 | 是 |
+| 独有组件 | SimulatedSlave/Fault | ReplayLog/Analysis | SerialSession/Adapter |
+| 已验证 | 全自动矩阵 + 黄金批次 | golden==Simulator 统计相等 + 性能基准（141 万 records/s 中位） | 五步实证 + 真机 probe/热拔（M10-E4）+ 单 FC03/主动写 UI |
+| 未验证 | — | — | **多设备/多从站工业现场泛化（NOT VERIFIED）** |
+| 最佳演示 | 面试首选（确定性） | 次选（打包内 demo_v1.mlog） | 讲清"真实世界路径"，演示用一两笔即可 |
+
+**最安全面试/演示模式 = Simulator**（全确定性、零外部依赖），次选 Replay（打包内含样本）。
+
+### 119.9 AI / Agent Architecture（6.9）
+
+- **模型收到什么**：不可变 Agent 快照（由 summarizeTransactions 同源重算的统计 + 异常/事务摘要）；Manual Q&A 收到经本地校验的说明书上下文块（app 分配 citationId）。
+- **工具/能力**：3 个只读工具；Manual Q&A 的"工具"= 引用选择（citationId），offset/hash 由 app 回填。
+- **只读 vs 变更**：Agent 写能力在类型层面不存在（ADR002 白名单 dispatcher + injection tests）；Manual Q&A 只回答，不改手册/档案。
+- **取消/降级**：AiAbortReason 单一 timeout owner（ISSUE-005）；provider 不可用 → 核心三模式与基线诊断完整可用；Manual Q&A 断网/未配置/未同意 → 不可用但产品其余部分不受影响。
+- **为什么 AI 不是 Modbus parser**：字节→事实由 core 决定；LLM 输出是不可信输入（选择可以，权威数据不行——R2E 的教训直接产品化）。
+- **边界**：无 RAG/MCP/multi-agent/chat history/database；provider 配置为桌面级 BYOK 环境变量。
+
+### 119.10 Testing & Verification Evidence（6.10）
+
+```text
+AUTOMATED（证明：代码行为符合契约）
+  CTest 70 目标 = 协议/CRC/帧/FC03/事务/统计/Replay/Serial/写路径/
+    Profile/Candidate/Manual（导入/删除/PDF/DOCX/QA）/AI/Agent/QML 门
+    （smoke/nav/geometry/focus/semantic…）/deployment gate/依赖契约
+  PKG 套件（test_make_canonical_package.py，PKG-01..26）
+  canonical 程序内建 runtime gates（minimal-PATH smoke/nav/geometry +
+  external-CWD）+ PE/manifest/ZIP/extract 身份链
+MANUAL（证明：人看到的东西可接受）
+  T013 Manual Visual Review（自动全绿后仍两轮 FAIL 的真实教训）
+  M12-C/D Human acceptance（C2 Live、C3、D）；UX-R1/R2 Human PASS
+  canonical package H1–H8 = PASS（§118）
+PUBLICATION（证明：公开产物 = 被验收产物）
+  R5D tag-only push；R5E 远端 tag 身份独立核验；R5G 公开页面 + 公开
+  资产下载 35,814,735 B / SHA-256 6db918f3…54449d == 被验收 canonical 包
+各层不证明什么：AUTOMATED 不证明视觉可接受；MANUAL 不证明无回归；
+PUBLICATION 不证明工业适用性。
+```
+
+### 119.11 v2.0.0 Release Evidence（6.11）
+
+```text
+Release   = ModbusLens v2.0.0（PUBLIC / NOT draft / NOT prerelease）
+URL       = https://github.com/TheVoid2021/ModbusLens/releases/tag/v2.0.0
+Asset     = ModbusLens-2.0.0-windows-x64.zip
+Size      = 35,814,735 bytes
+SHA-256   = 6db918f35b62b3bb7638b7e0660cb74d9137d22aada1ca512513bd0a2654449d
+Tag       = annotated，object bdabd6fd9024f52e38530def90f93e8cdeb3816c
+Peeled    = b18e378f68a3fe19556d2562b03a3335ba086bf6（release commit）
+R5G       = PASS / PUBLIC RELEASE v2.0.0 = INDEPENDENTLY VERIFIED
+验证通道  = 公开页面 HTML 解析 + 直接公开资产下载逐字节 SHA-256
+（REST API 未认证访问 403 被限流/拦截——**不是发布失败**，是验证通道的
+ 替代；页面与下载两条独立通道均成功。）
+```
+
+### 119.12 Release Boundary（6.12）
+
+v2.0.0 已发布且验证。**本 closure docs commit 发生在发布之后**：它不是 v2.0.0 release commit，不得替代 `b18e378…` 作为 tag 目标；v2.0.0 tag 不移动；canonical 包不重建/不替换；本提交不入发布二进制。
+
+### 119.13 Demo Guide（6.13）
+
+演示脚本更新已追加至 **docs/05_DEMO_GUIDE.md**（§8）：在原 10 步主线上扩展——手册问答（收回/滚动，UX-R1/R2 演示点）、从**打包 ZIP** 直接启动的发布演示路径、以及无网络/无 provider 的 fallback（核心三模式 + 基线诊断 + Replay 样本不受影响）。
+
+### 119.14/119.15/119.16 Interview Narrative / Resume / Question Bank
+
+完整面试包（30s/90s/3min 叙事、最终 talking points、resume bullets、分类题库）见 **docs/INTERVIEW_NOTES.md** 末尾 "POST-M12-CLOSE-R1 — v2.0.0 FINAL INTERVIEW PACK"（本会话追加）。此处只固化三条最高层口径：
+
+- 30 秒：C++20/Qt6 的 Modbus RTU 诊断台，确定性核心 + 可选 AI 解释 + 只读 Agent，三模式共享同一分析核心，v2.0.0 已公开发布并被独立验证。
+- 90 秒：在 30 秒基础上加入——CRC/状态/异常码由 Zero Qt core 决定；Simulator/Replay/Serial 换数据源不换口径；发布工程（candidate 契约、fail-fast 打包、公开资产逐字节验证）。
+- 3 分钟：再加入——真实 RCA 案例（部署哈希溯源 / QML 静默失效 / AI 双超时竞态 / 引用 app-resolved 化）与 traceability 纪律（490 commits、25 任务档案、append-only）。
+
+### 119.17 Handoff Guide（6.17，AI/平台交接）
+
+新接手 agent 的必读顺序：
+
+```text
+1. AGENTS.md（工作规约/硬边界/防漂移）
+2. docs/PROJECT_STATUS.md（当前状态单一事实源，最新块在最上）
+3. docs/02_ARCHITECTURE.md
+4. docs/BACKLOG.md（时间线在文件尾）
+5. 当前相关任务档案（docs/tasks/T0xx-*.md；发布链 = T027 §108–§118）
+6. 最新 devlog（docs/devlog/2026-10-07.md）
+7. 近期 Git 历史（git log --oneline --decorate -30）
+```
+
+**Fresh-agent onboarding prompt（复制即用）**：
+
+```text
+你是接手 ModbusLens 仓库的编码代理。开始任何修改之前，你必须先完整
+阅读并理解以下内容，然后向用户复述并获得确认：
+1) 读 AGENTS.md 与 docs/PROJECT_STATUS.md 最新块、docs/02_ARCHITECTURE.md、
+   docs/BACKLOG.md 尾部、docs/tasks/T027 第 §114–§118 节、最新 devlog；
+2) 复述：项目目的（Modbus RTU 确定性诊断 + 可选 AI 解释）、架构分层
+   （QML UI → App/Controller → Zero-Qt core → Simulator/Replay/Serial；
+   AI 只解释不裁决）、当前稳定状态（v2.0.0 已公开发布并独立验证，tag
+   bdabd6fd → commit b18e378）、已完成工作（M1–M12 + post-M12 UX +
+   release chain）、未完成/DEFERRED 清单（见 T027 §119.18）、已知问题
+   （ISSUE-008/009 = MONITORING/NON-BLOCKING）；
+3) 给出你建议的下一个任务与理由；
+4) 等待用户确认后，严格按 AGENTS.md 的一次一任务流程工作。
+不得在复述完成前修改任何文件。
+```
+
+### 119.18 DONE / DEFERRED / NOT IMPLEMENTED / ROADMAP（6.18）
+
+```text
+DONE（已交付且验证）
+  M1–M12 全链（协议核心/三模式/事务诊断/UI 现代化/主动写/读数解码/
+  手册智能/Manual Q&A）；UX-R1/R2；v2.0.0 发布链（tag + Release +
+  公开资产独立验证）；Human acceptance H1–H8
+DEFERRED（有档案的显式推迟）
+  code signing；installer；byte-reproducible ZIP；StatisticsOverview
+  cleanup；AppBar logo；M12-A DEFER 项；NCR / multi-manual RAG /
+  whole-library RAG / conversation memory / durable history /
+  cross-session state；provider families 与 provider-selection UI；
+  M12-D mutation 能力；M12-C reopening
+NOT IMPLEMENTED（从未实现，勿混淆 DEFERRED）
+  Modbus TCP；PLC/多设备工业现场验证；工业认证；真实硬件泛化验证
+  （REAL MODBUS HARDWARE = NOT VERIFIED）
+IDEA / ROADMAP（仅方向，无承诺）
+  更多功能码（如 0x02/0x04 读离散/输入）、设备档案模板/导入导出、
+  Agent 能力扩展（仍只读）、CI、UI 无障碍/国际化
+```
+
+### 119.19 状态收口
+
+```text
+POST-M12-CLOSE-R1 = docs-only closure（本节）
+v2.0.0 RELEASE CHAIN = COMPLETE / PUBLIC / INDEPENDENTLY VERIFIED
+PRODUCT CODE = UNCHANGED；CANONICAL PACKAGE = UNCHANGED
+v2.0.0 TAG = UNCHANGED（bdabd6fd… → b18e378…）；REBUILD/REPACKAGE/
+RE-RELEASE/PUSH = NONE
+NEXT = HUMAN REVIEW OF FINAL INTERVIEW ARCHIVE + SEPARATE DECISION ON
+WHETHER TO PUSH POST-RELEASE DOCS TO MAIN
+```

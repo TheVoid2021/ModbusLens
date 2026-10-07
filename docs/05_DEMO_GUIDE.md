@@ -64,3 +64,23 @@ ModbusLens 的 Agent/AI 只读；演示过程中**绝不下发任何写操作**�
 原 v0.1 Demo A/B/C 设想：1 主站轮询 + 3 从站场景与异常注入、Replay 时间轴拖动、双 USB-RS485 旁路监听、9600-8E1 等。真实产品为：Simulator 4 事务黄金演示、Replay 批处理式离线回放（无时间轴）、Serial 8N1 单次 FC03 读（可配置波特率）。以 §2 为准。
 
 </details>
+
+## 8. POST-M12 v2.0.0 更新（v2.0.0 发布版演示脚本，2026-10-07）
+
+v2.0.0 起新增两条能力与一条发布路径，演示脚本在 §2 十步主线上扩展：
+
+**11. Manual Q&A（手册智能，Device Profile 工作区）**
+   - 导入一本手册（PDF/DOCX/TXT）→ AI 提取候选 → 人工 Accept。
+   - 打开"手册问答"面板，就手册内容提问 → FOUND 答案 + 引用块。
+   - **UX-R1 演示点**：点"关闭"收起面板 → 切到诊断页再收回 → 重开后答案仍在。
+   - **UX-R2 演示点**：长答案/长引用时结果区可垂直滚动，顶部标题/关闭/
+     问题框/提问按钮保持固定。
+
+**12. 从发布包演示（无开发环境）**
+   - 直接解压 GitHub Release 资产 `ModbusLens-2.0.0-windows-x64.zip`
+     （SHA-256 见 Release 页）双击启动——无需 Qt/MinGW 开发环境。
+   - 该路径即 H1–H8 人工验收路径；演示口径与开发树完全一致。
+
+**Fallback（无网络/无 API Key）不变**：Simulator 黄金批次、Replay
+`demo_v1.mlog`、基线诊断、Manual 导入/提取候选（本地 PDFium/DOCX 提取）
+全部可用；仅"AI 解释 / Agent / 手册问答"三类需要 provider。
