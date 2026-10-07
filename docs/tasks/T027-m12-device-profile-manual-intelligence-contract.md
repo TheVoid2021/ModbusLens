@@ -11317,3 +11317,252 @@ NEXT = SEPARATE HUMAN AUTHORIZATION TO CREATE THE CANONICAL RELEASE PACKAGE
 release tooling（授权的后代；不改变产品行为；不进入 verified LKGC）。
 未创建最终 canonical package；未 tag / push / publication；未推进
 LKGC；未开始新 milestone。
+
+## 116. POST-M12-REL-R3 — CANONICAL RELEASE PACKAGE CREATION
+（2026-10-07，verified-LKGC product rebuild + candidate + deployment +
+canonical package + docs archive）
+
+### 116.0 Human authorization（逐字，scope ceiling）
+
+> "Human 已授权执行 POST-M12-REL-R3 Canonical Release Package Creation。
+> 依据：POST-M12-REL-R2 Release Readiness Re-Audit = GO。为当前 verified
+> LKGC `9c065f23a7f06beb73beedb680a3fe3b03e4c596` 创建 canonical Windows
+> release package。" 硬边界 1–10（摘要）：先只读核对 descendant 全列表并
+> 修正上一报告的 count 口径；PRODUCT VERIFIED BASELINE = `9c065f2…`，
+> candidate 必须对该 baseline 构建（优先独立 detached worktree，不得把
+> tooling commit 冒充产品 baseline）；PACKAGING TOOLING = `4643e31…` 及其
+> docs-only 后代定义的 candidate-tree packager（不得 deploy_windows/
+> windeployqt/raw fallback）；fresh canonical Release configure 必须含
+> `-DMODBUSLENS_PYTHON_EXECUTABLE=D:/Anaconda3/python.exe`、凭据缺席、
+> inventory=70、70/70 PASS 后才允许生成 candidate；对 exact candidate 先跑
+> deployment gate；canonical package 至少含 exe/pdfium/platforms
+> /qwindows/Qt-QML runtime，必须无 `samples/ModbusLens_Test_Manual_*`，
+> `demo_v1.mlog` 政策保持；验证 contents/manifest/checksum/credential/
+> absolute-path/user-data/synthetic-sample/candidate-immutability；记录
+> package path/ZIP/size/SHA/manifest/candidate SHA/LKGC/tooling commit 并
+> 证明解包一致；不授权 tag/push/publication/signing/LKGC advancement（tag
+> 保持 v1.0.0）；自动验证通过后仅做 docs/governance archive，最终状态 =
+> **CREATED / AUTOMATED VERIFIED / HUMAN PACKAGE ACCEPTANCE PENDING**，不
+> 得声称 Human Accepted；若出现新的 naming/version、license/signing、
+> hardware timing canonical 冲突 → STOP/HOLD。
+
+### 116.1 descendant recount（§3，修正上一报告）
+
+```text
+CURRENT EXACT COUNT = 6（本节提交前；本会话治理提交后 = 7）
+  1. 5c4772de…  Docs: archive Manual Q&A result scrolling repair   = DOCS
+  2. bce2e96d…  Docs: archive Manual Q&A scrolling Human acceptance = DOCS
+  3. 8403eab7…  M12: advance LKGC to final accepted UX baseline    = DOCS/GOV
+  4. 751eed41…  Release: freeze canonical candidate-tree packaging
+                contract                                            = DOCS
+  5. 4643e31e…  Release: package canonical candidate tree          = TOOLING
+  6. 0fb95697…  Docs: archive canonical candidate-tree packaging
+                repair                                              = DOCS
+（逐 commit diff-tree 实测 changed paths；无 PRODUCT BEHAVIOR 后代）
+PREVIOUS REPORT COUNT = 3（REL-R2 §115.5 REL-03 记载 "2 docs + 1 tooling"，
+遗漏了 8403eab 与 751eed4 —— 该表述在其时点已不完整）
+COUNT CORRECTION = YES（对 count 口径的更正；非 blocker）
+本会话新增：1 个 tooling 完成性修复（§116.5）+ 1 个 docs 治理提交
+  → 最终 descendants = 7（5 DOCS + 1 DOCS/GOV + 1 TOOLING…见 §116.8）
+```
+
+### 116.2 product no-drift / baseline↔tooling separation（§4/§5）
+
+```text
+git diff 9c065f23..HEAD -- src tests CMakeLists.txt samples
+  = name-status EMPTY + stat EMPTY（product no-drift）
+PRODUCT VERIFIED BASELINE = 9c065f23a7f06beb73beedb680a3fe3b03e4c596（commit）
+PACKAGING TOOLING         = 4643e31e6e475c00c684b029d3de6a383a104e59（commit）
+两者均为 HEAD 祖先；不混淆。
+```
+
+### 116.3 verified-LKGC worktree + canonical pipeline（§8–§12）
+
+```text
+worktree = E:\desktop\ModbusLens\build\worktree-lkgc-9c065f2
+  （git worktree add --detach … 9c065f23…；HEAD 实测 = 9c065f2…；
+   检出后 tracked clean）
+configure（canonical）= cmake -S <worktree> -B <worktree>/build/release
+  -G Ninja -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_CXX_COMPILER=D:/QT/Tools/mingw1310_64/bin/g++.exe
+  -DCMAKE_MAKE_PROGRAM=D:/QT/Tools/Ninja/ninja.exe
+  -DCMAKE_PREFIX_PATH=D:/QT/6.11.1/mingw_64
+  -DMODBUSLENS_PYTHON_EXECUTABLE=D:/Anaconda3/python.exe
+  → RC 0；"not registered" = 0；凭据缺席（env -u MODELSCOPE_API_KEY
+  -u MODBUSLENS_MODELSCOPE_MODEL）；PDFium = pinned
+  d42c452a…（configure 时 file(SHA256) 断言通过）
+build = 474/474 targets，RC 0
+inventory = ctest -N = 70
+full unfiltered ctest = 70/70 PASS，exit 0，real 195.54s
+```
+
+**如实披露（过程记录）**：首次 worktree 全量运行为 69/70 ——
+`c1b_dependency_materializer` FAIL，根因 = git-ignored 的 pinned distfiles
+（`third_party/m12c-c1b/distfiles/`：pdfium-win-x64.tgz、libzip-1.11.4.tar.gz）
+不随 worktree 检出传播；将 MAIN 仓库的 pinned distfiles（4.9M）复制进
+worktree 后 materializer 契约测试通过（hash 由 lock manifest 验证），随后
+全量 **70/70 PASS**。另外：首次 candidate 生成发生在 70/70 之前（同一后台
+命令的顺序瑕疵，如实记录）；70/70 达成后已**重新** FROM ZERO 生成 candidate
+（§116.4），最终 canonical 包消费的正是该重新生成的 candidate。
+
+### 116.4 candidate（FROM ZERO，70/70 之后重新生成）
+
+```text
+candidate root = <worktree>/build/release/candidate/ModbusLens
+  （modbuslens_candidate；file(REMOVE_RECURSE) 后 FROM ZERO）
+source exe  = <worktree>/build/release/modbuslens.exe
+             7,029,729 B，SHA-256 518b9485ccedbc17f366038e08ada32c4fe2ff00d35e94543c1dfaf4be523acb
+candidate exe = 同上 SHA-256（**candidate exe == source exe**）
+manifest    = candidate-manifest.json，SHA-256
+             82d5b4f65205f7a484e52a930950f552dc240cfd9bc4aa718f4f0e1eea4ab6b7
+             entries = 1713；root files（含 manifest）= 1714；dirs = 90
+platforms/qwindows.dll SHA-256 = 804739071bba619b4a4312b5bb29a142545a64c4c80218e5b2e6672ad33ee8ac
+pdfium.dll SHA-256            = d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b
+全 1713 个 manifest-listed 文件逐项 SHA-256 复验 = 0 mismatch
+（§14 pre-package snapshot 落盘 build/_relr3_cand_snapshot_pre.json）
+```
+
+**口径说明（与 REL-R2 candidate 的关系）**：本 candidate 的 exe SHA-256
+（`518b9485…`）与 REL-R2 时代 Human 所测 candidate（`8cd860c9…`）**不同但
+同源**——两者均为 `9c065f2…` 产品源码的 Release 构建（7,029,729 B 同长），
+字节差异源于构建树路径相关的产物（如 QML cache 生成），本仓库从未声明
+跨构建树 byte-reproducibility（M9-E 即已冻结该口径）。行为等价的证据 =
+产品源码零漂移 + 本 worktree 全量 70/70（含全部 QML gates）+ 本 candidate
+自身的 deployment gate（下）。
+
+### 116.5 packaging tooling 完成性修复（授权范围内的最小修复）
+
+首次打包尝试 fail-closed 两次，暴露 REL-R2 套件 fixture 未覆盖的
+canonical 内容规则（均非新政策，是 M9-E 既有 canonical 规则的实现补全）：
+
+```text
+1) qml/ModbusLens/assets/brand/windows/ModbusLens.ico
+   = M9-E 规则：brand ICO 的 QML 模块磁盘镜像冗余（图标已嵌入 exe qrc），
+   历来不入包（legacy 流程删除 ModbusLens/assets）。
+   → 修复 = CANDIDATE_EXCLUDED_PREFIXES 显式排除 qml/ModbusLens/assets/
+2) qml/Qt/labs/assetdownloader/ 的 .a/.prl、objects-RelWithDebInfo/**.obj、
+   应用自身 modbuslens_qml_module_dir_map.qrc
+   = Qt kit qml/ 闭包携带的 developer/build 工件，从未是 runtime 内容
+   （FORBIDDEN_SUFFIXES 语义）。
+   → 修复 = FORBIDDEN_SUFFIXES 增补 .prl/.qrc；staging 显式跳过
+     forbidden-suffix 文件（structural gate 仍二次拒绝）
+```
+
+两笔修复各为一个 tooling commit（NO AMEND，产品路径零改动）：
+
+```text
+2170e40f40c6a34a9d1431d41c3c0cf050b70fbe
+  Release: exclude redundant icon mirror from candidate packages
+91ad718b0891b2ebc5bc1e82b991e0c9dd7e4cc8
+  Release: exclude Qt kit dev artifacts from candidate packages
+PKQ 套件扩展至 PKG-25/26 并全绿（28 PASS 项）；freshness 套件 PASS。
+```
+
+### 116.6 deployment gate（§15，exact candidate）
+
+```text
+ctest -R "^deployment_startup_check$"（worktree 树，凭据缺席 + 净化环境）
+= Passed 27.42s
+（manifest verified / sanitized launch PASSED / exit 0 / SMOKE IDENTITY
+PASS / qwindows from candidate；gate 自身按设计 FROM ZERO 重建 candidate，
+重建后 candidate-manifest SHA-256 与 snapshot 一致 = 82d5b4f6… 不变）
+```
+
+### 116.7 canonical package creation（§16–§19）
+
+```text
+packager = scripts/make_package.py（MAIN 仓库工作树 = tooling HEAD 内容）
+  SHA-256 c996167c…（修复前）/ 修复后见 git（两个 tooling commit）
+invocation = python scripts/make_package.py --candidate
+  E:/desktop/ModbusLens/build/worktree-lkgc-9c065f2/build/release/candidate/ModbusLens
+  （单次授权运行；完整 transcript = build/_evidence/relr3-package-run.txt）
+过程 = manifest 校验 → runtime 底线 → staging（显式排除）→ structural +
+  credential/absolute-path scans → package-manifest.sha256 → ZIP →
+  entry-set 校验 → fresh extraction → manifest 对账 → extracted exe ≡
+  candidate exe → PE x64 / ProductVersion 2.0.0 → minimal-PATH
+  smoke/nav/geometry PASS → external-CWD PASS → RC 0
+```
+
+### 116.8 canonical package identity（§20–§29）
+
+```text
+CANONICAL PACKAGE DIRECTORY = E:\desktop\ModbusLens\build\package\
+                             ModbusLens-2.0.0-windows-x64
+  files = 1709（1708 payload + package-manifest.sha256）；dirs = 79；
+  total = 98,027,807 B
+CANONICAL ZIP = E:\desktop\ModbusLens\build\package\
+                ModbusLens-2.0.0-windows-x64.zip
+  size = 35,814,735 B；SHA-256 =
+  9d67607d31489e6b2c6f0467c8b69fa933c9e4fe7c4a070f3f347fa01a1a3a19
+  entries = 1709（1708 payload + manifest）
+PACKAGE MANIFEST = <package dir>\package-manifest.sha256，SHA-256 =
+  dcb39ffe82eda048f6b0e12998ac03ce6dffc38febe9e407f5225cf04de0bd5f
+VERSION = 2.0.0（CMake 单源；PE ProductVersion 交叉验证）
+```
+
+**set equality（§21）**：A（manifest 期望集）= B（package dir）= C（ZIP
+解包）= **1708**，`A==B`、`C==A`，missing = 0 / unexpected = 0（唯一授权
+元数据 = package-manifest.sha256 自身）。
+
+**checksum（§22）**：1708 条 manifest checksum 在 staging 与 fresh
+extraction 双侧逐项复验 = **0 mismatch**；ZIP SHA-256 与上一致。
+
+**candidate immutability（§23）**：打包前后 candidate manifest SHA-256 与
+全部 1713 文件 SHA-256 **IDENTICAL**（`82d5b4f6…` 不变，0 mismatch）。
+
+**exe 身份链**：candidate exe = staging exe = extracted exe =
+`518b9485…`（三处同一）。
+
+**M12 RUNTIME CONTRACT（§27）= PASS**：pdfium.dll / platforms/qwindows.dll
+/ qt.conf / Qt6 运行时闭包 / qml import 闭包全部在包且 checksum 有效；
+runtime 无任何 windeployqt/deploy_windows 重建（静态+动态双证 + 打包日志）。
+
+**secret / absolute-path / user-data（§24/§25）= PASS**：extraction 独立
+复扫 0 credential hit / 0 machine-path hit / 0 user-data（`_ctx.py`、
+`_dump.py`、evidence、ManualStore 等）命中。**synthetic Manual samples
+（§26）= EXCLUDED**：package dir / ZIP / manifest 中
+`ModbusLens_Test_Manual_*` = **0**；t014/t015 fixtures = 0。
+
+**package-level startup（§28）**：canonical 程序内建 gate 已按定义执行 =
+minimal-PATH smoke/nav/geometry PASS + external-CWD PASS（凭据缺席、净化
+PATH、零 provider 请求）。
+
+### 116.9 automated classification（§30）
+
+```text
+CANONICAL PACKAGE = CREATED / AUTOMATED VERIFIED / HUMAN PACKAGE ACCEPTANCE PENDING
+（未声称 Human Accepted / RELEASED / PUBLISHED / TAGGED / SIGNED）
+verified LKGC = 9c065f23a7f06beb73beedb680a3fe3b03e4c596（UNCHANGED）
+latest Human-tested behavior-bearing commit = 9c065f23…
+M12 OVERALL = COMPLETE / HUMAN ACCEPTED（UNCHANGED / NOT REOPENED）
+POST-M12-UX-R1 / UX-R2 = COMPLETE / HUMAN ACCEPTED
+TAG = v1.0.0 only / UNCHANGED；PUSH = NONE
+SIGNING = NOT PERFORMED；PUBLICATION = NOT PERFORMED
+canonical package 最终状态待 Human 验收（§116.11 清单）
+```
+
+### 116.10 action boundary
+
+本节所在提交 = docs only（永不作 LKGC）。会话内新 commit = 2 个 tooling
+完成性修复（`2170e40…` / `91ad718…`，RELEASE TOOLING，非产品行为）+ 本
+docs 提交。产品路径 `9c065f2..HEAD` diff 保持 EMPTY（每轮实测）。未
+tag/push/sign/publish；未推进 LKGC；未开始新 milestone。canonical
+package 与 exact candidate 均保留未删除。
+
+### 116.11 Human canonical package acceptance checklist（§35，不预设结果）
+
+```text
+ 1. 定位 canonical ZIP：build\package\ModbusLens-2.0.0-windows-x64.zip。
+ 2. 校验 ZIP SHA-256 = 9d67607d31489e6b2c6f0467c8b69fa933c9e4fe7c4a070f3f347fa01a1a3a19。
+ 3. 解压到全新目录。
+ 4. 双击 ModbusLens.exe 启动（无需开发环境 Qt/MinGW；unsigned 提示非缺陷）。
+ 5. 确认启动正常（标题/图标/页面）。
+ 6. 抽查：设备/手册导入；诊断；手册问答收回（UX-R1）；长结果滚动（UX-R2）。
+ 7. 确认包内无 ModbusLens_Test_Manual_* 文件；samples/ 仅 demo_v1.mlog。
+ 8. 报告任何打包/运行时问题（无法启动 = BLOCKER）。
+```
+
+### 116.12 action boundary（END）
+
+NEXT = HUMAN CANONICAL PACKAGE ACCEPTANCE。STOP——未 tag/push/sign/
+publish，未推进 LKGC，未开始新 milestone。
