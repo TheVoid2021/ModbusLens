@@ -71,3 +71,69 @@ README/文档/GitHub GAP CLOSURE（README 引用截图、LICENSE 决策、docs
 EMPTY）；capture 使用的 `--qml-evidence-capture` / `--qml-write-foundation-check`
 均为既有冻结 gate（harness-only，无产品行为变更）；本任务所在提交 =
 docs/assets-only（NOT LKGC）。
+
+
+---
+
+# T030-R2 — FINAL SERIAL SCREENSHOT RECAPTURE（2026-10-07）
+
+## R2.0 Human review result（T030 §2 shots）
+
+```text
+01-hero-dashboard.png   = ACCEPTED
+02-transactions.png     = ACCEPTED
+03-replay-analysis.png  = DROP FROM README / KEEP AS EVIDENCE
+04-diagnosis-baseline.png = ACCEPTED
+05-serial.png           = RECAPTURE REQUIRED
+```
+
+拒绝理由（逐字归档）：①COM_HARNESS 暴露自动化 fixture/internal naming；
+②页面同时出现"串口已打开"与"未检测到串口"视觉状态矛盾；③FC16 一次
+显示 40 registers，信息密度过高。**不是 UI layout defect**；UI FREEZE
+继续有效。
+
+## R2.1 recapture 尝试与环境实测（fail-closed 过程，如实归档）
+
+```text
+accepted exe 重验 = 518b9485…523acb / 7,029,729 B（一致）
+本机串口环境实测 = Windows 枚举出 COM3 / COM4
+  （"蓝牙链接上的标准串行"——Bluetooth SPP 虚拟口）
+attempt 1/2（既有 gate）= --qml-write-foundation-check 使用非 production
+  fixture（fake transport，名称 COM_HARNESS 硬编码于 gate harness）→
+  产生被 Human 拒绝的同一状态，且下拉框（真实端口枚举）与 fixture 状态
+  矛盾——即 Human 指出的缺陷根源。
+attempt 3（真实 UI 自动化，real clicks/typing on accepted exe，9 个
+  诊断截图 build/_evidence/relr5-serial/）：
+  d2 刷新串口后仍 = "未检测到串口"；
+  d3/d4 下拉打开但无任何条目（popup 空列表）；
+  d8 确认写入不可达（写入按钮保持禁用 = M10 写安全边界在自动化下
+  依然成立）。
+根因 = 产品**诚实**枚举：本机无物理在位的串口设备（COM3/COM4 为
+  Bluetooth phantom 口，Qt setupapi 按 DIGCF_PRESENT 正确跳过；
+  .NET SERIALCOMM 注册表视图包含它们，故 PowerShell 看得到而产品
+  看不到——产品行为正确）。
+→ 一致的 "COM3 @ 9600" 真实产品状态在本机**无法构造**；唯一路径是
+  被 Human 拒绝的 COM_HARNESS fixture 或修改产品/测试代码（均被禁止）。
+```
+
+## R2.2 处置（按 packet §6 fallback）
+
+```text
+05-SERIAL-RECAPTURE = BLOCKED
+RECOMMENDATION      = DROP 05 FROM README
+FINAL SCREENSHOT SET = 4 张（01 hero / 02 transactions / 04 diagnosis
+                      baseline）
+docs/assets/screenshots/05-serial.png = 已从仓库移除
+  （被拒绝的 COM_HARNESS 版本保留于 Git 历史 commit 6982c78，未丢失；
+   build/_evidence/relr5-serial/ 的诊断截图为本地 ignored 证据）
+UI FREEZE           = 继续 ACTIVE（本轮零 UI/产品改动）
+01/02/04            = 维持 ACCEPTED（不受本轮影响）
+```
+
+## R2.3 状态
+
+```text
+PRODUCT CODE / QML = UNCHANGED；README = UNCHANGED（integration 下一 gate）
+PUSH = NONE；TAG/Release = UNCHANGED；REBUILD/REPACKAGE = NONE
+NEXT = README integration（引用 01/02/04）+ 其余 non-UI GAP 依 Human 授权处理
+```
