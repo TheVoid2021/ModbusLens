@@ -11719,3 +11719,113 @@ NEXT = HUMAN CANONICAL PACKAGE ACCEPTANCE
 自 `91ad718…` 起冻结，`git diff 91ad718..HEAD -- scripts` = EMPTY）；零
 产品改动；未重新生成 candidate；未重新 build product；未
 tag/push/sign/publish；未推进 LKGC；未开始新 milestone。
+
+## 118. POST-M12-REL-R4 — CANONICAL PACKAGE HUMAN ACCEPTANCE ARCHIVE
+（2026-10-07，docs-only closure；Human acceptance = PASS）
+
+### 118.0 被验收对象（identity，验收前后实测未变）
+
+```text
+CANONICAL PACKAGE ZIP = E:\desktop\ModbusLens\build\package\
+                        ModbusLens-2.0.0-windows-x64.zip
+  size     = 35,814,735 B
+  SHA-256  = 6db918f35b62b3bb7638b7e0660cb74d9137d22aada1ca512513bd0a2654449d
+  来源     = POST-M12-REL-R3B（§117）：Human-ratified tooling baseline
+             （4643e31e / 2170e40f / 91ad718b）下，由 verified-LKGC
+             canonical candidate（manifest 82d5b4f6… / exe 518b9485…）
+             一次成功 invocation 生成。
+  本会话只读复验 = SHA-256 与 size 与 §117 档案一致（验收对象未被修改）。
+PRODUCT VERIFIED BASELINE / VERIFIED LKGC =
+  9c065f23a7f06beb73beedb680a3fe3b03e4c596（UNCHANGED）
+```
+
+### 118.1 Human acceptance 逐门结果（authoritative，H1–H8 = PASS）
+
+```text
+H1  ZIP identity + independent extraction                      = PASS
+    （Human 独立完成 ZIP 校验与解压）
+H2  launch from extracted package                              = PASS
+    （从解压目录直接启动，无开发环境依赖）
+H3  Simulator deterministic demonstration                      = PASS
+H4  packaged Replay sample                                     = PASS
+    （包内 samples/demo_v1.mlog 的 Replay 演示）
+H5  Communication / Serial + three-mode boundary               = PASS
+    （Simulator / Replay / Serial 三模式边界）
+H6  release-content leakage check                              = PASS
+    （无泄漏内容：synthetic Manual samples / 开发工件等不在包）
+H7  UX-R1 Manual Q&A close / collapse / reopen                 = PASS
+    （面板收回/重开行为在包内正常）
+H8  UX-R2 long-answer / citation scrolling                     = PASS
+```
+
+**H8 的 Human 最终陈述（逐字）**：
+
+```text
+H8 全部正常无异常
+```
+
+**no anomaly reported**：完成的 H1–H8 序列中 Human 未报告任何异常。
+
+### 118.2 分类收口
+
+```text
+CANONICAL PACKAGE HUMAN ACCEPTANCE = COMPLETE / PASS
+CANONICAL PACKAGE = CREATED / AUTOMATED VERIFIED / HUMAN ACCEPTED
+H1–H8 = PASS
+```
+
+supersede §116/§117 中的 "HUMAN PACKAGE ACCEPTANCE PENDING"（其余内容
+原文保留）；不 rewrite §114/§115/§116/§117 历史。
+
+### 118.3 acceptance evidence boundaries（不扩写，逐条未声称）
+
+本归档**不声称**以下任何一项（除非另有独立 canonical 证据，且本轮未新增）：
+
+```text
+- 真实工业硬件验证（REAL MODBUS HARDWARE 仍 = NOT VERIFIED）
+- 干净外部 VM / 他机测试（本轮验收环境即 Human 常用环境，未声称跨机）
+- signing（NOT PERFORMED）
+- publication（NOT PERFORMED）
+- push（NONE）
+- v2.0.0 tag（不存在；tag = v1.0.0 only）
+- 包验收期间对云端 AI / provider 的重新验证（H1–H8 未含 live provider）
+- deferred/future 能力的验证（installer、byte-reproducible ZIP、
+  StatisticsOverview cleanup 等维持既有 DEFERRED 分类）
+```
+
+**evidence layering（不得互相替代）**：`AUTOMATED VERIFIED`（§115/§116/
+§117 的 70/70、deployment gate、PKG 套件、canonical 程序内建 runtime
+gates）与 `HUMAN ACCEPTED`（本节 H1–H8）是**不同层**的证据；本节只记录
+Human 层，automated 层维持原状，均不因本节改变。
+
+### 118.4 不变项核验（本会话前后）
+
+```text
+verified LKGC / product baseline = 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+  （HEAD 祖先实测；UNCHANGED；本会话 NO advance）
+canonical package / ZIP = 6db918f3…（size 35,814,735 B；只读复验一致）
+canonical candidate = 82d5b4f6…（manifest）/ 518b9485…（exe）；未重建
+tag = v1.0.0 only / UNCHANGED
+push = NONE / UNCHANGED
+signing = NOT PERFORMED / UNCHANGED
+publication = NOT PERFORMED / UNCHANGED
+```
+
+### 118.5 release state boundary
+
+Human 对 ZIP 的验收**不**授权 publication。本节所在提交后状态：
+
+```text
+v2.0.0 tag = NOT CREATED
+push = NONE
+signing = NOT PERFORMED
+publication = NOT PERFORMED
+NEXT = SEPARATE HUMAN RELEASE-PUBLICATION DECISION
+```
+
+### 118.6 action boundary
+
+本会话 = strict docs-only：零 src / tests / CMakeLists.txt / cmake /
+samples / scripts / packaging tooling / candidate / package / ZIP 改动；
+未 rebuild / repackage / re-deploy / regenerate candidate；未修改被验收
+ZIP。本节所在提交永不作 LKGC。
