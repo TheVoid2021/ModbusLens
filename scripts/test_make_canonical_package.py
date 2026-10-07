@@ -107,6 +107,8 @@ def canonical_files():
         "platforms/qoffscreen.dll": b"FAKE-QOFFSCREEN",
         "imageformats/qico.dll": b"FAKE-QICO",
         "qml/ModbusLens/qmldir": b"module ModbusLens\n",
+        "qml/ModbusLens/assets/brand/windows/ModbusLens.ico":
+            b"FAKE-ICO-MIRROR",
         "qml/Qt/qmldir": b"module Qt\n",
         "qml/QtQml/qmldir": b"module QtQml\n",
         "qml/QtQuick/qmldir": b"module QtQuick\n",
@@ -204,6 +206,8 @@ def main():
         for entry in manifest_doc["files"]:
             if entry["path"] == "candidate-manifest.json":
                 continue
+            if entry["path"].startswith("qml/ModbusLens/assets/"):
+                continue
             rel = "ModbusLens.exe" if entry["path"] == "modbuslens.exe" \
                 else entry["path"]
             expected.add(result["stem"] + "/" + rel)
@@ -213,6 +217,12 @@ def main():
         check("PKG-22 content only from candidate tree + authorized "
               "release metadata",
               _zip_entries(result["zip_path"]) == expected)
+        check("PKG-25 redundant brand-ICO mirror excluded (M9-E rule)",
+              not any(".ico" in name or "/assets/" in name
+                      for name in _zip_entries(result["zip_path"]))
+              and not os.path.exists(os.path.join(staging, "qml",
+                                                  "ModbusLens",
+                                                  "assets")))
 
         # ---- PKG-03/23: no windeployqt / deploy_windows.bat path --------
         sources = "".join(inspect.getsource(function) for function in

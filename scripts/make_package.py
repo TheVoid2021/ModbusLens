@@ -430,6 +430,14 @@ CANDIDATE_MANIFEST_NAME = "candidate-manifest.json"
 # (modbuslens.exe is renamed to its historical product name ModbusLens.exe,
 # same bytes).
 CANDIDATE_EXCLUDED_FROM_PACKAGE = ["candidate-manifest.json"]
+# M9-E canonical content rule (kept for the candidate path): the brand
+# ICO mirror under the QML module dir is redundant - the icon is embedded
+# in the executable qrc and the runtime reads it from there, and the
+# on-disk mirror has never been shipped. (The legacy flow deleted
+# ModbusLens/assets from the windeployqt staging; the candidate layout
+# keeps the mirror under qml/ModbusLens/assets, so the candidate path
+# excludes it explicitly and the structural gate re-checks it.)
+CANDIDATE_EXCLUDED_PREFIXES = ["qml/ModbusLens/assets/"]
 # R2: the release runtime set that the candidate contract guarantees. The
 # full content set comes from the candidate manifest itself; this list is
 # the fail-closed floor (missing any of it stops packaging).
@@ -546,6 +554,9 @@ def stage_candidate_package(candidate_root, manifest, version, staging):
     for entry in manifest["files"]:
         rel = entry["path"]
         if rel in CANDIDATE_EXCLUDED_FROM_PACKAGE:
+            continue
+        if any(rel.startswith(prefix)
+               for prefix in CANDIDATE_EXCLUDED_PREFIXES):
             continue
         src = os.path.join(candidate_root, *rel.split("/"))
         dst_rel = "ModbusLens.exe" if rel == "modbuslens.exe" else rel
