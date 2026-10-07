@@ -3,6 +3,14 @@
 > 状态：v1.1（T001 建立；T001.1 按细粒度任务重排更新任务引用）
 > 与 AGENTS.md 强制规则联动：**修改代码后必须构建并执行相关测试**。
 
+> **CURRENT STATE（v2.0.0 发布后快照，HEAD `1c4f9a0…` 时点）**：自动测试已增长至
+> **70 个 CTest 目标**（协议/事务/Replay/Serial/写路径/Profile/Candidate/手册/AI/Agent/
+> QML 门/deployment gate/依赖契约等；本文件下文的 23/24 为 T013–T015 时代的历史
+> 叙事，非当前数字）。**历史口径提示**：T015 时代"Active Serial 无 FC06 encoder"
+> 的 grep 锚已被 M10（FC06/FC16 主动写路径 + encoder + 确认式下发）取代——当前
+> 事实见 docs/02_ARCHITECTURE.md 与 docs/INTERVIEW_NOTES。硬件边界不变：仅
+> harness/seam 证据，REAL MODBUS HARDWARE = NOT VERIFIED。
+
 ## 1. 目标
 
 1. 核心逻辑（协议、事务、统计、诊断）有**可信、可独立运行、可回归**的测试；
@@ -44,7 +52,7 @@
 - 构造合成流量（配对、乱序、广播、超时、重试）验证配对与时延统计（T007）。
 - **诊断细节保留（T014）**：ProtocolError 的确定性 reason（`TransactionIssue` 七值 + 稀疏载荷）逐分支断言；RED 以断言失败实证（tx 11 passed / 9 failed，9 条 issue 缺失断言）→ GREEN（tx 20/20）；**production invariant**（`analyzeFunction03Transaction` 生产输出中 `ProtocolError ⇒ issue.has_value()`）与 per-code 载荷约束以专用测试锁定（TX a13~a18）——下游对人工构造/防御性 `ProtocolError + issue=nullopt` 保持防御（omit detail），测试不写无条件 `iff`。统计口径回归 = STAT-B09（issue 不影响 snapshot；防御性输入如实标注）。分层只断言“继承与展示”、不重判：REPLAY-i05 / SERIAL-a07·a11·a15·a16（同漏斗继承）、DIAG-A11（context 保值）、AI-B18/B19（prompt additive + 防御 omit）、AGENT-A11（DTO hasX）、UI-T01（issueText role）。
 
-- **被动回放扩展（T015）**：新增 `passive` 目标（`tests/test_passive_analysis.cpp`）——Function 0x06 单元解码 ×4 + PASSIVE-P01~P15 端到端（FC03 golden 回归锚 / FC06 Success / echo mismatch 独立 issue / generic Exception FC08 / invalid quantity+Exception 双事实 / 不毒死后续记录 / unsupported 显式事实 / unicast Timeout 不变 / broadcast `ExpectedNoResponse` / broadcast 收到响应 → UnexpectedResponseForBroadcast / addr0 非广播能力 → InvalidBroadcastFunction / CRC 与地址失配遗传 / 混合批统计 / 确定性双跑）。RED 实证 = 13 条断言在旧整批失败链路上真实 FAIL（8 passed/13 failed）→ GREEN。统计公式以 STAT-B10 + P14 锁定（completed 含广播；rate=success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）；Baseline 以 DIAG-A12/A13 锁定（Info 顺序 + broadcast 永不单独 Healthy）；下游以 AI-B20 / AGENT-A12 / UI-T02·T03 锁定；UI-R04 按 Phase A 预声明由“整批 load 失败”替换为 per-record 期望。**Active Serial 安全回归以源码 grep 锚定（无 FC06 encoder / 无 Function16 / 无 write tool）**。Review 前专项 semantic audit（`PASSIVE-P16`）：generic exception matcher 必须满足 `(request.function & 0x80) == 0`——RED=旧逻辑把 request 0x88 / response 0x88 误判为 Exception 0x01（21 passed/1 failed），修复后进入既有 Unsupported 路径；GREEN=passive **22/22**。**Function 0x10 被动语义（T015 Part C）**：requestIssues 有序 collection（ordering≠discard、防 cascade；MULTI-C01/02）、Function16 structural reader + normal response matcher（echo mismatch 复用既有载荷列；BCAST-C01/02 锁定 Expectation/Validity 正交）；RED 12 条断言失败 → GREEN passive **54/54**、ctest 24/24。UI-T04/T05 锁定既有 UI 的 Success+issues 与 Baseline formatter 呈现（presentation gap 审计补锚）。
+- **被动回放扩展（T015）**：新增 `passive` 目标（`tests/test_passive_analysis.cpp`）——Function 0x06 单元解码 ×4 + PASSIVE-P01~P15 端到端（FC03 golden 回归锚 / FC06 Success / echo mismatch 独立 issue / generic Exception FC08 / invalid quantity+Exception 双事实 / 不毒死后续记录 / unsupported 显式事实 / unicast Timeout 不变 / broadcast `ExpectedNoResponse` / broadcast 收到响应 → UnexpectedResponseForBroadcast / addr0 非广播能力 → InvalidBroadcastFunction / CRC 与地址失配遗传 / 混合批统计 / 确定性双跑）。RED 实证 = 13 条断言在旧整批失败链路上真实 FAIL（8 passed/13 failed）→ GREEN。统计公式以 STAT-B10 + P14 锁定（completed 含广播；rate=success/(completed−expectedNoResponse)；分母 0 ⇒ nullopt）；Baseline 以 DIAG-A12/A13 锁定（Info 顺序 + broadcast 永不单独 Healthy）；下游以 AI-B20 / AGENT-A12 / UI-T02·T03 锁定；UI-R04 按 Phase A 预声明由“整批 load 失败”替换为 per-record 期望。**Active Serial 安全回归以源码 grep 锚定（无 FC06 encoder / 无 Function16 / 无 write tool）**【T015 时点历史事实；M10 已引入 FC06/FC16 encoder 与确认式主动写路径——现状见文首 CURRENT STATE 与 docs/02_ARCHITECTURE】。Review 前专项 semantic audit（`PASSIVE-P16`）：generic exception matcher 必须满足 `(request.function & 0x80) == 0`——RED=旧逻辑把 request 0x88 / response 0x88 误判为 Exception 0x01（21 passed/1 failed），修复后进入既有 Unsupported 路径；GREEN=passive **22/22**。**Function 0x10 被动语义（T015 Part C）**：requestIssues 有序 collection（ordering≠discard、防 cascade；MULTI-C01/02）、Function16 structural reader + normal response matcher（echo mismatch 复用既有载荷列；BCAST-C01/02 锁定 Expectation/Validity 正交）；RED 12 条断言失败 → GREEN passive **54/54**、ctest 24/24。UI-T04/T05 锁定既有 UI 的 Success+issues 与 Baseline formatter 呈现（presentation gap 审计补锚）。
 
 ### 三种模式复用性验证（全局护栏）
 

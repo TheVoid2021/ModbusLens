@@ -1,6 +1,8 @@
 # 07 — Final Project Review（项目事实总账）
 
 > 定位：M8 Phase A 事实版复盘。不是 README marketing / 简历 / 背书稿。所有结论来自真实 Git 历史（115 个提交）、14 个任务档案、9 个 Issue 档案与 2 个 ADR；无法证明的事实一律标注。
+>
+> **历史快照声明（POST-M12-CLOSE-R1 追加）**：本文件记录的是 **M8 时点**的项目状态（115 commits、ctest 23/23、"无写能力"等均为当时事实）。其后的 M9–M12（UI 现代化、主动写路径、读数解码、手册智能）与 v2.0.0 发布见 docs/PROJECT_STATUS.md 与 T027 §31–§119；**当前状态权威 = docs/PROJECT_STATUS.md**；发布准备权威 = T028/T031。历史正文按原样保留。
 
 ---
 

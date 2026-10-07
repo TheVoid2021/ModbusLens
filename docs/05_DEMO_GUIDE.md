@@ -8,7 +8,7 @@
 - **30 秒内开始**：`ctest --preset debug-local` 全绿 → 启动 `modbuslens.exe` → 运行演示批次。
 - **一条主线**：流量 → 事务 → 统计 → 诊断 →（可选）解释，三种模式共享同一确定性核心。
 - **先彩排后真机**：任何真实硬件演示之前必须先用 Simulator 完整走一遍。
-- **演示=验收**：关键口径对应 04_TEST_STRATEGY 的自动测试（ctest 23/23）。
+- **演示=验收**：关键口径对应 04_TEST_STRATEGY 的自动测试（v2.0.0 发布时点 70/70，见 PROJECT_STATUS）。
 
 ## 2. 最终 3~5 分钟面试 Demo 主线（10 步）
 
@@ -17,10 +17,10 @@
 3. **Dashboard**：讲解统计口径 —— Observed=4 / Completed=4 / Pending=0；Success=1 / Exception=1 / CRC=1 / Timeout=1 / Protocol=0；Success Rate=**25%**；Avg Success Latency=**25 ms**。
 4. **Run Baseline Diagnosis**：演示**无 Key、无 LLM 时核心诊断仍可用**——"AI is interpreter, not detector" 的现场证明（发现 3 类异常 + 建议检查项，均为确定性输出）。
 5. **Replay demo_v1.mlog**：加载回放文件，展示同一通信证据可重复分析（统计与 Simulator 完全同口径）。
-6. **Serial explanation**：展示串口控制面板（串口枚举 / 波特率 / 起始地址 / 寄存器数量 / 读取保持寄存器），说明真实场景经 USB-RS485 接 Modbus RTU 设备（不要求现场硬件）。
+6. **Serial explanation**：展示串口控制面板（串口枚举 / 波特率 / 起始地址 / 寄存器数量 / 读取保持寄存器；含 M10 写入区 FC06/0x10 与确认对话框），说明真实场景经 USB-RS485 接 Modbus RTU 设备（不要求现场硬件；写操作带确认安全边界，未接设备时写入禁用）。
 7. **Ask AI**（需配置 Key）：deterministic facts → one-shot 自然语言解释。
 8. **Ask Agent**（需配置 Key）：输入"本批次主要有什么异常？"→ question → native tool calling → 只读工具 → final answer（展示真实工具路径）。
-9. **权限边界**：明确 Agent **不能** 改串口设置、写寄存器、重发请求、控制设备（写能力在类型层面不存在）。
+9. **权限边界**：明确 Agent **不能** 改串口设置、写寄存器、重发请求、控制设备（Agent 工具层无写 API；产品的 FC06/0x10 写路径由用户在 Serial 页确认式操作，与 Agent 无关）。
 10. **（可选 20~30s）ISSUE-007 故事**：真实 Live 多步诊断 → tool budget fail closed → RCA → total-call budget 3→6 + planning discipline → 同题真实 re-validation PASS。
 
 **演示纪律**：Audit/Implementation 阶段不得为 Demo 消耗真实 quota；真实 Live 已有一份历史证据可直接引用。
@@ -31,7 +31,7 @@
 
 ## 4. 演示前检查清单（Checklist）
 
-- [ ] `ctest --preset debug-local` 23/23 全绿
+- [ ] `ctest --preset debug-local` 全量全绿（v2.0.0 发布时点 70/70）
 - [ ] clean build 0 警告
 - [ ] `scripts\deploy_windows.bat` 后 minimal-PATH 冒烟 PASS
 - [ ] Simulator golden 批次数字与本文档完全一致（4/4/0 · 1/1/1/1/0 · 25% · 25 ms）

@@ -73,7 +73,7 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 ### D5 Agent 边界（M6）
 
 - Agent 通过 HTTP 与只读 Service 通信；Service 所能触及的数据仅为统计快照与报告。
-- 写操作能力在类型层面不存在（无任何"写"API），从架构上保证 FR-AG-02。
+- **Agent 边界（FR-AG-02，现状不变）**：Agent 工具层不存在任何"写"API/写工具，从类型层面保证 Agent 无法控制设备。注意区分：M10 起**产品**为用户提供了确认式的 Serial 主动写路径（FC06/FC16，见 D7 更新），该路径属于用户操作面，与 Agent 能力无关。
 
 ### D6 诊断细节与归一化状态正交（T014 建立；T015 扩展为七状态）
 
@@ -86,10 +86,10 @@ IFrameSource      — open()/start()/stop()/close() + 帧回调/拉取
 
 ### D7 Active 与 Passive 契约分离（T015 Gate A）
 
-- **Active（Serial/Simulator）**：ModbusLens 自己构造请求 ⇒ T007 的 trusted-request 契约成立且**不改**；Serial 永远只发 FC03 读（写能力在类型/API 层不存在）。
+- **Active（Serial/Simulator）**：ModbusLens 自己构造请求 ⇒ T007 的 trusted-request 契约成立且**不改**。Serial 读取路径 = FC03（T007 语义，现状不变）；**M10 起新增主动写路径（现状）**：FC06/FC16 写请求由 UI 侧 prepare/validate（寄存器地址/数量/值校验 + 写前快照，含原值回显）→ **确认对话框**（用户显式确认后才派发，Confirmation vs Dispatch 边界）→ 经同一 Serial 会话下发；写前提 = Serial 会话已打开（transport/transaction 生命周期分离）。写能力仅存在于该用户确认路径；Agent/工具层仍无写 API（见 D5）。
 - **Passive（Replay）**：分析他人历史流量 ⇒ 新增 Core `PassiveTransactionAnalysis`（`analyzeObservedTransaction`）：按观测请求功能码 dispatch；FC03 有效请求**逐字复用** T007；**generic exception 匹配只写一处**（地址匹配 + fn|0x80 + 单字节 payload，不要求被拒函数的正常语义）；广播 = `address==0 ∧ fc ∈ {0x06, 0x10}`（明确维护的 broadcast-capable 集，Part C 加入 Function 0x10；read 永远不可广播）；无法分析的功能码产出显式 `UnsupportedObservedTransaction`（**不伪装成 TransactionStatus**）。
 - Replay per-record 化（Gate F）：parser 语法失败仍整文件 fail；有效 RTU 请求之后的 semantic-invalid / unsupported 均为 per-record 事实，统计只描述 analyzed 子集且 unsupported 显式披露（UI 非致命提示）。
-- **Passive understanding ≠ Active capability**：理解历史写事务不授予任何写权限（源码 grep 级回归锚）。request-wire corruption（CRC/FrameTooShort）仍属旧失败契约（Gate E Scope A，deferred）。
+- **Passive understanding ≠ Active capability**：理解历史写事务不授予 **Agent** 任何写权限（T015 时点曾以"无 FC06 encoder"源码 grep 为回归锚；M10 引入用户确认的主动写路径后，该锚由 FR-AG-02 的 Agent 工具层约束取代——Agent 仍无写 API）。request-wire corruption（CRC/FrameTooShort）仍属旧失败契约（Gate E Scope A，deferred）。
 
 ## 3. 模式实现策略
 
