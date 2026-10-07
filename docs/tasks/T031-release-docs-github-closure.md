@@ -53,9 +53,44 @@
 
 - v2.0.0 已发布并独立验证；本 docs 提交在发布**之后**：不移动 tag、不重建 v2.0.0、不替换资产、不把 T031 描述为 release commit、不暗示文档编辑改变已发布二进制字节。
 
-## Phase B — README Finalization：**NOT STARTED**
+## Phase B — README Finalization：**COMPLETE**（2026-10-07）
 
-（README 引用 01/02/04 Final 截图、Hero 段落打磨——需单独 Human 授权。）
+- **Phase A = COMPLETE / HUMAN ACCEPTED**（输入基线）。
+- **README 最终信息架构**（16 项收敛为 12 节，就近合并不凑数）：
+  1 标题+一句话定位 → 2 **Hero 截图**（01）→ 3 它解决什么问题 →
+  4 核心亮点 → 5 产品导览（02 事务 + 04 基线诊断）→ 6 架构（Mermaid）
+  → 7 三种运行模式 → 8 **Serial 写安全边界（FC06/FC16）** → 9 技术栈
+  → 10 Quick Start → 11 验证与测试 → 12 演示/文档入口 → 13 已知限制
+  → 14 版本与许可。
+- **采用的截图 = 01-hero-dashboard / 02-transactions /
+  04-diagnosis-baseline**（仅此三张内嵌；04 明确标注"确定性基线诊断，
+  非 AI 生成"）。**03-replay = 仓库内证据，不内嵌**（README 仅一句说明
+  其未纳入展示的原因）；**05-serial 已 DROP**（不引用不存在资产）。
+- **架构图决策 = Mermaid 内嵌**（`flowchart TB`）：呈现三数据源路径 →
+  Zero-Qt 确定性 Core → App/Controller → QML UI；AI Explanation /
+  Read-only Agent 为可选上层（无 LLM 时核心可用）；Agent 无写工具/写
+  API 且与 Serial 用户确认式写路径**显式隔离**；**未使用
+  docs/assets/architecture.png**（无生成源，不伪造替代）。
+- **Agent/写边界措辞**：§4 与 §6 双处显式声明——Agent 工具层无任何写
+  API；写只能经用户显式确认后的 Serial 派发；FR-AG-02 只读边界不变。
+- **Quick Start 来源**：docs/ENVIRONMENT.md（presets debug/release、
+  ctest、运行路径、deploy 脚本）+ 既有 Release 链接（真实 v2.0.0 URL，
+  未发明 URL/版本号）；AI 配置与核心运行明确分离。
+- **测试证据措辞**：CTest **70/70 PASS（2026-10-07 release
+  verification snapshot，exit 0）**，显式标注为快照而非永恒常量；
+  硬件边界 = REAL MODBUS HARDWARE NOT VERIFIED；未重跑 224s 套件。
+- **Known Limitations 结果**：硬件未验证 / 功能码范围收敛 /
+  无 register map / 未实现（TCP、时序、installer、签名）/ AI 需配置且
+  核心不依赖 / Replay 批量重析——全部为当前事实，未列已修复历史 bug。
+- **链接/路径验证**：14 处本地引用 **0 broken**；3 张图片路径全部存在；
+  §16 审计清单（architecture.png / 05-serial / 03-replay 内嵌、23/23、
+  ctest 24、FC03-only、COM_HARNESS、私有路径、凭据、版本错位、
+  post-release≠release commit、AI 强制论）**全部 0 命中**。
+- **文件**：README.md（唯一实质性展示变更）+ 本档案 + PROJECT_STATUS +
+  BACKLOG + devlog。产品/截图资产/architecture.png/CHANGELOG = 未动；
+  LICENSE 未创建。
+- **Phase C = NOT STARTED**；**LICENSE = HUMAN DECISION REQUIRED**。
+- **next Human gate** = README review → T031-C（GitHub 元数据 / LICENSE）。
 
 ## Phase C — GitHub Metadata / Web Operations：**NOT STARTED**
 
