@@ -11566,3 +11566,156 @@ package 与 exact candidate 均保留未删除。
 
 NEXT = HUMAN CANONICAL PACKAGE ACCEPTANCE。STOP——未 tag/push/sign/
 publish，未推进 LKGC，未开始新 milestone。
+
+## 117. POST-M12-REL-R3B — RATIFIED CANONICAL PACKAGING RUN
+（2026-10-07，Human-ratified tooling baseline 下的 canonical package 重生成）
+
+### 117.0 Human ratification 与本会话的先后关系（§9，provenance）
+
+```text
+Human ratification（REL-R3A 审计 = RATIFICATION-READY → Human 批准
+  2170e40f40c6a34a9d1431d41c3c0cf050b70fbe +
+  91ad718b0891b2ebc5bc1e82b991e0c9dd7e4cc8
+  AS THE PACKAGING TOOLING BASELINE）
+  发生在本 canonical packaging invocation 之前。
+```
+
+**invocation history 口径（不混合统计）**：
+
+```text
+REL-R3（历史事实，保留不改写）:
+  2 次 fail-closed attempts（icon-mirror 规则；.a dev 工件规则）
+  + 1 次 successful provisional-artifact-producing invocation
+  （provisional ZIP 9d67607d…1a3a19；当时 tooling 尚未经 ratification）
+REL-R3B（本会话，独立记录）:
+  1 次 invocation，一次成功（无 fail-closed、无重试、无 tooling 改动）
+```
+
+禁止再以 "packager invoked exactly once" 描述整个 release history。
+
+### 117.1 frozen inputs（逐项重算核验，全部一致）
+
+```text
+PRODUCT VERIFIED BASELINE = 9c065f23a7f06beb73beedb680a3fe3b03e4c596
+  （HEAD 祖先；产品路径 9c065f2..HEAD diff = name-status/stat 双 EMPTY）
+PACKAGING TOOLING BASELINE =
+  4643e31e6e475c00c684b029d3de6a383a104e59（HEAD 祖先）
+  2170e40f40c6a34a9d1431d41c3c0cf050b70fbe（HEAD 祖先）
+  91ad718b0891b2ebc5bc1e82b991e0c9dd7e4cc8（HEAD 祖先）
+  且 `git diff 91ad718..HEAD -- scripts` = EMPTY（tooling 自冻结后零改动）
+EXACT CANDIDATE（重算）:
+  candidate-manifest.json SHA-256 =
+    82d5b4f65205f7a484e52a930950f552dc240cfd9bc4aa718f4f0e1eea4ab6b7 ✓
+  modbuslens.exe SHA-256 =
+    518b9485ccedbc17f366038e08ada32c4fe2ff00d35e94543c1dfaf4be523acb ✓
+  manifest 全量 1713 文件逐项 SHA-256 复验 = 0 mismatch ✓
+  → 与冻结值完全一致；candidate byte drift = 无
+```
+
+### 117.2 provisional evidence 保全（§4，先于重打包）
+
+```text
+旧 REL-R3 provisional ZIP（9d67607d…1a3a19 / 35,814,735 B）
+  → 复制保留于 build/_evidence/relr3-provisional/
+    ModbusLens-2.0.0-windows-x64.zip（副本 SHA-256 实测 = 原 ZIP 一致）
+旧 provisional staging 目录（1709 files；manifest dcb39ffe…）
+  → 整目录复制保留于 build/_evidence/relr3-provisional/
+    ModbusLens-2.0.0-windows-x64/
+原字节未修改；随后 canonical packaging 从干净输出目录重建
+  （packager 幂等：staging/ZIP/extract 每轮 FROM SCRATCH）。
+```
+
+### 117.3 canonical packaging invocation（§5，无 tooling 改动）
+
+```text
+command = python scripts/make_package.py --candidate
+  E:/desktop/ModbusLens/build/worktree-lkgc-9c065f2/build/release/candidate/ModbusLens
+环境 = 凭据缺席（env -u MODELSCOPE_API_KEY -u MODBUSLENS_MODELSCOPE_MODEL）
+结果 = 一次成功（RC 0），无 fail-closed、无重试、零 tooling 修改
+  （transcript = build/_evidence/relr3b-package-run.txt）
+过程 = structural checks PASS → credential/absolute-path scans PASS →
+  staging 1708 entries + README → package manifest → ZIP → entry-set
+  校验 → fresh extraction 对账 → extract identity OK vs candidate →
+  minimal-PATH smoke/nav/geometry PASS → external-CWD PASS
+禁止项核验：未运行 windeployqt / deploy_windows.bat；未重新生成
+  candidate；未重新 build product；candidate 只读消费。
+```
+
+### 117.4 package identity + verification（§6/§7）
+
+```text
+CANONICAL PACKAGE DIRECTORY = build\package\ModbusLens-2.0.0-windows-x64
+CANONICAL ZIP = build\package\ModbusLens-2.0.0-windows-x64.zip
+  size = 35,814,735 B
+  SHA-256 = 6db918f35b62b3bb7638b7e0660cb74d9137d22aada1ca512513bd0a2654449d
+  entries = 1709（1708 payload + package-manifest.sha256）
+PACKAGE MANIFEST SHA-256 = dcb39ffe82eda048f6b0e12998ac03ce6dffc38febe9e407f5225cf04de0bd5f
+```
+
+**payload 幂等见证（与 provisional 对比）**：staging manifest SHA-256 与
+旧 provisional 的 manifest **逐字节相同**（`dcb39ffe…` == `dcb39ffe…`）——
+即两次打包的**内容集与内容字节完全一致**，ZIP 字节不同仅系 scripted ZIP
+的元数据/时间戳差异（byte-reproducibility 从未声明，M9-E 冻结口径）。
+
+**verification battery（全部 PASS；build/_evidence/relr3b-verify.json）**：
+
+```text
+package manifest present = YES（1708 payload）
+manifest checksum verification = staging + fresh extraction 双侧
+  1708×2 逐项复验 = 0 mismatch
+set equality A==B==C = 1708（manifest == package dir == fresh ZIP
+  extraction；missing = 0 / unexpected = 0）
+runtime closure = ModbusLens.exe / pdfium.dll / platforms/qwindows.dll /
+  qt.conf / Qt6 闭包 / qml 闭包全部在包
+forbidden content absent = 0 hits（CMakeFiles/.ninja/make_icon/… ）
+developer artifacts absent = 0 hits（.a/.prl/.obj/.qrc）
+synthetic test manuals absent = 0 hits（ModbusLens_Test_Manual_*）
+samples/ content = 恰为 samples/demo_v1.mlog（政策不变）
+credential / machine-path / user-data = 0 hits（独立复扫 extraction）
+icon mirror absent = 0 hits（qml/ModbusLens/assets 不在包）
+exe 身份链 = candidate == staging == fresh-extracted ==
+  518b9485ccedbc17f366038e08ada32c4fe2ff00d35e94543c1dfaf4be523acb
+```
+
+**runtime package gates（§7，仓库既有冻结 gate，经 canonical 程序执行）**：
+minimal-PATH launch/smoke、QML smoke、QML navigation check、QML geometry
+check、external-CWD launch = **全部 PASS**（零 provider 请求、净化 PATH、
+凭据缺席；未为过 gate 修改任何产品/测试）。
+
+### 117.5 candidate immutability（§8）
+
+```text
+packaging 后重算：
+  candidate-manifest.json SHA-256 = 82d5b4f6…（== pre）
+  modbuslens.exe SHA-256 = 518b9485…（== pre）
+  全部 1713 文件 SHA-256 与 manifest 及 pre-snapshot 逐项一致
+CANDIDATE IMMUTABLE = True
+（首次验证脚本中一处比较表达式笔误曾输出 false，随即以正确比较重算并
+  如实记录；正确证据 = manifest SHA 相等 + 文件映射逐项相等 + 磁盘全量
+  复验通过。）
+```
+
+### 117.6 final state（§11）
+
+```text
+POST-M12-REL-R3B = COMPLETE
+CANONICAL PACKAGE = CREATED UNDER HUMAN-RATIFIED TOOLING
+                  = AUTOMATED VERIFIED
+                  = HUMAN PACKAGE ACCEPTANCE PENDING
+PRODUCT VERIFIED BASELINE = 9c065f23a7f06beb73beedb680a3fe3b03e4c596（UNCHANGED）
+VERIFIED LKGC = 9c065f23a7f06beb73beedb680a3fe3b03e4c596（UNCHANGED）
+TAG = v1.0.0 ONLY / UNCHANGED
+PUSH = NONE
+SIGNING = NOT PERFORMED
+PUBLICATION = NOT PERFORMED
+provisional 证据 = 保留于 build/_evidence/relr3-provisional/（历史事实，
+  不得删除）；canonical 现行包 = build\package\ 下 6db918f3… ZIP
+NEXT = HUMAN CANONICAL PACKAGE ACCEPTANCE
+```
+
+### 117.7 action boundary
+
+本节所在提交 = docs only（永不作 LKGC）。本会话零 tooling 改动（scripts
+自 `91ad718…` 起冻结，`git diff 91ad718..HEAD -- scripts` = EMPTY）；零
+产品改动；未重新生成 candidate；未重新 build product；未
+tag/push/sign/publish；未推进 LKGC；未开始新 milestone。
