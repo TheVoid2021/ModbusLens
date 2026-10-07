@@ -69,7 +69,7 @@ FORBIDDEN_PATTERNS = [
     "t015_unsupported_fc08.mlog",
 ]
 FORBIDDEN_SUFFIXES = [".o", ".obj", ".a", ".lib", ".pdb", ".cpp", ".h.in",
-                      ".rc.in", ".py"]
+                      ".rc.in", ".py", ".prl", ".qrc"]
 SECRET_NAMES = [".env", "credentials", "secrets", "token"]
 SECRET_PATTERNS = [b"OPENAI_API_KEY", b"ANTHROPIC_API_KEY", b"API_KEY=",
                    b"BEGIN PRIVATE KEY", b"Bearer "]
@@ -438,6 +438,13 @@ CANDIDATE_EXCLUDED_FROM_PACKAGE = ["candidate-manifest.json"]
 # keeps the mirror under qml/ModbusLens/assets, so the candidate path
 # excludes it explicitly and the structural gate re-checks it.)
 CANDIDATE_EXCLUDED_PREFIXES = ["qml/ModbusLens/assets/"]
+# Developer/build artifacts that the Qt kit's QML module tree carries but
+# that have never been runtime content (import libraries, qmake metadata,
+# compiled objects, resource-list sources). The suffix list is the canonical
+# FORBIDDEN_SUFFIXES plus the qmake-only kinds observed in the Qt kit's
+# shipped qml/ closure; the candidate staging skips them explicitly and the
+# structural gate re-checks that none remain.
+CANDIDATE_EXCLUDED_SUFFIXES = FORBIDDEN_SUFFIXES
 # R2: the release runtime set that the candidate contract guarantees. The
 # full content set comes from the candidate manifest itself; this list is
 # the fail-closed floor (missing any of it stops packaging).
@@ -557,6 +564,8 @@ def stage_candidate_package(candidate_root, manifest, version, staging):
             continue
         if any(rel.startswith(prefix)
                for prefix in CANDIDATE_EXCLUDED_PREFIXES):
+            continue
+        if os.path.splitext(rel)[1].lower() in CANDIDATE_EXCLUDED_SUFFIXES:
             continue
         src = os.path.join(candidate_root, *rel.split("/"))
         dst_rel = "ModbusLens.exe" if rel == "modbuslens.exe" else rel

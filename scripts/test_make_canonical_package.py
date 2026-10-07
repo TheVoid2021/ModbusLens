@@ -109,6 +109,13 @@ def canonical_files():
         "qml/ModbusLens/qmldir": b"module ModbusLens\n",
         "qml/ModbusLens/assets/brand/windows/ModbusLens.ico":
             b"FAKE-ICO-MIRROR",
+        "qml/Qt/labs/assetdownloader/libqmlassetdownloaderprivateplugin.a":
+            b"FAKE-IMPORT-LIB",
+        "qml/Qt/labs/assetdownloader/qmlassetdownloaderprivateplugin.prl":
+            b"FAKE-PRL",
+        "qml/Qt/labs/assetdownloader/objects-RelWithDebInfo/init.cpp.obj":
+            b"FAKE-OBJ",
+        "qml/ModbusLens/modbuslens_qml_module_dir_map.qrc": b"FAKE-QRC",
         "qml/Qt/qmldir": b"module Qt\n",
         "qml/QtQml/qmldir": b"module QtQml\n",
         "qml/QtQuick/qmldir": b"module QtQuick\n",
@@ -208,6 +215,9 @@ def main():
                 continue
             if entry["path"].startswith("qml/ModbusLens/assets/"):
                 continue
+            if os.path.splitext(entry["path"])[1].lower() in (
+                    ".a", ".prl", ".obj", ".qrc"):
+                continue
             rel = "ModbusLens.exe" if entry["path"] == "modbuslens.exe" \
                 else entry["path"]
             expected.add(result["stem"] + "/" + rel)
@@ -223,6 +233,12 @@ def main():
               and not os.path.exists(os.path.join(staging, "qml",
                                                   "ModbusLens",
                                                   "assets")))
+        check("PKG-26 developer artifacts (.a/.prl/.obj/.qrc) excluded",
+              not any(name.lower().endswith((".a", ".prl", ".obj", ".qrc"))
+                      for name in _zip_entries(result["zip_path"]))
+              and not os.path.exists(os.path.join(
+                  staging, "qml", "Qt", "labs", "assetdownloader",
+                  "libqmlassetdownloaderprivateplugin.a")))
 
         # ---- PKG-03/23: no windeployqt / deploy_windows.bat path --------
         sources = "".join(inspect.getsource(function) for function in
