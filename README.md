@@ -176,4 +176,5 @@ scripts/  部署与打包工具（deploy_windows.bat · make_package.py 等）
 ## 12. 版本与许可
 
 - **当前公开版本：v2.0.0**（2026-10-07）——便携包 `ModbusLens-2.0.0-windows-x64.zip`（35,814,735 字节，SHA-256 `6db918f3…1a3a19`），已通过自动化验证与人工验收；详见 [CHANGELOG.md](CHANGELOG.md) 与 [Release 页](https://github.com/TheVoid2021/ModbusLens/releases/tag/v2.0.0)。
-- **许可：尚未选择**——仓库目前未包含 LICENSE 文件；许可证由所有者后续决策（在此之前请勿假定任何开源许可）。发布包为未签名 portable ZIP。
+- **许可：MIT License**——本仓库源代码以 [MIT License](LICENSE) 授权（`Copyright (c) 2026 TheVoid2021`）。
+- **发布溯源说明**：LICENSE 文件是在 v2.0.0 发布**之后**加入仓库根目录的（发布后仓库元数据完善，T031-C）；已发布的 v2.0.0 二进制归档（ZIP）**不包含**该 LICENSE 文件、未被重建，其字节与 SHA-256 与验收时完全一致。发布包为未签名 portable ZIP。

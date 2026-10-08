@@ -88,13 +88,54 @@
   post-release≠release commit、AI 强制论）**全部 0 命中**。
 - **文件**：README.md（唯一实质性展示变更）+ 本档案 + PROJECT_STATUS +
   BACKLOG + devlog。产品/截图资产/architecture.png/CHANGELOG = 未动；
-  LICENSE 未创建。
+  LICENSE 未创建（**Phase B 时点事实；Phase C 已创建根 LICENSE = MIT，见下**）。
 - **Phase C = NOT STARTED**；**LICENSE = HUMAN DECISION REQUIRED**。
 - **next Human gate** = README review → T031-C（GitHub 元数据 / LICENSE）。
 
-## Phase C — GitHub Metadata / Web Operations：**NOT STARTED**
+## Phase C — LICENSE + GitHub Metadata Closure：**COMPLETE LOCALLY**（2026-10-07）
 
-（LICENSE 决策、description/topics/social preview、CHANGELOG 发布联动、demo GIF——需单独 Human 授权；gh 不可用时为 Human 网页操作。）
+### C.1 Human license decision（authoritative）
+
+- **LICENSE = MIT**（项目所有者明确决定；不得替换为他类许可）。
+- **Copyright line = `Copyright (c) 2026 TheVoid2021`**（仓库无更权威所有权声明，采用该行）。
+
+### C.2 法律工件审计（先行）
+
+- 仓库内 **不存在** LICENSE/COPYING/NOTICE/COPYRIGHT 工件（工作树与索引双查）。
+- 文本检索："license/licence/MIT/尚未选择/HUMAN HOLD/no license/许可证" 命中的**均为历史时点档案**（M9-E "LICENSE = missing / 不发明（法律决策独立）" 等——当时事实，按只增不改原则保留；AI 未替所有者签约的原则被遵守，最终由所有者决策）。
+- **无矛盾性授权声明**（无任何既有 "licensed under / Apache / GPL" 授予文本）。
+
+### C.3 成果
+
+- **根 `LICENSE` 创建**：canonical MIT 全文（未改条款/未加保证/未发明主体），Copyright line 逐字 = `Copyright (c) 2026 TheVoid2021`。成为仓库权威许可工件。
+- **README §12 同步**（+2/−1，仅此一处，未重构已验收 README）："许可：MIT License" + `[MIT License](LICENSE)` 链接 + **发布溯源说明**（LICENSE 于 v2.0.0 发布**之后**加入；已发布 ZIP **不包含**该文件、未被重建——证据：发布于 provisional 两份 package manifest 中 LICENSE 条目数均为 **0**）。
+- **CHANGELOG 处理（fallback 规则）**：CHANGELOG 当前**无** Unreleased/发布后区块 → 按 packet §5 fallback **不为此任务改造 CHANGELOG**；T031-C 记录于本档案与 devlog；v2.0.0 历史条目未动、未被暗示包含 MIT。
+- **打包真相审计**：全部文档中**无** "LICENSE is packaged in v2.0.0" 类陈述（已检索）；备忘：**未来**发布包应包含权威 LICENSE 文件（本任务不改打包实现）。
+- **GitHub 元数据（PREPARE ONLY，未执行远端变更）**——以下为 Human 网页录入文本：
+
+```text
+Repository Description:
+Modbus RTU communication analysis and diagnostic desktop app built with
+C++20, Qt 6 and CMake, featuring deterministic diagnostics,
+Simulator/Replay/Serial modes, and optional AI explanation.
+
+Topics（15）:
+cpp / cpp20 / qt / qt6 / cmake / modbus / modbus-rtu / serial-port /
+industrial-automation / protocol-analyzer / diagnostics / simulator /
+replay / llm / ai-agent
+
+Homepage: NONE（不发明项目网站）
+
+Social Preview: 使用既有已验收资产 docs/assets/screenshots/01-hero-dashboard.png
+（不创建新图、不修改该截图）
+```
+
+### C.4 状态
+
+- **T031-A = COMPLETE / HUMAN ACCEPTED；T031-B = COMPLETE / HUMAN ACCEPTED；T031-C = COMPLETE LOCALLY**。
+- 剩余 = **HUMAN ACTION REQUIRED**：GitHub 网页端应用上述 description/topics/social preview + （可选）推送本地 commit（**本任务未 push**）。
+- 未做远端任何变更（无 push / 无 GitHub 设置 / 无 Release 改动 / 无 tag 改动）。
+- 可选延迟项（未做，非完成条件）：demo GIF、community files、Actions、website。
 
 ## Files changed（Phase A）
 
