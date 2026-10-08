@@ -181,7 +181,8 @@ git diff --check                              → PASS
   > 回填说明：Phase A 当时的档案文字指向"PROJECT_STATUS 追加批注登记的哈希"，但受"仅一个 docs-only 提交 +
   > 禁止 amend"约束，该哈希当时**未写入任何文档**。本 Phase A1（明确为 backfill/correction 提交）闭合该缺口，
   > **未 amend `5f77870`**。`[V-563]`
-- **Phase A1 提交**：见文末 §Phase A1 → `Git Commit（A1）`。
+- **Phase A1 提交（已回填）**：`8c57e10c38e31b04270649927c89c96cc72525c3`
+  （详见文末 §Phase A1 → `Git Commit（A1）`）。
 - NO AMEND / NO PUSH / NO TAG / NO RELEASE；**未推进 verified LKGC**（docs-only 提交永不作 LKGC）。
 
 ## Next gate（Phase A 时点，已被 A1 取代 —— 保留原文）
@@ -327,5 +328,102 @@ NEXT                                   = HUMAN REVIEW OF T032-A1 → 之后才�
 
 ## Git Commit（A1）
 
-- 本轮提交见 `docs/PROJECT_STATUS.md` 顶部 T032-A1 追加批注与 `docs/BACKLOG.md` 时间线行登记的真实哈希。
-- NO AMEND（未 amend `5f77870`）/ NO PUSH / NO TAG / NO RELEASE；**未推进 verified LKGC**。
+- **Phase A1 提交（已回填，2026-10-08 Phase B 轮内完成）**：
+  ```text
+  8c57e10c38e31b04270649927c89c96cc72525c3
+  T032 A1: apply human fact review corrections
+  docs-only，8 files changed, 406 insertions(+), 53 deletions(-)
+  父提交 = 5f77870ff4aed9961bd532bde8e20f38801fed5a（T032 A）
+  ```
+  > 回填说明：A1 当时的档案文字指向 PROJECT_STATUS/BACKLOG 登记的哈希，但受"仅一个新提交 +
+  > 禁止 amend"约束，该哈希当时**未写入任何文档**。Phase B 轮按任务 §1 的追溯规则，
+  > **在更新 canonical T032 状态文档的同时**顺带回填本哈希——**未为此另开 A2 提交**。`[V-572]`
+- NO AMEND（未 amend `5f77870`，也未 amend `8c57e10`）/ NO PUSH / NO TAG / NO RELEASE；**未推进 verified LKGC**。
+
+---
+
+# Phase B — Evidence-Grounded Interview Narrative & Knowledge Ownership（2026-10-08，docs-only）
+
+> **输入**：Phase A = COMPLETE / HUMAN ACCEPTED；A1 = HUMAN ACCEPTED；Fact Pack = HUMAN ACCEPTED。
+> **输出**：四份 Phase B 材料 + 状态收口。**Phase C 未开始。**
+
+## B.0 Scope 与硬边界
+
+- **性质**：docs-only。构建**准确叙事 + 简历表述 + 知识所有权地基**。
+- **交付**：`docs/interview/07_PROJECT_INTRO_2MIN.md`、`08_TECHNICAL_DEEP_DIVE_5MIN.md`、
+  `09_RESUME_PROJECT_ENTRY.md`、`10_KNOWLEDGE_OWNERSHIP_MAP.md`。**未覆盖 Phase A Fact Pack。**`[V-573]`
+- **明确不做（属 Phase C，须经 Human review 后授权）**：大型问答题库、模拟面试记录、
+  压力题演练、背诵卡、100 题清单、HR 问答库。`[V-574]`
+- **未修改**：`src/**`、`tests/**`、`cmake/**`、`scripts/**`、`samples/**`、生产 QML、`CMakeLists.txt`、
+  `docs/assets/**`、已验收截图、release 资产、tag、远端状态；未 build / 未 repackage。
+
+## B.1 事实使用纪律（本轮执行）
+
+- **唯一事实来源** = 已验收 Fact Pack（`00`–`06`）；**不从记忆重建、不美化历史、不补造实现细节**。`[V-575]`
+- **VERIFIED** → 可作为正向主张；**历史快照** → 只能作为历史状态引用；
+  **UNVERIFIED** → **不得**成为正向简历/面试主张；**已裁定的冲突** → 用 Human review 后的当前口径，
+  必要时保留历史语境。`[V-576]`
+- **标记不漂移**：Phase B 四份文档只**引用** Fact Pack 既有标记，**不新增** `[V-]` 标记——
+  以保持已验收计数 **563 / 5 / 11** 继续有效。执行中曾误引 `[V-566]`（该标记原只存在于任务档案，
+  不在 `docs/interview/` 计数范围内），已改为引用 pack 内的等价标记 `[V-558]`，
+  复算后计数**仍为 563 / 5 / 11**。`[V-577]`
+
+## B.2 四份材料的结构与本轮自我检查
+
+**`07_PROJECT_INTRO_2MIN.md`** — A 口述版（约 480–540 字，**从问题起步，不从技术栈起步**）+
+B 逐条证据注解（19 条）+ B.1「刻意不出现的内容及原因」（8 项）+ B.2「被追问时指向何处」。
+自检：口述全文**未出现** Modbus TCP / installer / 代码签名 / OCR / 当前远端状态 / Agent 写权限；
+数字只用现状真值；限制被**主动说出**而非等待追问。`[V-578]`
+
+**`08_TECHNICAL_DEEP_DIVE_5MIN.md`** — 带时间分配的 5 分钟口述骨架 + 七段详细版本
+（数据路径 → 确定性边界 → 事务两轴 → Qt 边界 → 两条权限边界 → 验证体系 → 三个 RCA）+
+Evidence Notes。**三条 RCA（ISSUE-002 / ISSUE-004 / ISSUE-005）严格按档案复述**
+symptom → 定位 → 根因 → 修复 → 验证，含各自的"证据边界"（如 ISSUE-005 的"精确 elapsedMs 未实测"）。`[V-579]`
+
+**`09_RESUME_PROJECT_ENTRY.md`** — 一句话定位 + **3 条 bullet + 可选第 4 条**（第 4 条维度不同：
+验证与发布工程，且在注解中说明"是否采用取决于版面"）+ 实际使用的技术关键词 +
+**禁止表述清单（12 项，逐项给出可写替代）** + 口径注解。`[V-580]`
+
+**`10_KNOWLEDGE_OWNERSHIP_MAP.md`** — 三档所有权（A: 24 个 MUST 主题，逐条 9 字段；
+B: 14 个 SHOULD 主题；C: 16 项 ROADMAP/DO NOT CLAIM）+ 白板复现清单（12 项）+
+**最容易讲错的 10 条自校准清单**。`[V-581]`
+
+## B.3 三条 A1 守卫在本轮的落实
+
+| 守卫 | 落实方式 | 证据 |
+| --- | --- | --- |
+| **C-03**（设备档案能力口径） | 四份文档一律表述为"**语义层只覆盖读数呈现、不进入诊断判定**"，并明写**诊断引擎不消费设备档案**（源码实测 0 命中）；`10` K-20 专设一条 MUST 主题 | `[C-03]` `[V-558]` |
+| **C-05**（数字口径） | 只用现状真值 **70 / 3 / 30**；`09` 把"24 个测试目标"列入**禁止表述**；`08`/`10` 引用历史值时**就地注明是快照** | `[C-05]` `[V-559]` `[V-560]` |
+| **远端/发布** | 一律表述为"仓库留档的 VERIFIED 事实"；**当前远端状态**在 `09` 的禁止表述清单中明确禁止；`07` 注解第 15 条写明不得升级为"我刚确认过线上" | `[V-562]` `[U-10]` |
+| **`[U-11]`** | `07` B.1 明确"不得作为正向或负向口径使用"；`10` C-15 列入 DO NOT CLAIM | `[U-11]` |
+
+## B.4 与 Fact Pack 的关系
+
+- **未修改** `00`–`06`（Phase B 只新增 `07`–`10`）。`[V-582]`
+- **一处已知待整理项（如实登记）**：`05_CAPABILITIES_AND_LIMITATIONS.md` §1 第 10 行仍写
+  "**与 `README.md` §11 冲突，见 `[C-03]`**"——该冲突**已由 A1 修正**（C-03 已 RESOLVED IN A1），
+  因此该单元格的措辞已过时。本轮**未编辑**（Phase B 不得改写已验收 Fact Pack）；
+  已正确口径由 `05` §8 的 C-03 处置轨迹承载。**属待 Human 授权的小幅一致性修整**
+  （本轮**不**新增 Fact Pack 级 UNVERIFIED 编号；该项登记于本任务档案）。`[V-583]`
+
+## Phase B 状态收口
+
+```text
+T032                       = IN PROGRESS
+Phase A                    = COMPLETE / HUMAN ACCEPTED
+A1                         = COMPLETE / HUMAN ACCEPTED
+Phase B                    = COMPLETE / PENDING HUMAN REVIEW
+Phase C                    = NOT STARTED
+PRODUCT CODE               = FROZEN / UNCHANGED
+UI                         = FROZEN / UNCHANGED（UI FREEZE = ACTIVE）
+TAG / RELEASE              = UNCHANGED（v2.0.0 资产未动）
+PUSH                       = NONE
+verified LKGC              = 未推进（docs-only 提交永不作 LKGC）
+Fact Pack 计数              = 563 / 5 / 11（Phase B 未改变）
+NEXT                       = HUMAN REVIEW OF T032-B → 之后才谈 Phase C
+```
+
+## Git Commit（B）
+
+- 本轮提交哈希见最终报告；**本阶段不预测、不预写自身 SHA**（任务 §1 追溯规则）。
+- NO AMEND / NO PUSH / NO TAG / NO RELEASE；**未推进 verified LKGC**。
