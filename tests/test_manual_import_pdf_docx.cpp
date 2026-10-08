@@ -837,6 +837,51 @@ private slots:
         QVERIFY(!root.contains(QStringLiteral("presentationHeader")));
     }
 
+    // T033 regression: PDF canonical-text seam. The PDF cache truth is the
+    // per-page .json sibling; ManualStore::loadText must return the
+    // deterministic aggregation of that per-page truth (pages in page order,
+    // joined by a single "\n", NO presentation headers) so the downstream
+    // candidate-extraction / Q&A precondition can pass for a text-layer PDF.
+    void i31_pdfCanonicalTextAggregation()
+    {
+        const QString path = pathFor("i31.pdf");
+        QVERIFY(writeBytes(path, multiPagePdf(QString::fromUtf8("第1页 变频器 PV 地址"),
+                                              QStringLiteral("Page2 ASCII 1000"))));
+        const ManualImportResult result =
+            ManualStore::importSourceFile(path, QStringLiteral("i31.pdf"));
+        QVERIFY(result.ok());
+        QCOMPARE(result.document.documentType, ManualDocumentType::Pdf);
+        QCOMPARE(result.document.extractionStateToken, std::string("extracted"));
+        bool ok = false;
+        const QString text = ManualStore::loadText(
+            QString::fromStdString(result.document.contentHash), &ok);
+        QVERIFY(ok);
+        // Exact deterministic aggregation: page order, single "\n" separator,
+        // no page headers, no invented text.
+        QCOMPARE(text, QString::fromUtf8("第1页 变频器 PV 地址")
+                           + QStringLiteral("\n") + QStringLiteral("Page2 ASCII 1000"));
+    }
+
+    // T033: a no-extractable-text PDF must stay fail-closed at the canonical
+    // seam: the cache truthfully contains NO text. The aggregation yields the
+    // empty string (never fake text); callers own the accurate no-text
+    // classification.
+    void i32_pdfNoTextCanonicalTextIsExplicitlyEmpty()
+    {
+        const QString path = pathFor("i32.pdf");
+        QVERIFY(writeBytes(path, noTextPdf()));
+        const ManualImportResult result =
+            ManualStore::importSourceFile(path, QStringLiteral("i32.pdf"));
+        QVERIFY(result.ok());
+        QCOMPARE(result.document.extractionStateToken,
+                 std::string("no_extractable_text"));
+        bool ok = false;
+        const QString text = ManualStore::loadText(
+            QString::fromStdString(result.document.contentHash), &ok);
+        QVERIFY(ok);
+        QVERIFY(text.isEmpty());
+    }
+
 private:
     QTemporaryDir m_root;
 };

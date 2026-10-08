@@ -557,17 +557,53 @@ QString ManualStore::loadText(const QString &contentHash, bool *ok)
     if (contentHash.isEmpty()) {
         return {};
     }
+    // TXT / Markdown / DOCX cache truth: the UTF-8 .txt artifact (C1a path,
+    // byte-for-byte unchanged).
     QFile file(QDir(textDirectory())
                    .filePath(contentHash + QStringLiteral(".txt")));
-    if (!file.open(QIODevice::ReadOnly)) {
+    if (file.open(QIODevice::ReadOnly)) {
+        const QByteArray bytes = file.readAll();
+        file.close();
+        if (ok) {
+            *ok = true;
+        }
+        return QString::fromUtf8(bytes);
+    }
+    // T033: PDF cache truth is the per-page .json sibling (T027 §60.4). The
+    // canonical extracted text of a PDF is the DETERMINISTIC aggregation of
+    // that per-page truth: pages in page order, joined by a single "\n", with
+    // NO presentation headers (the "第 N 页" headers are display-only and stay
+    // in buildPdfPreview). Without this aggregation the canonical seam could
+    // never resolve a PDF, so every downstream consumer (AI candidate
+    // extraction, Manual Q&A, evidence revalidation) failed with
+    // no_canonical_text even though the import and the preview had real text.
+    QFile pdfCache(QDir(textDirectory())
+                       .filePath(contentHash + QStringLiteral(".json")));
+    if (!pdfCache.open(QIODevice::ReadOnly)) {
         return {};
     }
-    const QByteArray bytes = file.readAll();
-    file.close();
+    const QJsonDocument json = QJsonDocument::fromJson(pdfCache.readAll());
+    pdfCache.close();
+    if (!json.isObject()) {
+        return {};
+    }
+    const QJsonArray pages =
+        json.object().value(QStringLiteral("pages")).toArray();
+    QString canonical;
+    for (const QJsonValue &value : pages) {
+        if (!canonical.isEmpty()) {
+            canonical += QLatin1Char('\n');
+        }
+        canonical += value.toString();
+    }
+    // The artifact resolved, so the EMPTY aggregation of a
+    // no_extractable_text PDF is a truthful "no text" — ok=true with an empty
+    // string. Callers own the fail-closed no-text classification; the store
+    // never invents text.
     if (ok) {
         *ok = true;
     }
-    return QString::fromUtf8(bytes);
+    return canonical;
 }
 
 QStringList ManualStore::loadPdfPages(const QString &contentHash, bool *ok)

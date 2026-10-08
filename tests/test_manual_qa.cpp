@@ -5,6 +5,8 @@
 
 #include <vector>
 
+#include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -35,6 +37,62 @@ constexpr auto kSeedText =
     "Model: QA-1000\n"
     " Rated input voltage: 380 V AC three-phase.\n"
     " Warranty: 24 months from purchase.\n";
+
+// T033 fixtures: minimal offline PDFs (same technique as the frozen
+// test_manual_import_pdf_docx fixtures — deterministic, licence-free).
+[[nodiscard]] QByteArray qaBuildPdf(const QList<QByteArray> &objects)
+{
+    QByteArray out = "%PDF-1.4\n";
+    QList<int> offsets;
+    for (int index = 0; index < objects.size(); ++index) {
+        offsets.append(out.size());
+        out += QByteArray::number(index + 1) + " 0 obj\n" + objects.at(index)
+               + "\nendobj\n";
+    }
+    const int xrefAt = out.size();
+    out += "xref\n0 " + QByteArray::number(objects.size() + 1)
+           + "\n0000000000 65535 f \n";
+    for (int offset : offsets) {
+        out += QByteArray::number(offset).rightJustified(10, '0') + " 00000 n \n";
+    }
+    out += "trailer\n<< /Size " + QByteArray::number(objects.size() + 1)
+           + " /Root 1 0 R >>\nstartxref\n" + QByteArray::number(xrefAt)
+           + "\n%%EOF\n";
+    return out;
+}
+
+[[nodiscard]] QByteArray qaStreamObject(const QByteArray &stream)
+{
+    return "<< /Length " + QByteArray::number(stream.size()) + " >>\nstream\n"
+           + stream + "\nendstream";
+}
+
+[[nodiscard]] QByteArray qaTextLayerPdf(const QString &text)
+{
+    const QByteArray stream =
+        "BT /F1 18 Tf 72 700 Td (" + text.toUtf8() + ") Tj ET";
+    const QList<QByteArray> objects = {
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        "/Resources << /Font << /F1 5 0 R >> >> >>",
+        qaStreamObject(stream),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    };
+    return qaBuildPdf(objects);
+}
+
+[[nodiscard]] QByteArray qaNoTextPdf()
+{
+    const QByteArray stream = "0.9 0.9 0.9 rg 72 600 200 80 re f";
+    const QList<QByteArray> objects = {
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
+        qaStreamObject(stream),
+    };
+    return qaBuildPdf(objects);
+}
 
 // Deterministic fake runner: programmable outcome, deferrable completion,
 // generation capture. Zero network by construction (QA-35).
@@ -313,6 +371,8 @@ private slots:
     void qa38_parseFailureCategoriesAreSafeAndDeterministic();
     void qa40_appResolvedCitationIds();
     void qa41_providerAuthoredOffsetsReproduceLiveFailureClass();
+    void qa42_textLayerPdfDispatchesThroughCanonicalSeam();
+    void qa43_noTextPdfFailsClosedLocally();
 
     // Parser / validator semantics
     void parser_validStates();
@@ -1224,6 +1284,66 @@ void ManualQaTest::qa41_providerAuthoredOffsetsReproduceLiveFailureClass()
     QCOMPARE(qa_->resultStatusToken(), QStringLiteral("error"));
     QCOMPARE(qa_->lastErrorToken(),
              QStringLiteral("qa_citation_round_trip_failed"));
+}
+
+// T033 regression: a text-layer PDF must dispatch Q&A through the canonical
+// seam (ManualStore::loadText now aggregates the per-page PDF cache truth).
+// Pre-fix this failed locally with qa_no_canonical_text.
+void ManualQaTest::qa42_textLayerPdfDispatchesThroughCanonicalSeam()
+{
+    const QString source =
+        QDir(managedRoot_.path()).filePath("sources/qa-manual.pdf");
+    QFile pdf(source);
+    QVERIFY(pdf.open(QIODevice::WriteOnly));
+    const QByteArray pdfBytes = qaTextLayerPdf(
+        QStringLiteral("Manufacturer: ACME Power Systems Ltd."));
+    QCOMPARE(pdf.write(pdfBytes), static_cast<qint64>(pdfBytes.size()));
+    pdf.close();
+
+    manual_ = new ManualImportController();
+    bool imported = false;
+    QMetaObject::invokeMethod(manual_, "importManualFile", Qt::DirectConnection,
+                              Q_RETURN_ARG(bool, imported),
+                              Q_ARG(QUrl, QUrl::fromLocalFile(source)));
+    QVERIFY(imported);
+    qa_ = new ManualQaController();
+    fake_ = new FakeManualQaRunner();
+    fake_->configure(FakeManualQaRunner::Mode::Deferred, ManualQaParsedResult{});
+    qa_->setRunnerForAutomation(fake_);
+    qa_->setManualController(manual_);
+    qa_->grantConsent();
+    qa_->ask("Who is the manufacturer?");
+    QCOMPARE(fake_->beginCount(), 1);
+}
+
+// T033: a no_extractable_text PDF resolves the cache with a TRUTHFUL empty
+// aggregation — Q&A must still fail closed locally, never dispatch an empty
+// context.
+void ManualQaTest::qa43_noTextPdfFailsClosedLocally()
+{
+    const QString source =
+        QDir(managedRoot_.path()).filePath("sources/qa-scanned.pdf");
+    QFile pdf(source);
+    QVERIFY(pdf.open(QIODevice::WriteOnly));
+    const QByteArray pdfBytes = qaNoTextPdf();
+    QCOMPARE(pdf.write(pdfBytes), static_cast<qint64>(pdfBytes.size()));
+    pdf.close();
+
+    manual_ = new ManualImportController();
+    bool imported = false;
+    QMetaObject::invokeMethod(manual_, "importManualFile", Qt::DirectConnection,
+                              Q_RETURN_ARG(bool, imported),
+                              Q_ARG(QUrl, QUrl::fromLocalFile(source)));
+    QVERIFY(imported);
+    qa_ = new ManualQaController();
+    fake_ = new FakeManualQaRunner();
+    qa_->setRunnerForAutomation(fake_);
+    qa_->setManualController(manual_);
+    qa_->grantConsent();
+    qa_->ask("What is the warranty period?");
+    QCOMPARE(qa_->stateToken(), QStringLiteral("failed"));
+    QCOMPARE(qa_->lastErrorToken(), QStringLiteral("qa_no_canonical_text"));
+    QCOMPARE(fake_->beginCount(), 0);
 }
 
 void ManualQaTest::parser_validStates()

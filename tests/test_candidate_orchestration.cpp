@@ -11,11 +11,13 @@
 
 #include <QDir>
 #include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QMetaMethod>
 #include <QSignalSpy>
 #include <QStringList>
 #include <QTemporaryDir>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -29,6 +31,8 @@
 #include "core/profile/DeviceProfile.h"
 #include "ui/candidate/CandidateExtractionController.h"
 #include "ui/candidate/CandidateExtractionRunner.h"
+#include "ui/manual/ManualImportController.h"
+#include "ui/manual/ManualStore.h"
 #include "ui/profile/ProfileStore.h"
 
 using modbuslens::core::CandidateProposal;
@@ -38,6 +42,8 @@ using modbuslens::core::ProfileFieldTarget;
 using modbuslens::core::ProviderExtractionFailure;
 using modbuslens::ui::CandidateExtractionController;
 using modbuslens::ui::ICandidateExtractionRunner;
+using modbuslens::ui::ManualImportController;
+using modbuslens::ui::ManualStore;
 using modbuslens::ui::ProfileStore;
 
 namespace {
@@ -158,6 +164,76 @@ QStringList snapshotTree(const QString &root)
     }
     entries.sort();
     return entries;
+}
+
+// ------------------------------------------------ T033 PDF fixtures (offline,
+// deterministic, licence-free — same minimal-PDF technique as the frozen
+// test_manual_import_pdf_docx fixtures) --------------------------------------
+[[nodiscard]] QByteArray orchestrationBuildPdf(
+    const QList<QByteArray> &objects)
+{
+    QByteArray out = "%PDF-1.4\n";
+    QList<int> offsets;
+    for (int index = 0; index < objects.size(); ++index) {
+        offsets.append(out.size());
+        out += QByteArray::number(index + 1) + " 0 obj\n" + objects.at(index)
+               + "\nendobj\n";
+    }
+    const int xrefAt = out.size();
+    out += "xref\n0 " + QByteArray::number(objects.size() + 1)
+           + "\n0000000000 65535 f \n";
+    for (int offset : offsets) {
+        out += QByteArray::number(offset).rightJustified(10, '0') + " 00000 n \n";
+    }
+    out += "trailer\n<< /Size " + QByteArray::number(objects.size() + 1)
+           + " /Root 1 0 R >>\nstartxref\n" + QByteArray::number(xrefAt)
+           + "\n%%EOF\n";
+    return out;
+}
+
+[[nodiscard]] QByteArray orchestrationStreamObject(const QByteArray &stream)
+{
+    return "<< /Length " + QByteArray::number(stream.size()) + " >>\nstream\n"
+           + stream + "\nendstream";
+}
+
+[[nodiscard]] QByteArray orchestrationTextLayerPdf(const QString &text)
+{
+    const QByteArray stream =
+        "BT /F1 18 Tf 72 700 Td (" + text.toUtf8() + ") Tj ET";
+    const QList<QByteArray> objects = {
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        "/Resources << /Font << /F1 5 0 R >> >> >>",
+        orchestrationStreamObject(stream),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    };
+    return orchestrationBuildPdf(objects);
+}
+
+[[nodiscard]] QByteArray orchestrationNoTextPdf()
+{
+    const QByteArray stream = "0.9 0.9 0.9 rg 72 600 200 80 re f";
+    const QList<QByteArray> objects = {
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
+        orchestrationStreamObject(stream),
+    };
+    return orchestrationBuildPdf(objects);
+}
+
+// Import a source file through the REAL controller path (import + auto-select),
+// with the managed root pointed at a temporary directory.
+[[nodiscard]] bool orchestrationImport(ManualImportController &manual,
+                                       const QString &sourcePath)
+{
+    bool imported = false;
+    QMetaObject::invokeMethod(&manual, "importManualFile", Qt::DirectConnection,
+                              Q_RETURN_ARG(bool, imported),
+                              Q_ARG(QUrl, QUrl::fromLocalFile(sourcePath)));
+    return imported;
 }
 
 [[nodiscard]] QString stateOf(const CandidateExtractionController &controller)
@@ -695,6 +771,110 @@ private slots:
 
         QCOMPARE(firstController.candidates(), secondController.candidates());
         QCOMPARE(firstController.candidateCount(), 1);
+    }
+
+    // =========================================================================
+    // T033 regression (real-world PDF manual): a text-layer PDF reaches the
+    // consent gate through ManualStore::loadText (the canonical seam) instead
+    // of failing with no_canonical_text. This drives the REAL requestExtraction()
+    // entry: ManualImportController selection + ManualStore cache truth.
+    // =========================================================================
+    void o21_textLayerPdfReachesConsentGate()
+    {
+        QTemporaryDir managedRoot;
+        QVERIFY(managedRoot.isValid());
+        ManualStore::setManagedRootOverride(managedRoot.path());
+        const QString source =
+            QDir(managedRoot.path()).filePath("sensor-manual.pdf");
+        QFile pdf(source);
+        QVERIFY(pdf.open(QIODevice::WriteOnly));
+        const QByteArray pdfBytes = orchestrationTextLayerPdf(
+            QStringLiteral("Manufacturer: ACME Power Systems Ltd."));
+        QCOMPARE(pdf.write(pdfBytes), static_cast<qint64>(pdfBytes.size()));
+        pdf.close();
+
+        ManualImportController manual;
+        QVERIFY(orchestrationImport(manual, source));
+
+        FakeCandidateRunner runner;
+        CandidateExtractionController controller(runner);
+        controller.setManualController(&manual);
+        // THE BUG (pre-fix): this failed with no_canonical_text because the
+        // PDF cache truth lives in the per-page .json artifact and loadText
+        // only read the .txt artifact.
+        controller.requestExtraction();
+        QCOMPARE(controller.stateToken(), QStringLiteral("consent_required"));
+        // Fail-closed order preserved: NOTHING may be sent before consent.
+        QCOMPARE(runner.beginCount(), 0);
+
+        controller.grantConsent();
+        QCOMPARE(runner.beginCount(), 1);
+        QCOMPARE(runner.pending.size(), std::size_t(1));
+        // The provider sees the aggregated canonical text of the PDF and the
+        // truthful coarse format context (not a hardcoded txt token).
+        QCOMPARE(runner.pending.at(0).request.documentTypeToken,
+                 std::string("pdf"));
+        QVERIFY(!runner.pending.at(0).request.canonicalExtractedText.empty());
+        QVERIFY(runner.pending.at(0).request.canonicalExtractedText.find(
+                    "Manufacturer: ACME Power Systems Ltd.")
+                != std::string::npos);
+    }
+
+    void o22_noTextPdfFailsClosedWithAccurateClassification()
+    {
+        QTemporaryDir managedRoot;
+        QVERIFY(managedRoot.isValid());
+        ManualStore::setManagedRootOverride(managedRoot.path());
+        const QString source =
+            QDir(managedRoot.path()).filePath("scanned-manual.pdf");
+        QFile pdf(source);
+        QVERIFY(pdf.open(QIODevice::WriteOnly));
+        const QByteArray pdfBytes = orchestrationNoTextPdf();
+        QCOMPARE(pdf.write(pdfBytes), static_cast<qint64>(pdfBytes.size()));
+        pdf.close();
+
+        ManualImportController manual;
+        QVERIFY(orchestrationImport(manual, source));
+
+        FakeCandidateRunner runner;
+        CandidateExtractionController controller(runner);
+        controller.setManualController(&manual);
+        controller.requestExtraction();
+        // Accurate no-text classification (never a fake extraction, never a
+        // provider dispatch with empty context).
+        QCOMPARE(controller.stateToken(), QStringLiteral("failed"));
+        QCOMPARE(controller.failureToken(),
+                 QStringLiteral("no_extractable_text"));
+        QCOMPARE(runner.beginCount(), 0);
+    }
+
+    void o23_txtSelectionStillReachesConsentGate()
+    {
+        QTemporaryDir managedRoot;
+        QVERIFY(managedRoot.isValid());
+        ManualStore::setManagedRootOverride(managedRoot.path());
+        const QString source =
+            QDir(managedRoot.path()).filePath("inverter-manual.txt");
+        QFile txt(source);
+        QVERIFY(txt.open(QIODevice::WriteOnly));
+        txt.write(kManualText);
+        txt.close();
+
+        ManualImportController manual;
+        QVERIFY(orchestrationImport(manual, source));
+
+        FakeCandidateRunner runner;
+        CandidateExtractionController controller(runner);
+        controller.setManualController(&manual);
+        controller.requestExtraction();
+        QCOMPARE(controller.stateToken(), QStringLiteral("consent_required"));
+        QCOMPARE(runner.beginCount(), 0);
+        controller.grantConsent();
+        QCOMPARE(runner.beginCount(), 1);
+        QCOMPARE(runner.pending.at(0).request.documentTypeToken,
+                 std::string("txt"));
+        QCOMPARE(runner.pending.at(0).request.canonicalExtractedText,
+                 std::string(kManualText));
     }
 };
 

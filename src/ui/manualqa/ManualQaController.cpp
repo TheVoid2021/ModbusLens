@@ -273,7 +273,10 @@ void ManualQaController::beginAttempt(const QString& question)
     bool textOk = false;
     const QString canonicalText = ManualStore::loadText(boundContentHash_,
                                                         &textOk);
-    if (!textOk) {
+    // T033: a no_extractable_text PDF now resolves the cache successfully but
+    // the aggregation truthfully yields an EMPTY canonical text. Fail closed
+    // exactly like an unreadable cache — never dispatch an empty context.
+    if (!textOk || canonicalText.isEmpty()) {
         localReject(kTokenNoCanonicalText,
                     tr("无法读取所选说明书的已抽取文本。"));
         return;

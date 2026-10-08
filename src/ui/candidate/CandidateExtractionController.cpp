@@ -3,6 +3,7 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <tuple>
 #include <utility>
 
 #include "core/candidate/CandidateExtraction.h"
@@ -22,6 +23,9 @@ constexpr char kStateSucceeded[] = "succeeded";
 constexpr char kFailureNone[] = "";
 constexpr char kFailureNoSelection[] = "no_selection";
 constexpr char kFailureNoCanonicalText[] = "no_canonical_text";
+// T033: a PDF whose extraction state is no_extractable_text must fail with
+// the ACCURATE classification, not the generic no_canonical_text.
+constexpr char kFailureNoExtractableText[] = "no_extractable_text";
 constexpr char kFailureNotConfigured[] = "not_configured";
 constexpr char kFailureNoCandidate[] = "no_candidate";
 
@@ -414,12 +418,24 @@ void CandidateExtractionController::requestExtraction()
     // it and never mutates Manual state (§9).
     const QVariantMap selected = manualController_->selectedDocument();
     const QString contentHash = selected.value(QStringLiteral("contentHash")).toString();
+    // T033: a no_extractable_text document (e.g. a scanned PDF) must fail with
+    // the accurate classification BEFORE any cache read — the import succeeded
+    // but there is provably no extracted text to send (never OCR'd, never
+    // guessed; the frozen C1b semantics).
+    if (selected.value(QStringLiteral("extractionStateToken")).toString()
+        == QLatin1String("no_extractable_text")) {
+        setState(State::Failed,
+                 QString::fromLatin1(kFailureNoExtractableText),
+                 tr("该说明书不包含可提取的文本（OCR 暂不支持）。"));
+        return;
+    }
     bool ok = false;
     // C1b canonical extracted text, straight from the managed cache. NEVER the
     // original file, and never previewText() (which carries PDF display-only
-    // page headers that are not cache truth).
+    // page headers that are not cache truth). For a PDF the store aggregates
+    // the per-page cache truth deterministically (T033).
     const QString canonicalText = ManualStore::loadText(contentHash, &ok);
-    if (!ok) {
+    if (!ok || canonicalText.isEmpty()) {
         setState(State::Failed, QString::fromLatin1(kFailureNoCanonicalText),
                  tr("无法读取已抽取的说明书文本"));
         return;
@@ -432,7 +448,12 @@ void CandidateExtractionController::requestExtraction()
         selected.value(QStringLiteral("originalFileName")).toString().toStdString();
     document.originalPath =
         selected.value(QStringLiteral("originalPath")).toString().toStdString();
-    document.documentType = core::ManualDocumentType::Txt;
+    // T033: the document identity carries the TRUTHFUL type (derived from the
+    // original file name through the frozen extension rule) instead of a
+    // hardcoded Txt; the coarse type token is provider format context.
+    std::ignore =
+        core::manualDocumentTypeFromExtension(document.originalFileName,
+                                              document.documentType);
     requestExtractionFor(document, canonicalText.toStdString());
 }
 
