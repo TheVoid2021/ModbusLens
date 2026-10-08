@@ -163,19 +163,169 @@ git diff --check                              → PASS
    对外统一说 13 个业务 Issue，并说明哨兵不计入业务语义。
 2. **你说「无 register map」，但仓库里有 Device Profile 的 register map 和 scale/offset，怎么解释？**
    → 诚实答：v1（T015 时点）确实没有；M11 加了 32-bit 解码、M12 加了设备档案的 register map 与
-   scale/offset/unit。仍然为真的部分是**异常码 0x02 的诊断路径不指认具体寄存器语义**。
-   这条差异已记入 T032 的 CONFLICT 清单，README 的已知限制需要修正（属后续 Human 授权范围）。
+   scale/offset/unit。但这只作用于 **Read Result 的语义呈现**——诊断引擎不消费设备档案，
+   异常码 0x02 仍不指认具体寄存器语义。此表述已在 **T032-A1** 修正进 README §11。
 3. **怎么保证这份事实底稿不是又一次「AI 总结」？**
    → 每条事实带来源（file:line / commit SHA / 测试名），冲突并列不择一，无法核实的标 UNVERIFIED；
    `06_SOURCE_TRACEABILITY.md` 对全部引用做过存在性实测。
 
 ## Git Commit
 
-- 本轮提交：`T032 A: extract verified project history for interview handoff`（docs-only，见 PROJECT_STATUS 追加批注登记的真实哈希）。
-- NO AMEND / NO PUSH / NO TAG / NO RELEASE；未推进 verified LKGC。
+- **Phase A 提交（已回填）**：
+  ```text
+  5f77870ff4aed9961bd532bde8e20f38801fed5a
+  T032 A: extract verified project history for interview handoff
+  docs-only，11 files changed, 3804 insertions(+)，0 deletions
+  父提交 = 69a58aedf059794b4485dc897587b4c6962f8946（T031 C）
+  ```
+  > 回填说明：Phase A 当时的档案文字指向"PROJECT_STATUS 追加批注登记的哈希"，但受"仅一个 docs-only 提交 +
+  > 禁止 amend"约束，该哈希当时**未写入任何文档**。本 Phase A1（明确为 backfill/correction 提交）闭合该缺口，
+  > **未 amend `5f77870`**。`[V-563]`
+- **Phase A1 提交**：见文末 §Phase A1 → `Git Commit（A1）`。
+- NO AMEND / NO PUSH / NO TAG / NO RELEASE；**未推进 verified LKGC**（docs-only 提交永不作 LKGC）。
 
-## Next gate
+## Next gate（Phase A 时点，已被 A1 取代 —— 保留原文）
 
 **HUMAN FACT REVIEW** —— 由 Human 对本 Fact Pack 的事实与冲突清单做裁定；
 批准后才可启动 T032 Phase B（对外表达层：项目介绍 / 简历材料 / 问答稿）。
 在此之前不得进入 Phase B。
+
+---
+
+# Phase A1 — Human Fact Review Corrections（2026-10-08，docs-only）
+
+> **输入**：T032 Phase A 的 Fact Pack 已通过 Human Review **主体审查**，
+> 但在进入 Phase B 前需闭合少量事实与追溯问题。
+> **输出**：本 Phase A1 = **CORRECTIONS APPLIED**。**仍不得开始 Phase B。**
+
+## A1.0 Scope 与硬边界
+
+- **性质**：docs-only 修正/回填轮。**不生成**项目介绍、简历 bullet、背诵稿、面试回答模板或模拟题。
+- **修正范围（任务指定的授权文件集，未越界）**：
+  `README.md`（仅 §11 事实条目）、`docs/tasks/T032-*.md`、`docs/PROJECT_STATUS.md`、`docs/BACKLOG.md`、
+  当前 devlog、**相关 `docs/interview/*`**。
+- **未修改**（不在授权集内或属只增不改档案区）：`docs/INTERVIEW_NOTES.md`、`docs/tasks/T027`/`T028`、
+  `docs/07`、`docs/09`、`docs/11`、`docs/11_V2_UPGRADE_PLAN`、`docs/12`、全部 `docs/issues/*`、`docs/adr/*`。`[V-564]`
+
+## A1.1 先决核验：证明 **Phase A 提交确为 docs-only**（父提交对比）
+
+> Phase A 当时的检查是"工作树 vs HEAD"，**不足以单独证明该提交是 docs-only**。本轮改用**父提交对比**：
+
+```bash
+git diff --name-only 5f77870^ 5f77870 -- src tests cmake scripts samples CMakeLists.txt   # → EMPTY
+git diff --name-only 5f77870^ 5f77870 -- docs/assets                                      # → EMPTY
+git show --name-only --format= 5f77870                                                     # → 11 个 docs 路径
+```
+
+- 父提交 = `69a58ae`（T031 C）。三项实测结果：产品路径 EMPTY、资产路径 EMPTY、
+  改动清单 = 11 个全部位于 `docs/`（BACKLOG / PROJECT_STATUS / devlog / docs/interview ×7 / docs/tasks/T032）。
+  ⇒ **Phase A 提交经父提交对比确认为 docs-only，无产品代码、测试、构建逻辑、脚本、样本、已验收截图或发布资产被改动**。`[V-565]`
+
+## A1.2 C-03 修正结果（README §11 能力真相）
+
+- **Human Review 裁定**：接受 C-03 为**真实的当前文档错误**。
+- **修正**：`README.md` §11 原条目「**无 register map / 工程单位层**…」**改写为限制优先的准确陈述**：
+  > **语义层只覆盖读数呈现，不进入诊断判定**：M11 提供多类型读数解码（Hex / Binary / UInt16 / Int16 /
+  > UInt32 / Int32 / Float32，含寄存器内字节序与字序；raw 与解析结果分列保留）；M12 设备档案提供
+  > register map（按读功能码划分寄存器空间）与**用户显式填写**的 scale / offset / unit。
+  > 但二者只作用于 **Read Result 的语义呈现**：诊断引擎不消费设备档案，异常码 0x02 仍只给出
+  > "非法数据地址"这一协议事实并建议核对地址映射，**不指认具体寄存器语义**，也不做量程 / 报警阈值判定；
+  > 无设备模板库、无自动工程单位推断。
+- **Doctor-side 新证据（本轮实测，支撑"诊断引擎不消费设备档案"）**：
+  `grep -rn "DeviceProfile\|RegisterEntry\|profile" src/core/diagnosis/` → **0 命中**；
+  `RuleBasedDiagnosis` 唯一入口为 `diagnoseTransactions(const DiagnosisContext&)`。`[V-566]`
+- **红线遵守自检**：未夸大能力（未新增任何其他节的能力声明）；保留真实限制；
+  区分了"设备档案/register map 支持"与"未支持的工业能力"；**未声称真机验证**；
+  **未暗示 Modbus TCP**（§11 仍列其为未实现）；**未暗示 OCR**（README 全文无 OCR 声明）。`[V-567]`
+- **C-03 记录保留情况**：**该冲突未从历史中消失**——`00_FACT_INDEX.md` §5 的 C-03 条目保留原始发现，
+  并追加**完整处置轨迹**（A 轮发现 → Human Review 裁定 → A1 修正），原裁定建议文字一并保留。`[V-558]`
+
+## A1.3 C-05 分类处置结果（**未做全局替换**）
+
+- **当前实测真值**：CTest 目标 **70** / ADR 文件 **3** / 任务文档 **30**。
+- **逐处分类**（A = 当时正确的历史快照 → 不动；B = 当时即为错误 → 追加勘误或保留于 Fact Pack；
+  C = 当前权威文档但已过期 → 更新为实测现值）：
+  - **A（不动）**：`docs/07`（写于 2026-09-11，当时 ADR 确为 2 份、ctest 确为 23）、
+    `docs/11`（2026-09-14，ctest 24）、`docs/11_V2_UPGRADE_PLAN` §3（2026-09-14，"当前 24/24"）、
+    `docs/PROJECT_STATUS.md` 历史追加块、`docs/BACKLOG.md` 时间线行。
+    ⇒ **这些不是错误，是当时为真的快照**；`docs/07`/`docs/11` 顶部本已有 T031-A 加的历史快照声明。`[V-568]`
+  - **B（保留于 Fact Pack）**：`docs/INTERVIEW_NOTES.md` F10 的"2 份 ADR"（该节写于 2026-10-07，
+    当时 ADR 已为 3 份）与"25 份任务档案"（口径差异）；`docs/tasks/T028` §2E 的"ADR 2 份"
+    （该 HEAD `2f53197` 上 `git ls-tree` 实测已有 3 份 ADR）。
+    ⇒ **两处均不在 A1 授权文件集内 / 属只增不改档案区**，按任务 §3 允许的方式**保留于 Fact Pack**，未回写。`[V-569]`
+  - **C（未修改）**：`docs/12_RESUME_INTERVIEW_QA.md` 的"24 个 CTest 目标"（文件头部自声明 v1 / 2026-09-14，
+    但在用；属"当前在用但已过期"）。**不在授权集内**，且改写其"简历定稿"属**内容决策**（Phase B / Human 授权）。`[V-570]`
+- **结论**：授权集内**不存在**需要数字更新的 C 类实例（README §9 已是 70/70、`docs/04` CURRENT STATE 已是 70、
+  `docs/05` 已是 70/70、`CHANGELOG` "490+ commits" 与实测 498 相容）⇒ **本轮零全局替换**。`[V-559]`
+
+## A1.4 远端 / 发布证据等级澄清（**未升级也未降级**）
+
+- **问题**：Fact Pack 中"v2.0.0 已公开"类措辞可能被读作**当前远端状态已复核**。
+- **澄清后的精确区分**（写入 `docs/interview/05` §A12 与 `06` §8）：
+  - **VERIFIED（仓库事实）**：仓库档案与 Git 对象记录了 v2.0.0 发布/公开流程**已完成**，
+    并保留本地 release/tag 证据（tag 对象 `bdabd6fd…` → `b18e378f…`、资产 35,814,735 B 与 SHA-256、
+    R5G 验证记录、H1–H8 人工验收记录）。
+  - **UNVERIFIED（当前远端事实）**：**当前** GitHub 页面状态、远端 tag ref、Social Preview / Description /
+    Topics **在 T032-A / A1 期间均未实时核验**（离线环境无法判定）⇒ `[U-10]`。
+- **双向红线**：不把"仓库记录了发布完成"**升级**为"当前远端状态已复核"；
+  也不把真实历史留档**降级**为"未发布"。`[V-562]`
+
+## A1.5 追溯缺口闭合（Phase A 提交哈希回填）
+
+- **缺口**：Phase A 档案写"见 PROJECT_STATUS 追加批注登记的真实哈希"，而该哈希实际未写入任何文档。
+- **闭合**：本 §Git Commit 已回填
+  `5f77870ff4aed9961bd532bde8e20f38801fed5a`（`T032 A: extract verified project history for interview handoff`，
+  父提交 `69a58ae`，11 files / +3804 / −0）。**未 amend Phase A 提交**；
+  本 Phase A1 提交即为任务要求的**显式 backfill/correction 提交**。`[V-563]`
+
+## A1.6 Validation（A1 本轮实测）
+
+```text
+git diff --check                                        → PASS
+git diff --name-only -- src tests cmake scripts samples CMakeLists.txt → EMPTY
+git diff --name-only -- docs/assets                     → EMPTY
+README 变更范围                                          → 仅 §11 一条已知限制条目（无无关改版）
+Fact Pack 引用校验                                       → 见 §A1.7
+```
+
+## A1.7 事实计数（A1 后重算，`grep` 可复现）
+
+```bash
+cd docs/interview
+grep -ohE "\[V-[0-9]+\]" *.md | sort -u | wc -l    # → 563
+grep -ohE "\[C-[0-9]+\]" *.md | sort -u | wc -l    # →   5
+grep -ohE "\[U-[0-9]+\]" *.md | sort -u | wc -l    # →  11
+```
+
+```text
+               Phase A (5f77870)   Phase A1 (本轮)
+VERIFIED             557        →        563
+CONFLICT               5        →          5   （C-03 已修正，但记录保留并追加处置轨迹）
+UNVERIFIED            10        →         11   （新增 [U-11]：INTERVIEW_NOTES F8 未在本轮授权集内）
+```
+
+- **口径提醒**：563 是**唯一标记数**；**逐文件之和 = 567**，差额 4 来自
+  `[V-558]`/`[V-559]`/`[V-560]`（见 00 与 05）与 `[V-561]`（见 05 与 06）这 4 个跨文件复用的标记。
+  对外引用请用 **563**。`[V-571]`
+- CONFLICT **数量未变（仍 5）**是刻意的：C-03 的**修正**不删除冲突记录——
+  它从"未处置的当前文档错误"变为"已发现 → 已裁定的冲突"，**发现与修正轨迹双双保留**。`[V-558]`
+
+## Phase A1 状态收口
+
+```text
+T032                                  = IN PROGRESS
+Phase A  VERIFIED FACT EXTRACTION      = COMPLETE
+Human Fact Review                      = CONDITIONAL PASS → CORRECTIONS APPLIED
+Phase B                                = NOT STARTED
+PRODUCT CODE                           = FROZEN / UNCHANGED
+UI                                     = FROZEN / UNCHANGED（UI FREEZE = ACTIVE）
+TAG / RELEASE                          = UNCHANGED（v2.0.0 资产未动）
+PUSH                                   = NONE
+verified LKGC                          = 未推进
+NEXT                                   = HUMAN REVIEW OF T032-A1 → 之后才谈 Phase B
+```
+
+## Git Commit（A1）
+
+- 本轮提交见 `docs/PROJECT_STATUS.md` 顶部 T032-A1 追加批注与 `docs/BACKLOG.md` 时间线行登记的真实哈希。
+- NO AMEND（未 amend `5f77870`）/ NO PUSH / NO TAG / NO RELEASE；**未推进 verified LKGC**。

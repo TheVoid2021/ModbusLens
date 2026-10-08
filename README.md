@@ -168,7 +168,7 @@ scripts/  部署与打包工具（deploy_windows.bat · make_package.py 等）
 
 - **真实物理硬件未验证**：当前环境没有真实 Modbus 设备的验证证据；Serial 读/写为实现完成 + harness 级验证。
 - **功能码范围有意收敛**：一等支持为 FC03 读、FC06/0x10 写（主动 + 被动分析）；并非全部 Modbus 功能码。
-- **无 register map / 工程单位层**：异常码 0x02 可指向"非法数据地址"并建议核对映射，但不指认具体寄存器语义。
+- **语义层只覆盖读数呈现，不进入诊断判定**：M11 提供多类型读数解码（Hex / Binary / UInt16 / Int16 / UInt32 / Int32 / Float32，含寄存器内字节序与字序；raw 与解析结果分列保留）；M12 设备档案提供 register map（按读功能码划分寄存器空间）与**用户显式填写**的 scale / offset / unit。但二者只作用于 **Read Result 的语义呈现**：诊断引擎不消费设备档案，异常码 0x02 仍只给出"非法数据地址"这一协议事实并建议核对地址映射，**不指认具体寄存器语义**，也不做量程 / 报警阈值判定；无设备模板库、无自动工程单位推断。
 - **未实现**：Modbus TCP、t1.5/t3.5 时序分析、UART parity/framing 明细、installer、代码签名。
 - **AI/Agent 需外部配置**：无 provider/model 时该层不可用，但核心诊断与三模式不受影响；Agent 永远只读（3 个工具），无 RAG/MCP/多智能体/持久会话历史。
 - **Replay 为批量重析**：无实时播放/调速；`.mlog` v1 语法保持稳定。

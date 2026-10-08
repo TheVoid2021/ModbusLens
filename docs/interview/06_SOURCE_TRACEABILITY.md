@@ -293,7 +293,7 @@ write_dispatch           write_encoder              write_prepare
 
 ---
 
-## 7. UNVERIFIED 清单（共 10 条）
+## 7. UNVERIFIED 清单（共 11 条）
 
 | ID | 主张 | 为什么 UNVERIFIED | |
 | --- | --- | --- | --- |
@@ -307,6 +307,7 @@ write_dispatch           write_encoder              write_prepare
 | `[U-08]` | `docs/PROJECT_STATUS.md` 全部历史状态块 | 仅读最新 3 块 + 关键断言 grep | §6.2 |
 | `[U-09]` | `docs/BACKLOG.md` 全部 445 行 | 仅 grep 定位 | §6.2 |
 | `[U-10]` | GitHub 网页端**当前**状态（Description / 15 Topics / Social Preview 是否已应用；`v2.0.0` tag ref 是否在远端） | **本地仓库无法判定远端网页状态**；任务基线也明确"Social Preview: do not assume"。`origin/main` = `2f53197` 的祖先链**包含** `b18e378`（v2.0.0 的 peeled commit），但**tag ref 本身是否存在于远端无法离线核验** | §8 |
+| `[U-11]` | `docs/INTERVIEW_NOTES.md` F8 的"无 register map/工程单位语义层"表述**是否已修正** | 该同族表述**未在 T032-A1 修改**——不在任务 §6 授权文件集内 ⇒ 待 Human 授权的后续整理项。其事实内核已由 `README.md` §11 承载并修正（`[C-03]`），此项仅指 INTERVIEW_NOTES 文本本身 | §7 |
 
 ---
 
@@ -331,10 +332,14 @@ local-only commits（7）：
 - **T028 §1 记录**："main 已 fast-forward 至 `2f53197…` 并推送" ⇒ 推送**发生在 T028 时点**，
   之后 T028–T031 的 7 个提交**未推送**。`[V-524]`
 - **任务基线声明 `PUSH = NONE`**（本轮）：与上述吻合——**本轮未 push**。`[V-525]`
-- **v2.0.0 已公开发布并独立验证**（T027 §119.11：URL / 资产大小 / SHA-256 / R5G PASS；
-  验证通道 = 公开页面 HTML 解析 + 直接公开资产下载逐字节比对；REST API 未认证访问 403
-  是限流而非发布失败）。**这是历史证据**，本轮**未重新执行**该验证（AGENTS 状态等式：
-  `historical evidence ≠ currently executed evidence`）⇒ 归入 `[U-10]`（远端**当前**状态无法离线判定）。
+- **v2.0.0 发布链 = 仓库记录的 COMPLETE / INDEPENDENTLY VERIFIED（证据等级已精确化，T032-A1）**：
+  **VERIFIED（仓库事实）**——仓库档案记录了 v2.0.0 发布/公开流程已完成，并保留本地 release/tag 证据
+  （T027 §119.11：URL / 资产大小 / SHA-256 / R5G PASS；验证通道 = 公开页面 HTML 解析 +
+  直接公开资产下载逐字节比对；REST API 未认证访问 403 是限流而非发布失败）。
+  **UNVERIFIED（当前远端事实）**——**当前** GitHub 页面状态、远端 tag ref、
+  Social Preview / Description / Topics **在 T032-A / A1 期间均未实时核验**（离线环境无法判定）⇒ `[U-10]`。
+  **措辞红线**：不把"仓库记录了发布完成"升级为"当前远端状态已复核"；
+  也不把真实历史留档降级为"未发布"（AGENTS 状态等式：`historical evidence ≠ currently executed evidence`）。`[V-561]`
 - **LICENSE 与已发布 ZIP 的关系**：LICENSE 于 v2.0.0 发布**之后**加入仓库根目录，
   **已发布 ZIP 不包含该文件且未被重建**——证据 = 两份 package manifest 中 LICENSE 条目数均为 **0**。`[V-526]`
 - **`docs/assets/screenshots/05-serial.png`** 已从仓库移除；**README 不引用不存在的资产**。`[V-527]`
