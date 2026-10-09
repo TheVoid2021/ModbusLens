@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "core/candidate/ProviderExtractionContract.h"
+#include "ui/ai/AiProviderProfile.h"
 #include "ui/ai/ExtractionTransport.h"
 
 namespace modbuslens::ui {
@@ -44,7 +45,7 @@ struct ProviderContentExtraction {
 // response. Purely structural: it does NOT validate the extraction schema —
 // that is the strict parser's job below. Returns ok=false (zero content) for
 // anything that is not a usable envelope.
-[[nodiscard]] ProviderContentExtraction extractModelScopeResponseContent(
+[[nodiscard]] ProviderContentExtraction extractChatCompletionsResponseContent(
     std::string_view responseBody);
 
 // ---------------------------------------------------------------------------
@@ -75,20 +76,26 @@ struct ProviderContentExtraction {
     std::string_view providerContent);
 
 // Provider-side configuration. The model id is CONFIGURATION, never domain
-// truth (H1), which is exactly why it lives here and not in a Candidate.
-struct ModelScopeAdapterConfig {
+// truth (H1), which is exactly why it lives here and not in a Candidate. The
+// provider kind routes the PROFILE-DECIDED request extras (T034-B1): the
+// adapter never invents provider behavior beyond what the frozen profile
+// table authorizes.
+struct CandidateAdapterConfig {
+    AiProviderKind kind{AiProviderKind::ModelScope};
     std::string modelId;
     std::size_t maxOutputTokens{768};
 };
 
 // ---------------------------------------------------------------------------
-// The ModelScope candidate-extraction ADAPTER.
+// The provider-neutral candidate-extraction ADAPTER (OpenAI-compatible Chat
+// Completions; T034 B1 — was the ModelScope-only adapter).
 //
-// It consumes a provider-NEUTRAL request, serializes the provider-specific
-// wire body internally, drives an injected transport, extracts the response
-// content and runs the strict parser — then hands back provider-neutral
-// proposals. Everything provider-shaped lives inside this class; callers only
-// ever see core types.
+// It consumes a provider-NEUTRAL request, serializes the wire body internally
+// (QJsonDocument — authoritative JSON escaping for runtime model/prompt
+// strings; the provider extras are decided by the COMPILED profile table),
+// drives an injected transport, extracts the response content and runs the
+// strict parser — then hands back provider-neutral proposals. Everything
+// provider-shaped lives inside this class; callers only ever see core types.
 //
 // It also implements SESSION M's ICandidateProposalProvider, so the adapter
 // plugs straight into the already-accepted local Evidence validation path:
@@ -97,13 +104,14 @@ struct ModelScopeAdapterConfig {
 //
 // The adapter NEVER performs a network request itself: all transport work is
 // delegated to the injected IExtractionTransport. It holds no credential, and
-// it retains no raw provider response (H4).
+// it retains no raw provider response (H4). Qt Core (JSON) is used for body
+// serialization; this translation unit still links NO network type at all.
 // ---------------------------------------------------------------------------
-class ModelScopeCandidateAdapter : public core::ICandidateProposalProvider
+class CandidateProviderAdapter : public core::ICandidateProposalProvider
 {
 public:
-    ModelScopeCandidateAdapter(IExtractionTransport &transport,
-                               ModelScopeAdapterConfig config);
+    CandidateProviderAdapter(IExtractionTransport &transport,
+                               CandidateAdapterConfig config);
 
     // The provider-neutral entry point: request in, proposals-or-failure out.
     // On any failure the proposal list is EMPTY (fail-closed, §13) and
@@ -132,7 +140,7 @@ public:
 
 private:
     IExtractionTransport &transport_;
-    ModelScopeAdapterConfig config_;
+    CandidateAdapterConfig config_;
     core::ProviderExtractionFailure lastFailure_{
         core::ProviderExtractionFailure::None};
 };

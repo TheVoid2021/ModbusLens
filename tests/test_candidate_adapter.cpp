@@ -26,7 +26,7 @@
 #include "core/candidate/ProviderExtractionContract.h"
 #include "core/profile/DeviceProfile.h"
 #include "ui/ai/ExtractionTransport.h"
-#include "ui/ai/ModelScopeCandidateAdapter.h"
+#include "ui/ai/CandidateProviderAdapter.h"
 #include "ui/profile/ProfileStore.h"
 
 using modbuslens::core::CandidateProposal;
@@ -41,8 +41,8 @@ using modbuslens::core::ProfileFieldTarget;
 using modbuslens::core::ProviderExtractionFailure;
 using modbuslens::core::ProviderExtractionResult;
 using modbuslens::ui::IExtractionTransport;
-using modbuslens::ui::ModelScopeAdapterConfig;
-using modbuslens::ui::ModelScopeCandidateAdapter;
+using modbuslens::ui::CandidateAdapterConfig;
+using modbuslens::ui::CandidateProviderAdapter;
 using modbuslens::ui::ProfileStore;
 
 namespace {
@@ -146,12 +146,12 @@ public:
     }
 };
 
-ModelScopeCandidateAdapter makeAdapter(FakeExtractionTransport &transport,
+CandidateProviderAdapter makeAdapter(FakeExtractionTransport &transport,
                                        std::string_view responseBody)
 {
     transport.responseBody = std::string(responseBody);
-    return ModelScopeCandidateAdapter(transport,
-                                      ModelScopeAdapterConfig{"fake-model", 768});
+    return CandidateProviderAdapter(transport,
+                                      CandidateAdapterConfig{modbuslens::ui::AiProviderKind::ModelScope, "fake-model", 768});
 }
 
 QStringList snapshotTree(const QString &root)
@@ -213,7 +213,7 @@ private slots:
     {
         const ManualDocument document = makeDocument();
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(validExtractionContent()));
 
         const CandidateExtractionResult result =
@@ -242,7 +242,7 @@ private slots:
         const ManualDocument document = makeDocument();
         FakeExtractionTransport transport;
         // The envelope is fine; the assistant content is not JSON at all.
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope("{not json at all"));
 
         const ProviderExtractionResult result = adapter.extract(
@@ -258,7 +258,7 @@ private slots:
     void n03_wrongTopLevelTypeIsRejected()
     {
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope("[1,2,3]"));
 
         const ProviderExtractionResult result = adapter.extract(
@@ -278,7 +278,7 @@ private slots:
             std::string{"{\"proposals\":[{\"target\":\"manufacturer\",\"evidence\":\""}
             + kManufacturerExcerpt + "\"}]}";
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(content));
 
         const ProviderExtractionResult result = adapter.extract(
@@ -298,7 +298,7 @@ private slots:
             "{\"proposals\":[{\"target\":\"manufacturer\",\"value\":42,"
             "\"evidence\":\"" + std::string{kManufacturerExcerpt} + "\"}]}";
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(content));
 
         const ProviderExtractionResult result = adapter.extract(
@@ -321,7 +321,7 @@ private slots:
             + std::string{kManufacturerExcerpt}
             + "\",\"note\":\"extra\"}]}";
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(content));
 
         const ProviderExtractionResult result = adapter.extract(
@@ -341,7 +341,7 @@ private slots:
             + std::string{kManufacturerValue} + "\",\"evidence\":\""
             + std::string{kManufacturerExcerpt} + "\"}]}"};
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(content));
 
         const ProviderExtractionResult result = adapter.extract(
@@ -360,7 +360,7 @@ private slots:
             std::string{"{\"proposals\":[{\"target\":\"manufacturer\",\"value\":\""
             + std::string{kManufacturerValue} + "\",\"evidence\":\"\"}]}"};
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(content));
 
         const ProviderExtractionResult result = adapter.extract(
@@ -385,7 +385,7 @@ private slots:
             std::string{"{\"proposals\":[{\"target\":\"manufacturer\",\"value\":"
             "\"FABRICATED CORP\",\"evidence\":\"Manufacturer: FABRICATED CORP\"}]}"};
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(content));
 
         const CandidateExtractionResult result =
@@ -410,7 +410,7 @@ private slots:
             + std::string{kManufacturerExcerpt}
             + "\",\"location\":4096}]}"};
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(content));
 
         const ProviderExtractionResult result = adapter.extract(
@@ -430,7 +430,7 @@ private slots:
             + std::string{kManufacturerValue} + "\",\"evidence\":\""
             + std::string{kManufacturerExcerpt} + "\",\"confidence\":0.97}]}"};
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(content));
 
         const ProviderExtractionResult result = adapter.extract(
@@ -450,7 +450,7 @@ private slots:
     {
         FakeExtractionTransport transport;
         const std::string envelope = chatCompletionsEnvelope(validExtractionContent());
-        ModelScopeCandidateAdapter adapter = makeAdapter(transport, envelope);
+        CandidateProviderAdapter adapter = makeAdapter(transport, envelope);
 
         const ProviderExtractionResult result = adapter.extract(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -475,8 +475,8 @@ private slots:
         transport.transportOk = false;
         transport.responseBody = chatCompletionsEnvelope(validExtractionContent());
 
-        ModelScopeCandidateAdapter adapter(transport,
-                                           ModelScopeAdapterConfig{"fake-model", 768});
+        CandidateProviderAdapter adapter(transport,
+                                           CandidateAdapterConfig{modbuslens::ui::AiProviderKind::ModelScope, "fake-model", 768});
         const CandidateExtractionResult result =
             modbuslens::core::extractProfileFieldCandidates(
                 document, std::string_view{kManualText}, adapter);
@@ -494,8 +494,8 @@ private slots:
         transport.statusOk = false;
         transport.responseBody = chatCompletionsEnvelope(validExtractionContent());
 
-        ModelScopeCandidateAdapter adapter(transport,
-                                           ModelScopeAdapterConfig{"fake-model", 768});
+        CandidateProviderAdapter adapter(transport,
+                                           CandidateAdapterConfig{modbuslens::ui::AiProviderKind::ModelScope, "fake-model", 768});
         const CandidateExtractionResult result =
             modbuslens::core::extractProfileFieldCandidates(
                 document, std::string_view{kManualText}, adapter);
@@ -510,7 +510,7 @@ private slots:
     {
         const ManualDocument document = makeDocument();
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(validExtractionContent()));
 
         const ExtractionRequest request =
@@ -557,7 +557,7 @@ private slots:
         QVERIFY(!QFileInfo::exists(QString::fromStdString(document.originalPath)));
 
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(validExtractionContent()));
 
         const CandidateExtractionResult result =
@@ -577,13 +577,13 @@ private slots:
         const std::string envelope = chatCompletionsEnvelope(validExtractionContent());
 
         FakeExtractionTransport first;
-        ModelScopeCandidateAdapter firstAdapter = makeAdapter(first, envelope);
+        CandidateProviderAdapter firstAdapter = makeAdapter(first, envelope);
         const CandidateExtractionResult firstResult =
             modbuslens::core::extractProfileFieldCandidates(
                 document, std::string_view{kManualText}, firstAdapter);
 
         FakeExtractionTransport second;
-        ModelScopeCandidateAdapter secondAdapter = makeAdapter(second, envelope);
+        CandidateProviderAdapter secondAdapter = makeAdapter(second, envelope);
         const CandidateExtractionResult secondResult =
             modbuslens::core::extractProfileFieldCandidates(
                 document, std::string_view{kManualText}, secondAdapter);
@@ -604,7 +604,7 @@ private slots:
 
         const ManualDocument document = makeDocument();
         FakeExtractionTransport transport;
-        ModelScopeCandidateAdapter adapter =
+        CandidateProviderAdapter adapter =
             makeAdapter(transport, chatCompletionsEnvelope(validExtractionContent()));
         const CandidateExtractionResult result =
             modbuslens::core::extractProfileFieldCandidates(

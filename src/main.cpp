@@ -41,7 +41,7 @@
 #include "ui/manual/ManualStore.h"
 #include "ui/candidate/CandidateExtractionController.h"
 #include "ui/manualqa/ManualQaController.h"
-#include "ui/candidate/ModelScopeCandidateRunner.h"
+#include "ui/candidate/CandidateProviderRunner.h"
 
 #include <zip.h>
 
@@ -14342,7 +14342,7 @@ using modbuslens::core::RegisterDecodeType;
 using modbuslens::core::RegisterEntry;
 using modbuslens::ui::ProfileStore;
 using modbuslens::ui::ManualStore;
-using modbuslens::ui::ModelScopeCandidateRunner;
+using modbuslens::ui::CandidateProviderRunner;
 
 // M12-B first slice `--qml-profile-editor-check`: an automated end-to-end
 // gate for the Device Profile workspace (rail index 5). It drives the REAL
@@ -16364,7 +16364,7 @@ int runConsentCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // again, that advance would be a REAL provider dispatch with the Human's
     // real token. Fail loudly BEFORE any step instead of ever risking it; the
     // credential seam read here is the exact one the production runner reads.
-    if (ModelScopeCandidateRunner::hasConfiguredCredential()) {
+    if (CandidateProviderRunner::hasConfiguredCredential()) {
         qWarning().noquote()
             << QStringLiteral("CONSENTFAIL: harness credential contract "
                               "violated — a MODELSCOPE_API_KEY value is visible "
@@ -21012,6 +21012,12 @@ int main(int argc, char *argv[])
         if (argument.startsWith(QStringLiteral("--qml-"))) {
             qunsetenv("MODELSCOPE_API_KEY");
             qunsetenv("MODBUSLENS_MODELSCOPE_MODEL");
+            // T034 B1: the provider selection surface is part of the same
+            // credential/configuration seam — harness runs must fail closed
+            // exactly like the pre-B1 deterministic contracts assume.
+            qunsetenv("DEEPSEEK_API_KEY");
+            qunsetenv("MODBUSLENS_AI_PROVIDER");
+            qunsetenv("MODBUSLENS_AI_MODEL");
             break;
         }
     }

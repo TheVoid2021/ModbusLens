@@ -12,7 +12,7 @@
 #include "core/candidate/CandidateExtraction.h"
 #include "core/candidate/ProviderExtractionContract.h"
 #include "ui/candidate/CandidateExtractionRunner.h"
-#include "ui/candidate/ModelScopeCandidateRunner.h"
+#include "ui/candidate/CandidateProviderRunner.h"
 #include "ui/manual/ManualImportController.h"
 #include "ui/profile/ProfileController.h"
 
@@ -279,7 +279,7 @@ private:
     ProfileController *profileController_{nullptr};
     ICandidateExtractionRunner *runner_{nullptr};
     // Owned only in the production construction; empty when injected.
-    std::unique_ptr<ModelScopeCandidateRunner> ownedRunner_;
+    std::unique_ptr<CandidateProviderRunner> ownedRunner_;
 
     State state_{State::Idle};
     QString failureToken_;

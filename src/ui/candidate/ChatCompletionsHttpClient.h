@@ -17,7 +17,7 @@ namespace modbuslens::ui {
 // method target / Authorization / content type / body that production would
 // have sent while performing zero network I/O.
 // ---------------------------------------------------------------------------
-struct ModelScopeHttpRequest {
+struct ChatCompletionsHttpRequest {
     std::string url;
     std::string bearerToken;
     std::string contentType;
@@ -25,19 +25,19 @@ struct ModelScopeHttpRequest {
     int timeoutMs{0};
 };
 
-struct ModelScopeHttpResult {
+struct ChatCompletionsHttpResult {
     int status{0};           // 0 = no HTTP status at all (transport-level)
     std::string body;
     bool transportOk{false}; // a reply was obtained (any status)
 };
 
-class IModelScopeHttpClient
+class IChatCompletionsHttpClient
 {
 public:
-    virtual ~IModelScopeHttpClient() = default;
+    virtual ~IChatCompletionsHttpClient() = default;
 
-    [[nodiscard]] virtual ModelScopeHttpResult post(
-        const ModelScopeHttpRequest &request) = 0;
+    [[nodiscard]] virtual ChatCompletionsHttpResult post(
+        const ChatCompletionsHttpRequest &request) = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -57,15 +57,15 @@ public:
 // for the exchange; making the chain asynchronous would be a contract change to
 // the accepted SESSION N seam and is deliberately out of scope for this slice.
 // ---------------------------------------------------------------------------
-class QtModelScopeHttpClient : public QObject, public IModelScopeHttpClient
+class QtChatCompletionsHttpClient : public QObject, public IChatCompletionsHttpClient
 {
     Q_OBJECT
 
 public:
-    explicit QtModelScopeHttpClient(QObject *parent = nullptr);
+    explicit QtChatCompletionsHttpClient(QObject *parent = nullptr);
 
-    [[nodiscard]] ModelScopeHttpResult post(
-        const ModelScopeHttpRequest &request) override;
+    [[nodiscard]] ChatCompletionsHttpResult post(
+        const ChatCompletionsHttpRequest &request) override;
 };
 
 } // namespace modbuslens::ui

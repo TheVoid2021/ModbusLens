@@ -1,10 +1,20 @@
-#include "ui/ai/ModelScopeCandidateAdapter.h"
+#include "ui/ai/CandidateProviderAdapter.h"
+
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QDateTime>
+#include <QFile>
+#include <QStandardPaths>
 
 #include <cstddef>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include "ui/ai/AiProviderProfile.h"
+#include "core/candidate/CandidateExtraction.h"
 
 namespace modbuslens::ui {
 namespace {
@@ -17,8 +27,9 @@ using core::ProviderExtractionResult;
 // ---------------------------------------------------------------------------
 // Minimal strict JSON reader.
 //
-// Deliberately hand-written and dependency-free: this translation unit must
-// stay Qt-free AND network-free, so it cannot borrow QJsonDocument. The reader
+// Deliberately hand-written and strict: this is the RESPONSE reader, and it
+// must stay network-free (fail-closed parsing is frozen H8 semantics; T034 B1
+// moved only the REQUEST-BODY serialization to QJsonDocument). The reader
 // only supports what the provider contract needs (object / array / string /
 // number / bool / null) and it NEVER coerces: integer 5 is not the string "5".
 // ---------------------------------------------------------------------------
@@ -419,7 +430,7 @@ bool parseJsonStrict(std::string_view text, JsonValue &out)
 
 } // namespace
 
-ProviderContentExtraction extractModelScopeResponseContent(
+ProviderContentExtraction extractChatCompletionsResponseContent(
     std::string_view responseBody)
 {
     ProviderContentExtraction extraction;
@@ -538,53 +549,6 @@ ProviderExtractionResult parseStrictCandidateProposals(
 
 namespace {
 
-// JSON string escaping for the serialized provider body. Only the characters
-// JSON requires are escaped; the payload bytes are otherwise passed through.
-[[nodiscard]] std::string escapeJsonString(std::string_view text)
-{
-    std::string out;
-    out.reserve(text.size() + 2);
-    out.push_back('"');
-    for (const char c : text) {
-        switch (c) {
-        case '"':
-            out += "\\\"";
-            break;
-        case '\\':
-            out += "\\\\";
-            break;
-        case '\b':
-            out += "\\b";
-            break;
-        case '\f':
-            out += "\\f";
-            break;
-        case '\n':
-            out += "\\n";
-            break;
-        case '\r':
-            out += "\\r";
-            break;
-        case '\t':
-            out += "\\t";
-            break;
-        default:
-            if (static_cast<unsigned char>(c) < 0x20u) {
-                static const char *hex = "0123456789abcdef";
-                const auto uc = static_cast<unsigned>(static_cast<unsigned char>(c));
-                out += "\\u00";
-                out.push_back(hex[(uc >> 4) & 0xFu]);
-                out.push_back(hex[uc & 0xFu]);
-            } else {
-                out.push_back(c);
-            }
-            break;
-        }
-    }
-    out.push_back('"');
-    return out;
-}
-
 // The PROMPT SEMANTICS are frozen by H8; the exact wording is an adapter
 // implementation detail (§11), which is why it lives here and not in a test's
 // full-string assertion. The instructions state the semantic contract only:
@@ -614,39 +578,295 @@ namespace {
     return prompt;
 }
 
+// Provider-specific output instruction (T034-B1 JSON OUTPUT round): decided
+// by the PROFILE, never by the caller. DeepSeek's JSON Output contract
+// requires the prompt to ask for JSON explicitly; the semantic requirements
+// are: raw JSON only, no Markdown code fence, no prose around it, exactly the
+// schema already shown in the user prompt (which mirrors the frozen parser
+// contract — no invented fields).
+[[nodiscard]] std::string buildJsonOnlyInstruction()
+{
+    return "Output ONLY the raw JSON object exactly as specified above. "
+           "Do not wrap the JSON in Markdown code fences. Do not add any "
+           "prose, explanation or any other text before or after the JSON. "
+           "Follow exactly the schema shown above.";
+}
+
+// ---------------------------------------------------------------------------
+// T034-B1 live RCA — SANITIZED provider forensics (Human-authorized evidence
+// path). Structural metadata ONLY: statuses, counts, JSON type names, lengths
+// and enumeration words. NEVER logged: API keys, Authorization headers, the
+// manual text, the prompt, or any raw provider/assistant content. The append
+// file lives in the user's temp directory and carries no payload either.
+// ---------------------------------------------------------------------------
+[[nodiscard]] QString forensicsLogPath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+           + QStringLiteral("/modbuslens_provider_forensics.log");
+}
+
+void writeForensics(const QString &block)
+{
+    // T034-B1: TEMPORARY diagnostic instrumentation, EXPLICITLY GATED — with
+    // MODBUSLENS_PROVIDER_FORENSICS unset there is ZERO file output and ZERO
+    // qWarning output. (Human decision pending: delete before the B1 commit,
+    // or converge into a default-off controlled diagnostic.)
+    if (qEnvironmentVariable("MODBUSLENS_PROVIDER_FORENSICS")
+        != QLatin1String("1")) {
+        return;
+    }
+    qWarning().noquote() << block;
+    QFile file(forensicsLogPath());
+    if (file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        file.write(block.toUtf8());
+        file.write("\n");
+    }
+}
+
+// Structural analysis of the assistant content against the STRICT contract
+// { "proposals": [ { "target", "value", "evidence" } ] }. Independent of the
+// frozen parser: this only NAMES the first structural anomaly class (never a
+// value) so a live RCA can distinguish malformed envelope from strict-schema
+// rejection without weakening anything.
+[[nodiscard]] QString describeContentStructure(std::string_view content)
+{
+    JsonValue root;
+    if (!parseJsonStrict(content, root)) {
+        return QStringLiteral("structured_json_parse=FAIL category=invalid_json");
+    }
+    QString report = QStringLiteral("structured_json_parse=ok");
+    if (root.kind != JsonValue::Kind::Object) {
+        report += QStringLiteral(" top_level=%1 category=wrong_top_level_type")
+                      .arg(root.kind == JsonValue::Kind::Array
+                               ? QStringLiteral("array")
+                               : QStringLiteral("scalar"));
+        return report;
+    }
+    report += QStringLiteral(" top_level=object");
+    const JsonValue *proposals = root.find("proposals");
+    if (proposals == nullptr) {
+        report += QStringLiteral(" category=missing_required_field(proposals)");
+        return report;
+    }
+    if (proposals->kind != JsonValue::Kind::Array) {
+        report += QStringLiteral(" category=wrong_field_type(proposals)");
+        return report;
+    }
+    report += QStringLiteral(" proposals_size=%1").arg(proposals->items.size());
+    if (proposals->items.empty()) {
+        report += QStringLiteral(" (empty proposals array is contract-legal)");
+        return report;
+    }
+    for (std::size_t index = 0; index < proposals->items.size(); ++index) {
+        const JsonValue &item = proposals->items[index];
+        if (item.kind != JsonValue::Kind::Object) {
+            report += QStringLiteral(" item[%1] category=wrong_field_type(item_not_object)")
+                          .arg(index);
+            return report;
+        }
+        QString itemReport;
+        const JsonValue *target = item.find("target");
+        const JsonValue *value = item.find("value");
+        const JsonValue *evidence = item.find("evidence");
+        if (target == nullptr || value == nullptr || evidence == nullptr) {
+            itemReport += QStringLiteral(" missing=");
+            if (target == nullptr) itemReport += QStringLiteral("target,");
+            if (value == nullptr) itemReport += QStringLiteral("value,");
+            if (evidence == nullptr) itemReport += QStringLiteral("evidence");
+            itemReport.chop(1);
+        }
+        if ((target && target->kind != JsonValue::Kind::String)
+            || (value && value->kind != JsonValue::Kind::String)
+            || (evidence && evidence->kind != JsonValue::Kind::String)) {
+            if (!itemReport.isEmpty()) itemReport += QLatin1Char(' ');
+            itemReport += QStringLiteral("wrong_field_type=");
+            if (target && target->kind != JsonValue::Kind::String) itemReport += QStringLiteral("target,");
+            if (value && value->kind != JsonValue::Kind::String) itemReport += QStringLiteral("value,");
+            if (evidence && evidence->kind != JsonValue::Kind::String) itemReport += QStringLiteral("evidence");
+            itemReport.chop(1);
+        }
+        if (target && target->kind == JsonValue::Kind::String) {
+            ProfileFieldTarget known{};
+            if (!core::profileFieldTargetFromToken(target->text, known)) {
+                if (!itemReport.isEmpty()) itemReport += QLatin1Char(' ');
+                itemReport += QStringLiteral("unknown_target");
+            }
+        }
+        if ((value && value->kind == JsonValue::Kind::String && value->text.empty())
+            || (evidence && evidence->kind == JsonValue::Kind::String
+                && evidence->text.empty())) {
+            if (!itemReport.isEmpty()) itemReport += QLatin1Char(' ');
+            itemReport += QStringLiteral("empty_evidence_or_value");
+        }
+        int extraKeys = 0;
+        for (const auto &member : item.members) {
+            if (member.first != "target" && member.first != "value"
+                && member.first != "evidence") {
+                ++extraKeys;
+            }
+        }
+        if (extraKeys > 0) {
+            if (!itemReport.isEmpty()) itemReport += QLatin1Char(' ');
+            itemReport += QStringLiteral("unknown_field_count=%1").arg(extraKeys);
+        }
+        if (!itemReport.isEmpty()) {
+            report += QStringLiteral(" item[%1] category:%2").arg(index).arg(itemReport);
+            return report; // first anomaly names the class
+        }
+    }
+    report += QStringLiteral(" items=structurally_conformant");
+    return report;
+}
+
+void writeProviderForensics(const IExtractionTransport::Exchange &exchange,
+                            bool envelopeStageReached, bool envelopeOk,
+                            std::string_view extractedContent,
+                            const core::ProviderExtractionResult *parserResult)
+{
+    QString block = QStringLiteral(
+                        "[provider forensics] %1 (sanitized: statuses/counts/types/lengths "
+                        "only — no keys, no headers, no manual text, no prompt, no raw "
+                        "provider content)")
+                        .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs));
+    // The SESSION N seam does not carry the numeric HTTP status by design;
+    // only the coarse transport/status booleans cross the boundary.
+    block += QStringLiteral("\n  http_status=<not exposed by seam> transport_ok=%1 status_ok=%2")
+                 .arg(exchange.transportOk ? 1 : 0)
+                 .arg(exchange.statusOk ? 1 : 0);
+    block += QStringLiteral("\n  response_body_len=%1")
+                 .arg(static_cast<int>(exchange.responseBody.size()));
+    if (!envelopeStageReached) {
+        block += QStringLiteral("\n  failure_owner=transport (envelope never reached)");
+        writeForensics(block);
+        return;
+    }
+    JsonValue root;
+    const bool envelopeJsonOk = parseJsonStrict(exchange.responseBody, root)
+                                && root.kind == JsonValue::Kind::Object;
+    block += QStringLiteral("\n  envelope_json_parse=%1").arg(envelopeJsonOk ? "ok" : "FAIL");
+    int choicesCount = -1;
+    QString finishReason = QStringLiteral("<absent>");
+    QString contentType = QStringLiteral("<absent>");
+    int contentLen = -1;
+    bool reasoningExists = false;
+    int reasoningLen = -1;
+    if (envelopeJsonOk) {
+        const JsonValue *choices = root.find("choices");
+        if (choices != nullptr && choices->kind == JsonValue::Kind::Array) {
+            choicesCount = static_cast<int>(choices->items.size());
+        }
+        const JsonValue *message = nullptr;
+        if (choicesCount > 0) {
+            const JsonValue &first = choices->items.front();
+            if (first.kind == JsonValue::Kind::Object) {
+                message = first.find("message");
+                const JsonValue *finish = first.find("finish_reason");
+                if (finish != nullptr && finish->kind == JsonValue::Kind::String) {
+                    finishReason = QString::fromStdString(finish->text);
+                }
+            }
+        }
+        block += QStringLiteral("\n  choices_count=%1").arg(choicesCount);
+        block += QStringLiteral("\n  message_exists=%1")
+                     .arg(message != nullptr ? 1 : 0);
+        if (message != nullptr && message->kind == JsonValue::Kind::Object) {
+            const JsonValue *content = message->find("content");
+            if (content != nullptr) {
+                switch (content->kind) {
+                case JsonValue::Kind::String: contentType = "string"; break;
+                case JsonValue::Kind::Object: contentType = "object"; break;
+                case JsonValue::Kind::Array: contentType = "array"; break;
+                case JsonValue::Kind::Null: contentType = "null"; break;
+                case JsonValue::Kind::Number: contentType = "number"; break;
+                case JsonValue::Kind::Bool: contentType = "bool"; break;
+                }
+                if (content->kind == JsonValue::Kind::String) {
+                    contentLen = static_cast<int>(content->text.size());
+                }
+            }
+            const JsonValue *reasoning = message->find("reasoning_content");
+            reasoningExists = reasoning != nullptr;
+            if (reasoning != nullptr && reasoning->kind == JsonValue::Kind::String) {
+                reasoningLen = static_cast<int>(reasoning->text.size());
+            }
+        }
+    }
+    block += QStringLiteral("\n  content_type=%1 content_len=%2").arg(contentType).arg(contentLen);
+    block += QStringLiteral("\n  reasoning_content_exists=%1 reasoning_len=%2")
+                 .arg(reasoningExists ? 1 : 0)
+                 .arg(reasoningLen);
+    block += QStringLiteral("\n  finish_reason=%1").arg(finishReason);
+    block += QStringLiteral("\n  envelope_content_extraction=%1")
+                 .arg(envelopeOk ? "ok" : "FAIL(failure_owner=envelope)");
+    if (!envelopeOk) {
+        block += QStringLiteral("\n  failure_owner=envelope (strict parser NOT reached)");
+        writeForensics(block);
+        return;
+    }
+    block += QStringLiteral("\n  content_outer_nonempty=%1")
+                 .arg(extractedContent.empty() ? 0 : 1);
+    block += "\n  " + describeContentStructure(extractedContent);
+    if (parserResult != nullptr && !parserResult->ok) {
+        block += QStringLiteral("\n  parser_result=%1")
+                     .arg(QString::fromUtf8(
+                         core::providerExtractionFailureToken(parserResult->failure)));
+    } else if (parserResult != nullptr) {
+        block += QStringLiteral("\n  parser_result=ok (local evidence validation follows)");
+    }
+    writeForensics(block);
+}
+
 } // namespace
 
-ModelScopeCandidateAdapter::ModelScopeCandidateAdapter(
-    IExtractionTransport &transport, ModelScopeAdapterConfig config)
+CandidateProviderAdapter::CandidateProviderAdapter(
+    IExtractionTransport &transport, CandidateAdapterConfig config)
     : transport_(transport), config_(std::move(config))
 {
 }
 
-std::string ModelScopeCandidateAdapter::buildWireBodyForTest(
+std::string CandidateProviderAdapter::buildWireBodyForTest(
     const core::ExtractionRequest &request) const
 {
-    // The provider wire shape mirrors the accepted M6 Chat Completions body:
-    // { model, messages:[{role:system,content},{role:user,content}],
-    //   stream:false, max_tokens }. It is constructed internally so that no
-    // provider type leaks into the provider-neutral contract.
-    std::string body = "{";
-    body += "\"model\":";
-    body += escapeJsonString(config_.modelId);
-    body += ",\"messages\":[";
-    body += "{\"role\":\"system\",\"content\":";
-    body += escapeJsonString(buildSystemInstruction());
-    body += "},";
-    body += "{\"role\":\"user\",\"content\":";
-    body += escapeJsonString(buildUserPrompt(request));
-    body += "}],";
-    body += "\"stream\":false,";
-    body += "\"max_tokens\":";
-    body += std::to_string(config_.maxOutputTokens);
-    body += "}";
-    return body;
+    // T034 B1: the wire body is built with QJsonDocument (authoritative JSON
+    // escaping for RUNTIME model/prompt strings — quotes, backslashes,
+    // newlines and unicode can no longer depend on hand-written escaping).
+    // The shared OpenAI-compatible core is { model, messages, stream:false,
+    // max_tokens }; provider extras come EXCLUSIVELY from the compiled
+    // profile table (DeepSeek: thinking.type=disabled; ModelScope: none —
+    // the verified wire semantics stay exactly what they were).
+    std::string userPromptText = buildUserPrompt(request);
+    const AiProviderProfile &profile = aiProviderProfile(config_.kind);
+    if (profile.jsonOnlyPromptInstruction) {
+        userPromptText += "\n";
+        userPromptText += buildJsonOnlyInstruction();
+    }
+    const QJsonObject systemMessage{
+        {QStringLiteral("role"), QStringLiteral("system")},
+        {QStringLiteral("content"),
+         QString::fromStdString(buildSystemInstruction())}};
+    const QJsonObject userMessage{
+        {QStringLiteral("role"), QStringLiteral("user")},
+        {QStringLiteral("content"), QString::fromStdString(userPromptText)}};
+    QJsonObject body{
+        {QStringLiteral("model"), QString::fromStdString(config_.modelId)},
+        {QStringLiteral("messages"), QJsonArray{systemMessage, userMessage}},
+        {QStringLiteral("stream"), false},
+        {QStringLiteral("max_tokens"),
+         static_cast<qint64>(config_.maxOutputTokens)}};
+    if (profile.sendThinkingDisabledExtra) {
+        body.insert(QStringLiteral("thinking"),
+                    QJsonObject{{QStringLiteral("type"),
+                                 QStringLiteral("disabled")}});
+    }
+    if (profile.sendJsonOutputResponseFormat) {
+        body.insert(QStringLiteral("response_format"),
+                    QJsonObject{{QStringLiteral("type"),
+                                 QStringLiteral("json_object")}});
+    }
+    return std::string(QJsonDocument(body).toJson(QJsonDocument::Compact));
 }
 
-core::ProviderExtractionResult ModelScopeCandidateAdapter::extract(
+core::ProviderExtractionResult CandidateProviderAdapter::extract(
     const core::ExtractionRequest &request)
 {
     lastFailure_ = core::ProviderExtractionFailure::None;
@@ -658,6 +878,9 @@ core::ProviderExtractionResult ModelScopeCandidateAdapter::extract(
 
     if (!exchange.transportOk) {
         lastFailure_ = core::ProviderExtractionFailure::TransportError;
+        writeProviderForensics(exchange, /*envelopeStageReached=*/false,
+                               /*envelopeOk=*/false, /*extractedContent=*/{},
+                               /*parserResult=*/nullptr);
         core::ProviderExtractionResult failed;
         failed.ok = false;
         failed.failure = lastFailure_;
@@ -665,6 +888,9 @@ core::ProviderExtractionResult ModelScopeCandidateAdapter::extract(
     }
     if (!exchange.statusOk) {
         lastFailure_ = core::ProviderExtractionFailure::ProviderRejectedStatus;
+        writeProviderForensics(exchange, /*envelopeStageReached=*/true,
+                               /*envelopeOk=*/false, /*extractedContent=*/{},
+                               /*parserResult=*/nullptr);
         core::ProviderExtractionResult failed;
         failed.ok = false;
         failed.failure = lastFailure_;
@@ -674,9 +900,12 @@ core::ProviderExtractionResult ModelScopeCandidateAdapter::extract(
     // The raw provider body is used HERE ONLY and never stored: it does not
     // leave this call scope (H4 / §14).
     const ProviderContentExtraction content =
-        extractModelScopeResponseContent(exchange.responseBody);
+        extractChatCompletionsResponseContent(exchange.responseBody);
     if (!content.ok) {
         lastFailure_ = core::ProviderExtractionFailure::MalformedResponse;
+        writeProviderForensics(exchange, /*envelopeStageReached=*/true,
+                               /*envelopeOk=*/false, /*extractedContent=*/{},
+                               /*parserResult=*/nullptr);
         core::ProviderExtractionResult failed;
         failed.ok = false;
         failed.failure = lastFailure_;
@@ -688,10 +917,12 @@ core::ProviderExtractionResult ModelScopeCandidateAdapter::extract(
     if (!result.ok) {
         lastFailure_ = result.failure;
     }
+    writeProviderForensics(exchange, /*envelopeStageReached=*/true,
+                           /*envelopeOk=*/true, content.content, &result);
     return result;
 }
 
-std::vector<core::CandidateProposal> ModelScopeCandidateAdapter::propose(
+std::vector<core::CandidateProposal> CandidateProviderAdapter::propose(
     const core::ManualDocument &document, std::string_view canonicalExtractedText)
 {
     const core::ExtractionRequest request =

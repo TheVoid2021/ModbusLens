@@ -1,4 +1,4 @@
-#include "ui/candidate/ModelScopeHttpClient.h"
+#include "ui/candidate/ChatCompletionsHttpClient.h"
 
 #include <QByteArray>
 #include <QEventLoop>
@@ -13,14 +13,14 @@
 
 namespace modbuslens::ui {
 
-QtModelScopeHttpClient::QtModelScopeHttpClient(QObject *parent) : QObject(parent)
+QtChatCompletionsHttpClient::QtChatCompletionsHttpClient(QObject *parent) : QObject(parent)
 {
 }
 
-ModelScopeHttpResult QtModelScopeHttpClient::post(
-    const ModelScopeHttpRequest &request)
+ChatCompletionsHttpResult QtChatCompletionsHttpClient::post(
+    const ChatCompletionsHttpRequest &request)
 {
-    ModelScopeHttpResult result;
+    ChatCompletionsHttpResult result;
 
     const QUrl endpoint(QString::fromStdString(request.url));
     if (!endpoint.isValid()

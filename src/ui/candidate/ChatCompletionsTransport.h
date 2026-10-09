@@ -3,7 +3,7 @@
 #include <string>
 
 #include "ui/ai/ExtractionTransport.h"
-#include "ui/candidate/ModelScopeHttpClient.h"
+#include "ui/candidate/ChatCompletionsHttpClient.h"
 
 namespace modbuslens::ui {
 
@@ -25,14 +25,14 @@ namespace modbuslens::ui {
 // C2 domain, so a 401 / 429 / 5xx all surface as the same bounded,
 // non-secret "provider rejected" outcome.
 // ---------------------------------------------------------------------------
-class ModelScopeExtractionTransport : public IExtractionTransport
+class ChatCompletionsTransport : public IExtractionTransport
 {
 public:
     // The ONLY content type the official API-Inference contract accepts for
     // chat completions (verified 2026-09-30 against the official docs).
     static constexpr const char *kJsonContentType = "application/json";
 
-    ModelScopeExtractionTransport(IModelScopeHttpClient &http, std::string endpoint,
+    ChatCompletionsTransport(IChatCompletionsHttpClient &http, std::string endpoint,
                                   std::string bearerToken, int timeoutMs);
 
     [[nodiscard]] Exchange send(std::string_view requestBody) override;
@@ -42,7 +42,7 @@ public:
     [[nodiscard]] int dispatchCount() const { return dispatchCount_; }
 
 private:
-    IModelScopeHttpClient &http_;
+    IChatCompletionsHttpClient &http_;
     std::string endpoint_;
     std::string bearerToken_;
     int timeoutMs_;

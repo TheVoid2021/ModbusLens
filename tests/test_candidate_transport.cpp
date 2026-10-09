@@ -22,22 +22,22 @@
 
 #include "core/candidate/CandidateExtraction.h"
 #include "core/candidate/ProviderExtractionContract.h"
-#include "ui/ai/ModelScopeCandidateAdapter.h"
+#include "ui/ai/CandidateProviderAdapter.h"
 #include "ui/candidate/CandidateExtractionController.h"
-#include "ui/candidate/ModelScopeCandidateRunner.h"
-#include "ui/candidate/ModelScopeExtractionTransport.h"
-#include "ui/candidate/ModelScopeHttpClient.h"
+#include "ui/candidate/CandidateProviderRunner.h"
+#include "ui/candidate/ChatCompletionsTransport.h"
+#include "ui/candidate/ChatCompletionsHttpClient.h"
 #include "ui/profile/ProfileStore.h"
 
 using modbuslens::core::CandidateProposal;
 using modbuslens::core::ManualDocument;
 using modbuslens::core::ProfileFieldTarget;
 using modbuslens::ui::CandidateExtractionController;
-using modbuslens::ui::IModelScopeHttpClient;
-using modbuslens::ui::ModelScopeCandidateRunner;
-using modbuslens::ui::ModelScopeExtractionTransport;
-using modbuslens::ui::ModelScopeHttpRequest;
-using modbuslens::ui::ModelScopeHttpResult;
+using modbuslens::ui::IChatCompletionsHttpClient;
+using modbuslens::ui::CandidateProviderRunner;
+using modbuslens::ui::ChatCompletionsTransport;
+using modbuslens::ui::ChatCompletionsHttpRequest;
+using modbuslens::ui::ChatCompletionsHttpResult;
 using modbuslens::ui::ProfileStore;
 
 namespace {
@@ -105,18 +105,18 @@ std::string envelope(std::string_view assistantContent)
 
 // -------------------------------------------------- TEST-ONLY HTTP client --
 // Captures the exact request the production transport would have dispatched.
-class FakeHttpClient : public IModelScopeHttpClient
+class FakeHttpClient : public IChatCompletionsHttpClient
 {
 public:
-    std::vector<ModelScopeHttpRequest> requests;
+    std::vector<ChatCompletionsHttpRequest> requests;
     int status{200};
     std::string body;
     bool transportOk{true};
 
-    ModelScopeHttpResult post(const ModelScopeHttpRequest &request) override
+    ChatCompletionsHttpResult post(const ChatCompletionsHttpRequest &request) override
     {
         requests.push_back(request);
-        ModelScopeHttpResult result;
+        ChatCompletionsHttpResult result;
         result.status = status;
         result.body = body;
         result.transportOk = transportOk;
@@ -167,7 +167,7 @@ private slots:
     void p01_missingCredentialSendsNothing()
     {
         FakeHttpClient http;
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
 
         const bool started = runner.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -189,15 +189,15 @@ private slots:
         // "missing model" branch is therefore NOT APPLICABLE; what IS tested is
         // that the override is honoured and that the default is not silently
         // replaced by an example model.
-        QCOMPARE(QString::fromStdString(ModelScopeCandidateRunner::configuredModelId()),
+        QCOMPARE(QString::fromStdString(CandidateProviderRunner::configuredModelId()),
                  QStringLiteral("Qwen/Qwen3.5-27B"));
 
         qputenv("MODBUSLENS_MODELSCOPE_MODEL", "Vendor/Configured-Model");
-        QCOMPARE(QString::fromStdString(ModelScopeCandidateRunner::configuredModelId()),
+        QCOMPARE(QString::fromStdString(CandidateProviderRunner::configuredModelId()),
                  QStringLiteral("Vendor/Configured-Model"));
 
         qputenv("MODBUSLENS_MODELSCOPE_MODEL", "   ");
-        QCOMPARE(QString::fromStdString(ModelScopeCandidateRunner::configuredModelId()),
+        QCOMPARE(QString::fromStdString(CandidateProviderRunner::configuredModelId()),
                  QStringLiteral("Qwen/Qwen3.5-27B"));
     }
 
@@ -207,7 +207,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
 
         const bool started = runner.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -217,13 +217,13 @@ private slots:
 
         QVERIFY(http.callCount() == 1);
         const std::string url = http.requests.front().url;
-        QCOMPARE(url, ModelScopeCandidateRunner::officialEndpoint());
+        QCOMPARE(url, CandidateProviderRunner::officialEndpoint());
         QVERIFY(url.rfind("https://api-inference.modelscope.cn/v1/chat/completions", 0)
                 == 0);
         // The seam's only operation is a POST and the production client issues
         // QNetworkAccessManager::post — there is no way to reach the endpoint
         // through this application with any other method.
-        QCOMPARE(ModelScopeCandidateRunner::productionTimeoutMs(), 90000);
+        QCOMPARE(CandidateProviderRunner::productionTimeoutMs(), 90000);
     }
 
     // --------------------------------------------------------------- P04 --
@@ -232,7 +232,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
 
         const bool started = runner.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -252,7 +252,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
 
         const bool started = runner.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -261,7 +261,7 @@ private slots:
         QVERIFY(started);
 
         QCOMPARE(http.requests.front().contentType, std::string{"application/json"});
-        QCOMPARE(std::string{ModelScopeExtractionTransport::kJsonContentType},
+        QCOMPARE(std::string{ChatCompletionsTransport::kJsonContentType},
                  std::string{"application/json"});
     }
 
@@ -271,7 +271,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
 
         const bool started = runner.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -301,7 +301,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
 
@@ -325,7 +325,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
         controller.requestExtractionFor(document, std::string{kManualText});
@@ -349,7 +349,7 @@ private slots:
     {
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
 
@@ -378,7 +378,7 @@ private slots:
     {
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
 
@@ -410,7 +410,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         for (const int status : {401, 403, 429, 500, 503}) {
             FakeHttpClient http;
-            ModelScopeCandidateRunner runner(http);
+            CandidateProviderRunner runner(http);
             CandidateExtractionController controller(runner);
             const ManualDocument document = makeDocument();
 
@@ -441,7 +441,7 @@ private slots:
     {
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
 
@@ -472,7 +472,7 @@ private slots:
 
         FakeHttpClient http;
         http.transportOk = false;
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -490,7 +490,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
 
         std::uint64_t seen = 0;
         const bool started = runner.begin(
@@ -513,7 +513,7 @@ private slots:
     {
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
 
@@ -538,7 +538,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -567,7 +567,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -601,7 +601,7 @@ private slots:
                             ? envelope(extractionContent(kManufacturerValue,
                                                          kManufacturerExcerpt))
                             : std::string{"{\"error\":\"x\"}"};
-            ModelScopeCandidateRunner runner(http);
+            CandidateProviderRunner runner(http);
             CandidateExtractionController controller(runner);
             controller.requestExtractionFor(makeDocument(), std::string{kManualText});
             controller.grantConsent();
@@ -616,7 +616,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -642,7 +642,7 @@ private slots:
         qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
-        ModelScopeCandidateRunner runner(http);
+        CandidateProviderRunner runner(http);
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -659,7 +659,7 @@ private slots:
         // And a fail-closed path still dispatches nothing.
         qunsetenv("MODELSCOPE_API_KEY");
         FakeHttpClient http2;
-        ModelScopeCandidateRunner runner2(http2);
+        CandidateProviderRunner runner2(http2);
         const bool startedWithoutCredential = runner2.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
                 makeDocument(), std::string_view{kManualText}),

@@ -2,6 +2,9 @@
 
 #include <QVariantMap>
 
+#include <QDateTime>
+#include <QFile>
+#include <QStandardPaths>
 #include <algorithm>
 #include <tuple>
 #include <utility>
@@ -28,6 +31,94 @@ constexpr char kFailureNoCanonicalText[] = "no_canonical_text";
 constexpr char kFailureNoExtractableText[] = "no_extractable_text";
 constexpr char kFailureNotConfigured[] = "not_configured";
 constexpr char kFailureNoCandidate[] = "no_candidate";
+
+// ---------------------------------------------------------------------------
+// T034-B1 live RCA — SANITIZED, EXPLICITLY GATED evidence-validation forensics
+// (MODBUSLENS_PROVIDER_FORENSICS=1; unset => ZERO output). Records structural
+// metadata + the REAL refusal branches of the frozen generation-time validator
+// (unsupported_target / empty_value / evidence excerpt not found / not unique)
+// by re-running the SAME deterministic lookup read-only. NEVER logged: value
+// text, evidence text, canonical text, provider response, credentials.
+// Human decision pending: delete before the B1 commit, or converge into a
+// default-off controlled diagnostic.
+// ---------------------------------------------------------------------------
+[[nodiscard]] bool evidenceForensicsEnabled()
+{
+    return qEnvironmentVariable("MODBUSLENS_PROVIDER_FORENSICS")
+           == QLatin1String("1");
+}
+
+[[nodiscard]] int excerptMatchCount(std::string_view canonicalText,
+                                    std::string_view excerpt)
+{
+    if (excerpt.empty()) {
+        return -1; // empty excerpt is its own refusal class
+    }
+    const std::size_t first = canonicalText.find(excerpt);
+    if (first == std::string_view::npos) {
+        return 0;
+    }
+    if (canonicalText.find(excerpt, first + 1) != std::string_view::npos) {
+        return 2; // ambiguous (2+)
+    }
+    return 1;
+}
+
+void writeEvidenceForensics(
+    const std::vector<core::CandidateProposal> &proposals,
+    std::string_view canonicalText,
+    const core::CandidateExtractionResult &result)
+{
+    if (!evidenceForensicsEnabled()) {
+        return;
+    }
+    QString block = QStringLiteral(
+                        "[evidence forensics] %1 (sanitized: enums/lengths/counts only "
+                        "— no value/evidence/canonical text, no provider response)")
+                        .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs));
+    block += QStringLiteral("\n  proposals_count=%1 refused_total=%2 candidates=%3")
+                 .arg(proposals.size())
+                 .arg(result.refusedProposalCount)
+                 .arg(result.candidates.size());
+    for (std::size_t index = 0; index < proposals.size(); ++index) {
+        const core::CandidateProposal &proposal = proposals[index];
+        const QString targetToken = QString::fromUtf8(
+            core::profileFieldTargetToken(proposal.target));
+        const bool unsupported =
+            !core::isC2FirstSliceProfileField(proposal.target);
+        const bool emptyValue = proposal.proposedValue.empty();
+        const int matches =
+            excerptMatchCount(canonicalText, proposal.evidenceExcerpt);
+        QString stage = QStringLiteral("accepted");
+        if (unsupported) {
+            stage = QStringLiteral("schema:unsupported_target");
+        } else if (emptyValue) {
+            stage = QStringLiteral("schema:empty_value");
+        } else if (matches == -1) {
+            stage = QStringLiteral("evidence:evidence_excerpt_missing");
+        } else if (matches == 0) {
+            stage = QStringLiteral("evidence:evidence_not_found");
+        } else if (matches >= 2) {
+            stage = QStringLiteral("evidence:evidence_not_unique");
+        }
+        block += QStringLiteral(
+                     "\n  item[%1] target=%2 value_len=%3 evidence_len=%4 "
+                     "match_count=%5 stage=%6")
+                     .arg(index)
+                     .arg(targetToken)
+                     .arg(static_cast<int>(proposal.proposedValue.size()))
+                     .arg(static_cast<int>(proposal.evidenceExcerpt.size()))
+                     .arg(matches)
+                     .arg(stage);
+    }
+    qWarning().noquote() << block;
+    QFile file(QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+               + QStringLiteral("/modbuslens_provider_forensics.log"));
+    if (file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        file.write(block.toUtf8());
+        file.write("\n");
+    }
+}
 
 // The provider-neutral proposal replay used to feed the ALREADY ACCEPTED
 // SESSION M local Evidence validation. It invents nothing: it hands the
@@ -57,7 +148,7 @@ private:
 CandidateExtractionController::CandidateExtractionController(QObject *parent)
     : QObject(parent)
 {
-    ownedRunner_ = std::make_unique<ModelScopeCandidateRunner>();
+    ownedRunner_ = std::make_unique<CandidateProviderRunner>();
     runner_ = ownedRunner_.get();
 }
 
@@ -588,6 +679,7 @@ void CandidateExtractionController::completeAttempt(
     ProposalReplayProvider provider(done.proposals);
     const core::CandidateExtractionResult validated =
         core::extractProfileFieldCandidates(document, lastCanonicalText_, provider);
+    writeEvidenceForensics(done.proposals, lastCanonicalText_, validated);
 
     if (validated.candidates.empty()) {
         // Evidence rejection counts as a failure (§8): a run that yields

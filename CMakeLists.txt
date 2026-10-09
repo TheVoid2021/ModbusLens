@@ -252,16 +252,18 @@ qt_add_qml_module(modbuslens
         src/ui/manual/ManualDocxTextExtractor.h
         src/ui/manual/ManualDocxTextExtractor.cpp
         src/ui/candidate/CandidateExtractionRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateProviderRunner.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
-        src/ui/candidate/ModelScopeHttpClient.h
-        src/ui/candidate/ModelScopeHttpClient.cpp
-        src/ui/candidate/ModelScopeExtractionTransport.h
-        src/ui/candidate/ModelScopeExtractionTransport.cpp
-        src/ui/ai/ModelScopeCandidateAdapter.h
-        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
+        src/ui/ai/CandidateProviderAdapter.h
+        src/ui/ai/CandidateProviderAdapter.cpp
         src/ui/manualqa/IManualQaRunner.h
         src/ui/manualqa/ManualQaController.h
         src/ui/manualqa/ManualQaController.cpp
@@ -774,8 +776,10 @@ if(BUILD_TESTING)
     # is possible from the automated path.
     add_executable(modbuslens_candidate_adapter_tests
         tests/test_candidate_adapter.cpp
-        src/ui/ai/ModelScopeCandidateAdapter.h
-        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/ai/CandidateProviderAdapter.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/CandidateProviderAdapter.cpp
         src/ui/ai/ExtractionTransport.h
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp)
@@ -802,17 +806,19 @@ if(BUILD_TESTING)
     # ManualStore (never the original file).
     add_executable(modbuslens_candidate_orchestration_tests
         tests/test_candidate_orchestration.cpp
-        src/ui/ai/ModelScopeCandidateAdapter.h
-        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/ai/CandidateProviderAdapter.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/CandidateProviderAdapter.cpp
         src/ui/candidate/CandidateExtractionRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateProviderRunner.h
+        src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
-        src/ui/candidate/ModelScopeHttpClient.h
-        src/ui/candidate/ModelScopeHttpClient.cpp
-        src/ui/candidate/ModelScopeExtractionTransport.h
-        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/manual/ManualStore.h
         src/ui/manual/ManualStore.cpp
         src/ui/manual/ManualImportController.h
@@ -859,17 +865,19 @@ if(BUILD_TESTING)
     # is ever opened and the suite is fully deterministic and offline.
     add_executable(modbuslens_candidate_transport_tests
         tests/test_candidate_transport.cpp
-        src/ui/ai/ModelScopeCandidateAdapter.h
-        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/ai/CandidateProviderAdapter.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/CandidateProviderAdapter.cpp
         src/ui/candidate/CandidateExtractionRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateProviderRunner.h
+        src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
-        src/ui/candidate/ModelScopeHttpClient.h
-        src/ui/candidate/ModelScopeHttpClient.cpp
-        src/ui/candidate/ModelScopeExtractionTransport.h
-        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/manual/ManualStore.h
         src/ui/manual/ManualStore.cpp
         src/ui/manual/ManualImportController.h
@@ -905,6 +913,56 @@ if(BUILD_TESTING)
              COMMAND modbuslens_candidate_transport_tests)
 
     # ---------------------------------------------------------------------------
+    # T034 B1 — provider selection / secret isolation / request-body matrix for
+    # the Candidate chain. Same captured-HTTP determinism as candidate_transport;
+    # the provider is chosen through process-environment inputs only, so every
+    # case is expressible (and fails behaviorally, never by failing to compile)
+    # on the pre-B1 implementation.
+    add_executable(modbuslens_candidate_provider_tests
+        tests/test_candidate_provider_matrix.cpp
+        src/ui/ai/CandidateProviderAdapter.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/CandidateProviderAdapter.cpp
+        src/ui/candidate/CandidateExtractionRunner.h
+        src/ui/candidate/CandidateProviderRunner.h
+        src/ui/candidate/CandidateProviderRunner.cpp
+        src/ui/candidate/CandidateExtractionController.h
+        src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
+        src/ui/manual/ManualStore.h
+        src/ui/manual/ManualStore.cpp
+        src/ui/manual/ManualImportController.h
+        src/ui/manual/ManualImportController.cpp
+        src/ui/manual/ManualTextExtraction.h
+        src/ui/manual/ManualTextExtraction.cpp
+        src/ui/manual/ManualPdfTextExtractor.h
+        src/ui/manual/ManualPdfTextExtractor.cpp
+        src/ui/manual/ManualDocxTextExtractor.h
+        src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_include_directories(modbuslens_candidate_provider_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(modbuslens_candidate_provider_tests PRIVATE
+        modbuslens_core Qt6::Core Qt6::Test Qt6::Network modbuslens_pdfium
+        modbuslens_libzip modbuslens_zlib)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_candidate_provider_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME candidate_provider_matrix
+             COMMAND modbuslens_candidate_provider_tests)
+
+    # ---------------------------------------------------------------------------
     # M12-C C3 FIRST BEHAVIOR SLICE (T027 §81): the Human authority boundary
     # between PendingReview Candidates and the verified Device Profile. Accept
     # goes through evidence revalidation (C3-H3) and a controlled
@@ -914,17 +972,19 @@ if(BUILD_TESTING)
     # there is no fake-AI mode here and no socket is ever opened.
     add_executable(modbuslens_candidate_review_tests
         tests/test_candidate_review.cpp
-        src/ui/ai/ModelScopeCandidateAdapter.h
-        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/ai/CandidateProviderAdapter.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/CandidateProviderAdapter.cpp
         src/ui/candidate/CandidateExtractionRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateProviderRunner.h
+        src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
-        src/ui/candidate/ModelScopeHttpClient.h
-        src/ui/candidate/ModelScopeHttpClient.cpp
-        src/ui/candidate/ModelScopeExtractionTransport.h
-        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/manual/ManualStore.h
         src/ui/manual/ManualStore.cpp
         src/ui/manual/ManualImportController.h
@@ -970,21 +1030,23 @@ if(BUILD_TESTING)
     # are asserted the same way the C3 review suite proves them.
     add_executable(modbuslens_manual_qa_tests
         tests/test_manual_qa.cpp
-        src/ui/ai/ModelScopeCandidateAdapter.h
-        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/ai/CandidateProviderAdapter.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/CandidateProviderAdapter.cpp
         src/ui/agent/ModelScopeAgentClient.h
         src/ui/agent/ModelScopeAgentClient.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
         src/ui/candidate/CandidateExtractionRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateProviderRunner.h
+        src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
-        src/ui/candidate/ModelScopeHttpClient.h
-        src/ui/candidate/ModelScopeHttpClient.cpp
-        src/ui/candidate/ModelScopeExtractionTransport.h
-        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/manualqa/IManualQaRunner.h
         src/ui/manualqa/ManualQaController.h
         src/ui/manualqa/ManualQaController.cpp
@@ -1032,17 +1094,19 @@ if(BUILD_TESTING)
     # delete path through the Qt meta-object, exactly like the QML boundary.
     add_executable(modbuslens_manual_delete_tests
         tests/test_manual_delete.cpp
-        src/ui/ai/ModelScopeCandidateAdapter.h
-        src/ui/ai/ModelScopeCandidateAdapter.cpp
+        src/ui/ai/CandidateProviderAdapter.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/CandidateProviderAdapter.cpp
         src/ui/candidate/CandidateExtractionRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.h
-        src/ui/candidate/ModelScopeCandidateRunner.cpp
+        src/ui/candidate/CandidateProviderRunner.h
+        src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
-        src/ui/candidate/ModelScopeHttpClient.h
-        src/ui/candidate/ModelScopeHttpClient.cpp
-        src/ui/candidate/ModelScopeExtractionTransport.h
-        src/ui/candidate/ModelScopeExtractionTransport.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/manual/ManualStore.h
         src/ui/manual/ManualStore.cpp
         src/ui/manual/ManualImportController.h
