@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "ui/ai/AiProviderProfile.h"
 #include "core/candidate/ProviderExtractionContract.h"
 
 namespace modbuslens::ui {
@@ -48,6 +49,20 @@ public:
     [[nodiscard]] virtual bool begin(const core::ExtractionRequest &request,
                                      std::uint64_t generation,
                                      const CompletionHandler &onDone) = 0;
+
+    // T034-B2.1: saved-GUI configuration handoff (Human §10/§11). The default
+    // is a no-op so existing deterministic runners stay valid; the production
+    // runner uses them to rebuild its transport/adapter on hot switch. The
+    // secret arrives already resolved (read from the credential store by the
+    // runtime configuration owner) and is never stored by the controller.
+    virtual void applyExplicitConfig(AiProviderKind kind, std::string model,
+                                     std::string secret)
+    {
+        (void)kind;
+        (void)model;
+        (void)secret;
+    }
+    virtual void clearExplicitConfig() {}
 
     // Diagnostic counter for the automated tests: how many provider-level
     // attempts were actually started. Zero is the number that proves the

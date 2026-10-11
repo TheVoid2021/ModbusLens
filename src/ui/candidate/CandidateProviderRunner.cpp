@@ -54,13 +54,10 @@ int CandidateProviderRunner::productionTimeoutMs()
 
 std::optional<AiProviderKind> CandidateProviderRunner::resolveProviderKind()
 {
-    // empty/unset = modelscope (backward compatibility with the pre-B1 world);
-    // anything that is not a known token = FAIL CLOSED (T034-B1 test G).
-    const QString token = envValue(kAiProviderEnv);
-    if (token.isEmpty()) {
-        return AiProviderKind::ModelScope;
-    }
-    return aiProviderKindFromConfigToken(token.toStdString());
+    // Frozen B1 env fallback semantics, now routed through the provider-
+    // neutral profile layer (single source; the runtime configuration owner
+    // reuses the exact same helper so the two paths cannot drift).
+    return aiProviderEnvKind();
 }
 
 std::string CandidateProviderRunner::configuredSecretFor(AiProviderKind kind)
@@ -74,20 +71,11 @@ std::string CandidateProviderRunner::configuredSecretFor(AiProviderKind kind)
 
 std::string CandidateProviderRunner::configuredModelIdFor(AiProviderKind kind)
 {
-    const QString modern = envValue(kAiModelEnv);
-    if (!modern.isEmpty()) {
-        return modern.toStdString();
-    }
-    if (kind == AiProviderKind::ModelScope) {
-        // LEGACY override: read ONLY in the ModelScope profile.
-        const QString legacy = envValue(kLegacyModelScopeModelEnv);
-        if (!legacy.isEmpty()) {
-            return legacy.toStdString();
-        }
-        return kAcceptedDefaultModelScopeModel;
-    }
-    // DeepSeek: the model id is Human-configured; nothing is invented.
-    return std::string();
+    // Same profile-layer helper the runtime configuration owner uses for the
+    // env-fallback path: MODBUSLENS_AI_MODEL wins for both providers, the
+    // legacy override and the canonical default apply ONLY to ModelScope,
+    // and DeepSeek never gets an invented model.
+    return aiProviderEnvModel(kind);
 }
 
 CandidateProviderRunner::CandidateProviderRunner()
@@ -101,16 +89,49 @@ CandidateProviderRunner::CandidateProviderRunner(IChatCompletionsHttpClient &htt
 {
 }
 
+void CandidateProviderRunner::applyExplicitConfig(AiProviderKind kind,
+                                                  std::string model,
+                                                  std::string secret)
+{
+    // Only a REAL change marks the chain for a rebuild (same-config re-apply
+    // must not reset an in-flight setup).
+    if (!explicitConfig_ || explicitKind_ != kind || explicitModel_ != model
+        || explicitSecret_ != secret) {
+        rewireNeeded_ = true;
+    }
+    explicitConfig_ = true;
+    explicitKind_ = kind;
+    explicitModel_ = std::move(model);
+    explicitSecret_ = std::move(secret);
+}
+
+void CandidateProviderRunner::clearExplicitConfig()
+{
+    if (explicitConfig_) {
+        rewireNeeded_ = true;
+    }
+    explicitConfig_ = false;
+    explicitModel_.clear();
+    explicitSecret_.clear();
+}
+
 void CandidateProviderRunner::ensureWired(AiProviderKind kind,
-                                          const std::string &secret,
                                           const std::string &model)
 {
-    if (adapter_ != nullptr || http_ == nullptr) {
+    if (adapter_ != nullptr && !rewireNeeded_) {
         return;
     }
-    const AiProviderProfile &profile = aiProviderProfile(kind);
+    if (http_ == nullptr) {
+        return;
+    }
+    rewireNeeded_ = false;
+    // T034-B2.1 SLICE B2: the transport no longer binds a plaintext
+    // credential at construction — the bearer token is supplied one-shot per
+    // request (begin() pushes it via setOneShotBearerToken immediately before
+    // dispatch). Wiring depends only on provider/model (endpoint identity).
     transport_ = std::make_unique<ChatCompletionsTransport>(
-        *http_, profile.chatCompletionsEndpoint, secret, kProductionTimeoutMs);
+        *http_, aiProviderProfile(kind).chatCompletionsEndpoint,
+        kProductionTimeoutMs);
     CandidateAdapterConfig config;
     config.kind = kind;
     config.modelId = model;
@@ -131,23 +152,50 @@ bool CandidateProviderRunner::begin(const core::ExtractionRequest &request,
     // Fail-closed gate. Every gap is checked BEFORE anything is built or sent,
     // so none can degrade into an authenticated request and the provider
     // dispatch count stays at zero.
-    const std::optional<AiProviderKind> kind = resolveProviderKind();
-    if (!kind.has_value()) {
-        return false;
-    }
-    const std::string secret = configuredSecretFor(*kind);
-    if (secret.empty()) {
-        return false;
-    }
-    const std::string model = configuredModelIdFor(*kind);
-    if (model.empty()) {
-        return false;
+    //
+    // B2.1: with an EXPLICIT (saved GUI) configuration the provider/model/
+    // secret have already been resolved by the runtime configuration owner
+    // (applyExplicitConfig) — including the secret, which was read from the
+    // credential store at request time. Without one, the frozen B1
+    // environment fallback applies verbatim.
+    std::string model;
+    std::string secret;
+    AiProviderKind kind = explicitKind_;
+    if (explicitConfig_) {
+        model = explicitModel_;
+        // ONE-SHOT consumption (T034-B2.1 SLICE B2): take the pending secret
+        // for THIS request and immediately empty the runner-held copy. All
+        // early-return paths below keep the member empty; a subsequent begin
+        // without a fresh credential fails closed (LIFE-01).
+        secret = explicitSecret_;
+        explicitSecret_.clear();
+        if (secret.empty()) {
+            return false;
+        }
+    } else {
+        const std::optional<AiProviderKind> envKind = resolveProviderKind();
+        if (!envKind.has_value()) {
+            return false;
+        }
+        kind = *envKind;
+        // Env fallback secret is read per request and never stored in a
+        // runner member (same one-shot lifetime as the explicit path).
+        secret = configuredSecretFor(kind);
+        if (secret.empty()) {
+            return false;
+        }
+        model = configuredModelIdFor(kind);
+        if (model.empty()) {
+            return false;
+        }
     }
 
-    ensureWired(*kind, secret, model);
+    ensureWired(kind, model);
     if (adapter_ == nullptr) {
         return false;
     }
+    // Hand the one-shot token to the transport right before dispatch.
+    transport_->setOneShotBearerToken(std::move(secret));
 
     ++beginCount_;
     // The accepted SESSION N chain does the real work: wire body, envelope

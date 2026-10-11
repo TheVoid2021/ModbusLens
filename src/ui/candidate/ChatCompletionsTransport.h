@@ -32,8 +32,17 @@ public:
     // chat completions (verified 2026-09-30 against the official docs).
     static constexpr const char *kJsonContentType = "application/json";
 
+    // T034-B2.1 SECURITY CORRECTION SLICE B2: the transport no longer binds
+    // a plaintext credential at construction. The bearer token is supplied
+    // PER REQUEST via setOneShotBearerToken() and consumed (cleared) by the
+    // next send() — the transport never retains it beyond one dispatch.
     ChatCompletionsTransport(IChatCompletionsHttpClient &http, std::string endpoint,
-                                  std::string bearerToken, int timeoutMs);
+                                  int timeoutMs);
+
+    // One-shot credential supply for the NEXT send() only. Consumed and
+    // cleared by send(); a send() without a pending one-shot token fails
+    // closed (transportOk=false, no dispatch, dispatchCount_ unchanged).
+    void setOneShotBearerToken(std::string token);
 
     [[nodiscard]] Exchange send(std::string_view requestBody) override;
 
@@ -44,7 +53,10 @@ public:
 private:
     IChatCompletionsHttpClient &http_;
     std::string endpoint_;
-    std::string bearerToken_;
+    // One-shot credential slot: populated per request, cleared by send().
+    // Empty outside the request window — the transport retains no plaintext
+    // credential between requests (T034-B2.1 security invariant).
+    std::string oneShotBearerToken_;
     int timeoutMs_;
     int dispatchCount_{0};
 };

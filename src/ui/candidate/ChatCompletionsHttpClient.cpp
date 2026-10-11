@@ -58,7 +58,9 @@ ChatCompletionsHttpResult QtChatCompletionsHttpClient::post(
     timeoutTimer.setSingleShot(true);
     const int boundedMs =
         std::max(1, std::min(request.timeoutMs, std::numeric_limits<int>::max()));
+    bool timedOut = false;
     QObject::connect(&timeoutTimer, &QTimer::timeout, &loop, [&]() {
+        timedOut = true;
         reply->abort();
         loop.quit();
     });
@@ -73,6 +75,11 @@ ChatCompletionsHttpResult QtChatCompletionsHttpClient::post(
         result.status = status;
         result.transportOk = true;
         result.body = reply->readAll().toStdString();
+    } else if (timedOut) {
+        // Distinguish "the bounded wait expired" from any other transport
+        // failure (DNS/TLS/refused): the timeout owner fired and there is no
+        // HTTP status at all.
+        result.timedOut = true;
     }
     // status == 0 => transport-level failure (DNS / TLS / timeout / abort):
     // transportOk stays false and no response body is surfaced.

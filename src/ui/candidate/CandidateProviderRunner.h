@@ -85,15 +85,30 @@ public:
     // (0 on every fail-closed path).
     [[nodiscard]] int dispatchCount() const;
 
+    // ---- B2.1 explicit (saved GUI) configuration --------------------------
+    // When the runtime configuration owner resolves a saved provider/model/
+    // secret, it applies them HERE before begin(); they take precedence over
+    // the env fallback and survive until replaced or cleared. Every change
+    // marks the transport/adapter for a rebuild so a hot switch takes effect
+    // on the NEXT request without a restart (Human §11).
+    void applyExplicitConfig(AiProviderKind kind, std::string model,
+                             std::string secret);
+    void clearExplicitConfig();
+
 private:
-    void ensureWired(AiProviderKind kind, const std::string &secret,
-                     const std::string &model);
+    void ensureWired(AiProviderKind kind, const std::string &model);
 
     std::unique_ptr<QtChatCompletionsHttpClient> ownedHttp_;
     IChatCompletionsHttpClient *http_{nullptr};
     std::unique_ptr<ChatCompletionsTransport> transport_;
     std::unique_ptr<CandidateProviderAdapter> adapter_;
     int beginCount_{0};
+    // B2.1 explicit configuration state (saved GUI path).
+    bool explicitConfig_{false};
+    bool rewireNeeded_{false};
+    AiProviderKind explicitKind_{AiProviderKind::ModelScope};
+    std::string explicitModel_;
+    std::string explicitSecret_;
 };
 
 } // namespace modbuslens::ui

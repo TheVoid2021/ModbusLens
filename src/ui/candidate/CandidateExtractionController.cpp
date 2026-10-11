@@ -1,5 +1,7 @@
 #include "ui/candidate/CandidateExtractionController.h"
 
+#include "ui/ai/AiRuntimeConfiguration.h"
+
 #include <QVariantMap>
 
 #include <QDateTime>
@@ -181,9 +183,79 @@ void CandidateExtractionController::setProfileController(
     if (profileController_ == controller) {
         return;
     }
+
     profileController_ = controller;
     emit profileControllerChanged();
 }
+
+QObject *CandidateExtractionController::runtimeConfiguration() const
+{
+    return runtimeConfiguration_; // AiRuntimeConfiguration IS-A QObject
+}
+
+void CandidateExtractionController::setRuntimeConfiguration(QObject *configuration)
+{
+    auto *casted = qobject_cast<AiRuntimeConfiguration *>(configuration);
+    if (runtimeConfiguration_ == casted) {
+        return; // same owner re-assigned: no state change, no connection churn
+    }
+    // T034-B2.1 slice C1.2 — Human-frozen PROVENANCE RULE: an in-flight
+    // request belongs to the runtime configuration owner that existed when
+    // the request started. An owner identity change (A -> B or A -> nullptr)
+    // while an attempt is Running makes that attempt obsolete IMMEDIATELY;
+    // its epoch is NEVER rebased to the new owner's revision. The old
+    // callback stays permanently stale through the invalidated attempt
+    // identity (generation 0) and the idle state — NEVER through the
+    // revision guard, which is conditional on having an owner.
+    const bool attemptWasRunning = state_ == State::Running;
+    if (configurationConnection_) {
+        QObject::disconnect(configurationConnection_);
+        configurationConnection_ = {};
+    }
+    runtimeConfiguration_ = casted;
+    if (attemptWasRunning) {
+        invalidateActiveAttempt();
+    }
+    if (runtimeConfiguration_ != nullptr) {
+        configurationConnection_ = connect(
+            runtimeConfiguration_, &AiRuntimeConfiguration::configurationChanged,
+            this, &CandidateExtractionController::handleConfigurationChanged);
+    }
+    emit runtimeConfigurationChanged();
+}
+
+void CandidateExtractionController::invalidateActiveAttempt()
+{
+    // Explicitly invalidate the attempt identity: a late completion for the
+    // discarded attempt is rejected by BOTH existing guards (generation no
+    // longer matches activeAttempt_; state is no longer Running) — the
+    // completion can never publish. The physical provider request may still
+    // finish on its own: NETWORK CANCEL remains NOT IMPLEMENTED by design.
+    activeAttempt_.generation = 0;
+    activeAttempt_.documentId.clear();
+    activeAttempt_.contentHash.clear();
+    setState(State::Idle, QString(), QString());
+}
+
+void CandidateExtractionController::handleConfigurationChanged()
+{
+    // T034-B2.1 slice C1 — Human-frozen convergence semantics: when the
+    // configuration epoch of the IN-FLIGHT attempt is successfully replaced
+    // (provider/model save, credential save/replace/delete), the attempt is
+    // obsolete IMMEDIATELY. The controller rests at idle — never failed,
+    // never succeeded, nothing published, nothing auto-restarted, prior
+    // Candidate results / Profile / Manual state untouched. States outside
+    // Running are left alone: an unrelated settings change must not rewrite
+    // them for bookkeeping.
+    if (state_ != State::Running || runtimeConfiguration_ == nullptr) {
+        return;
+    }
+    if (runtimeConfiguration_->configRevision() == pendingConfigRevision_) {
+        return;
+    }
+    invalidateActiveAttempt();
+}
+
 
 void CandidateExtractionController::setReviewError(QString token, QString text)
 {
@@ -626,6 +698,22 @@ void CandidateExtractionController::beginAttempt(
     const core::ExtractionRequest request =
         core::buildC2FirstSliceExtractionRequest(document, canonicalExtractedText);
 
+    // ---- T034-B2.1 Global AI Configuration (Human §10/§11) --------------
+    // Precedence: saved UI configuration (+ Credential Manager) wins; the B1
+    // environment fallback applies ONLY when nothing is saved; the snapshot
+    // revision is what makes a post-switch completion stale.
+    if (runtimeConfiguration_ != nullptr) {
+        const std::optional<AiRuntimeConfiguration::ResolvedRequestConfig>
+            resolved = runtimeConfiguration_->resolveRequestConfig();
+        pendingConfigRevision_ = runtimeConfiguration_->configRevision();
+        if (resolved.has_value()) {
+            runner_->applyExplicitConfig(resolved->kind, resolved->model,
+                                         resolved->secret);
+        } else {
+            runner_->clearExplicitConfig();
+        }
+    }
+
     setState(State::Running, QString(), QString());
 
     if (runner_ == nullptr) {
@@ -656,6 +744,18 @@ void CandidateExtractionController::completeAttempt(
         return;
     }
     if (state_ != State::Running) {
+        return;
+    }
+    // ---- T034-B2.1 config-revision stale guard (Human §12) -------------
+    // A completion produced under an older configuration (the user switched
+    // provider/model/credential while this attempt was in flight) must never
+    // be presented as the result of the NEW configuration. Slice C1 added the
+    // immediate Running->idle convergence on configurationChanged; this guard
+    // remains as defense in depth — a late obsolete completion is now
+    // typically already rejected by the generation/state guards above, and
+    // this check also covers any path that could bypass them.
+    if (runtimeConfiguration_ != nullptr
+        && runtimeConfiguration_->configRevision() != pendingConfigRevision_) {
         return;
     }
 

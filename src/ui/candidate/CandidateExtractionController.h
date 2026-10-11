@@ -18,6 +18,8 @@
 
 namespace modbuslens::ui {
 
+class AiRuntimeConfiguration;
+
 // ---------------------------------------------------------------------------
 // M12-C C2 THIRD SLICE — production extraction ORCHESTRATION (T027 §70).
 //
@@ -75,6 +77,16 @@ class CandidateExtractionController : public QObject
     // what will never be sent.
     Q_PROPERTY(QString consentScopeText READ consentScopeText CONSTANT)
 
+    // T034-B2.1: the Global AI Configuration owner (optional; nullptr keeps
+    // the frozen B1 environment-fallback behavior, which is exactly what the
+    // deterministic suite exercises). When set, every attempt resolves the
+    // saved provider/model/credential through it and snapshots the config
+    // revision; a completion whose revision no longer matches is STALE and is
+    // discarded (Human §12) — an old-config response can never contaminate a
+    // new-configuration session.
+    Q_PROPERTY(QObject *runtimeConfiguration READ runtimeConfiguration WRITE
+                   setRuntimeConfiguration NOTIFY runtimeConfigurationChanged)
+
 public:
     // PRODUCTION: owns the real ModelScope runner.
     explicit CandidateExtractionController(QObject *parent = nullptr);
@@ -124,6 +136,9 @@ public:
     [[nodiscard]] QVariantList candidates() const;
     [[nodiscard]] int candidateCount() const;
     [[nodiscard]] QString consentScopeText() const;
+
+    [[nodiscard]] QObject *runtimeConfiguration() const;
+    void setRuntimeConfiguration(QObject *configuration);
 
     // --- the Human trigger (§7) ------------------------------------------
     // Without a grant for the selected document/content this stops at
@@ -247,6 +262,17 @@ private:
     void beginAttempt(const core::ManualDocument &document,
                       const std::string &canonicalExtractedText);
     void completeAttempt(const ICandidateExtractionRunner::Completion &done);
+    // T034-B2.1 slice C1: convergence handler for
+    // AiRuntimeConfiguration::configurationChanged. When the configuration
+    // epoch of the IN-FLIGHT attempt is replaced, the attempt becomes
+    // obsolete immediately and the controller rests at idle (never
+    // failed/succeeded, nothing published, nothing restarted).
+    void handleConfigurationChanged();
+    // T034-B2.1 slice C1.2: the ONE invalidation invariant shared by the
+    // convergence handler and owner-swap path — the active attempt identity
+    // becomes impossible for any old completion to match, and the controller
+    // rests at idle.
+    void invalidateActiveAttempt();
     [[nodiscard]] bool isConsentGranted(const std::string &documentId,
                                         const std::string &contentHash) const;
     static QVariantMap candidateToVariant(
@@ -313,6 +339,19 @@ private:
     std::vector<std::pair<std::string, std::string>> grantedConsents_;
     std::string candidatesDocumentId_;
     std::string candidatesContentHash_;
+
+    // T034-B2.1: Global AI Configuration owner (optional; nullptr = frozen B1
+    // env-fallback behavior) + the config revision snapshot of the attempt in
+    // flight (Human §11/§12 stale-completion guard).
+    AiRuntimeConfiguration *runtimeConfiguration_{nullptr};
+    qint64 pendingConfigRevision_{0};
+    // T034-B2.1 slice C1: the ONE configurationChanged connection this
+    // controller owns (re-wired atomically by setRuntimeConfiguration;
+    // lifetime-safe through the context-object receiver).
+    QMetaObject::Connection configurationConnection_;
+
+signals:
+    void runtimeConfigurationChanged();
 };
 
 } // namespace modbuslens::ui

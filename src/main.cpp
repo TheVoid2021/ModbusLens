@@ -40,12 +40,17 @@
 #include "ui/profile/ProfileStore.h"
 #include "ui/manual/ManualStore.h"
 #include "ui/candidate/CandidateExtractionController.h"
+#include "ui/ai/AiRuntimeConfiguration.h"
+#include "ui/ai/AiSettingsController.h"
+#include "ui/ai/WindowsAiCredentialStore.h"
 #include "ui/manualqa/ManualQaController.h"
 #include "ui/candidate/CandidateProviderRunner.h"
 
 #include <zip.h>
 
 #include <functional>
+#include <map>
+#include <memory>
 
 namespace {
 
@@ -4354,7 +4359,9 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
         case 148: {
-            // S2: the compact rail — six entries, final order and enablement.
+            // S2: the compact rail — seven entries, final order and
+            // enablement. The seventh entry is the intended T034-B2.1 AI
+            // Settings workspace (Main.qml Human §2 contract).
             for (int i = 0; i <= 4; ++i) {
                 auto *item = findNamedItem(
                     roots, QStringLiteral("navItem_%1").arg(i));
@@ -4371,28 +4378,82 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 fail(QStringLiteral("NAVFAIL scenario S2: navItem_5 (Device) "
                                     "must be enabled (M12-B profile "
                                     "workspace)"));
+            auto *aiSettings = findNamedItem(roots,
+                                             QStringLiteral("navItem_6"));
+            if (!aiSettings)
+                fail(QStringLiteral("NAVFAIL scenario S2: navItem_6 (AI "
+                                    "Settings) not found"));
+            else if (!aiSettings->property("enabled").toBool())
+                fail(QStringLiteral("NAVFAIL scenario S2: navItem_6 (AI "
+                                    "Settings) must be enabled (T034-B2.1 "
+                                    "workspace)"));
             if (rootObj->property("workspaceTransactionsIndex").toInt() != 0
-                || rootObj->property("workspaceDeviceIndex").toInt() != 5)
+                || rootObj->property("workspaceDeviceIndex").toInt() != 5
+                || rootObj->property("workspaceAiSettingsIndex").toInt() != 6)
                 fail(QStringLiteral("NAVFAIL scenario S2: the centralized index "
-                                    "contract is Transactions=%1 Device=%2, "
-                                    "expected 0/5")
+                                    "contract is Transactions=%1 Device=%2 "
+                                    "AiSettings=%3, expected 0/5/6")
                          .arg(rootObj->property("workspaceTransactionsIndex")
                                   .toInt())
                          .arg(rootObj->property("workspaceDeviceIndex")
+                                  .toInt())
+                         .arg(rootObj->property("workspaceAiSettingsIndex")
                                   .toInt()));
             qInfo().noquote()
                 << QStringLiteral("NAV [scenario S2]: rail = Transactions(0) "
                                   "Dashboard(1) Communication(2) Replay(3) "
-                                  "Diagnosis(4) Device(5, M12-B)");
+                                  "Diagnosis(4) Device(5, M12-B) "
+                                  "AiSettings(6, T034-B2.1)");
             break;
         }
         case 149: {
-            // S3 + S4: no Legacy nav entry, no Legacy statistics instance, no
-            // Legacy surplus owner anywhere in the runtime tree.
-            if (findNamedItem(roots, QStringLiteral("navItem_6")))
-                fail(QStringLiteral("NAVFAIL scenario S3: navItem_6 still exists "
-                                    "— the rail must be compacted to six "
-                                    "entries"));
+            // S3 + S4: the seventh rail entry is the INTENDED T034-B2.1 AI
+            // Settings workspace (Main.qml Human §2 contract:
+            // workspaceAiSettingsIndex = 6), NOT a Legacy remnant. The
+            // Legacy-retirement protection now applies to navItem_7+ (no
+            // eighth-or-later entry in the current product contract), while
+            // the original S4 checks stay untouched.
+            auto *aiSettings = findNamedItem(roots,
+                                             QStringLiteral("navItem_6"));
+            if (!aiSettings)
+                fail(QStringLiteral("NAVFAIL scenario S3: navItem_6 (AI "
+                                    "Settings) not found — the T034-B2.1 "
+                                    "contract requires the seventh rail "
+                                    "entry"));
+            else if (!aiSettings->property("enabled").toBool())
+                fail(QStringLiteral("NAVFAIL scenario S3: navItem_6 (AI "
+                                    "Settings) must be enabled"));
+            if (rootObj->property("workspaceAiSettingsIndex").toInt() != 6)
+                fail(QStringLiteral("NAVFAIL scenario S3: "
+                                    "workspaceAiSettingsIndex=%1, expected 6")
+                         .arg(rootObj->property("workspaceAiSettingsIndex")
+                                  .toInt()));
+            // Identity proof: navItem_6 must carry the AI Settings entry
+            // label, so the check proves the intended entry — not merely that
+            // some seventh item exists.
+            const std::function<bool(QQuickItem *)> hasAiLabel =
+                [&](QQuickItem *item) -> bool {
+                if (!item)
+                    return false;
+                if (item->property("text").toString()
+                    == QStringLiteral("AI 设置"))
+                    return true;
+                for (QQuickItem *child : item->childItems())
+                    if (hasAiLabel(child))
+                        return true;
+                return false;
+            };
+            if (aiSettings && !hasAiLabel(aiSettings))
+                fail(QStringLiteral("NAVFAIL scenario S3: navItem_6 does not "
+                                    "carry the AI Settings entry label"));
+            for (int i = 7; i <= 9; ++i) {
+                if (findNamedItem(roots,
+                                  QStringLiteral("navItem_%1").arg(i)))
+                    fail(QStringLiteral("NAVFAIL scenario S3: navItem_%1 must "
+                                        "not exist (no eighth-or-later rail "
+                                        "entry in the current product "
+                                        "contract)").arg(i));
+            }
             if (findNamedItem(roots,
                               QStringLiteral("statisticsOverview_legacy")))
                 fail(QStringLiteral("NAVFAIL scenario S4: the legacy "
@@ -4402,9 +4463,10 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                     "exists — the Legacy column remnants were "
                                     "not removed"));
             qInfo().noquote()
-                << QStringLiteral("NAV [scenario S3/S4]: legacy nav count = 0, "
-                                  "legacy StatisticsOverview instance absent, "
-                                  "legacyTailSpacer absent");
+                << QStringLiteral("NAV [scenario S3/S4]: navItem_6 = AI "
+                                  "Settings (index 6, intended), navItem_7+ "
+                                  "absent, legacy StatisticsOverview instance "
+                                  "absent, legacyTailSpacer absent");
             break;
         }
         case 150: {
@@ -12313,7 +12375,12 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                 fail(QStringLiteral("FOCUSFAIL prod-write: %1 is Tab-reachable "
                                     "while the FC06 tab is active").arg(inactive));
         }
-        if (tabTo(QStringLiteral("writeTab10"), 20) < 0)
+        // T034-B2.1: the rail now has SEVEN entries, so every full Tab cycle
+        // costs one extra press. The preceding write06UnitSpin lookup already
+        // consumed the full retired six-entry budget (20) — size this
+        // reachability bound to the intended seven-entry rail cycle (finite;
+        // a broken focus loop must still fail).
+        if (tabTo(QStringLiteral("writeTab10"), 40) < 0)
             fail(QStringLiteral("FOCUSFAIL prod-write: the FC16 tab button is not "
                                 "Tab-reachable"));
         note(QStringLiteral("FOCUS [prod-write] PASS: inactive-tab FC16 inputs are "
@@ -12413,6 +12480,10 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     // FK: per-type keyboard-focus indication, machine level (activeFocus/
     // visualFocus -> indicator property/state).
+    // T034-B2.1-CORR-CTEST3: the traversal result is shared with the next
+    // step so the unfocused-border assertion is skipped (not cascaded) when
+    // the forward traversal never acquired the target.
+    bool fkTraversalReached = false;
     push([&]() {
         // AppButton, secondary tone (AppBar Clear Results)
         selectWorkspace(0);
@@ -12424,12 +12495,18 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         }
         // the anchor click carries a MOUSE focus reason (visualFocus=false by
         // design), so reach the button by FORWARD traversal and prove it is
-        // the focused item by pointer identity before reading the border
+        // the focused item by pointer identity before reading the border.
+        // T034-B2.1: the rail now has SEVEN entries (AI Settings at index 6),
+        // so one full traversal cycle back to appBarClearResults costs nine
+        // presses (AppBar + 7 rail stops + transactionsList). The bound stays
+        // finite — a broken focus loop must still fail — but is sized to the
+        // intended seven-entry rail instead of the retired six-entry cycle.
         bool onButton = false;
-        for (int i = 1; i <= 8 && !onButton; ++i) {
+        for (int i = 1; i <= 16 && !onButton; ++i) {
             tab(true);
             onButton = (focusItem() == clear);
         }
+        fkTraversalReached = onButton;
         const double wFocused = backgroundBorderWidth(clear);
         if (!onButton)
             fail(QStringLiteral("FOCUSFAIL FK: forward traversal never reached "
@@ -12446,6 +12523,12 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     });
     push([&]() {
         auto *clear = itemOf(QStringLiteral("appBarClearResults"));
+        if (!fkTraversalReached) {
+            note(QStringLiteral("FOCUS [FK]: unfocused-border assertion "
+                                "skipped — the prerequisite forward traversal "
+                                "never reached appBarClearResults (already "
+                                "reported)"));
+        } else {
         const double w = backgroundBorderWidth(clear);
         if (w != 1.0 || propBool(clear, "visualFocus"))
             fail(QStringLiteral("FOCUSFAIL FK: AppButton after focus moved on: "
@@ -12455,6 +12538,7 @@ int runFocusCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
         else
             note(QStringLiteral("FOCUS [FK] PASS: AppButton unfocused border "
                                 "width=1"));
+        }
         // AppButton, primary tone (Dashboard Run Demo)
         selectWorkspace(1);
     });
@@ -20979,6 +21063,60 @@ int runProfileSemanticCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     return app.exec();
 }
 
+namespace {
+
+// T034-B2.1-CORR-CREDSTORE-ISOLATION: deterministic PROCESS-LOCAL credential
+// store used exclusively by automated harness modes (--qml-* / demo auto-exit).
+// It implements the IAiCredentialStore contract purely in memory:
+//   · no Windows API (no CredReadW / CredWriteW / CredDeleteW)
+//   · no QSettings, no filesystem, no network
+//   · per-provider save / read / delete / existence semantics consistent
+//     with the production store contract (empty secret never overwrites)
+// No Human credential is ever copied into this store (harness modes never
+// receive one), and no credential content is ever logged.
+class InMemoryAiCredentialStore final
+    : public modbuslens::ui::IAiCredentialStore
+{
+public:
+    bool hasCredential(modbuslens::ui::AiProviderKind kind) override
+    {
+        return stored_.find(kind) != stored_.end();
+    }
+
+    bool saveCredential(modbuslens::ui::AiProviderKind kind,
+                        std::string_view secret) override
+    {
+        if (secret.empty()) {
+            return false; // an empty secret must never overwrite a stored key
+        }
+        stored_[kind] = std::string(secret);
+        return true;
+    }
+
+    bool deleteCredential(modbuslens::ui::AiProviderKind kind) override
+    {
+        return stored_.erase(kind) != 0;
+    }
+
+    modbuslens::ui::AiSecretResult readCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        const auto it = stored_.find(kind);
+        if (it == stored_.end()) {
+            return {};
+        }
+        modbuslens::ui::AiSecretResult result;
+        result.ok = true;
+        result.secret = it->second;
+        return result;
+    }
+
+private:
+    std::map<modbuslens::ui::AiProviderKind, std::string> stored_;
+};
+
+} // namespace
+
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
@@ -21040,6 +21178,63 @@ int main(int argc, char *argv[])
     // borders and thin scrollbars actually render.
     QQuickStyle::setStyle(QStringLiteral("Fusion"));
 
+    // T034-B2.1 slice B3b (QML context lifetime ordering): the credential
+    // store and the runtime configuration MUST be declared BEFORE the engine
+    // so C++ reverse destruction order becomes: engine FIRST, runtime
+    // configuration SECOND, credential store LAST. Declaring them after the
+    // engine let the context-property object die while the engine (and any
+    // QML consumer holding the reference) was still alive. No QObject
+    // parenting, no heap ownership — declaration-order correction only.
+    //
+    // T034-B2.1-CORR-CREDSTORE-ISOLATION: automated harness modes select a
+    // deterministic PROCESS-LOCAL credential store BEFORE any store object is
+    // constructed. The recognized harness argument set is EXACT (no wildcards,
+    // no env heuristics); deployment_startup_check is covered automatically
+    // because it launches the candidate with --qml-smoke-test.
+    // Structural result:
+    //   harness mode    → WindowsAiCredentialStore is NEVER constructed
+    //                     (no CredReadW / CredWriteW / CredDeleteW path exists)
+    //   normal launch   → WindowsAiCredentialStore exactly as before
+    // The selected store outlives aiRuntimeConfiguration (declared first,
+    // destroyed last) and lives for the whole main() body below.
+    static const QStringList kHarnessCredentialIsolationArgs = {
+        QStringLiteral("--qml-smoke-test"),
+        QStringLiteral("--qml-geometry-check"),
+        QStringLiteral("--qml-nav-check"),
+        QStringLiteral("--qml-focus-check"),
+        QStringLiteral("--qml-write-foundation-check"),
+        QStringLiteral("--qml-production-write-check"),
+        QStringLiteral("--qml-read-result-check"),
+        QStringLiteral("--qml-read-result-demo"),
+        QStringLiteral("--qml-read-result-demo32"),
+        QStringLiteral("--qml-profile-editor-check"),
+        QStringLiteral("--qml-register-map-check"),
+        QStringLiteral("--qml-active-profile-check"),
+        QStringLiteral("--qml-manual-import-check"),
+        QStringLiteral("--qml-consent-check"),
+        QStringLiteral("--qml-candidate-review-check"),
+        QStringLiteral("--qml-manual-qa-check"),
+        QStringLiteral("--demo-exit-after-ready"),
+    };
+    bool harnessCredentialIsolation = false;
+    const QStringList launchArguments = app.arguments();
+    for (const QString &harnessArg : kHarnessCredentialIsolationArgs) {
+        if (launchArguments.contains(harnessArg)) {
+            harnessCredentialIsolation = true;
+            break;
+        }
+    }
+    std::unique_ptr<modbuslens::ui::IAiCredentialStore> credentialStore;
+    if (harnessCredentialIsolation) {
+        credentialStore = std::make_unique<InMemoryAiCredentialStore>();
+    } else {
+        credentialStore =
+            std::make_unique<modbuslens::ui::WindowsAiCredentialStore>();
+    }
+    modbuslens::ui::AiRuntimeConfiguration aiRuntimeConfiguration(
+        *credentialStore);
+    aiRuntimeConfiguration.loadPersisted();
+
     QQmlApplicationEngine engine;
 
     // M9-A: the DesignSystem token singleton is exposed as an engine context
@@ -21058,6 +21253,17 @@ int main(int argc, char *argv[])
     QQmlEngine::setObjectOwnership(ds, QQmlEngine::CppOwnership);
     ds->setParent(&engine);
     engine.rootContext()->setContextProperty(QStringLiteral("DS"), ds);
+
+    // T034-B2.1: the Global AI Configuration owner (Windows Credential
+    // Manager as the production credential store) is created ONCE above the
+    // engine declaration (slice B3b lifetime ordering) and bound here as a
+    // context property. The AI Settings page binds it for the form; the
+    // Candidate chain resolves every request through it (saved GUI config >
+    // provider-specific env fallback > not_configured). Secrets live ONLY in
+    // the credential store and the C++ request path — never in QSettings,
+    // QML or logs.
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("aiRuntimeConfiguration"), &aiRuntimeConfiguration);
 
     // M10-C2: the ONLY switch that decides whether the hidden write foundation
     // is instantiated. It answers exactly one question — "does this run load

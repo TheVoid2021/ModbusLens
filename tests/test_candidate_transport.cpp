@@ -180,6 +180,43 @@ private slots:
         QCOMPARE(runner.beginCount(), 0);
     }
 
+    // ---------------------------------------------------------- LIFE-02 --
+    // T034-B2.1 SECURITY CORRECTION SLICE B2: a transport instance must not
+    // retain the bearer token across requests. Request B (same transport, no
+    // new credential supplied) must never inherit request A's token.
+    // Pre-fix RED: bearerToken_ is a retained member, so B re-uses A's token.
+    void life02_transportDoesNotRetainBearerToken()
+    {
+        qputenv("MODELSCOPE_API_KEY", "token-A-not-a-real-secret");
+        FakeHttpClient http;
+        http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
+        CandidateProviderRunner runner(http);
+
+        const modbuslens::core::ExtractionRequest request =
+            modbuslens::core::buildC2FirstSliceExtractionRequest(
+                makeDocument(), std::string_view{kManualText});
+        QVERIFY(runner.begin(request, 1, nullptr)); // request A: authenticated
+        QCOMPARE(http.callCount(), 1);
+        QCOMPARE(http.requests.front().bearerToken, std::string{"token-A-not-a-real-secret"});
+
+        // Request B: the runner re-dispatches WITHOUT any new credential
+        // input (the controller only re-resolves on a new beginAttempt; here
+        // we call begin again directly to prove the transport layer alone
+        // cannot resurrect the old token). Post-fix, the one-shot secret has
+        // been consumed and B fails closed / dispatches unauthenticated —
+        // but it must NEVER carry request A's token.
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string("Qwen/Qwen3.5-27B"),
+                                   std::string()); // empty = no credential
+        const bool startedB = runner.begin(request, 2, nullptr);
+        if (startedB) {
+            // If B dispatches at all, it must NOT carry A's token.
+            QVERIFY(http.requests.back().bearerToken
+                    != std::string{"token-A-not-a-real-secret"});
+        }
+        // Under the retained-token defect this fails: B carries A's token.
+    }
+
     // --------------------------------------------------------------- P02 --
     void p02_modelConfigurationSemantics()
     {

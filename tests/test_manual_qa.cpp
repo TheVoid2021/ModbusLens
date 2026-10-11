@@ -10,10 +10,12 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPair>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUrl>
+#include <utility>
 
 #include "core/manualqa/ManualQaContract.h"
 #include "ui/agent/ModelScopeAgentClient.h"
@@ -1033,6 +1035,47 @@ void ManualQaTest::qa32_noPersistenceArtifacts()
 
 void ManualQaTest::qa34_productionRunnerFailsClosedWithoutCredential()
 {
+    // T034-B2.1-CORR-CTEST3 hermetic credential boundary: the fail-closed
+    // assertion requires a credential-free process, but the host may
+    // legitimately carry MODELSCOPE_API_KEY for interactive use. Snapshot the
+    // relevant ambient variables, clear the credential, pin a VALID non-secret
+    // model config, and restore everything in the guard destructor (runs even
+    // when a QVERIFY returns early). The runner's begin() gates ONLY on
+    // MODELSCOPE_API_KEY before any model resolution (kDefaultModel fallback),
+    // so this proves: valid/usable model config + credential ABSENT
+    // => started == false, zero network. It must NOT pass merely because both
+    // model and credential happen to be absent.
+    struct EnvGuard
+    {
+        QList<QPair<QString, QString>> saved;
+        explicit EnvGuard(std::initializer_list<const char *> vars)
+        {
+            for (const char *raw : vars) {
+                const QString name = QString::fromLatin1(raw);
+                const QString value = qEnvironmentVariable(raw);
+                if (!value.isEmpty())
+                    saved.append({name, value});
+                qunsetenv(raw);
+            }
+        }
+        EnvGuard(const EnvGuard &) = delete;
+        EnvGuard &operator=(const EnvGuard &) = delete;
+        ~EnvGuard()
+        {
+            for (const auto &entry : std::as_const(saved))
+                qputenv(entry.first.toUtf8().constData(),
+                        entry.second.toUtf8().constData());
+        }
+    } guard{{"MODELSCOPE_API_KEY", "MODBUSLENS_MODELSCOPE_MODEL",
+             "DEEPSEEK_API_KEY", "MODBUSLENS_AI_PROVIDER",
+             "MODBUSLENS_AI_MODEL"}};
+
+    // Establish a valid, usable, non-secret model configuration: the model
+    // override is explicitly pinned so the test does not rely on the ambient
+    // absence of MODBUSLENS_MODELSCOPE_MODEL either.
+    qputenv("MODBUSLENS_MODELSCOPE_MODEL", "Qwen/Qwen3.5-27B");
+    // Credential stays ABSENT (guard cleared it): fail-closed, zero network.
+
     ModelScopeManualQaRunner runner;
     core::ManualQaRequest request;
     request.question = "test";

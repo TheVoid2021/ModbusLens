@@ -79,4 +79,19 @@ constexpr const char *kLegacyModelScopeModelEnv = "MODBUSLENS_MODELSCOPE_MODEL";
 
 [[nodiscard]] const char *aiProviderSecretEnv(AiProviderKind kind);
 
+// The Human-facing config token ("modelscope"/"deepseek") — used for QSettings
+// persistence and the Credential Manager target namespace.
+[[nodiscard]] const char *aiProviderConfigTokenFor(AiProviderKind kind);
+
+// ---- legacy environment fallback (frozen B1 semantics, Human §10 item 3) ---
+// Resolved ONLY when no saved UI configuration exists. Returns nullopt for an
+// unknown MODBUSLENS_AI_PROVIDER token (fail closed); ModelScope when unset.
+[[nodiscard]] std::optional<AiProviderKind> aiProviderEnvKind();
+
+// Env model resolution for the fallback path: MODBUSLENS_AI_MODEL wins for
+// BOTH providers; the LEGACY MODBUSLENS_MODELSCOPE_MODEL override and the
+// accepted canonical default apply ONLY to ModelScope; DeepSeek has no
+// invented default (empty => the caller fails closed).
+[[nodiscard]] std::string aiProviderEnvModel(AiProviderKind kind);
+
 } // namespace modbuslens::ui

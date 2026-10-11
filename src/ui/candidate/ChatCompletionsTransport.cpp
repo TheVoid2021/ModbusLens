@@ -11,13 +11,19 @@
 namespace modbuslens::ui {
 
 ChatCompletionsTransport::ChatCompletionsTransport(
-    IChatCompletionsHttpClient &http, std::string endpoint, std::string bearerToken,
-    int timeoutMs)
+    IChatCompletionsHttpClient &http, std::string endpoint, int timeoutMs)
     : http_(http),
       endpoint_(std::move(endpoint)),
-      bearerToken_(std::move(bearerToken)),
       timeoutMs_(timeoutMs)
 {
+}
+
+void ChatCompletionsTransport::setOneShotBearerToken(std::string token)
+{
+    // T034-B2.1 SECURITY CORRECTION SLICE B2: per-request credential supply.
+    // The token is consumed (cleared) by the next send() — the transport
+    // retains no plaintext credential between requests.
+    oneShotBearerToken_ = std::move(token);
 }
 
 
@@ -123,15 +129,22 @@ IExtractionTransport::Exchange ChatCompletionsTransport::send(
     std::string_view requestBody)
 {
     Exchange exchange;
+    // One-shot consumption (T034-B2.1): the pending token is taken for THIS
+    // request and the slot cleared immediately — the transport retains no
+    // plaintext credential between requests. A send() without a pending
+    // one-shot token fails closed: nothing dispatched, dispatchCount_
+    // unchanged.
+    std::string bearerToken = std::move(oneShotBearerToken_);
+    oneShotBearerToken_.clear();
     // Fail closed WITHOUT dispatching when there is nothing usable to send
     // with: an empty credential, endpoint or body must never become a request.
-    if (bearerToken_.empty() || requestBody.empty() || endpoint_.empty()) {
+    if (bearerToken.empty() || requestBody.empty() || endpoint_.empty()) {
         return exchange;
     }
 
     ChatCompletionsHttpRequest request;
     request.url = endpoint_;
-    request.bearerToken = bearerToken_;
+    request.bearerToken = bearerToken;
     request.contentType = kJsonContentType;
     request.body = std::string(requestBody);
     request.timeoutMs = timeoutMs_;

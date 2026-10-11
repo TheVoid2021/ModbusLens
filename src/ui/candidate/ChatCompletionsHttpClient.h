@@ -29,6 +29,10 @@ struct ChatCompletionsHttpResult {
     int status{0};           // 0 = no HTTP status at all (transport-level)
     std::string body;
     bool transportOk{false}; // a reply was obtained (any status)
+    // T034-B2.1 (Test Connection): true only when the SINGLE timeout owner
+    // fired (lets the settings UI distinguish a timeout from a network
+    // failure). Does not change any existing semantics.
+    bool timedOut{false};
 };
 
 class IChatCompletionsHttpClient

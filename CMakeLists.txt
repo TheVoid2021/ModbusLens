@@ -196,6 +196,10 @@ target_include_directories(modbuslens PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/u
 target_include_directories(modbuslens PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/candidate"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/manualqa")
+# T034-B2.1: same qmltyperegistrar requirement for the AI Settings owners
+# (AiRuntimeConfiguration / AiSettingsController QML_ELEMENT types).
+target_include_directories(modbuslens PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/ai")
 if(WIN32)
     set(MODBUSLENS_ICO_PATH
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/brand/windows/ModbusLens.ico")
@@ -238,6 +242,7 @@ qt_add_qml_module(modbuslens
         src/ui/qml/pages/DiagnosisPage.qml
         src/ui/qml/pages/TransactionsPage.qml
         src/ui/qml/pages/DeviceProfilePage.qml
+        src/ui/qml/pages/AiSettingsPage.qml
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
@@ -255,6 +260,15 @@ qt_add_qml_module(modbuslens
         src/ui/candidate/CandidateProviderRunner.h
         src/ui/ai/AiProviderProfile.h
         src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/IAiCredentialStore.h
+        src/ui/ai/WindowsAiCredentialStore.h
+        src/ui/ai/WindowsAiCredentialStore.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/AiTestConnection.h
+        src/ui/ai/AiTestConnection.cpp
+        src/ui/ai/AiSettingsController.h
+        src/ui/ai/AiSettingsController.cpp
         src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
@@ -310,7 +324,10 @@ target_include_directories(modbuslens PRIVATE
 # so the app consumes the SAME offline-materialized IMPORTED targets as the tests.
 target_link_libraries(modbuslens PRIVATE
     modbuslens_core Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::SerialPort Qt6::Network
-    modbuslens_pdfium modbuslens_libzip modbuslens_zlib)
+    modbuslens_pdfium modbuslens_libzip modbuslens_zlib
+    # T034-B2.1: Windows Credential Manager (CredWriteW/CredReadW/CredDeleteW)
+    # — a WINDOWS SYSTEM LIBRARY (Human §6), not a third-party dependency.
+    advapi32)
 # Dev-run convenience: the pinned pdfium.dll must sit next to the exe (never resolved
 # from PATH or a toolchain directory). Packaging rounds must ship it as well.
 add_custom_command(TARGET modbuslens POST_BUILD
@@ -815,6 +832,9 @@ if(BUILD_TESTING)
         src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/IAiCredentialStore.h
         src/ui/candidate/ChatCompletionsHttpClient.h
         src/ui/candidate/ChatCompletionsHttpClient.cpp
         src/ui/candidate/ChatCompletionsTransport.h
@@ -874,6 +894,9 @@ if(BUILD_TESTING)
         src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/IAiCredentialStore.h
         src/ui/candidate/ChatCompletionsHttpClient.h
         src/ui/candidate/ChatCompletionsHttpClient.cpp
         src/ui/candidate/ChatCompletionsTransport.h
@@ -929,6 +952,9 @@ if(BUILD_TESTING)
         src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/IAiCredentialStore.h
         src/ui/candidate/ChatCompletionsHttpClient.h
         src/ui/candidate/ChatCompletionsHttpClient.cpp
         src/ui/candidate/ChatCompletionsTransport.h
@@ -963,6 +989,108 @@ if(BUILD_TESTING)
              COMMAND modbuslens_candidate_provider_tests)
 
     # ---------------------------------------------------------------------------
+    # T034-B2.1 — AI Settings foundation: credential store (fake), runtime
+    # configuration precedence/revision, settings controller, test-connection
+    # mapping. All deterministic offline; the Windows Credential Manager
+    # backend itself is production-only (tests inject the fake store).
+    add_executable(modbuslens_ai_settings_tests
+        tests/test_ai_settings.cpp
+        tests/FakeAiCredentialStore.h
+        src/ui/ai/IAiCredentialStore.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/AiTestConnection.h
+        src/ui/ai/AiTestConnection.cpp
+        src/ui/ai/AiSettingsController.h
+        src/ui/ai/AiSettingsController.cpp
+        src/ui/candidate/CandidateProviderRunner.h
+        src/ui/candidate/CandidateProviderRunner.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
+        src/ui/ai/CandidateProviderAdapter.h
+        src/ui/ai/CandidateProviderAdapter.cpp
+        src/ui/ai/ExtractionTransport.h
+        src/ui/candidate/CandidateExtractionRunner.h
+        src/ui/candidate/CandidateExtractionController.h
+        src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/manual/ManualStore.h
+        src/ui/manual/ManualStore.cpp
+        src/ui/manual/ManualImportController.h
+        src/ui/manual/ManualImportController.cpp
+        src/ui/manual/ManualTextExtraction.h
+        src/ui/manual/ManualTextExtraction.cpp
+        src/ui/manual/ManualPdfTextExtractor.h
+        src/ui/manual/ManualPdfTextExtractor.cpp
+        src/ui/manual/ManualDocxTextExtractor.h
+        src/ui/manual/ManualDocxTextExtractor.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_include_directories(modbuslens_ai_settings_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(modbuslens_ai_settings_tests PRIVATE
+        modbuslens_core Qt6::Core Qt6::Test Qt6::Network modbuslens_pdfium
+        modbuslens_libzip modbuslens_zlib)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_ai_settings_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME ai_settings
+             COMMAND modbuslens_ai_settings_tests)
+
+    # ---------------------------------------------------------------------------
+    # T034-B2.1 D7-SEAM: isolated REAL-QML seam for the REAL AiSettingsPage.qml.
+    # Loads the production page straight from the repository source tree via a
+    # configure-time source-path header (no page copy, no app qmlcache /
+    # qmltyperegistrar dependency). Credential backing = FakeAiCredentialStore;
+    # isolated INI settings; Test Connection never invoked.
+    # ---------------------------------------------------------------------------
+    set(D7_QML_SOURCE_HEADER
+        "${CMAKE_CURRENT_BINARY_DIR}/d7_qml_source_dir.h")
+    file(WRITE "${D7_QML_SOURCE_HEADER}"
+         "#define D7_QML_SOURCE_DIR \"${CMAKE_CURRENT_SOURCE_DIR}\"\n")
+
+    add_executable(modbuslens_ai_settings_qml_tests
+        tests/test_ai_settings_qml.cpp
+        tests/FakeAiCredentialStore.h
+        src/ui/ai/IAiCredentialStore.h
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/AiTestConnection.h
+        src/ui/ai/AiTestConnection.cpp
+        src/ui/ai/AiSettingsController.h
+        src/ui/ai/AiSettingsController.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp)
+    target_include_directories(modbuslens_ai_settings_qml_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(modbuslens_ai_settings_qml_tests PRIVATE
+        Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::Test
+        Qt6::Network)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_ai_settings_qml_tests PRIVATE
+            -Wall -Wextra)
+    endif()
+
+    add_test(NAME ai_settings_qml
+             COMMAND modbuslens_ai_settings_qml_tests)
+    set_tests_properties(ai_settings_qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1")
+
+    # ---------------------------------------------------------------------------
     # M12-C C3 FIRST BEHAVIOR SLICE (T027 §81): the Human authority boundary
     # between PendingReview Candidates and the verified Device Profile. Accept
     # goes through evidence revalidation (C3-H3) and a controlled
@@ -981,6 +1109,9 @@ if(BUILD_TESTING)
         src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/IAiCredentialStore.h
         src/ui/candidate/ChatCompletionsHttpClient.h
         src/ui/candidate/ChatCompletionsHttpClient.cpp
         src/ui/candidate/ChatCompletionsTransport.h
@@ -1043,6 +1174,9 @@ if(BUILD_TESTING)
         src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/IAiCredentialStore.h
         src/ui/candidate/ChatCompletionsHttpClient.h
         src/ui/candidate/ChatCompletionsHttpClient.cpp
         src/ui/candidate/ChatCompletionsTransport.h
@@ -1103,6 +1237,9 @@ if(BUILD_TESTING)
         src/ui/candidate/CandidateProviderRunner.cpp
         src/ui/candidate/CandidateExtractionController.h
         src/ui/candidate/CandidateExtractionController.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/IAiCredentialStore.h
         src/ui/candidate/ChatCompletionsHttpClient.h
         src/ui/candidate/ChatCompletionsHttpClient.cpp
         src/ui/candidate/ChatCompletionsTransport.h

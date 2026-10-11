@@ -20,6 +20,7 @@
 #include "ui/candidate/CandidateProviderRunner.h"
 
 using modbuslens::core::buildC2FirstSliceExtractionRequest;
+using modbuslens::ui::AiProviderKind;
 
 namespace {
 
@@ -434,6 +435,41 @@ private slots:
                      .value(QStringLiteral("type"))
                      .toString(),
                  QStringLiteral("disabled"));
+    }
+
+    // LIFE-01 (T034-B2.1 SECURITY CORRECTION SLICE B2): the runner must NOT
+    // retain the plaintext credential as long-lived member state. After one
+    // authenticated request, a second begin() WITHOUT a fresh applyExplicit
+    // credential must fail closed before authenticated dispatch — it must
+    // never reuse request A's secret.
+    void life01_runnerDoesNotReuseCredentialAcrossRequests()
+    {
+        // No provider credential env inputs at all.
+        FakeHttpClient http;
+        http.body = envelope(
+            extractionContent(kManufacturerValue, kManufacturerExcerpt));
+        modbuslens::ui::CandidateProviderRunner runner(http);
+
+        runner.applyExplicitConfig(AiProviderKind::DeepSeek,
+                                   std::string("fake-model"),
+                                   std::string(kDeepSeekKey));
+        const modbuslens::core::ExtractionRequest request =
+            buildC2FirstSliceExtractionRequest(makeDocument(),
+                                               std::string_view{kManualText});
+
+        // Request A: authenticated dispatch with the explicit secret.
+        QVERIFY(runner.begin(request, 1, nullptr));
+        QCOMPARE(http.callCount, 1);
+        QCOMPARE(http.requests.front().bearerToken, std::string(kDeepSeekKey));
+
+        // Request B: NO new credential supplied. The runner consumed the
+        // one-shot secret in request A and must fail closed before any
+        // authenticated dispatch. Pre-fix RED: explicitSecret_ persists and
+        // request B dispatches with request A's credential.
+        const bool startedB = runner.begin(request, 2, nullptr);
+        QVERIFY(!startedB);
+        QCOMPARE(http.callCount, 1); // zero additional dispatches
+        QCOMPARE(http.requests.size(), std::size_t(1));
     }
 
     // DS-J05 (fail-closed chain preserved, G): DeepSeek + non-JSON content =>

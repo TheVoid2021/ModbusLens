@@ -42,6 +42,9 @@ ApplicationWindow {
     readonly property int workspaceReplayIndex: 3
     readonly property int workspaceDiagnosisIndex: 4
     readonly property int workspaceDeviceIndex: 5
+    // T034-B2.1: the DEDICATED AI Settings workspace (Human §2 — never
+    // crammed into a business page). Index 6 = the new rail entry.
+    readonly property int workspaceAiSettingsIndex: 6
 
     width: 1024
     height: 720
@@ -154,6 +157,9 @@ ApplicationWindow {
         id: candidateController
         objectName: "candidateController"
         manualController: manualController
+        // T034-B2.1: EVERY request resolves provider/model/credential through
+        // the Global AI Configuration owner (saved GUI config > env fallback).
+        runtimeConfiguration: aiRuntimeConfiguration
         // M12-C C3 (T027 §81): the CONTROLLED draft path for Accept. This is
         // the only reference from the AI surface to the profile editor, and
         // the only way a Candidate value can reach the draft (C3-H10).
@@ -381,6 +387,17 @@ ApplicationWindow {
                     candidateController: candidateController
                     manualQaController: manualQaController
                     enabled: workspaceHost.currentIndex === workspaceDeviceIndex
+                }
+
+                // T034-B2.1: the DEDICATED AI Settings workspace (rail index
+                // 6). Bound to the SAME runtime configuration owner the
+                // Candidate chain uses, so a Save here hot-switches every AI
+                // feature that binds this owner (B2.2 migrates the remaining
+                // three chains).
+                AiSettingsPage {
+                    objectName: "aiSettingsWorkspace"
+                    runtimeConfiguration: aiRuntimeConfiguration
+                    enabled: workspaceHost.currentIndex === workspaceAiSettingsIndex
                 }
             }
         }
