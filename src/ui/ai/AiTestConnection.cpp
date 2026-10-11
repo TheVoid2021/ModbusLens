@@ -84,26 +84,48 @@ AiTestConnectionResult classifyTestConnectionReply(
         return result;
     }
 
-    // 2xx: the envelope must contain a usable assistant string content —
-    // anything else is a response-format problem, never a credential one.
+    // 2xx: Test Connection is a CONNECTIVITY probe, not an answer-quality
+    // parser. A valid Chat Completions envelope proves the endpoint is
+    // reachable, the credential was accepted, the model was accepted and the
+    // request was understood. It must NOT require a usable final assistant
+    // STRING: a thinking-first model under a tiny synthetic token budget can
+    // legitimately return an empty/null `content` (sometimes alongside a
+    // populated `reasoning_content`). `reasoning_content` is NEVER read, and
+    // the raw body is never logged or exposed.
+    // (T034-B2.1-F1 classifier correction — request shape unchanged.)
     const QJsonDocument document =
         QJsonDocument::fromJson(QByteArray::fromStdString(reply.body));
-    const QJsonObject root = document.object();
-    const QJsonArray choices = root.value(QStringLiteral("choices")).toArray();
-    const QString content = choices.size() > 0
-                                ? choices.at(0)
-                                      .toObject()
-                                      .value(QStringLiteral("message"))
-                                      .toObject()
-                                      .value(QStringLiteral("content"))
-                                      .toString()
-                                : QString();
-    if (content.isEmpty()) {
+    if (!document.isObject()) {
         result.token = QStringLiteral("invalid_response");
         return result;
     }
-    result.ok = true;
-    result.token = QStringLiteral("connection_ok");
+    const QJsonObject root = document.object();
+    const QJsonValue choicesValue = root.value(QStringLiteral("choices"));
+    if (!choicesValue.isArray()) {
+        result.token = QStringLiteral("invalid_response");
+        return result;
+    }
+    const QJsonArray choices = choicesValue.toArray();
+    if (choices.isEmpty()) {
+        result.token = QStringLiteral("invalid_response");
+        return result;
+    }
+    // Any choice whose `message` is itself a JSON object is a well-formed
+    // Chat Completions envelope. No requirement is placed on content type,
+    // content emptiness, role, reasoning_content or the final text.
+    for (const QJsonValue &choice : choices) {
+        if (!choice.isObject()) {
+            continue;
+        }
+        const QJsonValue message =
+            choice.toObject().value(QStringLiteral("message"));
+        if (message.isObject()) {
+            result.ok = true;
+            result.token = QStringLiteral("connection_ok");
+            return result;
+        }
+    }
+    result.token = QStringLiteral("invalid_response");
     return result;
 }
 

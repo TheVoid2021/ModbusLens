@@ -480,6 +480,133 @@ private slots:
                 == QStringLiteral("请求超时"));
     }
 
+    // ------------------------------------------------------------------
+    // T034-B2.1-F1 — Test Connection CLASSIFIER CORRECTION (Human §3/§4/§5).
+    //
+    // Test Connection is a CONNECTIVITY probe, not an answer-quality parser:
+    // a 2xx Chat Completions envelope proves endpoint reachability, credential
+    // acceptance, model acceptance and basic request acceptance. It must NOT
+    // require a usable final assistant string, because a thinking-first model
+    // under a tiny synthetic token budget can legitimately return an empty or
+    // null `content` alongside a populated `reasoning_content`.
+    //
+    // The request shape is UNCHANGED in F1 (max_tokens=8, no thinking extra).
+    // Never echoed: reasoning text, response body, credential.
+    // ------------------------------------------------------------------
+
+    // F1-01 (REAL RED pre-fix): 2xx + valid message envelope whose final
+    // `content` is an EMPTY STRING while `reasoning_content` is populated.
+    // Pre-fix: invalid_response. Post-fix: connection_ok.
+    void f1_01_reasoningOnlyEmptyContentIsConnectionOk()
+    {
+        FakeHttpClient http;
+        AiSettingsController controller(http);
+        auto configuration = makeConfig();
+        configuration->loadPersisted();
+        configuration->saveConfiguration(AiProviderKind::ModelScope,
+                                         QStringLiteral("deepseek-ai/DeepSeek-V4.1-Flash"));
+        controller.setRuntimeConfiguration(configuration.get());
+        controller.setProviderName(QStringLiteral("modelscope"));
+        controller.setModelText(QStringLiteral("deepseek-ai/DeepSeek-V4.1-Flash"));
+        controller.submitCredential(QString::fromUtf8(kFakeSecret));
+        http.scriptedStatus = 200;
+        http.body = R"({"choices":[{"message":{"role":"assistant","content":"",)"
+                    R"("reasoning_content":"FAKE_REASONING_NOT_FOR_LOGGING"}}]})";
+        controller.testConnection();
+        QCOMPARE(controller.connectionStatusToken(), QStringLiteral("connection_ok"));
+        // The reasoning text and the raw body must never surface in the UI.
+        QVERIFY(!controller.connectionStatusText().contains(
+            QStringLiteral("FAKE_REASONING_NOT_FOR_LOGGING")));
+    }
+
+    // F1-02: valid message envelope with `content` absent / null while
+    // `message` remains a valid object → connection_ok.
+    void f1_02_nullOrAbsentFinalContentIsConnectionOk()
+    {
+        {
+            FakeHttpClient http;
+            AiSettingsController controller(http);
+            auto configuration = makeConfig();
+            configuration->loadPersisted();
+            configuration->saveConfiguration(AiProviderKind::ModelScope,
+                                             QStringLiteral("m"));
+            controller.setRuntimeConfiguration(configuration.get());
+            controller.setProviderName(QStringLiteral("modelscope"));
+            controller.setModelText(QStringLiteral("m"));
+            controller.submitCredential(QString::fromUtf8(kFakeSecret));
+            http.scriptedStatus = 200;
+            http.body = R"({"choices":[{"message":{"role":"assistant","content":null}}]})";
+            controller.testConnection();
+            QCOMPARE(controller.connectionStatusToken(), QStringLiteral("connection_ok"));
+        }
+        {
+            FakeHttpClient http;
+            AiSettingsController controller(http);
+            auto configuration = makeConfig();
+            configuration->loadPersisted();
+            configuration->saveConfiguration(AiProviderKind::ModelScope,
+                                             QStringLiteral("m"));
+            controller.setRuntimeConfiguration(configuration.get());
+            controller.setProviderName(QStringLiteral("modelscope"));
+            controller.setModelText(QStringLiteral("m"));
+            controller.submitCredential(QString::fromUtf8(kFakeSecret));
+            http.scriptedStatus = 200;
+            http.body = R"({"choices":[{"message":{"role":"assistant"}}]})";
+            controller.testConnection();
+            QCOMPARE(controller.connectionStatusToken(), QStringLiteral("connection_ok"));
+        }
+    }
+
+    // F1-03: multiple choices — choice 0 has no usable final content, choice 1
+    // carries "OK". The probe must NOT require the FIRST choice to be usable.
+    void f1_03_usableMessageInAnyChoiceIsConnectionOk()
+    {
+        FakeHttpClient http;
+        AiSettingsController controller(http);
+        auto configuration = makeConfig();
+        configuration->loadPersisted();
+        configuration->saveConfiguration(AiProviderKind::ModelScope,
+                                         QStringLiteral("m"));
+        controller.setRuntimeConfiguration(configuration.get());
+        controller.setProviderName(QStringLiteral("modelscope"));
+        controller.setModelText(QStringLiteral("m"));
+        controller.submitCredential(QString::fromUtf8(kFakeSecret));
+        http.scriptedStatus = 200;
+        http.body = R"({"choices":[{"message":{"role":"assistant","content":""}},)"
+                    R"({"message":{"role":"assistant","content":"OK"}}]})";
+        controller.testConnection();
+        QCOMPARE(controller.connectionStatusToken(), QStringLiteral("connection_ok"));
+    }
+
+    // F1-06 (negative controls, unchanged taxonomy): a 2xx that is NOT a
+    // Chat-Completions-like envelope must stay invalid_response.
+    void f1_06_negativeControlsRemainInvalidResponse()
+    {
+        const char *kMalformed = "{not json";
+        const char *kChoicesAbsent = R"({"id":"x","object":"chat.completion"})";
+        const char *kChoicesEmpty = R"({"choices":[]})";
+        const char *kNoMessageObject =
+            R"({"choices":[{"finish_reason":"stop"},{"text":"x"}]})";
+        for (const char *body : {kMalformed, kChoicesAbsent, kChoicesEmpty,
+                                 kNoMessageObject}) {
+            FakeHttpClient http;
+            AiSettingsController controller(http);
+            auto configuration = makeConfig();
+            configuration->loadPersisted();
+            configuration->saveConfiguration(AiProviderKind::ModelScope,
+                                             QStringLiteral("m"));
+            controller.setRuntimeConfiguration(configuration.get());
+            controller.setProviderName(QStringLiteral("modelscope"));
+            controller.setModelText(QStringLiteral("m"));
+            controller.submitCredential(QString::fromUtf8(kFakeSecret));
+            http.scriptedStatus = 200;
+            http.body = body;
+            controller.testConnection();
+            QCOMPARE(controller.connectionStatusToken(),
+                     QStringLiteral("invalid_response"));
+        }
+    }
+
     // SET-18 companion (controller level): default-off forensic stays silent
     // on the settings path (the transport-level proof lives in the provider
     // matrix fn01/fn02).
