@@ -13,6 +13,12 @@
 #include "core/analysis/TransactionAnalysis.h"
 #include "fake_chat_completions_server.h"
 #include "ui/AnalysisController.h"
+#include "ui/ai/AiRuntimeConfiguration.h"
+#include "ui/ai/IAiCredentialStore.h"
+
+#include <map>
+#include <string>
+#include <string_view>
 
 // T012 Part B Phase 2 — Controller + AgentRuntime integration tests.
 // All cloud traffic goes to the localhost fake server (zero internet, zero
@@ -20,6 +26,63 @@
 // env config path, so EVERY test clears the config first and re-injects the
 // fake endpoint explicitly (same discipline as T011 ai01).
 namespace {
+
+// T034-B2.2-A-R2: the Diagnosis chain now takes its provider/model/credential
+// authority from the injected GLOBAL configuration, so the integration tests
+// inject a provider-scoped in-memory credential store + saved provider/model.
+class AgentFakeCredentialStore final : public modbuslens::ui::IAiCredentialStore
+{
+public:
+    [[nodiscard]] bool hasCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        return secrets_.count(kind) != 0 && !secrets_.at(kind).empty();
+    }
+    [[nodiscard]] bool saveCredential(modbuslens::ui::AiProviderKind kind,
+                                      std::string_view secret) override
+    {
+        if (secret.empty()) {
+            return false;
+        }
+        secrets_[kind] = std::string(secret);
+        return true;
+    }
+    [[nodiscard]] bool deleteCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        return secrets_.erase(kind) > 0;
+    }
+    [[nodiscard]] modbuslens::ui::AiSecretResult readCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        const auto it = secrets_.find(kind);
+        if (it == secrets_.end() || it->second.empty()) {
+            return {};
+        }
+        return modbuslens::ui::AiSecretResult{true, it->second};
+    }
+
+private:
+    std::map<modbuslens::ui::AiProviderKind, std::string> secrets_;
+};
+
+// Process-lifetime fixture (deliberately leaked: no static-destruction hazard).
+modbuslens::ui::AiRuntimeConfiguration& fakeAgentAiRuntime()
+{
+    static AgentFakeCredentialStore* store = new AgentFakeCredentialStore();
+    static modbuslens::ui::AiRuntimeConfiguration* runtime = [store] {
+        store->saveCredential(modbuslens::ui::AiProviderKind::ModelScope,
+                              std::string_view{"fake-test-token"});
+        const QString path =
+            QDir::tempPath() + QStringLiteral("/modbuslens_agentint_settings.ini");
+        QFile::remove(path);
+        auto* config = new modbuslens::ui::AiRuntimeConfiguration(*store, path);
+        config->saveConfiguration(modbuslens::ui::AiProviderKind::ModelScope,
+                                  QStringLiteral("fake-model"));
+        return config;
+    }();
+    return *runtime;
+}
 
 using ms = std::chrono::milliseconds;
 
@@ -118,6 +181,10 @@ private:
         void wireFake()
         {
             QVERIFY2(server.start(), "fake server listen");
+            // T034-B2.2-A-R2: Diagnosis authority comes from the injected
+            // global configuration; the seam's token/model now feed the AGENT
+            // only (Agent migration is a later step).
+            controller.setAiRuntimeConfiguration(&fakeAgentAiRuntime());
             controller.configureAiClient(QUrl(server.chatCompletionsUrl()),
                                          QStringLiteral("fake-test-token"),
                                          QStringLiteral("fake-model"), ms{5000});

@@ -24,12 +24,17 @@
 #include "ui/AnalysisController.h"
 #include "core/active/ActiveRequestIntent.h"
 #include "ui/TransactionListModel.h"
+#include "ui/ai/AiRuntimeConfiguration.h"
+#include "ui/ai/IAiCredentialStore.h"
 
 #include <QSet>
 
 #include <algorithm>
+#include <map>
+#include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace {
@@ -1344,13 +1349,75 @@ void UiBridgeTest::d08_clearDiagnosisOnly()
 
 namespace {
 
-// Fake client wiring for a controller: localhost fake endpoint + fake token.
+// T034-B2.2-A-R2: Diagnosis authority is the injected GLOBAL configuration —
+// a provider-scoped, in-memory credential store plus a saved provider/model.
+// The controller seam now supplies ONLY the loopback endpoint, so these tests
+// drive the REAL production authority path (never a persistent credential on
+// the client).
+class BridgeFakeCredentialStore final : public modbuslens::ui::IAiCredentialStore
+{
+public:
+    [[nodiscard]] bool hasCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        return secrets_.count(kind) != 0 && !secrets_.at(kind).empty();
+    }
+    [[nodiscard]] bool saveCredential(modbuslens::ui::AiProviderKind kind,
+                                      std::string_view secret) override
+    {
+        if (secret.empty()) {
+            return false;
+        }
+        secrets_[kind] = std::string(secret);
+        return true;
+    }
+    [[nodiscard]] bool deleteCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        return secrets_.erase(kind) > 0;
+    }
+    [[nodiscard]] modbuslens::ui::AiSecretResult readCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        const auto it = secrets_.find(kind);
+        if (it == secrets_.end() || it->second.empty()) {
+            return {};
+        }
+        return modbuslens::ui::AiSecretResult{true, it->second};
+    }
+
+private:
+    std::map<modbuslens::ui::AiProviderKind, std::string> secrets_;
+};
+
+// Process-lifetime fixture: the injected runtime must outlive every controller
+// under test. Deliberately leaked so there is no static-destruction ordering
+// hazard in a Qt test binary.
+modbuslens::ui::AiRuntimeConfiguration& fakeAiRuntime()
+{
+    static BridgeFakeCredentialStore* store = new BridgeFakeCredentialStore();
+    static modbuslens::ui::AiRuntimeConfiguration* runtime = [store] {
+        store->saveCredential(modbuslens::ui::AiProviderKind::ModelScope,
+                              std::string_view{"fake-test-token"});
+        const QString path =
+            QDir::tempPath() + QStringLiteral("/modbuslens_uibridge_settings.ini");
+        QFile::remove(path);
+        auto* config = new modbuslens::ui::AiRuntimeConfiguration(*store, path);
+        config->saveConfiguration(modbuslens::ui::AiProviderKind::ModelScope,
+                                  QStringLiteral("fake-model"));
+        return config;
+    }();
+    return *runtime;
+}
+
+// Fake wiring for a controller: the GLOBAL authority (fake provider/model +
+// provider-scoped fake credential) plus the localhost fake endpoint override.
 void wireFakeAi(AnalysisController& controller, FakeChatCompletionsServer& server,
                   std::chrono::milliseconds timeout = std::chrono::milliseconds{5000})
 {
+    controller.setAiRuntimeConfiguration(&fakeAiRuntime());
     controller.configureAiClient(QUrl(server.chatCompletionsUrl()),
-                                  QStringLiteral("fake-test-token"),
-                                  QStringLiteral("fake-model"), timeout);
+                                  QString(), QString(), timeout);
 }
 
 QByteArray aiOkBody(const QByteArray& content)

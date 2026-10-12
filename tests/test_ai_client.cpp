@@ -9,10 +9,21 @@
 #include <optional>
 #include <vector>
 
+#include <QDir>
+#include <QTemporaryFile>
+#include <QUrl>
+
+#include <map>
+#include <string>
+
 #include "core/diagnosis/DiagnosisContext.h"
 #include "core/diagnosis/RuleBasedDiagnosis.h"
 #include "core/replay/ReplayAnalysis.h"
+#include "ui/AnalysisController.h"
+#include "ui/ai/AiProviderProfile.h"
+#include "ui/ai/AiRuntimeConfiguration.h"
 #include "ui/ai/DiagnosisPromptBuilder.h"
+#include "ui/ai/IAiCredentialStore.h"
 #include "ui/ai/ModelScopeDiagnosisClient.h"
 
 #include "fake_chat_completions_server.h"
@@ -74,6 +85,51 @@ QByteArray chatCompletionBody(const QByteArray& content,
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
 
+// T034-B2.2-A: deterministic per-provider in-memory credential store for the
+// Diagnosis migration tests. Mirrors InMemoryAiCredentialStore semantics
+// (provider-scoped, no cross-provider read) without touching the Windows
+// Credential Manager. The sentinel secret is a FAKE, non-real value.
+constexpr char kFakeB2Secret[] = "FAKE_MODBUSLENS_SECRET_B2_DO_NOT_LEAK";
+constexpr char kFakeB2SecretReplacement[] =
+    "FAKE_MODBUSLENS_SECRET_B2_REPLACEMENT_DO_NOT_LEAK";
+
+class FakeDiagnosisCredentialStore final
+    : public modbuslens::ui::IAiCredentialStore
+{
+public:
+    [[nodiscard]] bool hasCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        return secrets_.count(kind) != 0 && !secrets_.at(kind).empty();
+    }
+    [[nodiscard]] bool saveCredential(
+        modbuslens::ui::AiProviderKind kind, std::string_view secret) override
+    {
+        if (secret.empty()) {
+            return false;
+        }
+        secrets_[kind] = std::string(secret);
+        return true;
+    }
+    [[nodiscard]] bool deleteCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        return secrets_.erase(kind) > 0;
+    }
+    [[nodiscard]] modbuslens::ui::AiSecretResult readCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        const auto it = secrets_.find(kind);
+        if (it == secrets_.end() || it->second.empty()) {
+            return {};
+        }
+        return modbuslens::ui::AiSecretResult{true, it->second};
+    }
+
+private:
+    std::map<modbuslens::ui::AiProviderKind, std::string> secrets_;
+};
+
 } // namespace
 
 class AiClientTest : public QObject
@@ -116,6 +172,25 @@ private slots:
     // T015 Part C audit (P0): the system contract must state that Success /
     // high success rate does NOT erase request-side protocol issues.
     void b21_successDoesNotEraseRequestIssues();
+
+    // ---- T034-B2.2-A: Diagnosis Global-AI migration (B22D) ----
+    // The diagnosis request authority must come from the SAVED global
+    // AiRuntimeConfiguration + provider-scoped credential store at DISPATCH
+    // time — never from the process environment and never cached at
+    // construction. Legacy MODELSCOPE_API_KEY / MODBUSLENS_MODELSCOPE_MODEL
+    // / DEEPSEEK_API_KEY have ZERO effect on Diagnosis once a saved global
+    // configuration exists.
+    void b22d01_savedDeepSeekUsesSavedAuthority();
+    void b22d02_savedModelScopeUsesSavedAuthority();
+    void b22d03_runtimeProviderSwitch();
+    void b22d04_runtimeModelSwitch();
+    void b22d05_credentialReplacement();
+    void b22d06_missingCredentialFailsClosed();
+    void b22d07_noSavedConfigFailsClosedIgnoringLegacyEnv();
+    void b22d07b_savedConfigIgnoresLegacyEnvOnly();
+    void b22d08_legacyEnvNegativeControl();
+    void b22d09_staleInFlightIgnoredAfterConfigSwitch();
+    void b22d10_noStartupAutoRequest();
 };
 
 void AiClientTest::b01_promptAuthority()
@@ -761,6 +836,494 @@ void AiClientTest::b21_successDoesNotEraseRequestIssues()
     // ...and a high success rate never erases request-side issues.
     QVERIFY(system.contains(QStringLiteral("does not erase")));
     QVERIFY(system.contains(QStringLiteral("request_issue")));
+}
+
+// ===========================================================================
+// T034-B2.2-A — DIAGNOSIS GLOBAL-AI MIGRATION (B22D)
+//
+// Authority contract under test: a Diagnosis request resolves its provider /
+// model / credential from the SAVED global AiRuntimeConfiguration at DISPATCH
+// time. The legacy process environment (MODELSCOPE_API_KEY /
+// MODBUSLENS_MODELSCOPE_MODEL / DEEPSEEK_API_KEY) has ZERO effect once a saved
+// global configuration exists. All provider traffic goes to the localhost fake
+// server via an explicit loopback endpoint injection; no real credential, no
+// Windows Credential Manager, no public-provider request.
+// ===========================================================================
+
+namespace {
+
+// Drives the production-shaped Diagnosis flow far enough that askAiDiagnosis()
+// has a non-empty batch AND a baseline report, using only deterministic
+// simulator data (no transport, no network).
+void primeDiagnosisBatch(AnalysisController &controller)
+{
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    QVERIFY(controller.hasBaselineDiagnosis());
+}
+
+// Points the AnalysisController's Diagnosis client at the localhost fake
+// endpoint. The endpoint injection is a TEST-ONLY seam; provider/model/
+// credential authority still comes from the global configuration.
+void pointDiagnosisClientAtLoopback(AnalysisController &controller,
+                                    const FakeChatCompletionsServer &server)
+{
+    controller.configureAiClient(QUrl(server.chatCompletionsUrl()),
+                                 QString(), QString(), ms{5000});
+}
+
+// A dedicated per-test QSettings INI so deterministic tests never read the
+// developer's real QSettings. Removed on destruction.
+class TempSettingsFile
+{
+public:
+    TempSettingsFile()
+    {
+        const QString path =
+            QDir::tempPath() + QStringLiteral("/modbuslens_b22d_settings.ini");
+        QFile::remove(path);
+        filePath = path;
+    }
+    ~TempSettingsFile() { QFile::remove(filePath); }
+    QString filePath;
+};
+
+} // namespace
+
+void AiClientTest::b22d01_savedDeepSeekUsesSavedAuthority()
+{
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                 kFakeB2Secret));
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      QStringLiteral("deepseek-chat")));
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("ok"));
+
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(&runtime);
+    pointDiagnosisClientAtLoopback(controller, server);
+    primeDiagnosisBatch(controller);
+
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 1);
+
+    const QJsonObject body =
+        QJsonDocument::fromJson(server.lastRequest().body).object();
+    QCOMPARE(body.value("model").toString(), QStringLiteral("deepseek-chat"));
+    // T034-B2.2-A: saved-DeepSeek request uses the saved model + provider-scoped
+    QCOMPARE(body.value("model").toString(), QStringLiteral("deepseek-chat"));
+    QCOMPARE(server.lastRequest().authorization,
+             QByteArray("Bearer ") + QByteArray(kFakeB2Secret));
+    // Endpoint authority comes from AiProviderProfile (the loopback override
+    // is the TEST seam only). The diagnosis body is diagnosis-specific
+    // (§5 permits operation-specific payload semantics): it carries the
+    // canonical {model, messages, stream, max_tokens} shape and does NOT
+    // apply the Candidate-chain profile extras.
+    QVERIFY(!body.contains(QStringLiteral("response_format")));
+    QCOMPARE(body.value("max_tokens").toInt(), 768);
+}
+
+void AiClientTest::b22d02_savedModelScopeUsesSavedAuthority()
+{
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::ModelScope,
+                                 kFakeB2Secret));
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::ModelScope,
+                                      QStringLiteral("ms-model-x")));
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("ok"));
+
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(&runtime);
+    pointDiagnosisClientAtLoopback(controller, server);
+    primeDiagnosisBatch(controller);
+
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 1);
+
+    const QJsonObject body =
+        QJsonDocument::fromJson(server.lastRequest().body).object();
+    QCOMPARE(body.value("model").toString(), QStringLiteral("ms-model-x"));
+    QCOMPARE(server.lastRequest().authorization,
+             QByteArray("Bearer ") + QByteArray(kFakeB2Secret));
+    // ModelScope profile: no thinking extra, no response_format extra.
+    QVERIFY(!body.contains(QStringLiteral("response_format")));
+}
+
+void AiClientTest::b22d03_runtimeProviderSwitch()
+{
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::ModelScope,
+                                 kFakeB2Secret));
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                 kFakeB2SecretReplacement));
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::ModelScope,
+                                      QStringLiteral("ms-model")));
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("first"));
+    server.enqueueResponse(200, chatCompletionBody("second"));
+
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(&runtime);
+    pointDiagnosisClientAtLoopback(controller, server);
+    primeDiagnosisBatch(controller);
+
+    // request #1 — ModelScope authority.
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 1);
+    QCOMPARE(QJsonDocument::fromJson(server.requests().at(0).body)
+                 .object().value("model").toString(),
+             QStringLiteral("ms-model"));
+    // T034-B2.2-A-R1 §3: request #1 must COMPLETE and the controller must
+    // return to IDLE *before* the provider is switched. This keeps the runtime
+    // provider-switch case separate from the stale-in-flight case (b22d09) and
+    // removes the race that used to make this slot flaky.
+    QTRY_VERIFY(!controller.aiDiagnosisBusy());
+
+    // Hot switch to DeepSeek — NO controller/app restart.
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      QStringLiteral("ds-model")));
+
+    // request #2 — DeepSeek authority.
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 2);
+    QCOMPARE(QJsonDocument::fromJson(server.requests().at(1).body)
+                 .object().value("model").toString(),
+             QStringLiteral("ds-model"));
+    QCOMPARE(server.requests().at(1).authorization,
+             QByteArray("Bearer ") + QByteArray(kFakeB2SecretReplacement));
+}
+
+void AiClientTest::b22d04_runtimeModelSwitch()
+{
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::ModelScope,
+                                 kFakeB2Secret));
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::ModelScope,
+                                      QStringLiteral("model-A")));
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("a"));
+    server.enqueueResponse(200, chatCompletionBody("b"));
+
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(&runtime);
+    pointDiagnosisClientAtLoopback(controller, server);
+    primeDiagnosisBatch(controller);
+
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 1);
+    QCOMPARE(QJsonDocument::fromJson(server.requests().at(0).body)
+                 .object().value("model").toString(),
+             QStringLiteral("model-A"));
+
+    // T034-B2.2-A-R1 §3: same rule as b22d03 — request #1 completes and the
+    // controller is IDLE before the model is switched, so this slot proves a
+    // runtime MODEL switch without doubling as a stale-in-flight test.
+    QTRY_VERIFY(!controller.aiDiagnosisBusy());
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::ModelScope,
+                                      QStringLiteral("model-B")));
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 2);
+    QCOMPARE(QJsonDocument::fromJson(server.requests().at(1).body)
+                 .object().value("model").toString(),
+             QStringLiteral("model-B"));
+}
+
+void AiClientTest::b22d05_credentialReplacement()
+{
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                 kFakeB2Secret));
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      QStringLiteral("ds-model")));
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("x"));
+    server.enqueueResponse(200, chatCompletionBody("y"));
+
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(&runtime);
+    pointDiagnosisClientAtLoopback(controller, server);
+    primeDiagnosisBatch(controller);
+
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 1);
+    QCOMPARE(server.requests().at(0).authorization,
+             QByteArray("Bearer ") + QByteArray(kFakeB2Secret));
+
+    // Replace the stored credential; the NEXT request must carry the new one.
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                 kFakeB2SecretReplacement));
+    QTRY_VERIFY(!controller.aiDiagnosisBusy());
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 2);
+    QCOMPARE(server.requests().at(1).authorization,
+             QByteArray("Bearer ") + QByteArray(kFakeB2SecretReplacement));
+    // Never the prior credential.
+    QVERIFY(server.requests().at(1).authorization
+            != QByteArray("Bearer ") + QByteArray(kFakeB2Secret));
+}
+
+void AiClientTest::b22d06_missingCredentialFailsClosed()
+{
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store; // empty — no credential saved
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      QStringLiteral("ds-model")));
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("should-not-happen"));
+
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(&runtime);
+    pointDiagnosisClientAtLoopback(controller, server);
+    primeDiagnosisBatch(controller);
+
+    controller.askAiDiagnosis();
+    // Fail closed: NOT configured, and NO request dispatched.
+    QVERIFY(!controller.aiDiagnosisBusy());
+    QVERIFY(!controller.aiDiagnosisErrorMessage().isEmpty());
+    QTest::qWait(150);
+    QCOMPARE(server.requestCount(), 0);
+}
+
+void AiClientTest::b22d07_noSavedConfigFailsClosedIgnoringLegacyEnv()
+{
+    // NO saved global configuration AND NO legacy env: the global snapshot
+    // does not resolve, so Diagnosis must fail closed with ZERO dispatch.
+    // (§3's "legacy env effect = ZERO" is proven by b22d08 for the saved
+    // case; the CASE-B transitional env fallback is the SAME frozen global
+    // contract the Candidate chain already relies on and is NOT redefined
+    // here.)
+    qunsetenv("MODELSCOPE_API_KEY");
+    qunsetenv("MODBUSLENS_MODELSCOPE_MODEL");
+    qunsetenv("MODBUSLENS_AI_PROVIDER");
+    qunsetenv("MODBUSLENS_AI_MODEL");
+    qunsetenv("DEEPSEEK_API_KEY");
+
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(!runtime.hasSavedConfiguration());
+    QVERIFY(!runtime.resolveRequestConfig().has_value());
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("should-not-happen"));
+
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(&runtime);
+    pointDiagnosisClientAtLoopback(controller, server);
+    primeDiagnosisBatch(controller);
+
+    controller.askAiDiagnosis();
+    QVERIFY(!controller.aiDiagnosisBusy());
+    QVERIFY(!controller.aiDiagnosisErrorMessage().isEmpty());
+    QTest::qWait(150);
+    QCOMPARE(server.requestCount(), 0);
+}
+
+void AiClientTest::b22d07b_savedConfigIgnoresLegacyEnvOnly()
+{
+    // Legacy ModelScope env sentinels present, NO saved global config: the
+    // frozen CASE-B transitional fallback is the GLOBAL contract (shared with
+    // Candidate) — the request, when it happens, goes through the SAME
+    // resolveRequestConfig() snapshot path, NOT a construction-time-cached
+    // ModelScope authority. This documents the transitional behaviour.
+    qputenv("MODELSCOPE_API_KEY", QByteArray(kFakeB2Secret));
+    qputenv("MODBUSLENS_MODELSCOPE_MODEL", QByteArray("legacy-env-model"));
+
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(!runtime.hasSavedConfiguration());
+    const auto resolved = runtime.resolveRequestConfig();
+    QVERIFY(resolved.has_value());
+    QCOMPARE(resolved->kind, modbuslens::ui::AiProviderKind::ModelScope);
+    QCOMPARE(QString::fromStdString(resolved->model),
+             QStringLiteral("legacy-env-model"));
+
+    qunsetenv("MODELSCOPE_API_KEY");
+    qunsetenv("MODBUSLENS_MODELSCOPE_MODEL");
+}
+
+void AiClientTest::b22d08_legacyEnvNegativeControl()
+{
+    // Saved DeepSeek config + fake DeepSeek credential, PLUS fake legacy
+    // ModelScope env sentinels — the saved authority must win, env = 0 effect.
+    qputenv("MODELSCOPE_API_KEY",
+            QByteArray("FAKE_LEGACY_MODELSCOPE_SECRET_DO_NOT_LEAK"));
+    qputenv("MODBUSLENS_MODELSCOPE_MODEL", QByteArray("legacy-env-model"));
+
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                 kFakeB2Secret));
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      QStringLiteral("ds-model")));
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("ok"));
+
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(&runtime);
+    pointDiagnosisClientAtLoopback(controller, server);
+    primeDiagnosisBatch(controller);
+
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 1);
+
+    const QJsonObject body =
+        QJsonDocument::fromJson(server.lastRequest().body).object();
+    QCOMPARE(body.value("model").toString(), QStringLiteral("ds-model"));
+    QCOMPARE(server.lastRequest().authorization,
+             QByteArray("Bearer ") + QByteArray(kFakeB2Secret));
+    // The legacy ModelScope model must NOT appear anywhere in the request.
+    QVERIFY(server.lastRequest().body
+            != QByteArray("legacy-env-model"));
+
+    qunsetenv("MODELSCOPE_API_KEY");
+    qunsetenv("MODBUSLENS_MODELSCOPE_MODEL");
+}
+
+void AiClientTest::b22d09_staleInFlightIgnoredAfterConfigSwitch()
+{
+    // T034-B2.2-A-R1 §3 — DETERMINISTIC stale + new-owner isolation test.
+    //
+    // A configuration revision change while request N is in flight must
+    // invalidate N's active attempt IMMEDIATELY (busy clears, the accepted
+    // result survives), and N's LATE completion must never mutate state owned
+    // by a newer request N+1 (owner/generation rule). Deterministic by
+    // construction: every held response is scripted with a delay and every
+    // ownership transition is observed through a bounded QTRY before the next
+    // step. Not a timing race.
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::ModelScope,
+                                 kFakeB2Secret));
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                 kFakeB2SecretReplacement));
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::ModelScope,
+                                      QStringLiteral("ms-model-A")));
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    // request 1 (phase 0) immediate; request N HELD 300ms; request N+1 HELD
+    // 1200ms so N is guaranteed to be delivered while N+1 is still in flight.
+    server.enqueueResponse(200, chatCompletionBody("pre"), 0);
+    server.enqueueResponse(200, chatCompletionBody("stale-N"), 300);
+    server.enqueueResponse(200, chatCompletionBody("fresh-N1"), 1200);
+
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(&runtime);
+    pointDiagnosisClientAtLoopback(controller, server);
+    primeDiagnosisBatch(controller);
+
+    // ---- PHASE 0: establish an ACCEPTED result that must survive the switch.
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 1);
+    QTRY_VERIFY(!controller.aiDiagnosisBusy());
+    QTRY_VERIFY(controller.hasAiDiagnosis());
+    QCOMPARE(controller.aiDiagnosisText(), QStringLiteral("pre"));
+
+    // ---- 1. dispatch request N under config revision N.
+    const qint64 revisionN = runtime.configRevision();
+    controller.askAiDiagnosis();
+    QTRY_VERIFY(controller.aiDiagnosisBusy());
+    QTRY_COMPARE(server.requestCount(), 2);
+
+    // ---- 2-3. hold N's response; switch the global configuration to N+1.
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      QStringLiteral("ds-model-B")));
+    QVERIFY(runtime.configRevision() != revisionN);
+
+    // ---- 4-6. the old active attempt is invalidated IMMEDIATELY: busy clears
+    // and the previously accepted result/error are PRESERVED (not mutated
+    // merely because the configuration changed).
+    QTRY_VERIFY(!controller.aiDiagnosisBusy());
+    QVERIFY(controller.hasAiDiagnosis());
+    QCOMPARE(controller.aiDiagnosisText(), QStringLiteral("pre"));
+
+    // ---- 7. dispatch request N+1 (DeepSeek authority), still held.
+    controller.askAiDiagnosis();
+    QTRY_COMPARE(server.requestCount(), 3);
+    QTRY_VERIFY(controller.aiDiagnosisBusy());
+
+    // ---- 8. N is delivered late (t+300ms) while N+1 is STILL in flight.
+    QTest::qWait(700);
+
+    // ---- 9. N's late completion must NOT mutate anything and must NOT clear
+    // or steal N+1's busy / active ownership.
+    QVERIFY(controller.aiDiagnosisBusy());
+    QCOMPARE(controller.aiDiagnosisText(), QStringLiteral("pre"));
+    QVERIFY(controller.aiDiagnosisErrorMessage().isEmpty());
+
+    // ---- 10-11. N+1 completes normally and its result is accepted.
+    QTRY_VERIFY(!controller.aiDiagnosisBusy());
+    QCOMPARE(controller.aiDiagnosisText(), QStringLiteral("fresh-N1"));
+}
+
+void AiClientTest::b22d10_noStartupAutoRequest()
+{
+    TempSettingsFile settings;
+    FakeDiagnosisCredentialStore store;
+    QVERIFY(store.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                 kFakeB2Secret));
+
+    modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
+    QVERIFY(runtime.saveConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      QStringLiteral("ds-model")));
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("ok"));
+
+    {
+        AnalysisController controller;
+        controller.setAiRuntimeConfiguration(&runtime);
+        pointDiagnosisClientAtLoopback(controller, server);
+        // Wire the production-equivalent path and prime data, but DO NOT ask.
+        primeDiagnosisBatch(controller);
+        QTest::qWait(200);
+        QCOMPARE(server.requestCount(), 0);
+        QVERIFY(!controller.aiDiagnosisBusy());
+    }
+    QCOMPARE(server.requestCount(), 0);
 }
 
 QTEST_GUILESS_MAIN(AiClientTest)

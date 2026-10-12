@@ -2,7 +2,14 @@
 
 #include <QObject>
 
+#include <cstdint>
+#include <functional>
+#include <map>
 #include <string>
+
+class QNetworkAccessManager;
+class QNetworkReply;
+class QTimer;
 
 namespace modbuslens::ui {
 
@@ -35,6 +42,19 @@ struct ChatCompletionsHttpResult {
     bool timedOut{false};
 };
 
+// T034-B2.2-A-R2: completion delivered to the ASYNC caller. Invoked exactly
+// once per successfully started request.
+using ChatCompletionsHttpCompletion =
+    std::function<void(ChatCompletionsHttpResult)>;
+
+// T034-B2.2-A-R2: handle for ONE asynchronous exchange. `id == 0` means the
+// request was NOT started: nothing was dispatched and the completion is never
+// invoked. A non-zero id identifies exactly one in-flight exchange.
+struct ChatCompletionsHttpAsyncHandle {
+    std::uint64_t id{0};
+    [[nodiscard]] bool valid() const { return id != 0; }
+};
+
 class IChatCompletionsHttpClient
 {
 public:
@@ -42,6 +62,28 @@ public:
 
     [[nodiscard]] virtual ChatCompletionsHttpResult post(
         const ChatCompletionsHttpRequest &request) = 0;
+
+    // ---- T034-B2.2-A-R2: additive ASYNCHRONOUS path ------------------------
+    // DEFAULT CONTRACT (deliberate, load-bearing): async is UNSUPPORTED here.
+    // This returns an INVALID handle and dispatches NOTHING; the completion is
+    // never invoked. It MUST NOT fall back to the synchronous post() — that
+    // would silently block the caller's thread and defeat the whole point of
+    // the async path. Because the default is defined (not pure), every
+    // existing Candidate fake stays source- AND behaviour-compatible.
+    //
+    // `lifetimeContext` (optional) is the QObject the exchange is bound to: if
+    // it is destroyed before completion, the exchange is abandoned and the
+    // completion is never delivered — no use-after-free is possible.
+    [[nodiscard]] virtual ChatCompletionsHttpAsyncHandle startAsync(
+        const ChatCompletionsHttpRequest &request,
+        QObject *lifetimeContext,
+        ChatCompletionsHttpCompletion completion)
+    {
+        (void)request;
+        (void)lifetimeContext;
+        (void)completion;
+        return ChatCompletionsHttpAsyncHandle{};
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -55,11 +97,18 @@ public:
 // verification stays ON (no bypass, no certificate-ignore code).
 //
 // The C2 provider seam (SESSION N `IExtractionTransport::send`) is synchronous
-// by accepted design, so this implementation runs a bounded local event loop
-// until the reply or the timeout fires. The bound is the accepted 90 s M6
-// timeout. KNOWN LIMITATION: a synchronous seam means the calling thread waits
-// for the exchange; making the chain asynchronous would be a contract change to
-// the accepted SESSION N seam and is deliberately out of scope for this slice.
+// by accepted design, so post() runs a bounded local event loop until the
+// reply or the timeout fires. The bound is the accepted 90 s M6 timeout.
+// KNOWN LIMITATION: a synchronous seam means the calling thread waits for the
+// exchange; making the chain asynchronous would be a contract change to the
+// accepted SESSION N seam and is deliberately out of scope for this slice.
+//
+// T034-B2.2-A-R2 adds startAsync(): the SAME production safety rules, but
+// genuinely asynchronous (QNetworkAccessManager is already async — this just
+// exposes that capability). Multiple exchanges may be in flight at once: there
+// is NO global single-flight state; each exchange owns its own manager,
+// reply, timeout timer and completion exactly once. Network CANCELLATION is
+// not implemented and must not be claimed.
 // ---------------------------------------------------------------------------
 class QtChatCompletionsHttpClient : public QObject, public IChatCompletionsHttpClient
 {
@@ -67,9 +116,34 @@ class QtChatCompletionsHttpClient : public QObject, public IChatCompletionsHttpC
 
 public:
     explicit QtChatCompletionsHttpClient(QObject *parent = nullptr);
+    ~QtChatCompletionsHttpClient() override;
 
     [[nodiscard]] ChatCompletionsHttpResult post(
         const ChatCompletionsHttpRequest &request) override;
+
+    [[nodiscard]] ChatCompletionsHttpAsyncHandle startAsync(
+        const ChatCompletionsHttpRequest &request,
+        QObject *lifetimeContext,
+        ChatCompletionsHttpCompletion completion) override;
+
+private:
+    // One independent in-flight exchange. Nothing here is shared between
+    // exchanges, so a slow / held / never-finished request can never block or
+    // corrupt another.
+    struct InFlight {
+        QNetworkAccessManager *manager{nullptr};
+        QNetworkReply *reply{nullptr};
+        QTimer *timer{nullptr};
+        ChatCompletionsHttpCompletion completion;
+        bool done{false};
+    };
+
+    void finish(std::uint64_t id, bool timedOut);
+    void abandon(std::uint64_t id);
+    static void teardown(InFlight &flight);
+
+    std::uint64_t nextId_{0};
+    std::map<std::uint64_t, InFlight> inFlight_;
 };
 
 } // namespace modbuslens::ui

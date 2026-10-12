@@ -16,6 +16,12 @@
 // response(s) (status + body + optional delay). NEVER touches the public
 // internet, NEVER reads the developer's real MODELSCOPE_API_KEY — tests
 // always inject fake-test-token/fake-model explicitly.
+//
+// T034-B2.2-A-R2: PER-CONNECTION state. The server accepts EVERY pending
+// connection and parses each on its own buffer, so MULTIPLE requests can be
+// in flight at once (needed to observe a held request A while request B is
+// dispatched and completed). The previous single shared socket/buffer could
+// not model that and silently corrupted concurrent requests.
 class FakeChatCompletionsServer : public QObject
 {
     Q_OBJECT
@@ -83,6 +89,16 @@ private slots:
     void onNewConnection();
 
 private:
+    // One accepted connection with its OWN parse buffer, so concurrent
+    // connections can never corrupt each other.
+    struct Connection {
+        QTcpSocket* socket{nullptr};
+        QByteArray pending;
+        bool parsed{false}; // exactly one request per connection
+    };
+
+    void handleReadyRead(Connection& connection);
+
     QTcpServer server_;
     int requestCount_ = 0;
     CapturedRequest lastRequest_;
@@ -92,6 +108,5 @@ private:
     ScriptedResponse lastScripted_; // replayed while the queue is drained
     std::function<void()> onReceived_;
 
-    QByteArray pending_;
-    QTcpSocket* socket_ = nullptr;
+    std::vector<Connection*> connections_;
 };

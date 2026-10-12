@@ -46,9 +46,26 @@ public:
 
     [[nodiscard]] Exchange send(std::string_view requestBody) override;
 
+    // T034-B2.2-A-R2: additive ASYNCHRONOUS path. Starts ONE asynchronous,
+    // non-blocking exchange through the injected shared HTTP seam. The
+    // one-shot bearer token is consumed for THIS request exactly like send()
+    // (empty token / body / endpoint => NOT started, nothing dispatched).
+    //
+    // When the returned handle is VALID, `onDone` is invoked EXACTLY ONCE
+    // (reply, transport failure or timeout). When the handle is INVALID,
+    // nothing was dispatched and `onDone` is never invoked. Network
+    // cancellation is deliberately NOT part of this contract.
+    [[nodiscard]] ChatCompletionsHttpAsyncHandle sendAsync(
+        std::string requestBody, QObject *lifetimeContext,
+        ChatCompletionsHttpCompletion onDone);
+
     // Number of provider-level exchanges actually dispatched. Zero is the
     // number that proves a fail-closed path sent nothing.
     [[nodiscard]] int dispatchCount() const { return dispatchCount_; }
+
+    // T034-B2.2-A-R2: number of ASYNCHRONOUS exchanges actually started
+    // (0 proves an async fail-closed path dispatched nothing).
+    [[nodiscard]] int asyncDispatchCount() const { return asyncDispatchCount_; }
 
 private:
     IChatCompletionsHttpClient &http_;
@@ -59,6 +76,8 @@ private:
     std::string oneShotBearerToken_;
     int timeoutMs_;
     int dispatchCount_{0};
+    // T034-B2.2-A-R2: started (not merely attempted) async dispatches.
+    int asyncDispatchCount_{0};
 };
 
 } // namespace modbuslens::ui

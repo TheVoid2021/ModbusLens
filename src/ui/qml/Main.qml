@@ -123,6 +123,11 @@ ApplicationWindow {
         // M12-B slice 4: the semantic layer reads ONLY the session Active
         // Profile's persisted content through this injection.
         activeProfileController: activeProfileController
+        // T034-B2.2-A: the Diagnosis chain resolves provider/model/credential
+        // from the SAME global AI configuration owner the AI Settings page
+        // writes (context property from main.cpp), so a Save hot-switches the
+        // next Diagnosis request without a restart.
+        aiRuntimeConfiguration: aiRuntimeConfiguration
     }
 
     ProfileController {

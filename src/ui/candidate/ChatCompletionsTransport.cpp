@@ -162,4 +162,39 @@ IExtractionTransport::Exchange ChatCompletionsTransport::send(
     return exchange;
 }
 
+ChatCompletionsHttpAsyncHandle ChatCompletionsTransport::sendAsync(
+    std::string requestBody, QObject *lifetimeContext,
+    ChatCompletionsHttpCompletion onDone)
+{
+    // Same one-shot credential discipline as send() (T034-B2.1): the pending
+    // token is consumed for THIS request and the slot cleared immediately, so
+    // the transport retains no plaintext credential between requests.
+    std::string bearerToken = std::move(oneShotBearerToken_);
+    oneShotBearerToken_.clear();
+
+    // Fail closed WITHOUT dispatching when there is nothing usable to send
+    // with: an empty credential, endpoint or body must never become a request.
+    if (bearerToken.empty() || requestBody.empty() || endpoint_.empty()) {
+        return ChatCompletionsHttpAsyncHandle{};
+    }
+
+    ChatCompletionsHttpRequest request;
+    request.url = endpoint_;
+    request.bearerToken = std::move(bearerToken);
+    request.contentType = kJsonContentType;
+    request.body = std::move(requestBody);
+    request.timeoutMs = timeoutMs_;
+
+    // The shared HTTP seam owns dispatch. Its DEFAULT async contract is
+    // unsupported (invalid handle, nothing dispatched, no completion), so this
+    // path is a no-op until the concrete client implements startAsync — which
+    // is exactly the missing async primitive the transport RED pins down.
+    const ChatCompletionsHttpAsyncHandle handle =
+        http_.startAsync(request, lifetimeContext, std::move(onDone));
+    if (handle.valid()) {
+        ++asyncDispatchCount_;
+    }
+    return handle;
+}
+
 } // namespace modbuslens::ui

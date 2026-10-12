@@ -24,7 +24,9 @@
 #include "ui/agent/AgentRuntime.h"
 #include "ui/agent/AgentToolContext.h"
 #include "ui/agent/ModelScopeAgentClient.h"
-#include "ui/ai/ModelScopeDiagnosisClient.h"
+#include "ui/ai/AiProviderProfile.h"
+#include "ui/ai/AiRuntimeConfiguration.h"
+#include "ui/ai/DiagnosisAsyncClient.h"
 #include "ui/serial/SerialPortAdapter.h"
 #include "ui/serial/SerialTransport.h"
 
@@ -199,6 +201,19 @@ class AnalysisController : public QObject
                    READ activeProfileController WRITE setActiveProfileController
                        NOTIFY activeProfileControllerChanged)
 
+    // ---- T034-B2.2-A: Global AI Configuration injection (Diagnosis) ----
+    // The shell injects the SINGLE global AiRuntimeConfiguration owner (the
+    // same object the AI Settings page writes and the Candidate chain reads),
+    // so a Saved configuration hot-switches the NEXT Diagnosis request without
+    // a restart. Optional: when unset (unit tests / legacy wiring), the
+    // explicit configureAiClient() seam keeps its previous behaviour. The
+    // controller NEVER duplicates provider/model/credential authority — it
+    // resolves the global snapshot at DISPATCH time via resolveRequestConfig().
+    Q_PROPERTY(modbuslens::ui::AiRuntimeConfiguration* aiRuntimeConfiguration
+                   READ aiRuntimeConfiguration
+                       WRITE setAiRuntimeConfiguration
+                           NOTIFY aiRuntimeConfigurationChanged)
+
     // ---- M10-D3: product write capability (structural, NOT availability) ----
     // True iff THIS build end-to-end owns 0x06: encoder + protocol/session
     // response support + the Controller's atomic confirm+dispatch operation +
@@ -337,6 +352,13 @@ public:
     void configureAiClient(const QUrl& endpoint, const QString& apiKey,
                            const QString& modelId,
                            std::chrono::milliseconds timeout);
+
+    // T034-B2.2-A: the global AI configuration owner (injected by the shell /
+    // tests). nullptr restores the explicit-seam-only behaviour.
+    [[nodiscard]] modbuslens::ui::AiRuntimeConfiguration*
+        aiRuntimeConfiguration() const;
+    void setAiRuntimeConfiguration(
+        modbuslens::ui::AiRuntimeConfiguration* configuration);
 
     // C++-side data entry points (not Q_INVOKABLE): Part B's demo flow and
     // tests call these; QML only reads.
@@ -615,6 +637,7 @@ public:
 
 signals:
     void activeProfileControllerChanged();
+    void aiRuntimeConfigurationChanged();
     void statisticsChanged();
     void replayStateChanged();
     void sourceChanged();
@@ -645,6 +668,12 @@ private slots:
     void handleAiSucceeded(std::uint64_t requestId, const QString& text);
     void handleAiFailed(std::uint64_t requestId, AiDiagnosisErrorCode code,
                         const QString& sanitizedMessage);
+    // T034-B2.2-A-R1: the injected global configuration owner reported an
+    // actual revision change (provider/model/credential save). Any ACTIVE
+    // Diagnosis attempt was authorized under the superseded revision and is
+    // invalidated immediately (owner/generation invalidation only — NOT a
+    // network cancel, no transport cancellation required).
+    void handleRuntimeConfigurationChanged();
     void handleAgentCompleted(std::uint64_t runGeneration, const QString& answer);
     void handleAgentFailed(std::uint64_t runGeneration,
                            const modbuslens::agent::AgentRunFailure& failure);
@@ -665,6 +694,14 @@ private:
     // and AI error are cleared, an in-flight AI request is aborted and its
     // identity invalidated, and activeBatchRevision_ is bumped.
     void invalidateAiForBatchChange();
+    // T034-B2.2-A-R1: revokes the ACTIVE Diagnosis attempt — bumps the request
+    // generation, clears the owner identity/revision bookkeeping, and clears
+    // aiDiagnosisBusy if the revoked attempt owns it. It does NOT touch the
+    // accepted result/text or the accepted error, and makes no network-cancel
+    // claim. A late completion of the revoked attempt is dropped by the
+    // primary ownership guard, so it can never mutate state owned by a newer
+    // request. No-op when no attempt is active.
+    void invalidateActiveDiagnosisAttempt();
 
     // Presentation projection of ONE session record (row fields + issue text).
     [[nodiscard]] TransactionListEntry makeSessionRow(
@@ -856,10 +893,36 @@ private:
     std::uint64_t aiRequestGeneration_ = 0;
     std::optional<std::uint64_t> activeAiRequestId_;
     std::optional<std::uint64_t> requestBatchRevision_;
+    // T034-B2.2-A: THIRD dimension — the global configuration revision that
+    // was authoritative when the request was dispatched. T034-B2.2-A-R1: the
+    // revision change is handled PROACTIVELY by
+    // handleRuntimeConfigurationChanged (which invalidates the active attempt
+    // and clears these bookkeeping fields), so the completion handlers no
+    // longer carry a revision early-return that could wedge the busy state.
+    std::optional<qint64> requestConfigRevision_;
 
-    ModelScopeDiagnosisClient aiClient_;
+    // T034-B2.2-A-R2: the PRODUCTION Diagnosis dispatch runs on the SHARED
+    // async chat-completions transport through this Diagnosis-specific adapter.
+    // It replaces ModelScopeDiagnosisClient (private QNetworkAccessManager +
+    // global single-flight), which is now unreachable from production
+    // Diagnosis and retained only for its own frozen tests.
+    modbuslens::ui::DiagnosisAsyncClient aiClient_;
 
+    // T034-B2.2-A-R2: LEGACY/AGENT availability flag. It backs
+    // agentAvailable() only; Diagnosis authority is the injected global
+    // snapshot and never reads this.
     bool aiConfigured_ = false;
+    // T034-B2.2-A: the injected global AI configuration owner. NOT owned
+    // (the shell/test owns it). When non-null, EVERY Diagnosis dispatch
+    // resolves provider/model/credential from it at request time — the
+    // legacy aiConfigured_/aiClient_ config becomes a fallback seam only.
+    // T034-B2.2-A-R2: that legacy fallback is REMOVED — Diagnosis authority is
+    // the injected global snapshot alone, resolved per dispatch.
+    modbuslens::ui::AiRuntimeConfiguration* aiRuntimeConfiguration_{nullptr};
+    // The endpoint used for the CURRENT global-config Diagnosis dispatch
+    // (TEST-ONLY loopback injection). Production leaves it empty so the
+    // AiProviderProfile compiled endpoint is authoritative.
+    QUrl diagnosisEndpointOverride_;
     bool aiDiagnosisBusy_ = false;
     bool hasAiDiagnosis_ = false;
     QString aiDiagnosisText_;

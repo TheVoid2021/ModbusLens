@@ -246,6 +246,8 @@ qt_add_qml_module(modbuslens
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
+        src/ui/ai/DiagnosisAsyncClient.h
+        src/ui/ai/DiagnosisAsyncClient.cpp
         src/ui/manual/ManualStore.h
         src/ui/manual/ManualStore.cpp
         src/ui/manual/ManualImportController.h
@@ -301,6 +303,10 @@ qt_add_qml_module(modbuslens
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
         src/ui/ai/DiagnosisPromptBuilder.cpp
         src/ui/agent/AgentToolContext.h
@@ -485,6 +491,12 @@ if(BUILD_TESTING)
         tests/fake_serial_transport.cpp
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
+        src/ui/ai/DiagnosisAsyncClient.h
+        src/ui/ai/DiagnosisAsyncClient.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -499,6 +511,10 @@ if(BUILD_TESTING)
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
         src/ui/ai/DiagnosisPromptBuilder.cpp
         src/ui/agent/AgentToolContext.h
@@ -885,6 +901,8 @@ if(BUILD_TESTING)
     # is ever opened and the suite is fully deterministic and offline.
     add_executable(modbuslens_candidate_transport_tests
         tests/test_candidate_transport.cpp
+        tests/fake_chat_completions_server.h
+        tests/fake_chat_completions_server.cpp
         src/ui/ai/CandidateProviderAdapter.h
         src/ui/ai/AiProviderProfile.h
         src/ui/ai/AiProviderProfile.cpp
@@ -1413,6 +1431,12 @@ if(BUILD_TESTING)
         tests/fake_serial_transport.cpp
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
+        src/ui/ai/DiagnosisAsyncClient.h
+        src/ui/ai/DiagnosisAsyncClient.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -1427,6 +1451,10 @@ if(BUILD_TESTING)
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
         src/ui/ai/DiagnosisPromptBuilder.cpp
         src/ui/agent/AgentToolContext.h
@@ -1500,6 +1528,12 @@ if(BUILD_TESTING)
         tests/fake_serial_transport.cpp
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
+        src/ui/ai/DiagnosisAsyncClient.h
+        src/ui/ai/DiagnosisAsyncClient.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -1514,6 +1548,10 @@ if(BUILD_TESTING)
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
         src/ui/ai/DiagnosisPromptBuilder.cpp
         src/ui/agent/AgentToolContext.h
@@ -1551,6 +1589,12 @@ if(BUILD_TESTING)
         tests/fake_serial_transport.cpp
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
+        src/ui/ai/DiagnosisAsyncClient.h
+        src/ui/ai/DiagnosisAsyncClient.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -1565,6 +1609,10 @@ if(BUILD_TESTING)
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
         src/ui/ai/DiagnosisPromptBuilder.cpp
         src/ui/agent/AgentToolContext.h
@@ -1623,15 +1671,52 @@ if(BUILD_TESTING)
     add_executable(modbuslens_ai_tests
         tests/test_ai_client.cpp
         tests/fake_chat_completions_server.cpp
+        src/ui/AnalysisController.h
+        src/ui/AnalysisController.cpp
+        src/ui/ai/DiagnosisAsyncClient.h
+        src/ui/ai/DiagnosisAsyncClient.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
+        src/ui/profile/ActiveProfileController.h
+        src/ui/profile/ActiveProfileController.cpp
+        src/ui/TransactionListModel.h
+        src/ui/TransactionListModel.cpp
+        src/ui/serial/SerialTransport.h
+        src/ui/serial/SerialTransport.cpp
+        src/ui/serial/SerialPortAdapter.h
+        src/ui/serial/SerialPortAdapter.cpp
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/IAiCredentialStore.h
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
-        src/ui/ai/DiagnosisPromptBuilder.cpp)
+        src/ui/ai/DiagnosisPromptBuilder.cpp
+        src/ui/agent/AgentToolContext.h
+        src/ui/agent/AgentToolContext.cpp
+        src/ui/agent/AgentTools.h
+        src/ui/agent/AgentTools.cpp
+        src/ui/agent/AgentPromptBuilder.h
+        src/ui/agent/AgentPromptBuilder.cpp
+        src/ui/agent/ModelScopeAgentClient.h
+        src/ui/agent/ModelScopeAgentClient.cpp
+        src/ui/agent/AgentRuntime.h
+        src/ui/agent/AgentRuntime.cpp)
     target_include_directories(modbuslens_ai_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(modbuslens_ai_tests PRIVATE
+        MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog")
     target_link_libraries(modbuslens_ai_tests PRIVATE
-        modbuslens_core Qt6::Network Qt6::Test)
+        modbuslens_core Qt6::Qml Qt6::SerialPort Qt6::Network Qt6::Test)
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(modbuslens_ai_tests PRIVATE -Wall -Wextra)
@@ -1693,6 +1778,12 @@ if(BUILD_TESTING)
         tests/fake_chat_completions_server.cpp
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
+        src/ui/ai/DiagnosisAsyncClient.h
+        src/ui/ai/DiagnosisAsyncClient.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -1707,6 +1798,10 @@ if(BUILD_TESTING)
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
         src/ui/ai/DiagnosisPromptBuilder.cpp
         src/ui/agent/AgentToolContext.h

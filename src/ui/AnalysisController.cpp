@@ -163,21 +163,24 @@ AnalysisController::AnalysisController(QObject* parent)
     serialTransport_ = &serialAdapter_;
     connectSerialTransportSignals(*serialTransport_);
 
-    // AI (T011 Part B): production config comes from the process environment
-    // ONLY (BYOK). QML never sees the token — just aiConfigured.
+    // AI (T011 Part B): LEGACY process-environment authority (BYOK). QML never
+    // sees the token — just aiConfigured.
+    //
+    // T034-B2.2-A-R1 §6: DIAGNOSIS no longer reads or stores legacy environment
+    // authority at construction. Its provider / model / credential authority is
+    // resolved ONLY from the injected global configuration at DISPATCH time
+    // (askAiDiagnosis), so seeding the Diagnosis client here merely to
+    // overwrite it later is removed. The single environment read below now has
+    // ZERO effect on Diagnosis; it feeds the AGENT only, whose legacy
+    // environment authority is preserved untouched (Agent migration is a LATER
+    // B2.2 step).
     ModelScopeClientConfig productionConfig;
     if (buildModelScopeProductionConfig(productionConfig)) {
-        // ONE validated config source feeds BOTH cloud clients (UI-AG19):
-        // aiConfigured_==true can never coexist with an unconfigured Agent
-        // client.
-        aiClient_.configure(productionConfig);
         agentClient_.configure(productionConfig);
-        aiConfigured_ = true;
-        aiModelName_ = productionConfig.modelId;
     }
-    connect(&aiClient_, &ModelScopeDiagnosisClient::diagnosisSucceeded,
+    connect(&aiClient_, &modbuslens::ui::DiagnosisAsyncClient::diagnosisSucceeded,
             this, &AnalysisController::handleAiSucceeded);
-    connect(&aiClient_, &ModelScopeDiagnosisClient::diagnosisFailed,
+    connect(&aiClient_, &modbuslens::ui::DiagnosisAsyncClient::diagnosisFailed,
             this, &AnalysisController::handleAiFailed);
     connect(&agentRuntime_, &AgentRuntime::runCompleted,
             this, &AnalysisController::handleAgentCompleted);
@@ -320,6 +323,11 @@ void AnalysisController::clearReplayNotice()
 // ---- T010 Part B: serial source ----
 
 namespace {
+
+// T034-B2.2-A-R2: the ONE bounded timeout for a Diagnosis dispatch. A
+// non-streaming cloud LLM inference is not an interactive millisecond request
+// (live evidence: the 27B model can exceed 30 s under load).
+constexpr int kDiagnosisRequestTimeoutMs = 90000;
 
 // M10 correction (Human: 1200/2400/4800 must be selectable): the supported
 // baud list gained the three low-speed rates. The list is the ONE authority —
@@ -511,7 +519,14 @@ QString AnalysisController::baselineDiagnosisText() const
 
 bool AnalysisController::aiConfigured() const
 {
-    return aiConfigured_;
+    // T034-B2.2-A: when the global owner is injected, the Diagnosis AI is
+    // "configured" iff the global snapshot currently resolves (saved config +
+    // provider-scoped credential). This is a READ-ONLY probe for the QML
+    // button state — the credential is only actually read at dispatch time.
+    // T034-B2.2-A-R2: NO legacy fallback. An unwired controller has no
+    // Diagnosis authority at all; the credential is read only at dispatch.
+    return aiRuntimeConfiguration_ != nullptr
+           && aiRuntimeConfiguration_->resolveRequestConfig().has_value();
 }
 
 bool AnalysisController::aiDiagnosisBusy() const
@@ -652,27 +667,119 @@ void AnalysisController::configureAiClient(const QUrl& endpoint,
                                            const QString& modelId,
                                            std::chrono::milliseconds timeout)
 {
-    // C++-side test seam (never QML): explicit adoption of a client config.
-    // An empty endpoint clears the configured state ("not configured" path).
+    // C++-side TEST seam (never QML). T034-B2.2-A-R2: with Diagnosis on the
+    // shared async transport this seam supplies ONLY the endpoint override (a
+    // loopback fake in the deterministic suites). Provider, model and
+    // credential authority ALWAYS come from the global snapshot resolved at
+    // dispatch time — the endpoint is the ONE test-only input.
+    //
+    // The AGENT still uses the legacy explicit config (Agent migration is a
+    // LATER B2.2 step), so apiKey/modelId/timeout are forwarded to the Agent
+    // only and are never Diagnosis authority.
     if (endpoint.isEmpty()) {
+        diagnosisEndpointOverride_ = QUrl{};
         aiConfigured_ = false;
-        aiModelName_.clear();
-        aiClient_.configure(ModelScopeClientConfig{});
         agentClient_.configure(ModelScopeClientConfig{});
         emit aiStateChanged();
         return;
     }
-    const ModelScopeClientConfig config{
+    diagnosisEndpointOverride_ = endpoint;
+    // `aiConfigured_` is now the LEGACY/AGENT availability flag only (it backs
+    // agentAvailable()); it is NOT Diagnosis authority any more.
+    aiConfigured_ = true;
+    agentClient_.configure(ModelScopeClientConfig{
         .endpoint = endpoint,
         .apiKey = apiKey,
         .modelId = modelId,
         .timeout = timeout,
-    };
-    aiClient_.configure(config);
-    agentClient_.configure(config);
-    aiConfigured_ = true;
-    aiModelName_ = modelId;
+    });
     emit aiStateChanged();
+}
+
+modbuslens::ui::AiRuntimeConfiguration*
+AnalysisController::aiRuntimeConfiguration() const
+{
+    return aiRuntimeConfiguration_;
+}
+
+void AnalysisController::setAiRuntimeConfiguration(
+    modbuslens::ui::AiRuntimeConfiguration* configuration)
+{
+    if (aiRuntimeConfiguration_ == configuration) {
+        return;
+    }
+    if (aiRuntimeConfiguration_ != nullptr) {
+        // Replacing the owner must not leave a dangling connection: drop the
+        // old revision-change subscription before switching.
+        disconnect(
+            aiRuntimeConfiguration_,
+            &modbuslens::ui::AiRuntimeConfiguration::configurationChanged,
+            this, nullptr);
+    }
+    // Swapping the configuration OWNER revokes the authority of any attempt
+    // still in flight under the old owner (its revision bookkeeping refers to
+    // an owner that is no longer authoritative).
+    invalidateActiveDiagnosisAttempt();
+    aiRuntimeConfiguration_ = configuration;
+    if (aiRuntimeConfiguration_ != nullptr) {
+        connect(
+            aiRuntimeConfiguration_,
+            &modbuslens::ui::AiRuntimeConfiguration::configurationChanged,
+            this, &AnalysisController::handleRuntimeConfigurationChanged);
+    }
+    // Global authority change must NOT be cached: no client reconfig here —
+    // the snapshot is resolved per dispatch in askAiDiagnosis(). Reset the
+    // loopback override so a previously injected test endpoint cannot leak
+    // across a re-injection.
+    diagnosisEndpointOverride_ = QUrl{};
+    emit aiRuntimeConfigurationChanged();
+}
+
+void AnalysisController::handleRuntimeConfigurationChanged()
+{
+    if (aiRuntimeConfiguration_ == nullptr) {
+        return;
+    }
+    // A configuration save while NOTHING is in flight changes nothing
+    // observable here: the next dispatch resolves the new snapshot fresh.
+    if (!activeAiRequestId_.has_value()) {
+        return;
+    }
+    // Only a SUPERSEDED attempt is invalidated. If the active attempt already
+    // carries the current revision it stays untouched.
+    if (requestConfigRevision_.has_value()
+        && *requestConfigRevision_ == aiRuntimeConfiguration_->configRevision()) {
+        return;
+    }
+    invalidateActiveDiagnosisAttempt();
+}
+
+void AnalysisController::invalidateActiveDiagnosisAttempt()
+{
+    if (!activeAiRequestId_.has_value()) {
+        return; // nothing owns any Diagnosis state right now
+    }
+    // Owner/generation invalidation. Bumping the generation guarantees a late
+    // completion of the revoked attempt can never collide with a future
+    // request id, and clearing the active id revokes OWNERSHIP so the late
+    // delivery is dropped by the primary guard in
+    // handleAiSucceeded/handleAiFailed — it can never mutate state owned by a
+    // newer request.
+    //
+    // This is NOT a network cancel and does not require transport
+    // cancellation: the in-flight exchange is simply abandoned.
+    ++aiRequestGeneration_;
+    activeAiRequestId_.reset();
+    requestBatchRevision_.reset();
+    requestConfigRevision_.reset();
+    // The accepted result/text and the accepted error are deliberately
+    // preserved: a configuration change must not erase what was already
+    // shown. Only the revoked attempt's busy ownership is released.
+    if (aiDiagnosisBusy_) {
+        aiDiagnosisBusy_ = false;
+        emit aiStateChanged();
+    }
+    emit cloudAiChanged();
 }
 
 void AnalysisController::setAiError(const QString& message)
@@ -694,8 +801,15 @@ void AnalysisController::handleAiSucceeded(std::uint64_t requestId,
         || *requestBatchRevision_ != activeBatchRevision_) {
         return;
     }
+    // T034-B2.2-A-R1: the configuration-revision dimension is now enforced
+    // PROACTIVELY — handleRuntimeConfigurationChanged invalidates the active
+    // attempt the moment the revision changes, so any completion that reaches
+    // this point is the current owner. No revision early-return here: it would
+    // drop a superseded delivery WITHOUT releasing the busy state and wedge
+    // the controller (the exact defect b22d09 locks down).
     activeAiRequestId_.reset();
     requestBatchRevision_.reset();
+    requestConfigRevision_.reset();
     aiDiagnosisBusy_ = false;
     hasAiDiagnosis_ = true;
     aiDiagnosisText_ = text;
@@ -715,8 +829,12 @@ void AnalysisController::handleAiFailed(std::uint64_t requestId,
         || *requestBatchRevision_ != activeBatchRevision_) {
         return;
     }
+    // T034-B2.2-A-R1: see handleAiSucceeded — a superseded attempt is already
+    // invalidated proactively, so no revision early-return belongs here (it
+    // would corrupt busy ownership).
     activeAiRequestId_.reset();
     requestBatchRevision_.reset();
+    requestConfigRevision_.reset();
     aiDiagnosisBusy_ = false;
     // A failed attempt keeps a previous same-batch explanation (if any):
     // error and result may legitimately coexist.
@@ -735,7 +853,9 @@ void AnalysisController::cancelAiDiagnosis()
     ++aiRequestGeneration_;
     activeAiRequestId_.reset();
     requestBatchRevision_.reset();
-    aiClient_.cancel(AiAbortReason::UserCancel);
+    // T034-B2.2-A-R2: NETWORK CANCELLATION IS NOT CLAIMED — the shared async
+    // transport has no cancel primitive. The identity invalidation above is
+    // what makes any late completion inert.
     aiDiagnosisBusy_ = false;
     emit aiStateChanged();
     emit cloudAiChanged();
@@ -749,11 +869,40 @@ void AnalysisController::askAiDiagnosis()
         emit cloudAiChanged();
         return;
     }
-    if (!aiConfigured_) {
+
+    // ---- T034-B2.2-A-R2: resolve the ONE request snapshot at DISPATCH ------
+    // provider / model / endpoint / credential / revision are resolved HERE,
+    // exactly once, never cached at construction. There is NO legacy fallback
+    // and NO environment authority: an unwired controller has no Diagnosis
+    // authority at all and fails closed.
+    if (aiRuntimeConfiguration_ == nullptr) {
         setAiError(QStringLiteral(
-            "未配置 ModelScope API 令牌（MODELSCOPE_API_KEY），"
-            " 请设置后重启应用。"));
+            "尚未配置 AI（请前往 AI 设置 保存 Provider / 模型 / API Key）。"));
+        emit cloudAiChanged();
         return;
+    }
+    const std::optional<modbuslens::ui::AiRuntimeConfiguration::
+                             ResolvedRequestConfig>
+        resolved = aiRuntimeConfiguration_->resolveRequestConfig();
+    if (!resolved.has_value()) {
+        setAiError(QStringLiteral(
+            "尚未配置 AI（请前往 AI 设置 保存 Provider / 模型 / API Key）。"));
+        emit cloudAiChanged();
+        return;
+    }
+    const modbuslens::ui::AiProviderProfile& profile =
+        modbuslens::ui::aiProviderProfile(resolved->kind);
+    // Endpoint: AiProviderProfile is authoritative; the loopback override is
+    // the TEST-ONLY seam and never a production endpoint.
+    const std::string dispatchEndpoint =
+        diagnosisEndpointOverride_.isEmpty()
+            ? std::string(profile.chatCompletionsEndpoint)
+            : diagnosisEndpointOverride_.toString().toStdString();
+    const QString dispatchModel = QString::fromStdString(resolved->model);
+    // Non-secret model label for the QML presentation.
+    if (aiModelName_ != dispatchModel) {
+        aiModelName_ = dispatchModel;
+        emit aiStateChanged();
     }
     if (activeDiagnosisTransactions_.empty()) {
         setAiError(QStringLiteral("暂无可分析数据。"));
@@ -776,12 +925,33 @@ void AnalysisController::askAiDiagnosis()
     ++aiRequestGeneration_;
     activeAiRequestId_ = aiRequestGeneration_;
     requestBatchRevision_ = activeBatchRevision_;
+    requestConfigRevision_ = aiRuntimeConfiguration_->configRevision();
     aiDiagnosisBusy_ = true;
     aiDiagnosisErrorMessage_.clear(); // clear the LATEST error, keep old text
     emit aiStateChanged();
     emit cloudAiChanged();
-    aiClient_.requestDiagnosis(prompt.systemInstructions, prompt.userPrompt,
-                               aiRequestGeneration_);
+
+    // ONE dispatch on the SHARED async transport. The credential exists only
+    // for this call: it is handed over as a ONE-SHOT bearer token and consumed
+    // by sendAsync — no long-lived Diagnosis credential is retained.
+    const modbuslens::ui::DiagnosisDispatchConfig dispatchConfig{
+        .endpoint = dispatchEndpoint,
+        .model = resolved->model,
+        .secret = resolved->secret,
+        .timeoutMs = kDiagnosisRequestTimeoutMs,
+    };
+    if (!aiClient_.requestDiagnosis(dispatchConfig, prompt.systemInstructions,
+                                    prompt.userPrompt, aiRequestGeneration_)) {
+        // Nothing reached the wire: revoke ownership and report instead of
+        // leaving the controller wedged in a busy state.
+        ++aiRequestGeneration_;
+        activeAiRequestId_.reset();
+        requestBatchRevision_.reset();
+        requestConfigRevision_.reset();
+        aiDiagnosisBusy_ = false;
+        setAiError(QStringLiteral("无法开始 AI 请求，请检查 AI 设置后重试。"));
+        emit cloudAiChanged();
+    }
 }
 
 void AnalysisController::invalidateAiForBatchChange()
@@ -802,7 +972,9 @@ void AnalysisController::invalidateAiForBatchChange()
         ++aiRequestGeneration_;
         activeAiRequestId_.reset();
         requestBatchRevision_.reset();
-        aiClient_.cancel(AiAbortReason::BatchInvalidated);
+        requestConfigRevision_.reset();
+        // No aiClient_.cancel(): the shared async transport offers no
+        // cancellation — the invalidated identity is the whole guard.
     }
     aiDiagnosisBusy_ = false;
     hasAiDiagnosis_ = false;
@@ -831,7 +1003,9 @@ void AnalysisController::clearDiagnosis()
         ++aiRequestGeneration_;
         activeAiRequestId_.reset();
         requestBatchRevision_.reset();
-        aiClient_.cancel(AiAbortReason::DiagnosisCleared);
+        requestConfigRevision_.reset();
+        // No aiClient_.cancel(): the shared async transport offers no
+        // cancellation — the invalidated identity is the whole guard.
     }
     aiDiagnosisBusy_ = false;
     hasAiDiagnosis_ = false;

@@ -12,12 +12,15 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
+#include <QObject>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/candidate/CandidateExtraction.h"
@@ -29,6 +32,8 @@
 #include "ui/candidate/ChatCompletionsHttpClient.h"
 #include "ui/profile/ProfileStore.h"
 
+#include "fake_chat_completions_server.h"
+
 using modbuslens::core::CandidateProposal;
 using modbuslens::core::ManualDocument;
 using modbuslens::core::ProfileFieldTarget;
@@ -38,6 +43,7 @@ using modbuslens::ui::CandidateProviderRunner;
 using modbuslens::ui::ChatCompletionsTransport;
 using modbuslens::ui::ChatCompletionsHttpRequest;
 using modbuslens::ui::ChatCompletionsHttpResult;
+using modbuslens::ui::QtChatCompletionsHttpClient;
 using modbuslens::ui::ProfileStore;
 
 namespace {
@@ -703,6 +709,178 @@ private slots:
             1, nullptr);
         QCOMPARE(startedWithoutCredential, false);
         QCOMPARE(http2.callCount(), 0);
+    }
+
+    // ======================================================================
+    // T034-B2.2-A-R2 — SHARED ASYNC CHAT-COMPLETIONS TRANSPORT
+    //
+    // The shared HTTP seam must expose its already-asynchronous
+    // QNetworkAccessManager capability: MULTIPLE concurrent in-flight
+    // exchanges, each with independent identity / reply / timeout ownership,
+    // and exactly-once completion. These oracles drive the REAL
+    // QtChatCompletionsHttpClient against the existing localhost fake server
+    // (never a public provider).
+    // ======================================================================
+
+    // ---------------------------------------------------------- A01 --
+    // Concurrency + identity oracle: request A is HELD while request B is
+    // dispatched AND completed; A then completes late. Each completion fires
+    // exactly once and neither sees the other's response.
+    void a01_asyncConcurrencyIdentityOracle()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+        // Script entry 1 (first arrival = request A): HELD 900 ms.
+        server.enqueueResponse(
+            200, "{\"choices\":[{\"message\":{\"content\":\"reply-A\"}}]}", 900);
+        // Script entry 2 (request B): immediate.
+        server.enqueueResponse(
+            201, "{\"choices\":[{\"message\":{\"content\":\"reply-B\"}}]}", 0);
+
+        QtChatCompletionsHttpClient http;
+        ChatCompletionsTransport transport(
+            http, server.chatCompletionsUrl().toStdString(), 20000);
+
+        std::vector<std::pair<std::uint64_t, ChatCompletionsHttpResult>> done;
+        std::uint64_t idA = 0;
+        transport.setOneShotBearerToken("token-A-not-a-real-secret");
+        const auto handleA = transport.sendAsync(
+            std::string{"{\"req\":\"A\"}"}, nullptr,
+            [&](ChatCompletionsHttpResult r) { done.emplace_back(idA, std::move(r)); });
+        idA = handleA.id;
+        QVERIFY(handleA.valid());
+        // A goes ON THE WIRE first and its reply is HELD for 900 ms, so the
+        // arrival order — and therefore the scripted-response pairing — is
+        // deterministic instead of a race between two connections.
+        QTRY_COMPARE(server.requestCount(), 1);
+        QCOMPARE(server.requests().at(0).body, QByteArray("{\"req\":\"A\"}"));
+
+        std::uint64_t idB = 0;
+        transport.setOneShotBearerToken("token-B-not-a-real-secret");
+        const auto handleB = transport.sendAsync(
+            std::string{"{\"req\":\"B\"}"}, nullptr,
+            [&](ChatCompletionsHttpResult r) { done.emplace_back(idB, std::move(r)); });
+        idB = handleB.id;
+        QVERIFY(handleB.valid());
+        QVERIFY(idA != idB);
+        QCOMPARE(transport.asyncDispatchCount(), 2);
+
+        // B reaches the wire WHILE A is still pending (A's reply is held).
+        QTRY_COMPARE(server.requestCount(), 2);
+
+        // B (immediate) completes while A (held) is still in flight.
+        QTRY_COMPARE(static_cast<int>(done.size()), 1);
+        QCOMPARE(done.at(0).first, idB);
+        QCOMPARE(done.at(0).second.status, 201);
+        QVERIFY(done.at(0).second.body.find("reply-B") != std::string::npos);
+
+        // A completes late: exactly one more callback carrying A's OWN reply.
+        QTRY_COMPARE(static_cast<int>(done.size()), 2);
+        QCOMPARE(done.at(1).first, idA);
+        QCOMPARE(done.at(1).second.status, 200);
+        QVERIFY(done.at(1).second.body.find("reply-A") != std::string::npos);
+    }
+
+    // ---------------------------------------------------------- A02 --
+    // Timeout is exactly-once, and a LATE network completion after the timeout
+    // produces NO second callback.
+    void a02_asyncTimeoutExactlyOnceAndLateIgnored()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+        server.enqueueResponse(200, "{\"late\":true}", 800);
+
+        QtChatCompletionsHttpClient http;
+        ChatCompletionsTransport transport(
+            http, server.chatCompletionsUrl().toStdString(), 200);
+
+        int calls = 0;
+        bool sawTimeout = false;
+        transport.setOneShotBearerToken("token-not-a-real-secret");
+        const auto handle = transport.sendAsync(
+            std::string{"{\"req\":\"T\"}"}, nullptr,
+            [&](ChatCompletionsHttpResult r) { ++calls; sawTimeout = r.timedOut; });
+        QVERIFY(handle.valid());
+
+        QTRY_COMPARE(calls, 1);
+        QVERIFY(sawTimeout);
+
+        // The held reply arrives after the timeout: it must be ignored.
+        QTest::qWait(900);
+        QCOMPARE(calls, 1);
+    }
+
+    // ---------------------------------------------------------- A03 --
+    // An async start that cannot dispatch (no one-shot credential) returns an
+    // INVALID handle, dispatches NOTHING and never invokes the completion.
+    void a03_asyncInvalidStartSendsNothing()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+
+        QtChatCompletionsHttpClient http;
+        ChatCompletionsTransport transport(
+            http, server.chatCompletionsUrl().toStdString(), 5000);
+
+        int calls = 0;
+        const auto handle = transport.sendAsync(
+            std::string{"{\"req\":\"X\"}"}, nullptr,
+            [&](ChatCompletionsHttpResult) { ++calls; });
+
+        QVERIFY(!handle.valid());
+        QCOMPARE(transport.asyncDispatchCount(), 0);
+        QTest::qWait(200);
+        QCOMPARE(server.requestCount(), 0);
+        QCOMPARE(calls, 0);
+    }
+
+    // ---------------------------------------------------------- A04 --
+    // The shared interface DEFAULT async contract must NOT fall back to the
+    // synchronous post(): an unsupported async start is invalid AND nothing is
+    // dispatched synchronously (Candidate fakes stay behaviour-compatible).
+    void a04_asyncDefaultNeverFallsBackToSync()
+    {
+        FakeHttpClient http; // overrides ONLY the synchronous path
+        ChatCompletionsTransport transport(
+            http, "https://example.invalid/v1/chat/completions", 5000);
+
+        int calls = 0;
+        transport.setOneShotBearerToken("token-not-a-real-secret");
+        const auto handle = transport.sendAsync(
+            std::string{"{\"req\":\"Y\"}"}, nullptr,
+            [&](ChatCompletionsHttpResult) { ++calls; });
+
+        QVERIFY(!handle.valid());
+        QCOMPARE(http.callCount(), 0); // no hidden synchronous fallback
+        QCOMPARE(transport.asyncDispatchCount(), 0);
+        QCOMPARE(calls, 0);
+    }
+
+    // ---------------------------------------------------------- A05 --
+    // Callback lifetime: if the bound context object dies before completion,
+    // the completion is never delivered (no use-after-free).
+    void a05_asyncLifetimeContextAbandonment()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+        server.enqueueResponse(200, "{\"choices\":[]}", 500);
+
+        QtChatCompletionsHttpClient http;
+        ChatCompletionsTransport transport(
+            http, server.chatCompletionsUrl().toStdString(), 20000);
+
+        int calls = 0;
+        {
+            QObject context;
+            transport.setOneShotBearerToken("token-not-a-real-secret");
+            const auto handle = transport.sendAsync(
+                std::string{"{\"req\":\"L\"}"}, &context,
+                [&](ChatCompletionsHttpResult) { ++calls; });
+            QVERIFY(handle.valid());
+        } // context destroyed before the held reply arrives
+
+        QTest::qWait(700);
+        QCOMPARE(calls, 0);
     }
 };
 
