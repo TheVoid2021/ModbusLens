@@ -1,5 +1,7 @@
 #include "ui/AnalysisController.h"
 
+#include "ui/ai/AiProviderProfile.h"
+
 #include "core/analysis/TransactionStatistics.h"
 #include "core/analysis/RegisterDecode.h"
 #include "core/active/ReadRequestParsing.h"
@@ -147,8 +149,8 @@ QString agentFailureText(const modbuslens::agent::AgentRunFailure& failure)
 
 AnalysisController::AnalysisController(QObject* parent)
     : QObject(parent),
-      agentClient_(this),
-      agentRuntime_(&agentClient_, this)
+      agentClient_(std::make_unique<AgentAsyncClient>()),
+      agentRuntime_(agentClient_.get(), this)
 {
     // Same source of truth as T007: an empty batch produces the zeroed
     // snapshot with undefined successRate/latency (hasX == false).
@@ -174,10 +176,13 @@ AnalysisController::AnalysisController(QObject* parent)
     // ZERO effect on Diagnosis; it feeds the AGENT only, whose legacy
     // environment authority is preserved untouched (Agent migration is a LATER
     // B2.2 step).
-    ModelScopeClientConfig productionConfig;
-    if (buildModelScopeProductionConfig(productionConfig)) {
-        agentClient_.configure(productionConfig);
-    }
+    // T034-B2.2-C: the AGENT no longer reads or stores legacy environment
+    // authority at construction. Its provider / model / endpoint / credential
+    // authority is resolved ONLY from the injected global configuration at
+    // DISPATCH time (askAgent) — exactly like Diagnosis. The legacy
+    // environment builder (buildModelScopeProductionConfig) now has NO caller
+    // in the Agent path; it is retained only until the separate LEGACY CLEANUP
+    // step removes it, and it is NOT any production Agent authority.
     connect(&aiClient_, &modbuslens::ui::DiagnosisAsyncClient::diagnosisSucceeded,
             this, &AnalysisController::handleAiSucceeded);
     connect(&aiClient_, &modbuslens::ui::DiagnosisAsyncClient::diagnosisFailed,
@@ -328,6 +333,10 @@ namespace {
 // non-streaming cloud LLM inference is not an interactive millisecond request
 // (live evidence: the 27B model can exceed 30 s under load).
 constexpr int kDiagnosisRequestTimeoutMs = 90000;
+
+// T034-B2.2-C: the ONE bounded timeout for an Agent provider round, matching
+// the Diagnosis/Manual-QA budget.
+constexpr int kAgentRequestTimeoutMs = 90000;
 
 // M10 correction (Human: 1200/2400/4800 must be selectable): the supported
 // baud list gained the three low-speed rates. The list is the ONE authority —
@@ -576,7 +585,17 @@ QString AnalysisController::agentErrorText() const
 
 bool AnalysisController::agentAvailable() const
 {
-    return aiConfigured_;
+    // T034-B2.2-C (Human-authorized semantics): availability expresses SAVED
+    // GLOBAL CONFIGURATION READINESS only. It deliberately does NOT call
+    // resolveRequestConfig() — that is the explicit-run credential resolution
+    // point — and it materializes NOTHING: only non-secret existence booleans
+    // are consulted. A missing credential is therefore still reported as
+    // available here and fails CLOSED at the explicit Agent action instead.
+    if (aiRuntimeConfiguration_ == nullptr) {
+        return false;
+    }
+    return aiRuntimeConfiguration_->hasSavedConfiguration()
+        && aiRuntimeConfiguration_->hasSavedCredential();
 }
 
 bool AnalysisController::cloudAiBusy() const
@@ -604,11 +623,41 @@ void AnalysisController::askAgent(const QString& question)
         emit agentStateChanged();
         return;
     }
-    if (!agentClient_.isConfigured()) {
-        agentErrorText_ = QStringLiteral("ModelScope 未配置，无法使用 Agent 问答。");
+    // T034-B2.2-C: the AGENT's provider authority is the SINGLE global AI
+    // configuration owner, resolved EXACTLY ONCE per explicit Agent run. There
+    // is no constructor-time provider/model/credential authority and no legacy
+    // environment fallback: an unwired or unresolved controller fails closed
+    // with ZERO network.
+    if (aiRuntimeConfiguration_ == nullptr) {
+        agentErrorText_ = QStringLiteral("Agent 未配置，无法使用 Agent 问答。");
         emit agentStateChanged();
         return;
     }
+    // Same fail-closed policy as Manual QA: Manual QA/Agent requires an
+    // EXPLICITLY SAVED configuration, so the shared tier-3 legacy-environment
+    // fallback is NOT Agent authority (legacy env effect = ZERO).
+    if (!aiRuntimeConfiguration_->hasSavedConfiguration()) {
+        agentErrorText_ = QStringLiteral("Agent 未配置，无法使用 Agent 问答。");
+        emit agentStateChanged();
+        return;
+    }
+    const std::optional<modbuslens::ui::AiRuntimeConfiguration::ResolvedRequestConfig>
+        resolved = aiRuntimeConfiguration_->resolveRequestConfig();
+    if (!resolved.has_value() || resolved->secret.empty()) {
+        agentErrorText_ = QStringLiteral("Agent 未配置，无法使用 Agent 问答。");
+        emit agentStateChanged();
+        return;
+    }
+    const modbuslens::ui::AiProviderProfile& profile =
+        modbuslens::ui::aiProviderProfile(resolved->kind);
+    const modbuslens::agent::AgentRunConfig runConfig{
+        .kind = resolved->kind,
+        .endpoint = std::string(profile.chatCompletionsEndpoint),
+        .model = resolved->model,
+        .secret = resolved->secret,
+        .timeoutMs = kAgentRequestTimeoutMs,
+    };
+    agentRequestConfigRevision_ = aiRuntimeConfiguration_->configRevision();
 
     // Accepted run. The snapshot comes ONLY from the structured active batch
     // (self-consistent statistics re-derived by makeAgentToolContext) — never
@@ -620,6 +669,7 @@ void AnalysisController::askAgent(const QString& question)
     agentRuntime_.start(modbuslens::agent::AgentRunRequest{
         .userQuestion = question,
         .context = context,
+        .provider = runConfig,
         .runGeneration = agentRequestGeneration_,
     });
     emit agentStateChanged();
@@ -676,23 +726,24 @@ void AnalysisController::configureAiClient(const QUrl& endpoint,
     // The AGENT still uses the legacy explicit config (Agent migration is a
     // LATER B2.2 step), so apiKey/modelId/timeout are forwarded to the Agent
     // only and are never Diagnosis authority.
+    // The AGENT no longer takes provider/model/credential authority from this
+    // seam either (T034-B2.2-C): apiKey/modelId/timeout are accepted for
+    // signature compatibility with the existing deterministic suites and are
+    // deliberately ignored. The Agent's authority is the global snapshot.
+    Q_UNUSED(apiKey);
+    Q_UNUSED(modelId);
+    Q_UNUSED(timeout);
     if (endpoint.isEmpty()) {
         diagnosisEndpointOverride_ = QUrl{};
         aiConfigured_ = false;
-        agentClient_.configure(ModelScopeClientConfig{});
         emit aiStateChanged();
         return;
     }
     diagnosisEndpointOverride_ = endpoint;
-    // `aiConfigured_` is now the LEGACY/AGENT availability flag only (it backs
-    // agentAvailable()); it is NOT Diagnosis authority any more.
+    // `aiConfigured_` remains the LEGACY availability flag (historical QML
+    // surface only). T034-B2.2-C: it is NO LONGER Agent authority —
+    // agentAvailable() expresses saved global configuration readiness instead.
     aiConfigured_ = true;
-    agentClient_.configure(ModelScopeClientConfig{
-        .endpoint = endpoint,
-        .apiKey = apiKey,
-        .modelId = modelId,
-        .timeout = timeout,
-    });
     emit aiStateChanged();
 }
 
@@ -740,18 +791,59 @@ void AnalysisController::handleRuntimeConfigurationChanged()
     if (aiRuntimeConfiguration_ == nullptr) {
         return;
     }
-    // A configuration save while NOTHING is in flight changes nothing
+    const qint64 revision = aiRuntimeConfiguration_->configRevision();
+
+    // ---- DIAGNOSIS (semantics UNCHANGED from T034-B2.2-A) ----------------
+    // A configuration save while nothing is in flight changes nothing
     // observable here: the next dispatch resolves the new snapshot fresh.
-    if (!activeAiRequestId_.has_value()) {
+    if (activeAiRequestId_.has_value()) {
+        // Only a SUPERSEDED attempt is invalidated. If the active attempt
+        // already carries the current revision it stays untouched.
+        if (!requestConfigRevision_.has_value()
+            || *requestConfigRevision_ != revision) {
+            invalidateActiveDiagnosisAttempt();
+        }
+    }
+
+    // ---- AGENT (T034-B2.2-C §7/§31): its OWN ownership, NEVER shared ----
+    // The two chains are evaluated independently: neither can clear the
+    // other's state, and neither reuses the other's request id, generation
+    // or busy ownership.
+    if (agentRuntime_.isBusy()) {
+        if (!agentRequestConfigRevision_.has_value()
+            || *agentRequestConfigRevision_ != revision) {
+            invalidateActiveAgentAttempt();
+        }
+    }
+}
+
+void AnalysisController::invalidateActiveAgentAttempt()
+{
+    if (!agentRuntime_.isBusy()) {
+        return; // nothing owns any Agent state right now
+    }
+    // Revoke the run's ownership (the runtime bumps its own generation, so any
+    // in-flight callback is stale on arrival and can never execute a tool,
+    // start a follow-up or publish state) and release ONLY the Agent busy
+    // ownership. The accepted Agent answer/error are deliberately preserved.
+    // This is NOT a network cancel. The Diagnosis chain is NOT touched.
+    agentRequestConfigRevision_.reset();
+    agentRuntime_.invalidateForConfigurationChange();
+    emit agentStateChanged();
+    emit cloudAiChanged();
+}
+
+void AnalysisController::setAgentHttpClientForAutomation(
+    modbuslens::ui::IChatCompletionsHttpClient* client)
+{
+    // AUTOMATION SEAM ONLY (never QML). Execution/HTTP end only: the injected
+    // client observes the request production would have sent, while provider,
+    // model, endpoint, credential and every fail-closed rule continue to come
+    // from the resolved global snapshot.
+    if (agentClient_ == nullptr || client == nullptr) {
         return;
     }
-    // Only a SUPERSEDED attempt is invalidated. If the active attempt already
-    // carries the current revision it stays untouched.
-    if (requestConfigRevision_.has_value()
-        && *requestConfigRevision_ == aiRuntimeConfiguration_->configRevision()) {
-        return;
-    }
-    invalidateActiveDiagnosisAttempt();
+    agentClient_->setHttpClientForAutomation(*client);
 }
 
 void AnalysisController::invalidateActiveDiagnosisAttempt()

@@ -7,8 +7,8 @@
 #include <cstdint>
 
 #include "ui/agent/AgentPromptBuilder.h"
+#include "ui/agent/AgentProviderClient.h"
 #include "ui/agent/AgentToolContext.h"
-#include "ui/agent/ModelScopeAgentClient.h"
 #include "ui/agent/AgentTools.h"
 #include "ui/ai/ModelScopeDiagnosisClient.h" // AiDiagnosisErrorCode
 
@@ -51,6 +51,11 @@ struct AgentRunFailure {
 struct AgentRunRequest {
     QString userQuestion;
     AgentToolContext context;      // immutable per-run snapshot (self-consistent)
+    // T034-B2.2-C: the IMMUTABLE provider snapshot for this run, resolved ONCE
+    // by the owner at start. Every provider step of this run reuses this exact
+    // copy, so a mid-run global configuration change can never switch the run
+    // to another provider/model/credential.
+    AgentRunConfig provider;
     // The context IS the full snapshot identity — including which batch it
     // belongs to. There is deliberately NO second revision field here (Phase
     // 1 review fix): a run can never be told a revision that disagrees with
@@ -74,7 +79,7 @@ class AgentRuntime : public QObject
     Q_OBJECT
 
 public:
-    explicit AgentRuntime(ModelScopeAgentClient* client,
+    explicit AgentRuntime(AgentProviderClient* client,
                           QObject* parent = nullptr);
 
     // Starts a NEW independent run. If another run is in flight this
@@ -94,6 +99,11 @@ public:
     // user-visible signal (runCancelled/runFailed are not emitted) — batch
     // invalidation is silent, unlike UserCancel.
     void invalidateForBatchChange();
+
+    // T034-B2.2-C §6/§31: the global configuration revision changed, so the
+    // in-flight run's authorization snapshot is revoked. Ownership is released
+    // and the run abandoned silently (NOT a user cancel). No-op when idle.
+    void invalidateForConfigurationChange();
 
     [[nodiscard]] bool isBusy() const;
 
@@ -131,10 +141,14 @@ private:
     void sendNextRequest();
     void finishCompleted(const QString& finalAnswer);
 
-    ModelScopeAgentClient* client_ = nullptr;
+    AgentProviderClient* client_ = nullptr;
 
     modbuslens::agent::AgentPrompt prompt_;
     State state_ = State::Idle;
+
+    // T034-B2.2-C: the run's immutable provider snapshot, captured in start()
+    // and reused verbatim by EVERY round of the run.
+    modbuslens::agent::AgentRunConfig runConfig_;
 
     std::uint64_t runGeneration_ = 0;
     std::uint64_t capturedBatchRevision_ = 0;

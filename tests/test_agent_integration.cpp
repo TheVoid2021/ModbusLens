@@ -5,6 +5,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryFile>
+#include <QTimer>
+
+#include <memory>
 #include <QUrl>
 
 #include <chrono>
@@ -12,6 +15,7 @@
 
 #include "core/analysis/TransactionAnalysis.h"
 #include "fake_chat_completions_server.h"
+#include "ui/candidate/ChatCompletionsHttpClient.h"
 #include "ui/AnalysisController.h"
 #include "ui/ai/AiRuntimeConfiguration.h"
 #include "ui/ai/IAiCredentialStore.h"
@@ -84,6 +88,154 @@ modbuslens::ui::AiRuntimeConfiguration& fakeAgentAiRuntime()
     return *runtime;
 }
 
+// ---------------------------------------------------------------------------
+// T034-B2.2-C-R1: test-only fake of the SHARED async HTTP seam.
+//
+// It replaces ONLY the HTTP execution end. The request it captures is exactly
+// what production would have sent — including the REAL AiProviderProfile
+// endpoint — while responses are scripted locally, so ZERO network I/O happens
+// and no public provider is ever contacted. It carries NO provider, model,
+// credential or revision authority: the AgentRunConfig still comes from the
+// controller's global-snapshot resolution.
+// ---------------------------------------------------------------------------
+class FakeAgentHttpClient final : public QObject,
+                                 public modbuslens::ui::IChatCompletionsHttpClient
+{
+public:
+    using QObject::QObject;
+    struct Captured {
+        QByteArray url;
+        QByteArray authorization;
+        QByteArray body;
+    };
+    struct Scripted {
+        int statusCode{200};
+        QByteArray body;
+    };
+
+    [[nodiscard]] modbuslens::ui::ChatCompletionsHttpResult post(
+        const modbuslens::ui::ChatCompletionsHttpRequest&) override
+    {
+        return {}; // the async path is the only one under test
+    }
+
+    [[nodiscard]] modbuslens::ui::ChatCompletionsHttpAsyncHandle startAsync(
+        const modbuslens::ui::ChatCompletionsHttpRequest& request, QObject*,
+        modbuslens::ui::ChatCompletionsHttpCompletion completion) override
+    {
+        Captured captured;
+        captured.url = QByteArray::fromStdString(request.url);
+        captured.authorization = QByteArray::fromStdString(request.bearerToken);
+        captured.body = QByteArray::fromStdString(request.body);
+        captured_.push_back(captured);
+
+        const std::uint64_t id = ++nextId_;
+        if (holdAll_) {
+            Held held;
+            held.id = id;
+            held.completion = std::move(completion);
+            held_.push_back(std::move(held));
+            return modbuslens::ui::ChatCompletionsHttpAsyncHandle{id};
+        }
+        // Deliver on the NEXT event-loop iteration: exactly like the retired
+        // loopback server, so a run is observably in flight right after
+        // askAgent() returns and QTRY_* observes the completion.
+        auto pending = std::make_shared<
+            modbuslens::ui::ChatCompletionsHttpCompletion>(
+            std::move(completion));
+        QTimer::singleShot(0, this, [this, id, pending]() {
+            deliver(id, std::move(*pending));
+        });
+        return modbuslens::ui::ChatCompletionsHttpAsyncHandle{id};
+    }
+
+    // ---- scripting (mirrors the retired loopback server's enqueue API) -----
+    void enqueueResponse(int statusCode, const QByteArray& body,
+                         int /*delayMs*/ = 0)
+    {
+        scripted_.push_back(Scripted{statusCode, body});
+    }
+    void setNextResponse(int statusCode, const QByteArray& body,
+                         int /*delayMs*/ = 0)
+    {
+        scripted_.insert(scripted_.begin(), Scripted{statusCode, body});
+    }
+    [[nodiscard]] int requestCount() const
+    {
+        return static_cast<int>(captured_.size());
+    }
+    [[nodiscard]] const std::vector<Captured>& requests() const
+    {
+        return captured_;
+    }
+    [[nodiscard]] const Captured& at(std::size_t index) const
+    {
+        return captured_.at(index);
+    }
+
+    // ---- held-exchange control (B22G-10 overlap oracle) --------------------
+    void setHoldAll(bool hold) { holdAll_ = hold; }
+    [[nodiscard]] std::size_t pendingCount() const { return held_.size(); }
+    [[nodiscard]] std::vector<std::uint64_t> pendingIds() const
+    {
+        std::vector<std::uint64_t> ids;
+        for (const Held& held : held_) {
+            ids.push_back(held.id);
+        }
+        return ids;
+    }
+    void completeHeld(std::uint64_t id, int statusCode, const QByteArray& body)
+    {
+        for (auto it = held_.begin(); it != held_.end(); ++it) {
+            if (it->id != id) {
+                continue;
+            }
+            auto completion = std::move(it->completion);
+            held_.erase(it);
+            modbuslens::ui::ChatCompletionsHttpResult result;
+            result.transportOk = true;
+            result.status = statusCode;
+            result.body = body.toStdString();
+            completion(std::move(result));
+            return;
+        }
+    }
+
+private:
+    struct Held {
+        std::uint64_t id{0};
+        modbuslens::ui::ChatCompletionsHttpCompletion completion;
+    };
+
+    void deliver(std::uint64_t id,
+                 modbuslens::ui::ChatCompletionsHttpCompletion completion)
+    {
+        modbuslens::ui::ChatCompletionsHttpResult result;
+        if (scripted_.empty()) {
+            // Nothing scripted: a deterministic provider failure (a test that
+            // expects success always scripts its responses).
+            result.transportOk = true;
+            result.status = 500;
+            result.body = "{}";
+        } else {
+            const Scripted next = scripted_.front();
+            scripted_.erase(scripted_.begin());
+            result.transportOk = true;
+            result.status = next.statusCode;
+            result.body = next.body.toStdString();
+        }
+        Q_UNUSED(id);
+        completion(std::move(result));
+    }
+
+    std::vector<Captured> captured_;
+    std::vector<Scripted> scripted_;
+    std::vector<Held> held_;
+    bool holdAll_{false};
+    std::uint64_t nextId_{0};
+
+};
+
 using ms = std::chrono::milliseconds;
 
 QByteArray completionBody(const QJsonObject& message, const QString& finishReason)
@@ -124,6 +276,11 @@ QJsonObject bodyOf(const FakeChatCompletionsServer& server, int index)
     return QJsonDocument::fromJson(server.requests().at(index).body).object();
 }
 
+QJsonObject bodyOf(const FakeAgentHttpClient& http, int index)
+{
+    return QJsonDocument::fromJson(http.requests().at(index).body).object();
+}
+
 const QString kBadHexLog = QStringLiteral(
     "MODBUSLENS_MLOG|1|timeout_ms=1000\n"
     "TXN|1|GG|01 03 04 00 64 00 C8 BA 7A\n");
@@ -140,6 +297,47 @@ QString writeTempMlog(std::optional<QTemporaryFile>& holder)
 }
 
 } // namespace
+
+// Per-test global authority: an in-memory provider-scoped credential store
+// plus a PRIVATE temporary INI (never the developer's real QSettings).
+class ScopedGlobalAi
+{
+public:
+    ScopedGlobalAi()
+        : runtime_(store_, QDir(tempDir_.path()).filePath(QStringLiteral("ai.ini")))
+    {
+    }
+
+    [[nodiscard]] modbuslens::ui::AiRuntimeConfiguration& runtime()
+    {
+        return runtime_;
+    }
+    void save(modbuslens::ui::AiProviderKind kind, const QString& model,
+              const QString& secret)
+    {
+        if (!secret.isEmpty()) {
+            store_.saveCredential(kind, secret.toStdString());
+        }
+        runtime_.saveConfiguration(kind, model);
+    }
+    // Hot credential replacement through the runtime (bumps the revision).
+    void replaceCredential(modbuslens::ui::AiProviderKind kind,
+                           const QString& secret)
+    {
+        runtime_.saveCredential(kind, secret);
+    }
+
+private:
+    QTemporaryDir tempDir_;
+    AgentFakeCredentialStore store_;
+    modbuslens::ui::AiRuntimeConfiguration runtime_;
+};
+
+[[nodiscard]] QByteArray profileEndpoint(modbuslens::ui::AiProviderKind kind)
+{
+    return QByteArray(modbuslens::ui::aiProviderProfile(kind)
+                          .chatCompletionsEndpoint);
+}
 
 class AgentIntegrationTest : public QObject
 {
@@ -169,25 +367,49 @@ private slots:
     void ag21_http429ProviderFailureVisible();
     void ag22_malformedHttp200Visible();
 
+    // T034-B2.2-C B22G-01..11 — Agent global-AI authority acceptance.
+    void b22g01_deepSeekGlobalAuthority();
+    void b22g02_modelScopeGlobalAuthorityAndPayload();
+    void b22g03_runtimeProviderSwitch();
+    void b22g04_runtimeModelSwitch();
+    void b22g05_runtimeCredentialReplacement();
+    void b22g06_missingCredentialFailsClosed();
+    void b22g07_noSavedConfigFailsClosedDespiteLegacyEnv();
+    void b22g08_legacyEnvNegativeControl();
+    void b22g09_sameRunSnapshotCoherence();
+    void b22g10_staleOwnerOverlapAndNoStaleToolEffect();
+    void b22g11_startupNoNetwork();
+
 private:
     struct H {
-        FakeChatCompletionsServer server;
+        FakeChatCompletionsServer server; // DIAGNOSIS loopback only
+        FakeAgentHttpClient http;         // AGENT shared-HTTP seam
         AnalysisController controller;
         explicit H() {}
         void clearConfig()
         {
             controller.configureAiClient({}, {}, {}, {});
         }
+        // T034-B2.2-C-R1: the AGENT's provider authority is the injected GLOBAL
+        // configuration (saved provider/model + provider-scoped credential).
+        // The fake HTTP seam replaces ONLY the HTTP execution end, so the
+        // captured request is exactly what production would have sent — while
+        // provider / model / credential / revision / fail-closed authority all
+        // keep running through the real controller path.
         void wireFake()
         {
-            QVERIFY2(server.start(), "fake server listen");
-            // T034-B2.2-A-R2: Diagnosis authority comes from the injected
-            // global configuration; the seam's token/model now feed the AGENT
-            // only (Agent migration is a later step).
-            controller.setAiRuntimeConfiguration(&fakeAgentAiRuntime());
+            QVERIFY2(server.start(), "fake loopback listen");
+            // The DIAGNOSIS chain keeps its test-only loopback endpoint
+            // override (Diagnosis authority is unchanged by B2.2-C), so no
+            // public provider is ever contacted by either chain.
             controller.configureAiClient(QUrl(server.chatCompletionsUrl()),
                                          QStringLiteral("fake-test-token"),
                                          QStringLiteral("fake-model"), ms{5000});
+            // The AGENT takes its provider/model/credential/revision authority
+            // from the injected GLOBAL configuration; the fake seam replaces
+            // ONLY the HTTP execution end.
+            controller.setAiRuntimeConfiguration(&fakeAgentAiRuntime());
+            controller.setAgentHttpClientForAutomation(&http);
         }
     };
 };
@@ -210,23 +432,23 @@ void AgentIntegrationTest::ag02_snapshotSelfConsistentToolResult()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.enqueueResponse(
+    h.http.enqueueResponse(
         200, completionBody(assistantToolCalls(QJsonArray{
                                 toolCall(QStringLiteral("call-1"),
                                          QStringLiteral("get_session_summary"),
                                          QStringLiteral("{}"))}),
                             QStringLiteral("tool_calls")));
-    h.server.enqueueResponse(
+    h.http.enqueueResponse(
         200, completionBody(finalMessage(QStringLiteral("共 4 条事务。")),
                             QStringLiteral("stop")));
 
     h.controller.askAgent(QStringLiteral("本批次有多少条事务？"));
     QTRY_VERIFY(h.controller.hasAgentAnswer());
     QCOMPARE(h.controller.agentAnswerText(), QStringLiteral("共 4 条事务。"));
-    QCOMPARE(h.server.requestCount(), 2);
+    QCOMPARE(h.http.requestCount(), 2);
 
     // Request 1: fixed three-tool schema (capability surface).
-    const QJsonArray tools = bodyOf(h.server, 0).value("tools").toArray();
+    const QJsonArray tools = bodyOf(h.http, 0).value("tools").toArray();
     QCOMPARE(tools.size(), 3);
     QCOMPARE(tools.at(0).toObject().value("function").toObject()
                  .value("name").toString(), QStringLiteral("get_session_summary"));
@@ -237,7 +459,7 @@ void AgentIntegrationTest::ag02_snapshotSelfConsistentToolResult()
 
     // Request 2: role=tool message with the SELF-CONSISTENT summary derived
     // by makeAgentToolContext from the copied batch (not presentation state).
-    const QJsonArray messages = bodyOf(h.server, 1).value("messages").toArray();
+    const QJsonArray messages = bodyOf(h.http, 1).value("messages").toArray();
     QCOMPARE(messages.size(), 4);
     const QJsonObject toolMsg = messages.at(3).toObject();
     QCOMPARE(toolMsg.value("role").toString(), QStringLiteral("tool"));
@@ -260,11 +482,11 @@ void AgentIntegrationTest::ag03_revisionSyncAllowsRun()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.setNextResponse(
+    h.http.setNextResponse(
         200, completionBody(finalMessage(QStringLiteral("OK")), QStringLiteral("stop")));
     h.controller.askAgent(QStringLiteral("本批次情况如何？"));
     QTRY_VERIFY(h.controller.hasAgentAnswer());
-    QCOMPARE(h.server.requestCount(), 1);
+    QCOMPARE(h.http.requestCount(), 1);
 }
 
 void AgentIntegrationTest::ag04_agentSuccessPublishesAnswerFactsUnchanged()
@@ -273,7 +495,7 @@ void AgentIntegrationTest::ag04_agentSuccessPublishesAnswerFactsUnchanged()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.setNextResponse(
+    h.http.setNextResponse(
         200, completionBody(finalMessage(QStringLiteral("回答 A")), QStringLiteral("stop")));
     const int observedBefore = h.controller.observedCount();
     const int rowsBefore = h.controller.transactionModel()->rowCount();
@@ -295,7 +517,7 @@ void AgentIntegrationTest::ag05_providerFailureErrorShownFactsUnchanged()
     h.controller.runBaselineDiagnosis();
     const QString baselineBefore = h.controller.baselineDiagnosisText();
 
-    h.server.setNextResponse(500, QByteArray());
+    h.http.setNextResponse(500, QByteArray());
     h.controller.askAgent(QStringLiteral("情况如何？"));
     QTRY_VERIFY(!h.controller.agentErrorText().isEmpty());
     QVERIFY(h.controller.agentErrorText().contains(QStringLiteral("ModelScope 服务暂时不可用")));
@@ -311,7 +533,7 @@ void AgentIntegrationTest::ag06_askAiBusyRejectsAgent()
     h.wireFake();
     h.controller.runDemoBatch();
     h.controller.runBaselineDiagnosis();
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("AI 答")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("AI 答")),
                                                  QStringLiteral("stop")), 350);
     h.controller.askAiDiagnosis();
     QVERIFY(h.controller.aiDiagnosisBusy());
@@ -319,7 +541,10 @@ void AgentIntegrationTest::ag06_askAiBusyRejectsAgent()
     h.controller.askAgent(QStringLiteral("情况如何？"));
     QVERIFY(h.controller.agentErrorText().contains(QStringLiteral("AI 解释请求进行中")));
     QTest::qWait(600); // let the AI request finish
-    QCOMPARE(h.server.requestCount(), 1); // only the AI request ever fired
+    // The fake seam carries the AGENT path only: zero captures proves the
+    // rejected Agent ask never fired a provider request. (The Diagnosis request
+    // runs on its own loopback endpoint and is not part of this oracle.)
+    QCOMPARE(h.http.requestCount(), 0);
     QVERIFY(!h.controller.hasAgentAnswer());
 }
 
@@ -330,7 +555,7 @@ void AgentIntegrationTest::ag07_agentBusyRejectsAskAi()
     h.wireFake();
     h.controller.runDemoBatch();
     h.controller.runBaselineDiagnosis();
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("Agent 答")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("Agent 答")),
                                                  QStringLiteral("stop")), 350);
     h.controller.askAgent(QStringLiteral("情况如何？"));
     QVERIFY(h.controller.agentBusy());
@@ -338,7 +563,7 @@ void AgentIntegrationTest::ag07_agentBusyRejectsAskAi()
     h.controller.askAiDiagnosis();
     QVERIFY(h.controller.aiDiagnosisErrorMessage().contains(QStringLiteral("Agent 问答进行中")));
     QTest::qWait(600);
-    QCOMPARE(h.server.requestCount(), 1); // only the Agent request ever fired
+    QCOMPARE(h.http.requestCount(), 1); // only the Agent request ever fired
 }
 
 void AgentIntegrationTest::ag08_cancelAgentSilent()
@@ -347,7 +572,7 @@ void AgentIntegrationTest::ag08_cancelAgentSilent()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("LATE")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("LATE")),
                                                  QStringLiteral("stop")), 400);
     h.controller.askAgent(QStringLiteral("情况如何？"));
     QVERIFY(h.controller.agentBusy());
@@ -366,7 +591,7 @@ void AgentIntegrationTest::ag09_batchChangeDuringFirstRequest()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("OLD 批次答案")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("OLD 批次答案")),
                                                  QStringLiteral("stop")), 400);
     h.controller.askAgent(QStringLiteral("情况如何？"));
     QVERIFY(h.controller.agentBusy());
@@ -387,17 +612,17 @@ void AgentIntegrationTest::ag10_batchChangeAfterToolResult()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.enqueueResponse(
+    h.http.enqueueResponse(
         200, completionBody(assistantToolCalls(QJsonArray{
                                 toolCall(QStringLiteral("call-1"),
                                          QStringLiteral("get_session_summary"),
                                          QStringLiteral("{}"))}),
                             QStringLiteral("tool_calls")));
-    h.server.enqueueResponse(
+    h.http.enqueueResponse(
         200, completionBody(finalMessage(QStringLiteral("STALE FINAL")),
                             QStringLiteral("stop")), 350);
     h.controller.askAgent(QStringLiteral("情况如何？"));
-    QTRY_VERIFY(h.server.requestCount() == 2); // tool executed, final pending
+    QTRY_VERIFY(h.http.requestCount() == 2); // tool executed, final pending
 
     h.controller.loadReplayFile(QUrl::fromLocalFile(
         QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
@@ -413,13 +638,13 @@ void AgentIntegrationTest::ag11_repeatAskWhileBusyRejected()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("第一个答案")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("第一个答案")),
                                                  QStringLiteral("stop")), 350);
     h.controller.askAgent(QStringLiteral("问题一"));
-    QTRY_VERIFY(h.server.requestCount() == 1); // first request really on wire
+    QTRY_VERIFY(h.http.requestCount() == 1); // first request really on wire
     h.controller.askAgent(QStringLiteral("问题二"));
     QVERIFY(h.controller.agentErrorText().contains(QStringLiteral("已有 Agent 请求进行中")));
-    QCOMPARE(h.server.requestCount(), 1); // the second ask never became a request
+    QCOMPARE(h.http.requestCount(), 1); // the second ask never became a request
     QTest::qWait(600);
     QCOMPARE(h.controller.agentAnswerText(), QStringLiteral("第一个答案"));
 }
@@ -437,18 +662,18 @@ void AgentIntegrationTest::ag12_revisionSyncPreventsStaleStart()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("第一答")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("第一答")),
                                                  QStringLiteral("stop")));
     h.controller.askAgent(QStringLiteral("一"));
     QTRY_VERIFY(h.controller.hasAgentAnswer());
 
     h.controller.loadReplayFile(QUrl::fromLocalFile(
         QString::fromUtf8(MODBUSLENS_DEMO_MLOG_PATH)));
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("第二答")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("第二答")),
                                                  QStringLiteral("stop")));
     h.controller.askAgent(QStringLiteral("二"));
     QTRY_VERIFY(h.controller.agentAnswerText() == QStringLiteral("第二答"));
-    QCOMPARE(h.server.requestCount(), 2);
+    QCOMPARE(h.http.requestCount(), 2);
 }
 
 void AgentIntegrationTest::ag13_noDataZeroRequests()
@@ -459,7 +684,7 @@ void AgentIntegrationTest::ag13_noDataZeroRequests()
     h.controller.clearResults(); // empty batch
     h.controller.askAgent(QStringLiteral("情况如何？"));
     QVERIFY(h.controller.agentErrorText().contains(QStringLiteral("当前没有可分析的事务数据")));
-    QCOMPARE(h.server.requestCount(), 0);
+    QCOMPARE(h.http.requestCount(), 0);
     QVERIFY(!h.controller.hasAgentAnswer());
 }
 
@@ -471,7 +696,7 @@ void AgentIntegrationTest::ag14_invalidQuestionZeroRequests()
     h.controller.runDemoBatch();
     h.controller.askAgent(QStringLiteral("   "));
     QTRY_VERIFY(h.controller.agentErrorText().contains(QStringLiteral("问题不能为空")));
-    QCOMPARE(h.server.requestCount(), 0);
+    QCOMPARE(h.http.requestCount(), 0);
     QVERIFY(!h.controller.hasAgentAnswer());
 }
 
@@ -487,13 +712,13 @@ void AgentIntegrationTest::ag15_agentNeverChangesFacts()
     const int successBefore = h.controller.successCount();
     const int protocolBefore = h.controller.protocolErrorCount();
     const int rowsBefore = h.controller.transactionModel()->rowCount();
-    h.server.enqueueResponse(
+    h.http.enqueueResponse(
         200, completionBody(assistantToolCalls(QJsonArray{
                                 toolCall(QStringLiteral("call-1"),
                                          QStringLiteral("get_recent_anomalies"),
                                          QStringLiteral("{}"))}),
                             QStringLiteral("tool_calls")));
-    h.server.enqueueResponse(
+    h.http.enqueueResponse(
         200, completionBody(finalMessage(QStringLiteral("我会胡说八道改变事实")),
                             QStringLiteral("stop")));
     h.controller.askAgent(QStringLiteral("情况如何？"));
@@ -512,7 +737,7 @@ void AgentIntegrationTest::ag16_newBatchClearsOldAnswer()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("旧答案")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("旧答案")),
                                                  QStringLiteral("stop")));
     h.controller.askAgent(QStringLiteral("一"));
     QTRY_VERIFY(h.controller.hasAgentAnswer());
@@ -530,7 +755,7 @@ void AgentIntegrationTest::ag17_failedReloadKeepsAnswer()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("保留我")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("保留我")),
                                                  QStringLiteral("stop")));
     h.controller.askAgent(QStringLiteral("一"));
     QTRY_VERIFY(h.controller.hasAgentAnswer());
@@ -554,22 +779,30 @@ void AgentIntegrationTest::ag18_qmlSmokeCoveredByCtest()
 
 void AgentIntegrationTest::ag19_providerConfigSeam()
 {
+    // T034-B2.2-C-R1: the retired explicit seam no longer carries Agent
+    // authority. Availability AND dispatch now both come from the injected
+    // GLOBAL configuration (saved provider/model + provider-scoped credential).
     H h;
     h.clearConfig();
-    QVERIFY(!h.controller.agentAvailable());
-    h.server.start();
-    h.controller.configureAiClient(QUrl(h.server.chatCompletionsUrl()),
-                                   QStringLiteral("fake-test-token"),
-                                   QStringLiteral("fake-model"), ms{5000});
-    QVERIFY(h.controller.agentAvailable());
+    QVERIFY(!h.controller.agentAvailable()); // no global config wired yet
+    h.wireFake();
+    QVERIFY(h.controller.agentAvailable());  // saved config + credential ready
     h.controller.runDemoBatch();
-    h.server.setNextResponse(200, completionBody(finalMessage(QStringLiteral("配置正常")),
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("配置正常")),
                                                  QStringLiteral("stop")));
     h.controller.askAgent(QStringLiteral("一"));
     QTRY_VERIFY(h.controller.hasAgentAnswer());
-    QCOMPARE(h.server.requests().at(0).authorization,
-             QByteArray("Bearer fake-test-token"));
-    QCOMPARE(h.server.requests().at(0).path, QStringLiteral("/chat/completions"));
+    QCOMPARE(h.http.requestCount(), 1);
+    // The shared transport carries the RAW one-shot token; the production HTTP
+    // implementation is what prepends "Bearer ". Compared with QVERIFY2 so a
+    // failure never dumps the token value.
+    QVERIFY2(h.http.at(0).authorization == QByteArray("fake-test-token"),
+             "the provider-scoped credential must ride the request");
+    // The endpoint is the RESOLVED provider profile endpoint — not a test URL.
+    QCOMPARE(h.http.at(0).url,
+             QByteArray(modbuslens::ui::aiProviderProfile(
+                            modbuslens::ui::AiProviderKind::ModelScope)
+                            .chatCompletionsEndpoint));
 }
 
 void AgentIntegrationTest::ag20_batchInvalidationOrderingSafety()
@@ -578,17 +811,17 @@ void AgentIntegrationTest::ag20_batchInvalidationOrderingSafety()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.enqueueResponse(
+    h.http.enqueueResponse(
         200, completionBody(assistantToolCalls(QJsonArray{
                                 toolCall(QStringLiteral("call-1"),
                                          QStringLiteral("get_session_summary"),
                                          QStringLiteral("{}"))}),
                             QStringLiteral("tool_calls")));
-    h.server.enqueueResponse(
+    h.http.enqueueResponse(
         200, completionBody(finalMessage(QStringLiteral("LATE FINAL")),
                             QStringLiteral("stop")), 350);
     h.controller.askAgent(QStringLiteral("情况如何？"));
-    QTRY_VERIFY(h.server.requestCount() == 2);
+    QTRY_VERIFY(h.http.requestCount() == 2);
 
     // Immediate assertions after the batch switch — NO sleeps: the seam must
     // have switched the live revision and silently killed the run already.
@@ -610,7 +843,7 @@ void AgentIntegrationTest::ag21_http429ProviderFailureVisible()
     h.clearConfig();
     h.wireFake();
     h.controller.runDemoBatch();
-    h.server.setNextResponse(429,
+    h.http.setNextResponse(429,
         QByteArray("{\"error\":{\"message\":\"rate limited\"}}"));
     h.controller.askAgent(QStringLiteral("情况如何？"));
     QTRY_VERIFY(!h.controller.agentBusy());
@@ -621,7 +854,7 @@ void AgentIntegrationTest::ag21_http429ProviderFailureVisible()
     // run clears it.
     QTest::qWait(120);
     QVERIFY(!h.controller.agentErrorText().isEmpty());
-    h.server.setNextResponse(200,
+    h.http.setNextResponse(200,
         completionBody(finalMessage(QStringLiteral("新回答")), QStringLiteral("stop")));
     h.controller.askAgent(QStringLiteral("再问一次"));
     QTRY_VERIFY(h.controller.hasAgentAnswer());
@@ -642,13 +875,426 @@ void AgentIntegrationTest::ag22_malformedHttp200Visible()
         {QStringLiteral("reasoning_content"),
          QStringLiteral("must never surface")},
     };
-    h.server.setNextResponse(200, completionBody(unusable, QStringLiteral("stop")));
+    h.http.setNextResponse(200, completionBody(unusable, QStringLiteral("stop")));
     h.controller.askAgent(QStringLiteral("情况如何？"));
     QTRY_VERIFY(!h.controller.agentBusy());
     QVERIFY(!h.controller.agentErrorText().isEmpty());
     QVERIFY(h.controller.agentErrorText().contains(
         QStringLiteral("模型返回了无法处理的响应格式")));
     QVERIFY(!h.controller.hasAgentAnswer()); // reasoning never promoted
+}
+
+// ===========================================================================
+// T034-B2.2-C — B22G-01..11 Agent global-AI authority acceptance.
+//
+// Every case drives the REAL AnalysisController::askAgent() through the REAL
+// AgentRuntime and the REAL provider-neutral AgentAsyncClient, with a per-test
+// global AiRuntimeConfiguration + in-memory credential store. The fake HTTP
+// seam captures the ACTUAL request (URL / Authorization / body) while doing
+// zero network I/O. Credential comparisons use QVERIFY2 so a failing assertion
+// never prints a token value.
+// ===========================================================================
+
+namespace {
+using modbuslens::ui::AiProviderKind;
+
+// A minimal helper: wire a controller to a scoped global authority + fake HTTP.
+// T034-B2.2-C-D2: the fixture owns NO HTTP fake of its own. It takes the
+// caller's FakeAgentHttpClient BY REFERENCE, so the instance injected into the
+// production Agent HTTP seam is guaranteed to be the SAME instance that the
+// test scripts, observes (requestCount / pendingCount / captured request) and
+// drives (hold / deliver). A second, similarly named fake is structurally
+// impossible here.
+struct Wire {
+    ScopedGlobalAi ai;
+
+    void attach(AnalysisController& controller, FakeAgentHttpClient& http)
+    {
+        controller.setAiRuntimeConfiguration(&ai.runtime());
+        controller.setAgentHttpClientForAutomation(&http);
+    }
+};
+}
+
+void AgentIntegrationTest::b22g01_deepSeekGlobalAuthority()
+{
+    Wire w;
+    w.ai.save(AiProviderKind::DeepSeek, QStringLiteral("det/deepseek-agent-model"),
+              QStringLiteral("fake-deepseek-credential"));
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    h.controller.runDemoBatch();
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("答案")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("情况如何？"));
+    QTRY_VERIFY(h.controller.hasAgentAnswer());
+
+    QCOMPARE(h.http.requestCount(), 1);
+    QCOMPARE(h.http.at(0).url, profileEndpoint(AiProviderKind::DeepSeek));
+    QVERIFY(h.http.at(0).url.contains("deepseek"));
+    QVERIFY(!h.http.at(0).url.contains("modelscope"));
+    QVERIFY2(h.http.at(0).authorization == QByteArray("fake-deepseek-credential"),
+             "the DeepSeek provider-scoped credential must authorize the run");
+    const QJsonObject body = bodyOf(h.http, 0);
+    QCOMPARE(body.value(QStringLiteral("model")).toString(),
+             QStringLiteral("det/deepseek-agent-model"));
+}
+
+void AgentIntegrationTest::b22g02_modelScopeGlobalAuthorityAndPayload()
+{
+    Wire w;
+    w.ai.save(AiProviderKind::ModelScope, QStringLiteral("det/modelscope-agent-model"),
+              QStringLiteral("fake-modelscope-credential"));
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    h.controller.runDemoBatch();
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("答案")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("情况如何？"));
+    QTRY_VERIFY(h.controller.hasAgentAnswer());
+
+    QCOMPARE(h.http.requestCount(), 1);
+    QCOMPARE(h.http.at(0).url, profileEndpoint(AiProviderKind::ModelScope));
+    QVERIFY2(h.http.at(0).authorization == QByteArray("fake-modelscope-credential"),
+             "the ModelScope provider-scoped credential must authorize the run");
+    const QJsonObject body = bodyOf(h.http, 0);
+    QCOMPARE(body.value(QStringLiteral("model")).toString(),
+             QStringLiteral("det/modelscope-agent-model"));
+    // The existing Agent payload semantics are locked, with NO provider extras.
+    QCOMPARE(body.value(QStringLiteral("tools")).toArray().size(), 3);
+    QCOMPARE(body.value(QStringLiteral("stream")), QJsonValue(false));
+    QCOMPARE(body.value(QStringLiteral("max_tokens")), QJsonValue(768));
+    QVERIFY(body.value(QStringLiteral("messages")).isArray());
+    QVERIFY2(!body.contains(QStringLiteral("chat_template_kwargs")),
+             "the Agent payload carries no provider-specific extras");
+}
+
+void AgentIntegrationTest::b22g03_runtimeProviderSwitch()
+{
+    Wire w;
+    w.ai.save(AiProviderKind::ModelScope, QStringLiteral("det/modelscope-agent-model"),
+              QStringLiteral("fake-modelscope-credential"));
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    h.controller.runDemoBatch();
+
+    // run #1 (ModelScope) completes.
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("一")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("一"));
+    QTRY_VERIFY(h.controller.hasAgentAnswer());
+    QCOMPARE(h.http.requestCount(), 1);
+
+    // Live Save switches the provider — same controller, no restart.
+    w.ai.save(AiProviderKind::DeepSeek, QStringLiteral("det/deepseek-agent-model"),
+              QStringLiteral("fake-deepseek-credential"));
+
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("二")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("二"));
+    QTRY_COMPARE(h.http.requestCount(), 2);
+    QCOMPARE(h.http.at(0).url, profileEndpoint(AiProviderKind::ModelScope));
+    QCOMPARE(h.http.at(1).url, profileEndpoint(AiProviderKind::DeepSeek));
+    QVERIFY2(h.http.at(1).authorization == QByteArray("fake-deepseek-credential"),
+             "run #2 must use the DeepSeek provider-scoped credential");
+    QCOMPARE(bodyOf(h.http, 1).value(QStringLiteral("model")).toString(),
+             QStringLiteral("det/deepseek-agent-model"));
+}
+
+void AgentIntegrationTest::b22g04_runtimeModelSwitch()
+{
+    Wire w;
+    w.ai.save(AiProviderKind::ModelScope, QStringLiteral("det/model-A"),
+              QStringLiteral("fake-modelscope-credential"));
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    h.controller.runDemoBatch();
+
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("一")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("一"));
+    QTRY_VERIFY(h.controller.hasAgentAnswer());
+    QCOMPARE(bodyOf(h.http, 0).value(QStringLiteral("model")).toString(),
+             QStringLiteral("det/model-A"));
+
+    w.ai.save(AiProviderKind::ModelScope, QStringLiteral("det/model-B"),
+              QStringLiteral("fake-modelscope-credential"));
+
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("二")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("二"));
+    QTRY_COMPARE(h.http.requestCount(), 2);
+    QCOMPARE(bodyOf(h.http, 1).value(QStringLiteral("model")).toString(),
+             QStringLiteral("det/model-B"));
+}
+
+void AgentIntegrationTest::b22g05_runtimeCredentialReplacement()
+{
+    Wire w;
+    w.ai.save(AiProviderKind::ModelScope, QStringLiteral("det/modelscope-agent-model"),
+              QStringLiteral("fake-credential-A"));
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    h.controller.runDemoBatch();
+
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("一")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("一"));
+    QTRY_VERIFY(h.controller.hasAgentAnswer());
+    QVERIFY2(h.http.at(0).authorization == QByteArray("fake-credential-A"),
+             "run #1 must use credential A");
+
+    w.ai.replaceCredential(AiProviderKind::ModelScope,
+                           QStringLiteral("fake-credential-B"));
+
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("二")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("二"));
+    QTRY_COMPARE(h.http.requestCount(), 2);
+    QVERIFY2(h.http.at(1).authorization == QByteArray("fake-credential-B"),
+             "run #2 must use the REPLACEMENT credential");
+    QVERIFY2(h.http.at(1).authorization != h.http.at(0).authorization,
+             "run #2 must NOT reuse credential A");
+}
+
+void AgentIntegrationTest::b22g06_missingCredentialFailsClosed()
+{
+    // Valid saved provider/model but the provider-scoped credential is ABSENT.
+    Wire w;
+    w.ai.save(AiProviderKind::DeepSeek, QStringLiteral("det/deepseek-agent-model"),
+              QString()); // no credential stored
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    h.controller.runDemoBatch();
+    h.controller.askAgent(QStringLiteral("情况如何？"));
+    QTest::qWait(150);
+
+    QCOMPARE(h.http.requestCount(), 0); // zero network, fail closed
+    QVERIFY(!h.controller.hasAgentAnswer());
+    QVERIFY(!h.controller.agentBusy());
+}
+
+void AgentIntegrationTest::b22g07_noSavedConfigFailsClosedDespiteLegacyEnv()
+{
+    struct EnvSentinel
+    {
+        EnvSentinel()
+        {
+            qputenv("MODELSCOPE_API_KEY", "legacy-sentinel-not-a-real-key");
+            qputenv("MODBUSLENS_MODELSCOPE_MODEL", "legacy-sentinel-model");
+        }
+        ~EnvSentinel()
+        {
+            qunsetenv("MODELSCOPE_API_KEY");
+            qunsetenv("MODBUSLENS_MODELSCOPE_MODEL");
+        }
+    } sentinel;
+
+    // A configuration with NOTHING saved, while the legacy environment
+    // sentinels above are present in this process.
+    ScopedGlobalAi ai;
+    H h;
+    h.clearConfig();
+    h.controller.setAiRuntimeConfiguration(&ai.runtime());
+    h.controller.setAgentHttpClientForAutomation(&h.http);
+    h.controller.runDemoBatch();
+    h.controller.askAgent(QStringLiteral("情况如何？"));
+    QTest::qWait(150);
+
+    QCOMPARE(h.http.requestCount(), 0); // the legacy env is NOT Agent authority
+    QVERIFY(!h.controller.hasAgentAnswer());
+}
+
+void AgentIntegrationTest::b22g08_legacyEnvNegativeControl()
+{
+    struct EnvSentinel
+    {
+        EnvSentinel()
+        {
+            qputenv("MODELSCOPE_API_KEY", "legacy-sentinel-not-a-real-key");
+            qputenv("MODBUSLENS_MODELSCOPE_MODEL", "legacy-sentinel-model");
+        }
+        ~EnvSentinel()
+        {
+            qunsetenv("MODELSCOPE_API_KEY");
+            qunsetenv("MODBUSLENS_MODELSCOPE_MODEL");
+        }
+    } sentinel;
+
+    Wire w;
+    w.ai.save(AiProviderKind::DeepSeek, QStringLiteral("det/deepseek-agent-model"),
+              QStringLiteral("fake-deepseek-credential"));
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    h.controller.runDemoBatch();
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("答案")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("情况如何？"));
+    QTRY_VERIFY(h.controller.hasAgentAnswer());
+
+    QCOMPARE(h.http.requestCount(), 1);
+    QCOMPARE(h.http.at(0).url, profileEndpoint(AiProviderKind::DeepSeek));
+    QVERIFY2(h.http.at(0).authorization == QByteArray("fake-deepseek-credential"),
+             "the legacy environment sentinel must NOT authorize the run");
+    QCOMPARE(bodyOf(h.http, 0).value(QStringLiteral("model")).toString(),
+             QStringLiteral("det/deepseek-agent-model"));
+}
+
+void AgentIntegrationTest::b22g09_sameRunSnapshotCoherence()
+{
+    // The core Agent-specific invariant: ONE run, ONE immutable snapshot. A
+    // mid-run configuration change must never make step 2 speak to a different
+    // provider/model/credential than step 1.
+    Wire w;
+    w.ai.save(AiProviderKind::ModelScope, QStringLiteral("det/model-A"),
+              QStringLiteral("fake-credential-A"));
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    h.controller.runDemoBatch();
+
+    // Hold run N's first provider exchange so the config change can land while
+    // the run is genuinely in flight.
+    h.http.setHoldAll(true);
+    h.controller.askAgent(QStringLiteral("一"));
+    QTRY_COMPARE(h.http.pendingCount(), std::size_t(1));
+    const std::uint64_t idN = h.http.pendingIds().at(0);
+
+    // A live Save switches everything to DeepSeek/B/keyB.
+    w.ai.save(AiProviderKind::DeepSeek, QStringLiteral("det/model-B"),
+              QStringLiteral("fake-credential-B"));
+
+    // Run N lost its ownership: the stale reply (carrying a REAL tool_call)
+    // must produce NO tool side effect and NO follow-up provider request.
+    h.http.completeHeld(
+        idN, 200,
+        completionBody(assistantToolCalls(QJsonArray{toolCall(
+                           QStringLiteral("call-stale"),
+                           QStringLiteral("get_session_summary"),
+                           QStringLiteral("{}"))}),
+                       QStringLiteral("tool_calls")));
+    QTest::qWait(150);
+
+    QCOMPARE(h.http.requestCount(), 1); // no follow-up request from the old run
+    QVERIFY(!h.controller.hasAgentAnswer());
+    QVERIFY(!h.controller.agentBusy());
+    // The single captured request used the RUN-START snapshot, never the new one.
+    QCOMPARE(h.http.at(0).url, profileEndpoint(AiProviderKind::ModelScope));
+    QVERIFY2(h.http.at(0).authorization == QByteArray("fake-credential-A"),
+             "every step of a run uses its run-start snapshot");
+    QCOMPARE(bodyOf(h.http, 0).value(QStringLiteral("model")).toString(),
+             QStringLiteral("det/model-A"));
+
+    // A brand-new explicit run does pick up the new snapshot.
+    h.http.setHoldAll(false);
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("二")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("二"));
+    QTRY_COMPARE(h.http.requestCount(), 2);
+    QCOMPARE(h.http.at(1).url, profileEndpoint(AiProviderKind::DeepSeek));
+}
+
+void AgentIntegrationTest::b22g10_staleOwnerOverlapAndNoStaleToolEffect()
+{
+    Wire w;
+    w.ai.save(AiProviderKind::ModelScope, QStringLiteral("det/model-A"),
+              QStringLiteral("fake-credential-A"));
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    h.controller.runDemoBatch();
+
+    // 1-2: a prior ACCEPTED Agent result.
+    h.http.setNextResponse(200, completionBody(finalMessage(QStringLiteral("prior-accepted")),
+                                               QStringLiteral("stop")));
+    h.controller.askAgent(QStringLiteral("prior"));
+    QTRY_VERIFY(h.controller.hasAgentAnswer());
+    QCOMPARE(h.controller.agentAnswerText(), QStringLiteral("prior-accepted"));
+    const int baselineRequests = h.http.requestCount();
+
+    // 3-5: dispatch run N and HOLD its provider exchange.
+    h.http.setHoldAll(true);
+    h.controller.askAgent(QStringLiteral("attempt-N"));
+    QTRY_COMPARE(h.http.pendingCount(), std::size_t(1));
+    const std::uint64_t idN = h.http.pendingIds().at(0);
+    QVERIFY(h.controller.agentBusy());
+
+    // 6-7: a configuration Save supersedes N. Ownership is revoked, busy is
+    // released, and the prior accepted result/error SURVIVES.
+    w.ai.save(AiProviderKind::ModelScope, QStringLiteral("det/model-B"),
+              QStringLiteral("fake-credential-B"));
+    QVERIFY(!h.controller.agentBusy());
+    QCOMPARE(h.controller.agentAnswerText(), QStringLiteral("prior-accepted"));
+
+
+    // 8-11: run N+1 starts while N is STILL pending at the transport layer.
+    h.controller.askAgent(QStringLiteral("attempt-N1"));
+    QTRY_COMPARE(h.http.pendingCount(), std::size_t(2));
+    const auto ids = h.http.pendingIds();
+    QCOMPARE(ids.size(), std::size_t(2));
+    QVERIFY2(ids.at(0) != ids.at(1), "run ids must be distinct");
+    QVERIFY(h.controller.agentBusy());
+
+    // 12-13: the STALE run N completes with a real tool_call. It must change
+    // NOTHING: no result/error/tool-state mutation, no new request, and it must
+    // not clear N+1's ownership.
+    h.http.completeHeld(
+        idN, 200,
+        completionBody(assistantToolCalls(QJsonArray{toolCall(
+                           QStringLiteral("call-stale"),
+                           QStringLiteral("get_session_summary"),
+                           QStringLiteral("{}"))}),
+                       QStringLiteral("tool_calls")));
+    QTest::qWait(150);
+    QCOMPARE(h.controller.agentAnswerText(), QStringLiteral("prior-accepted"));
+    QVERIFY(h.controller.agentBusy());                 // N+1 still owns the run
+    QCOMPARE(h.http.requestCount(), baselineRequests + 2); // no stale follow-up
+    QCOMPARE(h.http.pendingCount(), std::size_t(1));   // only N+1 remains
+
+    // 14-16: N+1 completes normally and becomes the accepted result.
+    const std::uint64_t idN1 =
+        (h.http.pendingIds().at(0) == idN) ? 0 : h.http.pendingIds().at(0);
+    QVERIFY(idN1 != 0);
+    h.http.completeHeld(idN1, 200,
+                        completionBody(finalMessage(QStringLiteral("post-switch-accepted")),
+                                       QStringLiteral("stop")));
+    QTRY_COMPARE(h.controller.agentAnswerText(),
+                 QStringLiteral("post-switch-accepted"));
+    QVERIFY(!h.controller.agentBusy());
+    QCOMPARE(h.http.pendingCount(), std::size_t(0));
+}
+
+void AgentIntegrationTest::b22g11_startupNoNetwork()
+{
+    // A fully valid global configuration and credential exist, but no explicit
+    // Agent action has been taken: ZERO provider requests.
+    Wire w;
+    w.ai.save(AiProviderKind::DeepSeek, QStringLiteral("det/deepseek-agent-model"),
+              QStringLiteral("fake-deepseek-credential"));
+
+    H h;
+    h.clearConfig();
+    w.attach(h.controller, h.http);
+    QVERIFY(h.controller.agentAvailable());
+    QTest::qWait(150);
+    QCOMPARE(h.http.requestCount(), 0);
+    QVERIFY(!h.controller.agentBusy());
 }
 
 QTEST_GUILESS_MAIN(AgentIntegrationTest)

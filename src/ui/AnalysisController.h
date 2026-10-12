@@ -21,9 +21,9 @@
 #include "core/diagnosis/DiagnosisContext.h"
 #include "core/diagnosis/RuleBasedDiagnosis.h"
 #include "ui/TransactionListModel.h"
+#include "ui/agent/AgentAsyncClient.h"
 #include "ui/agent/AgentRuntime.h"
 #include "ui/agent/AgentToolContext.h"
-#include "ui/agent/ModelScopeAgentClient.h"
 #include "ui/ai/AiProviderProfile.h"
 #include "ui/ai/AiRuntimeConfiguration.h"
 #include "ui/ai/DiagnosisAsyncClient.h"
@@ -361,6 +361,16 @@ public:
     void configureAiClient(const QUrl& endpoint, const QString& apiKey,
                            const QString& modelId,
                            std::chrono::milliseconds timeout);
+
+    // T034-B2.2-C: C++ AUTOMATION SEAM ONLY — intentionally NOT a Q_PROPERTY,
+    // NOT Q_INVOKABLE and never QML-visible. It swaps ONLY the Agent's
+    // execution/HTTP end (a deterministic fake in tests) so the deterministic
+    // suites can capture the ACTUAL request that production would have sent.
+    // It does NOT carry, replace or bypass global configuration authority:
+    // provider/model/endpoint/credential still come from the resolved global
+    // snapshot, and every fail-closed rule stays in force.
+    void setAgentHttpClientForAutomation(
+        modbuslens::ui::IChatCompletionsHttpClient* client);
 
     // T034-B2.2-A: the global AI configuration owner (injected by the shell /
     // tests). nullptr restores the explicit-seam-only behaviour.
@@ -712,6 +722,13 @@ private:
     // request. No-op when no attempt is active.
     void invalidateActiveDiagnosisAttempt();
 
+    // T034-B2.2-C §7/§31: the AGENT chain's OWN revocation path. It shares NO
+    // ownership, generation or busy state with the Diagnosis path above: it
+    // revokes only the in-flight Agent run, releases only the Agent busy state
+    // and preserves the accepted Agent answer/error. A configuration change
+    // must never let either chain clear the other's state.
+    void invalidateActiveAgentAttempt();
+
     // Presentation projection of ONE session record (row fields + issue text).
     [[nodiscard]] TransactionListEntry makeSessionRow(
         const modbuslens::core::ActiveTransactionRecord& record) const;
@@ -943,9 +960,13 @@ private:
     // runtime owns all Agent async validity. NO second agentBusy_ bool —
     // agentBusy() derives straight from the runtime. hasAgentAnswer_ holds
     // answer presentation only (facts live in the structured batch).
-    ModelScopeAgentClient agentClient_;
+    std::unique_ptr<AgentAsyncClient> agentClient_;
     AgentRuntime agentRuntime_;
     std::uint64_t agentRequestGeneration_ = 0;
+    // T034-B2.2-C §6/§31: the global configuration revision the ACTIVE Agent
+    // run was dispatched under. A save that supersedes it revokes the run.
+    // Completely separate from requestConfigRevision_ (Diagnosis).
+    std::optional<qint64> agentRequestConfigRevision_;
     bool hasAgentAnswer_ = false;
     QString agentAnswerText_;
     QString agentErrorText_;

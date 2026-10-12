@@ -17,7 +17,7 @@
 #include "ui/agent/AgentRuntime.h"
 #include "ui/agent/AgentToolContext.h"
 #include "ui/agent/AgentTools.h"
-#include "ui/agent/ModelScopeAgentClient.h"
+#include "ui/agent/AgentAsyncClient.h"
 #include "ui/ai/ModelScopeDiagnosisClient.h"
 
 namespace {
@@ -58,13 +58,15 @@ agent::AgentToolContext goldenContext(std::uint64_t revision = 7)
 
 agent::AgentRunRequest runRequest(const QString& question,
                                   const agent::AgentToolContext& context,
-                                  std::uint64_t generation)
+                                  std::uint64_t generation,
+                                  agent::AgentRunConfig provider = {})
 {
-    // The context IS the snapshot identity: no second revision field exists
-    // on the request (Phase 1 review fix) — a run can never be told a
-    // revision that disagrees with its facts.
+    // T034-B2.2-C: the provider snapshot is carried ON the request and is
+    // resolved by the owner (controller) before start(); the runtime never
+    // reads any configuration source of its own.
     return agent::AgentRunRequest{.userQuestion = question,
                                   .context = context,
+                                  .provider = provider,
                                   .runGeneration = generation};
 }
 
@@ -103,7 +105,7 @@ QJsonObject finalMessage(const QString& content)
 
 struct Harness {
     FakeChatCompletionsServer server;
-    ModelScopeAgentClient client;
+    AgentAsyncClient client;
     AgentRuntime runtime;
     QSignalSpy completed;
     QSignalSpy failed;
@@ -115,10 +117,20 @@ struct Harness {
           cancelled(&runtime, &AgentRuntime::runCancelled)
     {
         QVERIFY2(server.start(), "fake chat server failed to listen");
-        client.configure({QUrl(server.chatCompletionsUrl()),
-                          QStringLiteral("fake-test-token"),
-                          QStringLiteral("fake-model"), ms{5000}});
         runtime.setCurrentAgentGeneration(gen);
+    }
+
+    // The immutable per-run provider snapshot used by this harness. Its
+    // endpoint is the LOOPBACK fake server — zero internet.
+    [[nodiscard]] agent::AgentRunConfig runConfig() const
+    {
+        return agent::AgentRunConfig{
+            .kind = modbuslens::ui::AiProviderKind::ModelScope,
+            .endpoint = server.chatCompletionsUrl().toStdString(),
+            .model = "fake-model",
+            .secret = "fake-test-token",
+            .timeoutMs = 5000,
+        };
     }
 
     // Phase 1 final review: the LIVE world (current revision) belongs to
@@ -128,7 +140,7 @@ struct Harness {
              std::uint64_t gen)
     {
         runtime.setCurrentBatchRevision(ctx.capturedBatchRevision);
-        runtime.start(runRequest(question, ctx, gen));
+        runtime.start(runRequest(question, ctx, gen, runConfig()));
     }
 
     void runToFailureMessage(agent::AgentRunLocalError wanted)
@@ -428,11 +440,23 @@ void AgentRuntimeTest::b10_revisionChangedBeforeFirstResponse()
     const auto context = goldenContext();
     h.runtime.setCurrentBatchRevision(context.capturedBatchRevision);
     h.run(QStringLiteral("hi"), context, 1);
+    // T034-B2.2-C-F1-T1: setCurrentBatchRevision() updates EXTERNAL REVISION
+    // STATE ONLY. It must NOT release run ownership by itself — production
+    // always follows it with invalidateForBatchChange(), the API that revokes
+    // the now-stale run.
     h.runtime.setCurrentBatchRevision(context.capturedBatchRevision + 1); // batch switched
+    QVERIFY(h.runtime.isBusy()); // revision-only update does NOT release busy
+
+    h.runtime.invalidateForBatchChange(); // the real invalidation API
+    QVERIFY(!h.runtime.isBusy());
+
+    // The late (now stale) success must be a PURE NO-OP: no signal, no state
+    // re-modification, no stale follow-up request.
     QTest::qWait(700);
     QCOMPARE(h.completed.count(), 0);
     QCOMPARE(h.failed.count(), 0); // silent stale discard
     QCOMPARE(h.cancelled.count(), 0);
+    QCOMPARE(h.server.requestCount(), 1); // no stale follow-up dispatch
     QVERIFY(!h.runtime.isBusy());
 }
 
@@ -454,11 +478,16 @@ void AgentRuntimeTest::b11_revisionChangedAfterToolExecution()
     h.run(QStringLiteral("hi"), context, 1);
     // Second request lands (tool executed), THEN the batch changes.
     QTRY_VERIFY(h.server.requestCount() == 2);
+    // Batch changed AFTER the tool round: production semantics = update the
+    // revision seam, THEN revoke the now-stale run explicitly.
     h.runtime.setCurrentBatchRevision(context.capturedBatchRevision + 1);
+    h.runtime.invalidateForBatchChange();
+    QVERIFY(!h.runtime.isBusy());
     QTest::qWait(700);
     QCOMPARE(h.completed.count(), 0); // the late final must not publish
     QCOMPARE(h.failed.count(), 0);
-    QVERIFY(!h.runtime.isBusy());
+    QCOMPARE(h.server.requestCount(), 2); // no stale tool round / follow-up
+    QVERIFY(!h.runtime.isBusy()); // stale delivery did not re-modify state
 }
 
 void AgentRuntimeTest::b12_sameBatchNewRunSupersedes()
@@ -581,7 +610,7 @@ void AgentRuntimeTest::b17_noApiKeyAgentUnavailable()
     // Client never configured -> NotConfigured, zero network, zero damage.
     FakeChatCompletionsServer server;
     QVERIFY(server.start());
-    ModelScopeAgentClient client; // NOT configured
+    AgentAsyncClient client; // no transport authority injected: never used
     AgentRuntime runtime(&client);
     QSignalSpy failed(&runtime, &AgentRuntime::runFailed);
     runtime.setCurrentBatchRevision(7); // live world precedes the run
@@ -625,9 +654,12 @@ void AgentRuntimeTest::b19_runUsesContextRevisionAsSoleBatchIdentity()
     h.run(QStringLiteral("hi"), context, 1);
     QTRY_VERIFY(h.server.requestCount() == 1); // request really went out
     h.runtime.setCurrentBatchRevision(42);     // batch switched mid-flight
+    h.runtime.invalidateForBatchChange();      // production invalidation step
+    QVERIFY(!h.runtime.isBusy());
     QTest::qWait(700);
     QCOMPARE(h.completed.count(), 0); // stale delivery discarded
     QCOMPARE(h.failed.count(), 0);
+    QCOMPARE(h.server.requestCount(), 1); // no stale follow-up dispatch
     QVERIFY(!h.runtime.isBusy());
 }
 
@@ -686,7 +718,7 @@ void AgentRuntimeTest::b22_startMustNotNormalizeStaleSnapshot()
     auto context = goldenContext();
     context.capturedBatchRevision = 41;    // snapshot belongs to batch 41
 
-    h.runtime.start(runRequest(QStringLiteral("hi"), context, 1));
+    h.runtime.start(runRequest(QStringLiteral("hi"), context, 1, h.runConfig()));
 
     // A stale snapshot must produce NOTHING: no provider request, no
     // signal, not busy — and start() must NOT normalize current=41.
@@ -704,7 +736,7 @@ void AgentRuntimeTest::b22_startMustNotNormalizeStaleSnapshot()
     auto liveContext = goldenContext();
     liveContext.capturedBatchRevision = 42;
     h.runtime.setCurrentBatchRevision(42);
-    h.runtime.start(runRequest(QStringLiteral("hi"), liveContext, 2));
+    h.runtime.start(runRequest(QStringLiteral("hi"), liveContext, 2, h.runConfig()));
     QTRY_VERIFY(h.completed.count() == 1);
     QCOMPARE(h.completed.at(0).at(1).toString(), QStringLiteral("OK 42"));
 }

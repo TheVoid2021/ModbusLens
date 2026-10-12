@@ -319,6 +319,9 @@ qt_add_qml_module(modbuslens
         src/ui/agent/ModelScopeAgentClient.cpp
         src/ui/agent/AgentRuntime.h
         src/ui/agent/AgentRuntime.cpp
+        src/ui/agent/AgentProviderClient.h
+        src/ui/agent/AgentAsyncClient.h
+        src/ui/agent/AgentAsyncClient.cpp
 )
 target_include_directories(modbuslens PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -526,7 +529,10 @@ if(BUILD_TESTING)
         src/ui/agent/ModelScopeAgentClient.h
         src/ui/agent/ModelScopeAgentClient.cpp
         src/ui/agent/AgentRuntime.h
-        src/ui/agent/AgentRuntime.cpp)
+        src/ui/agent/AgentRuntime.cpp
+        src/ui/agent/AgentProviderClient.h
+        src/ui/agent/AgentAsyncClient.h
+        src/ui/agent/AgentAsyncClient.cpp)
     target_include_directories(modbuslens_ui_bridge_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -1467,6 +1473,9 @@ if(BUILD_TESTING)
         src/ui/agent/ModelScopeAgentClient.cpp
         src/ui/agent/AgentRuntime.h
         src/ui/agent/AgentRuntime.cpp
+        src/ui/agent/AgentProviderClient.h
+        src/ui/agent/AgentAsyncClient.h
+        src/ui/agent/AgentAsyncClient.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -1563,7 +1572,10 @@ if(BUILD_TESTING)
         src/ui/agent/ModelScopeAgentClient.h
         src/ui/agent/ModelScopeAgentClient.cpp
         src/ui/agent/AgentRuntime.h
-        src/ui/agent/AgentRuntime.cpp)
+        src/ui/agent/AgentRuntime.cpp
+        src/ui/agent/AgentProviderClient.h
+        src/ui/agent/AgentAsyncClient.h
+        src/ui/agent/AgentAsyncClient.cpp)
     target_include_directories(modbuslens_active_master_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -1624,7 +1636,10 @@ if(BUILD_TESTING)
         src/ui/agent/ModelScopeAgentClient.h
         src/ui/agent/ModelScopeAgentClient.cpp
         src/ui/agent/AgentRuntime.h
-        src/ui/agent/AgentRuntime.cpp)
+        src/ui/agent/AgentRuntime.cpp
+        src/ui/agent/AgentProviderClient.h
+        src/ui/agent/AgentAsyncClient.h
+        src/ui/agent/AgentAsyncClient.cpp)
     target_include_directories(modbuslens_write_dispatch_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -1709,7 +1724,10 @@ if(BUILD_TESTING)
         src/ui/agent/ModelScopeAgentClient.h
         src/ui/agent/ModelScopeAgentClient.cpp
         src/ui/agent/AgentRuntime.h
-        src/ui/agent/AgentRuntime.cpp)
+        src/ui/agent/AgentRuntime.cpp
+        src/ui/agent/AgentProviderClient.h
+        src/ui/agent/AgentAsyncClient.h
+        src/ui/agent/AgentAsyncClient.cpp)
     target_include_directories(modbuslens_ai_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -1758,7 +1776,14 @@ if(BUILD_TESTING)
         src/ui/agent/ModelScopeAgentClient.h
         src/ui/agent/ModelScopeAgentClient.cpp
         src/ui/agent/AgentRuntime.h
-        src/ui/agent/AgentRuntime.cpp)
+        src/ui/agent/AgentRuntime.cpp
+        src/ui/agent/AgentProviderClient.h
+        src/ui/agent/AgentAsyncClient.h
+        src/ui/agent/AgentAsyncClient.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp)
     target_include_directories(modbuslens_agent_runtime_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -1813,7 +1838,10 @@ if(BUILD_TESTING)
         src/ui/agent/ModelScopeAgentClient.h
         src/ui/agent/ModelScopeAgentClient.cpp
         src/ui/agent/AgentRuntime.h
-        src/ui/agent/AgentRuntime.cpp)
+        src/ui/agent/AgentRuntime.cpp
+        src/ui/agent/AgentProviderClient.h
+        src/ui/agent/AgentAsyncClient.h
+        src/ui/agent/AgentAsyncClient.cpp)
     target_include_directories(modbuslens_agent_integration_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests")

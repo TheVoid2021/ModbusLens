@@ -49,12 +49,12 @@ AgentRunFailure AgentRunFailure::fromProvider(AiDiagnosisErrorCode code, QString
 
 } // namespace modbuslens::agent
 
-AgentRuntime::AgentRuntime(ModelScopeAgentClient* client, QObject* parent)
+AgentRuntime::AgentRuntime(AgentProviderClient* client, QObject* parent)
     : QObject(parent), client_(client)
 {
-    connect(client_, &ModelScopeAgentClient::roundSucceeded,
+    connect(client_, &AgentProviderClient::roundSucceeded,
             this, &AgentRuntime::handleRoundSucceeded);
-    connect(client_, &ModelScopeAgentClient::roundFailed,
+    connect(client_, &AgentProviderClient::roundFailed,
             this, &AgentRuntime::handleRoundFailed);
 }
 
@@ -77,11 +77,11 @@ void AgentRuntime::start(const modbuslens::agent::AgentRunRequest& request)
     if (request.context.capturedBatchRevision != currentBatchRevision_) {
         return; // silent no-op (existing stale policy)
     }
-    if (!client_->isConfigured()) {
+    if (!request.provider.usable()) {
         emit runFailed(request.runGeneration,
                        modbuslens::agent::AgentRunFailure::fromProvider(
                            AiDiagnosisErrorCode::NotConfigured,
-                           QStringLiteral("ModelScope Agent 客户端未配置")));
+                           QStringLiteral("Agent 未配置，无法发起请求")));
         return;
     }
 
@@ -94,6 +94,9 @@ void AgentRuntime::start(const modbuslens::agent::AgentRunRequest& request)
 
     prompt_ = modbuslens::agent::buildAgentPrompt();
     context_ = request.context;
+    // T034-B2.2-C: capture the run's provider snapshot ONCE. Every subsequent
+    // provider step of this run sends exactly this copy.
+    runConfig_ = request.provider;
     // The context's own revision is the ONE source of batch identity — a
     // second request-level revision field cannot exist (removed by review).
     capturedBatchRevision_ = request.context.capturedBatchRevision;
@@ -136,6 +139,25 @@ bool AgentRuntime::isBusy() const
 void AgentRuntime::setCurrentBatchRevision(std::uint64_t revision)
 {
     currentBatchRevision_ = revision;
+}
+
+void AgentRuntime::invalidateForConfigurationChange()
+{
+    if (!isBusy()) {
+        return; // nothing owns any Agent state right now
+    }
+    // T034-B2.2-C §6/§31: the run was authorized by a SUPERSEDED global
+    // snapshot. Bump the generation BEFORE aborting so any in-flight callback
+    // is already stale when it arrives — handleRoundSucceeded discards stale
+    // deliveries before ANY tool side effect — then return to Idle. Silent by
+    // design (not a user cancel, never a red error). This is NOT a network
+    // cancel: the old exchange is simply abandoned.
+    //
+    // Deliberately does NOT touch the accepted answer/error text: the
+    // controller preserves what was already shown.
+    ++currentAgentGeneration_;
+    state_ = State::Idle;
+    client_->cancel(AiAbortReason::SupersededRequest);
 }
 
 void AgentRuntime::invalidateForBatchChange()
@@ -187,14 +209,22 @@ void AgentRuntime::finishCompleted(const QString& finalAnswer)
 void AgentRuntime::sendNextRequest()
 {
     state_ = State::WaitingForModel;
-    client_->requestRound(runGeneration_, messages_, prompt_.toolSchemas);
+    // The SAME immutable run snapshot is reused for every step of the run.
+    client_->requestRound(runConfig_, runGeneration_, messages_,
+                          prompt_.toolSchemas);
 }
 
 void AgentRuntime::handleRoundSucceeded(std::uint64_t runGeneration,
                                         QJsonObject assistantMessage)
 {
     if (isStale(runGeneration)) {
-        state_ = State::Idle; // silent stale discard
+        // T034-B2.2-C-F1: a STALE delivery must be a pure no-op. It belongs to
+        // a SUPERSEDED run, so it may not touch ANY current state — in
+        // particular it must NOT release the running state: a newer run may
+        // already own the runtime, and clearing state_ here would wrongly
+        // clear that new owner's busy/ownership (the D3-confirmed defect).
+        // No state_, no messages_, no counters, no tool execution, no
+        // follow-up dispatch, no signal.
         return;
     }
 
@@ -331,7 +361,10 @@ void AgentRuntime::handleRoundFailed(std::uint64_t runGeneration,
                                      QString sanitizedMessage)
 {
     if (isStale(runGeneration)) {
-        state_ = State::Idle; // silent stale discard
+        // T034-B2.2-C-F1: same contract as the success path — a stale failure
+        // is a pure no-op. It must not release the running state (a newer run
+        // may own it), must not emit runFailed, and must not overwrite the
+        // current run's error.
         return;
     }
     failProvider(code, std::move(sanitizedMessage));
