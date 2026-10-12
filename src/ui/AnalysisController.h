@@ -209,7 +209,16 @@ class AnalysisController : public QObject
     // explicit configureAiClient() seam keeps its previous behaviour. The
     // controller NEVER duplicates provider/model/credential authority — it
     // resolves the global snapshot at DISPATCH time via resolveRequestConfig().
-    Q_PROPERTY(modbuslens::ui::AiRuntimeConfiguration* aiRuntimeConfiguration
+    //
+    // T034-B2.2-A-F2: the QML-facing property is `runtimeConfiguration` (NOT
+    // `aiRuntimeConfiguration`). A QML object's OWN property SHADOWS an
+    // identically named context property, so the binding
+    // `aiRuntimeConfiguration: aiRuntimeConfiguration` self-referenced and
+    // bound NULL — the Diagnosis chain silently had NO global configuration
+    // authority in the production UI. This matches the working convention used
+    // by CandidateExtractionController / AiSettingsPage / ManualQaController.
+    // The C++ accessors are unchanged.
+    Q_PROPERTY(modbuslens::ui::AiRuntimeConfiguration* runtimeConfiguration
                    READ aiRuntimeConfiguration
                        WRITE setAiRuntimeConfiguration
                            NOTIFY aiRuntimeConfigurationChanged)

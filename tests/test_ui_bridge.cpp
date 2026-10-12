@@ -247,7 +247,40 @@ private slots:
     void fc6_invalidFunctionTextIsRejectedLocally();
     void fc7_typedInputParsing();
     void fc8_baudOptionsIncludeLowSpeedRates();
+    // T034-B2.2-A-F2 (structural anti-shadow lock): the QML-facing global
+    // configuration property MUST NOT be named identically to the context
+    // property it is bound from.
+    void f2_aiConfigPropertyAvoidsQmlShadowing();
 };
+
+// T034-B2.2-A-F2. Structural companion to the runtime identity oracle that
+// runs against the REAL loaded Main.qml (see runAiConfigWiringAssertions in
+// main.cpp). This one is cheap and fast, and it fails loudly if anyone
+// reintroduces the self-shadowing shape
+//     AnalysisController { aiRuntimeConfiguration: aiRuntimeConfiguration }
+// where the object's OWN property shadows the identically named context
+// property and the binding silently resolves to null.
+void UiBridgeTest::f2_aiConfigPropertyAvoidsQmlShadowing()
+{
+    AnalysisController controller;
+    const QMetaObject* meta = controller.metaObject();
+
+    // The QML-bound property must exist, be writable and carry the exact type.
+    const int index = meta->indexOfProperty("runtimeConfiguration");
+    QVERIFY2(index >= 0,
+             "AnalysisController must expose the QML-bound property as "
+             "`runtimeConfiguration`");
+    const QMetaProperty property = meta->property(index);
+    QVERIFY(property.isWritable());
+    QCOMPARE(QByteArray(property.typeName()),
+             QByteArrayLiteral("modbuslens::ui::AiRuntimeConfiguration*"));
+
+    // And the shadowing name must NOT exist as a property.
+    QVERIFY2(meta->indexOfProperty("aiRuntimeConfiguration") < 0,
+             "AnalysisController must NOT expose a property named "
+             "`aiRuntimeConfiguration` — it would shadow the identically named "
+             "context property in QML and bind null");
+}
 
 void UiBridgeTest::a01_controllerInitialCounts()
 {

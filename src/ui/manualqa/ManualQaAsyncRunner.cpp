@@ -1,24 +1,15 @@
-#include "ui/manualqa/ModelScopeManualQaRunner.h"
+#include "ui/manualqa/ManualQaAsyncRunner.h"
 
+#include <QByteArray>
 #include <QJsonArray>
 #include <QJsonDocument>
 
 #include <cctype>
 #include <cstdlib>
+#include <utility>
 
 namespace modbuslens::ui {
 namespace {
-
-// Same official endpoint / model / env conventions as the shipped
-// ModelScope infrastructure (D4: reuse, no second credential store, no new
-// provider-selection UX). The endpoint is a compiled constant, never
-// environment-overridable.
-const QUrl kOfficialEndpoint{
-    QStringLiteral("https://api-inference.modelscope.cn/v1/chat/completions")};
-const QString kDefaultModel = QStringLiteral("Qwen/Qwen3.5-27B");
-const QString kApiKeyEnv = QStringLiteral("MODELSCOPE_API_KEY");
-const QString kModelOverrideEnv = QStringLiteral("MODBUSLENS_MODELSCOPE_MODEL");
-constexpr int kTimeoutSeconds = 90;
 
 // ---------------------------------------------------------------------------
 // Strict, fail-closed JSON reader for the Q&A provider payload. Deliberately
@@ -327,18 +318,23 @@ bool requireIntMember(const JsonValue& object, std::string_view name,
 
 } // namespace
 
-ModelScopeManualQaRunner::ModelScopeManualQaRunner(QObject* parent)
-    : QObject(parent)
+ManualQaAsyncRunner::ManualQaAsyncRunner(QObject* parent)
+    : QObject(parent),
+      ownedHttp_(std::make_unique<QtChatCompletionsHttpClient>()),
+      http_(ownedHttp_.get())
 {
-    connect(&client_, &ModelScopeAgentClient::roundSucceeded, this,
-            &ModelScopeManualQaRunner::handleRoundSucceeded);
-    connect(&client_, &ModelScopeAgentClient::roundFailed, this,
-            &ModelScopeManualQaRunner::handleRoundFailed);
+}
+
+ManualQaAsyncRunner::ManualQaAsyncRunner(IChatCompletionsHttpClient& http,
+                                         QObject* parent)
+    : QObject(parent),
+      http_(&http)
+{
 }
 
 std::optional<core::ManualQaParsedResult>
-ModelScopeManualQaRunner::parseProviderResult(const std::string& json,
-                                              QString* failureCategory)
+ManualQaAsyncRunner::parseProviderResult(const std::string& json,
+                                         QString* failureCategory)
 {
     // M12-D-R2D observability: every rejection path assigns a SAFE
     // deterministic category token (category name only - never question,
@@ -465,7 +461,7 @@ ModelScopeManualQaRunner::parseProviderResult(const std::string& json,
 }
 
 std::optional<core::ManualQaParsedResult>
-ModelScopeManualQaRunner::resolveProviderResult(
+ManualQaAsyncRunner::resolveProviderResult(
     const std::string& json, const core::ManualQaRequest& request,
     QString* failureCategory)
 {
@@ -544,19 +540,18 @@ ModelScopeManualQaRunner::resolveProviderResult(
     return resolved;
 }
 
-QString ModelScopeManualQaRunner::extractAssistantContent(
+QString ManualQaAsyncRunner::extractAssistantContent(
     const QJsonObject& assistantMessage)
 {
-    // ModelScopeAgentClient emits the assistant MESSAGE object
-    // (choices[0].message) - the content lives at its TOP LEVEL. The
-    // pre-fix code re-applied choices[0].message extraction here and always
-    // produced empty content, which made every live Q&A parse fail (the R2B
-    // Human defect). reasoning_content is a separate field and is never
-    // treated as answer content (T011 contract).
+    // The shared transport emits the assistant MESSAGE object
+    // (choices[0].message) - the content lives at its TOP LEVEL. reasoning_content
+    // is a separate field and is never treated as answer content (T011
+    // contract).
     return assistantMessage.value(QStringLiteral("content")).toString();
 }
 
-QJsonObject ModelScopeManualQaRunner::buildRequestBody(
+QJsonObject ManualQaAsyncRunner::buildRequestBody(
+    AiProviderKind kind, const std::string& model,
     const core::ManualQaRequest& request)
 {
     // §16 prompt/trust boundary: manual text is UNTRUSTED source data and
@@ -602,92 +597,149 @@ QJsonObject ModelScopeManualQaRunner::buildRequestBody(
     messages.append(user);
 
     QJsonObject body{
-        {QStringLiteral("model"), kDefaultModel},
+        {QStringLiteral("model"), QString::fromStdString(model)},
         {QStringLiteral("messages"), messages},
         {QStringLiteral("tools"), QJsonArray{}},
         {QStringLiteral("stream"), false},
         {QStringLiteral("max_tokens"), 768},
-        // M12-D-R2B RCA fix: the thinking pass consumes thousands of
-        // completion tokens and can starve/truncate the final structured
-        // JSON (live-diagnosed: completion_tokens 4082-6060 with thinking
-        // vs 63-65 without). The Q&A task explicitly requests non-thinking
-        // behavior; the strict parser and citation validator are unchanged.
-        {QStringLiteral("chat_template_kwargs"),
-         QJsonObject{{QStringLiteral("enable_thinking"), false}}},
     };
+    // T034-B2.2-B-R1 (§4/§8): PROVIDER-SPECIFIC wire extras, selected by the
+    // RESOLVED provider identity — never by string sniffing the endpoint.
+    //
+    // ModelScope preserves its verified non-thinking semantics: the thinking
+    // pass consumes thousands of completion tokens and can starve/truncate the
+    // final structured JSON (live-diagnosed: completion_tokens 4082-6060 with
+    // thinking vs 63-65 without). DeepSeek must NOT receive this
+    // ModelScope-only field (its profile governs its own extras).
+    if (kind == AiProviderKind::ModelScope) {
+        body.insert(QStringLiteral("chat_template_kwargs"),
+                    QJsonObject{{QStringLiteral("enable_thinking"), false}});
+    }
     return body;
 }
 
-bool ModelScopeManualQaRunner::begin(const core::ManualQaRequest& request,
-                                     std::uint64_t generation,
-                                     const CompletionHandler& onDone)
+bool ManualQaAsyncRunner::begin(const ManualQaDispatchConfig& config,
+                                const core::ManualQaRequest& request,
+                                std::uint64_t generation,
+                                const CompletionHandler& onDone)
 {
     ++beginCount_;
-    pendingGeneration_ = generation;
-    pendingOnDone_ = onDone;
 
-    // Fail-closed credential boundary (D4): no ambient key -> zero network.
-    const QString apiKey = qEnvironmentVariable(kApiKeyEnv.toUtf8().constData());
-    if (apiKey.isEmpty()) {
+    // Fail-closed: a missing endpoint, model or credential must never become
+    // an authenticated request. The legacy environment fallback is gone — the
+    // owner resolves the configuration, and if it could not, nothing is sent.
+    if (config.endpoint.empty() || config.model.empty() || config.secret.empty()
+        || http_ == nullptr) {
         return false;
     }
-    const QString modelId =
-        qEnvironmentVariable(kModelOverrideEnv.toUtf8().constData());
-    const ModelScopeClientConfig config{
-        .endpoint = kOfficialEndpoint,
-        .apiKey = apiKey,
-        .modelId = modelId.isEmpty() ? kDefaultModel : modelId,
-        .timeout = std::chrono::seconds(kTimeoutSeconds),
-    };
-    client_.configure(config);
 
-    const QJsonObject body = buildRequestBody(request);
-    const QJsonArray messages =
-        body.value(QStringLiteral("messages")).toArray();
+    pendingGeneration_ = generation;
+    pendingOnDone_ = onDone;
+    pendingRequest_ = request;
 
-    client_.requestRound(generation, messages, QJsonArray{});
+    const QString body = QString::fromUtf8(
+        QJsonDocument(buildRequestBody(config.kind, config.model, request))
+            .toJson(QJsonDocument::Compact));
+
+    // Request-scoped transport. The credential is handed over as a ONE-SHOT
+    // bearer token consumed by sendAsync, so it is never retained beyond this
+    // dispatch; the transport itself is erased when the dispatch completes.
+    auto transport = std::make_unique<ChatCompletionsTransport>(
+        *http_, config.endpoint, config.timeoutMs);
+    transport->setOneShotBearerToken(config.secret);
+
+    const ChatCompletionsHttpAsyncHandle handle = transport->sendAsync(
+        body.toStdString(), this,
+        [this, generation](ChatCompletionsHttpResult result) {
+            handleCompletion(generation, std::move(result));
+        });
+    if (!handle.valid()) {
+        pendingOnDone_ = nullptr;
+        return false; // nothing dispatched, no completion will arrive
+    }
+    transports_.emplace(generation, std::move(transport));
+    ++dispatchCount_;
     return true;
 }
 
-void ModelScopeManualQaRunner::cancel()
+void ManualQaAsyncRunner::cancel()
 {
     // Best-effort only; the controller drops stale generations regardless.
-    if (client_.isBusy()) {
-        client_.cancel();
-    }
+    // The shared transport deliberately offers no network cancellation, so an
+    // invalidated attempt is simply abandoned.
 }
 
-int ModelScopeManualQaRunner::beginCount() const
+int ManualQaAsyncRunner::beginCount() const
 {
     return beginCount_;
 }
 
-void ModelScopeManualQaRunner::handleRoundSucceeded(
-    std::uint64_t generation, const QJsonObject& assistantMessage)
+void ManualQaAsyncRunner::handleCompletion(std::uint64_t generation,
+                                           ChatCompletionsHttpResult result)
 {
+    // Release the request-scoped transport (and any credential it carried)
+    // before delivering the outcome.
+    transports_.erase(generation);
+
     if (pendingOnDone_ == nullptr || generation != pendingGeneration_) {
         return; // stale/generation-mismatched round: drop
     }
-    const QString content = extractAssistantContent(assistantMessage);
     CompletionHandler onDone = std::move(pendingOnDone_);
     pendingOnDone_ = nullptr;
+
+    // Transport-level failure classification. Kept coarse and non-secret:
+    // the controller maps every !ok completion to a local ERROR.
+    if (result.timedOut) {
+        onDone(IManualQaRunner::Completion{generation, false,
+                                           "qa_provider_failure:timeout",
+                                           std::string()});
+        return;
+    }
+    if (!result.transportOk || result.status < 200 || result.status >= 300) {
+        onDone(IManualQaRunner::Completion{generation, false,
+                                           "qa_provider_failure:transport",
+                                           std::string()});
+        return;
+    }
+
+    // 2xx: extract the final assistant content. reasoning_content is never
+    // consumed as answer content.
+    const QJsonDocument document =
+        QJsonDocument::fromJson(QByteArray::fromStdString(result.body));
+    if (!document.isObject()
+        || !document.object().value(QLatin1String("choices")).isArray()) {
+        onDone(IManualQaRunner::Completion{generation, false,
+                                           "qa_provider_failure:shape",
+                                           std::string()});
+        return;
+    }
+    const QJsonArray choices =
+        document.object().value(QLatin1String("choices")).toArray();
+    QString content;
+    for (const QJsonValue& value : choices) {
+        if (!value.isObject()) {
+            continue;
+        }
+        const QJsonValue message =
+            value.toObject().value(QLatin1String("message"));
+        if (!message.isObject()) {
+            continue;
+        }
+        content = extractAssistantContent(message.toObject());
+        if (!content.isEmpty()) {
+            break;
+        }
+    }
+    if (content.isEmpty()) {
+        // An empty assistant content is a MALFORMED outcome, not a semantic
+        // state: surface it as ok-with-empty-json so the controller's strict
+        // parser classifies it (qa_parse_empty_content).
+        onDone(IManualQaRunner::Completion{generation, true, std::string(),
+                                           std::string()});
+        return;
+    }
     onDone(IManualQaRunner::Completion{generation, true, std::string(),
                                        content.toStdString()});
-}
-
-void ModelScopeManualQaRunner::handleRoundFailed(
-    std::uint64_t generation, AiDiagnosisErrorCode /*errorCode*/,
-    const QString& sanitized)
-{
-    if (pendingOnDone_ == nullptr || generation != pendingGeneration_) {
-        return; // stale/generation-mismatched round: drop
-    }
-    CompletionHandler onDone = std::move(pendingOnDone_);
-    pendingOnDone_ = nullptr;
-    onDone(IManualQaRunner::Completion{
-        generation, false,
-        "qa_provider_failure:" + sanitized.toStdString(),
-        std::string()});
 }
 
 } // namespace modbuslens::ui

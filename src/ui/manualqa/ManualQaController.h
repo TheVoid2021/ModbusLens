@@ -6,8 +6,10 @@
 #include <QtQml/qqml.h>
 
 #include <memory>
+#include <optional>
 
 #include "core/manualqa/ManualQaContract.h"
+#include "ui/ai/AiRuntimeConfiguration.h"
 #include "ui/manualqa/IManualQaRunner.h"
 
 namespace modbuslens::ui {
@@ -58,6 +60,21 @@ class ManualQaController : public QObject
     Q_PROPERTY(modbuslens::ui::ManualImportController* manualController READ
                    manualController WRITE setManualController NOTIFY
                        manualControllerChanged)
+    // T034-B2.2-B(-R1): provider/model/credential are resolved from the SINGLE
+    // global AI configuration owner at DISPATCH time, exactly like
+    // AnalysisController (Diagnosis) and CandidateExtractionController. The
+    // credential itself never crosses this boundary — only the resolved
+    // snapshot does, and only for the duration of one dispatch.
+    //
+    // The PROPERTY is named `runtimeConfiguration` (NOT `aiRuntimeConfiguration`)
+    // on purpose: in QML an object's own property SHADOWS an identically named
+    // context property, so `aiRuntimeConfiguration: aiRuntimeConfiguration`
+    // self-references and binds NULL. This matches the working repo convention
+    // used by CandidateExtractionController and AiSettingsPage
+    // (`runtimeConfiguration: aiRuntimeConfiguration`).
+    Q_PROPERTY(modbuslens::ui::AiRuntimeConfiguration* runtimeConfiguration
+                   READ aiRuntimeConfiguration WRITE setAiRuntimeConfiguration
+                       NOTIFY aiRuntimeConfigurationChanged)
 
 public:
     explicit ManualQaController(QObject* parent = nullptr);
@@ -79,6 +96,12 @@ public:
 
     void setManualController(ManualImportController* controller);
 
+    [[nodiscard]] AiRuntimeConfiguration* aiRuntimeConfiguration() const
+    {
+        return aiRuntimeConfiguration_;
+    }
+    void setAiRuntimeConfiguration(AiRuntimeConfiguration* configuration);
+
     // The Human trigger (D1/D4). Locally rejected (no dispatch) when no
     // Manual is selected, when the question is empty/whitespace, or while an
     // attempt is already running (single-flight). Stops at
@@ -99,9 +122,11 @@ signals:
     void stateChanged();
     void resultChanged();
     void manualContextChanged();
+    void aiRuntimeConfigurationChanged();
 
 private:
     void handleManualContextChanged();
+    void handleRuntimeConfigurationChanged();
     void invalidateGeneration();
     void clearResult();
     void localReject(const char* token, const QString& text);
@@ -112,6 +137,11 @@ private:
                          const std::string& rawJson);
 
     ManualImportController* manualController_{nullptr};
+    AiRuntimeConfiguration* aiRuntimeConfiguration_{nullptr};
+    // T034-B2.2-B: the revision the in-flight attempt was dispatched under.
+    // A configuration save while an attempt is running invalidates it, so a
+    // superseded completion can never be adopted as the current answer.
+    std::optional<qint64> requestConfigRevision_;
     std::unique_ptr<IManualQaRunner> ownedRunner_;
     IManualQaRunner* runner_{nullptr};
 

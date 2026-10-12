@@ -283,8 +283,8 @@ qt_add_qml_module(modbuslens
         src/ui/manualqa/IManualQaRunner.h
         src/ui/manualqa/ManualQaController.h
         src/ui/manualqa/ManualQaController.cpp
-        src/ui/manualqa/ModelScopeManualQaRunner.h
-        src/ui/manualqa/ModelScopeManualQaRunner.cpp
+        src/ui/manualqa/ManualQaAsyncRunner.h
+        src/ui/manualqa/ManualQaAsyncRunner.cpp
         src/ui/profile/ProfileStore.h
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
@@ -1202,8 +1202,8 @@ if(BUILD_TESTING)
         src/ui/manualqa/IManualQaRunner.h
         src/ui/manualqa/ManualQaController.h
         src/ui/manualqa/ManualQaController.cpp
-        src/ui/manualqa/ModelScopeManualQaRunner.h
-        src/ui/manualqa/ModelScopeManualQaRunner.cpp
+        src/ui/manualqa/ManualQaAsyncRunner.h
+        src/ui/manualqa/ManualQaAsyncRunner.cpp
         src/ui/manual/ManualStore.h
         src/ui/manual/ManualStore.cpp
         src/ui/manual/ManualImportController.h

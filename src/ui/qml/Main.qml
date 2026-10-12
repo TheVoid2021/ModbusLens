@@ -123,11 +123,15 @@ ApplicationWindow {
         // M12-B slice 4: the semantic layer reads ONLY the session Active
         // Profile's persisted content through this injection.
         activeProfileController: activeProfileController
-        // T034-B2.2-A: the Diagnosis chain resolves provider/model/credential
-        // from the SAME global AI configuration owner the AI Settings page
-        // writes (context property from main.cpp), so a Save hot-switches the
-        // next Diagnosis request without a restart.
-        aiRuntimeConfiguration: aiRuntimeConfiguration
+        // T034-B2.2-A-F2: the Diagnosis chain resolves provider/model/
+        // credential from the SAME global AI configuration owner the AI
+        // Settings page writes (context property from main.cpp), so a Save
+        // hot-switches the next Diagnosis request without a restart.
+        //
+        // The property is `runtimeConfiguration` (NOT `aiRuntimeConfiguration`):
+        // an object's OWN property would otherwise SHADOW the identically named
+        // context property and self-reference to null (the F2 defect).
+        runtimeConfiguration: aiRuntimeConfiguration
     }
 
     ProfileController {
@@ -180,6 +184,17 @@ ApplicationWindow {
         id: manualQaController
         objectName: "manualQaController"
         manualController: manualController
+        // T034-B2.2-B-R1: the Manual Q&A chain resolves provider/model/
+        // credential from the SAME global AI configuration owner the AI
+        // Settings page writes (context property from main.cpp), so a Save
+        // hot-switches the next Q&A request without a restart — exactly like
+        // the Diagnosis and Candidate chains. The Q&A consent gate (D4) is
+        // untouched.
+        //
+        // The property is `runtimeConfiguration` (NOT `aiRuntimeConfiguration`):
+        // an object's own property would otherwise SHADOW the identically named
+        // context property and self-reference to null.
+        runtimeConfiguration: aiRuntimeConfiguration
     }
 
     // ------------------------------------------------------------------

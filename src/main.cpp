@@ -2203,6 +2203,98 @@ QStringList runNavAssertions(const QList<QObject *> &roots,
     return failures;
 }
 
+// ---------------------------------------------------------------------------
+// T034-B2.2-A-F2 — AI CONFIGURATION WIRING ORACLE.
+//
+// This is the load-bearing regression for a PRODUCTION wiring defect: a QML
+// object's OWN property SHADOWS an identically named context property, so a
+// binding written as `aiRuntimeConfiguration: aiRuntimeConfiguration`
+// self-references and binds NULL, silently robbing the controller of its
+// global AI configuration authority.
+//
+// It is deliberately a RUNTIME identity proof on the REAL loaded Main.qml
+// object graph — not a source grep:
+//   · every probed controller exposes its QML-facing `runtimeConfiguration`
+//   · the bound value is NON-NULL
+//   · the bound value IS the application's global AiRuntimeConfiguration
+//     instance (pointer identity, not merely "something non-null").
+// ---------------------------------------------------------------------------
+QStringList runAiConfigWiringAssertions(const QList<QObject *> &roots,
+                                        const QString &contextLabel,
+                                        QQmlContext *rootContext)
+{
+    QStringList failures;
+    auto fail = [&failures, &contextLabel](const QString &message) {
+        failures << contextLabel + QStringLiteral(": ") + message;
+    };
+
+    if (rootContext == nullptr) {
+        fail(QStringLiteral("AIWIRE no root context"));
+        return failures;
+    }
+    auto *globalConfig =
+        rootContext->contextProperty(QStringLiteral("aiRuntimeConfiguration"))
+            .value<modbuslens::ui::AiRuntimeConfiguration *>();
+    if (globalConfig == nullptr) {
+        fail(QStringLiteral("AIWIRE the aiRuntimeConfiguration context "
+                            "property is missing"));
+        return failures;
+    }
+
+    const struct {
+        const char *objectName;
+    } probes[] = {
+        {"analysisController"},
+        {"manualQaController"},
+    };
+    for (const auto &probe : probes) {
+        const QString objectName = QString::fromLatin1(probe.objectName);
+        QObject *controller = nullptr;
+        for (QObject *root : roots) {
+            if (root == nullptr) {
+                continue;
+            }
+            if (auto *found = root->findChild<QObject *>(objectName)) {
+                controller = found;
+                break;
+            }
+        }
+        if (controller == nullptr) {
+            fail(QStringLiteral("AIWIRE %1 not found").arg(objectName));
+            continue;
+        }
+        const QVariant bound = controller->property("runtimeConfiguration");
+        if (bound.isNull()) {
+            fail(QStringLiteral("AIWIRE %1.runtimeConfiguration is NULL (the "
+                                "QML binding did not take effect)")
+                     .arg(objectName));
+            continue;
+        }
+        auto *boundConfig =
+            bound.value<modbuslens::ui::AiRuntimeConfiguration *>();
+        if (boundConfig == nullptr) {
+            fail(QStringLiteral("AIWIRE %1.runtimeConfiguration has the wrong "
+                                "type (%2)")
+                     .arg(objectName,
+                          QString::fromUtf8(bound.typeName())));
+            continue;
+        }
+        if (boundConfig != globalConfig) {
+            fail(QStringLiteral("AIWIRE %1.runtimeConfiguration is NOT the "
+                                "application global AiRuntimeConfiguration "
+                                "instance")
+                     .arg(objectName));
+            continue;
+        }
+        qInfo().noquote()
+            << QStringLiteral("AIWIRE: %1.runtimeConfiguration is the global "
+                              "AiRuntimeConfiguration instance (identity "
+                              "confirmed)")
+                   .arg(objectName);
+    }
+    return failures;
+}
+
 int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 {
     const auto roots = engine.rootObjects();
@@ -2260,6 +2352,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 
     auto failures = std::make_shared<QStringList>();
     auto fail = [failures](const QString &m) { *failures << m; };
+
+    // T034-B2.2-A-F2: the AI-configuration wiring oracle runs against the REAL
+    // loaded Main.qml object graph, once (the wiring is static).
+    *failures += runAiConfigWiringAssertions(
+        roots, QStringLiteral("production Main.qml"), engine.rootContext());
 
     const int settleMs = 100;
     constexpr int kLastStage = 165;
@@ -17086,7 +17183,12 @@ int runManualQaCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             entry.onDone(modbuslens::ui::IManualQaRunner::Completion{
                 entry.generation, true, std::string(), entry.rawJson});
         }
+        // T034-B2.2-B: the migrated seam carries an ALREADY-RESOLVED dispatch
+        // config first. This harness runner is installed through
+        // setRunnerForAutomation, so the controller never resolves global
+        // configuration for it and the config value is deliberately unused.
         [[nodiscard]] bool begin(
+            const modbuslens::ui::ManualQaDispatchConfig& /*dispatchConfig*/,
             const modbuslens::core::ManualQaRequest& request,
             std::uint64_t generation,
             const CompletionHandler& onDone) override
@@ -21231,9 +21333,31 @@ int main(int argc, char *argv[])
         credentialStore =
             std::make_unique<modbuslens::ui::WindowsAiCredentialStore>();
     }
+    // T034-B2.2-B-R1: the Manual Q&A runtime gate installs a deterministic fake
+    // EXECUTION runner (GateQaRunner), but the CONTROLLER still resolves
+    // provider/model/credential from the single global AI configuration owner —
+    // there is no runner-identity authority bypass. The gate therefore supplies
+    // a deterministic SAVED configuration + fake provider-scoped credential,
+    // and uses a dedicated temporary INI so the developer's real settings are
+    // never read or written. No Human credential, no Windows store, no network.
+    const bool manualQaHarness =
+        launchArguments.contains(QStringLiteral("--qml-manual-qa-check"));
+    const QString harnessSettingsFile =
+        manualQaHarness
+            ? QDir(QDir::tempPath())
+                  .filePath(QStringLiteral("modbuslens-manual-qa-harness.ini"))
+            : QString();
     modbuslens::ui::AiRuntimeConfiguration aiRuntimeConfiguration(
-        *credentialStore);
+        *credentialStore, harnessSettingsFile);
     aiRuntimeConfiguration.loadPersisted();
+    if (manualQaHarness) {
+        aiRuntimeConfiguration.saveCredential(
+            modbuslens::ui::AiProviderKind::ModelScope,
+            QStringLiteral("harness-fake-credential"));
+        aiRuntimeConfiguration.saveConfiguration(
+            modbuslens::ui::AiProviderKind::ModelScope,
+            QStringLiteral("harness/deterministic-qa-model"));
+    }
 
     QQmlApplicationEngine engine;
 

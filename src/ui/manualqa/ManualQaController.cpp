@@ -7,10 +7,15 @@
 #include "core/manualqa/ManualQaContract.h"
 #include "ui/manual/ManualImportController.h"
 #include "ui/manual/ManualStore.h"
-#include "ui/manualqa/ModelScopeManualQaRunner.h"
+#include "ui/manualqa/ManualQaAsyncRunner.h"
 
 namespace modbuslens::ui {
 namespace {
+
+// T034-B2.2-B: the ONE bounded timeout for a Q&A dispatch, mirroring the
+// Diagnosis path. Non-streaming cloud inference is not an interactive
+// millisecond request.
+constexpr int kManualQaRequestTimeoutMs = 90000;
 
 constexpr auto kStateIdle = "idle";
 constexpr auto kStateConsentRequired = "consent_required";
@@ -25,6 +30,7 @@ constexpr auto kTokenNotConfigured = "qa_not_configured";
 constexpr auto kTokenProviderFailure = "qa_provider_failure";
 constexpr auto kTokenMalformedOutput = "qa_malformed_output";
 constexpr auto kTokenSourceMissing = "qa_source_missing";
+constexpr auto kTokenNoCredential = "qa_no_credential";
 
 QString citationCodeToErrorToken(
     core::ManualQaCitationCode code)
@@ -55,7 +61,9 @@ QVariantMap citationToVariant(const core::ManualQaCitation& citation)
 ManualQaController::ManualQaController(QObject* parent)
     : QObject(parent)
 {
-    ownedRunner_ = std::make_unique<ModelScopeManualQaRunner>();
+    // The production runner is provider-neutral and credential-authority-free:
+    // the owner resolves provider/model/credential and hands them down.
+    ownedRunner_ = std::make_unique<ManualQaAsyncRunner>();
     runner_ = ownedRunner_.get();
 }
 
@@ -143,6 +151,54 @@ void ManualQaController::setManualController(
     emit manualContextChanged();
 }
 
+void ManualQaController::setAiRuntimeConfiguration(
+    AiRuntimeConfiguration* configuration)
+{
+    if (aiRuntimeConfiguration_ == configuration) {
+        return;
+    }
+    if (aiRuntimeConfiguration_ != nullptr) {
+        disconnect(aiRuntimeConfiguration_, nullptr, this, nullptr);
+    }
+    // Swapping the configuration OWNER revokes the authority of any attempt
+    // still in flight under the old owner. Per §20 the previously ACCEPTED
+    // result/error is preserved (ownership + busy are what get revoked).
+    invalidateGeneration();
+    setState(kStateIdle);
+    aiRuntimeConfiguration_ = configuration;
+    if (aiRuntimeConfiguration_ != nullptr) {
+        connect(aiRuntimeConfiguration_,
+                &AiRuntimeConfiguration::configurationChanged, this,
+                &ManualQaController::handleRuntimeConfigurationChanged);
+    }
+    emit aiRuntimeConfigurationChanged();
+}
+
+void ManualQaController::handleRuntimeConfigurationChanged()
+{
+    if (aiRuntimeConfiguration_ == nullptr) {
+        return;
+    }
+    // Only an attempt that is still RUNNING and was dispatched under a
+    // SUPERSEDED revision is invalidated; a save while nothing is in flight
+    // changes nothing observable here (the next dispatch resolves fresh).
+    if (!busy()) {
+        return;
+    }
+    if (requestConfigRevision_.has_value()
+        && *requestConfigRevision_
+            == aiRuntimeConfiguration_->configRevision()) {
+        return;
+    }
+    // T034-B2.2-B-R1 (§20): revoke the superseded ownership and release busy,
+    // but PRESERVE the last accepted result/error. A configuration change must
+    // NOT erase what the Human was already shown, and the stale completion
+    // must never perform cleanup itself — it is dropped by the generation
+    // guard in completeAttempt().
+    invalidateGeneration();
+    setState(kStateIdle);
+}
+
 void ManualQaController::handleManualContextChanged()
 {
     // hasSelectedManual / selectedManualLabel always re-evaluate on ANY
@@ -187,6 +243,7 @@ void ManualQaController::handleManualContextChanged()
 void ManualQaController::invalidateGeneration()
 {
     ++generation_;
+    requestConfigRevision_.reset();
     if (runner_ != nullptr) {
         runner_->cancel(); // best-effort; stale completions are dropped anyway
     }
@@ -290,19 +347,61 @@ void ManualQaController::beginAttempt(const QString& question)
         canonicalText.toStdString(), request.question);
     activeRequest_ = request;
 
+    // T034-B2.2-B-R1 (§2): the product authority is INDEPENDENT of runner
+    // identity. EVERY consent-approved request resolves the global
+    // configuration exactly once and builds a complete ManualQaDispatchConfig;
+    // an injected automation runner only replaces the EXECUTION end, never the
+    // global configuration / provider / model / credential / fail-closed
+    // authority. There is deliberately NO `runner_ == ownedRunner_.get()`
+    // branch anywhere in this class.
+    ManualQaDispatchConfig dispatchConfig;
+    if (aiRuntimeConfiguration_ == nullptr) {
+        localReject(kTokenNotConfigured, tr("云端问答未配置，无法发送。"));
+        return;
+    }
+    // Manual QA requires an EXPLICITLY SAVED global configuration. The shared
+    // tier-3 legacy-environment fallback is deliberately NOT Manual QA
+    // authority (§13/§27: legacy env effect = ZERO, automatic provider
+    // fallback = ZERO). This is a Manual-QA-LOCAL gate: the shared
+    // AiRuntimeConfiguration precedence is untouched, and Diagnosis/Candidate
+    // are unchanged.
+    if (!aiRuntimeConfiguration_->hasSavedConfiguration()) {
+        localReject(kTokenNotConfigured, tr("云端问答未配置，无法发送。"));
+        return;
+    }
+    // The ONE request-time resolution (exactly one call per request).
+    const std::optional<AiRuntimeConfiguration::ResolvedRequestConfig> resolved =
+        aiRuntimeConfiguration_->resolveRequestConfig();
+    if (!resolved.has_value() || resolved->secret.empty()) {
+        localReject(kTokenNoCredential, tr("云端问答未配置，无法发送。"));
+        return;
+    }
+    const AiProviderProfile& profile = aiProviderProfile(resolved->kind);
+    dispatchConfig = ManualQaDispatchConfig{
+        .kind = resolved->kind,
+        .endpoint = std::string(profile.chatCompletionsEndpoint),
+        .model = resolved->model,
+        .secret = resolved->secret,
+        .timeoutMs = kManualQaRequestTimeoutMs,
+    };
+    const std::optional<qint64> dispatchRevision =
+        aiRuntimeConfiguration_->configRevision();
+
     ++generation_;
     const std::uint64_t generation = generation_;
+    requestConfigRevision_ = dispatchRevision;
     clearResult();
     setState(kStateRunning);
     const bool started = runner_->begin(
-        request, generation,
+        dispatchConfig, request, generation,
         [this](const IManualQaRunner::Completion& done) {
             completeAttempt(done.generation, done.ok,
                             QString::fromStdString(done.failureToken),
                             done.rawJson);
         });
     if (!started) {
-        // Nothing was sent (fail-closed, e.g. credential absent).
+        // Nothing was sent (fail-closed).
+        requestConfigRevision_.reset();
         localReject(kTokenNotConfigured, tr("云端问答未配置，无法发送。"));
     }
 }
@@ -315,6 +414,7 @@ void ManualQaController::completeAttempt(std::uint64_t generation, bool ok,
     if (generation != generation_ || state_ != QLatin1String(kStateRunning)) {
         return;
     }
+    requestConfigRevision_.reset();
     if (!ok) {
         localReject(!failureToken.isEmpty() ? failureToken.toUtf8().constData()
                                             : kTokenProviderFailure,
@@ -330,7 +430,7 @@ void ManualQaController::completeAttempt(std::uint64_t generation, bool ok,
     // deterministic block table before validation.
     QString parseCategory;
     const std::optional<core::ManualQaParsedResult> parsed =
-        ModelScopeManualQaRunner::resolveProviderResult(
+        ManualQaAsyncRunner::resolveProviderResult(
             rawJson, activeRequest_, &parseCategory);
     if (!parsed.has_value()) {
         // The category token is content-free (no question/answer/excerpt/
