@@ -34,14 +34,6 @@ bool CandidateProviderRunner::hasConfiguredCredential()
     return !envValue(kModelScopeSecretEnv).isEmpty();
 }
 
-std::string CandidateProviderRunner::configuredModelId()
-{
-    // ModelScope-path resolution (legacy P02 semantics, now routed through the
-    // B1 precedence: MODBUSLENS_AI_MODEL wins, then the legacy override, then
-    // the accepted canonical default).
-    return configuredModelIdFor(AiProviderKind::ModelScope);
-}
-
 std::string CandidateProviderRunner::officialEndpoint()
 {
     return aiProviderProfile(AiProviderKind::ModelScope).chatCompletionsEndpoint;
@@ -50,32 +42,6 @@ std::string CandidateProviderRunner::officialEndpoint()
 int CandidateProviderRunner::productionTimeoutMs()
 {
     return kProductionTimeoutMs;
-}
-
-std::optional<AiProviderKind> CandidateProviderRunner::resolveProviderKind()
-{
-    // Frozen B1 env fallback semantics, now routed through the provider-
-    // neutral profile layer (single source; the runtime configuration owner
-    // reuses the exact same helper so the two paths cannot drift).
-    return aiProviderEnvKind();
-}
-
-std::string CandidateProviderRunner::configuredSecretFor(AiProviderKind kind)
-{
-    // The ONLY credential read path: the variable name comes from the
-    // provider profile, so cross-provider reads are structurally impossible
-    // (no fallback, no "any key" resolution).
-    const char *secretEnv = aiProviderSecretEnv(kind);
-    return secretEnv != nullptr ? envValue(secretEnv).toStdString() : std::string();
-}
-
-std::string CandidateProviderRunner::configuredModelIdFor(AiProviderKind kind)
-{
-    // Same profile-layer helper the runtime configuration owner uses for the
-    // env-fallback path: MODBUSLENS_AI_MODEL wins for both providers, the
-    // legacy override and the canonical default apply ONLY to ModelScope,
-    // and DeepSeek never gets an invented model.
-    return aiProviderEnvModel(kind);
 }
 
 CandidateProviderRunner::CandidateProviderRunner()
@@ -158,36 +124,24 @@ bool CandidateProviderRunner::begin(const core::ExtractionRequest &request,
     // (applyExplicitConfig) — including the secret, which was read from the
     // credential store at request time. Without one, the frozen B1
     // environment fallback applies verbatim.
-    std::string model;
-    std::string secret;
-    AiProviderKind kind = explicitKind_;
-    if (explicitConfig_) {
-        model = explicitModel_;
-        // ONE-SHOT consumption (T034-B2.1 SLICE B2): take the pending secret
-        // for THIS request and immediately empty the runner-held copy. All
-        // early-return paths below keep the member empty; a subsequent begin
-        // without a fresh credential fails closed (LIFE-01).
-        secret = explicitSecret_;
-        explicitSecret_.clear();
-        if (secret.empty()) {
-            return false;
-        }
-    } else {
-        const std::optional<AiProviderKind> envKind = resolveProviderKind();
-        if (!envKind.has_value()) {
-            return false;
-        }
-        kind = *envKind;
-        // Env fallback secret is read per request and never stored in a
-        // runner member (same one-shot lifetime as the explicit path).
-        secret = configuredSecretFor(kind);
-        if (secret.empty()) {
-            return false;
-        }
-        model = configuredModelIdFor(kind);
-        if (model.empty()) {
-            return false;
-        }
+    // T034-B2-LC2: the frozen B1 environment fallback is REMOVED. Without an
+    // EXPLICIT resolved configuration (from the saved global AI configuration
+    // + the provider-scoped credential store) there is no Candidate authority
+    // at all: no env provider, no env model, no env secret is read and begin()
+    // fails closed with zero provider dispatches.
+    if (!explicitConfig_) {
+        return false; // NOT CONFIGURED — fail closed
+    }
+    const AiProviderKind kind = explicitKind_;
+    const std::string model = explicitModel_;
+    // ONE-SHOT consumption (T034-B2.1 SLICE B2): take the pending secret for
+    // THIS request and immediately empty the runner-held copy. All
+    // early-return paths below keep the member empty; a subsequent begin
+    // without a fresh credential fails closed (LIFE-01).
+    std::string secret = explicitSecret_;
+    explicitSecret_.clear();
+    if (secret.empty()) {
+        return false;
     }
 
     ensureWired(kind, model);

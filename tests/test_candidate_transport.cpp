@@ -15,6 +15,7 @@
 #include <QObject>
 #include <QStringList>
 #include <QTemporaryDir>
+#include <QSettings>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -26,6 +27,8 @@
 #include "core/candidate/CandidateExtraction.h"
 #include "core/candidate/ProviderExtractionContract.h"
 #include "ui/ai/CandidateProviderAdapter.h"
+#include "ui/ai/AiRuntimeConfiguration.h"
+#include "ui/ai/IAiCredentialStore.h"
 #include "ui/candidate/CandidateExtractionController.h"
 #include "ui/candidate/CandidateProviderRunner.h"
 #include "ui/candidate/ChatCompletionsTransport.h"
@@ -154,6 +157,90 @@ QStringList snapshotTree(const QString &root)
 
 } // namespace
 
+// ---------------------------------------------------------------------------
+// T034-B2-LC2-T1-F1: per-test SAVED GLOBAL AI CONFIGURATION fixture.
+//
+// After LC2 the Candidate controller's only authority is the saved global
+// AiRuntimeConfiguration (+ provider-scoped credential store). These three
+// controller-level tests drive REAL dispatches, so each one wires a private,
+// isolated authority: an in-memory credential store + a private temporary INI
+// (never the developer's QSettings, never the Windows credential store, never
+// a public provider).
+// ---------------------------------------------------------------------------
+class FakeCandidateCredentialStore final
+    : public modbuslens::ui::IAiCredentialStore
+{
+public:
+    [[nodiscard]] bool hasCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        return secrets_.count(kind) != 0 && !secrets_.at(kind).empty();
+    }
+    [[nodiscard]] bool saveCredential(modbuslens::ui::AiProviderKind kind,
+                                      std::string_view secret) override
+    {
+        if (secret.empty()) {
+            return false;
+        }
+        secrets_[kind] = std::string(secret);
+        return true;
+    }
+    [[nodiscard]] bool deleteCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        return secrets_.erase(kind) > 0;
+    }
+    [[nodiscard]] modbuslens::ui::AiSecretResult readCredential(
+        modbuslens::ui::AiProviderKind kind) override
+    {
+        const auto it = secrets_.find(kind);
+        if (it == secrets_.end() || it->second.empty()) {
+            return {};
+        }
+        return modbuslens::ui::AiSecretResult{true, it->second};
+    }
+
+private:
+    std::map<modbuslens::ui::AiProviderKind, std::string> secrets_;
+};
+
+class SavedGlobalAiConfig
+{
+public:
+    explicit SavedGlobalAiConfig(bool preloadModelScope = true)
+        : runtime_(store_,
+                   QDir(dir_.path()).filePath(QStringLiteral("ai.ini")))
+    {
+        if (preloadModelScope) {
+            runtime_.saveConfiguration(
+                modbuslens::ui::AiProviderKind::ModelScope,
+                QStringLiteral("Qwen/Qwen3.5-27B"));
+            runtime_.saveCredential(
+                modbuslens::ui::AiProviderKind::ModelScope,
+                QStringLiteral("fake-candidate-credential"));
+        }
+    }
+
+    // T034-B2-LC2-CF1: explicit saved-authority setup for controller-level
+    // tests (saved config + provider-scoped credential, one call).
+    void saveProvider(modbuslens::ui::AiProviderKind kind, const QString &model,
+                      const QString &secret)
+    {
+        runtime_.saveConfiguration(kind, model);
+        runtime_.saveCredential(kind, secret);
+    }
+
+    [[nodiscard]] modbuslens::ui::AiRuntimeConfiguration &runtime()
+    {
+        return runtime_;
+    }
+
+private:
+    QTemporaryDir dir_;
+    FakeCandidateCredentialStore store_;
+    modbuslens::ui::AiRuntimeConfiguration runtime_;
+};
+
 class CandidateTransportTest : public QObject
 {
     Q_OBJECT
@@ -193,10 +280,12 @@ private slots:
     // Pre-fix RED: bearerToken_ is a retained member, so B re-uses A's token.
     void life02_transportDoesNotRetainBearerToken()
     {
-        qputenv("MODELSCOPE_API_KEY", "token-A-not-a-real-secret");
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{"token-A-not-a-real-secret"});
 
         const modbuslens::core::ExtractionRequest request =
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -226,31 +315,51 @@ private slots:
     // --------------------------------------------------------------- P02 --
     void p02_modelConfigurationSemantics()
     {
-        // The repository already carries an accepted canonical default model
-        // (M6 kCandidateModel = Qwen/Qwen3.5-27B), so a model id can never be
-        // "missing": an empty override falls back to that default. P02's
-        // "missing model" branch is therefore NOT APPLICABLE; what IS tested is
-        // that the override is honoured and that the default is not silently
-        // replaced by an example model.
-        QCOMPARE(QString::fromStdString(CandidateProviderRunner::configuredModelId()),
-                 QStringLiteral("Qwen/Qwen3.5-27B"));
+        // T034-B2-LC2-T1: the runner has NO environment authority. Even with
+        // EVERY legacy env token populated, begin() without an explicit
+        // resolved configuration fails closed with zero dispatches.
+        qputenv("MODELSCOPE_API_KEY", "legacy-sentinel-not-a-real-key");
+        qputenv("MODBUSLENS_AI_PROVIDER", "modelscope");
+        qputenv("MODBUSLENS_AI_MODEL", "Legacy/Env-Model");
+        qputenv("MODBUSLENS_MODELSCOPE_MODEL", "Legacy/Legacy-Model");
+        qputenv("DEEPSEEK_API_KEY", "legacy-sentinel-not-a-real-key");
+        FakeHttpClient http;
+        CandidateProviderRunner runner(http);
 
-        qputenv("MODBUSLENS_MODELSCOPE_MODEL", "Vendor/Configured-Model");
-        QCOMPARE(QString::fromStdString(CandidateProviderRunner::configuredModelId()),
-                 QStringLiteral("Vendor/Configured-Model"));
+        const bool started = runner.begin(
+            modbuslens::core::buildC2FirstSliceExtractionRequest(
+                makeDocument(), std::string_view{kManualText}),
+            1, nullptr);
+        QCOMPARE(started, false);
+        QCOMPARE(http.callCount(), 0);
+        QCOMPARE(runner.dispatchCount(), 0);
+        QCOMPARE(runner.beginCount(), 0);
 
-        qputenv("MODBUSLENS_MODELSCOPE_MODEL", "   ");
-        QCOMPARE(QString::fromStdString(CandidateProviderRunner::configuredModelId()),
-                 QStringLiteral("Qwen/Qwen3.5-27B"));
+        // And an EXPLICIT resolved configuration is what drives the model id.
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Vendor/Configured-Model"},
+                                   std::string{kFakeToken});
+        http.body = envelope(extractionContent(kManufacturerValue,
+                                               kManufacturerExcerpt));
+        const bool started2 = runner.begin(
+            modbuslens::core::buildC2FirstSliceExtractionRequest(
+                makeDocument(), std::string_view{kManualText}),
+            2, nullptr);
+        QVERIFY(started2);
+        QVERIFY2(http.requests.back().body.find("Vendor/Configured-Model")
+                     != std::string::npos,
+                 "the explicit configuration must drive the model id");
     }
 
     // --------------------------------------------------------------- P03 --
     void p03_requestTargetsOfficialHttpsEndpoint()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
 
         const bool started = runner.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -272,10 +381,12 @@ private slots:
     // --------------------------------------------------------------- P04 --
     void p04_tokenOnlyInAuthorizationHeader()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
 
         const bool started = runner.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -292,10 +403,12 @@ private slots:
     // --------------------------------------------------------------- P05 --
     void p05_contentTypeIsJson()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
 
         const bool started = runner.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -311,10 +424,12 @@ private slots:
     // --------------------------------------------------------------- P06 --
     void p06_payloadIsMinimized()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
 
         const bool started = runner.begin(
             modbuslens::core::buildC2FirstSliceExtractionRequest(
@@ -341,10 +456,12 @@ private slots:
     // ----------------------------------------------------------- P07/P08 --
     void p07_p08_consentGovernsTransportAttempts()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
 
@@ -365,10 +482,12 @@ private slots:
     // --------------------------------------------------------------- P09 --
     void p09_validEnvelopeYieldsPendingReviewCandidate()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
         controller.requestExtractionFor(document, std::string{kManualText});
@@ -390,9 +509,11 @@ private slots:
     // --------------------------------------------------------------- P10 --
     void p10_httpSuccessWithFalseEvidencePreservesOldSet()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
 
@@ -419,9 +540,11 @@ private slots:
     // --------------------------------------------------------------- P11 --
     void p11_malformedEnvelopeFailsClosed()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
         CandidateExtractionController controller(runner);
         const ManualDocument document = makeDocument();
 
@@ -450,11 +573,12 @@ private slots:
     // ------------------------------------------------------ P12/P13/P14 --
     void p12_p13_p14_nonSuccessStatusPreservesOldSetWithoutLeak()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         for (const int status : {401, 403, 429, 500, 503}) {
             FakeHttpClient http;
             CandidateProviderRunner runner(http);
+            SavedGlobalAiConfig globalAi;
             CandidateExtractionController controller(runner);
+            controller.setRuntimeConfiguration(&globalAi.runtime());
             const ManualDocument document = makeDocument();
 
             http.status = 200;
@@ -482,10 +606,14 @@ private slots:
     // --------------------------------------------------------------- P15 --
     void p15_timeoutFailsClosedAndPreservesOldSet()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
+        SavedGlobalAiConfig globalAi;
         CandidateExtractionController controller(runner);
+        controller.setRuntimeConfiguration(&globalAi.runtime());
         const ManualDocument document = makeDocument();
 
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
@@ -507,7 +635,6 @@ private slots:
     // --------------------------------------------------------------- P16 --
     void p16_networkFailureFailsClosedWithZeroTruthMutation()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         QTemporaryDir root;
         QVERIFY(root.isValid());
         ProfileStore::setManagedRootOverride(root.path());
@@ -516,6 +643,9 @@ private slots:
         FakeHttpClient http;
         http.transportOk = false;
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -530,10 +660,12 @@ private slots:
     // --------------------------------------------------------------- P17 --
     void p17_generationIsEchoedSoTheStaleGuardHasAValidInput()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
 
         std::uint64_t seen = 0;
         const bool started = runner.begin(
@@ -554,10 +686,14 @@ private slots:
     // --------------------------------------------------------------- P18 --
     void p18_onlyFullSuccessReplacesAtomically()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
+        SavedGlobalAiConfig globalAi;
         CandidateExtractionController controller(runner);
+        controller.setRuntimeConfiguration(&globalAi.runtime());
         const ManualDocument document = makeDocument();
 
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
@@ -578,10 +714,12 @@ private slots:
     // --------------------------------------------------------------- P19 --
     void p19_rawResponseIsTransient()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -607,10 +745,12 @@ private slots:
     // --------------------------------------------------------------- P20 --
     void p20_tokenNeverAppearsInUserVisibleState()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -631,7 +771,6 @@ private slots:
     // --------------------------------------------------------------- P21 --
     void p21_zeroProfileDiffOnAllPaths()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         QTemporaryDir root;
         QVERIFY(root.isValid());
         ProfileStore::setManagedRootOverride(root.path());
@@ -656,10 +795,12 @@ private slots:
     // ------------------------------------------------------ P22 / P23 -----
     void p22_p23_noConfidenceAndNoOriginalBytes()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -679,13 +820,20 @@ private slots:
         QVERIFY(body.find("PK\\x03\\x04") == std::string::npos);
     }
 
+    // ------------------------------------------------- LC2-06 / LC2-07 --
+    // T034-B2-LC2-CF1: controller-level authority oracles (real
+    // CandidateExtractionController dispatch through the injected saved
+    // global configuration). Defined inline at the end of this class.
+
     // --------------------------------------------------------------- P24 --
     void p24_productionRunnerReachesTheTransportLayer()
     {
-        qputenv("MODELSCOPE_API_KEY", kFakeToken);
         FakeHttpClient http;
         http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
         CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kFakeToken});
         CandidateExtractionController controller(runner);
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
@@ -881,6 +1029,102 @@ private slots:
 
         QTest::qWait(700);
         QCOMPARE(calls, 0);
+    }
+
+    // ------------------------------------------------------------- LC2-06 --
+    // T034-B2-LC2-CF1: NO saved global configuration while ALL FIVE legacy
+    // env tokens are populated — a REAL Candidate controller dispatch must
+    // fail closed with ZERO provider requests.
+    void lc2_06_controllerNoSavedConfigFailsClosedDespiteLegacyEnv()
+    {
+        SavedGlobalAiConfig globalAi{/*preloadModelScope=*/false};
+        QVERIFY(!globalAi.runtime().hasSavedConfiguration());
+        QVERIFY(!globalAi.runtime().resolveRequestConfig().has_value());
+
+        qputenv("MODELSCOPE_API_KEY", "FAKE_LEGACY_MODELSCOPE_KEY");
+        qputenv("MODBUSLENS_AI_PROVIDER", "modelscope");
+        qputenv("MODBUSLENS_AI_MODEL", "FAKE_LEGACY_MODELSCOPE_MODEL");
+        qputenv("MODBUSLENS_MODELSCOPE_MODEL", "FAKE_LEGACY_MODELSCOPE_MODEL");
+        qputenv("DEEPSEEK_API_KEY", "FAKE_LEGACY_DEEPSEEK_KEY");
+
+        FakeHttpClient http;
+        http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
+        CandidateProviderRunner runner(http);
+        CandidateExtractionController controller(runner);
+        controller.setRuntimeConfiguration(&globalAi.runtime());
+
+        const ManualDocument document = makeDocument();
+        controller.requestExtractionFor(document, std::string{kManualText});
+        controller.grantConsent();
+
+        // Resolver-level: the injected authority stays NOT CONFIGURED.
+        QVERIFY(!globalAi.runtime().resolveRequestConfig().has_value());
+        // Controller-level: fail closed, zero provider requests.
+        QVERIFY(!controller.candidateCount());
+        QCOMPARE(controller.stateToken(), QStringLiteral("failed"));
+        QCOMPARE(controller.failureToken(), QStringLiteral("not_configured"));
+        QCOMPARE(http.callCount(), 0);
+        QCOMPARE(runner.dispatchCount(), 0);
+        QCOMPARE(runner.beginCount(), 0);
+
+        for (const char *name :
+             {"MODELSCOPE_API_KEY", "MODBUSLENS_AI_PROVIDER",
+              "MODBUSLENS_AI_MODEL", "MODBUSLENS_MODELSCOPE_MODEL",
+              "DEEPSEEK_API_KEY"}) {
+            qunsetenv(name);
+        }
+    }
+
+    // ------------------------------------------------------------- LC2-07 --
+    // T034-B2-LC2-CF1: saved DeepSeek authority + CONFLICTING legacy
+    // ModelScope env sentinels — a REAL controller dispatch must go to the
+    // SAVED DeepSeek endpoint/model/credential and never to ModelScope.
+    void lc2_07_controllerSavedDeepSeekIgnoresLegacyModelScopeEnv()
+    {
+        SavedGlobalAiConfig globalAi{/*preloadModelScope=*/false};
+        globalAi.saveProvider(modbuslens::ui::AiProviderKind::DeepSeek,
+                              QStringLiteral("ds-lc2-model"),
+                              QStringLiteral("fake-deepseek-lc2-key"));
+        QVERIFY(globalAi.runtime().hasSavedConfiguration());
+
+        qputenv("MODELSCOPE_API_KEY", "FAKE_LEGACY_MODELSCOPE_KEY");
+        qputenv("MODBUSLENS_AI_PROVIDER", "modelscope");
+        qputenv("MODBUSLENS_AI_MODEL", "FAKE_LEGACY_MODELSCOPE_MODEL");
+        qputenv("MODBUSLENS_MODELSCOPE_MODEL", "FAKE_LEGACY_MODELSCOPE_MODEL");
+
+        FakeHttpClient http;
+        http.body = envelope(extractionContent(kManufacturerValue, kManufacturerExcerpt));
+        CandidateProviderRunner runner(http);
+        CandidateExtractionController controller(runner);
+        controller.setRuntimeConfiguration(&globalAi.runtime());
+
+        const ManualDocument document = makeDocument();
+        controller.requestExtractionFor(document, std::string{kManualText});
+        controller.grantConsent();
+
+        // Provider authority = saved DeepSeek: exactly one dispatch, to the
+        // DeepSeek endpoint, with the saved model and the saved credential.
+        QCOMPARE(controller.candidateCount(), 1);
+        QCOMPARE(http.callCount(), 1);
+        QVERIFY(http.requests.front().url.find("api.deepseek.com")
+                != std::string::npos);
+        QVERIFY(http.requests.front().url.find("modelscope.cn")
+                == std::string::npos);
+        QCOMPARE(http.requests.front().bearerToken,
+                 std::string{"fake-deepseek-lc2-key"});
+        QVERIFY(http.requests.front().bearerToken
+                != std::string{"FAKE_LEGACY_MODELSCOPE_KEY"});
+        const QJsonObject body = QJsonDocument::fromJson(
+            QByteArray::fromStdString(http.requests.front().body)).object();
+        QCOMPARE(body.value(QStringLiteral("model")).toString(),
+                 QStringLiteral("ds-lc2-model"));
+        QVERIFY(!body.contains(QStringLiteral("chat_template_kwargs")));
+
+        for (const char *name :
+             {"MODELSCOPE_API_KEY", "MODBUSLENS_AI_PROVIDER",
+              "MODBUSLENS_AI_MODEL", "MODBUSLENS_MODELSCOPE_MODEL"}) {
+            qunsetenv(name);
+        }
     }
 };
 

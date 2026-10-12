@@ -64,34 +64,19 @@ struct AiProviderProfile {
 [[nodiscard]] std::optional<AiProviderKind> aiProviderKindFromConfigToken(
     std::string_view token);
 
-// ---- environment names (B1 configuration surface; no settings UI yet) -----
-// Non-secret provider/model selection:
-constexpr const char *kAiProviderEnv = "MODBUSLENS_AI_PROVIDER";
-constexpr const char *kAiModelEnv = "MODBUSLENS_AI_MODEL";
-// Secrets — one per provider, never shared, never cross-read:
+// ---- credential variable names (NOT an authority) --------------------------
+// T034-B2-LC2: the legacy environment authority is removed. These two names
+// survive ONLY because the fail-loud harness sentinel
+// (CandidateProviderRunner::hasConfiguredCredential, consumed by main.cpp)
+// must still be able to DETECT an ambient legacy credential and refuse to run.
+// They are never read to configure or authorize a provider.
 constexpr const char *kModelScopeSecretEnv = "MODELSCOPE_API_KEY";
 constexpr const char *kDeepSeekSecretEnv = "DEEPSEEK_API_KEY";
-// LEGACY ModelScope model override (kept ONLY for ModelScope backward
-// compatibility; precedence documented in the runner: MODBUSLENS_AI_MODEL
-// wins, then this variable, then the accepted canonical default). A DeepSeek
-// request NEVER reads it.
-constexpr const char *kLegacyModelScopeModelEnv = "MODBUSLENS_MODELSCOPE_MODEL";
 
 [[nodiscard]] const char *aiProviderSecretEnv(AiProviderKind kind);
 
 // The Human-facing config token ("modelscope"/"deepseek") — used for QSettings
 // persistence and the Credential Manager target namespace.
 [[nodiscard]] const char *aiProviderConfigTokenFor(AiProviderKind kind);
-
-// ---- legacy environment fallback (frozen B1 semantics, Human §10 item 3) ---
-// Resolved ONLY when no saved UI configuration exists. Returns nullopt for an
-// unknown MODBUSLENS_AI_PROVIDER token (fail closed); ModelScope when unset.
-[[nodiscard]] std::optional<AiProviderKind> aiProviderEnvKind();
-
-// Env model resolution for the fallback path: MODBUSLENS_AI_MODEL wins for
-// BOTH providers; the LEGACY MODBUSLENS_MODELSCOPE_MODEL override and the
-// accepted canonical default apply ONLY to ModelScope; DeepSeek has no
-// invented default (empty => the caller fails closed).
-[[nodiscard]] std::string aiProviderEnvModel(AiProviderKind kind);
 
 } // namespace modbuslens::ui

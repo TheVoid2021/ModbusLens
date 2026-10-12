@@ -187,7 +187,7 @@ private slots:
     void b22d05_credentialReplacement();
     void b22d06_missingCredentialFailsClosed();
     void b22d07_noSavedConfigFailsClosedIgnoringLegacyEnv();
-    void b22d07b_savedConfigIgnoresLegacyEnvOnly();
+    void b22d07b_noSavedConfigWithLegacyEnvSentinelsIsNotConfigured();
     void b22d08_legacyEnvNegativeControl();
     void b22d09_staleInFlightIgnoredAfterConfigSwitch();
     void b22d10_noStartupAutoRequest();
@@ -1117,17 +1117,15 @@ void AiClientTest::b22d06_missingCredentialFailsClosed()
 
 void AiClientTest::b22d07_noSavedConfigFailsClosedIgnoringLegacyEnv()
 {
-    // NO saved global configuration AND NO legacy env: the global snapshot
-    // does not resolve, so Diagnosis must fail closed with ZERO dispatch.
-    // (§3's "legacy env effect = ZERO" is proven by b22d08 for the saved
-    // case; the CASE-B transitional env fallback is the SAME frozen global
-    // contract the Candidate chain already relies on and is NOT redefined
-    // here.)
-    qunsetenv("MODELSCOPE_API_KEY");
-    qunsetenv("MODBUSLENS_MODELSCOPE_MODEL");
-    qunsetenv("MODBUSLENS_AI_PROVIDER");
-    qunsetenv("MODBUSLENS_AI_MODEL");
-    qunsetenv("DEEPSEEK_API_KEY");
+    // LC2-05 (T034-B2-LC2): NO saved global configuration while ALL FIVE
+    // legacy env tokens are populated as sentinels. The environment authority
+    // is removed, so Diagnosis must fail closed with ZERO dispatch through the
+    // REAL controller path.
+    qputenv("MODELSCOPE_API_KEY", "FAKE_LEGACY_MODELSCOPE_KEY");
+    qputenv("MODBUSLENS_MODELSCOPE_MODEL", "FAKE_LEGACY_MODELSCOPE_MODEL");
+    qputenv("MODBUSLENS_AI_PROVIDER", "modelscope");
+    qputenv("MODBUSLENS_AI_MODEL", "FAKE_LEGACY_MODELSCOPE_MODEL");
+    qputenv("DEEPSEEK_API_KEY", "FAKE_LEGACY_DEEPSEEK_KEY");
 
     TempSettingsFile settings;
     FakeDiagnosisCredentialStore store;
@@ -1152,13 +1150,11 @@ void AiClientTest::b22d07_noSavedConfigFailsClosedIgnoringLegacyEnv()
     QCOMPARE(server.requestCount(), 0);
 }
 
-void AiClientTest::b22d07b_savedConfigIgnoresLegacyEnvOnly()
+void AiClientTest::b22d07b_noSavedConfigWithLegacyEnvSentinelsIsNotConfigured()
 {
-    // Legacy ModelScope env sentinels present, NO saved global config: the
-    // frozen CASE-B transitional fallback is the GLOBAL contract (shared with
-    // Candidate) — the request, when it happens, goes through the SAME
-    // resolveRequestConfig() snapshot path, NOT a construction-time-cached
-    // ModelScope authority. This documents the transitional behaviour.
+    // LC2-05 (T034-B2-LC2): legacy ModelScope env sentinels present with NO
+    // saved global configuration — the environment authority is REMOVED, so
+    // the resolver must stay NOT CONFIGURED (it must not even read the env).
     qputenv("MODELSCOPE_API_KEY", QByteArray(kFakeB2Secret));
     qputenv("MODBUSLENS_MODELSCOPE_MODEL", QByteArray("legacy-env-model"));
 
@@ -1167,11 +1163,7 @@ void AiClientTest::b22d07b_savedConfigIgnoresLegacyEnvOnly()
 
     modbuslens::ui::AiRuntimeConfiguration runtime(store, settings.filePath);
     QVERIFY(!runtime.hasSavedConfiguration());
-    const auto resolved = runtime.resolveRequestConfig();
-    QVERIFY(resolved.has_value());
-    QCOMPARE(resolved->kind, modbuslens::ui::AiProviderKind::ModelScope);
-    QCOMPARE(QString::fromStdString(resolved->model),
-             QStringLiteral("legacy-env-model"));
+    QVERIFY(!runtime.resolveRequestConfig().has_value());
 
     qunsetenv("MODELSCOPE_API_KEY");
     qunsetenv("MODBUSLENS_MODELSCOPE_MODEL");

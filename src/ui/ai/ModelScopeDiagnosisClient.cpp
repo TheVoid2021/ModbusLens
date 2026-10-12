@@ -14,8 +14,6 @@ namespace {
 const QUrl kOfficialEndpoint{
     QStringLiteral("https://api-inference.modelscope.cn/v1/chat/completions")};
 const QString kCandidateModel = QStringLiteral("Qwen/Qwen3.5-27B");
-const QString kOfficialApiKeyEnv = QStringLiteral("MODELSCOPE_API_KEY");
-const QString kModelOverrideEnv = QStringLiteral("MODBUSLENS_MODELSCOPE_MODEL");
 constexpr qsizetype kMaxOutputTokens = 768;
 
 AiDiagnosisErrorCode mapHttpStatus(int status)
@@ -280,25 +278,4 @@ void ModelScopeDiagnosisClient::handleFinished()
     }
     emit diagnosisFailed(requestId, AiDiagnosisErrorCode::InvalidResponse,
                          QStringLiteral("响应中无可用内容"));
-}
-
-bool buildModelScopeProductionConfig(ModelScopeClientConfig& out)
-{
-    const QString apiKey = qEnvironmentVariable("MODELSCOPE_API_KEY");
-    if (apiKey.trimmed().isEmpty()) {
-        return false;
-    }
-    QString model = qEnvironmentVariable("MODBUSLENS_MODELSCOPE_MODEL");
-    if (model.trimmed().isEmpty()) {
-        model = kCandidateModel;
-    }
-    // 90 s production timeout (ISSUE-005): a non-streaming cloud LLM
-    // inference is not an interactive millisecond request — live evidence
-    // showed the 27B model can exceed 30 s under load. Tests still inject
-    // 50~100 ms timeouts for fast coverage.
-    out.endpoint = kOfficialEndpoint;
-    out.apiKey = apiKey;
-    out.modelId = model;
-    out.timeout = std::chrono::milliseconds{90000};
-    return true;
 }

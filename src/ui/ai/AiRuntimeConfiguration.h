@@ -128,7 +128,6 @@ signals:
 private:
     [[nodiscard]] static std::optional<AiProviderKind> parseSavedProvider(
         const QString &token);
-    [[nodiscard]] static std::string envSecretFor(AiProviderKind kind);
 
     IAiCredentialStore &store_;
     std::optional<AiProviderKind> savedProviderKind_;

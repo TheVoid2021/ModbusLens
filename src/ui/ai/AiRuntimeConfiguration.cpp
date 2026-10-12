@@ -95,32 +95,14 @@ AiRuntimeConfiguration::resolveRequestConfig() const
         return resolved;
     }
 
-    // ---- precedence 3: legacy environment fallback (B1 developer/CI path) --
-    const std::optional<AiProviderKind> envKind =
-        aiProviderEnvKind();
-    if (!envKind.has_value()) {
-        return std::nullopt; // ---- precedence 4: not_configured
-    }
-    resolved.kind = *envKind;
-    resolved.model = aiProviderEnvModel(*envKind);
-    if (resolved.model.empty()) {
-        return std::nullopt; // e.g. DeepSeek without MODBUSLENS_AI_MODEL
-    }
-    resolved.secret = envSecretFor(*envKind);
-    if (resolved.secret.empty()) {
-        return std::nullopt;
-    }
-    return resolved;
-}
-
-std::string AiRuntimeConfiguration::envSecretFor(AiProviderKind kind)
-{
-    const char *secretEnv = aiProviderSecretEnv(kind);
-    const char *value = secretEnv != nullptr ? std::getenv(secretEnv) : nullptr;
-    if (value == nullptr) {
-        return {};
-    }
-    return QString::fromUtf8(value).trimmed().toStdString();
+    // ---- precedence 3: NOT CONFIGURED (T034-B2-LC2) ------------------------
+    // The legacy environment fallback is REMOVED. Final authority is:
+    //   saved configuration + provider-scoped credential store, or NOTHING.
+    // With no saved configuration there is no AI authority at all: no provider
+    // env, no model env and no secret env is read, and the caller fails
+    // closed. A present-but-incomplete saved configuration (missing stored
+    // credential) likewise never degrades into an environment read.
+    return std::nullopt;
 }
 
 bool AiRuntimeConfiguration::saveConfiguration(AiProviderKind kind,

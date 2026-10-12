@@ -122,13 +122,13 @@ private slots:
     // =========== A. existing ModelScope behavior unchanged (control) ==========
     void a_modelScopeExplicitUnchanged()
     {
-        qputenv("MODELSCOPE_API_KEY", kModelScopeKey);
-        qputenv("MODBUSLENS_AI_PROVIDER", "modelscope");
-        qputenv("MODBUSLENS_AI_MODEL", "Qwen/Qwen3.5-27B");
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kModelScopeKey});
 
         const bool started = runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
@@ -146,13 +146,13 @@ private slots:
     // =========== B. DeepSeek selected → reaches fake server correctly ==========
     void b_deepSeekReachesFakeServer()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("DEEPSEEK_API_KEY", kDeepSeekKey);
-        qputenv("MODBUSLENS_AI_MODEL", kDeepSeekModel);
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string{kDeepSeekKey});
 
         const bool started = runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
@@ -182,13 +182,13 @@ private slots:
     // failure names the exact rule)
     void c_deepSeekBodyHasNoChatTemplateKwargs()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("DEEPSEEK_API_KEY", kDeepSeekKey);
-        qputenv("MODBUSLENS_AI_MODEL", kDeepSeekModel);
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string{kDeepSeekKey});
 
         QVERIFY(runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
@@ -222,30 +222,38 @@ private slots:
     // =========== E. DeepSeek must NOT read the ModelScope key =================
     void e_deepSeekIgnoresModelScopeKey()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
         qputenv("MODELSCOPE_API_KEY", kModelScopeKey);
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string{kDeepSeekKey});
 
+        // T034-B2-LC2-T1: the DeepSeek run is authorized ONLY by its own
+        // provider-scoped credential — the ambient ModelScope key must never
+        // surface on the wire.
         const bool started = runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
                                                std::string_view{kManualText}),
             1, nullptr);
-        QVERIFY(!started); // PRE-FIX RED: MODELSCOPE key is (wrongly) consumed
-        QCOMPARE(http.callCount, 0);
+        QVERIFY(started);
+        QCOMPARE(http.callCount, 1);
+        QVERIFY(http.requests.front().bearerToken != std::string{kModelScopeKey});
+        QCOMPARE(http.requests.front().bearerToken, std::string{kDeepSeekKey});
     }
 
     // =========== F. missing provider-specific key → not_configured ============
     void f_deepSeekWithoutKeyFailsClosed()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("MODBUSLENS_AI_MODEL", kDeepSeekModel);
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string());
 
         const bool started = runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
@@ -277,14 +285,14 @@ private slots:
     // =========== H. JSON escaping regression ==================================
     void h_jsonEscapingRoundTrip()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("DEEPSEEK_API_KEY", kDeepSeekKey);
         const char *modelWithNasties = "mo\\del \"quoted\" \n x 中文 ✓";
-        qputenv("MODBUSLENS_AI_MODEL", modelWithNasties);
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{modelWithNasties},
+                                   std::string{kDeepSeekKey});
 
         // The canonical text itself carries quotes / backslashes / newlines /
         // unicode — the wire body must survive every one of them.
@@ -321,13 +329,13 @@ private slots:
     // response_format.type == "json_object".
     void ds_j01_deepSeekRequiresResponseFormat()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("DEEPSEEK_API_KEY", kDeepSeekKey);
-        qputenv("MODBUSLENS_AI_MODEL", kDeepSeekModel);
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string{kDeepSeekKey});
 
         QVERIFY(runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
@@ -348,13 +356,13 @@ private slots:
     // strict schema example fields.
     void ds_j02_deepSeekPromptRequiresJsonOnly()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("DEEPSEEK_API_KEY", kDeepSeekKey);
-        qputenv("MODBUSLENS_AI_MODEL", kDeepSeekModel);
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string{kDeepSeekKey});
 
         QVERIFY(runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
@@ -391,13 +399,13 @@ private slots:
     // response_format=json_object from this fix.
     void ds_j03_modelScopeHasNoResponseFormat()
     {
-        qputenv("MODELSCOPE_API_KEY", kModelScopeKey);
-        qputenv("MODBUSLENS_AI_PROVIDER", "modelscope");
-        qputenv("MODBUSLENS_AI_MODEL", "Qwen/Qwen3.5-27B");
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kModelScopeKey});
 
         QVERIFY(runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
@@ -411,13 +419,13 @@ private slots:
     // DS-J04 (GREEN): DeepSeek response_format and thinking.disabled coexist.
     void ds_j04_responseFormatAndThinkingCoexist()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("DEEPSEEK_API_KEY", kDeepSeekKey);
-        qputenv("MODBUSLENS_AI_MODEL", kDeepSeekModel);
         FakeHttpClient http;
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string{kDeepSeekKey});
 
         QVERIFY(runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
@@ -476,13 +484,13 @@ private slots:
     // strict parser still FAILS CLOSED (malformed_response), zero candidates.
     void ds_j05_deepSeekInvalidContentFailsClosed()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("DEEPSEEK_API_KEY", kDeepSeekKey);
-        qputenv("MODBUSLENS_AI_MODEL", kDeepSeekModel);
         FakeHttpClient http;
         // Markdown-fenced / prosed output: valid HTTP 200, unusable content.
         http.body = envelope("```json\n{\"proposals\":[]}\n```");
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string{kDeepSeekKey});
         modbuslens::ui::CandidateExtractionController controller(runner);
         const modbuslens::core::ManualDocument document = makeDocument();
 
@@ -497,9 +505,6 @@ private slots:
     // => schema_violation (unknown field stays a refusal).
     void ds_j06_deepSeekSchemaViolationToken()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("DEEPSEEK_API_KEY", kDeepSeekKey);
-        qputenv("MODBUSLENS_AI_MODEL", kDeepSeekModel);
         FakeHttpClient http;
         // Schema violation: an invented confidence field (H5) inside the item.
         std::string content =
@@ -508,6 +513,9 @@ private slots:
             "\"confidence\":0.9}]}";
         http.body = envelope(content);
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string{kDeepSeekKey});
         modbuslens::ui::CandidateExtractionController controller(runner);
         const modbuslens::core::ManualDocument document = makeDocument();
 
@@ -522,13 +530,13 @@ private slots:
     // with FALSE evidence => no Candidate (local validation is the authority).
     void ds_j07_deepSeekFalseEvidenceNoCandidate()
     {
-        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("DEEPSEEK_API_KEY", kDeepSeekKey);
-        qputenv("MODBUSLENS_AI_MODEL", kDeepSeekModel);
         FakeHttpClient http;
         http.body = envelope(extractionContent(
             kManufacturerValue, "Manufacturer: FABRICATED NOT IN TEXT"));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::DeepSeek,
+                                   std::string{kDeepSeekModel},
+                                   std::string{kDeepSeekKey});
         modbuslens::ui::CandidateExtractionController controller(runner);
         const modbuslens::core::ManualDocument document = makeDocument();
 
@@ -545,7 +553,6 @@ private slots:
     void fn01_forensicsDefaultOffProducesNothing()
     {
         qunsetenv("MODBUSLENS_PROVIDER_FORENSICS");
-        qputenv("MODELSCOPE_API_KEY", kModelScopeKey);
         const QString logPath =
             QStandardPaths::writableLocation(QStandardPaths::TempLocation)
             + QStringLiteral("/modbuslens_provider_forensics.log");
@@ -554,6 +561,9 @@ private slots:
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kModelScopeKey});
 
         QVERIFY(runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),
@@ -568,7 +578,6 @@ private slots:
     void fn02_forensicsGatedOnWrites()
     {
         qputenv("MODBUSLENS_PROVIDER_FORENSICS", "1");
-        qputenv("MODELSCOPE_API_KEY", kModelScopeKey);
         const QString logPath =
             QStandardPaths::writableLocation(QStandardPaths::TempLocation)
             + QStringLiteral("/modbuslens_provider_forensics.log");
@@ -577,6 +586,9 @@ private slots:
         http.body = envelope(
             extractionContent(kManufacturerValue, kManufacturerExcerpt));
         modbuslens::ui::CandidateProviderRunner runner(http);
+        runner.applyExplicitConfig(modbuslens::ui::AiProviderKind::ModelScope,
+                                   std::string{"Qwen/Qwen3.5-27B"},
+                                   std::string{kModelScopeKey});
 
         QVERIFY(runner.begin(
             buildC2FirstSliceExtractionRequest(makeDocument(),

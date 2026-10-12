@@ -59,50 +59,6 @@ const char *aiProviderConfigTokenFor(AiProviderKind kind)
     return nullptr;
 }
 
-std::optional<AiProviderKind> aiProviderEnvKind()
-{
-    const char *raw = std::getenv(kAiProviderEnv);
-    if (raw == nullptr) {
-        return AiProviderKind::ModelScope; // unset = modelscope (B1 compat)
-    }
-    return aiProviderKindFromConfigToken(raw);
-}
-
-namespace {
-// B1 `envValue` trimmed before use; the profile-layer helper preserves that
-// exact semantics (a whitespace-only override is EMPTY, never a model id).
-[[nodiscard]] std::string trimmedEnv(const char *name)
-{
-    const char *raw = std::getenv(name);
-    if (raw == nullptr) {
-        return {};
-    }
-    std::string value = raw;
-    const auto first = value.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) {
-        return {};
-    }
-    const auto last = value.find_last_not_of(" \t\r\n");
-    return value.substr(first, last - first + 1);
-}
-} // namespace
-
-std::string aiProviderEnvModel(AiProviderKind kind)
-{
-    const std::string modern = trimmedEnv(kAiModelEnv);
-    if (!modern.empty()) {
-        return modern;
-    }
-    if (kind == AiProviderKind::ModelScope) {
-        const std::string legacy = trimmedEnv(kLegacyModelScopeModelEnv);
-        if (!legacy.empty()) {
-            return legacy;
-        }
-        return "Qwen/Qwen3.5-27B"; // accepted canonical default (M6 evidence)
-    }
-    return {}; // DeepSeek: model is Human-configured; nothing invented
-}
-
 const char *aiProviderSecretEnv(AiProviderKind kind)
 {
     switch (kind) {

@@ -361,17 +361,16 @@ private slots:
                  QString::fromUtf8(kFakeSecret)); // NOT the legacy env key
     }
 
-    // SET-09: without a saved config the legacy env fallback still works.
-    void set09_envFallbackWithoutSavedConfig()
+    // SET-09 (T034-B2-LC2): without a saved configuration there is NO
+    // authority at all. The legacy environment fallback is removed — even a
+    // fully populated legacy ModelScope secret cannot make the app configured.
+    void set09_noSavedConfigIsNotConfiguredEvenWithLegacySecret()
     {
         qputenv("MODELSCOPE_API_KEY", "legacy-env-key");
         auto configuration = makeConfig();
         configuration->loadPersisted();
-        const auto resolved = configuration->resolveRequestConfig();
-        QVERIFY(resolved.has_value());
-        QCOMPARE(resolved->kind, AiProviderKind::ModelScope);
-        QCOMPARE(QString::fromStdString(resolved->secret),
-                 QStringLiteral("legacy-env-key"));
+        QVERIFY(!configuration->hasSavedConfiguration());
+        QVERIFY(!configuration->resolveRequestConfig().has_value());
     }
 
     // SET-10: unknown/corrupt saved provider fails closed.
@@ -1106,15 +1105,19 @@ private slots:
         modbuslens::ui::CandidateExtractionController controller(runner);
         controller.setRuntimeConfiguration(configuration.get());
 
-        // First request: env fallback (nothing saved) → ModelScope. The
-        // unified resolution path applies the resolved env config explicitly.
-        qputenv("MODELSCOPE_API_KEY", "legacy-env-key");
+        // First request: a SAVED ModelScope configuration (+ its own
+        // provider-scoped credential) is the authority (T034-B2-LC2: the
+        // environment is no longer a configuration source).
+        configuration->saveConfiguration(AiProviderKind::ModelScope,
+                                         QStringLiteral("Qwen/Qwen3.5-27B"));
+        configuration->saveCredential(AiProviderKind::ModelScope,
+                                      QStringLiteral("fake-modelscope-key"));
         controller.requestExtractionFor(makeDocument(), std::string{kManualText});
         controller.grantConsent();
         QVERIFY(!runner.applied.empty());
         QCOMPARE(runner.applied.back().kind, AiProviderKind::ModelScope);
         QCOMPARE(QString::fromStdString(runner.applied.back().secret),
-                 QStringLiteral("legacy-env-key"));
+                 QStringLiteral("fake-modelscope-key"));
         // The user saves DeepSeek + its own key in the GUI…
         configuration->saveConfiguration(AiProviderKind::DeepSeek,
                                          QStringLiteral("deepseek-chat"));
@@ -1130,6 +1133,87 @@ private slots:
                  QStringLiteral("deepseek-chat"));
         QCOMPARE(QString::fromStdString(applied.secret),
                  QString::fromUtf8(kFakeSecret));
+    }
+
+    // =====================================================================
+    // T034-B2-LC2 — the legacy environment authority is REMOVED. These three
+    // contract slots prove the surviving authority chain end to end:
+    // saved provider/model + provider-scoped credential store, with every
+    // legacy env token present as a NEGATIVE-CONTROL sentinel.
+    // =====================================================================
+
+    // LC2-02: saved DeepSeek + its own store key; a legacy ModelScope
+    // provider/model/secret sentinel must not change anything.
+    void lc2_02_savedDeepSeekWithLegacyModelScopeSentinel()
+    {
+        qputenv("MODELSCOPE_API_KEY", "FAKE_LEGACY_MODELSCOPE_KEY");
+        qputenv("MODBUSLENS_MODELSCOPE_MODEL", "FAKE_LEGACY_MODELSCOPE_MODEL");
+        qputenv("MODBUSLENS_AI_PROVIDER", "modelscope");
+        qputenv("MODBUSLENS_AI_MODEL", "FAKE_LEGACY_MODELSCOPE_MODEL");
+        auto configuration = makeConfig();
+        configuration->loadPersisted();
+        QVERIFY(configuration->saveConfiguration(
+            AiProviderKind::DeepSeek, QStringLiteral("deepseek-chat")));
+        QVERIFY(configuration->saveCredential(
+            AiProviderKind::DeepSeek, QString::fromUtf8(kFakeSecret)));
+
+        const auto resolved = configuration->resolveRequestConfig();
+        QVERIFY(resolved.has_value());
+        QCOMPARE(resolved->kind, AiProviderKind::DeepSeek);
+        QCOMPARE(QString::fromStdString(resolved->model),
+                 QStringLiteral("deepseek-chat"));
+        QCOMPARE(QString::fromStdString(resolved->secret),
+                 QString::fromUtf8(kFakeSecret));
+    }
+
+    // LC2-03 (reverse negative control): saved ModelScope + its own store key;
+    // a legacy DeepSeek provider/model/secret sentinel must not change anything.
+    void lc2_03_savedModelScopeWithLegacyDeepSeekSentinel()
+    {
+        qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
+        qputenv("MODBUSLENS_AI_MODEL", "FAKE_LEGACY_DEEPSEEK_MODEL");
+        qputenv("DEEPSEEK_API_KEY", "FAKE_LEGACY_DEEPSEEK_KEY");
+        auto configuration = makeConfig();
+        configuration->loadPersisted();
+        QVERIFY(configuration->saveConfiguration(
+            AiProviderKind::ModelScope, QStringLiteral("Qwen/Qwen3.5-27B")));
+        QVERIFY(configuration->saveCredential(
+            AiProviderKind::ModelScope, QString::fromUtf8(kFakeSecret)));
+
+        const auto resolved = configuration->resolveRequestConfig();
+        QVERIFY(resolved.has_value());
+        QCOMPARE(resolved->kind, AiProviderKind::ModelScope);
+        QCOMPARE(QString::fromStdString(resolved->model),
+                 QStringLiteral("Qwen/Qwen3.5-27B"));
+        QCOMPARE(QString::fromStdString(resolved->secret),
+                 QString::fromUtf8(kFakeSecret));
+    }
+
+    // LC2-04: a saved configuration whose provider-scoped credential is
+    // MISSING must stay NOT CONFIGURED even with the MATCHING legacy key env
+    // populated — no environment secret fallback, for BOTH providers.
+    void lc2_04_savedConfigMissingCredentialNoEnvSecretFallback()
+    {
+        // DeepSeek: matching legacy key present.
+        qputenv("DEEPSEEK_API_KEY", "FAKE_LEGACY_DEEPSEEK_KEY");
+        {
+            auto configuration = makeConfig();
+            configuration->loadPersisted();
+            QVERIFY(configuration->saveConfiguration(
+                AiProviderKind::DeepSeek, QStringLiteral("deepseek-chat")));
+            QVERIFY(!configuration->hasSavedCredential());
+            QVERIFY(!configuration->resolveRequestConfig().has_value());
+        }
+        // ModelScope: matching legacy key present.
+        qputenv("MODELSCOPE_API_KEY", "FAKE_LEGACY_MODELSCOPE_KEY");
+        {
+            auto configuration = makeConfig();
+            configuration->loadPersisted();
+            QVERIFY(configuration->saveConfiguration(
+                AiProviderKind::ModelScope, QStringLiteral("Qwen/Qwen3.5-27B")));
+            QVERIFY(!configuration->hasSavedCredential());
+            QVERIFY(!configuration->resolveRequestConfig().has_value());
+        }
     }
 
     // =====================================================================
@@ -1172,21 +1256,23 @@ private slots:
     }
 
     // AUTH-03 (control): NO saved config => transitional env fallback works.
-    void auth03_envFallbackWithoutSavedConfig()
+    // LC2-01 (T034-B2-LC2): no saved global AI configuration + ALL FIVE
+    // legacy env tokens populated => hasSavedConfiguration() == false and
+    // resolveRequestConfig() == NOT CONFIGURED. The environment must never
+    // bootstrap a provider. (Was AUTH-03, which asserted the removed tier-3
+    // environment fallback.)
+    void auth03_lc2_01_noSavedConfigWithAllLegacyEnvSentinelsFailsClosed()
     {
+        qputenv("MODELSCOPE_API_KEY", "FAKE_LEGACY_MODELSCOPE_KEY");
+        qputenv("MODBUSLENS_MODELSCOPE_MODEL", "FAKE_LEGACY_MODELSCOPE_MODEL");
+        qputenv("DEEPSEEK_API_KEY", "FAKE_LEGACY_DEEPSEEK_KEY");
         qputenv("MODBUSLENS_AI_PROVIDER", "deepseek");
-        qputenv("MODBUSLENS_AI_MODEL", "fake-deepseek-model");
-        qputenv("DEEPSEEK_API_KEY", "FAKE_ENV_KEY");
+        qputenv("MODBUSLENS_AI_MODEL", "FAKE_LEGACY_DEEPSEEK_MODEL");
         auto configuration = makeConfig();
         configuration->loadPersisted();
 
-        const auto resolved = configuration->resolveRequestConfig();
-        QVERIFY(resolved.has_value());
-        QCOMPARE(resolved->kind, AiProviderKind::DeepSeek);
-        QCOMPARE(QString::fromStdString(resolved->model),
-                 QStringLiteral("fake-deepseek-model"));
-        QCOMPARE(QString::fromStdString(resolved->secret),
-                 QStringLiteral("FAKE_ENV_KEY"));
+        QVERIFY(!configuration->hasSavedConfiguration());
+        QVERIFY(!configuration->resolveRequestConfig().has_value());
     }
 
     // AUTH-04 (control): corrupt saved token fails closed even when a valid

@@ -118,8 +118,7 @@ private:
     AiAbortReason abortReason_ = AiAbortReason::None;
 };
 
-// Production configuration assembly (app layer): official endpoint +
-// process environment secret + model (env override with candidate default).
-// Returns whether a usable configuration exists. The token never leaves
-// this function scope beyond the config struct handed to configure().
-bool buildModelScopeProductionConfig(ModelScopeClientConfig& out);
+// Production configuration assembly (app layer) is NOT part of this client:
+// T034-B2-LC2 removed the legacy environment authority entirely — the only
+// configuration source is the saved global AiRuntimeConfiguration resolved by
+// the caller and handed to configure().
