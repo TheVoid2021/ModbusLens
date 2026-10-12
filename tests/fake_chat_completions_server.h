@@ -48,6 +48,12 @@ public:
                 this, &FakeChatCompletionsServer::onNewConnection);
     }
 
+    // T034-B2.2-C-G3-FH1: EXPLICIT, DETERMINISTIC TEARDOWN (see the .cpp).
+    // Declared so that every member is still alive when the teardown body
+    // runs; it neutralizes the fixture callbacks before any socket dies and
+    // frees the socket/Connection bookkeeping exactly once each.
+    ~FakeChatCompletionsServer() override;
+
     bool start()
     {
         return server_.listen(QHostAddress::LocalHost, 0);
