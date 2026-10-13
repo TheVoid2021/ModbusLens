@@ -195,3 +195,60 @@ epoch）三条不变量的合取；修复其中一条时必须重新验证另外
 记录：C1 期间 `staleCred01` 曾在测试内初始凭据 setup 之前捕获 revision R
 基线导致假失败——定性为 **test-fixture defect，非产品缺陷**（基线移至
 setup 之后修正），不单独立 issue。
+
+---
+
+## RESULT UPDATE（〔T034-DOC-RECOVERY-P1 补记 · 2026-10-13〕）
+
+> 本节只追加状态更新与同族复发记录，不改写上文任何历史表述。
+
+### 1. 修复提交与验收（证据链）
+
+- 修复（C1 + C1.2，`CandidateExtractionController.{h,cpp}`）已随
+  **`cf58fd6`**（2026-10-11，T034-B2.1 checkpoint，35 files）提交；同批含
+  B3a（变更方法去 slot 化）与 B3b（main.cpp 生命周期次序）等结构性加固；
+- B2.1 于 2026-10-12 由 `docs/PROJECT_STATUS.md` 时间线记录为
+  **HUMAN ACCEPTED**；
+- 含本修复的代码树在 B2.2-C / LC2 轮执行全量回归 =
+  **CTest 73/73 PASS**（`8321f92` checkpoint 证据）。
+
+**不声称**：B2.1 单独执行过 final full release ctest（档案未记录）。
+
+**状态推进**：
+
+`FIXED IN WORKING TREE / TARGETED REGRESSION PASS / NOT YET COMMITTED /
+FINAL FULL RELEASE REGRESSION PENDING / NOT CLOSED` →
+**`FIXED / COMMITTED（cf58fd6）/ HUMAN ACCEPTED（B2.1 层）/ 全量回归 73/73`**。
+
+本 issue 原定的「Human 最终验收与 committed verification 之前不得标记
+CLOSED」两项条件均已由上述证据满足；**是否正式标记 CLOSED 建议由 Human
+在本轮 review 中裁定**（Agent 不自行宣布）。
+
+### 2. 同族复发实例（Agent 链，`b1be954` / B2.2-C）
+
+同一主题——**stale 交付携带共享状态副作用**——在 Agent 链迁移（B2.2-C）中
+再现（对应 `docs/devlog/2026-10-12.md` §4）：
+
+- **现象（D3→F1）**：stale callback 曾执行 `state_ = State::Idle`，会清掉
+  **更新一轮 run** 的 busy（实测 `T5 busy=1,pend=2` → `T6 busy=0,pend=1`）
+  ⇒ 新 owner 的在途 run 暴露为可重入。
+- **修复**：stale delivery 修为**纯 `return`（no-op）**；busy 释放只走显式
+  失效契约（`invalidateForBatchChange()` /
+  `invalidateForConfigurationChange()`）。
+- **oracle 对齐（F1-T1）**：b10/b11/b19 三条旧断言更新为显式失效契约
+  （不把「stale 回调顺带释放 busy」当可依赖行为）。
+- **覆盖**：B22G-01…11 套件（provider/model/credential/revision 切换、
+  fail-closed、same-run snapshot 一致性、stale/new-owner overlap、startup
+  no-network）。
+- **状态**：FIXED / COMMITTED（`b1be954`）/ HUMAN ACCEPTED。
+
+### 3. 模式提炼（防复发）
+
+**「作废一个 attempt」与「清理它的副作用」是两个动作**——失效路径只允许
+执行「使旧交付不可发布」的变更；任何共享状态（busy / 单飞锁 / 删除阻断）
+的释放必须由**显式契约动作**承担，不得由 stale 回调顺带完成。Candidate 链
+（本 issue）与 Agent 链（§2 复发）两处实现共同验证了这条规则。
+
+### 4. 边界复述
+
+**NETWORK CANCEL = NOT IMPLEMENTED**（接受的当前边界，不弱化、不改变）。

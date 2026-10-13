@@ -872,3 +872,380 @@ human-gated agent governance、根因与环境噪音分离。不过度夸大：�
 - **NETWORK CANCEL = NOT IMPLEMENTED**：作废请求可物理完成并消耗配额，
   其结果不可发布——接受的当前边界。
 - **FINAL FULL RELEASE CTEST = PENDING**（随 B2.1 验收一并执行）。
+
+---
+
+# C 系列索引 — B2.1 收口 / B2.2 / LC 系列（〔T034-DOC-RECOVERY-P1 补记 · 2026-10-13〕）
+
+> 本节由文档恢复任务补写：T034 在 B2.1 Slice C1/C1.2 之后的阶段（B2.1 最终
+> 收口、B2.1-F1、B2.2-A/AB、G3、B2.2-C、B2-LC1、B2-LC2）此前未写入本任务
+> 文档。证据来源 = git 提交（`cf58fd6` / `0a49caa` / `ee24e01` / `3496794` /
+> `b1be954` / `8321f92` / `fe56270` / `75c59cd`）、`docs/PROJECT_STATUS.md`
+> 时间线、`docs/BACKLOG.md`、`docs/devlog/2026-10-10.md`–`2026-10-13.md`。
+> **本节只做索引与状态收口，不重复 devlog / issue 正文；历史章节未改动。**
+
+## C.1 B2.1 最终收口 = COMMITTED / HUMAN ACCEPTED（+ B2.1-F1）
+
+- **`cf58fd6`（2026-10-11，35 files / +7,888 / −65）**：B2.1 全量收口
+  （U1 / U2a / U2b / E1a / E1b-C / E2 / B1 / B2 / B3a / B3b / D6 / D7 / D8 /
+  C1 / C1.2 切片并入；ISSUE-022 / ISSUE-023 建档同提交）。
+  - 切片明细 → `docs/devlog/2026-10-09.md`「补充 B」；
+  - 构建环境诊断链（qtlicd / qmltyperegistrar）→ `docs/devlog/2026-10-10.md`；
+  - 收口与 F1 → `docs/devlog/2026-10-11.md`。
+- **`75c59cd`（2026-10-11）— B2.1-F1**：Test Connection 分类器放宽——
+  2xx + 合法 message envelope（空 content 合法）⇒ `connection_ok`；
+  请求形状不变；f1_01/02/03 + f1_06 负向控制。
+- **`FINAL FULL RELEASE CTEST = PENDING` 的处置**：B2.1 验收以 Human
+  acceptance 为准（**HUMAN ACCEPTED**，2026-10-12 记录于 PROJECT_STATUS
+  时间线）；后续含同代码树的全量回归由 B2.2-C/LC2 轮执行
+  （**CTest 73/73 PASS**）。**不声称** B2.1 单独执行过 final full release
+  ctest（档案未记录）。
+- **ISSUE-022 / ISSUE-023**：修复代码已随 `cf58fd6` 提交；状态更新见各
+  issue 文档的追加节（本恢复任务补写）。
+
+## C.2 B2.2 系列 = 四链迁移 + LC 收口（2026-10-12 六提交）
+
+→ 完整记录：`docs/devlog/2026-10-12.md`；状态摘要：PROJECT_STATUS /
+BACKLOG 时间线。
+
+| 提交 | 内容 | 状态 |
+|---|---|---|
+| `0a49caa` | B2.2-A：Diagnosis 链迁移（`DiagnosisAsyncClient`） | 引入 F2 缺陷，被 `ee24e01` 修复 |
+| `ee24e01` | B2.2-AB：**修复 A 的 QML 属性遮蔽 wiring 缺陷（F2）** + Manual QA 迁移 | FIXED / HUMAN ACCEPTED |
+| `3496794` | G3：FakeChatCompletionsServer 析构 UB 加固 | FIXED（测试基础设施） |
+| `b1be954` | B2.2-C：Agent 链迁移 + D3→F1 stale callback 修复 + B22G-01..11 | FIXED / HUMAN ACCEPTED |
+| `8321f92` | B2-LC2：移除 legacy production AI env authority | checkpoint committed / HUMAN ACCEPTED |
+| `fe56270` | PROJECT_STATUS / BACKLOG 同步 | docs-only |
+
+- **B2.2-A-F2（QML 属性遮蔽）独立档案 = `docs/issues/ISSUE-024`**（本恢复
+  任务新建）：绑定 `aiRuntimeConfiguration: aiRuntimeConfiguration` 因对象自有
+  属性遮蔽 context property 而自引用为 NULL ⇒ Diagnosis 静默失去全局配置权威；
+  修复 = QML 面属性改名 `runtimeConfiguration` + AIWIRE 运行时指针身份 oracle。
+- **B2-LC1**（docs-only，无独立底稿）：legacy env 权威面只读审计；删除面与
+  保留面见 `docs/devlog/2026-10-12.md` §5。
+- **B2-LC2-10 = NOT PROVEN / DEFERRED**（结构性证据限制；非产品 FAIL、
+  不阻塞 checkpoint、不升级为开发任务）。
+- **D3→F1（Agent stale callback 清掉新 run busy）= 产品缺陷已修复**；
+  与 ISSUE-023 同族（stale 交付的状态副作用），已在该 issue 追加记录。
+
+## C.3 当前状态与未闭合项（as-of 2026-10-13）
+
+- **生产 AI 权威契约（当前）**：全局保存的 provider/model + provider-scoped
+  credential store = 正式配置来源；无 saved configuration 或缺凭据 ⇒
+  NOT CONFIGURED；legacy env（`MODELSCOPE_API_KEY` / `DEEPSEEK_API_KEY` /
+  `MODBUSLENS_AI_*` / `MODBUSLENS_MODELSCOPE_MODEL`）**不再**具有 production
+  provider/model/key authority。
+- **四条 AI 链**（Candidate / Diagnosis / Manual QA / Agent）统一全局配置权威。
+- **未闭合项（明细见 `docs/devlog/2026-10-13.md` §7）**：
+  1. B1 structured-output live 验收（3-run）= **OPEN / UNRESOLVED**（401 阻塞后
+     无恢复记录；`no_candidate` 同属该未闭合链）；
+  2. Replay「AI 解释 = 响应中无可用内容」= **RCA PENDING**（新问题，2026-10-13）；
+  3. GUI 自行退出（HV2 三轮复现）/ qtlicd durable-state = **UNRESOLVED**
+     （环境域，待 Human 决策）；
+  4. HV2 / UX1-F1 工作树修复 = **IN PROGRESS / 未提交 / 人工检查未全部完成**。
+- **verified LKGC = `19f9738c980e0a8a31b557c346fb50a4af711cab`（UNCHANGED）**；
+  canonical package = NOT CREATED（无打包）；REAL MODBUS HARDWARE =
+  NOT VERIFIED；T032-C = PAUSED。
+
+---
+
+# D 系列 — T034-B2-HV2-D / D3-H1：Replay AI 解释空响应修复与人工验收（〔T034-DOC-RECOVERY-P1 归档 · 2026-10-13 17:37〕）
+
+> 本节由文档恢复任务按 Human 正式确认归档。状态分类（**严格区分、两行并存**）：
+> **SCENARIO REGRESSION = FIX VERIFIED / HUMAN ACCEPTED**；
+> **HISTORICAL ROOT CAUSE = UNRESOLVED**。
+> 过程记录（时间线）→ `docs/devlog/2026-10-13.md` §10。
+
+## D.1 发现问题（Human Replay 演示场景）
+
+- 场景：Replay 模式加载 `samples/t014_t015_summary.mlog`（**12 事务 / 652 B**）。
+- 现象：**4 条演示事务成功**，但该 **12 条 Replay 的 AI 解释曾出现
+  「响应中无可用内容」**（用户可见文案：最近一次 AI 请求失败：响应中无可用内容）。
+
+## D.2 RCA（定位到分支级）
+
+- 错误源：`src/ui/ai/DiagnosisAsyncClient.cpp` 的**响应内容提取分支**
+  （`InvalidResponse` 路径，:194-195）。
+- 触发条件（精确）：HTTP **2xx** ∧ body 合法 ∧ **无任何 choice 的
+  `message.content` 为非空字符串** ⇒ `diagnosisFailed(..., InvalidResponse,
+  "响应中无可用内容")`。
+- 用户可见文案由 client 层文本直接产生（`AnalysisController::handleAiFailed`
+  经 sanitizedMessage 透传）⇒ 修复收敛在 client 文本分支；不新增枚举
+  （枚举位于公共头）。
+
+## D.3 根因边界（如实登记）
+
+- **历史请求缺少 finish_reason、usage、reasoning_content 等脱敏元数据**
+  ⇒ **无法证实具体成因**（候选：thinking 消耗 token 预算 /
+  `finish_reason=length` 截断 / content 类型异常——均未证实）。
+- 纪律：**真实根因不能仅凭修复后成功倒推**。
+  **HISTORICAL ROOT CAUSE = UNRESOLVED。**
+
+## D.4 修复方案（两轮：D3-F1 / D3-F2）
+
+- **D3-F1（内容分支修正，白名单 2 文件）**：`DiagnosisAsyncClient.cpp` 记录
+  choice 级 `finish_reason`；无可用 content 且 `finish_reason=length` ⇒
+  **截断专用文案**（区别「内容为空」与「输出截断」）；其余保持原文案。
+  解析规则 / 枚举 / no-retry / 不消费 `reasoning_content` 全不变。
+- **D3-F2（Provider kind 传递 + DeepSeek thinking-disabled，白名单 4 文件）**：
+  - `DiagnosisDispatchConfig` 新增 `std::optional<AiProviderKind> kind{}`
+    （**无默认值 = 无隐式 fallback**）；`requestDiagnosis` 缺 kind ⇒
+    **拒绝 dispatch**（返回 false、零网络、零信号）；
+  - `buildDiagnosisBody(model, sys, user, kind)` 按
+    `aiProviderProfile(kind).sendThinkingDisabledExtra` **按真实 Provider
+    类型注入 `thinking:{"type":"disabled"}`**（与 Candidate 链同一语义来源）；
+  - `AnalysisController` 从 `resolved->kind` 填入；
+  - DeepSeek 请求 = 原 body + thinking-disabled（**不含** `response_format`
+    ——JSON output 为 Candidate 专用）；**ModelScope 请求逐字节不变**；
+    `max_tokens` 仍 768；
+  - **保持原有安全拒绝**（无 kind ⇒ fail-closed；既有安全语义零弱化）。
+- **设计要点（可复用）**：需要「必填但 C++ 无法强制」的配置字段时，用
+  `std::optional` + 消费端 fail-closed 校验，**优于**给枚举字段默认值
+  （后者 = 隐式 fallback 隐患）；kind **绝不**从 endpoint/model 字符串反推。
+
+## D.5 RED / GREEN（各轮真实证据与退出码）
+
+| 轮 | RED | GREEN | 回归 |
+|---|---|---|---|
+| D3-F1 | ai_client **40/1（退出码 1）** | ai_client **41/41（退出码 0）** | `ui_bridge` **106/106** |
+| D3-F2 | ai_client **41/2（退出码 2）**：d3c06 无 thinking + d3c09 未 fail-closed | ai_client **43/43（退出码 0）** | `ui_bridge` **106/106**、`diagnosis` **17/17**（退出码均 0） |
+
+- 构建侧真实日志：`build/release/_d3f1_red*.log` / `_d3f1_green.log` /
+  `_d3f1_uibridge.log`；`_d3f2_red.log` / `_d3f2_green.log` / `_d3f2_ub.log`
+  / `_d3f2_diag.log`（各轮真实构建记录）。
+- 测试盲区教训：`DiagnosisAsyncClient` 此前在 tests/ 中**零直接测试**（仅经
+  ui_bridge 间接覆盖）——缺陷漏网的结构性原因；已补 7 条直接测试
+  （d3c01–07，含请求体 extras 现状锁定与 12 事务输入侧锁定）。
+
+## D.6 构建验证
+
+- **新版 Release 构建 = PASS**：`build/release/modbuslens.exe` =
+  7,408,361 B，SHA-256
+  `288ef9cabc59edc6b8eedc5c93e21f0b2f6559bee64e1a5c9151e924663b4d25`
+  （2026-10-13 17:28；本恢复任务独立复算，与 Human 验收所用 EXE 一致）。
+- **QML Smoke = PASS（退出码 0）**（按 Human 记录；其输出未在本次可查档案中
+  单独保存）。
+
+## D.7 Human 实测（HUMAN ACCEPTED）
+
+**T034-B2-HV2-D-D3-H1 = HUMAN ACCEPTED**（Human 正式确认，2026-10-13）。
+
+真实验收环境与结果（按 Human 原文归档）：
+
+- Release EXE SHA-256 = `288ef9ca…4d25`（同上，独立复算一致）；
+- Provider = **DeepSeek**；Model = **deepseek-flash**；
+- 数据 = `t014_t015_summary.mlog`；**12 事务**；
+- **本地基线诊断 = PASS**；**真实 AI 解释 = PASS**；
+- 发起方式 = **Human 手动点击一次**；
+- 返回内容 = **非空且与 Replay 异常相关**（Human 确认）；
+- 原始事务、全局 AI 配置 = **保持不变**；
+- 额外请求、自动重试 = **未授权，也未报告发生**；
+- **模型回答全文 = 未提供，不得编造**（本档案不收录、不转述任何模型回答内容）；
+- **七项人工检查全部通过**（Human 结论；逐项清单以 Human 记录为准）。
+
+## D.8 学习与预防（工程沉淀）
+
+1. **HTTP 2xx ≠ 内容有效**：传输/连通成功与「响应含可用内容」是两个判定层，
+   不可混同（既有先例：Test Connection 放宽判据[F1]；Diagnosis 保留内容要求
+   但增加截断区分[D3-F1]——两层各自显式）。
+2. **Provider 专属参数应显式传递**：thinking-disabled 等参数必须由 **profile
+   按 kind** 注入；绝不从 endpoint/model 字符串反推、不依赖隐式默认（本次用
+   `std::optional` + fail-closed 落地）。
+3. **应用应区别「内容为空」与「输出截断」**：两者对用户的行动指引不同，
+   文案必须区分。
+4. **真实根因不能仅凭修复后成功倒推**：修复 + 复验成功 ≠ 已证实历史根因；
+   SCENARIO REGRESSION = FIX VERIFIED / HUMAN ACCEPTED 与
+   HISTORICAL ROOT CAUSE = UNRESOLVED 两行并存。
+5. **下次排障入口**：Diagnosis 空响应类问题先查
+   `DiagnosisAsyncClient` 内容提取分支 + `finish_reason` 观测；Provider 参数
+   差异先查 `AiProviderProfile` 表；测试疑问先看 ai_client 直测（d3c 系列）。
+
+## D.9 剩余问题
+
+- **Candidate `no_candidate` 仍 OPEN**（未闭合链见 C.3 / 10-13 devlog §7）；
+- **原始历史空响应具体机制仍 UNRESOLVED**（D.3）。
+
+---
+
+# E 系列 — T034-B2-HV2-D / CAND-H2：no_candidate 场景修复与真实提取成功验收（〔T034-DOC-RECOVERY-P1 归档 · 2026-10-13 18:32〕）
+
+> 本节由文档恢复任务按 Human 正式确认归档。状态分类（**严格区分、三行并存**）：
+> **REAL SCENARIO REGRESSION = HUMAN ACCEPTED**；
+> **HISTORICAL EXACT ROOT CAUSE = UNRESOLVED**；
+> **ALL POSSIBLE MANUALS = NOT VERIFIED**。
+> 失败记录（CAND-H1）完整保留于 E.2；过程记录 → `docs/devlog/2026-10-13.md` §11。
+
+## E.0 状态推进声明（相对此前 OPEN 表述；原文保留、不覆盖）
+
+本节推进以下此前表述的**当前状态**（各处原文不删）：
+- 本文档 §C.3 第 1 条 / §D.9 与 `docs/devlog/2026-10-13.md` §0 表格第 10 行 /
+  §7 第 7 条 / §10.9 中「Candidate `no_candidate` = OPEN / UNRESOLVED」——
+  **当前值** = 该真实场景已修复并经 Human 验收
+  （REAL SCENARIO REGRESSION = HUMAN ACCEPTED）；历史确切根因仍 UNRESOLVED；
+  全部说明书的泛化 = NOT VERIFIED。
+- **B1 structured-output 3-run 验收**（`2026-10-09.md` 补充 A / 本文档 C.3）
+  = **仍 OPEN**，不受本节影响（两者不互相替代）。
+
+## E.1 问题现象与真实复现条件
+
+- 现象：真实 PDF《模拟量输入系列使用手册（RS485版）》V2.0 导入后，
+  Candidate 提取返回 `no_candidate`（历史现象；B1/T033 时代起持续未闭合）。
+- 复现条件（真实样本，只读核验）：PDF 16 页 / 1,886,074 B / SHA-256
+  `ecee094e1de29a917fde1890317b1c27537761b1772eda5e341439bbd04543db`；
+  canonical text = 8,725 字符（**整份上传**），行尾 **CRLF**
+  （CR=286 / LF=301 / CRLF pairs=286）。
+- 取证环境（CAND-H1，Human 受控运行一次）：`MODBUSLENS_PROVIDER_FORENSICS=1`
+  + DeepSeek + deepseek-flash。
+
+## E.2 A/B 取证过程与 B 类判定（CAND-H1 失败记录完整保留）
+
+- **CAND-H1 取证结果（失败样本，原文保留）**：
+  `proposals_size=1` / `proposals_count=1` / **`refused_total=1`** /
+  **`candidates=0`** / **`stage=evidence:evidence_not_found count=1`**。
+- **A/B 判定规则**（脱敏 forensics 可区分）：`proposals_count=0` ⇒ **A 类**
+  （模型零输出）；`proposals_count>0 且 candidates=0` ⇒ **B 类**（全部被
+  证据校验拒绝，按 `stage=` 定位）；`candidates>0` ⇒ 正常。
+- **本判定 = B 类 / PROVEN**（**不是** A、**不是** not_unique）。
+- 取证链（时间序）：
+  1. **CAND-R1**（根因定位）：`no_candidate` 唯一赋值点
+     （`CandidateExtractionController.cpp:787`，`validated.candidates.empty()`）
+     同时覆盖 A/B 且不可区分；排除 6 个假设（模型看到的文本 ≠ 校验用文本 /
+     adapter 静默丢弃 / 证据校验误拒 / target token 不一致 / 模型不知 schema /
+     凭据缺失）；**未发现产品缺陷**（唯一离线可证缺陷 = `DeviceProfilePage.qml`
+     的 failureToken/failureText 选择，UX 级，见 E.6 Part B）；
+  2. **CAND-R2**（取证能力验证）：既有 forensics 两层（controller
+     `proposals_count/refused_total/candidates/stage=` + adapter
+     `proposals_size/finish_reason` 等）已足够区分 A/B；仅补测试
+     （`fn03`/`fn04`/`fn05`，含**不泄漏**断言——无 value/evidence 文本、
+     无凭据 sentinel），**23 passed / 0 failed，退出码 0**；
+  3. **CAND-R3**（Human 受控取证）：以 `MODBUSLENS_PROVIDER_FORENSICS=1`
+     复现一次 → 获 E.2 首行 B 类判定 + CRLF 机制。
+
+## E.3 evidence_not_found 的精确匹配语义
+
+- `evidence_not_found` ⟺ `excerptMatchCount == 0` ⟺ excerpt **非空**但
+  **精确子串 0 次命中**（`std::string::find` ×2，**零文本规范化**）。
+- 三态对齐：`-1` = 空 excerpt（`evidence_excerpt_missing`）；
+  `==2`（`>=2`）= `evidence_not_unique`；`==0` = `evidence_not_found`。
+- 源码：`src/core/candidate/CandidateExtraction.cpp:78-90` + controller 的
+  `excerptMatchCount` 观察器。
+
+## E.4 Canonical Text 的 CRLF/LF 风险与离线对照实验
+
+- **机制（PROVEN）**：PDF canonical text 行尾为 **CRLF**；模型若引用跨行片段
+  并以 **LF** 输出（最自然的输出形态），精确子串匹配 **0 命中** ⇒
+  `evidence_not_found`。
+- **离线对照实验（真实文本）**：同一段两行文本 —— **`\n` 连接 →
+  match_count=0**（= evidence_not_found）；**`\r\n` 连接 → match_count=1**
+  （命中）。⇒ **CRLF/LF 失配 = 本次失败头号机制（定量证据，非猜测）**。
+- **已排除**格式风险：NBSP=0、全角空格 U+3000=0、零宽字符/BOM=0、TAB=0、
+  双空格=0（均无）；仅全角标点 6 类（次要）。
+- **供给侧事实**：canonical 中 **212 个**唯一单行片段（occurrences==1），
+  其中 **29 个**与厂家相关 ⇒ 符合规则的 Manufacturer proposal 存在
+  （**可通过路径成立**）。
+- 附：第 2–16 页首行相同（**页眉重复**，15 次）⇒ 以页眉为 evidence 的
+  proposal 必然 `evidence_not_unique`（H6 唯一性规则**按设计工作，不是缺陷**）。
+- 样本 canonical 缓存路径（可离线核对）：
+  `%APPDATA%\ModbusLens\ModbusLens\manuals\text\<contentHash>.json`。
+
+## E.5 根因边界（三层，不得混淆）
+
+- **CRLF/LF MISMATCH MECHANISM = PROVEN**（离线对照实验，E.4）；
+- **ACTUAL MODEL EVIDENCE FORMAT = UNKNOWN**（历史模型引用的 evidence 原文
+  **不可得**——CAND-H1 forensics 不含 evidence 文本）；
+- **ACTUAL HISTORICAL FAILURE MECHANISM = UNRESOLVED**——
+  **不能证明历史错误确实由 CRLF/LF 导致**；不得把已证机制说成历史真实请求的
+  唯一根因。
+
+## E.6 解决方案（CAND-F1：方案 1 + 3 获批；方案 2 NOT AUTHORIZED）
+
+- **Part A（Prompt 证据锚定，`CandidateProviderAdapter.cpp` +35/−3）**：
+  `buildSystemInstruction()` 增补 **6 条证据约束**——逐字（verbatim）、连续
+  （contiguity）、优先单行、全文唯一（exactly once）、避开页眉页脚、厂家优先
+  正文或明确标签；无可靠证据则返回**合法空 proposals**；明示禁止
+  paraphrase / summarize / translate / correct 与增删字符、全半角变形。
+  未重复 JSON schema（schema 只属 user prompt）；未改 schema / target 范围 /
+  JSON Output 契约 / thinking 语义 / max_tokens / 请求次数。
+- **Part B（失败提示改善，`DeviceProfilePage.qml` +12/−2）**：
+  `candidateStateLabel` 的 failed 分支改为**优先 `failureText`**（controller
+  已有的准确中文，如「未选择说明书」「AI 结果未通过本地证据验证」），token
+  形式保留为非空 fallback；未把 no_candidate 解释为「模型没输出」、未把证据
+  全拒解释为 API 失败。属 **UX 改善**（不是功能修复）。
+- **方案 2（文本规范化）= NOT AUTHORIZED**：会削弱证据强度、需改 core 契约。
+
+## E.7 为什么没有放宽 H6 Evidence Validator
+
+- H6 契约 = **Evidence 必须本地确定性可验**（精确子串、零规范化）——这是
+  **有意的安全设计**（AI = extractor ≠ authority；证据必须可重放验证）。
+- 放宽（如 CRLF/LF 规范化）会**削弱证据强度**并改动 core 契约，属超范围
+  动作。
+- 校验正确性本身有测试保障（B 类测试证明伪造 evidence 被拒）。
+- 因此修复选择**输入侧引导（Prompt 强化）+ 反馈侧改善（提示）**，
+  安全边界**零弱化**；**Evidence Validator 零改动**。
+
+## E.8 RED / GREEN 与 QML 验证（真实证据与退出码）
+
+- **RED = 24 passed / 2 failed（退出码 2）**（新增 `cf01` 逐字/连续/单行/唯一/
+  页眉页脚 + `cf02` 禁止改写+合法空结果+schema 仍在 user prompt，红灯）；
+  `cf03`（ModelScope 无 extras；DeepSeek 保留 thinking-disabled + json_object
+  + 768）同轮通过。
+- **GREEN = Candidate 三组 65/65**：`candidate_provider` **26/26（退出码 0）**
+  + `candidate_extraction` **14/14** + `candidate_orchestration` **25/25**
+  （证据严格校验与编排零回归，fn01–fn05 亦全绿）。
+- **QML**：`cmake --build --target modbuslens` **EXIT 0**（只改 .cpp/.qml、
+  未改头文件 ⇒ 未触发 H1 类规则）+ `ctest -R ^qml_candidate_review_check$`
+  **Passed（CTEST_EXIT 0）**。
+- 构建侧真实日志：`build/release/_candf1_app.log` / `_candf1_red.log` /
+  `_candf1_modbuslens_candidate_{provider,orchestration,extraction}_tests.log`；
+  脚本 `build/release/_diagnostics/cand-f1/wake_build_qml.ps1`。
+
+## E.9 H2 真实验证（HUMAN ACCEPTED）
+
+**T034-B2-HV2-D-CAND-H2 = HUMAN ACCEPTED**（Human 正式确认，2026-10-13）。
+
+真实环境与结果（按 Human 原文归档）：
+
+- EXE = `d1f5b6472fbbd72c2983a7aaff8e91b2c363095ca81c096b89b714c26db3fe11`
+  （7,409,385 B，18:18；本恢复任务独立复算一致）；
+- 原始 PDF =《模拟量输入系列使用手册（RS485版）》V2.0；
+- Provider = **DeepSeek**；Model = **deepseek-flash**；
+- **Human 手动触发一次；不授权任何额外真实请求**；
+- **修复后 CAND-H2 取证**：`proposals_size=1` / `proposals_count=1` /
+  **`refused_total=0`** / **`candidates=1`** / **`stage=accepted count=1`**；
+- **1 条 proposal、1 条接受、0 条拒绝**；
+- Human 报告 **GUI 功能正常**。
+
+## E.10 修复效果
+
+- **此前失败的同一 PDF**（同一样本、同一 provider/model）在新版中
+  **成功通过一次真实提取**（CAND-H1 失败 → CAND-H2 成功；两轮记录并存）。
+- **边界**：ALL POSSIBLE MANUALS = **NOT VERIFIED**（未泛化其他说明书 /
+  格式 / 模型）；HISTORICAL EXACT ROOT CAUSE = **UNRESOLVED**（E.5）。
+
+## E.11 下次排障方法（`no_candidate` 处置流程）
+
+1. 以 `MODBUSLENS_PROVIDER_FORENSICS=1` 启动（脱敏 forensics，默认关闭）；
+2. 复现一次提取 → 读 `%TEMP%/modbuslens_provider_forensics.log`；
+3. **先分 A/B**：`proposals_count=0` ⇒ A 类（模型侧）；`>0 且 candidates=0`
+   ⇒ B 类（证据侧）；
+4. **B 类按 `stage=` 定位**（`evidence_not_found` = 0 命中 /
+   `evidence_not_unique` = ≥2 次 / `evidence_excerpt_missing` = 空 excerpt /
+   `schema:*` = 结构问题）；
+5. 核对 canonical text 行尾（CRLF/LF）与唯一性（页眉 / 重复行）；
+6. 全程**脱敏**（counts / 长度 / 枚举；不含正文、凭据）。
+
+## E.12 工程学习收获（含面试可讲要点）
+
+1. **精确匹配 vs 输出形态**：本地验证零规范化的代价 = 对模型输出形态
+   （换行 / 空白 / 全半角）高度敏感；修「输入引导」而非「放松验证」是
+   安全优先的取舍；
+2. **A/B 可观测性**：一个用户可见 token（`no_candidate`）覆盖两个完全不同
+   的世界（模型没输出 / 全被拒）——**可观测性缺口本身就是缺陷**；修复 =
+   脱敏 forensics 分层（counts + `stage`）；
+3. **evidence 三态**（空 / 不存在 / 不唯一）需与匹配计数对齐设计；
+4. **不得倒推根因**：修复后成功 ≠ 证明历史根因（CRLF 机制已证 ≠ 历史请求
+   就是被它杀死的）——「PROVEN 机制 / UNKNOWN 历史形态 / UNRESOLVED 历史
+   根因」三层分列；
+5. **面试叙事建议**：「一个 token 背后两个世界 → 脱敏取证分层 → 离线对照
+   实验证实 CRLF/LF 机制 → 保守修复（不放宽安全边界）→ 真实场景复验」；
+   主动声明未证部分（历史根因、泛化性），展现证据纪律。

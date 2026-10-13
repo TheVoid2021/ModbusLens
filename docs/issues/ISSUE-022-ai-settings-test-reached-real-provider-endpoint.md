@@ -91,3 +91,69 @@ profile endpoint 发起了真实请求。
 测试隔离缺陷的暴露依赖"真实 provider 拒绝了 fake 凭据"这一外部巧合——若
 provider 静默接受，近失将不可见。隔离必须是**结构性的**（测试无法构造真实
 网络路径），而非依赖外部失败来暴露。
+
+---
+
+## RESULT UPDATE（〔T034-DOC-RECOVERY-P1 补记 · 2026-10-13〕）
+
+> 本节只追加状态更新，不改写上文任何历史表述。
+
+**修复提交与验收（证据链）**：
+
+- 修复代码（TEST-ONLY 注入构造 + 测试 env 清理 + transport ownership 断言）
+  已随 **`cf58fd6`**（2026-10-11，T034-B2.1 checkpoint，35 files）提交；
+- B2.1 于 2026-10-12 由 `docs/PROJECT_STATUS.md` 时间线记录为
+  **HUMAN ACCEPTED**（B2.1 的验收范围覆盖本修复所在代码/测试集）；
+- 含本修复的代码树在 B2.2-C / LC2 轮执行全量回归 =
+  **CTest 73/73 PASS**（`8321f92` checkpoint 证据）。
+
+**不声称**：
+
+- 不声称 B2.1 单独执行过 final full release ctest（档案未记录该独立运行）；
+- 不声称修复后的 live provider 行为验证（本修复仅涉测试隔离边界，不涉
+  provider 行为正确性）。
+
+**状态推进**：
+
+`FIXED IN WORKING TREE / NOT YET COMMITTED` →
+**`FIXED / COMMITTED（cf58fd6）/ HUMAN ACCEPTED（B2.1 层）`**。
+
+本 issue 原定的「Human 最终验收与 commit 前不得标记 CLOSED」两项条件均已由
+上述证据满足；**是否正式标记 CLOSED 建议由 Human 在本轮 review 中裁定**
+（Agent 不自行宣布）。
+
+**防复发（已实装，供核对）**：注入 seam / 凭据 env 清理 / SET 系列 transport
+ownership 断言三条结构性防线均在测试代码中；后续新增 provider 测试沿用
+（T034 §Preventive Actions P4/P5）。
+
+---
+
+## CLOSED 裁定（〔T034-HV2-FINAL-GATE-DOCSYNC · 2026-10-13〕）
+
+**Human 裁定**：检查已有修复证据及当前 ai_settings / ai_settings_qml 回归
+记录；证据一致时允许标记 FIXED / CLOSED。
+
+**证据核对（本任务执行，三项全部一致）**：
+
+1. **修复提交** = `cf58fd6`（2026-10-11，T034-B2.1 checkpoint；注入 seam +
+   测试 env 清理 + transport ownership 断言）——已记录于本文件 RESULT UPDATE；
+2. **LIVE API SAFETY 复核**（FINAL-GATE-P1，只读）：`test_ai_settings.cpp`
+   的异步 Test Connection 测试全部经
+   `setAsyncTestConnectionClientForAutomation(&fake)` 注入并断言
+   `fake.requests.size()`；`init()` 清理 5 个 provider env +
+   `MODBUSLENS_PROVIDER_FORENSICS` + 隔离 INI + forensics 日志 + 凭据 store
+   ⇒ 测试进程**结构上**不触达公网；
+3. **完整回归覆盖**：FINAL-GATE-G2 的 72/72 中 `ai_settings`（#32）与
+   `ai_settings_qml`（#33）均 `Test Passed`
+   （`build/release/Testing/Temporary/LastTest.log`，18:58–19:01）。
+
+⇒ **状态 = `FIXED / CLOSED`（2026-10-13）。**
+
+**保留（不删除）**：原始历史事件叙述、Security Assessment、Fix、Verification、
+Regression Protection 与修复 commit `cf58fd6` 引用。
+
+**边界声明（必须随 CLOSED 一并引用）**：本 CLOSED 仅表示**该缺陷
+（自动化测试意外触达真实 provider endpoint）已修复并验证**；**不代表**所有
+未来真实网络访问风险均已被证明为零。新增 provider 相关测试仍必须遵守
+注入 seam / 凭据 env 清理 / transport ownership 断言（T034 Preventive
+Actions P4/P5）。
