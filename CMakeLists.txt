@@ -289,10 +289,6 @@ qt_add_qml_module(modbuslens
         src/ui/profile/ProfileStore.cpp
         src/ui/profile/ProfileController.h
         src/ui/profile/ProfileController.cpp
-        src/ui/profile/ProfileStore.h
-        src/ui/profile/ProfileStore.cpp
-        src/ui/profile/ProfileController.h
-        src/ui/profile/ProfileController.cpp
         src/ui/profile/ActiveProfileController.h
         src/ui/profile/ActiveProfileController.cpp
         src/ui/TransactionListModel.h
@@ -303,10 +299,6 @@ qt_add_qml_module(modbuslens
         src/ui/serial/SerialPortAdapter.cpp
         src/ui/ai/ModelScopeDiagnosisClient.h
         src/ui/ai/ModelScopeDiagnosisClient.cpp
-        src/ui/ai/AiProviderProfile.h
-        src/ui/ai/AiProviderProfile.cpp
-        src/ui/ai/AiRuntimeConfiguration.h
-        src/ui/ai/AiRuntimeConfiguration.cpp
         src/ui/ai/DiagnosisPromptBuilder.h
         src/ui/ai/DiagnosisPromptBuilder.cpp
         src/ui/agent/AgentToolContext.h

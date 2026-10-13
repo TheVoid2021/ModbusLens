@@ -180,7 +180,6 @@ private:
     void invalidateTestConnection();
 
     AiRuntimeConfiguration *runtimeConfiguration_{nullptr};
-    std::unique_ptr<IChatCompletionsHttpClient> ownedHttp_;
     IChatCompletionsHttpClient *http_{nullptr};
     std::unique_ptr<IAsyncTestConnectionClient> ownedAsyncTestClient_;
     IAsyncTestConnectionClient *asyncTestClient_{nullptr};
