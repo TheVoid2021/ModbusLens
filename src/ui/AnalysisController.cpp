@@ -563,6 +563,48 @@ QString AnalysisController::aiModelName() const
     return aiModelName_;
 }
 
+// UX1-F1 (T034-B2-HV2-D-UX1-F1): PRESENTATION-ONLY getters. The provider
+// display name is derived from the SAME resolved global configuration snapshot
+// the dispatch path uses (resolveRequestConfig), so the shown provider can
+// never disagree with the provider the next request would use. An unresolvable
+// configuration yields an EMPTY name — a provider is never invented, and the
+// page renders an explicit "not configured" state instead.
+QString AnalysisController::aiProviderName() const
+{
+    if (aiRuntimeConfiguration_ == nullptr) {
+        return {};
+    }
+    const std::optional<modbuslens::ui::AiRuntimeConfiguration::
+                             ResolvedRequestConfig>
+        resolved = aiRuntimeConfiguration_->resolveRequestConfig();
+    if (!resolved.has_value()) {
+        return {};
+    }
+    return QString::fromUtf8(
+        modbuslens::ui::aiProviderProfile(resolved->kind).displayName);
+}
+
+// UX1-F1: the actionable reason the "生成 AI 解释" action cannot run, mirroring
+// the REAL gating of askAiDiagnosis() in user-actionable order. Empty string =>
+// every prerequisite is satisfied (the button is enabled at that same moment).
+// Reading this property performs no dispatch, no baseline run and no request.
+QString AnalysisController::aiPrerequisiteHint() const
+{
+    if (observedCount() == 0) {
+        return tr("请先运行演示批次或加载事务数据。");
+    }
+    if (!hasBaselineDiagnosis_) {
+        return tr("请先运行基线诊断，再生成 AI 解释。");
+    }
+    if (!aiConfigured()) {
+        return tr("请先前往 AI 设置完成配置。");
+    }
+    if (cloudAiBusy()) {
+        return tr("AI 请求正在处理中，请稍候。");
+    }
+    return {};
+}
+
 bool AnalysisController::agentBusy() const
 {
     return agentRuntime_.isBusy();
@@ -815,6 +857,12 @@ void AnalysisController::handleRuntimeConfigurationChanged()
             invalidateActiveAgentAttempt();
         }
     }
+
+    // UX1-F1: a configuration SAVE (or any revision change) must refresh the
+    // Diagnosis page's provider display and prerequisite hint immediately —
+    // no AI action is required to see the new provider name. Presentation
+    // notification only: no request, no credential read, no state mutation.
+    emit aiStateChanged();
 }
 
 void AnalysisController::invalidateActiveAgentAttempt()
@@ -1031,6 +1079,11 @@ void AnalysisController::askAiDiagnosis()
         .model = resolved->model,
         .secret = resolved->secret,
         .timeoutMs = kDiagnosisRequestTimeoutMs,
+        // D3-F2 Part A: the provider kind comes from the SAME resolved global
+        // snapshot as endpoint/model/secret (never inferred from strings), so
+        // the provider-specific request extras always match the authority that
+        // supplied the credential.
+        .kind = resolved->kind,
     };
     if (!aiClient_.requestDiagnosis(dispatchConfig, prompt.systemInstructions,
                                     prompt.userPrompt, aiRequestGeneration_)) {
@@ -1118,6 +1171,9 @@ void AnalysisController::runBaselineDiagnosis()
     baselineDiagnosisText_ = formatDiagnosisReport(report);
     hasBaselineDiagnosis_ = true;
     emit diagnosisChanged();
+    // UX1-F1: the prerequisite hint depends on the baseline state; refresh it
+    // through the EXISTING aiStateChanged notification (presentation only).
+    emit aiStateChanged();
 }
 
 void AnalysisController::setSerialError(const QString& message)

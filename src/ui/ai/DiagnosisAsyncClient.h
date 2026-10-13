@@ -6,8 +6,10 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
+#include "ui/ai/AiProviderProfile.h" // D3-F2 Part A: AiProviderKind
 #include "ui/ai/ModelScopeDiagnosisClient.h" // AiDiagnosisErrorCode taxonomy only
 #include "ui/candidate/ChatCompletionsHttpClient.h"
 #include "ui/candidate/ChatCompletionsTransport.h"
@@ -41,6 +43,13 @@ struct DiagnosisDispatchConfig {
     std::string model;            // from the resolved global snapshot
     std::string secret;           // provider-scoped credential for THIS request
     int timeoutMs{90000};
+    // D3-F2 Part A: the RESOLVED provider kind, passed EXPLICITLY by the owner
+    // from the SAME resolveRequestConfig() snapshot that produced endpoint/
+    // model/secret. Never inferred from the endpoint or model strings, and
+    // deliberately WITHOUT a default value: a dispatch that does not state its
+    // provider kind is REFUSED (fail-closed) instead of silently falling back
+    // to one provider's request semantics.
+    std::optional<AiProviderKind> kind{};
 };
 
 class DiagnosisAsyncClient : public QObject

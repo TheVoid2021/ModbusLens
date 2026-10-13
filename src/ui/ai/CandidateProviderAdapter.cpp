@@ -554,13 +554,46 @@ namespace {
 // full-string assertion. The instructions state the semantic contract only:
 // extract exclusively from the supplied text, never guess, always attach the
 // exact supporting excerpt, and report nothing the source cannot support.
+//
+// CAND-F1 (T034-B2-HV2-D-CAND-F1): EVIDENCE ANCHORING. The local validator
+// locates an excerpt by EXACT substring match against the canonical text with
+// NO normalization whatsoever (no whitespace folding, no newline conversion,
+// no full/half-width translation). A bounded live RCA showed a provider
+// proposal being refused with `evidence_not_found` while the canonical text of
+// the very same manual is stored with CRLF line endings, and an offline
+// experiment reproduced a 0-match for the same two lines joined with LF. The
+// ORIGINAL semantic contract is unchanged (use only the supplied text, never
+// guess, omit what the text does not support) — this block only makes the
+// evidence requirements EXPLICIT so the model can satisfy the validator. No
+// JSON schema is repeated here: the user prompt owns the schema.
 [[nodiscard]] std::string buildSystemInstruction()
 {
     return "You extract structured facts from the supplied manual text. "
            "Use ONLY the supplied text. Do not guess or infer anything the "
            "text does not state. For every extracted fact, return the exact "
            "excerpt from the supplied text that supports it. Omit anything the "
-           "text does not support. Never claim a fact is verified.";
+           "text does not support. Never claim a fact is verified. "
+           "Evidence rules — an excerpt is only usable when ALL of them hold:\n"
+           "1. Copy it CHARACTER FOR CHARACTER, VERBATIM, exactly as the "
+           "supplied text shows it. Never paraphrase, summarize, translate, "
+           "correct, reorder or restyle it.\n"
+           "2. It must be ONE CONTIGUOUS run of the text. Never join separate "
+           "lines or fragments together, and never add, drop or change any "
+           "character, digit, punctuation mark, space or character form "
+           "(full-width characters stay full-width, half-width stay "
+           "half-width).\n"
+           "3. Prefer a SHORT, COMPLETE SINGLE-LINE snippet from the body "
+           "text. Do not quote across a line break.\n"
+           "4. It must occur EXACTLY ONCE in the WHOLE supplied text, not "
+           "merely once on its page. Never use repeated page headers, page "
+           "footers, copyright notices, document titles or other boilerplate "
+           "as evidence — those are not unique and are rejected.\n"
+           "5. For a manufacturer, prefer a snippet from the body text, or "
+           "from an explicit label, that uniquely identifies the maker.\n"
+           "6. If no snippet can satisfy these rules, return a LEGAL EMPTY "
+           "result: an empty result list with no proposals at all. NEVER "
+           "invent, approximate, reconstruct or pad an excerpt to fill the "
+           "result.";
 }
 
 [[nodiscard]] std::string buildUserPrompt(const core::ExtractionRequest &request)

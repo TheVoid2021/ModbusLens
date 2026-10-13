@@ -27,6 +27,7 @@
 #include <QIODevice>
 #include <QMetaMethod>
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QTemporaryDir>
@@ -119,6 +120,26 @@ class AiSettingsQmlTest : public QObject
         return out;
     }
 
+    // HV2-F1-F1: loads the REAL production page with a PRE-SEEDED saved global
+    // configuration written through the real AiRuntimeConfiguration before the
+    // page is instantiated, so the page sees a genuine persisted provider/model
+    // at creation time (the exact Human launch path). Uses ONLY the isolated
+    // INI fixture — never the real registry.
+    [[nodiscard]] PageObjects loadRealPageWithSavedConfig(
+        modbuslens::ui::AiProviderKind kind, const QString &model)
+    {
+        {
+            AiRuntimeConfiguration seed(
+                store_,
+                settingsDir_.filePath(QStringLiteral("ai-settings-d7.ini")));
+            seed.loadPersisted();
+            if (!seed.saveConfiguration(kind, model)) {
+                qWarning() << "HV2-F1-F1 fixture: seed saveConfiguration failed";
+            }
+        }
+        return loadRealPage();
+    }
+
     // Drives the REAL ComboBox activated(index) signal so the actual QML
     // onActivated handler runs (Human path) — no handler logic duplicated.
     static void activateProvider(QQuickItem *box, int index)
@@ -128,6 +149,104 @@ class AiSettingsQmlTest : public QObject
         QVERIFY2(methodIndex >= 0, "ComboBox activated(int) not found");
         const QMetaMethod activated = meta->method(methodIndex);
         QVERIFY(activated.invoke(box, Qt::DirectConnection, Q_ARG(int, index)));
+    }
+
+    // =====================================================================
+    // F2 (T034-B2-HV2-F2): REAL StackLayout navigation fixture. The
+    // production shell keeps every page as a PERSISTENT StackLayout child
+    // and flips `visible` by driving currentIndex (Main.qml workspaceHost).
+    // This fixture reproduces that EXACT mechanism — the REAL page is
+    // instantiated as StackLayout child 1 behind a placeholder page, and
+    // navigation drives host currentIndex 0 <-> 1. Not a plain
+    // setVisible() simulation; the StackLayout (not the test) owns the
+    // child visibility transitions.
+    // =====================================================================
+    struct StackPageObjects {
+        std::unique_ptr<QQmlEngine> engine;
+        std::unique_ptr<AiRuntimeConfiguration> configuration;
+        std::unique_ptr<QObject> host;
+        AiSettingsController *controller{nullptr};
+        QQuickItem *page{nullptr};
+        QQuickItem *field{nullptr};
+        QQuickItem *box{nullptr};
+    };
+
+    // Writes a saved global configuration through the REAL
+    // AiRuntimeConfiguration into the isolated INI fixture (never the real
+    // user registry/QSettings).
+    void seedSavedConfiguration(modbuslens::ui::AiProviderKind kind,
+                                const QString &model)
+    {
+        AiRuntimeConfiguration seed(
+            store_,
+            settingsDir_.filePath(QStringLiteral("ai-settings-d7.ini")));
+        seed.loadPersisted();
+        if (!seed.saveConfiguration(kind, model)) {
+            qWarning() << "F2 fixture: seed saveConfiguration failed";
+        }
+    }
+
+    [[nodiscard]] StackPageObjects loadRealPageInStackLayout()
+    {
+        StackPageObjects out;
+        out.engine = std::make_unique<QQmlEngine>();
+        out.engine->addImportPath(moduleDir_.path());
+        out.configuration = std::make_unique<AiRuntimeConfiguration>(
+            store_,
+            settingsDir_.filePath(QStringLiteral("ai-settings-d7.ini")));
+        out.configuration->loadPersisted();
+        out.engine->rootContext()->setContextProperty(
+            QStringLiteral("fixtureRuntimeConfig"), out.configuration.get());
+
+        const char *kHostQml = R"(
+import QtQuick
+import QtQuick.Layouts
+import ModbusLens
+StackLayout {
+    objectName: "fixtureHost"
+    Item { objectName: "fixtureOtherPage" }
+    AiSettingsPage {
+        objectName: "fixtureAiSettingsPage"
+        runtimeConfiguration: fixtureRuntimeConfig
+    }
+}
+)";
+        QQmlComponent hostComponent(out.engine.get());
+        hostComponent.setData(QByteArray(kHostQml), QUrl());
+        out.host.reset(hostComponent.create());
+        if (!out.host) {
+            qWarning() << "F2 StackLayout fixture creation failed:"
+                       << hostComponent.errorString();
+            return out;
+        }
+        out.page = out.host->findChild<QQuickItem *>(
+            QStringLiteral("fixtureAiSettingsPage"));
+        if (out.page != nullptr) {
+            out.controller = out.page->findChild<AiSettingsController *>(
+                QStringLiteral("aiSettingsController"));
+            out.field = out.page->findChild<QQuickItem *>(
+                QStringLiteral("aiApiKeyField"));
+            out.box = out.page->findChild<QQuickItem *>(
+                QStringLiteral("aiProviderComboBox"));
+        }
+        return out;
+    }
+
+    // Drives the REAL StackLayout currentIndex (the production navigation
+    // mechanism): 0 = other page, 1 = AI Settings page.
+    static void navigateTo(QObject *host, int index)
+    {
+        QVERIFY(host->setProperty("currentIndex", index));
+    }
+
+    // Reads the isolated INI fixture bytes (content-stability assertions).
+    [[nodiscard]] QByteArray savedConfigFileBytes() const
+    {
+        QFile ini(settingsDir_.filePath(QStringLiteral("ai-settings-d7.ini")));
+        if (!ini.open(QIODevice::ReadOnly)) {
+            return {};
+        }
+        return ini.readAll();
     }
 
     // Drives the REAL TextField accepted() signal so the actual QML
@@ -164,10 +283,22 @@ private slots:
         // production types; DS resolves to the REAL DesignSystem.qml from the
         // repository source (same instantiate-once pattern as main.cpp).
         QVERIFY(QDir(moduleDir_.path()).mkpath(QStringLiteral("ModbusLens")));
+        // F2: the StackLayout fixture instantiates the page BY TYPE NAME
+        // inside inline QML, so the test-side module materialization must
+        // expose the REAL page source as a module type. The file is copied
+        // VERBATIM from the repository source tree on every test run (no
+        // build-time copy; no drift — the fixture always tests the current
+        // source file).
+        QVERIFY(QFile::copy(
+            QStringLiteral(D7_QML_SOURCE_DIR)
+                + QStringLiteral("/src/ui/qml/pages/AiSettingsPage.qml"),
+            moduleDir_.path()
+                + QStringLiteral("/ModbusLens/AiSettingsPage.qml")));
         QFile qmldir(moduleDir_.path()
                      + QStringLiteral("/ModbusLens/qmldir"));
         QVERIFY(qmldir.open(QIODevice::WriteOnly | QIODevice::Text));
-        QVERIFY(qmldir.write("module ModbusLens\n") > 0);
+        QVERIFY(qmldir.write("module ModbusLens\n"
+                             "AiSettingsPage 1.0 AiSettingsPage.qml\n") > 0);
         qmldir.close();
 
         qmlRegisterUncreatableType<AiRuntimeConfiguration>(
@@ -1347,6 +1478,482 @@ private slots:
         // Single mapping → identical source-neutral wording.
         QCOMPARE(storedWording, transientWording);
         QVERIFY(!storedWording.isEmpty());
+    }
+
+    // =====================================================================
+    // HV2-F1-F1: PROVIDER / MODEL DISPLAY CONSISTENCY.
+    // Every assertion reads the REAL QML ComboBox (currentIndex/currentText)
+    // and the REAL Model TextField, not just controller C++ state.
+    // =====================================================================
+
+    // Reads the REAL ComboBox's currentIndex / currentText.
+    static int comboIndex(QQuickItem *box) { return box->property("currentIndex").toInt(); }
+    static QString comboText(QQuickItem *box)
+    {
+        return box->property("currentText").toString();
+    }
+    // Reads the REAL Model TextField's displayed text.
+    static QString modelFieldText(PageObjects &page)
+    {
+        QQuickItem *mf = page.page->findChild<QQuickItem *>(
+            QStringLiteral("aiModelField"));
+        return mf != nullptr ? mf->property("text").toString() : QString();
+    }
+    static QString credentialStateText(PageObjects &page)
+    {
+        QObject *lbl = page.page->findChild<QObject *>(
+            QStringLiteral("aiCredentialState"));
+        return lbl != nullptr ? lbl->property("text").toString() : QString();
+    }
+
+    // F1-01: saved DeepSeek → initial ComboBox = DeepSeek (index 1) + saved model.
+    void f101_savedDeepSeekShownOnInitialLoad()
+    {
+        PageObjects page = loadRealPageWithSavedConfig(
+            modbuslens::ui::AiProviderKind::DeepSeek,
+            QStringLiteral("deepseek-flash"));
+        QVERIFY(page.page != nullptr);
+        QVERIFY(page.controller != nullptr && page.box != nullptr);
+
+        QCOMPARE(page.controller->property("providerName").toString(),
+                 QStringLiteral("deepseek"));          // canonical token kept
+        QCOMPARE(comboIndex(page.box), 1);             // REAL ComboBox index
+        QCOMPARE(comboText(page.box), QStringLiteral("DeepSeek"));
+        QCOMPARE(modelFieldText(page), QStringLiteral("deepseek-flash"));
+    }
+
+    // F1-02: saved ModelScope → initial ComboBox = ModelScope (index 0) + model.
+    void f102_savedModelScopeShownOnInitialLoad()
+    {
+        PageObjects page = loadRealPageWithSavedConfig(
+            modbuslens::ui::AiProviderKind::ModelScope,
+            QStringLiteral("Qwen/Qwen3.5-27B"));
+        QVERIFY(page.page != nullptr);
+        QVERIFY(page.controller != nullptr && page.box != nullptr);
+
+        QCOMPARE(page.controller->property("providerName").toString(),
+                 QStringLiteral("modelscope"));
+        QCOMPARE(comboIndex(page.box), 0);
+        QCOMPARE(comboText(page.box), QStringLiteral("ModelScope"));
+        QCOMPARE(modelFieldText(page), QStringLiteral("Qwen/Qwen3.5-27B"));
+    }
+
+    // F1-03: no saved configuration → default ModelScope + empty model.
+    void f103_noSavedConfigDefaultsToModelScopeEmptyModel()
+    {
+        PageObjects page = loadRealPage();
+        QVERIFY(page.page != nullptr);
+        QVERIFY(page.controller != nullptr && page.box != nullptr);
+
+        QCOMPARE(comboIndex(page.box), 0);
+        QCOMPARE(comboText(page.box), QStringLiteral("ModelScope"));
+        QVERIFY(modelFieldText(page).isEmpty());
+    }
+
+    // F1-04: saved DeepSeek + DeepSeek-only synthetic credential → DeepSeek
+    // selected AND DeepSeek credential status; a MISSING ModelScope credential
+    // must not affect the DeepSeek state.
+    void f104_savedDeepSeekWithDeepSeekCredentialShowsDeepSeekStatus()
+    {
+        QVERIFY(store_.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      std::string_view("FAKE_F1_DEEPSEEK")));
+        // ModelScope credential deliberately ABSENT.
+        QVERIFY(!store_.hasCredential(modbuslens::ui::AiProviderKind::ModelScope));
+
+        PageObjects page = loadRealPageWithSavedConfig(
+            modbuslens::ui::AiProviderKind::DeepSeek,
+            QStringLiteral("deepseek-flash"));
+        QVERIFY(page.page != nullptr);
+        QVERIFY(page.controller != nullptr && page.box != nullptr);
+
+        QCOMPARE(comboIndex(page.box), 1);
+        QCOMPARE(page.controller->property("hasCredentialForCurrentProvider").toBool(),
+                 true);
+        QCOMPARE(credentialStateText(page), QStringLiteral("API Key 已安全保存"));
+    }
+
+    // F1-05: user switches DeepSeek → ModelScope: combo follows, model cleared,
+    // credential status now ModelScope-scoped; saved global config unchanged.
+    void f105_switchToModelScopeClearsModelAndRescopesCredential()
+    {
+        QVERIFY(store_.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      std::string_view("FAKE_F1_DEEPSEEK")));
+        PageObjects page = loadRealPageWithSavedConfig(
+            modbuslens::ui::AiProviderKind::DeepSeek,
+            QStringLiteral("deepseek-flash"));
+        QVERIFY(page.page != nullptr && page.box != nullptr
+                && page.controller != nullptr);
+        QCOMPARE(comboIndex(page.box), 1);
+
+        const int savesBefore = store_.saveCalls;
+        activateProvider(page.box,
+                         page.controller->availableProviders().indexOf(
+                             QStringLiteral("ModelScope")));
+
+        QCOMPARE(comboIndex(page.box), 0);
+        QCOMPARE(comboText(page.box), QStringLiteral("ModelScope"));
+        QCOMPARE(page.controller->property("providerName").toString(),
+                 QStringLiteral("modelscope"));
+        QVERIFY(modelFieldText(page).isEmpty());                 // no residue
+        QCOMPARE(page.controller->property("hasCredentialForCurrentProvider").toBool(),
+                 false);                                          // ModelScope: none
+        // Saved global configuration is UNCHANGED (still DeepSeek).
+        QVERIFY(page.configuration->savedProviderKind().has_value());
+        QCOMPARE(*page.configuration->savedProviderKind(),
+                 modbuslens::ui::AiProviderKind::DeepSeek);
+        QCOMPARE(store_.saveCalls, savesBefore);                 // no auto-write
+    }
+
+    // F1-06: switching back ModelScope → DeepSeek restores the saved model and
+    // triggers no persistence.
+    void f106_switchBackRestoresSavedModelWithoutPersistence()
+    {
+        PageObjects page = loadRealPageWithSavedConfig(
+            modbuslens::ui::AiProviderKind::DeepSeek,
+            QStringLiteral("deepseek-flash"));
+        QVERIFY(page.page != nullptr && page.box != nullptr
+                && page.controller != nullptr);
+        const QStringList providers = page.controller->availableProviders();
+
+        activateProvider(page.box, providers.indexOf(QStringLiteral("ModelScope")));
+        QVERIFY(modelFieldText(page).isEmpty());
+
+        const int savesBefore = store_.saveCalls;
+        const int deletesBefore = store_.deleteCalls;
+        const qint64 revisionBefore = page.configuration->configRevision();
+
+        activateProvider(page.box, providers.indexOf(QStringLiteral("DeepSeek")));
+
+        QCOMPARE(comboIndex(page.box), 1);
+        QCOMPARE(modelFieldText(page), QStringLiteral("deepseek-flash"));
+        QCOMPARE(store_.saveCalls, savesBefore);
+        QCOMPARE(store_.deleteCalls, deletesBefore);
+        QCOMPARE(page.configuration->configRevision(), revisionBefore); // no persist
+        QCOMPARE(page.controller->property("saveStatusToken").toString(),
+                 QStringLiteral("not_saved"));
+    }
+
+    // F1-07: navigation away and back — provider/model/credential state remain
+    // internally consistent with the in-memory form.
+    void f107_navigationAwayAndBackKeepsFormConsistent()
+    {
+        PageObjects page = loadRealPageWithSavedConfig(
+            modbuslens::ui::AiProviderKind::DeepSeek,
+            QStringLiteral("deepseek-flash"));
+        QVERIFY(page.page != nullptr && page.box != nullptr
+                && page.controller != nullptr);
+        const int indexBefore = comboIndex(page.box);
+        const QString modelBefore = modelFieldText(page);
+        const bool credBefore =
+            page.controller->property("hasCredentialForCurrentProvider").toBool();
+
+        // REAL navigation-away path (visible=false) then back.
+        page.page->setProperty("visible", false);
+        page.page->setProperty("visible", true);
+
+        QCOMPARE(comboIndex(page.box), indexBefore);
+        QCOMPARE(comboText(page.box), QStringLiteral("DeepSeek"));
+        QCOMPARE(modelFieldText(page), modelBefore);
+        QCOMPARE(page.controller->property("hasCredentialForCurrentProvider").toBool(),
+                 credBefore);
+    }
+
+    // F1-08: provider switching performs no automatic persistence, no Test
+    // Connection, no credential write and no network dispatch.
+    void f108_providerSwitchHasNoSideEffects()
+    {
+        PageObjects page = loadRealPageWithSavedConfig(
+            modbuslens::ui::AiProviderKind::DeepSeek,
+            QStringLiteral("deepseek-flash"));
+        QVERIFY(page.page != nullptr && page.box != nullptr
+                && page.controller != nullptr);
+        const QStringList providers = page.controller->availableProviders();
+
+        const int savesBefore = store_.saveCalls;
+        const int deletesBefore = store_.deleteCalls;
+        const qint64 revisionBefore = page.configuration->configRevision();
+
+        activateProvider(page.box, providers.indexOf(QStringLiteral("ModelScope")));
+        activateProvider(page.box, providers.indexOf(QStringLiteral("DeepSeek")));
+
+        QCOMPARE(store_.saveCalls, savesBefore);
+        QCOMPARE(store_.deleteCalls, deletesBefore);
+        QCOMPARE(page.configuration->configRevision(), revisionBefore);
+        // No Test Connection was dispatched by a provider switch.
+        QCOMPARE(page.controller->property("connectionStatusToken").toString(),
+                 QStringLiteral("not_tested"));
+    }
+
+    // =====================================================================
+    // F2 (T034-B2-HV2-F2): PAGE RE-ENTRY RESTORES THE SAVED CONFIGURATION.
+    // Every slot drives the REAL StackLayout fixture (currentIndex 0 <-> 1)
+    // so the production visibility mechanism is exercised end-to-end.
+    // =====================================================================
+
+    // Reads the REAL Model TextField inside the StackLayout fixture.
+    static QString stackModelFieldText(const StackPageObjects &fx)
+    {
+        QQuickItem *mf = fx.page->findChild<QQuickItem *>(
+            QStringLiteral("aiModelField"));
+        return mf != nullptr ? mf->property("text").toString() : QString();
+    }
+
+    // F2-01: saved DeepSeek → temporary ModelScope switch → leave → return
+    // → DeepSeek + saved model restored.
+    void f201_reentryRestoresSavedDeepSeek()
+    {
+        seedSavedConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                               QStringLiteral("deepseek-flash"));
+        QVERIFY(store_.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      std::string_view("FAKE_DS_KEY")));
+        StackPageObjects fx = loadRealPageInStackLayout();
+        QVERIFY(fx.host != nullptr && fx.page != nullptr
+                && fx.controller != nullptr && fx.box != nullptr);
+        QVERIFY(!fx.page->isVisible()); // initial: other page on top
+        navigateTo(fx.host.get(), 1);   // enter
+        QTRY_VERIFY(fx.page->isVisible());
+        QCOMPARE(comboText(fx.box), QStringLiteral("DeepSeek"));
+
+        // Temporary switch + unsaved model draft.
+        activateProvider(fx.box,
+                         fx.controller->availableProviders().indexOf(
+                             QStringLiteral("ModelScope")));
+        QCOMPARE(comboText(fx.box), QStringLiteral("ModelScope"));
+
+        navigateTo(fx.host.get(), 0); // leave
+        QTRY_VERIFY(!fx.page->isVisible());
+        navigateTo(fx.host.get(), 1); // re-enter
+        QTRY_COMPARE(comboText(fx.box), QStringLiteral("DeepSeek"));
+        QCOMPARE(fx.controller->property("providerName").toString(),
+                 QStringLiteral("deepseek"));
+        QCOMPARE(stackModelFieldText(fx), QStringLiteral("deepseek-flash"));
+        QVERIFY(fx.controller->property("hasCredentialForCurrentProvider")
+                    .toBool());
+        QCOMPARE(saveStatusTokenOf(*fx.controller),
+                 QStringLiteral("not_saved"));
+    }
+
+    // F2-02: saved ModelScope → temporary DeepSeek switch → leave → return
+    // → ModelScope + saved model restored.
+    void f202_reentryRestoresSavedModelScope()
+    {
+        seedSavedConfiguration(modbuslens::ui::AiProviderKind::ModelScope,
+                               QStringLiteral("qwen-model-x"));
+        StackPageObjects fx = loadRealPageInStackLayout();
+        QVERIFY(fx.host != nullptr && fx.page != nullptr
+                && fx.controller != nullptr && fx.box != nullptr);
+        navigateTo(fx.host.get(), 1);
+        QCOMPARE(comboText(fx.box), QStringLiteral("ModelScope"));
+
+        activateProvider(fx.box,
+                         fx.controller->availableProviders().indexOf(
+                             QStringLiteral("DeepSeek")));
+        QCOMPARE(comboText(fx.box), QStringLiteral("DeepSeek"));
+
+        navigateTo(fx.host.get(), 0);
+        navigateTo(fx.host.get(), 1);
+        QTRY_COMPARE(comboText(fx.box), QStringLiteral("ModelScope"));
+        QCOMPARE(fx.controller->property("providerName").toString(),
+                 QStringLiteral("modelscope"));
+        QCOMPARE(stackModelFieldText(fx), QStringLiteral("qwen-model-x"));
+        QCOMPARE(saveStatusTokenOf(*fx.controller),
+                 QStringLiteral("not_saved"));
+    }
+
+    // F2-03: no saved configuration → temporary switch/edit → leave →
+    // return → default ModelScope + empty model; controller form state
+    // agrees with the ComboBox display (never an empty identity masked by
+    // index 0); no "saved" claim.
+    void f203_noSavedConfigDefaultsToModelScopeOnReentry()
+    {
+        StackPageObjects fx = loadRealPageInStackLayout();
+        QVERIFY(fx.host != nullptr && fx.page != nullptr
+                && fx.controller != nullptr && fx.box != nullptr);
+        navigateTo(fx.host.get(), 1);
+        activateProvider(fx.box,
+                         fx.controller->availableProviders().indexOf(
+                             QStringLiteral("DeepSeek")));
+        navigateTo(fx.host.get(), 0);
+        navigateTo(fx.host.get(), 1);
+
+        QTRY_COMPARE(comboText(fx.box), QStringLiteral("ModelScope"));
+        QCOMPARE(comboIndex(fx.box), 0);
+        QCOMPARE(fx.controller->property("providerName").toString(),
+                 QStringLiteral("modelscope"));
+        QVERIFY(stackModelFieldText(fx).isEmpty());
+        QVERIFY(!fx.controller->property("hasCredentialForCurrentProvider")
+                     .toBool());
+        QCOMPARE(saveStatusTokenOf(*fx.controller),
+                 QStringLiteral("not_saved"));
+        // The persisted truth is untouched: still NO saved configuration.
+        QVERIFY(!fx.configuration->hasSavedConfiguration());
+    }
+
+    // F2-04: a successful Save → leave → return shows the NEWLY saved
+    // provider/model.
+    void f204_reentryShowsNewlySavedConfiguration()
+    {
+        StackPageObjects fx = loadRealPageInStackLayout();
+        QVERIFY(fx.host != nullptr && fx.page != nullptr
+                && fx.controller != nullptr && fx.box != nullptr && fx.field != nullptr);
+        navigateTo(fx.host.get(), 1);
+        const QStringList providers = fx.controller->availableProviders();
+        activateProvider(fx.box, providers.indexOf(QStringLiteral("DeepSeek")));
+        // Model draft + transient key, then the REAL unified Save.
+        QQuickItem *modelField = fx.page->findChild<QQuickItem *>(
+            QStringLiteral("aiModelField"));
+        QVERIFY(modelField != nullptr);
+        humanEditField(modelField, QStringLiteral("deepseek-new"));
+        humanEditField(fx.field, QStringLiteral("FAKE_F2_KEY"));
+        QQuickItem *saveButton = fx.page->findChild<QQuickItem *>(
+            QStringLiteral("aiSaveConfigurationButton"));
+        QVERIFY(saveButton != nullptr);
+        QVERIFY(clickSaveButton(saveButton));
+        QCOMPARE(saveStatusTokenOf(*fx.controller),
+                 QStringLiteral("saved"));
+        QCOMPARE(stackModelFieldText(fx), QStringLiteral("deepseek-new"));
+
+        navigateTo(fx.host.get(), 0);
+        navigateTo(fx.host.get(), 1);
+        QTRY_COMPARE(comboText(fx.box), QStringLiteral("DeepSeek"));
+        QCOMPARE(fx.controller->property("providerName").toString(),
+                 QStringLiteral("deepseek"));
+        QCOMPARE(stackModelFieldText(fx), QStringLiteral("deepseek-new"));
+        QVERIFY(fx.configuration->hasSavedConfiguration());
+        QCOMPARE(*fx.configuration->savedProviderKind(),
+                 modbuslens::ui::AiProviderKind::DeepSeek);
+    }
+
+    // F2-05: a FAILED Save → leave → return restores the previously saved
+    // configuration and does NOT keep the failure text alive as if it
+    // described the restored form.
+    void f205_reentryAfterFailedSaveRestoresPreviousConfiguration()
+    {
+        seedSavedConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                               QStringLiteral("deepseek-flash"));
+        QVERIFY(store_.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      std::string_view("FAKE_DS_KEY")));
+        StackPageObjects fx = loadRealPageInStackLayout();
+        QVERIFY(fx.host != nullptr && fx.page != nullptr
+                && fx.controller != nullptr && fx.box != nullptr);
+        navigateTo(fx.host.get(), 1);
+        // Temporary ModelScope switch clears the model (HV2-F1-F1 residue
+        // rule) → Save with an empty model must fail validation.
+        activateProvider(fx.box,
+                         fx.controller->availableProviders().indexOf(
+                             QStringLiteral("ModelScope")));
+        QQuickItem *saveButton = fx.page->findChild<QQuickItem *>(
+            QStringLiteral("aiSaveConfigurationButton"));
+        QVERIFY(saveButton != nullptr);
+        QVERIFY(clickSaveButton(saveButton));
+        QCOMPARE(saveStatusTokenOf(*fx.controller),
+                 QStringLiteral("validation_failed"));
+
+        navigateTo(fx.host.get(), 0);
+        navigateTo(fx.host.get(), 1);
+        // The previously SAVED configuration is restored, not the failed
+        // draft.
+        QTRY_COMPARE(comboText(fx.box), QStringLiteral("DeepSeek"));
+        QCOMPARE(fx.controller->property("providerName").toString(),
+                 QStringLiteral("deepseek"));
+        QCOMPARE(stackModelFieldText(fx), QStringLiteral("deepseek-flash"));
+        // The stale failure text no longer vouches for (or against) the
+        // freshly restored form.
+        QCOMPARE(saveStatusTokenOf(*fx.controller),
+                 QStringLiteral("not_saved"));
+        // Persisted truth never changed.
+        QCOMPARE(*fx.configuration->savedProviderKind(),
+                 modbuslens::ui::AiProviderKind::DeepSeek);
+    }
+
+    // F2-06: the transient API key is cleared on leaving and is NOT
+    // redisplayed or leaked on re-entry.
+    void f206_transientKeyClearedOnLeaveNotRestoredOnReturn()
+    {
+        StackPageObjects fx = loadRealPageInStackLayout();
+        QVERIFY(fx.host != nullptr && fx.page != nullptr
+                && fx.controller != nullptr && fx.field != nullptr);
+        navigateTo(fx.host.get(), 1);
+        humanEditField(fx.field, QString::fromLatin1(kSentinel));
+        QCOMPARE(fx.field->property("text").toString(),
+                 QString::fromLatin1(kSentinel));
+        const int savesBefore = store_.saveCalls;
+
+        navigateTo(fx.host.get(), 0); // leave: D8 clears the field
+        QTRY_COMPARE(fx.field->property("text").toString(),
+                     QStringLiteral(""));
+        navigateTo(fx.host.get(), 1); // re-enter
+        QTRY_COMPARE(fx.field->property("text").toString(),
+                     QStringLiteral(""));
+        QCOMPARE(store_.saveCalls, savesBefore); // nothing was persisted
+    }
+
+    // F2-07: provider / model / credential-saved indicator are mutually
+    // consistent after re-entry (all three describe the SAVED provider).
+    void f207_reentryStateConsistency()
+    {
+        seedSavedConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                               QStringLiteral("deepseek-flash"));
+        QVERIFY(store_.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      std::string_view("FAKE_DS_KEY")));
+        StackPageObjects fx = loadRealPageInStackLayout();
+        QVERIFY(fx.host != nullptr && fx.page != nullptr
+                && fx.controller != nullptr && fx.box != nullptr);
+        navigateTo(fx.host.get(), 1);
+        activateProvider(fx.box,
+                         fx.controller->availableProviders().indexOf(
+                             QStringLiteral("ModelScope")));
+        navigateTo(fx.host.get(), 0);
+        navigateTo(fx.host.get(), 1);
+
+        QTRY_COMPARE(comboText(fx.box), QStringLiteral("DeepSeek"));
+        QCOMPARE(stackModelFieldText(fx), QStringLiteral("deepseek-flash"));
+        QVERIFY(fx.controller->property("hasCredentialForCurrentProvider")
+                    .toBool());
+        QQuickItem *credState = fx.page->findChild<QQuickItem *>(
+            QStringLiteral("aiCredentialState"));
+        QVERIFY(credState != nullptr);
+        QCOMPARE(credState->property("text").toString(),
+                 QStringLiteral("API Key 已安全保存"));
+    }
+
+    // F2-08: re-entry performs NO automatic persistence and dispatches NO
+    // Test Connection (observable fake-client request count + untouched
+    // revision + byte-stable isolated INI).
+    void f208_reentryHasNoSideEffects()
+    {
+        seedSavedConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                               QStringLiteral("deepseek-flash"));
+        QVERIFY(store_.saveCredential(modbuslens::ui::AiProviderKind::DeepSeek,
+                                      std::string_view("FAKE_DS_KEY")));
+        FakeQmlAsyncTestConnectionClient fake;
+        StackPageObjects fx = loadRealPageInStackLayout();
+        QVERIFY(fx.host != nullptr && fx.page != nullptr
+                && fx.controller != nullptr && fx.box != nullptr);
+        fx.controller->setAsyncTestConnectionClientForAutomation(&fake);
+
+        navigateTo(fx.host.get(), 1);
+        activateProvider(fx.box,
+                         fx.controller->availableProviders().indexOf(
+                             QStringLiteral("ModelScope")));
+        activateProvider(fx.box,
+                         fx.controller->availableProviders().indexOf(
+                             QStringLiteral("DeepSeek")));
+        const QByteArray iniBefore = savedConfigFileBytes();
+        const qint64 revisionBefore = fx.configuration->configRevision();
+        const int savesBefore = store_.saveCalls;
+        const int deletesBefore = store_.deleteCalls;
+
+        navigateTo(fx.host.get(), 0);
+        navigateTo(fx.host.get(), 1);
+
+        QVERIFY(fake.requests.empty()); // zero Test Connection dispatches
+        QCOMPARE(store_.saveCalls, savesBefore);
+        QCOMPARE(store_.deleteCalls, deletesBefore);
+        QCOMPARE(fx.configuration->configRevision(), revisionBefore);
+        QCOMPARE(savedConfigFileBytes(), iniBefore);
+        QCOMPARE(fx.controller->property("connectionStatusToken").toString(),
+                 QStringLiteral("not_tested"));
     }
 };
 

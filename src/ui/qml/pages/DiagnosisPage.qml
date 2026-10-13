@@ -254,9 +254,15 @@ Item {
                 objectName: "diagnosisAiTab"
                 spacing: 6
                 Label {
-                    text: page.analysisController.aiConfigured
-                          ? qsTr("模型配置：ModelScope — 模型：%1").arg(page.analysisController.aiModelName)
-                          : qsTr("模型配置：ModelScope — 未配置")
+                    objectName: "diagnosisAiProviderLabel"
+                    // UX1-F1: the provider shown is the one the SAVED global
+                    // configuration actually resolves to (never a hardcoded
+                    // name, never invented when unconfigured).
+                    text: page.analysisController.aiProviderName.length > 0
+                          ? qsTr("模型配置：%1 — 模型：%2")
+                                .arg(page.analysisController.aiProviderName)
+                                .arg(page.analysisController.aiModelName)
+                          : qsTr("模型配置：未配置")
                     color: DS.textSecondary
                     font.pixelSize: 12
                 }
@@ -283,6 +289,20 @@ Item {
                         font.bold: true
                     }
                     Item { Layout.fillWidth: true }
+                }
+                // UX1-F1: ALWAYS-VISIBLE prerequisite explanation. Mirrors the
+                // REAL gating of the button above (no new business rule): an
+                // empty string means every prerequisite is satisfied and the
+                // hint disappears. Reading it never triggers a baseline run or
+                // any AI request.
+                Label {
+                    objectName: "diagnosisAiPrerequisiteHint"
+                    visible: text.length > 0
+                    text: page.analysisController.aiPrerequisiteHint
+                    color: DS.textSecondary
+                    font.pixelSize: 12
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
                 }
                 Flickable {
                     objectName: "diagnosisAiViewport"

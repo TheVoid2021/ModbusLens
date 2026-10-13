@@ -1124,8 +1124,16 @@ Item {
                       : candidateController.stateToken === "running"
                         ? qsTr("正在提取…")
                         : candidateController.stateToken === "failed"
-                          ? qsTr("提取未成功（%1）")
-                                .arg(candidateController.failureToken)
+                          // CAND-F1: prefer the controller's accurate Chinese
+                          // explanation of THIS failure ("未选择说明书" /
+                          // "AI 结果未通过本地证据验证" / ...). The technical
+                          // token form stays as the non-empty FALLBACK so the
+                          // label is never blank, and the failure is never
+                          // re-described as "the model produced nothing".
+                          ? (candidateController.failureText.length > 0
+                             ? candidateController.failureText
+                             : qsTr("提取未成功（%1）")
+                                   .arg(candidateController.failureToken))
                           : candidateController.stateToken === "succeeded"
                             ? qsTr("待审核候选 %1 项")
                                   .arg(candidateController.candidateCount)

@@ -60,7 +60,8 @@ QString sanitizeProviderMessage(const QByteArray& body)
 
 std::string buildDiagnosisBody(const std::string& model,
                                const QString& systemPrompt,
-                               const QString& userPrompt)
+                               const QString& userPrompt,
+                               AiProviderKind kind)
 {
     QJsonArray messages;
     messages.append(QJsonObject{
@@ -71,12 +72,23 @@ std::string buildDiagnosisBody(const std::string& model,
         {QStringLiteral("role"), QStringLiteral("user")},
         {QStringLiteral("content"), userPrompt},
     });
-    const QJsonObject body{
+    QJsonObject body{
         {QStringLiteral("model"), QString::fromStdString(model)},
         {QStringLiteral("messages"), messages},
         {QStringLiteral("stream"), false},
         {QStringLiteral("max_tokens"), kMaxOutputTokens},
     };
+    // D3-F2 Part A: the SAME provider extra the Candidate chain applies
+    // (CandidateProviderAdapter.cpp:857) — DeepSeek's thinking pass defaults to
+    // ON, and this contract also consumes ONLY the final assistant content, so
+    // the bounded output budget must not be spent on a reasoning pass whose
+    // text is deliberately never surfaced. ModelScope's profile flag is false,
+    // so its request stays byte-for-byte what it was.
+    if (aiProviderProfile(kind).sendThinkingDisabledExtra) {
+        body.insert(QStringLiteral("thinking"),
+                    QJsonObject{{QStringLiteral("type"),
+                                 QStringLiteral("disabled")}});
+    }
     return QJsonDocument(body).toJson(QJsonDocument::Compact).toStdString();
 }
 
@@ -101,15 +113,18 @@ bool DiagnosisAsyncClient::requestDiagnosis(const DiagnosisDispatchConfig& confi
                                             const QString& userPrompt,
                                             std::uint64_t requestId)
 {
-    // Fail closed BEFORE building anything: a missing endpoint, model or
-    // credential must never become an authenticated request.
+    // Fail closed BEFORE building anything: a missing endpoint, model,
+    // credential — or a MISSING PROVIDER KIND (D3-F2 Part A) — must never
+    // become an authenticated request. The kind is required because the
+    // provider-specific request semantics depend on it; it is never inferred
+    // from the endpoint or model string.
     if (config.endpoint.empty() || config.model.empty() || config.secret.empty()
-        || http_ == nullptr) {
+        || !config.kind.has_value() || http_ == nullptr) {
         return false;
     }
 
-    const std::string body =
-        buildDiagnosisBody(config.model, systemPrompt, userPrompt);
+    const std::string body = buildDiagnosisBody(config.model, systemPrompt,
+                                                userPrompt, *config.kind);
 
     // Request-scoped transport. The credential is handed over as a ONE-SHOT
     // bearer token consumed by sendAsync, so it is never retained beyond this
@@ -172,12 +187,22 @@ void DiagnosisAsyncClient::handleCompletion(std::uint64_t requestId,
     }
     const QJsonArray choices =
         document.object().value(QLatin1String("choices")).toArray();
+    // D3-F1 (T034-B2-HV2-D-D3-F1): a length stop is recorded REGARDLESS of
+    // content usability — it explains WHY no usable text arrived. The D3 RCA
+    // could not tell a length-truncated reply apart from a genuinely
+    // content-less one, so the offline contract now distinguishes them.
+    bool lengthStopped = false;
     for (const QJsonValue& value : choices) {
         if (!value.isObject()) {
             continue;
         }
-        const QJsonValue message =
-            value.toObject().value(QLatin1String("message"));
+        const QJsonObject choice = value.toObject();
+        const QJsonValue finish =
+            choice.value(QLatin1String("finish_reason"));
+        if (finish.isString() && finish.toString() == QLatin1String("length")) {
+            lengthStopped = true;
+        }
+        const QJsonValue message = choice.value(QLatin1String("message"));
         if (!message.isObject()) {
             continue;
         }
@@ -191,8 +216,16 @@ void DiagnosisAsyncClient::handleCompletion(std::uint64_t requestId,
             return;
         }
     }
-    emit diagnosisFailed(requestId, AiDiagnosisErrorCode::InvalidResponse,
-                         QStringLiteral("响应中无可用内容"));
+    // D3-F1: distinguish a bounded-length STOP from a genuinely content-less
+    // reply. The provider classification (InvalidResponse) is unchanged, no
+    // automatic retry happens, and reasoning text is never surfaced as the
+    // answer — only the user-facing explanation becomes accurate.
+    emit diagnosisFailed(
+        requestId, AiDiagnosisErrorCode::InvalidResponse,
+        lengthStopped
+            ? QStringLiteral("模型输出在长度上限处被截断，未返回可用的解释文本"
+                             "（finish_reason=length）")
+            : QStringLiteral("响应中无可用内容"));
 }
 
 } // namespace modbuslens::ui

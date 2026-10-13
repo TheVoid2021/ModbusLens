@@ -186,6 +186,19 @@ private slots:
     void ai10_aiNeverChangesFacts();
     void ai11_sameBatchCancelRestartGuard();
 
+    // ---- UX1-F1 (T034-B2-HV2-D-UX1-F1): Diagnosis provider display + AI
+    // prerequisite hint (read-only presentation properties) ----
+    void ux1a01_savedDeepSeekDisplaysDeepSeek();
+    void ux1a02_savedModelScopeDisplaysModelScope();
+    void ux1a03_notConfiguredDisplaysNoProvider();
+    void ux1a04_providerDisplayFollowsConfigurationSave();
+    void ux1a05_providerDisplayIsReadOnlyAndNeverSelectsProvider();
+    void ux1c01_noTransactionsHint();
+    void ux1c02_noBaselineHint();
+    void ux1c03_missingConfigurationHint();
+    void ux1c04_busyHint();
+    void ux1c05_allPrerequisitesSatisfiedHintIsEmpty();
+
     // ---- T014: issue presentation through the model/controller ----
     // UI-T01 (P0): ProtocolError rows expose deterministic issueText;
     // ordinary rows stay empty (additive presentation, no new columns).
@@ -1459,6 +1472,43 @@ QByteArray aiOkBody(const QByteArray& content)
     QJsonObject root{{"choices", QJsonArray{QJsonObject{{"message", message}}}}};
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
+
+// UX1-F1: DYNAMIC accessors for the new read-only presentation properties.
+// Dynamic property access keeps the pre-fix run COMPILE-SAFE while still
+// producing a genuine behavioural RED (an absent property yields an invalid
+// QVariant -> empty string -> the assertion fails at RUNTIME, not at compile).
+QString aiProviderNameOf(AnalysisController& controller)
+{
+    return controller.property("aiProviderName").toString();
+}
+
+QString aiPrerequisiteHintOf(AnalysisController& controller)
+{
+    return controller.property("aiPrerequisiteHint").toString();
+}
+
+// UX1-F1: a FRESH isolated runtime configuration (own INI + own fake credential
+// store) so provider-display tests never touch the process-lifetime fixture or
+// any real QSettings. Constructed per call — never a singleton — because the
+// provider-follows-save test mutates the same instance mid-test.
+struct IsolatedAiRuntime {
+    BridgeFakeCredentialStore store;
+    QString iniPath;
+    std::unique_ptr<modbuslens::ui::AiRuntimeConfiguration> config;
+
+    IsolatedAiRuntime(modbuslens::ui::AiProviderKind kind, const QString& model)
+        : iniPath(QDir::tempPath()
+                  + QStringLiteral("/modbuslens_ux1_settings_%1.ini")
+                        .arg(reinterpret_cast<quintptr>(this)))
+    {
+        QFile::remove(iniPath);
+        config = std::make_unique<modbuslens::ui::AiRuntimeConfiguration>(
+            store, iniPath);
+        config->loadPersisted();
+        store.saveCredential(kind, std::string_view{"fake-ux1-token"});
+        config->saveConfiguration(kind, model);
+    }
+};
 
 } // namespace
 
@@ -3173,6 +3223,204 @@ void UiBridgeTest::d11_wordOrderFlipChangesDerivedNotRaw()
     QCOMPARE(r0.value(QStringLiteral("dec")).toInt(), rawDec);
     QCOMPARE(r0.value(QStringLiteral("hex")).toString(),
              QStringLiteral("0x3F80"));
+}
+
+// ===========================================================================
+// UX1-F1 (T034-B2-HV2-D-UX1-F1): Diagnosis provider DISPLAY + AI prerequisite
+// hint. Read-only presentation properties; zero business-semantics change.
+// ===========================================================================
+
+// UX1-A01: a saved DeepSeek global configuration displays "DeepSeek".
+void UiBridgeTest::ux1a01_savedDeepSeekDisplaysDeepSeek()
+{
+    IsolatedAiRuntime runtime(modbuslens::ui::AiProviderKind::DeepSeek,
+                              QStringLiteral("deepseek-flash"));
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(runtime.config.get());
+
+    QCOMPARE(aiProviderNameOf(controller), QStringLiteral("DeepSeek"));
+    QVERIFY(controller.aiConfigured());
+}
+
+// UX1-A02: a saved ModelScope global configuration displays "ModelScope".
+void UiBridgeTest::ux1a02_savedModelScopeDisplaysModelScope()
+{
+    IsolatedAiRuntime runtime(modbuslens::ui::AiProviderKind::ModelScope,
+                              QStringLiteral("qwen-test-model"));
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(runtime.config.get());
+
+    QCOMPARE(aiProviderNameOf(controller), QStringLiteral("ModelScope"));
+    QVERIFY(controller.aiConfigured());
+}
+
+// UX1-A03: without a usable saved global configuration NO provider name is
+// invented (empty => the page shows an explicit "not configured" state).
+void UiBridgeTest::ux1a03_notConfiguredDisplaysNoProvider()
+{
+    AnalysisController controller;
+    // Explicitly not configured (no runtime owner at all).
+    QVERIFY(aiProviderNameOf(controller).isEmpty());
+    QVERIFY(!controller.aiConfigured());
+
+    // A saved configuration WITHOUT a stored credential is still NOT
+    // CONFIGURED (fail-closed) and must not display a provider name.
+    BridgeFakeCredentialStore store;
+    const QString ini =
+        QDir::tempPath() + QStringLiteral("/modbuslens_ux1_nocred.ini");
+    QFile::remove(ini);
+    modbuslens::ui::AiRuntimeConfiguration config(store, ini);
+    config.loadPersisted();
+    QVERIFY(config.saveConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                                     QStringLiteral("deepseek-flash")));
+    AnalysisController second;
+    second.setAiRuntimeConfiguration(&config);
+    QVERIFY(aiProviderNameOf(second).isEmpty());
+    QVERIFY(!second.aiConfigured());
+}
+
+// UX1-A04: a configuration save while the page is open updates the displayed
+// provider (notification-based; no AI action required to refresh the label).
+void UiBridgeTest::ux1a04_providerDisplayFollowsConfigurationSave()
+{
+    IsolatedAiRuntime runtime(modbuslens::ui::AiProviderKind::ModelScope,
+                              QStringLiteral("qwen-test-model"));
+    AnalysisController controller;
+    controller.setAiRuntimeConfiguration(runtime.config.get());
+    QCOMPARE(aiProviderNameOf(controller), QStringLiteral("ModelScope"));
+
+    // The save must reach the display through the EXISTING notification path.
+    // A provider-scoped credential must exist for the NEW provider too —
+    // otherwise the fail-closed resolution rule correctly reports NOT
+    // CONFIGURED and no provider name may be shown.
+    QVERIFY(runtime.store.saveCredential(
+        modbuslens::ui::AiProviderKind::DeepSeek,
+        std::string_view{"fake-ux1-deepseek-token"}));
+    QVERIFY(runtime.config->saveConfiguration(
+        modbuslens::ui::AiProviderKind::DeepSeek,
+        QStringLiteral("deepseek-flash")));
+
+    QCOMPARE(aiProviderNameOf(controller), QStringLiteral("DeepSeek"));
+}
+
+// UX1-A05: the new property is READ-ONLY and never selects the dispatch
+// provider — the real request path stays exactly as before.
+void UiBridgeTest::ux1a05_providerDisplayIsReadOnlyAndNeverSelectsProvider()
+{
+    const QMetaObject* meta = &AnalysisController::staticMetaObject;
+    const int index = meta->indexOfProperty("aiProviderName");
+    QVERIFY2(index >= 0, "aiProviderName property absent");
+    QVERIFY2(!meta->property(index).isWritable(),
+             "provider display must be read-only");
+
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, aiOkBody(QByteArrayLiteral("ok")));
+    AnalysisController controller;
+    wireFakeAi(controller, server); // global authority = ModelScope fixture
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+
+    QCOMPARE(aiProviderNameOf(controller), QStringLiteral("ModelScope"));
+    controller.askAiDiagnosis();
+    QTRY_VERIFY(controller.hasAiDiagnosis());
+    // The dispatch went through the SAME loopback path as before the fix.
+    QCOMPARE(server.requestCount(), 1);
+}
+
+// UX1-C01: no transaction data -> actionable hint (no baseline/AI involved).
+void UiBridgeTest::ux1c01_noTransactionsHint()
+{
+    AnalysisController controller;
+    QCOMPARE(controller.observedCount(), 0);
+    QCOMPARE(aiPrerequisiteHintOf(controller),
+             QStringLiteral("请先运行演示批次或加载事务数据。"));
+}
+
+// UX1-C02: transactions present but no baseline diagnosis yet.
+void UiBridgeTest::ux1c02_noBaselineHint()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    QVERIFY(controller.observedCount() > 0);
+    QVERIFY(!controller.hasBaselineDiagnosis());
+    QCOMPARE(aiPrerequisiteHintOf(controller),
+             QStringLiteral("请先运行基线诊断，再生成 AI 解释。"));
+
+    // After the baseline runs locally the hint advances to the next TRUE
+    // blocker (here: the missing global AI configuration).
+    controller.runBaselineDiagnosis();
+    QVERIFY(controller.hasBaselineDiagnosis());
+    QCOMPARE(aiPrerequisiteHintOf(controller),
+             QStringLiteral("请先前往 AI 设置完成配置。"));
+}
+
+// UX1-C03: data + baseline present, but the global AI configuration is missing.
+void UiBridgeTest::ux1c03_missingConfigurationHint()
+{
+    AnalysisController controller;
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+    QVERIFY(!controller.aiConfigured());
+    QCOMPARE(aiPrerequisiteHintOf(controller),
+             QStringLiteral("请先前往 AI 设置完成配置。"));
+
+    // A saved-but-credential-less configuration is still NOT configured.
+    BridgeFakeCredentialStore store;
+    const QString ini =
+        QDir::tempPath() + QStringLiteral("/modbuslens_ux1_c03.ini");
+    QFile::remove(ini);
+    modbuslens::ui::AiRuntimeConfiguration config(store, ini);
+    config.loadPersisted();
+    QVERIFY(config.saveConfiguration(modbuslens::ui::AiProviderKind::DeepSeek,
+                                     QStringLiteral("deepseek-flash")));
+    controller.setAiRuntimeConfiguration(&config);
+    QVERIFY(!controller.aiConfigured());
+    QCOMPARE(aiPrerequisiteHintOf(controller),
+             QStringLiteral("请先前往 AI 设置完成配置。"));
+}
+
+// UX1-C04: a request in flight -> waiting hint (and the hint must not itself
+// dispatch anything).
+void UiBridgeTest::ux1c04_busyHint()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    // Delayed reply keeps the request observably in flight.
+    server.setNextResponse(200, aiOkBody(QByteArrayLiteral("ok")), 1500);
+    AnalysisController controller;
+    wireFakeAi(controller, server, std::chrono::milliseconds{5000});
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+
+    controller.askAiDiagnosis();
+    QVERIFY(controller.cloudAiBusy());
+    QCOMPARE(aiPrerequisiteHintOf(controller),
+             QStringLiteral("AI 请求正在处理中，请稍候。"));
+    // Reading the hint never dispatches: exactly ONE request exists
+    // (observed with a spin because the dispatch is asynchronous).
+    QTRY_COMPARE(server.requestCount(), 1);
+
+    QTRY_VERIFY(!controller.cloudAiBusy());
+}
+
+// UX1-C05: all prerequisites satisfied -> hint empty (and the enabled-conditions
+// the QML button binds are all true at the same moment).
+void UiBridgeTest::ux1c05_allPrerequisitesSatisfiedHintIsEmpty()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, aiOkBody(QByteArrayLiteral("ok")));
+    AnalysisController controller;
+    wireFakeAi(controller, server);
+    controller.runDemoBatch();
+    controller.runBaselineDiagnosis();
+
+    QVERIFY(controller.aiConfigured());
+    QVERIFY(controller.hasBaselineDiagnosis());
+    QVERIFY(!controller.cloudAiBusy());
+    QVERIFY(controller.observedCount() > 0);
+    QCOMPARE(aiPrerequisiteHintOf(controller), QString());
 }
 
 QTEST_GUILESS_MAIN(UiBridgeTest)

@@ -24,6 +24,7 @@
 #include "ui/ai/AiRuntimeConfiguration.h"
 #include "ui/ai/DiagnosisPromptBuilder.h"
 #include "ui/ai/IAiCredentialStore.h"
+#include "ui/ai/DiagnosisAsyncClient.h"
 #include "ui/ai/ModelScopeDiagnosisClient.h"
 
 #include "fake_chat_completions_server.h"
@@ -35,6 +36,7 @@ using modbuslens::core::TransactionAnalysis;
 using modbuslens::core::TransactionStatus;
 using modbuslens::core::buildDiagnosisContext;
 using modbuslens::core::diagnoseTransactions;
+using modbuslens::ui::DiagnosisAsyncClient;
 
 namespace {
 
@@ -191,6 +193,21 @@ private slots:
     void b22d08_legacyEnvNegativeControl();
     void b22d09_staleInFlightIgnoredAfterConfigSwitch();
     void b22d10_noStartupAutoRequest();
+
+    // ---- D3-F1 (T034-B2-HV2-D-D3-F1): the PRODUCTION DiagnosisAsyncClient,
+    // used directly against the loopback fake. D3 RCA proved the failure
+    // branch (InvalidResponse + "响应中无可用内容") but could not tell a
+    // length-truncated reply apart from a genuinely content-less one. ----
+    void d3c01_lengthTruncationIsReportedDistinctly();
+    void d3c02_nullContentFailsSafely();
+    void d3c03_emptyStringContentFailsSafely();
+    void d3c04_nonStringContentFailsSafely();
+    void d3c05_normalContentStillSucceeds();
+    void d3c06_diagnosisRequestHasNoProviderExtrasToday();
+    void d3c07_twelveTransactionsStayUnderTheDetailCap();
+    // D3-F2 Part A: provider-kind propagation + DeepSeek thinking-disabled.
+    void d3c08_modelScopeRequestKeepsItsSemantics();
+    void d3c09_missingProviderKindFailsClosedWithoutDispatch();
 };
 
 void AiClientTest::b01_promptAuthority()
@@ -1316,6 +1333,257 @@ void AiClientTest::b22d10_noStartupAutoRequest()
         QVERIFY(!controller.aiDiagnosisBusy());
     }
     QCOMPARE(server.requestCount(), 0);
+}
+
+// ===========================================================================
+// D3-F1 (T034-B2-HV2-D-D3-F1): the PRODUCTION DiagnosisAsyncClient driven
+// directly against the loopback fake. No real endpoint, no credential store,
+// no network dispatch outside 127.0.0.1.
+// ===========================================================================
+
+namespace {
+modbuslens::ui::DiagnosisDispatchConfig d3Config(
+    const FakeChatCompletionsServer& server,
+    modbuslens::ui::AiProviderKind kind = modbuslens::ui::AiProviderKind::DeepSeek)
+{
+    modbuslens::ui::DiagnosisDispatchConfig config;
+    config.endpoint = server.chatCompletionsUrl().toStdString();
+    config.model = "fake-model";
+    config.secret = "fake-d3-token";
+    config.timeoutMs = 5000;
+    config.kind = kind; // D3-F2 Part A: explicit resolved provider kind
+    return config;
+}
+} // namespace
+
+// D3C-01 (REAL RED pre-fix): a length-stopped reply with NO usable content but
+// a populated reasoning_content must be reported as a TRUNCATION, not as the
+// generic "响应中无可用内容". D3 RCA could not rule this shape out for the
+// live 12-transaction failure, so the offline contract must distinguish it.
+void AiClientTest::d3c01_lengthTruncationIsReportedDistinctly()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    QJsonObject message{{QStringLiteral("role"), QStringLiteral("assistant")},
+                        {QStringLiteral("content"), QJsonValue::Null},
+                        {QStringLiteral("reasoning_content"),
+                         QStringLiteral("hidden reasoning text")}};
+    QJsonObject choice{{QStringLiteral("message"), message},
+                       {QStringLiteral("finish_reason"), QStringLiteral("length")}};
+    QJsonObject root{{QStringLiteral("choices"), QJsonArray{choice}}};
+    server.setNextResponse(
+        200, QJsonDocument(root).toJson(QJsonDocument::Compact));
+
+    DiagnosisAsyncClient client;
+    QSignalSpy failed(&client, &DiagnosisAsyncClient::diagnosisFailed);
+    QVERIFY(client.requestDiagnosis(d3Config(server), QStringLiteral("s"),
+                                    QStringLiteral("u"), 1));
+    QVERIFY(failed.wait(3000));
+    QCOMPARE(failed.count(), 1);
+    const QString message_text = failed.at(0).at(2).toString();
+    QVERIFY2(!message_text.isEmpty(), "a failure message must be present");
+    QVERIFY2(message_text.contains(QStringLiteral("length")),
+             "a finish_reason=length stop must be reported as truncation");
+    QVERIFY2(!message_text.contains(QStringLiteral("无可用内容")),
+             "truncation must be distinguishable from generic empty content");
+    // The reasoning text is NEVER surfaced as the answer.
+    QVERIFY(message_text != QStringLiteral("hidden reasoning text"));
+}
+
+// D3C-02: content = null WITHOUT a length stop -> safe generic failure.
+void AiClientTest::d3c02_nullContentFailsSafely()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    QJsonObject message{{QStringLiteral("role"), QStringLiteral("assistant")},
+                        {QStringLiteral("content"), QJsonValue::Null}};
+    QJsonObject root{{QStringLiteral("choices"),
+                      QJsonArray{QJsonObject{{QStringLiteral("message"), message}}}}};
+    server.setNextResponse(
+        200, QJsonDocument(root).toJson(QJsonDocument::Compact));
+
+    DiagnosisAsyncClient client;
+    QSignalSpy failed(&client, &DiagnosisAsyncClient::diagnosisFailed);
+    QVERIFY(client.requestDiagnosis(d3Config(server), QStringLiteral("s"),
+                                    QStringLiteral("u"), 1));
+    QVERIFY(failed.wait(3000));
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(failed.at(0).at(1).toInt(),
+             static_cast<int>(AiDiagnosisErrorCode::InvalidResponse));
+    QVERIFY(failed.at(0).at(2).toString().contains(
+        QStringLiteral("无可用内容")));
+}
+
+// D3C-03: content = "" -> safe generic failure (never treated as success).
+void AiClientTest::d3c03_emptyStringContentFailsSafely()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody(QByteArray()));
+
+    DiagnosisAsyncClient client;
+    QSignalSpy failed(&client, &DiagnosisAsyncClient::diagnosisFailed);
+    QVERIFY(client.requestDiagnosis(d3Config(server), QStringLiteral("s"),
+                                    QStringLiteral("u"), 1));
+    QVERIFY(failed.wait(3000));
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(failed.at(0).at(1).toInt(),
+             static_cast<int>(AiDiagnosisErrorCode::InvalidResponse));
+    QVERIFY(failed.at(0).at(2).toString().contains(
+        QStringLiteral("无可用内容")));
+}
+
+// D3C-04: a NON-STRING content (array-style content parts) -> safe failure.
+void AiClientTest::d3c04_nonStringContentFailsSafely()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    QJsonObject part{{QStringLiteral("type"), QStringLiteral("text")},
+                     {QStringLiteral("text"), QStringLiteral("part text")}};
+    QJsonObject message{{QStringLiteral("role"), QStringLiteral("assistant")},
+                        {QStringLiteral("content"), QJsonArray{part}}};
+    QJsonObject root{{QStringLiteral("choices"),
+                      QJsonArray{QJsonObject{{QStringLiteral("message"), message}}}}};
+    server.setNextResponse(
+        200, QJsonDocument(root).toJson(QJsonDocument::Compact));
+
+    DiagnosisAsyncClient client;
+    QSignalSpy failed(&client, &DiagnosisAsyncClient::diagnosisFailed);
+    QVERIFY(client.requestDiagnosis(d3Config(server), QStringLiteral("s"),
+                                    QStringLiteral("u"), 1));
+    QVERIFY(failed.wait(3000));
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(failed.at(0).at(1).toInt(),
+             static_cast<int>(AiDiagnosisErrorCode::InvalidResponse));
+}
+
+// D3C-05: an ordinary non-empty content still succeeds (regression lock).
+void AiClientTest::d3c05_normalContentStillSucceeds()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("正常解释文本"));
+
+    DiagnosisAsyncClient client;
+    QSignalSpy ok(&client, &DiagnosisAsyncClient::diagnosisSucceeded);
+    QSignalSpy failed(&client, &DiagnosisAsyncClient::diagnosisFailed);
+    QVERIFY(client.requestDiagnosis(d3Config(server), QStringLiteral("s"),
+                                    QStringLiteral("u"), 1));
+    QVERIFY(ok.wait(3000));
+    QCOMPARE(ok.count(), 1);
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(ok.at(0).at(1).toString(), QStringLiteral("正常解释文本"));
+}
+
+// D3C-06: CURRENT-STATE LOCK — the production Diagnosis request carries NO
+// provider extras today (no thinking disable, no response_format) and keeps
+// max_tokens=768. This is the EVIDENCE for the (not-yet-authorized) part A of
+// D3-F1: if the thinking-disabled extra is authorized later, THIS assertion
+// must be updated together with the change.
+void AiClientTest::d3c06_diagnosisRequestHasNoProviderExtrasToday()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("ok"));
+
+    DiagnosisAsyncClient client;
+    QSignalSpy ok(&client, &DiagnosisAsyncClient::diagnosisSucceeded);
+    QVERIFY(client.requestDiagnosis(d3Config(server), QStringLiteral("s"),
+                                    QStringLiteral("u"), 7));
+    QVERIFY(ok.wait(3000));
+
+    const QJsonObject body =
+        QJsonDocument::fromJson(server.lastRequest().body).object();
+    QCOMPARE(body.value(QStringLiteral("max_tokens")).toInt(), 768);
+    // D3-F2 Part A target assertion: DeepSeek MUST disable the thinking pass
+    // (same extra the Candidate chain uses) and MUST NOT copy the
+    // Candidate-only JSON-output extra.
+    const QJsonObject thinking =
+        body.value(QStringLiteral("thinking")).toObject();
+    QVERIFY2(!thinking.isEmpty(),
+             "DeepSeek Diagnosis must disable the thinking pass");
+    QCOMPARE(thinking.value(QStringLiteral("type")).toString(),
+             QStringLiteral("disabled"));
+    QVERIFY2(!body.contains(QStringLiteral("response_format")),
+             "Diagnosis never copies the Candidate JSON-output extras");
+}
+
+// D3C-08: a ModelScope Diagnosis request keeps its ORIGINAL semantics — no
+// DeepSeek-specific parameter may leak across providers.
+void AiClientTest::d3c08_modelScopeRequestKeepsItsSemantics()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("ok"));
+
+    DiagnosisAsyncClient client;
+    QSignalSpy ok(&client, &DiagnosisAsyncClient::diagnosisSucceeded);
+    QVERIFY(client.requestDiagnosis(
+        d3Config(server, modbuslens::ui::AiProviderKind::ModelScope),
+        QStringLiteral("s"), QStringLiteral("u"), 11));
+    QVERIFY(ok.wait(3000));
+
+    const QJsonObject body =
+        QJsonDocument::fromJson(server.lastRequest().body).object();
+    QCOMPARE(body.value(QStringLiteral("max_tokens")).toInt(), 768);
+    QVERIFY2(!body.contains(QStringLiteral("thinking")),
+             "ModelScope must not receive the DeepSeek thinking extra");
+    QVERIFY2(!body.contains(QStringLiteral("response_format")),
+             "no provider receives the Candidate JSON-output extra");
+    const QJsonArray messages = body.value(QStringLiteral("messages")).toArray();
+    QCOMPARE(messages.size(), 2);
+    QCOMPARE(messages.at(0).toObject().value(QStringLiteral("role")).toString(),
+             QStringLiteral("system"));
+    QCOMPARE(messages.at(1).toObject().value(QStringLiteral("role")).toString(),
+             QStringLiteral("user"));
+}
+
+// D3C-09: a dispatch WITHOUT an explicit provider kind is REFUSED — nothing is
+// sent, no signal fires. This is what keeps the new field from becoming an
+// implicit-fallback hazard.
+void AiClientTest::d3c09_missingProviderKindFailsClosedWithoutDispatch()
+{
+    FakeChatCompletionsServer server;
+    QVERIFY(server.start());
+    server.setNextResponse(200, chatCompletionBody("ok"));
+
+    modbuslens::ui::DiagnosisDispatchConfig config;
+    config.endpoint = server.chatCompletionsUrl().toStdString();
+    config.model = "fake-model";
+    config.secret = "fake-d3-token";
+    config.timeoutMs = 5000;
+    // kind deliberately left UNSET (nullopt).
+
+    DiagnosisAsyncClient client;
+    QSignalSpy ok(&client, &DiagnosisAsyncClient::diagnosisSucceeded);
+    QSignalSpy failed(&client, &DiagnosisAsyncClient::diagnosisFailed);
+    QVERIFY(!client.requestDiagnosis(config, QStringLiteral("s"),
+                                     QStringLiteral("u"), 12));
+    QCOMPARE(client.dispatchCount(), 0);
+    QCOMPARE(server.requestCount(), 0);
+    QCOMPARE(ok.count(), 0);
+    QCOMPARE(failed.count(), 0);
+}
+
+// D3C-07: INPUT-SIDE LOCK — 12 transactions (the failing replay sample) stay
+// under the 20-detail cap: no input truncation, no input-side budget change.
+void AiClientTest::d3c07_twelveTransactionsStayUnderTheDetailCap()
+{
+    std::vector<DiagnosisTransaction> transactions;
+    transactions.reserve(12);
+    for (int i = 0; i < 12; ++i) {
+        transactions.push_back(tx(0x01, TransactionStatus::Success, 25));
+    }
+    const DiagnosisContext context = buildDiagnosisContext(transactions);
+    const DiagnosisReport report = diagnoseTransactions(context);
+    const DiagnosisPrompt prompt = buildDiagnosisPrompt(context, report);
+
+    QVERIFY(prompt.userPrompt.contains(
+        QStringLiteral("total_transactions=12")));
+    QVERIFY(prompt.userPrompt.contains(
+        QStringLiteral("detailed_transactions=12")));
+    QVERIFY(prompt.userPrompt.contains(
+        QStringLiteral("details_truncated=false")));
 }
 
 QTEST_GUILESS_MAIN(AiClientTest)

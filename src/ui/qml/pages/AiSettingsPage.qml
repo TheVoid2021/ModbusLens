@@ -38,6 +38,17 @@ Item {
             // not_tested). Test-connection transient state only — zero
             // credential/config/navigation-architecture changes.
             aiSettingsController.notifyTestConnectionInputChanged()
+        } else {
+            // F2 (T034-B2-HV2-F2): RE-ENTRY restores the SAVED global
+            // configuration. The shell owns this page as a persistent
+            // StackLayout child, so leaving flips visible WITHOUT destroying
+            // the object and unsaved transient form edits (provider/model
+            // drafts) are deliberately DISCARDED on the next entry — the
+            // saved configuration is the authority shown. Form-state only:
+            // no persistence, no credential mutation, no Test Connection
+            // dispatch; safe before runtimeConfiguration injection (the
+            // controller early-returns on a null owner).
+            aiSettingsController.refreshFormFromSavedConfiguration()
         }
     }
 
@@ -122,10 +133,13 @@ Item {
                     objectName: "aiProviderComboBox"
                     Layout.preferredWidth: 320
                     model: aiSettingsController.availableProviders
-                    currentIndex: aiSettingsController.availableProviders.indexOf(
-                                      aiSettingsController.providerName) >= 0
-                                  ? aiSettingsController.availableProviders.indexOf(
-                                      aiSettingsController.providerName) : 0
+                    // HV2-F1-F1: the selection index comes from the controller's
+                    // REACTIVE projection (canonical token → AiProviderProfile →
+                    // availableProviders index). The old indexOf(providerName)
+                    // compared a lowercase config token against display names and
+                    // always fell back to 0. NOTIFY formChanged makes this
+                    // RECOMPUTE on every provider change (not a one-shot init).
+                    currentIndex: aiSettingsController.providerIndex
                     onActivated: function(index) {
                         aiSettingsController.providerName =
                             aiSettingsController.availableProviders[index]

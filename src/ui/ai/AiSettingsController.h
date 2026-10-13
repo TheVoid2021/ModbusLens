@@ -43,6 +43,18 @@ class AiSettingsController : public QObject
     Q_PROPERTY(QStringList availableProviders READ availableProviders CONSTANT)
     Q_PROPERTY(QString providerName READ providerName WRITE setProviderName
                    NOTIFY formChanged)
+    // HV2-F1-F1: REACTIVE ComboBox projection. providerName() stays the
+    // canonical CONFIG TOKEN ("modelscope"/"deepseek"); this property maps the
+    // canonical provider kind to its index inside availableProviders() through
+    // the existing AiProviderProfile table (no second hardcoded name list).
+    // NOTIFY is formChanged — the same signal the provider identity already
+    // uses — so the ComboBox RECOMPUTES after any provider change instead of
+    // being a one-shot initialization assignment. Unknown/empty form identity
+    // falls back to index 0 (ModelScope), preserving the no-saved-config
+    // default. The authority chain is unchanged: this is a DISPLAY projection
+    // only; nothing here persists, reads a secret, or touches the credential
+    // store.
+    Q_PROPERTY(int providerIndex READ providerIndex NOTIFY formChanged)
     Q_PROPERTY(QString modelText READ modelText WRITE setModelText NOTIFY
                    formChanged)
     Q_PROPERTY(bool hasCredentialForCurrentProvider READ
@@ -86,6 +98,9 @@ public:
     [[nodiscard]] QStringList availableProviders() const;
     [[nodiscard]] QString providerName() const;
     void setProviderName(const QString &name);
+    // HV2-F1-F1: index of the current form provider inside availableProviders()
+    // (canonical token → AiProviderKind → profile display name → index).
+    [[nodiscard]] int providerIndex() const;
     [[nodiscard]] QString modelText() const;
     void setModelText(const QString &model);
     [[nodiscard]] bool hasCredentialForCurrentProvider() const;

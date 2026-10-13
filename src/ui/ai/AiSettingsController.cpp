@@ -2,6 +2,7 @@
 
 #include <QPointer>
 
+#include "ui/ai/AiProviderProfile.h" // HV2-F1-F1: canonical token → display name
 #include "ui/ai/AiRuntimeConfiguration.h"
 #include "ui/ai/AiTestConnection.h"
 #include "ui/candidate/ChatCompletionsHttpClient.h"
@@ -145,6 +146,22 @@ QString AiSettingsController::providerName() const
     return providerName_;
 }
 
+int AiSettingsController::providerIndex() const
+{
+    // HV2-F1-F1: project the canonical form identity (config token) into the
+    // availableProviders() index through the EXISTING AiProviderProfile table
+    // — never a second hardcoded name list. Unknown/empty identity => 0
+    // (ModelScope default), which preserves the no-saved-config page state.
+    const std::optional<AiProviderKind> kind = currentKind();
+    if (!kind.has_value()) {
+        return 0;
+    }
+    const QString display =
+        QString::fromUtf8(aiProviderProfile(*kind).displayName);
+    const int index = availableProviders().indexOf(display);
+    return index >= 0 ? index : 0;
+}
+
 void AiSettingsController::setProviderName(const QString &name)
 {
     // Accepts the display name ("DeepSeek") or the config token ("deepseek").
@@ -159,6 +176,24 @@ void AiSettingsController::setProviderName(const QString &name)
         return;
     }
     providerName_ = normalized;
+    // HV2-F1-F1 (§4): CROSS-PROVIDER MODEL RESIDUE. The model field must never
+    // carry a value that belongs to a DIFFERENT provider. In-memory FORM state
+    // only — no persistence, no QSettings, no credential store, no Test
+    // Connection, no request, no per-provider model persistence:
+    //   · new provider == saved global provider  -> savedModel()
+    //   · new provider != saved global provider  -> empty (await explicit setup)
+    //   · no saved global configuration          -> empty
+    if (runtimeConfiguration_ != nullptr) {
+        const bool matchesSaved =
+            runtimeConfiguration_->hasSavedConfiguration()
+            && runtimeConfiguration_->savedProviderKind().has_value()
+            && *runtimeConfiguration_->savedProviderKind() == currentKind();
+        const QString nextModel =
+            matchesSaved ? runtimeConfiguration_->savedModel() : QString();
+        if (modelText_ != nextModel) {
+            modelText_ = nextModel;
+        }
+    }
     // E1a: an actual provider identity change invalidates an in-flight probe
     // (same-value setters never reach this point — no-op is preserved).
     invalidateTestConnection();
@@ -217,6 +252,25 @@ void AiSettingsController::refreshFormFromSavedConfiguration()
         providerName_ = QString::fromUtf8(aiProviderConfigTokenFor(
             *runtimeConfiguration_->savedProviderKind()));
         modelText_ = runtimeConfiguration_->savedModel();
+    } else {
+        // F2 (T034-B2-HV2-F2): NO saved global configuration -> the form
+        // defaults EXPLICITLY to the ModelScope canonical token with an
+        // empty model, so the controller form state and the ComboBox
+        // display (index 0) agree by construction — never an empty form
+        // identity masked by the index-0 projection. This is a transient
+        // form choice only: hasSavedConfiguration() stays false,
+        // resolveRequestConfig() keeps failing closed, and a
+        // provider-scoped stored credential alone must never read as a
+        // saved global configuration.
+        providerName_ = QStringLiteral("modelscope");
+        modelText_.clear();
+    }
+    // F2: a page RE-ENTRY is not a save attempt — a stale save status from
+    // the previous visit (success OR failure) must not vouch for the
+    // restored form. Same reset pattern as setProviderName/setModelText.
+    if (saveStatusToken_ != QStringLiteral("not_saved")) {
+        saveStatusToken_ = QStringLiteral("not_saved");
+        emit saveStatusChanged();
     }
     emit formChanged();
     emit credentialStateChanged();

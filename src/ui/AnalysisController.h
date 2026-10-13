@@ -72,6 +72,17 @@ class AnalysisController : public QObject
     Q_PROPERTY(QString aiDiagnosisText READ aiDiagnosisText NOTIFY aiStateChanged)
     Q_PROPERTY(QString aiDiagnosisErrorMessage READ aiDiagnosisErrorMessage NOTIFY aiStateChanged)
     Q_PROPERTY(QString aiModelName READ aiModelName NOTIFY aiStateChanged)
+    // UX1-F1 (T034-B2-HV2-D-UX1-F1): READ-ONLY PRESENTATION properties for the
+    // Diagnosis AI tab. Zero business semantics: aiProviderName mirrors the
+    // display name of the provider the CURRENT saved global configuration
+    // resolves to (empty => not configured, never an invented name), and
+    // aiPrerequisiteHint mirrors the REAL gating of the "生成 AI 解释" action
+    // so a disabled button is always explained (empty => all prerequisites
+    // satisfied). Neither property reads a credential, selects a provider or
+    // touches the request path.
+    Q_PROPERTY(QString aiProviderName READ aiProviderName NOTIFY aiStateChanged)
+    Q_PROPERTY(QString aiPrerequisiteHint READ aiPrerequisiteHint NOTIFY
+                   aiStateChanged)
     Q_PROPERTY(bool agentBusy READ agentBusy NOTIFY agentStateChanged)
     Q_PROPERTY(bool hasAgentAnswer READ hasAgentAnswer NOTIFY agentStateChanged)
     Q_PROPERTY(QString agentAnswerText READ agentAnswerText NOTIFY agentStateChanged)
@@ -345,6 +356,9 @@ public:
     [[nodiscard]] QString aiDiagnosisText() const;
     [[nodiscard]] QString aiDiagnosisErrorMessage() const;
     [[nodiscard]] QString aiModelName() const;
+    // UX1-F1: read-only presentation getters (see the Q_PROPERTY block).
+    [[nodiscard]] QString aiProviderName() const;
+    [[nodiscard]] QString aiPrerequisiteHint() const;
 
     [[nodiscard]] bool agentBusy() const;
     [[nodiscard]] bool hasAgentAnswer() const;
