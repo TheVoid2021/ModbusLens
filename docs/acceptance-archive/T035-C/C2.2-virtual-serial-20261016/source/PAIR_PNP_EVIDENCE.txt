@@ -1,0 +1,6 @@
+﻿=== VSPD PAIR PNP EVIDENCE (2026-10-16 19:39:44) ===
+Status=OK | Class=Ports | Name=Virtual Serial Port 10 (Electronic Team) (COM7) | InstanceId=VSBC9\DEVICES\0000 | Problem=CM_PROB_NONE
+Status=OK | Class=Ports | Name=Virtual Serial Port 10 (Electronic Team) (COM8) | InstanceId=VSBC9\DEVICES\0001 | Problem=CM_PROB_NONE
+Status=OK | Class=System | Name=Virtual Serial Bus Enumerator 10 (Electronic Team) | InstanceId=ROOT\SYSTEM\0004 | Problem=CM_PROB_NONE
+COM Dev=Virtual Serial Port 10 (Electronic Team) (COM7) DriverProvider=Electronic Team DriverVersion=10.6.960.0 Signed=True Signer=Microsoft Windows Hardware Compatibility Publisher
+COM Dev=Virtual Serial Port 10 (Electronic Team) (COM8) DriverProvider=Electronic Team DriverVersion=10.6.960.0 Signed=True Signer=Microsoft Windows Hardware Compatibility Publisher

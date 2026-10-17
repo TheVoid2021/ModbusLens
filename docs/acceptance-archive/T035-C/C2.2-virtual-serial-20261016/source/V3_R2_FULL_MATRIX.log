@@ -1,0 +1,4 @@
+=== C2.2-V3-R2 V3 FULL MATRIX S0-S7 — NOT EXECUTED ===
+Reason: identical precondition failure (pair not enabled). No scenario was run.
+No historical PASS was reused. S2/S7 fixes remain staged for the next run
+(pre-audit PASS: S2 explicit [byte[]] cast present; S7 5x bounded release retry present).

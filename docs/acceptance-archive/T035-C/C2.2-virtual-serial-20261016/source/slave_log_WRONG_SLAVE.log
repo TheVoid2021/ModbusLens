@@ -1,0 +1,17 @@
+﻿=== SLAVE SIM mode=WRONG_SLAVE port=COM8 started 17:08:43.437 ===
+SLAVE OPEN: COM8 opened at 9600/8N1 no-flow-control
+COM8 SIMULATOR RX: 01 03 00 31 00 01 D5 C5 (accumulated 8)
+COM8 SIMULATOR REQUEST: slave=1 fc=3 addr=49 qty=1 bytes=01 03 00 31 00 01 D5 C5 CRC=VALID
+COM8 SIMULATOR TX: 02 03 02 04 D2 7E D9 (len=7, CRC recomputed dynamically)
+COM8 SIMULATOR FINISH_TRANSACTION #1
+COM8 SIMULATOR RX: 01 03 00 31 00 01 D5 C5 (accumulated 8)
+COM8 SIMULATOR REQUEST: slave=1 fc=3 addr=49 qty=1 bytes=01 03 00 31 00 01 D5 C5 CRC=VALID
+COM8 SIMULATOR TX: 02 03 02 04 D2 7E D9 (len=7, CRC recomputed dynamically)
+COM8 SIMULATOR FINISH_TRANSACTION #2
+COM8 SIMULATOR RX: 01 03 00 31 00 01 D5 C5 (accumulated 8)
+COM8 SIMULATOR REQUEST: slave=1 fc=3 addr=49 qty=1 bytes=01 03 00 31 00 01 D5 C5 CRC=VALID
+COM8 SIMULATOR TX: 02 03 02 04 D2 7E D9 (len=7, CRC recomputed dynamically)
+COM8 SIMULATOR FINISH_TRANSACTION #3
+COM8 SIMULATOR: max requests (3) reached -> bounded exit
+COM8 SIMULATOR CLOSED: port released 17:08:51.123
+=== SLAVE SIM mode=WRONG_SLAVE done requestsServed=3 badFrames=0 ===

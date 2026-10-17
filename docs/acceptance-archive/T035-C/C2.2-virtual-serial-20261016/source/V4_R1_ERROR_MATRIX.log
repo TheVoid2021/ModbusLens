@@ -1,0 +1,97 @@
+# V4_R2_ERROR_MATRIX — 生产路径异常矩阵 E2–E7 原始证据（2026-10-17 17:05–17:11）
+
+## 前一轮（V4-R1）占位说明（保留档案纪律）
+
+V4-R1 时本文件为 NOT EXECUTED。**本轮（V4-R2）已被真实实测结果取代**；R1 事实保留于 `V4_R1_FINAL_REPORT.md`。
+
+## 通用条件
+
+- 每个场景：独立从站进程（`-Mode <MODE> -MaxRequests 3 -IdleExitSeconds 900`，Human 启动）+ Human 在「工程值」页点击一次「读取一次」
+- ModbusLens 串口连接在整个矩阵期间保持（COM7 未被重新打开；COM8 由各场景从站独占）
+- 从站原始日志分别归档为 `V4_R2_E<n>_<MODE>_slave.log`
+
+---
+
+## E2 — CRC_ERROR（PASS）
+
+**从站收到**（`V4_R2_E2_CRC_ERROR_slave.log`，2 次）：
+```
+01 03 00 31 00 01 D5 C5      ← 生产请求，CRC=VALID
+```
+**从站写出**：
+```
+01 03 02 04 D2 3A 26         ← 仅 CRC 被故意破坏（正常应为 3A D9）
+```
+- 独立 CRC 验证：payload `01 03 02 04 D2` 的期望 CRC = **3A D9**，帧内为 **3A 26** ⇒ **INVALID（as designed）**
+- **Human UI 确认**：显示失败 / CRC 错误；未产生新的 12.34 s
+- **判定：PASS**（生产解析链拒绝无效 CRC）
+
+## E3 — TIMEOUT（PASS）
+
+**从站收到**（`V4_R2_E3_TIMEOUT_slave.log`，2 次）：
+```
+01 03 00 31 00 01 D5 C5      ← 请求到达，CRC=VALID
+COM8 SIMULATOR: mode=TIMEOUT -> NO RESPONSE SENT (request received, bounded silence)
+```
+- **未发出任何响应字节**（契约要求的 bounded silence）
+- **Human UI 确认**：显示超时
+- **判定：PASS**（生产超时边界生效，未无限等待）
+
+## E4 — WRONG_SLAVE（PASS）
+
+**从站收到**（`V4_R2_E4_WRONG_SLAVE_slave.log`，3 次）：`01 03 00 31 00 01 D5 C5`
+**从站写出**：
+```
+02 03 02 04 D2 7E D9         ← Slave ID = 2，其余字段与正常响应一致
+```
+- 独立 CRC 验证：期望 **7E D9** = 帧内 ⇒ **VALID**（错误仅体现在 Slave ID）
+- **Human UI 确认**：显示失败/拒绝，未产生新成功值
+- **判定：PASS**（生产链拒绝 Slave ID 不匹配响应）
+
+## E5 — WRONG_FUNCTION（PASS）
+
+**从站收到**（`V4_R2_E5_WRONG_FUNCTION_slave.log`）：`01 03 00 31 00 01 D5 C5`
+**从站写出**：
+```
+01 04 02 04 D2 3B AD         ← FC = 04（请求为 03）
+```
+- 独立 CRC 验证：期望 **3B AD** = 帧内 ⇒ **VALID**
+- **Human UI 确认**：显示失败/拒绝
+- **判定：PASS**（生产链拒绝 Function Code 不匹配响应）
+
+## E6 — EXCEPTION（PASS）
+
+**从站收到**（`V4_R2_E6_EXCEPTION_slave.log`）：`01 03 00 31 00 01 D5 C5`
+**从站写出**：
+```
+01 83 02 C0 F1               ← FC=0x83（异常），异常码 0x02 (ILLEGAL DATA ADDRESS)
+```
+- 独立 CRC 验证：期望 **C0 F1** = 帧内 ⇒ **VALID**（**合法异常帧，非 CRC 错误**）
+- **Human UI 确认**：显示「从站异常」（进入异常处理路径，未显示为普通成功）
+- **判定：PASS**
+
+## E7 — FRAGMENTED（PASS，扩展压力测试）
+
+**从站收到**（`V4_R2_E7_FRAGMENTED_slave.log`）：`01 03 00 31 00 01 D5 C5`
+**从站分段写出**（3 段，段间 120 ms）：
+```
+01 03  |  02 04 D2  |  3A D9
+```
+- **Human UI 确认**：显示 **12.34 s**（生产接收链跨分段累积并完整解析）
+- **时序声明**：120 ms 段间延迟**显著超出标准 RTU 帧内间隔**（9600 baud 下 1.5 字符 ≈ 1.56 ms）
+  ⇒ 本项仅证明「分段写入可被生产接收链累积解析」，**不构成标准 RTU 帧边界合规结论**；
+  标准时序下的帧边界行为未在本轮验证。
+
+---
+
+## 汇总
+
+| 场景 | 结果 | 真实 COM TX/RX | Human UI 确认 |
+|---|---|---|---|
+| E1 NORMAL | **PASS** | ✅（2 次 12.34 s） | ✅ |
+| E2 CRC_ERROR | **PASS** | ✅（2 次，CRC 故意无效） | ✅ 失败态 |
+| E3 TIMEOUT | **PASS** | ✅（2 次请求，0 响应） | ✅ 超时态 |
+| E4 WRONG_SLAVE | **PASS** | ✅（3 次，slave=2） | ✅ 失败态 |
+| E5 WRONG_FUNCTION | **PASS** | ✅（1 次，fc=4） | ✅ 失败态 |
+| E6 EXCEPTION | **PASS** | ✅（1 次，0x83/0x02） | ✅ 异常态 |
+| E7 FRAGMENTED | **PASS** | ✅（1 次，3 段） | ✅ 12.34 s |

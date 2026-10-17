@@ -1,0 +1,7 @@
+﻿=== PROBE mode=CRC_ERROR port=COM7 16:12:52.858 ===
+COM7 PROBE TX: 01 03 00 31 00 01 D5 C5
+COM7 PROBE RX: 01 03 02 04 D2 3A 26 (len=7, waited 5013ms)
+COM7 PROBE CLOSED
+PASS CRC_ERROR: received frame has INVALID CRC (only CRC damaged)
+=== PROBE mode=CRC_ERROR SUMMARY: failures=0 ===
+PROBE RESULT: PASS

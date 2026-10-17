@@ -1,0 +1,6 @@
+﻿=== SLAVE SIM mode=WRONG_FUNCTION port=COM8 started 17:09:31.597 ===
+SLAVE OPEN: COM8 opened at 9600/8N1 no-flow-control
+COM8 SIMULATOR RX: 01 03 00 31 00 01 D5 C5 (accumulated 8)
+COM8 SIMULATOR REQUEST: slave=1 fc=3 addr=49 qty=1 bytes=01 03 00 31 00 01 D5 C5 CRC=VALID
+COM8 SIMULATOR TX: 01 04 02 04 D2 3B AD (len=7, CRC recomputed dynamically)
+COM8 SIMULATOR FINISH_TRANSACTION #1

@@ -1,0 +1,49 @@
+# V4_R2_E1_NORMAL_TXRX — 正常 FC03 E2E 原始证据（2026-10-17 16:57–17:04）
+
+## 前一轮（V4-R1）占位说明（保留档案纪律）
+
+V4-R1 时本文件为 NOT EXECUTED（无符合契约的 Profile）。**本轮（V4-R2）Human 已创建 `V4-E2E-Test`，本文件已被真实实测结果取代**；
+R1 的 NOT EXECUTED 事实仍完整保留于 `V4_R1_FINAL_REPORT.md`。
+
+## Test ID
+V4-R2 / E1 (NORMAL) — Production ModbusLens → QSerialPort → COM7 → VSPD → COM8 → external slave
+
+## 环境
+- ModbusLens: `build/debug-h2/modbuslens.exe`（SHA-256 `9cadc2c5…`，正常 GUI，无测试参数）
+- 外部从站: `virtual_modbus_slave.ps1 -Mode NORMAL -MaxRequests 5 -IdleExitSeconds 600`（pid 34116，Human 启动）
+- 端口: COM7 (ModbusLens) ↔ COM8 (slave)，VSPD 11.0.1096，9600/8N1/NoFlow
+- 初始运行模式: 「模拟器模式 · 确定性演示」（未连接时默认源，源码 `AnalysisController.cpp:3921-3922`）
+- 连接 COM7 后切换为「串口模式 / COM7 @ 9600」（源码 `AnalysisController.cpp:1311-1312`，`sourceKind_ = ActiveSerial` @:1307）
+
+## 事务 #1（首次「工程值」读取）
+
+**COM7 (ModbusLens) → COM8 (slave) RX**
+```
+01 03 00 31 00 01 D5 C5
+```
+- Slave ID = 1 · FC = 03 · Address = 0x0031 = 49 · Quantity = 0x0001 = 1
+- **Request CRC = VALID**（slave 侧独立校验通过）
+
+**COM8 (slave) → COM7 (ModbusLens) TX**
+```
+01 03 02 04 D2 3A D9
+```
+- Byte Count = 0x02 · Register = 0x04D2 = **1234** · **Response CRC = VALID**（动态计算：payload CRC = 3A D9）
+- 事务 ID: `FINISH_TRANSACTION #1`
+
+**ModbusLens UI（Human 确认）**：大号数值 **12.34**，单位 **s**（1234 × 0.01 + 0 = 12.34）
+
+## 事务 #2（第二次读取，Human 复测）
+
+同上 TX/RX 完全一致；`FINISH_TRANSACTION #2`。UI 仍为 **12.34 s**。
+
+## 关键提示（前期一次「响应超时」观察）
+
+Human 早期在「通信」页点击读取（发 `01 03 00 00 00 02 C4 0B`，addr 0 / qty 2）被从站按契约拒绝（不影响 ModbusLens），
+**该次也证明生产 TX 通路存在**。随后「工程值」页首次点击时曾出现一次「响应超时」，
+但同一会话内随后两次点击均完整成功（上表）——该次超时的具体成因**未定论**
+（可能为从站启动初期调度/时序），**如实记录，不掩盖**。
+
+## 证据文件
+- 从站原始日志: `V4_R2_E1_NORMAL_slave.log`（= `slave_log_NORMAL.log` 快照，含 `SLAVE OPEN` / RX / REQUEST / TX / FINISH ×2）
+- 复测基线标记: `V4_R2_retry_marker.txt`

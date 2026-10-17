@@ -1,0 +1,3 @@
+# Preserve acceptance evidence bytes without line-ending normalization.
+* -text whitespace=cr-at-eol
+source/V3_R2_VSPD10_BASELINE.md whitespace=-blank-at-eol,cr-at-eol

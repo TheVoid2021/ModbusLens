@@ -1,0 +1,7 @@
+﻿=== PROBE mode=TIMEOUT port=COM7 16:13:03.689 ===
+COM7 PROBE TX: 01 03 00 31 00 01 D5 C5
+COM7 PROBE RX: (none) (len=0, waited 3014ms)
+COM7 PROBE CLOSED
+PASS TIMEOUT: zero response bytes within 3000ms
+=== PROBE mode=TIMEOUT SUMMARY: failures=0 ===
+PROBE RESULT: PASS

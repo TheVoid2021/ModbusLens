@@ -1,0 +1,18 @@
+=== V3 BLOCKED ENV SNAPSHOT (20:07:28) ===
+--- GetPortNames ---
+COM3
+COM4
+--- SERIALCOMM registry ---
+\Device\BthModem1 = COM4
+\Device\BthModem0 = COM3
+--- PnP ---
+OK | Virtual Serial Bus Enumerator 10 (Electronic Team) | ROOT\SYSTEM\0004
+--- drivers ---
+evserial9: State=Stopped ExitCode=31
+VSBC9: State=Running ExitCode=0
+sershare: State=Stopped ExitCode=1077
+--- direct open test ---
+COM7 OPEN FAIL (cannot open by name)
+COM8 OPEN FAIL (cannot open by name)
+--- vspd processes ---
+vspdpro pid=45380 start=20:04:46
