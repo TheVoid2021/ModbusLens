@@ -1,0 +1,54 @@
+# R4_01_RESYNC + R4_08_TARGETED_TESTS — 前置核验与目标测试记录
+
+## Resync（本轮开始）
+
+| 项 | 值 | 判定 |
+|---|---|---|
+| HEAD | `517d78c5e5d780d831af5e6d038d70cfe8747ebc` | MATCH |
+| staged | 0 | ✅ |
+| `git diff --check` | PASS | ✅ |
+| WIP | **50**（43 M + 7 ??），50 项 SHA-256 基线已存 | ✅ |
+| 冻结 Release / Debug | `4044edae…` / `9cadc2c5…` | MATCH |
+| 新隔离目录 `build/t035c-source-fix-20261017/` | 预先不存在 | ✅ |
+| 授权可改文件 | `tests/test_register_readiness.cpp`（A）、`src/main.cpp`（B） | — |
+
+## 目标测试记录（**8 / 8 预算用尽**）
+
+| # | 测试 | EXE | 假设/目的 | EXIT | 结果 |
+|---|---|---|---|---|---|
+| 1 | `modbuslens_readiness_tests`（默认 TEMP） | `0ebfe973…`（readiness） | FIX-01 默认环境不再受全机 TEMP 干扰 | **0** | **27 passed / 0 failed**（33ms） |
+| 2 | 同上（独立 TEMP `r4_probe_*`） | 同上 | 隔离环境一致性 | **0** | **27 passed / 0 failed**（23ms） |
+| 3 | `--qml-read-result-check` + `MODBUSLENS_HARNESS_TRACE=1` | `7a0…`→**修复前** | 证明/推翻 stale-session 假设 | **1** | **先证：`read-start #10 begin_ok=0 qty=125`**（CONFIRMED 残留） |
+| 4 | 同上（**FIX-02 后**） | 修复后 | 修复有效性 | **0** | **`begin_ok=1 qty=125` + `READ RESULT CHECK PASS`** |
+| 5 | `--qml-active-profile-check` | 修复后 | FIX-04 | **1** | **无效**（漏设 `QT_ASSUME_STDERR_HAS_CONSOLE`，日志 0 字节） |
+| 6 | `--qml-register-map-check` | 修复后 | regMap 诊断 | **1** | **无效**（同上，日志 0 字节） |
+| 7 | `--qml-active-profile-check`（补环境变量重跑） | 修复后 | FIX-04 | **1** | **判据未覆盖**：`stage 1–18` 全 PASS 且 `stage 13: no semantic overlay` 打印，但末行仍 `ACTFAIL`（`fail()` 记录不中断 ⇒ 推断 stage 13 实际未豁免；根因：`readSemanticCell` 在 **detail dialog（QQuickPopup）** 内，不在 `readResultPanel` 子树） |
+| 8 | `--qml-register-map-check`（补环境变量重跑） | 修复后 | 滚动可达性 | **1** | **诊断成功**（见下） |
+
+**有效通过数**：`3 PASS（#1 #2 #4）/ 8 executed`（#5 #6 因环境变量缺失无效，#3 为修复前基线证据，#7 #8 为诊断执行）。
+
+## TEST#8 布局诊断原始输出（关键）
+
+```
+REGDIAG regUnitField ancestor-chain=<QQuickRowLayout> < <QQuickColumnLayout> < <QQuickItem> <
+        <QQuickFlickable> < <ScrollView_QMLTYPE_39> < QQuickPopupItem < Dialog < <QQuickOverlay> < Main
+REGDIAG container=QQuickFlickable  clip=1 contentHeight=627 contentY=0  ownHeight=513
+REGDIAG container=ScrollView_39    clip=1 contentHeight=627             ownHeight=513
+REGDIAG container=Dialog           clip=0 contentHeight=627             ownHeight=595
+REGDIAG regUnitField in-dialog y=698.5 fieldEnabled=1
+REGFAIL: regUnitField outside: x=257.5 y=698.5 w=729 h=32 win=1000x700
+```
+
+**推理**：字段位于 `ScrollView → Flickable`（`clip=1`），`contentHeight 627` − `viewport 513` = **可滚动 114 px**；
+字段 `in-dialog y=698.5`、dialog 内容高 595 ⇒ **需滚动约 103.5 px** ⇒ **114 > 103.5 ⇒ 滚动后可达**；`fieldEnabled=1`。
+
+## 构建记录
+
+| 阶段 | 结果 |
+|---|---|
+| `cmake --preset debug-local -B build/t035c-source-fix-20261017` | **PASS**（183.0s + 4.6s，exit 0） |
+| `ninja modbuslens modbuslens_readiness_tests`（首次） | **PASS**（134/134，exit 0，**0 error / 19 warning**） |
+| `ninja modbuslens`（FIX-02 后增量） | **PASS**（[4/4]，exit 0，0 error） |
+| 产物 | `modbuslens.exe` 83,107,070 B；`modbuslens_readiness_tests.exe` 3,153,707 B |
+
+日志：`R4_07_configure.log` / `R4_07_BUILD.log` / `R4_07_BUILD_after_fix02.log`

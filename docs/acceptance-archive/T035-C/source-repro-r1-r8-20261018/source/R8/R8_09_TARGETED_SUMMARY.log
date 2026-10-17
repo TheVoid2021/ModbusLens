@@ -1,0 +1,8 @@
+R8 TARGETED 7 (EXE_SHA=b1d483e350dabe41325580849236e9ffdfc7312239e09c776c3c5e880be13146)
+read_result EXIT=0
+write_foundation EXIT=0
+production_write EXIT=0
+readiness EXIT=0
+register_map EXIT=0
+active_profile EXIT=0
+write_foundation_windows EXIT=0

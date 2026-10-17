@@ -1,0 +1,60 @@
+Internal ctest changing into directory: E:/desktop/ModbusLens/build/t035c-source-repro-20261017
+UpdateCTestConfiguration  from :E:/desktop/ModbusLens/build/t035c-source-repro-20261017/DartConfiguration.tcl
+Parse Config file:E:/desktop/ModbusLens/build/t035c-source-repro-20261017/DartConfiguration.tcl
+UpdateCTestConfiguration  from :E:/desktop/ModbusLens/build/t035c-source-repro-20261017/DartConfiguration.tcl
+Parse Config file:E:/desktop/ModbusLens/build/t035c-source-repro-20261017/DartConfiguration.tcl
+Test project E:/desktop/ModbusLens/build/t035c-source-repro-20261017
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 24
+    Start 24: register_readiness
+
+24: Test command: E:\desktop\ModbusLens\build\t035c-source-repro-20261017\modbuslens_readiness_tests.exe
+24: Working Directory: E:/desktop/ModbusLens/build/t035c-source-repro-20261017
+24: Environment variable modifications: 
+24:  PATH=path_list_prepend:D:/QT/Tools/mingw1310_64/bin
+24:  PATH=path_list_prepend:D:/QT/6.11.1/mingw_64/bin
+24: Test timeout computed to be: 1500
+24: ********* Start testing of RegisterReadinessTest *********
+24: Config: Using QtTest library 6.11.1, Qt 6.11.1 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 13.1.0), windows 11
+24: PASS   : RegisterReadinessTest::initTestCase()
+24: PASS   : RegisterReadinessTest::c03_functionCodeWhitelist()
+24: PASS   : RegisterReadinessTest::c04_addressSpanOutOfRange()
+24: PASS   : RegisterReadinessTest::c05_registerCountMismatch()
+24: PASS   : RegisterReadinessTest::c06_byteWordOrderInvalid()
+24: PASS   : RegisterReadinessTest::c07_readableButEngineeringNotConfigured()
+24: PASS   : RegisterReadinessTest::c08_defaultsDoNotCountAsConfigured()
+24: PASS   : RegisterReadinessTest::c09_explicitlyConfiguredDefaultsAreReady()
+24: PASS   : RegisterReadinessTest::c10_nonFiniteAndEmptyUnit()
+24: PASS   : RegisterReadinessTest::c11_linearAndRawVerdictsOnEntry()
+24: PASS   : RegisterReadinessTest::c15_legacyEntryConservativelyNotReady()
+24: PASS   : RegisterReadinessTest::c16_deterministicAndSideEffectFree()
+24: PASS   : RegisterReadinessTest::c17_listsEveryMissingField()
+24: PASS   : RegisterReadinessTest::c18_saveReloadKeepsVerdictStable()
+24: PASS   : RegisterReadinessTest::d01_newEntryDefaultsToUnknown()
+24: PASS   : RegisterReadinessTest::d02_legacyProfileWithoutDecoderLoadsUnknown()
+24: PASS   : RegisterReadinessTest::d03_configuredButUnknownIsNotEngineeringReady()
+24: PASS   : RegisterReadinessTest::d04_rawIsReadableButNeverEngineeringReady()
+24: PASS   : RegisterReadinessTest::d05_explicitLinearAllValidIsReady()
+24: PASS   : RegisterReadinessTest::d06_explicitLinearWithoutScaleConfigured()
+24: PASS   : RegisterReadinessTest::d07_explicitLinearWithoutOffsetConfigured()
+24: PASS   : RegisterReadinessTest::d08_explicitLinearWithoutUnitConfigured()
+24: PASS   : RegisterReadinessTest::d09_variableDecimalAndEnumNeverReady()
+24: PASS   : RegisterReadinessTest::d10_decoderKindRoundTripsThroughSaveReload()
+24: PASS   : RegisterReadinessTest::d12_invalidDecoderTokenFailsClosed()
+24: PASS   : RegisterReadinessTest::d18_wholeValidationChainHasNoSideEffects()
+24: PASS   : RegisterReadinessTest::cleanupTestCase()
+24: Totals: 27 passed, 0 failed, 0 skipped, 0 blacklisted, 127ms
+24: ********* Finished testing of RegisterReadinessTest *********
+1/1 Test #24: register_readiness ...............   Passed    0.50 sec
+
+The following tests passed:
+	register_readiness
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.68 sec

@@ -1,0 +1,86 @@
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Debug"
+  CMAKE_CXX_COMPILER="D:/QT/Tools/mingw1310_64/bin/g++.exe"
+  CMAKE_EXPORT_COMPILE_COMMANDS="ON"
+  CMAKE_PREFIX_PATH="D:/QT/6.11.1/mingw_64"
+
+Preset environment variables:
+
+  PATH="D:/QT/Tools/CMake_64/bin;D:/QT/Tools/Ninja;D:/QT/Tools/mingw1310_64/bin;D:\QT\Tools\CMake_64\bin;D:\QT\Tools\Ninja;D:\QT\Tools\mingw1310_64\bin;D:\QT\6.11.1\mingw_64\bin;D;E:\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\safe-bin;C:\Users\付\.workbuddy\binaries\node\versions\22.22.2-6;C:\Users\付\.workbuddy\binaries\node\versions\.locks;C:\Users\付\.workbuddy\binaries\python\versions\3.13.12;C:\Users\付\.workbuddy\binaries\python\versions\.locks;C:\Users\付\.workbuddy\binaries\node\cli-connector-packages;D;E:\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\safe-bin;D:\WorkBuddy\resources\vendor\PortableGit\mingw64\bin;D:\WorkBuddy\resources\vendor\PortableGit\usr\bin;C:\Users\付\bin;D:\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\safe-bin;C:\Users\付\.workbuddy\binaries\node\versions\22.22.2-6;C:\Users\付\.workbuddy\binaries\node\versions\.locks;C:\Users\付\.workbuddy\binaries\python\versions\3.13.12;C:\Users\付\.workbuddy\binaries\python\versions\.locks;C:\Users\付\.workbuddy\binaries\node\cli-connector-packages;C:\Users\付\.workbuddy\binaries\node\versions\22.22.2-6;C:\Users\付\.workbuddy\binaries\node\versions\.locks;D:\VMware-workstation-pro\bin\;D:\Cudnn_9.3.0\bin;D:\Cudav12.6\bin;D:\Cudav12.6\libnvvp;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Pro;ram Files (x86)\Windows Kits\10\Windows Performance Toolkit\;D:\Python\python.exe;D:\Anaconda3;D:\Anaconda3\Scripts;D:\Anaconda3\Library\mingw-w64\bin;D:\Anaconda3\Library\usr\bin;D:\Anaconda3\Library\bin;E:\pc;uite\;D:\Bandizip\;C:\Program Files\NVIDIA Corporation\Nsight Compute 2024.3.0\;cmd;C:\Program Files\Pandoc\;D:\Eas;Share\x86\;C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR;C:\Program Files\dotnet\;ram Files\Common Files\Autodesk Shared\;D:\G;t\cmd;D:\ffm;eg-n8.0-latest-win64-gpl-8.0\bin;D:\ffmpeg-n8.0-latest-win64-gpl-8.0\bin\ffmpeg.exe;D:\微信web开发者工具\dll;D:\Gi;D:\WorkBuddy\resources\vendor\PortableGit\cmd;C:\Program Files (x86)\Windows Kits\10\Windows Performance Toolkit\;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;D:\node.js\;D:\Git\cmd;C:\Users\付\.local\bin;D:\Python\Scripts\;D:\Python\;C:\Users\付\AppData\Local\Microsoft\WindowsApps;C:\Users\付\AppData\Local\GitHubDesktop\bin;C:\Program Files\JetBrains\PyCharm 2024.1.3\bin;D:\mingw64\bin;C:\Users\付\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\付\AppData\Local\Microsoft\WinGet\Packages\Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe;C:\Users\付\.dotnet\tools;D:\PyCharm 2025.1.1\bin;D:\Antigravity\bin;D:\PyCharm 2026.1\bin;C:\Program Files\MySQL\MySQL Server 8.0\bin;C:\Users\付\AppData\Local\Microsoft\WindowsApps;C:\Users\付\.dotnet\tools;D:\QT\6.11.1\mingw_64\bin;C:\Users\付\AppData\Roaming\npm;C:\Users\付\AppData\Local\Microsoft\WinGet\Packages\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe;D:\Git\cmd;D:\Genoffice\resources\cli;C:\Users\付\.dotnet\tools;D:\DriverGenius;D:\DriverGenius\ksoft;C:\Users\付\.workbuddy\binaries\PortableGit\versions\1.3.0\bin;C:\Users\付\.workbuddy\binaries\PortableGit\versions\1.3.0\usr\bin"
+  QTFRAMEWORK_BYPASS_LICENSE_CHECK="1"
+
+-- The CXX compiler identification is GNU 13.1.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: D:/QT/Tools/mingw1310_64/bin/g++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Performing Test HAVE_STDATOMIC
+-- Performing Test HAVE_STDATOMIC - Success
+-- Found WrapAtomic: TRUE
+-- Could NOT find WrapVulkanHeaders (missing: Vulkan_INCLUDE_DIR) 
+-- Could NOT find Qt6TaskTree (missing: Qt6TaskTree_DIR)
+CMake Warning at D:/QT/Tools/CMake_64/share/cmake-3.30/Modules/CMakeFindDependencyMacro.cmake:76 (find_package):
+  Found package configuration file:
+
+    D:/QT/6.11.1/mingw_64/lib/cmake/Qt6QmlAssetDownloaderPrivate/Qt6QmlAssetDownloaderPrivateConfig.cmake
+
+  but it set Qt6QmlAssetDownloaderPrivate_FOUND to FALSE so package
+  "Qt6QmlAssetDownloaderPrivate" is considered to be NOT FOUND.  Reason given
+  by package:
+
+  Qt6QmlAssetDownloaderPrivate could not be found because dependency
+  Qt6TaskTree could not be found.
+
+  Configuring with --debug-find-pkg=Qt6TaskTree might reveal details why the
+  package was not found.
+
+  Configuring with -DQT_DEBUG_FIND_PACKAGE=ON will print the values of some
+  of the path variables that find_package uses to try and find the package.
+
+Call Stack (most recent call first):
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6/QtPublicDependencyHelpers.cmake:142 (find_dependency)
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Qml/QmlPlugins/Qt6QmlAssetDownloaderPrivatepluginDependencies.cmake:22 (_qt_internal_find_qt_dependencies)
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Qml/QmlPlugins/Qt6QmlAssetDownloaderPrivatepluginConfig.cmake:40 (include)
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6/QtPublicPluginHelpers.cmake:638 (include)
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Qml/Qt6QmlPlugins.cmake:6 (__qt_internal_include_qml_plugin_packages)
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Qml/Qt6QmlConfig.cmake:199 (include)
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6/Qt6Config.cmake:253 (find_package)
+  CMakeLists.txt:16 (find_package)
+
+
+-- Could NOT find WrapVulkanHeaders (missing: Vulkan_INCLUDE_DIR) 
+-- M12-C C1b dependencies: PDFium 156.0.8066.0 (pinned, sha256 d42c452a4cf8ca19a87e9c659d4e05035be742c21696ac13431cf73ac1bbf14b) + libzip (static) - offline materialized root in use
+CMake Warning (dev) at D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:3565 (message):
+  Qt policy QTP0001 is not set: ':/qt/qml/' is the default resource prefix
+  for QML modules.  Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html
+  for policy details.  Use the qt_policy command to set the policy and
+  suppress this warning.
+
+Call Stack (most recent call first):
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Qml/Qt6QmlMacros.cmake:816 (__qt_internal_setup_policy)
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Qml/Qt6QmlMacros.cmake:1507 (qt6_add_qml_module)
+  CMakeLists.txt:218 (qt_add_qml_module)
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:3565 (message):
+  Qt policy QTP0004 is not set: You need qmldir files for each extra
+  directory that contains .qml files for your module.  Check
+  https://doc.qt.io/qt-6/qt-cmake-policy-qtp0004.html for policy details.
+  Use the qt_policy command to set the policy and suppress this warning.
+
+Call Stack (most recent call first):
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Qml/Qt6QmlMacros.cmake:4013 (__qt_internal_setup_policy)
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Qml/Qt6QmlMacros.cmake:1035 (qt6_target_qml_sources)
+  D:/QT/6.11.1/mingw_64/lib/cmake/Qt6Qml/Qt6QmlMacros.cmake:1507 (qt6_add_qml_module)
+  CMakeLists.txt:218 (qt_add_qml_module)
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- M12-C C1b: c1b_dependency_materializer not registered (pass -DMODBUSLENS_PYTHON_EXECUTABLE=<python> to enable; PATH is never probed)
+-- Configuring done (256.7s)
+-- Generating done (4.6s)
+-- Build files have been written to: E:/desktop/ModbusLens/build/t035c-source-repro-20261017

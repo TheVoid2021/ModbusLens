@@ -1,0 +1,70 @@
+QFontDatabase: Cannot find font directory D:/QT/6.11.1/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+PRODWRITE [setup]: production section present, testFoundationMode=false, connected
+PRODWRITE [P1]: dialog open, token=1, attempts=0
+PRODWRITE [P1]: initial focus = Cancel
+PRODWRITE [P2]: Space -> 1 attempt / 1 send / 1 ADU, Consumed, busy, draft preserved
+PRODWRITE [P3]: dialog closed; echo -> 1 Success 0x06 transaction in the shared history; no notice
+PRODWRITE [P4]: rapid Enter x2 -> 1 dispatch
+PRODWRITE [P4]: dialog closed, no second send, no background action
+PRODWRITE [P5]: rapid Space x2 -> 1 dispatch
+PRODWRITE [P5]: dialog closed, no second send
+PRODWRITE [P6]: immediate Enter -> 0 dispatch (state=prepared)
+PRODWRITE [P7]: Cancel -> Invalidated(UserCancelled), 0 dispatch, draft preserved
+PRODWRITE [P8]: Escape -> Invalidated, 0 dispatch
+PRODWRITE [P9]: NotSent -> notice [本次请求未发送；如需重试，请重新确认写入。]
+PRODWRITE [P9]: dialog closed, no transaction
+PRODWRITE [P10]: short -> notice [提交不完整（仅部分字节被接受），设备写入状态未知；如需重试，请重新确认写入。]
+PRODWRITE [P10]: dialog closed, zero transaction
+PRODWRITE [P11]: timeout -> notice [响应超时，设备写入状态未知；如需重试，请重新确认写入。]
+PRODWRITE [P11]: dialog closed
+PRODWRITE [P12]: 1024x720 state=prepared dialog=560x202 visible=1
+PRODWRITE [P12]: 1000x700 state=prepared dialog=560x202 visible=1
+MODAL [M1]: production dialog open over a Prepared snapshot (token=11, workspace=2)
+MODAL [M2]: outside press ignored — dialog open, snapshot Prepared, workspace 2, 0 dispatch
+MODAL [M3]: rail blocked — workspace stays 2, dialog intact, 0 dispatch
+MODAL [M4]: background Write blocked — one flow, same token, 0 dispatch
+MODAL [M5]: 8 Tabs stayed inside the modal scope [writeConfirmAcceptButton, writeConfirmCancelButton]; 0 dispatch
+MODAL [M6]: cancel=[取消写入（不发送任何请求）] confirm=[确认写入意图]
+PRODWRITE [R1]: FC16 summary function=0x10 unit=17 start=1 quantity=2 values=[10, 258]
+PRODWRITE [R1]: exact 13-byte ADU 11 10 00 01 00 02 04 00 0A 01 02 C6 F0 sent from the production UI
+PRODWRITE [R1]: matching echo -> one FC16 Success in the shared history (1 rows), zero terminals
+PRODWRITE [R2]: draft mutated to [999, 888] / start 4242 -> summary still 1 / 2 / [10, 258]
+PRODWRITE [R2]: Cancel -> Invalidated, draft preserved
+PRODWRITE [R3]: 124 values -> field error, no dialog, 0 attempts, no transport notice
+PRODWRITE [R4]: start 65535 + 2 values -> reject, 0 attempts, no wrap
+PRODWRITE [R5]: 123 values -> quantity 123 (byteCount 246 derived), full list projected
+PRODWRITE [R5]: summary scrolled end=1599 then back to 0; viewport=120; window unchanged
+PRODWRITE [R6]: N=1 boundary ADU = 11 10 00 01 00 01 02 00 07 2B 83
+PRODWRITE [R6]: N=1 echo -> one more FC16 Success (2 rows total)
+PRODWRITE [R7]: no prepared token, as required
+PRODWRITE [R7]: values="12x" -> InvalidCharacter on 'values', no dialog, 0 attempt, 0 send, no notice
+PRODWRITE [R8]: FC06 <-> FC16 drafts preserved field by field (incl. raw values text), no side effects
+PRODWRITE [R9]: FC16 tab reached by Tab after 16 press(es); no inactive-tab FC16 input appeared
+PRODWRITE [R9]: Space activated the FC16 tab
+PRODWRITE [R9]: Unit / Start / Values all reached by Tab
+PRODWRITE [R9]: values editor released Tab; Write button reached
+PRODWRITE [R9]: keyboard Write -> confirmation Prepared, 0 dispatch
+PRODWRITE [R9]: full keyboard chain -> exactly one dispatch of the canonical 13-byte ADU
+PRODWRITE [R10]: FC16 Escape -> no dispatch, dialog closed, draft preserved
+PRODWRITE [R10]: keyboard Cancel -> 0 dispatch, Invalidated, draft preserved
+PRODWRITE [R12]: sourceKind=Replay; write10Supported=true; tabs/tab10/editor present; draft preserved; Write disabled (serialConnected=0, serialBusy=0)
+PRODWRITE [R12]: activation under Replay produced 0 prepare / 0 attempt / 0 send / 0 transaction / 0 terminal
+PRODWRITE [R13]: Active Serial restored -> Write re-enabled, capability unchanged, draft preserved
+PRODWRITE [R11]: capability invariant across disconnect/connect/Clear/diagnosis/Simulator/nav; controls disabled (not removed) when disconnected
+PRODWRITE [R14]: open failure -> connection error visible inside the Connection section, above the Request section
+PRODWRITE [R15]: open port without a remote slave -> serialConnected=1, UI says 串口已打开, no "已连接" claim anywhere, Read/Write enabled
+[HARNESS] read-start #1 begin_ok=1 qty=2 wire=8B pending_before=0
+PRODWRITE [R15]: silent slave -> exactly one Timeout; local port still OPEN (串口已打开), Read/Write still enabled, no transport error
+PRODWRITE [R15]: adapter removal -> serialConnected 1->0, 串口未打开, chip gone, Read/Write disabled, prepared snapshot invalidated(disconnected)
+PRODWRITE [R15]: reconnect -> 串口已打开, Read/Write enabled again, and the pre-removal confirmation did NOT revive
+[HARNESS] read-start #2 begin_ok=0 qty=2 wire=8B pending_before=0
+[HARNESS] read-start rejected: session refused beginActiveRequest
+[R7R16] after click: busy=0 readStarts=2 portOpen=1
+PRODWRITE [R16]: pending request + local loss -> exactly one TransportError/PossiblySent terminal, no record, no Timeout, no Success
+PRODWRITE [R16]: reinsert + Refresh Ports -> still 串口未打开, no auto-reconnect, no new session, Read/Write still disabled
+PRODWRITE [R17]: confirmation PDU preview = 10 00 01 00 02 04 00 70 04 C6
+PRODWRITE [R17]: FC16 no-response dispatch -> exactly one Timeout + user-visible write-unknown notice [响应超时，设备写入状态未知；如需重试，请重新确认写入。]
+PRODWRITE [R17]: dialog closed; the write-unknown notice stays visible
+PRODWRITEFAIL: PRODWRITEFAIL R16: no pending request to lose
+PRODWRITEFAIL: PRODWRITEFAIL R16: terminals=0, expected one more

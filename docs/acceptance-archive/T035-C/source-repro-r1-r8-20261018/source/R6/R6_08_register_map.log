@@ -1,0 +1,32 @@
+QFontDatabase: Cannot find font directory D:/QT/6.11.1/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+REG: stage 0: Device workspace reachable
+REG: stage 1: seeded profile open
+REG: stage 2: register map visible with seed row
+REG: stage 3: editor opens; FC empty; count=1
+REG: stage 4: 1-word wordOrder N/A; byteOrder on
+REG: stage 5: Float32 ¡ú count=2; wordOrder on
+REG: stage 6: back to UInt16
+REG: stage 7: FC04@1000 added; profile dirty
+REG: stage 8: same-FC duplicate refused
+REG: stage 9: same-FC overlap refused
+REG: stage 10: invalid FC refused; input kept
+REG: stage 11: entry edited in place
+REG: stage 12: save persisted the register map
+REG: stage 13: open restored the register map
+REG: stage 14: entry deleted; save persists
+REG: stage 15: window resized to 1000x700
+REGGEO profileRegisterCard: x=666 y=118 w=330 h=277
+REGGEO profileRegisterList: x=678 y=214 w=306 h=169
+REGGEO profileRegisterAddButton: x=678 y=153 w=50 h=34
+REGGEO profileRegisterEditButton: x=736 y=153 w=50 h=34
+REGGEO profileRegisterDeleteButton: x=794 y=153 w=50 h=34
+REGGEO entryEditorDialog: x=89.5 y=73.5 w=879 h=595
+SCROLLDIAG before: contentY=0 contentHeight=627 viewport=513 maxY=114
+SCROLLDIAG after: contentY=114 fieldRect=x257.5 y584.5 w705 h32 insideWindow=1 insideDialog=1 enabled=1
+SCROLLDIAG viewportLocal: y=481 h=32 viewportH=513 insideViewport=1
+SCROLLDIAG focus=1
+REG: stage 16: 1000x700 reachable incl. dialog
+REG: stage 17: editor fields focusable
+REG: stage 18: identity editor unaffected
+REG: REGISTER MAP CHECK PASS (B2-Q01..Q30): map visible; add/edit/delete through the bounded dialog; FC keyboard-editable with no silent default; cross-FC same-address valid; same-FC duplicate/overlap refused with human-readable errors; derived read-only registerCount; 1-word wordOrder N/A shown disabled; 1000x700 incl. dialog reachable; dirty integration and save/open round-trip

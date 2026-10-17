@@ -1,0 +1,67 @@
+Internal ctest changing into directory: E:/desktop/ModbusLens/build/t035c-source-repro-20261017
+UpdateCTestConfiguration  from :E:/desktop/ModbusLens/build/t035c-source-repro-20261017/DartConfiguration.tcl
+Parse Config file:E:/desktop/ModbusLens/build/t035c-source-repro-20261017/DartConfiguration.tcl
+UpdateCTestConfiguration  from :E:/desktop/ModbusLens/build/t035c-source-repro-20261017/DartConfiguration.tcl
+Parse Config file:E:/desktop/ModbusLens/build/t035c-source-repro-20261017/DartConfiguration.tcl
+Test project E:/desktop/ModbusLens/build/t035c-source-repro-20261017
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 60
+    Start 60: qml_read_result_check
+
+60: Test command: E:\desktop\ModbusLens\build\t035c-source-repro-20261017\modbuslens.exe "--qml-read-result-check"
+60: Working Directory: E:/desktop/ModbusLens/build/t035c-source-repro-20261017
+60: Environment variables: 
+60:  QT_QPA_PLATFORM=offscreen
+60:  QT_ASSUME_STDERR_HAS_CONSOLE=1
+60: Environment variable modifications: 
+60:  PATH=path_list_prepend:D:/QT/Tools/mingw1310_64/bin
+60:  PATH=path_list_prepend:D:/QT/6.11.1/mingw_64/bin
+60: Test timeout computed to be: 1500
+60: QFontDatabase: Cannot find font directory D:/QT/6.11.1/mingw_64/lib/fonts.
+60: Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+60: READ [setup]: Communication current, harness transport connected, session=1
+60: READ [A]: summary=[��ȡ���������], details entry hidden, no value table
+60: READ [B/CLASS-01]: [���ڴ��󣺴�վ��ַ���� 1..247 ֮��] / δ����
+60: READ [C waiting]: summary=[��ȡ������ȴ���Ӧ], TX=[01 03 03 E8 00 02 44 7B] (== preview == encoder), RX=[δ�۲⵽�κ��ֽ�]
+60: READ [C/CLASS-10]: [�� 2 ���Ĵ�������ʱ 25 ms����] ֵ=100/200 ��ַ=1000/1001 RX=01 03 04 00 64 00 C8 BA 7A
+60: READ [C2]: evidence dialog opened from �鿴���� �� title/RX/TX/values all reachable
+60: READ [D/CLASS-03]: [�ڳ�ʱʱ����δ�۲⵽�κ��ֽڣ���ʱ 1000 ms����ʱ��ֵ 1000 ms����]
+60: READ [E/CLASS-04]: [�۲⵽ 2 �ֽڣ����� Modbus RTU ��С֡����4 �ֽڣ�����ʱ 1000 ms����] RX=[01 03]
+60: READ [F/CLASS-05]: [�豸���� Modbus �쳣��Ӧ���쳣�� 0x02���Ƿ����ݵ�ַ��Illegal Data Address��������ʱ 25 ms��]
+60: READ [G/CLASS-06]: [�۲⵽ 9 �ֽڣ����� CRC ��֡���ݲ�һ�£���ʱ 25 ms����] RX=[01 03 04 00 64 00 C8 BA 85]
+60: READ [H/CLASS-07]: [��Ӧ��ַ��ƥ�䣨���� 0x01 / ��Ӧ 0x02��]
+60: READ [H2/CLASS-07 quantity]: [�Ĵ���������ƥ�䣨���� 4 / ��Ӧ 2��] (payload kept uninterpreted)
+60: READ [I/CLASS-08]: [������Ӧ��ʽ�Ƿ�]
+60: READ [J/CLASS-02]: [�������ύ����ֹ��δ�۲⵽�κ���Ӧ�ֽڡ�]
+60: READ [geometry 1024x720 125-reg]: window=1024x720 communicationRequestSection=(73,192 935x131) readResultPanel=(85,300 911x11) readResultSummary=(85,300 110x11) readResultSummaryFact=(203,300 741x11) readResultDetailsButton=(952,300 44x11) commReadButton=(916,236 80x24) writeFoundationPanel=(73,352 935x148) writeValidationError=<hidden> writeActivateButton=(85,454 50x34)
+60: READ [geometry 1000x700 125-reg]: window=1000x700 communicationRequestSection=(73,192 911x131) readResultPanel=(85,300 887x11) readResultSummary=(85,300 110x11) readResultSummaryFact=(203,300 717x11) readResultDetailsButton=(928,300 44x11) commReadButton=(892,236 80x24) writeFoundationPanel=(73,352 911x148) writeValidationError=<hidden> writeActivateButton=(85,454 50x34)
+60: READ [K geometry]: every read-result control and the write panel are inside 1000x700
+60: READ [K dialog]: 125-register evidence view reachable and scrollable at 1000x700
+60: READ [M1/READ-FC2]: function input 04 -> PDU/RTU/TX byte 04, expected response 04, registers decoded
+60: READ [M2/READ-FC3]: custom function 0x41 -> same register-read schema, conforming reply succeeds
+60: READ [M3/READ-FC6]: function text [GG] -> ����δ����, zero sends
+60: READ [M4/READ-FC7]: start text [12x] -> ����δ����, zero sends
+60: READ [M5/READ-FC8]: baud options [1200,2400,4800,9600,19200,38400,57600,115200], default 9600
+60: READ [M6/M11]: default decode = UInt16 + normal; raw 0x1234 -> derived 4660, raw columns intact
+60: READ [M7/M11]: decode controls present; defaults = UInt16 / ����
+60: READ [M8/M11]: Hex view = derived 0x1234; raw columns unchanged
+60: READ [M9/M11]: byte-swapped view = 13330; raw HEX still 0x1234 (device answer untouched)
+60: READ [L]: the read result is cleared with its source and no hex is fabricated for Simulator/Replay
+60: READFAIL: READFAIL K: value count is 0, expected 125
+60: READFAIL: READFAIL K: the 125-register table is not visible at 1000x700
+1/1 Test #60: qml_read_result_check ............***Failed    7.36 sec
+
+0% tests passed, 1 tests failed out of 1
+
+Total Test time (real) =   7.53 sec
+
+The following tests FAILED:
+	 60 - qml_read_result_check (Failed)
+Errors while running CTest
+Output from these tests are in: E:/desktop/ModbusLens/build/t035c-source-repro-20261017/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.

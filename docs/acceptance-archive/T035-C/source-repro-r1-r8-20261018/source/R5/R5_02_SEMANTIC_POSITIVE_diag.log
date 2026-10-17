@@ -1,0 +1,30 @@
+QFontDatabase: Cannot find font directory D:/QT/6.11.1/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+ACT: stage 0: Communication workspace reachable
+ACT: stage 1: selector visible; startup = none
+ACT: stage 2: valid rows only (malformed excluded)
+ACT: stage 3: A selected by profileId
+ACT: stage 4: selection survives navigation
+ACT: stage 5: open-for-edit B keeps active A
+ACT: stage 6: unsaved B edit keeps active A
+ACT: stage 7: save B; duplicate names disambiguated
+ACT: stage 8: duplicate names independently selectable
+ACT: stage 9: clear through the selector
+ACT: stage 10: delete non-active B keeps A
+ACT: stage 11: active renamed; label refreshed
+ACT: stage 12: delete active ¡ú selector cleared
+[SEMDIAG] hit=engineeringSemanticNotice visible=0 chain=<QQuickColumnLayout> < Frame < engineeringValueBox < <QQuickColumnLayout> < engineeringWorkspace < workspaceHost < <QQuickRowLayout> < <QQuickColumnLayout> < ApplicationWindow < ApplicationWindowContentControl < Main
+ACT: stage 13: no semantic overlay
+ACT: stage 14: request controls visible
+ACT: stage 15: window resized to 1000x700
+ACTGEO communicationProfileSelectorRow: x=73 y=141 w=554 h=24
+ACTGEO commProfileSelectorLabel: x=73 y=147 w=72 h=12
+ACTGEO commProfileSelector: x=157 y=141 w=260 h=24
+ACTGEO communicationConnectionSection: x=73 y=87 w=911 h=48
+ACTGEO commStartField: x=138 y=236 w=110 h=24
+ACTGEO commReadButton: x=892 y=236 w=80 h=24
+ACTGEO readResultPanel: x=85 y=300 w=77 h=11
+ACT: stage 16: 1000x700 selector + controls reachable
+ACT: stage 17: selector focusable
+ACT: stage 18: profile editor unaffected
+ACTFAIL: a semantic overlay object appeared

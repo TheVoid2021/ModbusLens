@@ -1,0 +1,8 @@
+Internal ctest changing into directory: E:/desktop/ModbusLens/build/t035c-source-fix-r8-20261017
+Test project E:/desktop/ModbusLens/build/t035c-source-fix-r8-20261017
+    Start 39: manual_import_pdf_docx
+1/1 Test #39: manual_import_pdf_docx ...........   Passed    1.90 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   2.05 sec

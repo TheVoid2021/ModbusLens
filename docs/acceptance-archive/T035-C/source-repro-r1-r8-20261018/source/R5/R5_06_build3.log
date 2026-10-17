@@ -1,0 +1,60 @@
+ninja: Entering directory `build/t035c-source-fix-20261017'
+[1/50] Automatic MOC and UIC for target modbuslens
+[2/49] Running AUTOMOC file extraction for target modbuslens
+[3/4] Building CXX object CMakeFiles/modbuslens.dir/src/main.cpp.obj
+E:/desktop/ModbusLens/src/main.cpp: In lambda function:
+E:/desktop/ModbusLens/src/main.cpp:4824:19: warning: unused variable 'lst' [-Wunused-variable]
+ 4824 |             auto *lst = qobject_cast<QQuickItem *>(
+      |                   ^~~
+E:/desktop/ModbusLens/src/main.cpp:2619:19: warning: unused variable 'dashboardIndex' [-Wunused-variable]
+ 2619 |         const int dashboardIndex =
+      |                   ^~~~~~~~~~~~~~
+E:/desktop/ModbusLens/src/main.cpp:2621:19: warning: unused variable 'communicationIndex' [-Wunused-variable]
+ 2621 |         const int communicationIndex =
+      |                   ^~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int {anonymous}::runEvidenceCapture(QQmlApplicationEngine&, QGuiApplication&, const QString&)':
+E:/desktop/ModbusLens/src/main.cpp:13577:30: warning: explicit by-reference capture of 'dir' redundant with by-reference capture default
+13577 |     auto grab = [&, window, &dir](const QString &tag) {
+      |                              ^~~
+E:/desktop/ModbusLens/src/main.cpp:13815:10: warning: variable 'isUnder' set but not used [-Wunused-but-set-variable]
+13815 |     auto isUnder = [](QQuickItem *item, QQuickItem *ancestor) {
+      |          ^~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In lambda function:
+E:/desktop/ModbusLens/src/main.cpp:14912:13: warning: suggest braces around empty body in an 'if' statement [-Wempty-body]
+14912 |             ; // the click on a DISABLED button must not dispatch anything
+      |             ^
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runC2ReadCheck(QQmlApplicationEngine&, QGuiApplication&, modbuslens::ui::EngineeringReadController*)':
+E:/desktop/ModbusLens/src/main.cpp:14757:16: warning: variable 'propOf' set but not used [-Wunused-but-set-variable]
+14757 |     const auto propOf = [&itemOf](const QString &name,
+      |                ^~~~~~
+E:/desktop/ModbusLens/src/main.cpp:14762:16: warning: variable 'clickGate' set but not used [-Wunused-but-set-variable]
+14762 |     const auto clickGate = [&]() -> bool {
+      |                ^~~~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runProfileEditorCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:16477:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+16477 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runRegisterMapCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:17122:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+17122 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runActiveProfileCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:17813:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+17813 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In member function 'virtual bool runConsentCheck(QQmlApplicationEngine&, QGuiApplication&)::BlockingConsentRunner::begin(const modbuslens::core::ExtractionRequest&, uint64_t, const modbuslens::ui::ICandidateExtractionRunner::CompletionHandler&)':
+E:/desktop/ModbusLens/src/main.cpp:17973:56: warning: unused parameter 'request' [-Wunused-parameter]
+17973 |             const modbuslens::core::ExtractionRequest &request,
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runManualImportCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:21793:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+21793 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runProfileSemanticCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:22594:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+22594 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp:22045:16: warning: variable 'setField' set but not used [-Wunused-but-set-variable]
+22045 |     const auto setField = [&roots](const QString &name, const QString &text) {
+      |                ^~~~~~~~
+[4/4] Linking CXX executable modbuslens.exe

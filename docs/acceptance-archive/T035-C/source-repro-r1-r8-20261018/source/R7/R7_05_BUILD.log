@@ -1,0 +1,195 @@
+ninja: Entering directory `build/t035c-source-diagnostic-r7-20261017'
+[1/129] Copying modbuslens qml sources into build dir
+[2/129] Copying modbuslens qml resources into build dir
+[3/129] Populating .qmlls.ini file at E:/desktop/ModbusLens/build/t035c-source-diagnostic-r7-20261017/.qt/.qmlls.build.ini
+[4/129] Automatic MOC and UIC for target modbuslens_core
+[5/129] Building CXX object CMakeFiles/modbuslens_core.dir/modbuslens_core_autogen/mocs_compilation.cpp.obj
+[6/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/ModbusCrc.cpp.obj
+[7/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/ModbusRtuCodec.cpp.obj
+[8/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/Function03.cpp.obj
+[9/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/Function06.cpp.obj
+[10/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/Function16.cpp.obj
+[11/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/simulator/SimulatedSlave.cpp.obj
+[12/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/simulator/SimulationFault.cpp.obj
+[13/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/profile/DeviceProfile.cpp.obj
+[14/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/profile/RegisterReadiness.cpp.obj
+[15/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/manual/ManualDocument.cpp.obj
+[16/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/candidate/CandidateExtraction.cpp.obj
+[17/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/candidate/ProviderExtractionContract.cpp.obj
+[18/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/manualqa/ManualQaContract.cpp.obj
+[19/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/TransactionProvenance.cpp.obj
+[20/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/ReadRequestParsing.cpp.obj
+[21/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/TransactionAnalysis.cpp.obj
+[22/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/TransactionStatistics.cpp.obj
+[23/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/PassiveTransactionAnalysis.cpp.obj
+[24/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/RegisterDecode.cpp.obj
+E:/desktop/ModbusLens/src/core/analysis/RegisterDecode.cpp: In function 'modbuslens::core::RegisterDecodedWord modbuslens::core::decodeRegisterWord(uint16_t, RegisterDecodeType, RegisterByteOrder)':
+E:/desktop/ModbusLens/src/core/analysis/RegisterDecode.cpp:110:12: warning: enumeration value 'UInt32' not handled in switch [-Wswitch]
+  110 |     switch (type) {
+      |            ^
+E:/desktop/ModbusLens/src/core/analysis/RegisterDecode.cpp:110:12: warning: enumeration value 'Int32' not handled in switch [-Wswitch]
+E:/desktop/ModbusLens/src/core/analysis/RegisterDecode.cpp:110:12: warning: enumeration value 'Float32' not handled in switch [-Wswitch]
+[25/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/ActiveTransactionEvidence.cpp.obj
+[26/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/ActiveRequestIntent.cpp.obj
+[27/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/WriteDraftParsing.cpp.obj
+[28/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/WritePrepareValidation.cpp.obj
+[29/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/replay/ReplayLog.cpp.obj
+[30/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/PreparedWriteSnapshot.cpp.obj
+[31/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/replay/ReplayAnalysis.cpp.obj
+[32/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/diagnosis/DiagnosisContext.cpp.obj
+[33/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/diagnosis/RuleBasedDiagnosis.cpp.obj
+[34/129] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/serial/SerialTransactionSession.cpp.obj
+[35/129] Linking CXX static library libmodbuslens_core.a
+[36/129] Running qmlimportscanner for modbuslens
+[37/129] Automatic MOC and UIC for target modbuslens
+[38/129] Running AUTOMOC file extraction for target modbuslens
+[39/129] Running rcc for resource qmake_ModbusLens
+[40/129] Generating .rcc/qmlcache/modbuslens_qmlcache_loader.cpp
+[41/129] Running rcc for resource modbuslens_raw_qml_0
+[42/129] Running rcc for resource modbuslens_raw_res_0
+[43/129] Running moc --collect-json for target modbuslens
+[44/129] Automatic QML type registration for target modbuslens
+[45/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/Main_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/Main_qml.cpp.aotstats
+[46/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/DS/DesignSystem_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/DS/DesignSystem_qml.cpp.aotstats
+[47/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/AppButton_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/AppButton_qml.cpp.aotstats
+[48/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/DecimalField_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/DecimalField_qml.cpp.aotstats
+[49/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/NavigationRail_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/NavigationRail_qml.cpp.aotstats
+[50/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/PanelCard_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/PanelCard_qml.cpp.aotstats
+[51/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/SectionHeader_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/SectionHeader_qml.cpp.aotstats
+[52/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/StatCard_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/StatCard_qml.cpp.aotstats
+[53/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsMetrics_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsMetrics_qml.cpp.aotstats
+[54/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOutcomes_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOutcomes_qml.cpp.aotstats
+[55/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/OutcomeDistribution_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/OutcomeDistribution_qml.cpp.aotstats
+[56/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOverview_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOverview_qml.cpp.aotstats
+[57/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/WriteFoundationSection_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/WriteFoundationSection_qml.cpp.aotstats
+[58/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/DashboardPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/DashboardPage_qml.cpp.aotstats
+[59/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/CommunicationPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/CommunicationPage_qml.cpp.aotstats
+[60/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/ReplayPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/ReplayPage_qml.cpp.aotstats
+[61/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/DiagnosisPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/DiagnosisPage_qml.cpp.aotstats
+[62/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/TransactionsPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/TransactionsPage_qml.cpp.aotstats
+[63/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/AiSettingsPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/AiSettingsPage_qml.cpp.aotstats
+[64/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/DeviceProfilePage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/DeviceProfilePage_qml.cpp.aotstats
+[65/129] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/EngineeringPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/EngineeringPage_qml.cpp.aotstats
+[66/129] Building RC object CMakeFiles/modbuslens.dir/generated/ModbusLens.rc.obj
+[67/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.qt/rcc/qrc_qmake_ModbusLens.cpp.obj
+[68/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[69/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[70/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[71/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/candidate/CandidateProviderRunner.cpp.obj
+[72/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/DiagnosisAsyncClient.cpp.obj
+[73/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualImportController.cpp.obj
+[74/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualStore.cpp.obj
+[75/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[76/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/AiSettingsController.cpp.obj
+E:/desktop/ModbusLens/src/ui/ai/AiSettingsController.cpp: In member function 'virtual void modbuslens::ui::{anonymous}::SyncAdapterTestConnectionClient::cancel(int)':
+E:/desktop/ModbusLens/src/ui/ai/AiSettingsController.cpp:44:21: warning: unused parameter 'requestId' [-Wunused-parameter]
+   44 |     void cancel(int requestId) override { ++cancelCount; }
+      |                 ~~~~^~~~~~~~~
+[77/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/engineering/EngineeringReadController.cpp.obj
+[78/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/AiTestConnection.cpp.obj
+[79/129] Building CXX object CMakeFiles/modbuslens.dir/modbuslens_qmltyperegistrations.cpp.obj
+[80/129] Building CXX object CMakeFiles/modbuslens.dir/modbuslens_autogen/mocs_compilation.cpp.obj
+[81/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/candidate/CandidateExtractionController.cpp.obj
+[82/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/WindowsAiCredentialStore.cpp.obj
+[83/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[84/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/AnalysisController.cpp.obj
+[85/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[86/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[87/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/serial/SerialTransport.cpp.obj
+[88/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentToolContext.cpp.obj
+[89/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[90/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manualqa/ManualQaController.cpp.obj
+[91/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/profile/ProfileStore.cpp.obj
+[92/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manualqa/ManualQaAsyncRunner.cpp.obj
+[93/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[94/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/TransactionListModel.cpp.obj
+[95/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/profile/ProfileController.cpp.obj
+[96/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/DiagnosisPromptBuilder.cpp.obj
+[97/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[98/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[99/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentTools.cpp.obj
+[100/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[101/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[102/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentRuntime.cpp.obj
+[103/129] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[104/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/Main_qml.cpp.obj
+[105/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_qmlcache_loader.cpp.obj
+[106/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/DecimalField_qml.cpp.obj
+[107/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/AppButton_qml.cpp.obj
+[108/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/DS/DesignSystem_qml.cpp.obj
+[109/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/NavigationRail_qml.cpp.obj
+[110/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/PanelCard_qml.cpp.obj
+[111/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/SectionHeader_qml.cpp.obj
+[112/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOutcomes_qml.cpp.obj
+[113/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsMetrics_qml.cpp.obj
+[114/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/StatCard_qml.cpp.obj
+[115/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/OutcomeDistribution_qml.cpp.obj
+[116/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.qt/rcc/qrc_modbuslens_raw_qml_0.cpp.obj
+[117/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.qt/rcc/qrc_modbuslens_raw_res_0.cpp.obj
+[118/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOverview_qml.cpp.obj
+[119/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/WriteFoundationSection_qml.cpp.obj
+[120/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/DashboardPage_qml.cpp.obj
+[121/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/CommunicationPage_qml.cpp.obj
+[122/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/ReplayPage_qml.cpp.obj
+[123/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/DiagnosisPage_qml.cpp.obj
+[124/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/TransactionsPage_qml.cpp.obj
+[125/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/AiSettingsPage_qml.cpp.obj
+[126/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/EngineeringPage_qml.cpp.obj
+[127/129] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-diagnostic-r7-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/DeviceProfilePage_qml.cpp.obj
+[128/129] Building CXX object CMakeFiles/modbuslens.dir/src/main.cpp.obj
+E:/desktop/ModbusLens/src/main.cpp: In lambda function:
+E:/desktop/ModbusLens/src/main.cpp:4824:19: warning: unused variable 'lst' [-Wunused-variable]
+ 4824 |             auto *lst = qobject_cast<QQuickItem *>(
+      |                   ^~~
+E:/desktop/ModbusLens/src/main.cpp:2619:19: warning: unused variable 'dashboardIndex' [-Wunused-variable]
+ 2619 |         const int dashboardIndex =
+      |                   ^~~~~~~~~~~~~~
+E:/desktop/ModbusLens/src/main.cpp:2621:19: warning: unused variable 'communicationIndex' [-Wunused-variable]
+ 2621 |         const int communicationIndex =
+      |                   ^~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int {anonymous}::runEvidenceCapture(QQmlApplicationEngine&, QGuiApplication&, const QString&)':
+E:/desktop/ModbusLens/src/main.cpp:13614:30: warning: explicit by-reference capture of 'dir' redundant with by-reference capture default
+13614 |     auto grab = [&, window, &dir](const QString &tag) {
+      |                              ^~~
+E:/desktop/ModbusLens/src/main.cpp:13852:10: warning: variable 'isUnder' set but not used [-Wunused-but-set-variable]
+13852 |     auto isUnder = [](QQuickItem *item, QQuickItem *ancestor) {
+      |          ^~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In lambda function:
+E:/desktop/ModbusLens/src/main.cpp:14949:13: warning: suggest braces around empty body in an 'if' statement [-Wempty-body]
+14949 |             ; // the click on a DISABLED button must not dispatch anything
+      |             ^
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runC2ReadCheck(QQmlApplicationEngine&, QGuiApplication&, modbuslens::ui::EngineeringReadController*)':
+E:/desktop/ModbusLens/src/main.cpp:14794:16: warning: variable 'propOf' set but not used [-Wunused-but-set-variable]
+14794 |     const auto propOf = [&itemOf](const QString &name,
+      |                ^~~~~~
+E:/desktop/ModbusLens/src/main.cpp:14799:16: warning: variable 'clickGate' set but not used [-Wunused-but-set-variable]
+14799 |     const auto clickGate = [&]() -> bool {
+      |                ^~~~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runProfileEditorCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:16514:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+16514 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runRegisterMapCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:17203:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+17203 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runActiveProfileCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:17894:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+17894 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In member function 'virtual bool runConsentCheck(QQmlApplicationEngine&, QGuiApplication&)::BlockingConsentRunner::begin(const modbuslens::core::ExtractionRequest&, uint64_t, const modbuslens::ui::ICandidateExtractionRunner::CompletionHandler&)':
+E:/desktop/ModbusLens/src/main.cpp:18054:56: warning: unused parameter 'request' [-Wunused-parameter]
+18054 |             const modbuslens::core::ExtractionRequest &request,
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runManualImportCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:21874:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+21874 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runProfileSemanticCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:22675:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+22675 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp:22126:16: warning: variable 'setField' set but not used [-Wunused-but-set-variable]
+22126 |     const auto setField = [&roots](const QString &name, const QString &text) {
+      |                ^~~~~~~~
+[129/129] Linking CXX executable modbuslens.exe

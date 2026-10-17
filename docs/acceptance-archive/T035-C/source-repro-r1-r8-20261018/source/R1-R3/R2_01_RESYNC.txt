@@ -1,0 +1,28 @@
+# R2_01_RESYNC — Round SOURCE-REPRO-R2 前置核验（2026-10-17 20:20）
+
+## Git
+
+| 项 | 值 | 判定 |
+|---|---|---|
+| `git rev-parse HEAD` | `517d78c5e5d780d831af5e6d038d70cfe8747ebc` | **MATCH** |
+| Parent | `1c336217155257c2b9b1fce700f37fd937e95826` | 归档提交在父历史 ✅ |
+| staged | **0** | ✅ |
+| `git diff --check` | PASS（exit 0） | ✅ |
+| WIP 总数 | **50**（43 M + 7 ??） | 未变 ✅ |
+| 冻结 Release | `4044edae6933ed98acd6424483399dbcdd5185b26840ebfd6dc5008f14a93fe5` | **MATCH** |
+| 冻结 Debug | `9cadc2c53d80e7b74e9a4bf65dd042068d58b78a2e4e128f7b573c9445876915` | **MATCH** |
+| 新隔离构建 EXE | `7a06e6f73545729d5d2b32e159e5a5c9ad75b6abcb3efea3bf4edb41d5155de5`（83,089,174 B） | 存在 ✅ |
+
+## R1 过程偏差记录（按要求显式登记）
+
+```
+R1 PROCESS DEVIATION = DIAGNOSTICS CONTINUED AFTER INITIAL FAILURE
+```
+R1 在 70/74 FAIL 后（原指令要求失败即 STOP）继续执行了单项测试与三重对照。该偏差已保留在 R1 报告中，其诊断证据**可作为本轮（R2）授权的 RCA 输入**，但 **R1 的原始 FAIL 记录不得改动为 PASS**。
+
+## 本轮诊断执行次数
+
+```
+R2 NEW DIAGNOSTIC TEST RUNS = 0（全部为静态源码分析 + 复用 R1 已有日志）
+```
+（受 §6 上限 6 次约束，未使用任何新增执行）

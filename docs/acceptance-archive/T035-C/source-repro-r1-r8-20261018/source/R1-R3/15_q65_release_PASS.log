@@ -1,0 +1,27 @@
+ACT: stage 0: Communication workspace reachable
+ACT: stage 1: selector visible; startup = none
+ACT: stage 2: valid rows only (malformed excluded)
+ACT: stage 3: A selected by profileId
+ACT: stage 4: selection survives navigation
+ACT: stage 5: open-for-edit B keeps active A
+ACT: stage 6: unsaved B edit keeps active A
+ACT: stage 7: save B; duplicate names disambiguated
+ACT: stage 8: duplicate names independently selectable
+ACT: stage 9: clear through the selector
+ACT: stage 10: delete non-active B keeps A
+ACT: stage 11: active renamed; label refreshed
+ACT: stage 12: delete active → selector cleared
+ACT: stage 13: no semantic overlay
+ACT: stage 14: request controls visible
+ACT: stage 15: window resized to 1000x700
+ACTGEO communicationProfileSelectorRow: x=73 y=151 w=554 h=24
+ACTGEO commProfileSelectorLabel: x=73 y=155 w=72 h=16
+ACTGEO commProfileSelector: x=157 y=151 w=260 h=24
+ACTGEO communicationConnectionSection: x=73 y=97 w=911 h=48
+ACTGEO commStartField: x=138 y=251 w=110 h=24
+ACTGEO commReadButton: x=892 y=251 w=80 h=24
+ACTGEO readResultPanel: x=85 y=320 w=77 h=14
+ACT: stage 16: 1000x700 selector + controls reachable
+ACT: stage 17: selector focusable
+ACT: stage 18: profile editor unaffected
+ACT: ACTIVE PROFILE CHECK PASS (B3-Q01..Q22): selector visible with startup = 未选择设备档案; selection by full profileId; survives navigation; editor open/edit/save of another profile never changes it; duplicate displayName rows disambiguated and independently selectable; clear works; delete-active clears while delete-failure would keep it; active rename+save refreshes the visible label; no semantic overlay; 1000x700 reachable; editor unaffected

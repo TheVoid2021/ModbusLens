@@ -1,0 +1,30 @@
+READ [setup]: Communication current, harness transport connected, session=1
+READ [A]: summary=[读取结果：尚无], details entry hidden, no value table
+READ [B/CLASS-01]: [串口错误：从站地址须在 1..247 之间] / 未发送
+READ [C waiting]: summary=[读取结果：等待响应], TX=[01 03 03 E8 00 02 44 7B] (== preview == encoder), RX=[未观测到任何字节]
+READ [C/CLASS-10]: [共 2 个寄存器（耗时 25 ms）。] 值=100/200 地址=1000/1001 RX=01 03 04 00 64 00 C8 BA 7A
+READ [C2]: evidence dialog opened from 查看详情 — title/RX/TX/values all reachable
+READ [D/CLASS-03]: [在超时时间内未观测到任何字节（耗时 1000 ms，超时阈值 1000 ms）。]
+READ [E/CLASS-04]: [观测到 2 字节，少于 Modbus RTU 最小帧长（4 字节）（耗时 1000 ms）。] RX=[01 03]
+READ [F/CLASS-05]: [设备返回 Modbus 异常响应：异常码 0x02（非法数据地址（Illegal Data Address）），耗时 25 ms。]
+READ [G/CLASS-06]: [观测到 9 字节，但其 CRC 与帧内容不一致（耗时 25 ms）。] RX=[01 03 04 00 64 00 C8 BA 85]
+READ [H/CLASS-07]: [响应地址不匹配（请求 0x01 / 响应 0x02）]
+READ [H2/CLASS-07 quantity]: [寄存器数量不匹配（请求 4 / 响应 2）] (payload kept uninterpreted)
+READ [I/CLASS-08]: [正常响应格式非法]
+READ [J/CLASS-02]: [传输在提交后中止，未观测到任何响应字节。]
+READ [geometry 1024x720 125-reg]: window=1024x720 communicationRequestSection=(73,207 935x139) readResultPanel=(85,320 911x14) readResultSummary=(85,320 110x14) readResultSummaryFact=(203,320 741x14) readResultDetailsButton=(952,320 44x14) commReadButton=(916,251 80x24) writeFoundationPanel=(73,380 935x151) writeValidationError=<hidden> writeActivateButton=(85,485 50x34)
+READ [geometry 1000x700 125-reg]: window=1000x700 communicationRequestSection=(73,207 911x139) readResultPanel=(85,320 887x14) readResultSummary=(85,320 110x14) readResultSummaryFact=(203,320 717x14) readResultDetailsButton=(928,320 44x14) commReadButton=(892,251 80x24) writeFoundationPanel=(73,380 911x151) writeValidationError=<hidden> writeActivateButton=(85,485 50x34)
+READ [K geometry]: every read-result control and the write panel are inside 1000x700
+READ [K dialog]: 125-register evidence view reachable and scrollable at 1000x700
+READ [M1/READ-FC2]: function input 04 -> PDU/RTU/TX byte 04, expected response 04, registers decoded
+READ [M2/READ-FC3]: custom function 0x41 -> same register-read schema, conforming reply succeeds
+READ [M3/READ-FC6]: function text [GG] -> 请求未发送, zero sends
+READ [M4/READ-FC7]: start text [12x] -> 请求未发送, zero sends
+READ [M5/READ-FC8]: baud options [1200,2400,4800,9600,19200,38400,57600,115200], default 9600
+READ [M6/M11]: default decode = UInt16 + normal; raw 0x1234 -> derived 4660, raw columns intact
+READ [M7/M11]: decode controls present; defaults = UInt16 / 正常
+READ [M8/M11]: Hex view = derived 0x1234; raw columns unchanged
+READ [M9/M11]: byte-swapped view = 13330; raw HEX still 0x1234 (device answer untouched)
+READ [L]: the read result is cleared with its source and no hex is fabricated for Simulator/Replay
+READFAIL: READFAIL K: value count is 0, expected 125
+READFAIL: READFAIL K: the 125-register table is not visible at 1000x700

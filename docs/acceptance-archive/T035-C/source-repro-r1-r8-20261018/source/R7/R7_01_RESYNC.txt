@@ -1,0 +1,52 @@
+# R7_01 / R7_02 / R7_03 — Resync + C35/R16 静态审计
+
+## R7_01 — Trusted Resync
+
+| 项 | 值 |
+|---|---|
+| HEAD | `517d78c5e5d780d831af5e6d038d70cfe8747ebc`（MATCH） |
+| branch | `main` |
+| staged | **0** |
+| `git diff --check` | **PASS** |
+| WIP | **50**（R7 基线已存 `%TEMP%/r7_baseline.json`，`main.cpp` 起始 `32c36216…`） |
+| 冻结 Release / Debug | `4044edae…` / `9cadc2c5…` **MATCH** |
+
+## R7_02 — C35 静态审计
+
+**场景源码（`src/main.cpp:6385-6405`）**
+```
+push1: setDraft("valueText06",1234) → activateWrite()（prepared 快照）
+       → setCompleteReadImmediately(false) → readHoldingRegistersOnce(1,0,2,1000)
+push2: setCompleteReadImmediately(true) → transport->completeRead()
+       → controller->disconnectSerial()
+       → assert preparedWriteInvalidReasonToken() == "busy_became_true"
+```
+**断言语义**：`busy_became_true` 应在 read 让 `serialBusy()` 由 false→true 时写入（C13 已证该机制存在）。
+
+**Reason 相关写入点**（只读清点）：
+- `busy→true`：AnalysisController 在 `readHoldingRegistersOnce` 接受后 invalidate prepared snapshot → 写入 `busy_became_true`
+- `disconnectSerial()` → `closePort()` + 写 `disconnected`
+- **`HarnessWriteTransport::startActiveRequest` 若拒绝（NotSent）⇒ busy 不变 ⇒ reason 不写**
+
+**REASON_PRECEDENCE 契约（从源码可判）**：`busy_became_true` 优先于 `disconnected`（C11/C14 场景已固定该语义），**前提是 `busy_became_true` 曾真实写入**。
+
+## R7_03 — R16 静态审计
+
+**场景源码（`src/main.cpp:9951-9985`）**
+```
+resetWrite()
+terminalsBefore = activeSerialTerminalCount()
+clickNamed("commReadButton")      ← 期望「accepted → pending」
+setCompleteReadImmediately(true)
+if (!controller->serialBusy()) fail("no pending request to lose")
+simulateAdapterRemoval(...)       ← 期望产生 exactly 1 terminal
+```
+**断言语义**：点击必须真正被 transport 接受（`PossiblySent` + pending 建立 + busy=true），否则 `simulateAdapterRemoval` 无 pending 可终止 ⇒ `terminals=0`（**两条失败是同一原因的两个症状**）。
+
+## 附：本轮诊断改动（instrumentation-only）
+
+`src/main.cpp` 两处 `qEnvironmentVariableIsSet("MODBUSLENS_HARNESS_TRACE")` 守卫的 `qWarning`：
+- C35 `push2`：`completeRead()` 后 / `disconnectSerial()` 后各打印 `busy / reason / terminals`
+- R16：`click` 后打印 `busy / readStarts / portConnected`
+
+**无任何行为改动**（无 cancel、无 retry、无 pending/reason 修改）。

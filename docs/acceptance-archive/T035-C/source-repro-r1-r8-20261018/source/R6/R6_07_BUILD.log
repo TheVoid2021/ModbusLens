@@ -1,0 +1,943 @@
+ninja: Entering directory `build/t035c-source-repro-r6-20261017'
+[1/628] Copying modbuslens qml sources into build dir
+[2/628] Copying modbuslens qml resources into build dir
+[3/628] Populating .qmlls.ini file at E:/desktop/ModbusLens/build/t035c-source-repro-r6-20261017/.qt/.qmlls.build.ini
+[4/628] Automatic MOC and UIC for target modbuslens_core
+[5/628] Building CXX object CMakeFiles/modbuslens_core.dir/modbuslens_core_autogen/mocs_compilation.cpp.obj
+[6/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/ModbusCrc.cpp.obj
+[7/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/ModbusRtuCodec.cpp.obj
+[8/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/Function03.cpp.obj
+[9/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/Function06.cpp.obj
+[10/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/protocol/Function16.cpp.obj
+[11/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/simulator/SimulatedSlave.cpp.obj
+[12/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/profile/DeviceProfile.cpp.obj
+[13/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/profile/RegisterReadiness.cpp.obj
+[14/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/manual/ManualDocument.cpp.obj
+[15/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/candidate/CandidateExtraction.cpp.obj
+[16/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/candidate/ProviderExtractionContract.cpp.obj
+[17/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/manualqa/ManualQaContract.cpp.obj
+[18/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/TransactionProvenance.cpp.obj
+[19/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/ReadRequestParsing.cpp.obj
+[20/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/simulator/SimulationFault.cpp.obj
+[21/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/TransactionAnalysis.cpp.obj
+[22/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/PassiveTransactionAnalysis.cpp.obj
+[23/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/TransactionStatistics.cpp.obj
+[24/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/ActiveTransactionEvidence.cpp.obj
+[25/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/analysis/RegisterDecode.cpp.obj
+E:/desktop/ModbusLens/src/core/analysis/RegisterDecode.cpp: In function 'modbuslens::core::RegisterDecodedWord modbuslens::core::decodeRegisterWord(uint16_t, RegisterDecodeType, RegisterByteOrder)':
+E:/desktop/ModbusLens/src/core/analysis/RegisterDecode.cpp:110:12: warning: enumeration value 'UInt32' not handled in switch [-Wswitch]
+  110 |     switch (type) {
+      |            ^
+E:/desktop/ModbusLens/src/core/analysis/RegisterDecode.cpp:110:12: warning: enumeration value 'Int32' not handled in switch [-Wswitch]
+E:/desktop/ModbusLens/src/core/analysis/RegisterDecode.cpp:110:12: warning: enumeration value 'Float32' not handled in switch [-Wswitch]
+[26/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/WriteDraftParsing.cpp.obj
+[27/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/ActiveRequestIntent.cpp.obj
+[28/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/WritePrepareValidation.cpp.obj
+[29/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/active/PreparedWriteSnapshot.cpp.obj
+[30/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/replay/ReplayLog.cpp.obj
+[31/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/replay/ReplayAnalysis.cpp.obj
+[32/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/diagnosis/DiagnosisContext.cpp.obj
+[33/628] Automatic MOC and UIC for target modbuslens_manual_import_pdf_docx_tests
+[34/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/serial/SerialTransactionSession.cpp.obj
+[35/628] Building CXX object CMakeFiles/modbuslens_core.dir/src/core/diagnosis/RuleBasedDiagnosis.cpp.obj
+[36/628] Automatic MOC and UIC for target modbuslens_ai_settings_qml_tests
+[37/628] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/modbuslens_manual_import_pdf_docx_tests_autogen/mocs_compilation.cpp.obj
+[38/628] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/core/manual/ManualDocument.cpp.obj
+[39/628] Building CXX object CMakeFiles/modbuslens_ai_settings_qml_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[40/628] Linking CXX static library libmodbuslens_core.a
+[41/628] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[42/628] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[43/628] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[44/628] Building CXX object CMakeFiles/modbuslens_ai_settings_qml_tests.dir/modbuslens_ai_settings_qml_tests_autogen/mocs_compilation.cpp.obj
+[45/628] Building CXX object CMakeFiles/modbuslens_ai_settings_qml_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[46/628] Building CXX object CMakeFiles/modbuslens_ai_settings_qml_tests.dir/src/ui/ai/AiSettingsController.cpp.obj
+E:/desktop/ModbusLens/src/ui/ai/AiSettingsController.cpp: In member function 'virtual void modbuslens::ui::{anonymous}::SyncAdapterTestConnectionClient::cancel(int)':
+E:/desktop/ModbusLens/src/ui/ai/AiSettingsController.cpp:44:21: warning: unused parameter 'requestId' [-Wunused-parameter]
+   44 |     void cancel(int requestId) override { ++cancelCount; }
+      |                 ~~~~^~~~~~~~~
+[47/628] Building CXX object CMakeFiles/modbuslens_ai_settings_qml_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[48/628] Building CXX object CMakeFiles/modbuslens_ai_settings_qml_tests.dir/src/ui/ai/AiTestConnection.cpp.obj
+[49/628] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/tests/test_manual_import_pdf_docx.cpp.obj
+[50/628] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[51/628] Automatic MOC and UIC for target modbuslens_codec_tests
+[52/628] Automatic MOC and UIC for target modbuslens_crc_tests
+[53/628] Automatic MOC and UIC for target modbuslens_function03_tests
+[54/628] Automatic MOC and UIC for target modbuslens_simulator_tests
+[55/628] Automatic MOC and UIC for target modbuslens_fault_tests
+[56/628] Automatic MOC and UIC for target modbuslens_frame_tests
+[57/628] Automatic MOC and UIC for target modbuslens_simulator_integration_tests
+[58/628] Automatic MOC and UIC for target modbuslens_fault_integration_tests
+[59/628] Automatic MOC and UIC for target modbuslens_transaction_tests
+[60/628] Automatic MOC and UIC for target modbuslens_transaction_integration_tests
+[61/628] Automatic MOC and UIC for target modbuslens_statistics_tests
+[62/628] Automatic MOC and UIC for target modbuslens_statistics_integration_tests
+[63/628] Automatic MOC and UIC for target modbuslens_replay_log_tests
+[64/628] Automatic MOC and UIC for target modbuslens_replay_analysis_tests
+[65/628] Building CXX object CMakeFiles/modbuslens_ai_settings_qml_tests.dir/tests/test_ai_settings_qml.cpp.obj
+E:/desktop/ModbusLens/tests/test_ai_settings_qml.cpp: In member function 'void AiSettingsQmlTest::u2b04_enterFailurePrivacyUnderUnifiedSave()':
+E:/desktop/ModbusLens/tests/test_ai_settings_qml.cpp:775:19: warning: unused variable 'savesBefore' [-Wunused-variable]
+  775 |         const int savesBefore = store_.saveCalls;
+      |                   ^~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_ai_settings_qml.cpp: In member function 'virtual void AiSettingsQmlTest::FakeQmlAsyncTestConnectionClient::cancel(int)':
+E:/desktop/ModbusLens/tests/test_ai_settings_qml.cpp:1010:25: warning: unused parameter 'requestId' [-Wunused-parameter]
+ 1010 |         void cancel(int requestId) override
+      |                     ~~~~^~~~~~~~~
+[66/628] Automatic MOC and UIC for target modbuslens_passive_tests
+[67/628] Automatic MOC and UIC for target modbuslens_active_request_tests
+[68/628] Automatic MOC and UIC for target modbuslens_serial_tests
+[69/628] Automatic MOC and UIC for target modbuslens_write_prepare_tests
+[70/628] Automatic MOC and UIC for target modbuslens_write_encoder_tests
+[71/628] Automatic MOC and UIC for target modbuslens_ui_bridge_tests
+[72/628] Automatic MOC and UIC for target modbuslens_fc06_active_tests
+[73/628] Automatic MOC and UIC for target modbuslens_device_profile_tests
+[74/628] Automatic MOC and UIC for target modbuslens_register_decode_tests
+[75/628] Automatic MOC and UIC for target modbuslens_readiness_tests
+[76/628] Automatic MOC and UIC for target modbuslens_profile_controller_tests
+[77/628] Automatic MOC and UIC for target modbuslens_active_profile_controller_tests
+[78/628] Automatic MOC and UIC for target modbuslens_manual_import_tests
+[79/628] Automatic MOC and UIC for target modbuslens_candidate_extraction_tests
+[80/628] Automatic MOC and UIC for target modbuslens_candidate_adapter_tests
+[81/628] Automatic MOC and UIC for target modbuslens_candidate_orchestration_tests
+[82/628] Automatic MOC and UIC for target modbuslens_candidate_provider_tests
+[83/628] Automatic MOC and UIC for target modbuslens_candidate_transport_tests
+[84/628] Automatic MOC and UIC for target modbuslens_candidate_review_tests
+[85/628] Automatic MOC and UIC for target modbuslens_manual_extraction_tests
+[86/628] Automatic MOC and UIC for target modbuslens_ai_settings_tests
+[87/628] Automatic MOC and UIC for target modbuslens_manual_delete_tests
+[88/628] Automatic MOC and UIC for target modbuslens_fc16_active_tests
+[89/628] Automatic MOC and UIC for target modbuslens_serial_adapter_tests
+[90/628] Automatic MOC and UIC for target modbuslens_manual_qa_tests
+[91/628] Building CXX object CMakeFiles/modbuslens_crc_tests.dir/modbuslens_crc_tests_autogen/mocs_compilation.cpp.obj
+[92/628] Automatic MOC and UIC for target modbuslens_profile_semantic_tests
+[93/628] Automatic MOC and UIC for target modbuslens_diagnosis_tests
+[94/628] Building CXX object CMakeFiles/modbuslens_frame_tests.dir/modbuslens_frame_tests_autogen/mocs_compilation.cpp.obj
+[95/628] Building CXX object CMakeFiles/modbuslens_codec_tests.dir/modbuslens_codec_tests_autogen/mocs_compilation.cpp.obj
+[96/628] Building CXX object CMakeFiles/modbuslens_function03_tests.dir/modbuslens_function03_tests_autogen/mocs_compilation.cpp.obj
+[97/628] Automatic MOC and UIC for target modbuslens_write_dispatch_tests
+[98/628] Automatic MOC and UIC for target modbuslens_agent_tools_tests
+[99/628] Building CXX object CMakeFiles/modbuslens_simulator_tests.dir/modbuslens_simulator_tests_autogen/mocs_compilation.cpp.obj
+[100/628] Automatic MOC and UIC for target modbuslens_active_master_tests
+[101/628] Automatic MOC and UIC for target modbuslens_engineering_read_tests
+[102/628] Building CXX object CMakeFiles/modbuslens_simulator_integration_tests.dir/modbuslens_simulator_integration_tests_autogen/mocs_compilation.cpp.obj
+[103/628] Building CXX object CMakeFiles/modbuslens_fault_tests.dir/modbuslens_fault_tests_autogen/mocs_compilation.cpp.obj
+[104/628] Automatic MOC and UIC for target modbuslens_agent_runtime_tests
+[105/628] Building CXX object CMakeFiles/modbuslens_fault_integration_tests.dir/modbuslens_fault_integration_tests_autogen/mocs_compilation.cpp.obj
+[106/628] Building CXX object CMakeFiles/modbuslens_transaction_tests.dir/modbuslens_transaction_tests_autogen/mocs_compilation.cpp.obj
+[107/628] Automatic MOC and UIC for target modbuslens_ai_tests
+[108/628] Building CXX object CMakeFiles/modbuslens_transaction_integration_tests.dir/modbuslens_transaction_integration_tests_autogen/mocs_compilation.cpp.obj
+[109/628] Building CXX object CMakeFiles/modbuslens_statistics_tests.dir/modbuslens_statistics_tests_autogen/mocs_compilation.cpp.obj
+[110/628] Building CXX object CMakeFiles/modbuslens_statistics_integration_tests.dir/modbuslens_statistics_integration_tests_autogen/mocs_compilation.cpp.obj
+[111/628] Automatic MOC and UIC for target modbuslens_agent_integration_tests
+[112/628] Building CXX object CMakeFiles/modbuslens_crc_tests.dir/tests/test_modbus_crc.cpp.obj
+[113/628] Building CXX object CMakeFiles/modbuslens_codec_tests.dir/tests/test_modbus_rtu_codec.cpp.obj
+[114/628] Building CXX object CMakeFiles/modbuslens_frame_tests.dir/tests/test_modbus_rtu_frame.cpp.obj
+[115/628] Building CXX object CMakeFiles/modbuslens_function03_tests.dir/tests/test_function03.cpp.obj
+[116/628] Building CXX object CMakeFiles/modbuslens_simulator_tests.dir/tests/test_simulated_slave.cpp.obj
+[117/628] Building CXX object CMakeFiles/modbuslens_simulator_integration_tests.dir/tests/test_simulator_integration.cpp.obj
+[118/628] Building CXX object CMakeFiles/modbuslens_fault_integration_tests.dir/tests/test_fault_integration.cpp.obj
+[119/628] Building CXX object CMakeFiles/modbuslens_fault_tests.dir/tests/test_simulation_fault.cpp.obj
+[120/628] Building CXX object CMakeFiles/modbuslens_transaction_tests.dir/tests/test_transaction_analysis.cpp.obj
+[121/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/tests/fake_serial_transport.cpp.obj
+[122/628] Building CXX object CMakeFiles/modbuslens_transaction_integration_tests.dir/tests/test_transaction_integration.cpp.obj
+[123/628] Building CXX object CMakeFiles/modbuslens_statistics_integration_tests.dir/tests/test_statistics_integration.cpp.obj
+[124/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/tests/fake_chat_completions_server.cpp.obj
+[125/628] Building CXX object CMakeFiles/modbuslens_statistics_tests.dir/tests/test_transaction_statistics.cpp.obj
+[126/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[127/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/modbuslens_ui_bridge_tests_autogen/mocs_compilation.cpp.obj
+[128/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/ai/DiagnosisAsyncClient.cpp.obj
+[129/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[130/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[131/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[132/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/agent/AgentToolContext.cpp.obj
+[133/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[134/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/serial/SerialTransport.cpp.obj
+[135/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/ai/DiagnosisPromptBuilder.cpp.obj
+[136/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/TransactionListModel.cpp.obj
+[137/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/AnalysisController.cpp.obj
+[138/628] Building CXX object CMakeFiles/modbuslens_replay_log_tests.dir/modbuslens_replay_log_tests_autogen/mocs_compilation.cpp.obj
+[139/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[140/628] Building CXX object CMakeFiles/modbuslens_replay_analysis_tests.dir/modbuslens_replay_analysis_tests_autogen/mocs_compilation.cpp.obj
+[141/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[142/628] Building CXX object CMakeFiles/modbuslens_passive_tests.dir/modbuslens_passive_tests_autogen/mocs_compilation.cpp.obj
+[143/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[144/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[145/628] Building CXX object CMakeFiles/modbuslens_serial_tests.dir/modbuslens_serial_tests_autogen/mocs_compilation.cpp.obj
+[146/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/tests/test_ui_bridge.cpp.obj
+E:/desktop/ModbusLens/tests/test_ui_bridge.cpp: In function 'modbuslens::ui::AiRuntimeConfiguration& {anonymous}::{anonymous}::fakeAiRuntime()':
+E:/desktop/ModbusLens/tests/test_ui_bridge.cpp:1445:63: warning: capture of variable 'store' with non-automatic storage duration
+ 1445 |     static modbuslens::ui::AiRuntimeConfiguration* runtime = [store] {
+      |                                                               ^~~~~
+E:/desktop/ModbusLens/tests/test_ui_bridge.cpp:1444:39: note: '{anonymous}::{anonymous}::BridgeFakeCredentialStore* store' declared here
+ 1444 |     static BridgeFakeCredentialStore* store = new BridgeFakeCredentialStore();
+      |                                       ^~~~~
+E:/desktop/ModbusLens/tests/test_ui_bridge.cpp: In lambda function:
+E:/desktop/ModbusLens/tests/test_ui_bridge.cpp:1446:30: warning: ignoring return value of 'virtual bool {anonymous}::{anonymous}::BridgeFakeCredentialStore::saveCredential(modbuslens::ui::AiProviderKind, std::string_view)', declared with attribute 'nodiscard' [-Wunused-result]
+ 1446 |         store->saveCredential(modbuslens::ui::AiProviderKind::ModelScope,
+      |         ~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1447 |                               std::string_view{"fake-test-token"});
+      |                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_ui_bridge.cpp:1411:24: note: declared here
+ 1411 |     [[nodiscard]] bool saveCredential(modbuslens::ui::AiProviderKind kind,
+      |                        ^~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_ui_bridge.cpp: In constructor '{anonymous}::{anonymous}::IsolatedAiRuntime::IsolatedAiRuntime(modbuslens::ui::AiProviderKind, const QString&)':
+E:/desktop/ModbusLens/tests/test_ui_bridge.cpp:1508:29: warning: ignoring return value of 'virtual bool {anonymous}::{anonymous}::BridgeFakeCredentialStore::saveCredential(modbuslens::ui::AiProviderKind, std::string_view)', declared with attribute 'nodiscard' [-Wunused-result]
+ 1508 |         store.saveCredential(kind, std::string_view{"fake-ux1-token"});
+      |         ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_ui_bridge.cpp:1411:24: note: declared here
+ 1411 |     [[nodiscard]] bool saveCredential(modbuslens::ui::AiProviderKind kind,
+      |                        ^~~~~~~~~~~~~~
+[147/628] Building CXX object CMakeFiles/modbuslens_active_request_tests.dir/modbuslens_active_request_tests_autogen/mocs_compilation.cpp.obj
+[148/628] Building CXX object CMakeFiles/modbuslens_write_prepare_tests.dir/modbuslens_write_prepare_tests_autogen/mocs_compilation.cpp.obj
+[149/628] Building CXX object CMakeFiles/modbuslens_write_encoder_tests.dir/modbuslens_write_encoder_tests_autogen/mocs_compilation.cpp.obj
+[150/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[151/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/agent/AgentTools.cpp.obj
+[152/628] Building CXX object CMakeFiles/modbuslens_fc06_active_tests.dir/modbuslens_fc06_active_tests_autogen/mocs_compilation.cpp.obj
+[153/628] Building CXX object CMakeFiles/modbuslens_register_decode_tests.dir/modbuslens_register_decode_tests_autogen/mocs_compilation.cpp.obj
+[154/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[155/628] Building CXX object CMakeFiles/modbuslens_device_profile_tests.dir/modbuslens_device_profile_tests_autogen/mocs_compilation.cpp.obj
+[156/628] Building CXX object CMakeFiles/modbuslens_readiness_tests.dir/modbuslens_readiness_tests_autogen/mocs_compilation.cpp.obj
+[157/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/agent/AgentRuntime.cpp.obj
+[158/628] Building CXX object CMakeFiles/modbuslens_ui_bridge_tests.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[159/628] Building CXX object CMakeFiles/modbuslens_replay_analysis_tests.dir/tests/test_replay_analysis.cpp.obj
+[160/628] Building CXX object CMakeFiles/modbuslens_replay_log_tests.dir/tests/test_replay_log.cpp.obj
+[161/628] Building CXX object CMakeFiles/modbuslens_device_profile_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[162/628] Building CXX object CMakeFiles/modbuslens_serial_tests.dir/tests/test_serial_session.cpp.obj
+[163/628] Building CXX object CMakeFiles/modbuslens_readiness_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[164/628] Building CXX object CMakeFiles/modbuslens_passive_tests.dir/tests/test_passive_analysis.cpp.obj
+[165/628] Building CXX object CMakeFiles/modbuslens_profile_controller_tests.dir/modbuslens_profile_controller_tests_autogen/mocs_compilation.cpp.obj
+[166/628] Building CXX object CMakeFiles/modbuslens_write_encoder_tests.dir/tests/test_write_encoder.cpp.obj
+[167/628] Building CXX object CMakeFiles/modbuslens_active_request_tests.dir/tests/test_active_request.cpp.obj
+[168/628] Building CXX object CMakeFiles/modbuslens_profile_controller_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[169/628] Building CXX object CMakeFiles/modbuslens_fc06_active_tests.dir/tests/test_fc06_active.cpp.obj
+[170/628] Building CXX object CMakeFiles/modbuslens_register_decode_tests.dir/tests/test_register_decode.cpp.obj
+[171/628] Building CXX object CMakeFiles/modbuslens_write_prepare_tests.dir/tests/test_write_prepare.cpp.obj
+[172/628] Building CXX object CMakeFiles/modbuslens_device_profile_tests.dir/tests/test_device_profile.cpp.obj
+E:/desktop/ModbusLens/tests/test_device_profile.cpp: In member function 'void DeviceProfileTest::ps04_reservedLikeIds()':
+E:/desktop/ModbusLens/tests/test_device_profile.cpp:937:24: warning: loop variable 'id' creates a copy from type 'const QString' [-Wrange-loop-construct]
+  937 |     for (const QString id : {QStringLiteral("CON"), QStringLiteral("NUL"),
+      |                        ^~
+E:/desktop/ModbusLens/tests/test_device_profile.cpp:937:24: note: use reference type to prevent copying
+  937 |     for (const QString id : {QStringLiteral("CON"), QStringLiteral("NUL"),
+      |                        ^~
+      |                        &
+E:/desktop/ModbusLens/tests/test_device_profile.cpp: In member function 'void DeviceProfileTest::ps06_sameIdSameName()':
+E:/desktop/ModbusLens/tests/test_device_profile.cpp:962:24: warning: loop variable 'id' creates a copy from type 'const QString' [-Wrange-loop-construct]
+  962 |     for (const QString id : {QStringLiteral("stable-id"),
+      |                        ^~
+E:/desktop/ModbusLens/tests/test_device_profile.cpp:962:24: note: use reference type to prevent copying
+  962 |     for (const QString id : {QStringLiteral("stable-id"),
+      |                        ^~
+      |                        &
+E:/desktop/ModbusLens/tests/test_device_profile.cpp: In member function 'void DeviceProfileTest::ps10_targetInsideProfilesRoot()':
+E:/desktop/ModbusLens/tests/test_device_profile.cpp:1008:24: warning: loop variable 'id' creates a copy from type 'const QString' [-Wrange-loop-construct]
+ 1008 |     for (const QString id : {QStringLiteral("plain"), QStringLiteral("../escape"),
+      |                        ^~
+E:/desktop/ModbusLens/tests/test_device_profile.cpp:1008:24: note: use reference type to prevent copying
+ 1008 |     for (const QString id : {QStringLiteral("plain"), QStringLiteral("../escape"),
+      |                        ^~
+      |                        &
+[173/628] Building CXX object CMakeFiles/modbuslens_profile_controller_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[174/628] Building CXX object CMakeFiles/modbuslens_readiness_tests.dir/tests/test_register_readiness.cpp.obj
+[175/628] Building CXX object CMakeFiles/modbuslens_candidate_extraction_tests.dir/modbuslens_candidate_extraction_tests_autogen/mocs_compilation.cpp.obj
+[176/628] Building CXX object CMakeFiles/modbuslens_active_profile_controller_tests.dir/modbuslens_active_profile_controller_tests_autogen/mocs_compilation.cpp.obj
+[177/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[178/628] Building CXX object CMakeFiles/modbuslens_active_profile_controller_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[179/628] Building CXX object CMakeFiles/modbuslens_profile_controller_tests.dir/tests/test_profile_controller.cpp.obj
+[180/628] Building CXX object CMakeFiles/modbuslens_active_profile_controller_tests.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[181/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/modbuslens_manual_import_tests_autogen/mocs_compilation.cpp.obj
+[182/628] Building CXX object CMakeFiles/modbuslens_active_profile_controller_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[183/628] Building CXX object CMakeFiles/modbuslens_candidate_adapter_tests.dir/modbuslens_candidate_adapter_tests_autogen/mocs_compilation.cpp.obj
+[184/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[185/628] Building CXX object CMakeFiles/modbuslens_active_profile_controller_tests.dir/tests/test_active_profile_controller.cpp.obj
+E:/desktop/ModbusLens/tests/test_active_profile_controller.cpp:69:13: warning: 'QVariantMap {anonymous}::activeRegisters(const modbuslens::ui::ActiveProfileController&)' defined but not used [-Wunused-function]
+   69 | QVariantMap activeRegisters(const ActiveProfileController &active)
+      |             ^~~~~~~~~~~~~~~
+[186/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/src/ui/manual/ManualImportController.cpp.obj
+[187/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[188/628] Building CXX object CMakeFiles/modbuslens_candidate_adapter_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[189/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[190/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[191/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[192/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/tests/test_manual_import.cpp.obj
+[193/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[194/628] Building CXX object CMakeFiles/modbuslens_candidate_extraction_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[195/628] Building CXX object CMakeFiles/modbuslens_manual_import_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[196/628] Building CXX object CMakeFiles/modbuslens_candidate_adapter_tests.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[197/628] Building CXX object CMakeFiles/modbuslens_candidate_adapter_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[198/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/candidate/CandidateProviderRunner.cpp.obj
+[199/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[200/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[201/628] Building CXX object CMakeFiles/modbuslens_candidate_extraction_tests.dir/tests/test_candidate_extraction.cpp.obj
+[202/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/modbuslens_candidate_orchestration_tests_autogen/mocs_compilation.cpp.obj
+[203/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[204/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[205/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[206/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[207/628] Building CXX object CMakeFiles/modbuslens_candidate_adapter_tests.dir/tests/test_candidate_adapter.cpp.obj
+[208/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/candidate/CandidateExtractionController.cpp.obj
+[209/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[210/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/manual/ManualImportController.cpp.obj
+[211/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[212/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/tests/test_candidate_orchestration.cpp.obj
+[213/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[214/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/candidate/CandidateProviderRunner.cpp.obj
+[215/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/tests/fake_chat_completions_server.cpp.obj
+[216/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[217/628] Building CXX object CMakeFiles/modbuslens_candidate_orchestration_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[218/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[219/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/modbuslens_candidate_transport_tests_autogen/mocs_compilation.cpp.obj
+[220/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[221/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[222/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[223/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/candidate/CandidateExtractionController.cpp.obj
+[224/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[225/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[226/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/manual/ManualImportController.cpp.obj
+[227/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[228/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/tests/test_candidate_transport.cpp.obj
+[229/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[230/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[231/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[232/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[233/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/candidate/CandidateProviderRunner.cpp.obj
+[234/628] Building CXX object CMakeFiles/modbuslens_candidate_transport_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[235/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/modbuslens_candidate_provider_tests_autogen/mocs_compilation.cpp.obj
+[236/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[237/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[238/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[239/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[240/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/manual/ManualImportController.cpp.obj
+[241/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/candidate/CandidateExtractionController.cpp.obj
+[242/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[243/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[244/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[245/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/tests/test_candidate_provider_matrix.cpp.obj
+[246/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[247/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[248/628] Building CXX object CMakeFiles/modbuslens_candidate_provider_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[249/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[250/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/modbuslens_ai_settings_tests_autogen/mocs_compilation.cpp.obj
+[251/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/candidate/CandidateProviderRunner.cpp.obj
+[252/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[253/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/ai/AiSettingsController.cpp.obj
+E:/desktop/ModbusLens/src/ui/ai/AiSettingsController.cpp: In member function 'virtual void modbuslens::ui::{anonymous}::SyncAdapterTestConnectionClient::cancel(int)':
+E:/desktop/ModbusLens/src/ui/ai/AiSettingsController.cpp:44:21: warning: unused parameter 'requestId' [-Wunused-parameter]
+   44 |     void cancel(int requestId) override { ++cancelCount; }
+      |                 ~~~~^~~~~~~~~
+[254/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/ai/AiTestConnection.cpp.obj
+[255/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[256/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[257/628] Running qmlimportscanner for modbuslens
+[258/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[259/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[260/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[261/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/manual/ManualImportController.cpp.obj
+[262/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/candidate/CandidateExtractionController.cpp.obj
+[263/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[264/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[265/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[266/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[267/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/modbuslens_candidate_review_tests_autogen/mocs_compilation.cpp.obj
+[268/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/candidate/CandidateProviderRunner.cpp.obj
+[269/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[270/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[271/628] Building CXX object CMakeFiles/modbuslens_ai_settings_tests.dir/tests/test_ai_settings.cpp.obj
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp: In member function 'void AiSettingsTest::us04_credentialSaveFailureBlocksConfiguration()':
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp:1717:19: warning: unused variable 'savesBefore' [-Wunused-variable]
+ 1717 |         const int savesBefore = store_.saveCalls;
+      |                   ^~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp: In member function 'void AiSettingsTest::e2_03_authFailure()':
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp:2849:21: warning: ignoring return value of 'virtual int modbuslens::ui::QtAsyncTestConnectionClient::start(const modbuslens::ui::AiTestConnectionRequest&, const std::function<void(const modbuslens::ui::AiTestConnectionResult&)>&)', declared with attribute 'nodiscard' [-Wunused-result]
+ 2849 |         client.start(request,
+      |         ~~~~~~~~~~~~^~~~~~~~~
+ 2850 |                      [&callbackCount, &publishedToken](
+      |                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2851 |                          const AiTestConnectionResult &result) {
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2852 |                          ++callbackCount;
+      |                          ~~~~~~~~~~~~~~~~
+ 2853 |                          publishedToken = result.token;
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2854 |                      });
+      |                      ~~
+In file included from E:/desktop/ModbusLens/src/ui/ai/AiSettingsController.h:8,
+                 from E:/desktop/ModbusLens/tests/test_ai_settings.cpp:27:
+E:/desktop/ModbusLens/src/ui/ai/AiTestConnection.h:119:23: note: declared here
+  119 |     [[nodiscard]] int start(
+      |                       ^~~~~
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp: In member function 'void AiSettingsTest::e2_04_rateLimited()':
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp:2881:21: warning: ignoring return value of 'virtual int modbuslens::ui::QtAsyncTestConnectionClient::start(const modbuslens::ui::AiTestConnectionRequest&, const std::function<void(const modbuslens::ui::AiTestConnectionResult&)>&)', declared with attribute 'nodiscard' [-Wunused-result]
+ 2881 |         client.start(request,
+      |         ~~~~~~~~~~~~^~~~~~~~~
+ 2882 |                      [&callbackCount, &publishedToken](
+      |                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2883 |                          const AiTestConnectionResult &result) {
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2884 |                          ++callbackCount;
+      |                          ~~~~~~~~~~~~~~~~
+ 2885 |                          publishedToken = result.token;
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2886 |                      });
+      |                      ~~
+E:/desktop/ModbusLens/src/ui/ai/AiTestConnection.h:119:23: note: declared here
+  119 |     [[nodiscard]] int start(
+      |                       ^~~~~
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp: In member function 'void AiSettingsTest::e2_05_invalidResponse()':
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp:2912:21: warning: ignoring return value of 'virtual int modbuslens::ui::QtAsyncTestConnectionClient::start(const modbuslens::ui::AiTestConnectionRequest&, const std::function<void(const modbuslens::ui::AiTestConnectionResult&)>&)', declared with attribute 'nodiscard' [-Wunused-result]
+ 2912 |         client.start(request,
+      |         ~~~~~~~~~~~~^~~~~~~~~
+ 2913 |                      [&callbackCount, &publishedToken](
+      |                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2914 |                          const AiTestConnectionResult &result) {
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2915 |                          ++callbackCount;
+      |                          ~~~~~~~~~~~~~~~~
+ 2916 |                          publishedToken = result.token;
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2917 |                      });
+      |                      ~~
+E:/desktop/ModbusLens/src/ui/ai/AiTestConnection.h:119:23: note: declared here
+  119 |     [[nodiscard]] int start(
+      |                       ^~~~~
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp: In member function 'void AiSettingsTest::e2_06_realTimeout()':
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp:2944:21: warning: ignoring return value of 'virtual int modbuslens::ui::QtAsyncTestConnectionClient::start(const modbuslens::ui::AiTestConnectionRequest&, const std::function<void(const modbuslens::ui::AiTestConnectionResult&)>&)', declared with attribute 'nodiscard' [-Wunused-result]
+ 2944 |         client.start(request,
+      |         ~~~~~~~~~~~~^~~~~~~~~
+ 2945 |                      [&callbackCount, &publishedToken](
+      |                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2946 |                          const AiTestConnectionResult &result) {
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2947 |                          ++callbackCount;
+      |                          ~~~~~~~~~~~~~~~~
+ 2948 |                          publishedToken = result.token;
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2949 |                      });
+      |                      ~~
+E:/desktop/ModbusLens/src/ui/ai/AiTestConnection.h:119:23: note: declared here
+  119 |     [[nodiscard]] int start(
+      |                       ^~~~~
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp: In member function 'void AiSettingsTest::e2_07_lateAfterTimeoutDoesNotDoublePublish()':
+E:/desktop/ModbusLens/tests/test_ai_settings.cpp:2977:21: warning: ignoring return value of 'virtual int modbuslens::ui::QtAsyncTestConnectionClient::start(const modbuslens::ui::AiTestConnectionRequest&, const std::function<void(const modbuslens::ui::AiTestConnectionResult&)>&)', declared with attribute 'nodiscard' [-Wunused-result]
+ 2977 |         client.start(request,
+      |         ~~~~~~~~~~~~^~~~~~~~~
+ 2978 |                      [&callbackCount, &publishedToken](
+      |                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2979 |                          const AiTestConnectionResult &result) {
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2980 |                          ++callbackCount;
+      |                          ~~~~~~~~~~~~~~~~
+ 2981 |                          publishedToken = result.token;
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2982 |                      });
+      |                      ~~
+E:/desktop/ModbusLens/src/ui/ai/AiTestConnection.h:119:23: note: declared here
+  119 |     [[nodiscard]] int start(
+      |                       ^~~~~
+[272/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[273/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[274/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[275/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[276/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/manual/ManualImportController.cpp.obj
+[277/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[278/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/candidate/CandidateExtractionController.cpp.obj
+[279/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[280/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/tests/test_candidate_review.cpp.obj
+E:/desktop/ModbusLens/tests/test_candidate_review.cpp:127:27: warning: 'QVariantMap {anonymous}::invokeCheckAllowed(QObject*, const QVariantMap&)' defined but not used [-Wunused-function]
+  127 | [[nodiscard]] QVariantMap invokeCheckAllowed(QObject *controller,
+      |                           ^~~~~~~~~~~~~~~~~~
+[281/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[282/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[283/628] Building CXX object CMakeFiles/modbuslens_candidate_review_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[284/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/candidate/CandidateProviderRunner.cpp.obj
+[285/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[286/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[287/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[288/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[289/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[290/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/modbuslens_manual_qa_tests_autogen/mocs_compilation.cpp.obj
+[291/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[292/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[293/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[294/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/manualqa/ManualQaController.cpp.obj
+[295/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/manualqa/ManualQaAsyncRunner.cpp.obj
+[296/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/candidate/CandidateExtractionController.cpp.obj
+[297/628] Automatic MOC and UIC for target modbuslens
+[298/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/tests/test_manual_qa.cpp.obj
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp: In member function 'virtual bool {anonymous}::FakeManualQaRunner::begin(const modbuslens::ui::ManualQaDispatchConfig&, const modbuslens::core::ManualQaRequest&, uint64_t, const modbuslens::ui::IManualQaRunner::CompletionHandler&)':
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp:205:16: warning: enumeration value 'Scripted' not handled in switch [-Wswitch]
+  205 |         switch (mode_) {
+      |                ^
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp: In static member function 'static bool ManualQaStructuralProbe::probeSeamCarriesDispatchConfig()':
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp:534:22: warning: the address '&modbuslens::ui::IManualQaRunner::begin' will never be NULL [-Waddress]
+  534 |         return begin != nullptr;
+      |                ~~~~~~^~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp: In static member function 'static bool ManualQaStructuralProbe::probeBuilderTakesProviderAndModel()':
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp:541:24: warning: the address of 'static QJsonObject modbuslens::ui::ManualQaAsyncRunner::buildRequestBody(modbuslens::ui::AiProviderKind, const std::string&, const modbuslens::core::ManualQaRequest&)' will never be NULL [-Waddress]
+  541 |         return builder != nullptr;
+      |                ~~~~~~~~^~~~~~~~~~
+In file included from E:/desktop/ModbusLens/tests/test_manual_qa.cpp:32:
+E:/desktop/ModbusLens/src/ui/manualqa/ManualQaAsyncRunner.h:86:5: note: 'static QJsonObject modbuslens::ui::ManualQaAsyncRunner::buildRequestBody(modbuslens::ui::AiProviderKind, const std::string&, const modbuslens::core::ManualQaRequest&)' declared here
+   86 |     buildRequestBody(AiProviderKind kind, const std::string& model,
+      |     ^~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp: In static member function 'static bool ManualQaStructuralProbe::probeParseStaticsExist()':
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp:551:23: warning: the address of 'static std::optional<modbuslens::core::ManualQaParsedResult> modbuslens::ui::ManualQaAsyncRunner::parseProviderResult(const std::string&, QString*)' will never be NULL [-Waddress]
+  551 |         return parser != nullptr && resolver != nullptr;
+      |                ~~~~~~~^~~~~~~~~~
+E:/desktop/ModbusLens/src/ui/manualqa/ManualQaAsyncRunner.h:68:5: note: 'static std::optional<modbuslens::core::ManualQaParsedResult> modbuslens::ui::ManualQaAsyncRunner::parseProviderResult(const std::string&, QString*)' declared here
+   68 |     parseProviderResult(const std::string& json,
+      |     ^~~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp:551:46: warning: the address of 'static std::optional<modbuslens::core::ManualQaParsedResult> modbuslens::ui::ManualQaAsyncRunner::resolveProviderResult(const std::string&, const modbuslens::core::ManualQaRequest&, QString*)' will never be NULL [-Waddress]
+  551 |         return parser != nullptr && resolver != nullptr;
+      |                                     ~~~~~~~~~^~~~~~~~~~
+E:/desktop/ModbusLens/src/ui/manualqa/ManualQaAsyncRunner.h:78:5: note: 'static std::optional<modbuslens::core::ManualQaParsedResult> modbuslens::ui::ManualQaAsyncRunner::resolveProviderResult(const std::string&, const modbuslens::core::ManualQaRequest&, QString*)' declared here
+   78 |     resolveProviderResult(const std::string& json,
+      |     ^~~~~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp: In member function 'void ManualQaTest::qa27_successfulDeleteClearsQa()':
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp:1266:32: warning: ignoring return value of 'modbuslens::ui::ManualStore::ManualDeleteResult modbuslens::ui::ManualImportController::deleteDocumentById(const QString&)', declared with attribute 'nodiscard' [-Wunused-result]
+ 1266 |     manual_->deleteDocumentById(documentId);
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+In file included from E:/desktop/ModbusLens/src/ui/candidate/CandidateExtractionController.h:16,
+                 from E:/desktop/ModbusLens/tests/test_manual_qa.cpp:28:
+E:/desktop/ModbusLens/src/ui/manual/ManualImportController.h:95:5: note: declared here
+   95 |     deleteDocumentById(const QString &documentId);
+      |     ^~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp: In member function 'void ManualQaTest::qa28_lateResponseAfterDeleteDropped()':
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp:1286:32: warning: ignoring return value of 'modbuslens::ui::ManualStore::ManualDeleteResult modbuslens::ui::ManualImportController::deleteDocumentById(const QString&)', declared with attribute 'nodiscard' [-Wunused-result]
+ 1286 |     manual_->deleteDocumentById(documentId);
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+E:/desktop/ModbusLens/src/ui/manual/ManualImportController.h:95:5: note: declared here
+   95 |     deleteDocumentById(const QString &documentId);
+      |     ^~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp: In member function 'void ManualQaTest::qa29_cancelAttemptedOnInvalidation()':
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp:1306:32: warning: ignoring return value of 'modbuslens::ui::ManualStore::ManualDeleteResult modbuslens::ui::ManualImportController::deleteDocumentById(const QString&)', declared with attribute 'nodiscard' [-Wunused-result]
+ 1306 |     manual_->deleteDocumentById(documentId);
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+E:/desktop/ModbusLens/src/ui/manual/ManualImportController.h:95:5: note: declared here
+   95 |     deleteDocumentById(const QString &documentId);
+      |     ^~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp: At global scope:
+E:/desktop/ModbusLens/tests/test_manual_qa.cpp:1873:20: warning: 'bool {anonymous}::reflectiveHasMember(const QObject*, const char*)' defined but not used [-Wunused-function]
+ 1873 | [[nodiscard]] bool reflectiveHasMember(const QObject* object, const char* name)
+      |                    ^~~~~~~~~~~~~~~~~~~
+[299/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[300/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/manual/ManualImportController.cpp.obj
+[301/628] Running AUTOMOC file extraction for target modbuslens
+[302/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[303/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[304/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/modbuslens_manual_delete_tests_autogen/mocs_compilation.cpp.obj
+[305/628] Running rcc for resource qmake_ModbusLens
+[306/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[307/628] Generating .rcc/qmlcache/modbuslens_qmlcache_loader.cpp
+[308/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[309/628] Running rcc for resource modbuslens_raw_qml_0
+[310/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/candidate/CandidateProviderRunner.cpp.obj
+[311/628] Building CXX object CMakeFiles/modbuslens_manual_qa_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[312/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[313/628] Running rcc for resource modbuslens_raw_res_0
+[314/628] Running moc --collect-json for target modbuslens
+[315/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[316/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[317/628] Building CXX object CMakeFiles/modbuslens_manual_extraction_tests.dir/modbuslens_manual_extraction_tests_autogen/mocs_compilation.cpp.obj
+[318/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[319/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/candidate/CandidateExtractionController.cpp.obj
+[320/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/manual/ManualImportController.cpp.obj
+[321/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/tests/test_manual_delete.cpp.obj
+E:/desktop/ModbusLens/tests/test_manual_delete.cpp:158:48: warning: 'modbuslens::core::ManualDocument {anonymous}::documentFrom(const QVariantMap&)' defined but not used [-Wunused-function]
+  158 | [[nodiscard]] modbuslens::core::ManualDocument documentFrom(
+      |                                                ^~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_manual_delete.cpp:125:26: warning: 'QByteArray {anonymous}::readFileBytes(const QString&)' defined but not used [-Wunused-function]
+  125 | [[nodiscard]] QByteArray readFileBytes(const QString &path)
+      |                          ^~~~~~~~~~~~~
+[322/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[323/628] Automatic QML type registration for target modbuslens
+[324/628] Building CXX object CMakeFiles/modbuslens_manual_extraction_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[325/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/Main_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/Main_qml.cpp.aotstats
+[326/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/DS/DesignSystem_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/DS/DesignSystem_qml.cpp.aotstats
+[327/628] Building CXX object CMakeFiles/modbuslens_manual_extraction_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[328/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[329/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[330/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/AppButton_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/AppButton_qml.cpp.aotstats
+[331/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/tests/fake_serial_transport.cpp.obj
+[332/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[333/628] Building CXX object CMakeFiles/modbuslens_manual_delete_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[334/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/ai/DiagnosisAsyncClient.cpp.obj
+[335/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[336/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/DecimalField_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/DecimalField_qml.cpp.aotstats
+[337/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/NavigationRail_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/NavigationRail_qml.cpp.aotstats
+[338/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/PanelCard_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/PanelCard_qml.cpp.aotstats
+[339/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/SectionHeader_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/SectionHeader_qml.cpp.aotstats
+[340/628] Building CXX object CMakeFiles/modbuslens_manual_extraction_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[341/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[342/628] Building CXX object CMakeFiles/modbuslens_manual_extraction_tests.dir/tests/test_manual_extraction.cpp.obj
+[343/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[344/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/StatCard_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/StatCard_qml.cpp.aotstats
+[345/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsMetrics_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsMetrics_qml.cpp.aotstats
+[346/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/modbuslens_profile_semantic_tests_autogen/mocs_compilation.cpp.obj
+[347/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOutcomes_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOutcomes_qml.cpp.aotstats
+[348/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[349/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/OutcomeDistribution_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/OutcomeDistribution_qml.cpp.aotstats
+[350/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOverview_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOverview_qml.cpp.aotstats
+[351/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/components/WriteFoundationSection_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/components/WriteFoundationSection_qml.cpp.aotstats
+[352/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/DashboardPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/DashboardPage_qml.cpp.aotstats
+[353/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/CommunicationPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/CommunicationPage_qml.cpp.aotstats
+[354/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/ReplayPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/ReplayPage_qml.cpp.aotstats
+[355/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/DiagnosisPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/DiagnosisPage_qml.cpp.aotstats
+[356/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/TransactionsPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/TransactionsPage_qml.cpp.aotstats
+[357/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/DeviceProfilePage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/DeviceProfilePage_qml.cpp.aotstats
+[358/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/AiSettingsPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/AiSettingsPage_qml.cpp.aotstats
+[359/628] Generating .rcc/qmlcache/modbuslens_src/ui/qml/pages/EngineeringPage_qml.cpp, .rcc/qmlcache/modbuslens_src/ui/qml/pages/EngineeringPage_qml.cpp.aotstats
+[360/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/AnalysisController.cpp.obj
+[361/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/tests/test_profile_semantic.cpp.obj
+[362/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[363/628] Building CXX object CMakeFiles/modbuslens_fc16_active_tests.dir/modbuslens_fc16_active_tests_autogen/mocs_compilation.cpp.obj
+[364/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.qt/rcc/qrc_qmake_ModbusLens.cpp.obj
+[365/628] Building RC object CMakeFiles/modbuslens.dir/generated/ModbusLens.rc.obj
+[366/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/agent/AgentToolContext.cpp.obj
+[367/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/ai/DiagnosisPromptBuilder.cpp.obj
+[368/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/serial/SerialTransport.cpp.obj
+[369/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[370/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/TransactionListModel.cpp.obj
+[371/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[372/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[373/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[374/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[375/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/agent/AgentTools.cpp.obj
+[376/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[377/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/agent/AgentRuntime.cpp.obj
+[378/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[379/628] Building CXX object CMakeFiles/modbuslens_profile_semantic_tests.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[380/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[381/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/DiagnosisAsyncClient.cpp.obj
+[382/628] Building CXX object CMakeFiles/modbuslens.dir/modbuslens_qmltyperegistrations.cpp.obj
+[383/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualStore.cpp.obj
+[384/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/engineering/EngineeringReadController.cpp.obj
+[385/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualImportController.cpp.obj
+[386/628] Building CXX object CMakeFiles/modbuslens.dir/modbuslens_autogen/mocs_compilation.cpp.obj
+[387/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[388/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[389/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/AiSettingsController.cpp.obj
+E:/desktop/ModbusLens/src/ui/ai/AiSettingsController.cpp: In member function 'virtual void modbuslens::ui::{anonymous}::SyncAdapterTestConnectionClient::cancel(int)':
+E:/desktop/ModbusLens/src/ui/ai/AiSettingsController.cpp:44:21: warning: unused parameter 'requestId' [-Wunused-parameter]
+   44 |     void cancel(int requestId) override { ++cancelCount; }
+      |                 ~~~~^~~~~~~~~
+[390/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/candidate/CandidateProviderRunner.cpp.obj
+[391/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/AnalysisController.cpp.obj
+[392/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/AiTestConnection.cpp.obj
+[393/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[394/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[395/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/WindowsAiCredentialStore.cpp.obj
+[396/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[397/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/candidate/CandidateExtractionController.cpp.obj
+[398/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/CandidateProviderAdapter.cpp.obj
+[399/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manualqa/ManualQaAsyncRunner.cpp.obj
+[400/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/manualqa/ManualQaController.cpp.obj
+[401/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentToolContext.cpp.obj
+[402/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/serial/SerialTransport.cpp.obj
+[403/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/DiagnosisPromptBuilder.cpp.obj
+[404/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/profile/ProfileStore.cpp.obj
+[405/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[406/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/TransactionListModel.cpp.obj
+[407/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[408/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[409/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/profile/ProfileController.cpp.obj
+[410/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[411/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentTools.cpp.obj
+[412/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[413/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[414/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_qmlcache_loader.cpp.obj
+[415/628] Building CXX object CMakeFiles/modbuslens.dir/src/ui/agent/AgentRuntime.cpp.obj
+[416/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/DS/DesignSystem_qml.cpp.obj
+[417/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/DecimalField_qml.cpp.obj
+[418/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/AppButton_qml.cpp.obj
+[419/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/Main_qml.cpp.obj
+[420/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/NavigationRail_qml.cpp.obj
+[421/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/PanelCard_qml.cpp.obj
+[422/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/StatCard_qml.cpp.obj
+[423/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/SectionHeader_qml.cpp.obj
+[424/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsMetrics_qml.cpp.obj
+[425/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOutcomes_qml.cpp.obj
+[426/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/OutcomeDistribution_qml.cpp.obj
+[427/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.qt/rcc/qrc_modbuslens_raw_qml_0.cpp.obj
+[428/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.qt/rcc/qrc_modbuslens_raw_res_0.cpp.obj
+[429/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/StatisticsOverview_qml.cpp.obj
+[430/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/DashboardPage_qml.cpp.obj
+[431/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/components/WriteFoundationSection_qml.cpp.obj
+[432/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/DiagnosisPage_qml.cpp.obj
+[433/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/ReplayPage_qml.cpp.obj
+[434/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/CommunicationPage_qml.cpp.obj
+[435/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/AiSettingsPage_qml.cpp.obj
+[436/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/TransactionsPage_qml.cpp.obj
+[437/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/DeviceProfilePage_qml.cpp.obj
+[438/628] Building CXX object CMakeFiles/modbuslens.dir/build/t035c-source-repro-r6-20261017/.rcc/qmlcache/modbuslens_src/ui/qml/pages/EngineeringPage_qml.cpp.obj
+[439/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/tests/fake_serial_transport.cpp.obj
+[440/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/ai/DiagnosisAsyncClient.cpp.obj
+[441/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[442/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[443/628] Building CXX object CMakeFiles/modbuslens_fc16_active_tests.dir/tests/test_fc16_active.cpp.obj
+[444/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[445/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[446/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/modbuslens_active_master_tests_autogen/mocs_compilation.cpp.obj
+[447/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[448/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/serial/SerialTransport.cpp.obj
+[449/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/TransactionListModel.cpp.obj
+[450/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/tests/test_active_master.cpp.obj
+[451/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/agent/AgentToolContext.cpp.obj
+[452/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[453/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/AnalysisController.cpp.obj
+[454/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/ai/DiagnosisPromptBuilder.cpp.obj
+[455/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[456/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[457/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[458/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[459/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/agent/AgentTools.cpp.obj
+[460/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[461/628] Building CXX object CMakeFiles/modbuslens.dir/src/main.cpp.obj
+E:/desktop/ModbusLens/src/main.cpp: In lambda function:
+E:/desktop/ModbusLens/src/main.cpp:4824:19: warning: unused variable 'lst' [-Wunused-variable]
+ 4824 |             auto *lst = qobject_cast<QQuickItem *>(
+      |                   ^~~
+E:/desktop/ModbusLens/src/main.cpp:2619:19: warning: unused variable 'dashboardIndex' [-Wunused-variable]
+ 2619 |         const int dashboardIndex =
+      |                   ^~~~~~~~~~~~~~
+E:/desktop/ModbusLens/src/main.cpp:2621:19: warning: unused variable 'communicationIndex' [-Wunused-variable]
+ 2621 |         const int communicationIndex =
+      |                   ^~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int {anonymous}::runEvidenceCapture(QQmlApplicationEngine&, QGuiApplication&, const QString&)':
+E:/desktop/ModbusLens/src/main.cpp:13584:30: warning: explicit by-reference capture of 'dir' redundant with by-reference capture default
+13584 |     auto grab = [&, window, &dir](const QString &tag) {
+      |                              ^~~
+E:/desktop/ModbusLens/src/main.cpp:13822:10: warning: variable 'isUnder' set but not used [-Wunused-but-set-variable]
+13822 |     auto isUnder = [](QQuickItem *item, QQuickItem *ancestor) {
+      |          ^~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In lambda function:
+E:/desktop/ModbusLens/src/main.cpp:14919:13: warning: suggest braces around empty body in an 'if' statement [-Wempty-body]
+14919 |             ; // the click on a DISABLED button must not dispatch anything
+      |             ^
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runC2ReadCheck(QQmlApplicationEngine&, QGuiApplication&, modbuslens::ui::EngineeringReadController*)':
+E:/desktop/ModbusLens/src/main.cpp:14764:16: warning: variable 'propOf' set but not used [-Wunused-but-set-variable]
+14764 |     const auto propOf = [&itemOf](const QString &name,
+      |                ^~~~~~
+E:/desktop/ModbusLens/src/main.cpp:14769:16: warning: variable 'clickGate' set but not used [-Wunused-but-set-variable]
+14769 |     const auto clickGate = [&]() -> bool {
+      |                ^~~~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runProfileEditorCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:16484:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+16484 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runRegisterMapCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:17173:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+17173 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runActiveProfileCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:17864:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+17864 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In member function 'virtual bool runConsentCheck(QQmlApplicationEngine&, QGuiApplication&)::BlockingConsentRunner::begin(const modbuslens::core::ExtractionRequest&, uint64_t, const modbuslens::ui::ICandidateExtractionRunner::CompletionHandler&)':
+E:/desktop/ModbusLens/src/main.cpp:18024:56: warning: unused parameter 'request' [-Wunused-parameter]
+18024 |             const modbuslens::core::ExtractionRequest &request,
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runManualImportCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:21844:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+21844 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp: In function 'int runProfileSemanticCheck(QQmlApplicationEngine&, QGuiApplication&)':
+E:/desktop/ModbusLens/src/main.cpp:22645:54: warning: explicit by-reference capture of 'app' redundant with by-reference capture default
+22645 |     *schedule = [&, step, schedule, failuresShared, &app]() {
+      |                                                      ^~~
+E:/desktop/ModbusLens/src/main.cpp:22096:16: warning: variable 'setField' set but not used [-Wunused-but-set-variable]
+22096 |     const auto setField = [&roots](const QString &name, const QString &text) {
+      |                ^~~~~~~~
+[462/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[463/628] Building CXX object CMakeFiles/modbuslens_active_master_tests.dir/src/ui/agent/AgentRuntime.cpp.obj
+[464/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/tests/fake_serial_transport.cpp.obj
+[465/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[466/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[467/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/ai/DiagnosisAsyncClient.cpp.obj
+[468/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[469/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[470/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/serial/SerialTransport.cpp.obj
+[471/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/TransactionListModel.cpp.obj
+[472/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[473/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/modbuslens_engineering_read_tests_autogen/mocs_compilation.cpp.obj
+[474/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/agent/AgentToolContext.cpp.obj
+[475/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[476/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[477/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/tests/test_engineering_read.cpp.obj
+[478/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/engineering/EngineeringReadController.cpp.obj
+[479/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/ai/DiagnosisPromptBuilder.cpp.obj
+[480/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[481/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/AnalysisController.cpp.obj
+[482/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[483/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[484/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/agent/AgentTools.cpp.obj
+[485/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[486/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[487/628] Building CXX object CMakeFiles/modbuslens_engineering_read_tests.dir/src/ui/agent/AgentRuntime.cpp.obj
+[488/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/tests/fake_serial_transport.cpp.obj
+[489/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/ai/DiagnosisAsyncClient.cpp.obj
+[490/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[491/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[492/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[493/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[494/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[495/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/serial/SerialTransport.cpp.obj
+[496/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/TransactionListModel.cpp.obj
+[497/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/modbuslens_write_dispatch_tests_autogen/mocs_compilation.cpp.obj
+[498/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[499/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[500/628] Building CXX object CMakeFiles/modbuslens_diagnosis_tests.dir/modbuslens_diagnosis_tests_autogen/mocs_compilation.cpp.obj
+[501/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/agent/AgentToolContext.cpp.obj
+[502/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[503/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/ai/DiagnosisPromptBuilder.cpp.obj
+[504/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/tests/test_write_dispatch.cpp.obj
+[505/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[506/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/AnalysisController.cpp.obj
+[507/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[508/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/agent/AgentTools.cpp.obj
+[509/628] Building CXX object CMakeFiles/modbuslens_serial_adapter_tests.dir/src/ui/serial/SerialTransport.cpp.obj
+[510/628] Building CXX object CMakeFiles/modbuslens_serial_adapter_tests.dir/modbuslens_serial_adapter_tests_autogen/mocs_compilation.cpp.obj
+[511/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[512/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[513/628] Building CXX object CMakeFiles/modbuslens_write_dispatch_tests.dir/src/ui/agent/AgentRuntime.cpp.obj
+[514/628] Building CXX object CMakeFiles/modbuslens_serial_adapter_tests.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[515/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/tests/fake_chat_completions_server.cpp.obj
+[516/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/ai/DiagnosisAsyncClient.cpp.obj
+[517/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[518/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[519/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[520/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[521/628] Building CXX object CMakeFiles/modbuslens_serial_adapter_tests.dir/tests/test_serial_adapter.cpp.obj
+[522/628] Building CXX object CMakeFiles/modbuslens_diagnosis_tests.dir/tests/test_diagnosis.cpp.obj
+[523/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/serial/SerialTransport.cpp.obj
+[524/628] Building CXX object CMakeFiles/modbuslens_agent_tools_tests.dir/modbuslens_agent_tools_tests_autogen/mocs_compilation.cpp.obj
+[525/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[526/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[527/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/modbuslens_ai_tests_autogen/mocs_compilation.cpp.obj
+[528/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/TransactionListModel.cpp.obj
+[529/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/agent/AgentToolContext.cpp.obj
+[530/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[531/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[532/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/AnalysisController.cpp.obj
+[533/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/ai/DiagnosisPromptBuilder.cpp.obj
+[534/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/tests/test_ai_client.cpp.obj
+[535/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[536/628] Building CXX object CMakeFiles/modbuslens_agent_tools_tests.dir/src/ui/agent/AgentToolContext.cpp.obj
+[537/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/agent/AgentTools.cpp.obj
+[538/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[539/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/src/ui/agent/AgentToolContext.cpp.obj
+[540/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[541/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[542/628] Building CXX object CMakeFiles/modbuslens_ai_tests.dir/src/ui/agent/AgentRuntime.cpp.obj
+[543/628] Building CXX object CMakeFiles/modbuslens_agent_tools_tests.dir/src/ui/agent/AgentTools.cpp.obj
+[544/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/modbuslens_agent_runtime_tests_autogen/mocs_compilation.cpp.obj
+[545/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[546/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/tests/fake_chat_completions_server.cpp.obj
+[547/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/src/ui/agent/AgentTools.cpp.obj
+[548/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[549/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[550/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[551/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/src/ui/agent/AgentRuntime.cpp.obj
+[552/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[553/628] Building CXX object CMakeFiles/modbuslens_agent_tools_tests.dir/tests/test_agent_tools.cpp.obj
+[554/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/ai/AiProviderProfile.cpp.obj
+[555/628] Building CXX object CMakeFiles/modbuslens_agent_runtime_tests.dir/tests/test_agent_runtime.cpp.obj
+[556/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/tests/fake_chat_completions_server.cpp.obj
+[557/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/ai/DiagnosisAsyncClient.cpp.obj
+[558/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/candidate/ChatCompletionsTransport.cpp.obj
+[559/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/candidate/ChatCompletionsHttpClient.cpp.obj
+[560/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/serial/SerialTransport.cpp.obj
+[561/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/profile/ActiveProfileController.cpp.obj
+[562/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/profile/ProfileStore.cpp.obj
+[563/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/TransactionListModel.cpp.obj
+[564/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/modbuslens_agent_integration_tests_autogen/mocs_compilation.cpp.obj
+[565/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/agent/AgentToolContext.cpp.obj
+[566/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/serial/SerialPortAdapter.cpp.obj
+[567/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/profile/ProfileController.cpp.obj
+[568/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/ai/DiagnosisPromptBuilder.cpp.obj
+[569/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/ai/ModelScopeDiagnosisClient.cpp.obj
+[570/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/ai/AiRuntimeConfiguration.cpp.obj
+[571/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/tests/test_agent_integration.cpp.obj
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp: In function 'modbuslens::ui::AiRuntimeConfiguration& {anonymous}::fakeAgentAiRuntime()':
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp:77:63: warning: capture of variable 'store' with non-automatic storage duration
+   77 |     static modbuslens::ui::AiRuntimeConfiguration* runtime = [store] {
+      |                                                               ^~~~~
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp:76:38: note: '{anonymous}::AgentFakeCredentialStore* store' declared here
+   76 |     static AgentFakeCredentialStore* store = new AgentFakeCredentialStore();
+      |                                      ^~~~~
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp: In lambda function:
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp:78:30: warning: ignoring return value of 'virtual bool {anonymous}::AgentFakeCredentialStore::saveCredential(modbuslens::ui::AiProviderKind, std::string_view)', declared with attribute 'nodiscard' [-Wunused-result]
+   78 |         store->saveCredential(modbuslens::ui::AiProviderKind::ModelScope,
+      |         ~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   79 |                               std::string_view{"fake-test-token"});
+      |                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp:45:24: note: declared here
+   45 |     [[nodiscard]] bool saveCredential(modbuslens::ui::AiProviderKind kind,
+      |                        ^~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp: In member function 'void ScopedGlobalAi::save(modbuslens::ui::AiProviderKind, const QString&, const QString&)':
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp:319:34: warning: ignoring return value of 'virtual bool {anonymous}::AgentFakeCredentialStore::saveCredential(modbuslens::ui::AiProviderKind, std::string_view)', declared with attribute 'nodiscard' [-Wunused-result]
+  319 |             store_.saveCredential(kind, secret.toStdString());
+      |             ~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp:45:24: note: declared here
+   45 |     [[nodiscard]] bool saveCredential(modbuslens::ui::AiProviderKind kind,
+      |                        ^~~~~~~~~~~~~~
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp: At global scope:
+E:/desktop/ModbusLens/tests/test_agent_integration.cpp:274:13: warning: 'QJsonObject {anonymous}::bodyOf(const FakeChatCompletionsServer&, int)' defined but not used [-Wunused-function]
+  274 | QJsonObject bodyOf(const FakeChatCompletionsServer& server, int index)
+      |             ^~~~~~
+[572/628] Linking CXX executable modbuslens_crc_tests.exe
+[573/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/AnalysisController.cpp.obj
+[574/628] Linking CXX executable modbuslens_frame_tests.exe
+[575/628] Linking CXX executable modbuslens_codec_tests.exe
+[576/628] Linking CXX executable modbuslens_function03_tests.exe
+[577/628] Linking CXX executable modbuslens_simulator_tests.exe
+[578/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/agent/AgentPromptBuilder.cpp.obj
+[579/628] Linking CXX executable modbuslens_fault_integration_tests.exe
+[580/628] Linking CXX executable modbuslens_fault_tests.exe
+[581/628] Linking CXX executable modbuslens_simulator_integration_tests.exe
+[582/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/agent/AgentTools.cpp.obj
+[583/628] Linking CXX executable modbuslens_transaction_tests.exe
+[584/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/agent/ModelScopeAgentClient.cpp.obj
+[585/628] Linking CXX executable modbuslens_transaction_integration_tests.exe
+[586/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/agent/AgentAsyncClient.cpp.obj
+[587/628] Linking CXX executable modbuslens_statistics_tests.exe
+[588/628] Linking CXX executable modbuslens_statistics_integration_tests.exe
+[589/628] Linking CXX executable modbuslens_replay_log_tests.exe
+[590/628] Building CXX object CMakeFiles/modbuslens_agent_integration_tests.dir/src/ui/agent/AgentRuntime.cpp.obj
+[591/628] Linking CXX executable modbuslens_replay_analysis_tests.exe
+[592/628] Linking CXX executable modbuslens_passive_tests.exe
+[593/628] Linking CXX executable modbuslens_serial_tests.exe
+[594/628] Linking CXX executable modbuslens_write_prepare_tests.exe
+[595/628] Linking CXX executable modbuslens_register_decode_tests.exe
+[596/628] Linking CXX executable modbuslens_active_request_tests.exe
+[597/628] Linking CXX executable modbuslens_write_encoder_tests.exe
+[598/628] Linking CXX executable modbuslens_readiness_tests.exe
+[599/628] Linking CXX executable modbuslens_fc06_active_tests.exe
+[600/628] Linking CXX executable modbuslens_device_profile_tests.exe
+[601/628] Linking CXX executable modbuslens_profile_controller_tests.exe
+[602/628] Linking CXX executable modbuslens_candidate_extraction_tests.exe
+[603/628] Linking CXX executable modbuslens_active_profile_controller_tests.exe
+[604/628] Linking CXX executable modbuslens_candidate_adapter_tests.exe
+[605/628] Linking CXX executable modbuslens_ai_settings_qml_tests.exe
+[606/628] Linking CXX executable modbuslens_manual_import_tests.exe
+[607/628] Linking CXX executable modbuslens_candidate_provider_tests.exe
+[608/628] Linking CXX executable modbuslens_candidate_transport_tests.exe
+[609/628] Linking CXX executable modbuslens_manual_extraction_tests.exe
+[610/628] Linking CXX executable modbuslens_candidate_orchestration_tests.exe
+[611/628] Linking CXX executable modbuslens_fc16_active_tests.exe
+[612/628] Linking CXX executable modbuslens_manual_import_pdf_docx_tests.exe
+[613/628] Linking CXX executable modbuslens_candidate_review_tests.exe
+[614/628] Linking CXX executable modbuslens_manual_delete_tests.exe
+[615/628] Linking CXX executable modbuslens_ai_settings_tests.exe
+[616/628] Linking CXX executable modbuslens_manual_qa_tests.exe
+[617/628] Linking CXX executable modbuslens_serial_adapter_tests.exe
+[618/628] Linking CXX executable modbuslens_ui_bridge_tests.exe
+[619/628] Linking CXX executable modbuslens_diagnosis_tests.exe
+[620/628] Linking CXX executable modbuslens_agent_tools_tests.exe
+[621/628] Linking CXX executable modbuslens_agent_runtime_tests.exe
+[622/628] Linking CXX executable modbuslens_profile_semantic_tests.exe
+[623/628] Linking CXX executable modbuslens_engineering_read_tests.exe
+[624/628] Linking CXX executable modbuslens_active_master_tests.exe
+[625/628] Linking CXX executable modbuslens_write_dispatch_tests.exe
+[626/628] Linking CXX executable modbuslens_ai_tests.exe
+[627/628] Linking CXX executable modbuslens_agent_integration_tests.exe
+[628/628] Linking CXX executable modbuslens.exe

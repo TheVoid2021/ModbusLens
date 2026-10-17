@@ -1,0 +1,26 @@
+REG: stage 0: Device workspace reachable
+REG: stage 1: seeded profile open
+REG: stage 2: register map visible with seed row
+REG: stage 3: editor opens; FC empty; count=1
+REG: stage 4: 1-word wordOrder N/A; byteOrder on
+REG: stage 5: Float32 ¡ú count=2; wordOrder on
+REG: stage 6: back to UInt16
+REG: stage 7: FC04@1000 added; profile dirty
+REG: stage 8: same-FC duplicate refused
+REG: stage 9: same-FC overlap refused
+REG: stage 10: invalid FC refused; input kept
+REG: stage 11: entry edited in place
+REG: stage 12: save persisted the register map
+REG: stage 13: open restored the register map
+REG: stage 14: entry deleted; save persists
+REG: stage 15: window resized to 1000x700
+REGGEO profileRegisterCard: x=666 y=123 w=330 h=277
+REGGEO profileRegisterList: x=678 y=227 w=306 h=161
+REGGEO profileRegisterAddButton: x=678 y=163 w=50 h=34
+REGGEO profileRegisterEditButton: x=736 y=163 w=50 h=34
+REGGEO profileRegisterDeleteButton: x=794 y=163 w=50 h=34
+REGGEO entryEditorDialog: x=89.5 y=73.5 w=879 h=595
+REG: stage 16: 1000x700 reachable incl. dialog
+REG: stage 17: editor fields focusable
+REG: stage 18: identity editor unaffected
+REGFAIL: regUnitField outside: x=257.5 y=705.5 w=729 h=32 win=1000x700

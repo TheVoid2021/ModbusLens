@@ -1,0 +1,90 @@
+QFontDatabase: Cannot find font directory D:/QT/6.11.1/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+WRITE [setup]: Communication current, harness transport connected, session=1 state=none
+WRITE [C01]: unit 0 -> [从站地址须在 1..247 之间（当前不支持广播）], no dialog, no token
+WRITE [C02]: 65536 -> [第 1 行的数值超出 0..65535]
+WRITE [C03]: prepared token=1, dialog open, startAttempts=0
+WRITE [C19]: summary fields equal the snapshot projection (unit 11 / addr 100 / value 1234 / COM_HARNESS @ 9600)
+WRITE [C20]: draft edited to 7/4321, snapshot and summary still 100/1234
+WRITE [C09]: repeated Write kept token=1 and one dialog
+WRITE [C04]: Cancel -> invalidated(user_cancelled), draft preserved, zero send
+WRITE [C16]: both drafts survived the tab switches
+WRITE [C17]: 0x10 prepared, quantity 3, all three values listed
+WRITE [C10-C]: one consumption for token=2; second confirm rejected; zero send
+WRITE [C18]: 65535+2 -> [起始地址与数量超出 16 位寄存器地址空间]
+WRITE [parser]: blank line rejected; 123 prepared; 124 rejected
+WRITE [C06]: initial focus = writeConfirmCancelButton
+WRITE [C07]: immediate Enter -> state=prepared reason=
+WRITE [C05b]: immediate Space -> state=invalidated reason=user_cancelled
+WRITE [C08]: Confirm+Space -> consumed once (token=5), dialog closed, zero write dispatch
+WRITE [C08b]: Confirm+Enter -> consumed
+WRITE [double]: two rapid activations -> one consumption, zero write dispatch
+WRITE [E1]: ready — token=8 state=prepared dialog=1 focus=writeConfirmAcceptButton
+WRITE [E1]: back-to-back Enter -> one consumption (token=8), no new snapshot/dialog, no background action, writes=0
+WRITE [E1] focus after close = Main (owner Main)
+WRITE [E2]: focus after close = Main (owner Main)
+WRITE [E2]: next-turn Enter after close -> no new flow, no background action, writes=0
+WRITE [C05/Escape]: invalidated(user_cancelled), dialog closed, draft preserved
+WRITE [outside-click]: dialog stayed open, snapshot stayed prepared
+WRITE [modal-nav]: rail 2 -> 2 (modal blocked the click); state=prepared
+WRITE [C11]: disconnect -> invalidated(disconnected), dialog closed by the authority
+WRITE [C12]: reconnect -> old token 0 unusable (session=2)
+WRITE [C13/C14]: busy false->true invalidated; busy->false did not revive (reads=1, write attempts=0)
+[HARNESS] read-start rejected: session refused beginActiveRequest
+WRITE [C35]: reason stays busy_became_true after a later disconnect
+WRITE [C15]: Clear Results preserved drafts and the prepared snapshot
+WRITE [C30]: Simulator replacement -> invalidated(source_changed), drafts preserved
+WRITE [C31]: failed Replay load -> snapshot and draft preserved
+WRITE [C32]: drafts preserved; old snapshot invalidated (draft persistence != confirmation persistence)
+WRITE [C14]: hidden page disabled; Tab/Space/Enter prepared nothing, dispatched nothing
+WRITE [C14]: back on Communication, draft intact, no snapshot
+WRITE [a11y]: names present (写入（打开确认对话框） / 取消写入（不发送任何请求） / 确认写入意图)
+WRITE [a11y]: busy runtime -> Write action disabled=1
+WRITE [taborder]: 0x06 owners = [writeTab06,writeTab10,write06UnitSpin,write06AddressField,write06ValueField,write06TimeoutSpin,writeActivateButton,appBarClearResults,navItem_0]
+WRITE [C36]: Tab escaped to [writeActivateButton]; Backtab returned to [write10ValuesArea]
+WRITE [C4 setup]: window=1024x720 state=invalidated
+WRITE [C4 geometry 1024x720 0x06]: window=1024x720 writeFoundationPanel=(73,352 935x168) writeFunctionTabs=(85,364 911x21) write06DraftRow=(85,393 911x34) write10DraftColumn=<hidden> write10ValuesScroll=<hidden> writeActivateButton=(85,454 50x34) writeValidationError=(85,496 911x12)
+WRITE [C4 geometry 1024x720 0x06]: validation message at (85,496 911x12) — clear of tabs / action / editor
+WRITE [C4 geometry 1024x720 0x10]: window=1024x720 writeFoundationPanel=(73,352 935x305) writeFunctionTabs=(85,364 911x21) write06DraftRow=<hidden> write10DraftColumn=(85,393 911x190) write10ValuesScroll=(86,445 909x80) writeActivateButton=(85,591 50x34) writeValidationError=(85,633 911x12)
+WRITE [C4 geometry 1024x720 0x10]: validation message at (85,633 911x12) — clear of tabs / action / editor
+WRITE [C4 scroll]: scroller=write10ValuesScroll content=432 viewport=80
+WRITE [C4 scroll]: last line y=412 visible in band [352,432) at contentY=352 of max 352
+WRITE [C4 confirm-scroll]: readable top rows = [1000,1001,1002,1003,1004,1005,1006,1007,1008,1009]
+WRITE [C4 confirm-scroll]: readable bottom rows = [1031,1032,1033,1034,1035,1036,1037,1038,1039] — all 40 values reachable by scrolling (not all visible at once)
+WRITE [C4 boundary]: value #1 readable at the top ([1,2,3,4,5,6,7,8,9,10])
+WRITE [C4 boundary]: value #123 readable at the bottom ([115,116,117,118,119,120,121,122,123])
+WRITE [C4 keyboard]: Tab chain = [writeConfirmCancelButton,writeConfirmAcceptButton]
+WRITE [C4 keyboard]: Shift+Tab returns to Cancel; list keys neither confirmed nor trapped
+WRITE [C4 boundary]: 124 values -> [寄存器数量须在 1..123 之间]
+WRITE [C4 geometry 1024x720 0x10 (post-reject)]: window=1024x720 writeFoundationPanel=(73,352 935x267) writeFunctionTabs=(85,364 911x21) write06DraftRow=<hidden> write10DraftColumn=(85,393 911x152) write10ValuesScroll=(86,445 909x80) writeActivateButton=(85,553 50x34) writeValidationError=(85,595 911x12)
+WRITE [C4 geometry 1024x720 0x10 (post-reject)]: validation message at (85,595 911x12) — clear of tabs / action / editor
+WRITE [C4 geometry 1000x700 0x10]: window=1000x700 writeFoundationPanel=(73,352 911x305) writeFunctionTabs=(85,364 887x21) write06DraftRow=<hidden> write10DraftColumn=(85,393 887x190) write10ValuesScroll=(86,445 885x80) writeActivateButton=(85,591 50x34) writeValidationError=(85,633 887x12)
+WRITE [C4 geometry 1000x700 0x10]: validation message at (85,633 887x12) — clear of tabs / action / editor
+WRITE [C4 geometry 1000x700 0x06]: window=1000x700 writeFoundationPanel=(73,352 911x174) writeFunctionTabs=(85,364 908x21) write06DraftRow=(85,393 908x34) write10DraftColumn=<hidden> write10ValuesScroll=<hidden> writeActivateButton=(85,480 50x34) writeValidationError=<hidden>
+WRITE [C4 scroll 1000x700]: last line y=272 in band [212,292) at contentY=212
+WRITE [C4 geometry restored 1024x720 0x10]: window=1024x720 writeFoundationPanel=(73,352 935x285) writeFunctionTabs=(85,364 911x21) write06DraftRow=<hidden> write10DraftColumn=(85,393 911x190) write10ValuesScroll=(86,445 909x80) writeActivateButton=(85,591 50x34) writeValidationError=<hidden>
+WRITE [D1/O1]: typed "1234" -> TextField.text=[1234], raw draft=[1234], typed address=1234
+WRITE [D1/O2]: raw [00010] preserved; summary=10
+WRITE [D1/O3]: raw [ 1234 ] preserved; typed=1234
+WRITE [D1/O4]: raw [-1] kept; error field=address; [寄存器地址：只能输入十进制数字（0-9）]
+WRITE [D1/O5]: raw [12x] kept; error field=value; [写入值：只能输入十进制数字（0-9）]
+WRITE [D1/O6]: raw [65536] kept (no clamp); error field=value
+WRITE [D1/O7]: pasted [12x] kept raw; validation error field=address
+WRITE [D1/R0]: empty stays empty (never auto-0); validation error field=address
+WRITE [D1/R1]: select-all + retype -> raw [65535], typed 65535
+WRITE [D1/R3]: Tab -> [write06ValueField]; Shift+Tab -> [write06AddressField]
+WRITE [D1/a11y]: address=[0x06 寄存器地址（十进制）] value=[0x06 写入值（十进制）]
+WRITE [DLG1]: full accepted attempt=1 send=1 -> state=consumed, notifies +1
+WRITE [DLG1]: dialog closed; consumed token inert (attempts=1 sends=1)
+WRITE [DLG2]: zero-accept attempt=1 send=0 NotSent -> state=consumed
+WRITE [DLG2]: dialog closed; token inert
+WRITE [DLG3]: short attempt=1 send=0 PossiblySent + 1 terminal -> state=consumed
+WRITE [DLG3]: dialog closed; token inert
+WRITE [DLG4]: 0x10 full accepted attempt=1 send=1 -> state=consumed
+WRITE [DLG4]: dialog closed; consumed token inert
+WRITE [DLG5]: disconnect -> Invalidated(Disconnected)
+WRITE [DLG5]: dialog closed; old token -> NotPrepared (distinct from the Disconnected reason)
+WRITE [DLG5b]: busy false->true -> Invalidated(BusyBecameTrue)
+WRITE [DLG5b]: dialog closed
+WRITE [C4 final]: session history function codes = [<empty>]; zero 0x06/0x10 transactions, zero write dispatch (FC03 reads=4)
+WRITEFAIL: WRITEFAIL C35: the reason was overwritten (disconnected)

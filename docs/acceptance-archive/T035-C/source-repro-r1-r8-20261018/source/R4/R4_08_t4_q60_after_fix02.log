@@ -1,0 +1,57 @@
+QFontDatabase: Cannot find font directory D:/QT/6.11.1/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+READ [setup]: Communication current, harness transport connected, session=1
+READ [A]: summary=[读取结果：尚无], details entry hidden, no value table
+READ [B/CLASS-01]: [串口错误：从站地址须在 1..247 之间] / 未发送
+[HARNESS] read-start #1 begin_ok=1 qty=2 wire=8B pending_before=0
+READ [C waiting]: summary=[读取结果：等待响应], TX=[01 03 03 E8 00 02 44 7B] (== preview == encoder), RX=[未观测到任何字节]
+[HARNESS] complete pending_qty=2 resp=9B feed=analysis
+READ [C/CLASS-10]: [共 2 个寄存器（耗时 25 ms）。] 值=100/200 地址=1000/1001 RX=01 03 04 00 64 00 C8 BA 7A
+READ [C2]: evidence dialog opened from 查看详情 — title/RX/TX/values all reachable
+[HARNESS] read-start #2 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] complete pending_qty=2 resp=0B feed=no-analysis
+READ [D/CLASS-03]: [在超时时间内未观测到任何字节（耗时 1000 ms，超时阈值 1000 ms）。]
+[HARNESS] read-start #3 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] complete pending_qty=2 resp=2B feed=no-analysis
+READ [E/CLASS-04]: [观测到 2 字节，少于 Modbus RTU 最小帧长（4 字节）（耗时 1000 ms）。] RX=[01 03]
+[HARNESS] read-start #4 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] complete pending_qty=2 resp=5B feed=analysis
+READ [F/CLASS-05]: [设备返回 Modbus 异常响应：异常码 0x02（非法数据地址（Illegal Data Address）），耗时 25 ms。]
+[HARNESS] read-start #5 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] complete pending_qty=2 resp=9B feed=analysis
+READ [G/CLASS-06]: [观测到 9 字节，但其 CRC 与帧内容不一致（耗时 25 ms）。] RX=[01 03 04 00 64 00 C8 BA 85]
+[HARNESS] read-start #6 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] complete pending_qty=2 resp=9B feed=analysis
+READ [H/CLASS-07]: [响应地址不匹配（请求 0x01 / 响应 0x02）]
+[HARNESS] read-start #7 begin_ok=1 qty=4 wire=8B pending_before=0
+[HARNESS] complete pending_qty=4 resp=9B feed=analysis
+READ [H2/CLASS-07 quantity]: [寄存器数量不匹配（请求 4 / 响应 2）] (payload kept uninterpreted)
+[HARNESS] read-start #8 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] complete pending_qty=2 resp=8B feed=analysis
+READ [I/CLASS-08]: [正常响应格式非法]
+[HARNESS] read-start #9 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] adapter-removal terminal: transport pending cleared + session cancelled
+READ [J/CLASS-02]: [传输在提交后中止，未观测到任何响应字节。]
+[HARNESS] read-start #10 begin_ok=1 qty=125 wire=8B pending_before=0
+[HARNESS] complete pending_qty=125 resp=255B feed=analysis
+READ [geometry 1024x720 125-reg]: window=1024x720 communicationRequestSection=(73,192 935x131) readResultPanel=(85,300 911x11) readResultSummary=(85,300 99x11) readResultSummaryFact=(192,300 752x11) readResultDetailsButton=(952,300 44x11) commReadButton=(916,236 80x24) writeFoundationPanel=(73,352 935x148) writeValidationError=<hidden> writeActivateButton=(85,454 50x34)
+READ [geometry 1000x700 125-reg]: window=1000x700 communicationRequestSection=(73,192 911x131) readResultPanel=(85,300 887x11) readResultSummary=(85,300 99x11) readResultSummaryFact=(192,300 728x11) readResultDetailsButton=(928,300 44x11) commReadButton=(892,236 80x24) writeFoundationPanel=(73,352 911x148) writeValidationError=<hidden> writeActivateButton=(85,454 50x34)
+READ [K geometry]: every read-result control and the write panel are inside 1000x700
+READ [K dialog]: 125-register evidence view reachable and scrollable at 1000x700
+[HARNESS] read-start #11 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] complete pending_qty=2 resp=9B feed=analysis
+READ [M1/READ-FC2]: function input 04 -> PDU/RTU/TX byte 04, expected response 04, registers decoded
+[HARNESS] read-start #12 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] complete pending_qty=2 resp=9B feed=analysis
+READ [M2/READ-FC3]: custom function 0x41 -> same register-read schema, conforming reply succeeds
+READ [M3/READ-FC6]: function text [GG] -> 请求未发送, zero sends
+READ [M4/READ-FC7]: start text [12x] -> 请求未发送, zero sends
+READ [M5/READ-FC8]: baud options [1200,2400,4800,9600,19200,38400,57600,115200], default 9600
+[HARNESS] read-start #13 begin_ok=1 qty=2 wire=8B pending_before=0
+[HARNESS] complete pending_qty=2 resp=9B feed=analysis
+READ [M6/M11]: default decode = UInt16 + normal; raw 0x1234 -> derived 4660, raw columns intact
+READ [M7/M11]: decode controls present; defaults = UInt16 / 正常
+READ [M8/M11]: Hex view = derived 0x1234; raw columns unchanged
+READ [M9/M11]: byte-swapped view = 13330; raw HEX still 0x1234 (device answer untouched)
+READ [L]: the read result is cleared with its source and no hex is fabricated for Simulator/Replay
+READ RESULT CHECK PASS (T023): summary states (尚无 / 等待响应 / CLASS-01..08 / CLASS-10); TX == preview == encoder; RX byte-for-byte fidelity (partial / corrupted / oversized); CLASS-10 raw uint16 table with index+address; no values outside CLASS-10; frozen wording (未观测到任何字节 / 未发送 / 已提交传输, never 已发送); evidence dialog reachable and bounded; 1000x700 geometry incl. the 125-register table; no wire evidence fabricated for Simulator. CLASS-09 无法识别的响应 is a defensive/fallback class with NO reachable wire input, so it is asserted at the mapping layer (classifyFc03ReadResult) instead of being faked here.

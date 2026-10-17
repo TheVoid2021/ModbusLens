@@ -1,0 +1,55 @@
+# R3_01_RESYNC — Round SOURCE-REPRO-R3 前置核验 + 诊断运行记录（含 R3_06）
+
+## Git / EXE（本轮开始）
+
+| 项 | 值 | 判定 |
+|---|---|---|
+| HEAD | `517d78c5e5d780d831af5e6d038d70cfe8747ebc` | **MATCH** |
+| staged | **0** | ✅ |
+| `git diff --check` | PASS | ✅ |
+| WIP | **50**（43 M + 7 ??） | 未变 ✅ |
+| 冻结 Release | `4044edae…` | **MATCH** |
+| 冻结 Debug | `9cadc2c5…` | **MATCH** |
+| 隔离构建产物 | `build/t035c-source-repro-20261017/modbuslens.exe` = `7a06e6f7…` | 存在 ✅ |
+
+---
+
+# R3_06_DIAGNOSTIC_RUNS — 本轮诊断执行记录（**2 / 6**）
+
+## 诊断 #1 — `register_readiness` + 子进程独立 TEMP
+
+| 字段 | 值 |
+|---|---|
+| HYPOTHESIS | 子进程独立 TEMP 可消除全机 TEMP 变化导致的误报（验证 FIX-01 方向可行性） |
+| EXPECTED_DISTINGUISHING | PASS ⇒ 隔离方案可行；FAIL ⇒ 另有独立缺陷 |
+| EXECUTABLE | `build/t035c-source-repro-20261017/modbuslens_readiness_tests.exe` |
+| CWD | `E:/desktop/ModbusLens` |
+| PLATFORM_PLUGIN | `offscreen` |
+| TEMP_DIRECTORY | `%TEMP%/r3_isolated_temp_17482`（本次专用） |
+| TIMEOUT | 300 s |
+| LOG | `R3_run01_readiness_isolated_temp.txt` / `R3_run01_stdout.log` / `R3_run01_stderr.log` |
+| **EXIT_CODE** | **0** |
+| 结果 | **Totals: 27 passed, 0 failed**（9 ms） |
+
+**结论**：FIX-01（隔离 TEMP）**方向可行**；但**不能**据此认定「原始 ctest 失败原因已证明」（指令明确要求区分）。
+
+## 诊断 #2 — `qml_register_map_check` 完整输出
+
+| 字段 | 值 |
+|---|---|
+| HYPOTHESIS | 失败是否仅限 `regUnitField` 可见性断言；门禁是否输出滚动容器信息 |
+| EXPECTED_DISTINGUISHING | 若仅有 REGFAIL 且无 scroll/contentHeight 输出 ⇒ `FIELD_SCROLL_ACCESSIBILITY = NOT VERIFIED` |
+| EXECUTABLE | `build/t035c-source-repro-20261017/modbuslens.exe --qml-register-map-check` |
+| PLATFORM_PLUGIN | `offscreen` |
+| TIMEOUT | 300 s |
+| LOG | `R3_run02_q64_full.log` |
+| **EXIT_CODE** | **1** |
+| 关键输出 | `REGGEO entryEditorDialog: x=89.5 y=73.5 w=879 h=595` · `REG: stage 16: 1000x700 reachable incl. dialog` · **`REG: stage 17: editor fields focusable`** · `REGFAIL: regUnitField outside: x=257.5 y=698.5 w=729 h=32 win=1000x700` |
+| 滚动信息 | **门禁未输出** scroll / flickable / contentHeight / clip |
+
+## 未使用的诊断预算
+
+```
+R3 DIAGNOSTIC RUNS = 2 / 6（剩余 4 次未使用，标注 NOT EXECUTED）
+```
+未执行第 3–6 次的原因：K 场景与 semantic 场景的判定所需信息**无法在不修改门禁代码的前提下获取**（门禁不打印 session 状态 / 不打印命中 item 名），继续重跑同一失败测试**不产生区分性证据**，符合「不反复重跑碰运气」纪律。

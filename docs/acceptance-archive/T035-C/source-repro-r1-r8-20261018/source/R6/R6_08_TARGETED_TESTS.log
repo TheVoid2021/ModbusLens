@@ -1,0 +1,8 @@
+R6 TARGETED 7
+read_result EXIT=0
+write_foundation EXIT=1
+production_write EXIT=1
+readiness EXIT=0
+register_map EXIT=0
+active_profile EXIT=0
+write_foundation_windows EXIT=1

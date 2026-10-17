@@ -1,0 +1,9 @@
+R5 TARGETED TESTS
+t1 active-profile(pre-fix) EXIT=1
+t2 active-profile(diag) EXIT=1
+t3 active-profile(FIX-04) EXIT=0 PASS
+t4 register-map(scene-rect) EXIT=1
+t5 register-map(dialogH=0) EXIT=1
+t6 register-map(viewport) EXIT=0 PASS
+t7 register_readiness EXIT=0
+t8 qml_read_result EXIT=0 PASS

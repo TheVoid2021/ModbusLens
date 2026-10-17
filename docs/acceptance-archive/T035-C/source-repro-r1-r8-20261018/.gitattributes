@@ -1,0 +1,15 @@
+# Preserve raw test evidence bytes (no line-ending normalization).
+* -text whitespace=cr-at-eol
+
+# Per-file whitespace exceptions: these RAW logs contain genuine trailing
+# spaces (compiler/cmake output). Evidence bytes must not be rewritten,
+# so the whitespace CHECK is relaxed for exactly these files only.
+# A record of this exception set is in ARCHIVE_MANIFEST.md / final report.
+source/R1-R3/01_configure.log whitespace=-blank-at-eol,cr-at-eol
+source/R1-R3/04_register_readiness_ctest_v.log whitespace=-blank-at-eol,cr-at-eol
+source/R1-R3/06_q60_debug_fail.log whitespace=-blank-at-eol,cr-at-eol
+source/R4/R4_07_configure.log whitespace=-blank-at-eol,cr-at-eol
+source/R6/R6_07_configure.log whitespace=-blank-at-eol,cr-at-eol
+source/R7/R7_05_configure.log whitespace=-blank-at-eol,cr-at-eol
+source/R8/R8_03_FIX02C_DIFF.md whitespace=-blank-at-eol,cr-at-eol
+source/R8/R8_04_configure.log whitespace=-blank-at-eol,cr-at-eol
