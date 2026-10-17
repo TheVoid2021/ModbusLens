@@ -34,6 +34,10 @@ Item {
     property alias placeholderText: field.placeholderText
     property string accessibleName: ""
     property string fieldLabel: ""
+    // T035-B B1.1 (additive): the host may raise the presentation font size
+    // (the register-entry dialog uses a desktop-readable scale). Default is
+    // the unchanged DS body scale, so every existing use keeps its look.
+    property int fontPixelSize: DS.fontBody
     // Presentation-only error state: the controller's projection decides
     // WHICH field is wrong (writeDraftErrorField) and the section wires it in.
     property bool hasError: false
@@ -52,7 +56,7 @@ Item {
         selectByMouse: true
         Accessible.name: root.accessibleName.length > 0 ? root.accessibleName
                                                         : root.fieldLabel
-        font.pixelSize: DS.fontBody
+        font.pixelSize: root.fontPixelSize
         color: DS.textPrimary
         leftPadding: 8
         rightPadding: 8

@@ -281,6 +281,17 @@ bool SerialTransactionAdapter::isPortOpen() const
     return port_.isOpen();
 }
 
+// T035-C C2: the connected port identity (empty/0 while closed).
+QString SerialTransactionAdapter::currentPortName() const
+{
+    return port_.isOpen() ? port_.portName() : QString();
+}
+
+qint32 SerialTransactionAdapter::currentBaudRate() const
+{
+    return port_.isOpen() ? port_.baudRate() : 0;
+}
+
 void SerialTransactionAdapter::closePort()
 {
     using modbuslens::core::ActiveTransportTerminal;

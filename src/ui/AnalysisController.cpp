@@ -516,6 +516,18 @@ QStringList AnalysisController::serialPortNames() const
     return serialPortNames_;
 }
 
+QString AnalysisController::serialPortName() const
+{
+    return serialTransport_ ? serialTransport_->currentPortName() : QString();
+}
+
+int AnalysisController::serialBaudRate() const
+{
+    return serialTransport_
+               ? static_cast<int>(serialTransport_->currentBaudRate())
+               : 0;
+}
+
 bool AnalysisController::hasBaselineDiagnosis() const
 {
     return hasBaselineDiagnosis_;

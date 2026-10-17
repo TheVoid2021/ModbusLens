@@ -14,6 +14,7 @@ using modbuslens::core::DeviceProfile;
 using modbuslens::core::RegisterDecodeType;
 using modbuslens::core::RegisterEntry;
 using modbuslens::ui::ProfileController;
+using modbuslens::ui::ProfileLoadResult;
 using modbuslens::ui::ProfileStore;
 
 namespace {
@@ -1191,6 +1192,594 @@ private slots:
         // The register change is still there, unsaved but intact.
         QCOMPARE(controller.property("registerMap").toList().size(), 1);
         QVERIFY(!controller.lastActionError().isEmpty());
+    }
+    // ==================================== T035-A.3.2.1 register apply ==
+    // The CONTROLLED register-candidate write: staged draft ONLY (no Save /
+    // no ProfileStore access), full validateDeviceProfile, zero
+    // auto-correction. The map convention = the review-variant projection
+    // (dataType as frozen M11 token, NOT the editor dialog's index strings).
+
+    [[nodiscard]] QVariantMap registerCandidateFields() const
+    {
+        QVariantMap fields;
+        fields.insert(QStringLiteral("functionCode"), 3);
+        fields.insert(QStringLiteral("address"), 100);
+        fields.insert(QStringLiteral("name"), QStringLiteral("Power"));
+        fields.insert(QStringLiteral("dataType"), QStringLiteral("UInt16"));
+        fields.insert(QStringLiteral("quantity"), 1);
+        fields.insert(QStringLiteral("scale"), 1.0);
+        fields.insert(QStringLiteral("offset"), 0);
+        fields.insert(QStringLiteral("unit"), QString());
+        return fields;
+    }
+
+    // ----------------------------------------------------- A321-01 (A) --
+    // A valid register candidate stages ONE draft entry with exact values;
+    // the write is draft-only (dirty, never auto-saved).
+    void a321_01_registerApplyStagesDraft()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Apply Target"));
+        controller.setManufacturer(QStringLiteral("ACME"));
+
+        QVERIFY(controller.applyRegisterCandidate(registerCandidateFields()));
+        QCOMPARE(controller.registerMap().size(), 1);
+        const QVariantMap row = controller.registerMap().at(0).toMap();
+        QCOMPARE(row.value(QStringLiteral("readFunctionCode")).toInt(), 3);
+        QCOMPARE(row.value(QStringLiteral("address")).toInt(), 100);
+        QCOMPARE(row.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Power"));
+        QCOMPARE(row.value(QStringLiteral("dataType")).toString(),
+                 QStringLiteral("UInt16"));
+        QVERIFY(controller.dirty());
+        // Staged draft ONLY: nothing was persisted behind the test's back.
+        const QString path = ProfileStore::defaultFilePathFor(
+            controller.currentProfileId());
+        QVERIFY(!QFile::exists(path));
+    }
+
+    // ----------------------------------------------------- A321-02 (D) --
+    // Duplicate address (same FC space): the second apply is an explicit
+    // refusal — draft untouched, no auto-correction.
+    void a321_02_duplicateAddressFailsClosed()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Apply Target"));
+        QVERIFY(controller.applyRegisterCandidate(registerCandidateFields()));
+
+        QVariantMap duplicate = registerCandidateFields();
+        duplicate.insert(QStringLiteral("name"), QStringLiteral("Other"));
+        QVERIFY(!controller.applyRegisterCandidate(duplicate));
+        QCOMPARE(controller.lastActionErrorToken(),
+                 QStringLiteral("duplicate_address"));
+        QCOMPARE(controller.registerMap().size(), 1);
+    }
+
+    // ----------------------------------------------------- A321-03 (E) --
+    // Overlapping span (FC03@99..100 vs FC03@100): explicit refusal.
+    void a321_03_overlappingSpanFailsClosed()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Apply Target"));
+        QVERIFY(controller.applyRegisterCandidate(registerCandidateFields()));
+
+        QVariantMap overlapping = registerCandidateFields();
+        overlapping.insert(QStringLiteral("address"), 99);
+        overlapping.insert(QStringLiteral("dataType"),
+                           QStringLiteral("Float32"));
+        overlapping.insert(QStringLiteral("quantity"), 2);
+        QVERIFY(!controller.applyRegisterCandidate(overlapping));
+        QCOMPARE(controller.lastActionErrorToken(),
+                 QStringLiteral("overlapping_span"));
+        QCOMPARE(controller.registerMap().size(), 1);
+    }
+
+    // ----------------------------------------------------- A321-04 ------
+    // An unknown dataType token cannot enter the M11 matrix — refusal with
+    // its own token (never guessed, never coerced).
+    void a321_04_invalidDataTypeTokenFailsClosed()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Apply Target"));
+
+        QVariantMap bad = registerCandidateFields();
+        bad.insert(QStringLiteral("dataType"), QStringLiteral("Uint64"));
+        QVERIFY(!controller.applyRegisterCandidate(bad));
+        QCOMPARE(controller.lastActionErrorToken(),
+                 QStringLiteral("unsupported_data_type"));
+        QCOMPARE(controller.registerMap().size(), 0);
+    }
+
+    // ----------------------------------------------------- A321-05 ------
+    // functionCode outside 0x01..0x7F is refused BEFORE the integer
+    // narrowing (a wrap would silently fabricate a legal FC).
+    void a321_05_functionCodeOutOfRangeFailsClosed()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Apply Target"));
+
+        QVariantMap bad = registerCandidateFields();
+        bad.insert(QStringLiteral("functionCode"), 200);
+        QVERIFY(!controller.applyRegisterCandidate(bad));
+        QCOMPARE(controller.lastActionErrorToken(),
+                 QStringLiteral("invalid_function_code"));
+        QCOMPARE(controller.registerMap().size(), 0);
+    }
+
+    // ----------------------------------------------------- A321-06 ------
+    // Without an open profile there is no draft target — fail closed.
+    void a321_06_noOpenProfileFailsClosed()
+    {
+        ProfileController controller;
+        QVERIFY(!controller.applyRegisterCandidate(registerCandidateFields()));
+        QCOMPARE(controller.lastActionErrorToken(),
+                 QStringLiteral("profile_target_missing"));
+    }
+
+    // ----------------------------------------------------- A321-07 (C) --
+    // quantity inconsistent with dataType is owned by validateDeviceProfile
+    // and refused — never auto-corrected (Human T035-A.3.2.1 §3).
+    void a321_07_quantityMismatchFailsClosed()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Apply Target"));
+
+        QVariantMap bad = registerCandidateFields();
+        bad.insert(QStringLiteral("quantity"), 3);
+        QVERIFY(!controller.applyRegisterCandidate(bad));
+        QCOMPARE(controller.lastActionErrorToken(),
+                 QStringLiteral("register_count_mismatch"));
+        QCOMPARE(controller.registerMap().size(), 0);
+    }
+    // ==================================== T035-A Round O — provenance ==
+    // O-2: the configured/not-configured distinction must survive
+    // Candidate → Accept → RegisterEntry. The hasXXX flags the review
+    // surface already carries are CONSUMED by the apply parser (Round N
+    // proved they were dropped at this boundary). Default = NOT configured:
+    // the frozen values 1 / 0 / "" never claim to be confirmed.
+
+    // ------------------------------------------------------------- O01 --
+    // hasScale absent (candidate did not state a scale) => the staged entry
+    // keeps scale=1.0 (the wire value) but scaleConfigured stays FALSE.
+    void o01_candidateScaleWithoutHasFlagNotConfigured()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Provenance Target"));
+        QVariantMap fields = registerCandidateFields(); // no hasScale key
+        QVERIFY(controller.applyRegisterCandidate(fields));
+        const QVariantMap row =
+            controller.registerEntryAt(0);
+        QCOMPARE(row.value(QStringLiteral("scale")).toDouble(), 1.0);
+        QCOMPARE(row.value(QStringLiteral("scaleConfigured")).toBool(), false);
+    }
+
+    // ------------------------------------------------------------- O02 --
+    // hasScale=true with scale=1.0 (EXPLICITLY the default value): the
+    // entry must be marked configured — "value == default" is NOT
+    // "not configured".
+    void o02_candidateExplicitScale1Configured()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Provenance Target"));
+        QVariantMap fields = registerCandidateFields();
+        fields.insert(QStringLiteral("hasScale"), true);
+        QVERIFY(controller.applyRegisterCandidate(fields));
+        const QVariantMap row = controller.registerEntryAt(0);
+        QCOMPARE(row.value(QStringLiteral("scale")).toDouble(), 1.0);
+        QCOMPARE(row.value(QStringLiteral("scaleConfigured")).toBool(), true);
+    }
+
+    // ------------------------------------------------------------- O03 --
+    // Offset: hasOffset=false => offsetConfigured=false even though the
+    // staged offset is 0; hasOffset=true + offset=0 => offsetConfigured=true.
+    void o03_offsetProvenanceFollowsHasFlag()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Provenance Target"));
+        QVariantMap notStated = registerCandidateFields(); // no hasOffset
+        QVERIFY(controller.applyRegisterCandidate(notStated));
+        QVariantMap stated = registerCandidateFields();
+        stated.insert(QStringLiteral("address"), 101); // avoid duplicate
+        stated.insert(QStringLiteral("name"), QStringLiteral("Other"));
+        stated.insert(QStringLiteral("hasOffset"), true);
+        QVERIFY(controller.applyRegisterCandidate(stated));
+        QCOMPARE(
+            controller.registerEntryAt(0)
+                .value(QStringLiteral("offsetConfigured")).toBool(), false);
+        QCOMPARE(
+            controller.registerEntryAt(1)
+                .value(QStringLiteral("offsetConfigured")).toBool(), true);
+    }
+
+    // ------------------------------------------------------------- O04 --
+    // Unit: hasUnit=false => unitConfigured=false; hasUnit=true + unit="s"
+    // => unitConfigured=true (and the unit text survives).
+    void o04_unitProvenanceFollowsHasFlag()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Provenance Target"));
+        QVariantMap notStated = registerCandidateFields(); // no hasUnit
+        QVERIFY(controller.applyRegisterCandidate(notStated));
+        QVariantMap stated = registerCandidateFields();
+        stated.insert(QStringLiteral("address"), 102);
+        stated.insert(QStringLiteral("name"), QStringLiteral("Timer"));
+        stated.insert(QStringLiteral("hasUnit"), true);
+        stated.insert(QStringLiteral("unit"), QStringLiteral("s"));
+        QVERIFY(controller.applyRegisterCandidate(stated));
+        QCOMPARE(
+            controller.registerEntryAt(0)
+                .value(QStringLiteral("unitConfigured")).toBool(), false);
+        const QVariantMap row = controller.registerEntryAt(1);
+        QCOMPARE(row.value(QStringLiteral("unitConfigured")).toBool(), true);
+        QCOMPARE(row.value(QStringLiteral("unit")).toString(),
+                 QStringLiteral("s"));
+    }
+
+    // ------------------------------------------------------------- O10 --
+    // Human explicit confirmation through the EDITOR path: an empty scale
+    // field means NOT configured; a valid number means configured; clearing
+    // the field again returns to NOT configured (no one-way latch). The
+    // fields use the EDITOR convention (readFunctionCode as HEX text,
+    // dataType/byteOrder as indices) — the same map parseEntryFields consumes.
+    void o10_humanEditConfiguredSemantics()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Provenance Target"));
+        const auto editorFields = [](const QString &scale) {
+            QVariantMap f;
+            f.insert(QStringLiteral("readFunctionCode"),
+                     QStringLiteral("03"));
+            f.insert(QStringLiteral("address"), QStringLiteral("100"));
+            f.insert(QStringLiteral("name"), QStringLiteral("Power"));
+            f.insert(QStringLiteral("dataType"), QStringLiteral("0"));
+            f.insert(QStringLiteral("byteOrder"), QStringLiteral("0"));
+            f.insert(QStringLiteral("scale"), scale);
+            f.insert(QStringLiteral("offset"), QString());
+            f.insert(QStringLiteral("unit"), QString());
+            return f;
+        };
+        // Start EMPTY: staged via the editor convention = NOT configured.
+        QVERIFY(controller.addRegisterEntry(editorFields(QString())));
+        QCOMPARE(
+            controller.registerEntryAt(0)
+                .value(QStringLiteral("scaleConfigured")).toBool(), false);
+
+        // Human types a value through the editor fields (parseEntryFields).
+        QVERIFY(controller.editRegisterEntry(0, editorFields(
+                    QStringLiteral("2.5"))));
+        QCOMPARE(
+            controller.registerEntryAt(0)
+                .value(QStringLiteral("scaleConfigured")).toBool(), true);
+        QCOMPARE(
+            controller.registerEntryAt(0)
+                .value(QStringLiteral("scale")).toDouble(), 2.5);
+
+        // Clearing the field returns to NOT configured — recoverable.
+        QVERIFY(controller.editRegisterEntry(0, editorFields(QString())));
+        QCOMPARE(
+            controller.registerEntryAt(0)
+                .value(QStringLiteral("scaleConfigured")).toBool(), false);
+        QCOMPARE(
+            controller.registerEntryAt(0)
+                .value(QStringLiteral("scale")).toDouble(), 1.0);
+    }
+
+    // ============================== T035-C Round C1 — saved-profile bridge ==
+    // The selector consumes ONLY persisted profiles (never the draft), and it
+    // is addressed by (profileId, functionCode, address) — never a bare list
+    // index. Read-only: no save, no draft mutation.
+
+    // ------------------------------------------------------------- C01 --
+    void c01_unknownProfileIsNotAvailable()
+    {
+        ProfileController controller;
+        const QVariantMap missing = controller.savedProfileRegisters(
+            QStringLiteral("no-such-profile"));
+        QCOMPARE(missing.value(QStringLiteral("available")).toBool(), false);
+        QCOMPARE(missing.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("profile_unavailable"));
+
+        const QVariantMap emptyId =
+            controller.savedProfileRegisters(QString());
+        QCOMPARE(emptyId.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("profile_id_missing"));
+
+        const QVariantMap readiness = controller.savedRegisterReadiness(
+            QStringLiteral("no-such-profile"), 3, 0);
+        QCOMPARE(readiness.value(QStringLiteral("available")).toBool(), false);
+        QCOMPARE(readiness.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("profile_unavailable"));
+    }
+
+    // ------------------------------------------------------------- C02 --
+    void c02_savedProfileWithoutRegistersYieldsEmptyList()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Empty C2"));
+        QVERIFY(controller.saveCurrent());
+        const QVariantMap result = controller.savedProfileRegisters(
+            controller.currentProfileId());
+        QCOMPARE(result.value(QStringLiteral("available")).toBool(), true);
+        QCOMPARE(result.value(QStringLiteral("registers")).toList().size(), 0);
+    }
+
+    // ------------------------------------------------------------- C12 --
+    // Cross-profile isolation: the readiness query is addressed by
+    // (profileId, fc, address); an address that exists only in profile A is
+    // simply NOT FOUND in profile B — no implicit reuse of a previous
+    // selection.
+    void c12_crossProfileSelectionsDoNotLeak()
+    {
+        ProfileController controller;
+
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Profile A"));
+        const QString idA = controller.currentProfileId();
+        QVariantMap fieldsA = registerCandidateFields();
+        fieldsA.insert(QStringLiteral("hasScale"), true);
+        fieldsA.insert(QStringLiteral("hasOffset"), true);
+        fieldsA.insert(QStringLiteral("hasUnit"), true);
+        fieldsA.insert(QStringLiteral("scale"), 0.5);
+        fieldsA.insert(QStringLiteral("offset"), 1.0);
+        fieldsA.insert(QStringLiteral("unit"), QStringLiteral("V"));
+        QVERIFY(controller.applyRegisterCandidate(fieldsA));
+        // T035-C C1.2 (real contract): the candidate never declares a
+        // decoder, so profile A's entry is Unknown right now. The HUMAN
+        // declares Linear in the editor — and the SAVED declaration is what
+        // the bridge consumes.
+        QVariantMap declaredA = entryFields(QStringLiteral("03"),
+                                            QStringLiteral("100"),
+                                            QStringLiteral("Channel A"), 2,
+                                            QStringLiteral("0.5"),
+                                            QStringLiteral("1"),
+                                            QStringLiteral("V"));
+        declaredA.insert(QStringLiteral("decoderKind"),
+                         QStringLiteral("linear"));
+        QVERIFY(controller.editRegisterEntry(0, declaredA));
+        QVERIFY(controller.saveCurrent());
+
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Profile B"));
+        const QString idB = controller.currentProfileId();
+        QVariantMap fieldsB = registerCandidateFields();
+        fieldsB.insert(QStringLiteral("address"), 200);
+        QVERIFY(controller.applyRegisterCandidate(fieldsB));
+        QVERIFY(controller.saveCurrent());
+
+        // Address 100 exists in A (ready), not in B.
+        const QVariantMap readyA =
+            controller.savedRegisterReadiness(idA, 3, 100);
+        QCOMPARE(readyA.value(QStringLiteral("available")).toBool(), true);
+        QCOMPARE(readyA.value(QStringLiteral("engineeringReady")).toBool(),
+                 true);
+        const QVariantMap notInB =
+            controller.savedRegisterReadiness(idB, 3, 100);
+        QCOMPARE(notInB.value(QStringLiteral("available")).toBool(), false);
+        QCOMPARE(notInB.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("register_not_found"));
+        // And B's own register is not EngineeringReady (flags absent).
+        const QVariantMap b200 =
+            controller.savedRegisterReadiness(idB, 3, 200);
+        QCOMPARE(b200.value(QStringLiteral("available")).toBool(), true);
+        QCOMPARE(b200.value(QStringLiteral("readable")).toBool(), true);
+        QCOMPARE(b200.value(QStringLiteral("engineeringReady")).toBool(),
+                 false);
+    }
+
+    // ------------------------------------------------------------- C13 --
+    // Deleting the persisted file makes every selection against it
+    // unavailable — no dangling reference survives.
+    void c13_deletedProfileHasNoDanglingSelection()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Doomed"));
+        QVERIFY(controller.applyRegisterCandidate(registerCandidateFields()));
+        QVERIFY(controller.saveCurrent());
+        const QString id = controller.currentProfileId();
+        QCOMPARE(controller.savedRegisterReadiness(id, 3, 100)
+                     .value(QStringLiteral("available"))
+                     .toBool(),
+                 true);
+
+        const QString path = ProfileStore::defaultFilePathFor(id);
+        QVERIFY(QFile::remove(path));
+        const QVariantMap after =
+            controller.savedRegisterReadiness(id, 3, 100);
+        QCOMPARE(after.value(QStringLiteral("available")).toBool(), false);
+        QCOMPARE(after.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("profile_unavailable"));
+        const QVariantMap list = controller.savedProfileRegisters(id);
+        QCOMPARE(list.value(QStringLiteral("available")).toBool(), false);
+    }
+
+    // ------------------------------------------------------------- C14 --
+    // An UNSAVED draft (even one with registers) never appears as a saved
+    // profile: the bridge reads files only.
+    void c14_unsavedDraftIsNotASavedProfile()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("Draft only"));
+        QVERIFY(controller.applyRegisterCandidate(registerCandidateFields()));
+        const QString draftId = controller.currentProfileId();
+        const QVariantMap result = controller.savedProfileRegisters(draftId);
+        QCOMPARE(result.value(QStringLiteral("available")).toBool(), false);
+        QCOMPARE(result.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("profile_unavailable"));
+        // Saving then makes the SAME id available (the id is stable).
+        QVERIFY(controller.saveCurrent());
+        const QVariantMap saved = controller.savedProfileRegisters(draftId);
+        QCOMPARE(saved.value(QStringLiteral("available")).toBool(), true);
+        QCOMPARE(saved.value(QStringLiteral("registers")).toList().size(), 1);
+    }
+
+    // ========================= T035-C C1.2 — persisted decoderKind =======
+
+    // ------------------------------------------------------------- D11 --
+    // The Human edit flow round-trips Unknown -> Linear -> Unknown through a
+    // real save and a real disk reload.
+    void d11_humanDecoderEditRoundTrip()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("C12 D11"));
+
+        QVariantMap fields = entryFields(QStringLiteral("03"),
+                                         QStringLiteral("100"),
+                                         QStringLiteral("Interval"), 2,
+                                         QStringLiteral("0.01"),
+                                         QStringLiteral("0"),
+                                         QStringLiteral("s"));
+        // The editor always forwards the STABLE MACHINE TOKEN.
+        fields.insert(QStringLiteral("decoderKind"), QStringLiteral("linear"));
+        QVERIFY(controller.addRegisterEntry(fields));
+        QCOMPARE(controller.registerEntryAt(0)
+                     .value(QStringLiteral("decoderKind"))
+                     .toString(),
+                 QStringLiteral("linear"));
+        QVERIFY(controller.saveCurrent());
+        const QString id = controller.currentProfileId();
+
+        // Real disk reload: the declaration survives (never a UI-only state).
+        const ProfileLoadResult onDisk =
+            ProfileStore::loadFromFile(ProfileStore::defaultFilePathFor(id));
+        QVERIFY(onDisk.ok());
+        QVERIFY(onDisk.profile.registers.front().decoderKind
+                == modbuslens::core::EngineeringDecoderKind::Linear);
+
+        // Human changes it back to Unknown: token round-trips again.
+        QVariantMap back = entryFields(QStringLiteral("03"),
+                                       QStringLiteral("100"),
+                                       QStringLiteral("Interval"), 2,
+                                       QStringLiteral("0.01"),
+                                       QStringLiteral("0"),
+                                       QStringLiteral("s"));
+        back.insert(QStringLiteral("decoderKind"),
+                    QStringLiteral("unknown"));
+        QVERIFY(controller.editRegisterEntry(0, back));
+        QVERIFY(controller.saveCurrent());
+        const ProfileLoadResult onDisk2 =
+            ProfileStore::loadFromFile(ProfileStore::defaultFilePathFor(id));
+        QVERIFY(onDisk2.ok());
+        QVERIFY(onDisk2.profile.registers.front().decoderKind
+                == modbuslens::core::EngineeringDecoderKind::Unknown);
+
+        // An unrecognized token is a hard refusal (fail closed).
+        QVariantMap bad = back;
+        bad.insert(QStringLiteral("decoderKind"), QStringLiteral("weird"));
+        QVERIFY(!controller.editRegisterEntry(0, bad));
+        QCOMPARE(controller.lastActionErrorToken(),
+                 QStringLiteral("invalid_decoder_kind"));
+    }
+
+    // ------------------------------------------------------------- D13 --
+    // The bridge consumes the SAVED declaration: the same configured fields
+    // are Not Ready under Unknown and ready only under an explicit Linear.
+    void d13_bridgeConsumesSavedDeclaration()
+    {
+        ProfileController controller;
+
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("C12 Unknown"));
+        const QString unknownId = controller.currentProfileId();
+        QVariantMap unknownFields =
+            entryFields(QStringLiteral("03"), QStringLiteral("100"),
+                        QStringLiteral("Interval"), 2,
+                        QStringLiteral("0.01"), QStringLiteral("0"),
+                        QStringLiteral("s"));
+        unknownFields.insert(QStringLiteral("decoderKind"),
+                             QStringLiteral("unknown"));
+        QVERIFY(controller.addRegisterEntry(unknownFields));
+        QVERIFY(controller.saveCurrent());
+
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("C12 Linear"));
+        const QString linearId = controller.currentProfileId();
+        QVariantMap linearFields =
+            entryFields(QStringLiteral("03"), QStringLiteral("100"),
+                        QStringLiteral("Interval"), 2,
+                        QStringLiteral("0.01"), QStringLiteral("0"),
+                        QStringLiteral("s"));
+        linearFields.insert(QStringLiteral("decoderKind"),
+                            QStringLiteral("linear"));
+        QVERIFY(controller.addRegisterEntry(linearFields));
+        QVERIFY(controller.saveCurrent());
+
+        const QVariantMap unknownReadiness =
+            controller.savedRegisterReadiness(unknownId, 3, 100);
+        QCOMPARE(unknownReadiness.value(QStringLiteral("available")).toBool(),
+                 true);
+        QCOMPARE(unknownReadiness.value(QStringLiteral("readable")).toBool(),
+                 true);
+        QCOMPARE(
+            unknownReadiness.value(QStringLiteral("engineeringReady")).toBool(),
+            false);
+        QCOMPARE(unknownReadiness.value(QStringLiteral("decoderKind"))
+                     .toString(),
+                 QStringLiteral("unknown"));
+
+        const QVariantMap linearReadiness =
+            controller.savedRegisterReadiness(linearId, 3, 100);
+        QCOMPARE(linearReadiness.value(QStringLiteral("engineeringReady"))
+                     .toBool(),
+                 true);
+        QCOMPARE(linearReadiness.value(QStringLiteral("decoderKind"))
+                     .toString(),
+                 QStringLiteral("linear"));
+    }
+
+    // ------------------------------------------------------------- D17 --
+    // An UNSAVED decoder edit never leaks into the saved-profile selector.
+    void d17_unsavedDecoderEditDoesNotAffectSavedSelector()
+    {
+        ProfileController controller;
+        controller.newProfile();
+        controller.setDisplayName(QStringLiteral("C12 D17"));
+        QVariantMap fields = entryFields(QStringLiteral("03"),
+                                         QStringLiteral("100"),
+                                         QStringLiteral("Interval"), 2,
+                                         QStringLiteral("0.01"),
+                                         QStringLiteral("0"),
+                                         QStringLiteral("s"));
+        fields.insert(QStringLiteral("decoderKind"), QStringLiteral("linear"));
+        QVERIFY(controller.addRegisterEntry(fields));
+        QVERIFY(controller.saveCurrent());
+        const QString id = controller.currentProfileId();
+        QCOMPARE(controller.savedRegisterReadiness(id, 3, 100)
+                     .value(QStringLiteral("engineeringReady"))
+                     .toBool(),
+                 true);
+
+        // Edit the DRAFT back to Unknown WITHOUT saving.
+        QVariantMap back = fields;
+        back.insert(QStringLiteral("decoderKind"), QStringLiteral("unknown"));
+        QVERIFY(controller.editRegisterEntry(0, back));
+        QCOMPARE(controller.registerEntryAt(0)
+                     .value(QStringLiteral("decoderKind"))
+                     .toString(),
+                 QStringLiteral("unknown"));
+        // The SAVED selector still sees the persisted Linear.
+        QCOMPARE(controller.savedRegisterReadiness(id, 3, 100)
+                     .value(QStringLiteral("engineeringReady"))
+                     .toBool(),
+                 true);
+        QCOMPARE(controller.savedRegisterReadiness(id, 3, 100)
+                     .value(QStringLiteral("decoderKind"))
+                     .toString(),
+                 QStringLiteral("linear"));
     }
 };
 

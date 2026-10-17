@@ -44,6 +44,39 @@ namespace modbuslens::core {
 [[nodiscard]] bool profileWordOrderFromToken(std::string_view token,
                                              RegisterWordOrder& out);
 
+// ---------------------------------------------------------------------------
+// T035-C Round C1.2: the PERSISTED engineering-decoder declaration. This is
+// the register's own statement of WHICH algorithm a Human has chosen for it —
+// never inferred from scale/offset/unit values, never inferred from
+// name/description text, and never auto-set by the AI Candidate chain.
+//
+//   Unknown          — no decoding rule declared (the default for every new
+//                      and every legacy entry; conservative by contract).
+//   Raw              — Human chose raw values only; NOT an engineering value.
+//   Linear           — Human declared a static linear transform
+//                      (engineeringValue = decoded × scale + offset).
+//   VariableDecimal  — Human declared a dynamic/variable decimal-point rule;
+//                      declared but NOT computed in this version.
+//   Enum             — Human declared an enum mapping; declared but NOT
+//                      computed in this version.
+//
+// The serialized spelling is the stable machine token below — never a
+// ComboBox index. Unknown-field compatibility: a profile without the key
+// loads as Unknown; an unrecognized token is a STRUCTURAL ERROR (fail
+// closed), never a silent fallback.
+enum class EngineeringDecoderKind {
+    Unknown,
+    Raw,
+    Linear,
+    VariableDecimal,
+    Enum,
+};
+
+[[nodiscard]] std::string_view
+profileDecoderKindToken(EngineeringDecoderKind kind);
+[[nodiscard]] bool profileDecoderKindFromToken(std::string_view token,
+                                               EngineeringDecoderKind& out);
+
 // One register-map entry (T027 §9). `address` is the PDU / 0-based authority
 // address (never a 40001-style presentation alias). scale/offset/unit are the
 // D2 fields; the formula is frozen (see profileSemanticValue) but the values
@@ -65,6 +98,20 @@ struct RegisterEntry {
     double scale{1.0};
     double offset{0.0};
     std::string unit;
+    // T035-A Round O (O-2 provenance): "this engineering field was EXPLICITLY
+    // configured" — by an accepted Candidate that stated the member, or by a
+    // Human edit. DEFAULT IS FALSE: a fresh/legacy entry carries the frozen
+    // values (1 / 0 / "") WITHOUT claiming they were confirmed. This is the
+    // configured/not-configured distinction Round N proved missing; it is
+    // deliberately NOT "value != default". schemaVersion stays 1: the fields
+    // are additive, optional-on-load, and ignored by older readers.
+    bool scaleConfigured{false};
+    bool offsetConfigured{false};
+    bool unitConfigured{false};
+    // T035-C Round C1.2: the persisted decoder declaration (see the enum
+    // above). DEFAULT IS Unknown: a fresh or legacy entry has NOT declared
+    // any decoding rule, and no field value may imply one.
+    EngineeringDecoderKind decoderKind{EngineeringDecoderKind::Unknown};
 
     bool operator==(const RegisterEntry&) const = default;
 };

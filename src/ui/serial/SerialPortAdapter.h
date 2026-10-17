@@ -123,6 +123,9 @@ public:
 
     [[nodiscard]] bool hasActiveTransaction() const override;
     [[nodiscard]] bool isPortOpen() const override;
+    // T035-C C2: the connected port identity (empty/0 while closed).
+    [[nodiscard]] QString currentPortName() const override;
+    [[nodiscard]] qint32 currentBaudRate() const override;
 
     // ---- Fatal local port failure (M10-E4) ----
     //

@@ -31,6 +31,7 @@ add_library(modbuslens_core STATIC
     src/core/analysis/TransactionAnalysis.cpp
     src/core/analysis/RegisterDecode.cpp
     src/core/profile/DeviceProfile.cpp
+    src/core/profile/RegisterReadiness.cpp
     src/core/manual/ManualDocument.cpp
     src/core/candidate/CandidateExtraction.cpp
     src/core/candidate/ProviderExtractionContract.cpp
@@ -243,9 +244,12 @@ qt_add_qml_module(modbuslens
         src/ui/qml/pages/TransactionsPage.qml
         src/ui/qml/pages/DeviceProfilePage.qml
         src/ui/qml/pages/AiSettingsPage.qml
+        src/ui/qml/pages/EngineeringPage.qml
     SOURCES
         src/ui/AnalysisController.h
         src/ui/AnalysisController.cpp
+        src/ui/engineering/EngineeringReadController.h
+        src/ui/engineering/EngineeringReadController.cpp
         src/ui/ai/DiagnosisAsyncClient.h
         src/ui/ai/DiagnosisAsyncClient.cpp
         src/ui/manual/ManualStore.h
@@ -683,6 +687,21 @@ if(BUILD_TESTING)
 
     add_test(NAME device_profile COMMAND modbuslens_device_profile_tests)
 
+    # T035-C C1: the EngineeringReady readiness contract (core, deterministic,
+    # side-effect-free) — validated against the saved-profile persistence
+    # round trip in the same target.
+    add_executable(modbuslens_readiness_tests tests/test_register_readiness.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp)
+    target_link_libraries(modbuslens_readiness_tests PRIVATE
+        modbuslens_core Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_readiness_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME register_readiness COMMAND modbuslens_readiness_tests)
+
     # M12-B first slice: the UI-layer profile controller (catalog + identity
     # draft + dirty state + file lifecycle), driven against an injected
     # temporary managed root (never the real user data directory).
@@ -934,6 +953,14 @@ if(BUILD_TESTING)
     target_include_directories(modbuslens_candidate_transport_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    # T035-A Round H.1: TEST-ONLY loopback affordance for the synchronous
+    # post() socket matrix. PRIVATE to THIS test target only, so the
+    # ChatCompletionsHttpClient translation unit compiled into the `modbuslens`
+    # product target never defines it and the constructor/allowance do not
+    # exist in a production build. It is a COMPILE-TIME switch (never an env
+    # var), matching the repository's accepted E2 test-injection precedent.
+    target_compile_definitions(modbuslens_candidate_transport_tests PRIVATE
+        MODBUSLENS_ENABLE_TEST_LOOPBACK=1)
     target_link_libraries(modbuslens_candidate_transport_tests PRIVATE
         modbuslens_core Qt6::Core Qt6::Test Qt6::Network modbuslens_pdfium
         modbuslens_libzip modbuslens_zlib)
@@ -1581,6 +1608,67 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME active_master COMMAND modbuslens_active_master_tests)
+
+    add_executable(modbuslens_engineering_read_tests
+        tests/test_engineering_read.cpp
+        tests/fake_serial_transport.h
+        tests/fake_serial_transport.cpp
+        src/ui/AnalysisController.h
+        src/ui/AnalysisController.cpp
+        src/ui/ai/DiagnosisAsyncClient.h
+        src/ui/ai/DiagnosisAsyncClient.cpp
+        src/ui/candidate/ChatCompletionsHttpClient.h
+        src/ui/candidate/ChatCompletionsHttpClient.cpp
+        src/ui/candidate/ChatCompletionsTransport.h
+        src/ui/candidate/ChatCompletionsTransport.cpp
+        src/ui/profile/ProfileStore.h
+        src/ui/profile/ProfileStore.cpp
+        src/ui/profile/ProfileController.h
+        src/ui/profile/ProfileController.cpp
+        src/ui/profile/ActiveProfileController.h
+        src/ui/profile/ActiveProfileController.cpp
+        src/ui/TransactionListModel.h
+        src/ui/TransactionListModel.cpp
+        src/ui/serial/SerialTransport.h
+        src/ui/serial/SerialTransport.cpp
+        src/ui/serial/SerialPortAdapter.h
+        src/ui/serial/SerialPortAdapter.cpp
+        src/ui/engineering/EngineeringReadController.h
+        src/ui/engineering/EngineeringReadController.cpp
+        src/ui/ai/ModelScopeDiagnosisClient.h
+        src/ui/ai/ModelScopeDiagnosisClient.cpp
+        src/ui/ai/AiProviderProfile.h
+        src/ui/ai/AiProviderProfile.cpp
+        src/ui/ai/AiRuntimeConfiguration.h
+        src/ui/ai/AiRuntimeConfiguration.cpp
+        src/ui/ai/DiagnosisPromptBuilder.h
+        src/ui/ai/DiagnosisPromptBuilder.cpp
+        src/ui/agent/AgentToolContext.h
+        src/ui/agent/AgentToolContext.cpp
+        src/ui/agent/AgentTools.h
+        src/ui/agent/AgentTools.cpp
+        src/ui/agent/AgentPromptBuilder.h
+        src/ui/agent/AgentPromptBuilder.cpp
+        src/ui/agent/ModelScopeAgentClient.h
+        src/ui/agent/ModelScopeAgentClient.cpp
+        src/ui/agent/AgentRuntime.h
+        src/ui/agent/AgentRuntime.cpp
+        src/ui/agent/AgentProviderClient.h
+        src/ui/agent/AgentAsyncClient.h
+        src/ui/agent/AgentAsyncClient.cpp)
+    target_include_directories(modbuslens_engineering_read_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(modbuslens_engineering_read_tests PRIVATE
+        MODBUSLENS_DEMO_MLOG_PATH="${CMAKE_CURRENT_BINARY_DIR}/test_data/demo_v1.mlog")
+    target_link_libraries(modbuslens_engineering_read_tests PRIVATE
+        modbuslens_core Qt6::Qml Qt6::SerialPort Qt6::Network Qt6::Test)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(modbuslens_engineering_read_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME engineering_read COMMAND modbuslens_engineering_read_tests)
 
     # M10-D3: the atomic FC06 confirm+dispatch suite (R1-R5, the guard matrix,
     # the guard-vs-transport-NotSent distinction, evidence/terminal integration,

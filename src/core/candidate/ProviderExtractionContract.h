@@ -79,6 +79,24 @@ struct ExtractionRequest {
     const ManualDocument &document, std::string_view canonicalExtractedText);
 
 // ---------------------------------------------------------------------------
+// T035-A.2 — REGISTER-MAP extraction mode (ADR-004 / Human T035-A.2 §3).
+//
+// kRegisterMapTargetToken is deliberately NOT a ProfileFieldTarget: the
+// register contract has its own wire envelope ("registerProposals", parsed
+// by the strict register parser) and its own prompt branch. The token is
+// the ONLY routing key between the request and the adapter's register path.
+// ---------------------------------------------------------------------------
+inline constexpr std::string_view kRegisterMapTargetToken = "register_map";
+
+// Build the provider-neutral request for the register-map mode. Same H2
+// payload minimization as the first-slice builder: ONLY the extraction
+// payload (document type context + canonical extracted text) leaves the
+// process — local identifiers (documentId / contentHash / original path),
+// byte size and bookkeeping are deliberately not carried.
+[[nodiscard]] ExtractionRequest buildRegisterMapExtractionRequest(
+    const ManualDocument &document, std::string_view canonicalExtractedText);
+
+// ---------------------------------------------------------------------------
 // The outcome of one strict extraction attempt.
 //
 // `ok == true` means: a provider response was received, its envelope was

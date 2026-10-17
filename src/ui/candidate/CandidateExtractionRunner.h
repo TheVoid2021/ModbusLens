@@ -38,6 +38,11 @@ public:
         core::ProviderExtractionFailure failure{
             core::ProviderExtractionFailure::None};
         std::vector<core::CandidateProposal> proposals;
+        // T035-A.3.2.2: the REGISTER completion carries its own proposal
+        // vector (a register_map attempt never mixes contracts with the
+        // profile-field envelope). Exactly one of the two vectors is
+        // meaningful, keyed by the request's target token.
+        std::vector<core::RegisterCandidateProposal> registerProposals;
     };
 
     using CompletionHandler = std::function<void(const Completion &)>;

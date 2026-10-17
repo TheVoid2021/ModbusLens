@@ -23,6 +23,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaObject>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QUrl>
@@ -145,6 +146,19 @@ private:
         Q_ARG(QString, canonicalText), Q_ARG(QVariantList, proposals));
 }
 
+// T035-A.3.1: the register review-model seed, reached exactly the way the
+// automation boundary reaches it (same invokable discipline as above).
+[[nodiscard]] bool invokeSeedRegister(QObject *controller,
+                                      const QVariantMap &document,
+                                      const QString &canonicalText,
+                                      const QVariantList &proposals)
+{
+    return QMetaObject::invokeMethod(
+        controller, "seedRegisterReviewCandidatesForAutomation",
+        Q_ARG(QVariantMap, document), Q_ARG(QString, canonicalText),
+        Q_ARG(QVariantList, proposals));
+}
+
 [[nodiscard]] bool invokeAccept(QObject *controller, const QVariantMap &candidate)
 {
     bool ok = false;
@@ -198,16 +212,25 @@ private:
 struct ReviewHarness
 {
     explicit ReviewHarness(const QString &rootDir)
+        : ReviewHarness(rootDir, kManualText, QStringLiteral("review-manual.txt"))
+    {
+    }
+
+    // T035-A.3.2.3: the same real managed-store transaction, but the imported
+    // source bytes are supplied by the caller so a CRLF-shaped manual can be
+    // exercised through the genuine import path (no hand-built canonical text).
+    ReviewHarness(const QString &rootDir, const char *sourceText,
+                  const QString &fileName)
     {
         const QString sourcePath =
             QDir(rootDir).filePath(QStringLiteral("manual-src.txt"));
         QFile source(sourcePath);
         if (source.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            source.write(kManualText);
+            source.write(sourceText);
             source.close();
         }
         const auto imported =
-            ManualStore::importSourceFile(sourcePath, QStringLiteral("review-manual.txt"));
+            ManualStore::importSourceFile(sourcePath, fileName);
         Q_ASSERT(imported.ok());
         document = imported.document;
         canonicalText = ManualStore::loadText(
@@ -235,6 +258,67 @@ struct ReviewHarness
     proposal.insert(QStringLiteral("target"), QStringLiteral("manufacturer"));
     proposal.insert(QStringLiteral("proposedValue"), QString::fromUtf8(kProposed));
     proposal.insert(QStringLiteral("evidenceExcerpt"), QString::fromUtf8(kExcerpt));
+    return proposal;
+}
+
+// T035-A.3.1: a legal register seed proposal. The excerpt is a UNIQUE
+// single line of kManualText (the same conservative evidence rule as the
+// profile-field slice — the register validator enforces it identically).
+[[nodiscard]] QVariantMap registerProposal()
+{
+    QVariantMap proposal;
+    proposal.insert(QStringLiteral("functionCode"), 4);
+    proposal.insert(QStringLiteral("address"), 5);
+    proposal.insert(QStringLiteral("name"), QStringLiteral("Temperature"));
+    proposal.insert(QStringLiteral("dataType"), QStringLiteral("Float32"));
+    proposal.insert(QStringLiteral("quantity"), 2);
+    proposal.insert(QStringLiteral("scale"), 0.1);
+    proposal.insert(QStringLiteral("offset"), 0);
+    proposal.insert(QStringLiteral("unit"), QStringLiteral("degC"));
+    proposal.insert(QStringLiteral("evidenceExcerpt"),
+                    QStringLiteral("Model: INV-1000"));
+    return proposal;
+}
+
+// T035-A.3.2.3: a review-active manual whose canonical text uses CRLF line
+// endings INSIDE its lines and a bare LF at the page-style boundary — the
+// measured real shape of a PDF import (see the task file §3B-D5-B). Register
+// evidence submitted with plain LF must seed AND accept through the shared
+// line-ending rule.
+constexpr char kCrlfManualText[] =
+    "ACME Power Systems Ltd. - Inverter Manual\r\n"
+    "\r\n"
+    "1. Identity\r\n"
+    "Manufacturer: ACME Power Systems Ltd.\r\n"
+    "Model: INV-1000\n"
+    "Register 5: Temperature degC\r\n";
+
+// The provider answered with LF where the canonical text holds CRLF: the exact
+// match fails, the line-ending fallback must locate it uniquely.
+[[nodiscard]] QVariantMap crlfRegisterProposal()
+{
+    QVariantMap proposal;
+    proposal.insert(QStringLiteral("functionCode"), 4);
+    proposal.insert(QStringLiteral("address"), 5);
+    proposal.insert(QStringLiteral("name"), QStringLiteral("Temperature"));
+    proposal.insert(QStringLiteral("dataType"), QStringLiteral("UInt16"));
+    proposal.insert(QStringLiteral("quantity"), 1);
+    proposal.insert(QStringLiteral("evidenceExcerpt"),
+                    QStringLiteral("Model: INV-1000\n"
+                                   "Register 5: Temperature degC"));
+    return proposal;
+}
+
+[[nodiscard]] QVariantMap crlfManufacturerProposal()
+{
+    QVariantMap proposal;
+    proposal.insert(QStringLiteral("target"), QStringLiteral("manufacturer"));
+    proposal.insert(QStringLiteral("proposedValue"), QString::fromUtf8(kProposed));
+    // LF where the canonical text holds CRLF → the EXACT-ONLY manufacturer
+    // path must still REFUSE this (the frozen contract is not widened).
+    proposal.insert(QStringLiteral("evidenceExcerpt"),
+                    QStringLiteral("Manufacturer: ACME Power Systems Ltd.\n"
+                                   "Model: INV-1000"));
     return proposal;
 }
 
@@ -1295,6 +1379,438 @@ private:
         return file.write(QJsonDocument(object).toJson()) != -1;
     }
 
+// T035-A.3.1: a dedicated slots section — moc collects ONLY functions that
+// live in a slots section, so the register review tests get their own one
+// instead of relying on insertion position inside the helper section.
+private slots:
+    // ============================================ T035-A.3.1 register ==
+
+    // -------------------------------------------------- A31-01 (§4-A/B) --
+    // Register candidate session flow + variant conversion: a valid seed
+    // proposal becomes ONE pending register candidate whose variant carries
+    // kind + all v1 fields + locally computed evidence identity, and the
+    // evidence span round-trips against the canonical text.
+    void a31_01_registerSessionFlowAndVariantConversion()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ReviewHarness harness(tempRoot_.path());
+
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{registerProposal()}));
+
+        const QVariantList pending = pendingCandidates(&controller);
+        QCOMPARE(pending.size(), 1);
+        QCOMPARE(controller.property("candidateCount").toInt(), 1);
+        const QVariantMap candidate = pending.at(0).toMap();
+        QCOMPARE(candidate.value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("register"));
+        QCOMPARE(candidate.value(QStringLiteral("functionCode")).toInt(), 4);
+        QCOMPARE(candidate.value(QStringLiteral("address")).toInt(), 5);
+        QCOMPARE(candidate.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Temperature"));
+        QCOMPARE(candidate.value(QStringLiteral("dataType")).toString(),
+                 QStringLiteral("Float32"));
+        QCOMPARE(candidate.value(QStringLiteral("quantity")).toInt(), 2);
+        QCOMPARE(candidate.value(QStringLiteral("scale")).toDouble(), 0.1);
+        QCOMPARE(candidate.value(QStringLiteral("offset")).toDouble(), 0.0);
+        QCOMPARE(candidate.value(QStringLiteral("unit")).toString(),
+                 QStringLiteral("degC"));
+        // T035-A.3.2.2: the optional-member presence flags ride the variant —
+        // the fixture stated scale/offset/unit but NOT description.
+        QCOMPARE(candidate.value(QStringLiteral("hasScale")).toBool(), true);
+        QCOMPARE(candidate.value(QStringLiteral("hasOffset")).toBool(), true);
+        QCOMPARE(candidate.value(QStringLiteral("hasUnit")).toBool(), true);
+        QCOMPARE(candidate.value(QStringLiteral("hasDescription")).toBool(),
+                 false);
+        QCOMPARE(candidate.value(QStringLiteral("evidenceExcerpt")).toString(),
+                 QStringLiteral("Model: INV-1000"));
+        QCOMPARE(candidate.value(QStringLiteral("lifecycle")).toString(),
+                 QStringLiteral("pending_review"));
+        QCOMPARE(candidate.value(QStringLiteral("documentId")).toString(),
+                 QString::fromStdString(harness.document.documentId));
+        QCOMPARE(candidate.value(QStringLiteral("contentHash")).toString(),
+                 QString::fromStdString(harness.document.contentHash));
+        // The locally computed span round-trips to the excerpt.
+        const qsizetype start = candidate.value(QStringLiteral("textStart"))
+                                    .value<qlonglong>();
+        const qsizetype end =
+            candidate.value(QStringLiteral("textEnd")).value<qlonglong>();
+        QVERIFY(start >= 0 && end > start);
+        QCOMPARE(harness.canonicalText.mid(start, end - start),
+                 QStringLiteral("Model: INV-1000"));
+    }
+
+    // -------------------------------------------------- A31-02 ----------
+    // [EVOLVED by T035-A.3.2.1 — declared in the task doc, not a silent
+    // assertion edit] Under A.3.1 this slot asserted that register Accept
+    // refuses outright (register_candidate_apply_not_available). A.3.2.1
+    // AUTHORIZED the controlled staged-draft apply, so the CURRENT
+    // fail-closed boundary for a register accept WITHOUT an open profile
+    // target is profile_target_missing — the candidate still stays
+    // PendingReview and nothing is written. The old outright-refusal surface
+    // remains covered by the register edited-confirm path and the
+    // validation-failure slots below.
+    void a31_02_acceptWithoutProfileTargetFailsClosed()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{registerProposal()}));
+
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(!invokeAccept(&controller, candidate));
+        QCOMPARE(controller.property("lastReviewErrorToken").toString(),
+                 QStringLiteral("profile_target_missing"));
+        // The candidate is STILL pending, unchanged.
+        QCOMPARE(pendingCandidates(&controller).size(), 1);
+        QCOMPARE(pendingCandidateAt(&controller, 0), candidate);
+    }
+
+    // -------------------------------------------------- A31-03 (§4-D) ---
+    // A consumed register candidate can never be acted on again: the second
+    // reject is a refusal (stale/repeated action), the first consumed it.
+    void a31_03_staleRegisterCandidateRejectFails()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{registerProposal()}));
+
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(invokeReject(&controller, candidate));
+        QCOMPARE(pendingCandidates(&controller).size(), 0);
+        QVERIFY(!invokeReject(&controller, candidate));
+        QCOMPARE(controller.property("lastReviewErrorToken").toString(),
+                 QStringLiteral("candidate_not_pending"));
+        QCOMPARE(pendingCandidates(&controller).size(), 0);
+    }
+
+    // -------------------------------------------------- A31-04 (§4-E) ---
+    // A seed proposal WITHOUT evidence is refused by the REAL deterministic
+    // register validator — it never lands in the review set.
+    void a31_04_missingEvidenceProposalNeverLands()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ReviewHarness harness(tempRoot_.path());
+
+        QVariantMap noEvidence = registerProposal();
+        noEvidence.insert(QStringLiteral("evidenceExcerpt"), QString());
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{noEvidence}));
+        QCOMPARE(pendingCandidates(&controller).size(), 0);
+
+        // And an excerpt that is NOT in the manual is equally refused.
+        QVariantMap falseEvidence = registerProposal();
+        falseEvidence.insert(QStringLiteral("evidenceExcerpt"),
+                             QStringLiteral("REGISTER NOT IN TEXT"));
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{falseEvidence}));
+        QCOMPARE(pendingCandidates(&controller).size(), 0);
+    }
+
+    // -------------------------------------------------- A31-05 (§4-C) ---
+    // Manufacturer regression inside the COMBINED review model: the
+    // profile-field queue keeps its kind/value, the register queue rides the
+    // same projection after it, and both review paths still work end to end.
+    void a31_05_mixedKindsProjectionAndManufacturerRegression()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        ReviewHarness harness(tempRoot_.path());
+
+        QVERIFY(invokeSeed(&controller, harness.documentMap,
+                           harness.canonicalText,
+                           QVariantList{manufacturerProposal()}));
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{registerProposal()}));
+
+        const QVariantList pending = pendingCandidates(&controller);
+        QCOMPARE(pending.size(), 2);
+        QCOMPARE(controller.property("candidateCount").toInt(), 2);
+        // The profile-field projection keeps its FROZEN key set (o16): no
+        // kind key there — the register variant is the only kind carrier.
+        QVERIFY(!pending.at(0).toMap().contains(QStringLiteral("kind")));
+        QCOMPARE(pending.at(0).toMap().value(QStringLiteral("proposedValue"))
+                     .toString(),
+                 QString::fromUtf8(kProposed));
+        QCOMPARE(pending.at(1).toMap().value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("register"));
+
+        // The register reject path works in the combined projection...
+        QVERIFY(invokeReject(&controller, pending.at(1).toMap()));
+        QCOMPARE(pendingCandidates(&controller).size(), 1);
+        // ...and the profile-field reject path is untouched.
+        QVERIFY(invokeReject(&controller, pendingCandidates(&controller)
+                                                 .at(0)
+                                                 .toMap()));
+        QCOMPARE(pendingCandidates(&controller).size(), 0);
+        // The draft was never touched by any of it (no apply happened).
+        QCOMPARE(profileController.manufacturer(), QString::fromUtf8(kOldManufacturer));
+    }
+
+    // ================================== T035-A.3.2.1 controlled apply ==
+
+    // -------------------------------------------------- A32-01 (§4-A) ---
+    // Human Accept on a register candidate: the CONTROLLED staged-draft
+    // write succeeds, the candidate is consumed, and the DRAFT (never the
+    // store) carries the entry with exact values.
+    void a32_01_registerAcceptConsumesAndStagesDraft()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        ReviewHarness harness(tempRoot_.path());
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{registerProposal()}));
+
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(invokeAccept(&controller, candidate));
+
+        // Consumed + staged into the draft (staged draft ONLY).
+        QCOMPARE(pendingCandidates(&controller).size(), 0);
+        QCOMPARE(profileController.registerMap().size(), 1);
+        const QVariantMap row = profileController.registerMap().at(0).toMap();
+        QCOMPARE(row.value(QStringLiteral("readFunctionCode")).toInt(), 4);
+        QCOMPARE(row.value(QStringLiteral("address")).toInt(), 5);
+        QCOMPARE(row.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Temperature"));
+        QCOMPARE(row.value(QStringLiteral("dataType")).toString(),
+                 QStringLiteral("Float32"));
+        QVERIFY(profileController.dirty());
+        // Staged draft ONLY: no persistence behind the test's back.
+        QVERIFY(!QFile::exists(ProfileStore::defaultFilePathFor(
+            profileController.currentProfileId())));
+    }
+
+    // -------------------------------------------------- A32-02 (§4-B/D) -
+    // Two individually-valid candidates for the SAME FC+address: the first
+    // accept stages, the second is a duplicate_address fail-closed refusal —
+    // the refused candidate stays PendingReview and the draft is untouched.
+    void a32_02_duplicateAddressAcrossCandidatesFailsClosed()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        ReviewHarness harness(tempRoot_.path());
+
+        QVariantMap first = registerProposal();
+        first.insert(QStringLiteral("functionCode"), 3);
+        first.insert(QStringLiteral("address"), 100);
+        first.insert(QStringLiteral("dataType"), QStringLiteral("UInt16"));
+        first.insert(QStringLiteral("quantity"), 1);
+        first.insert(QStringLiteral("name"), QStringLiteral("Setpoint"));
+        // "Model: INV-1000" — unique single line.
+        QVariantMap second = first;
+        second.insert(QStringLiteral("name"), QStringLiteral("Setpoint Copy"));
+        second.insert(QStringLiteral("evidenceExcerpt"),
+                      QStringLiteral("1. Identity")); // the other unique line
+
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{first, second}));
+        QCOMPARE(pendingCandidates(&controller).size(), 2);
+
+        const QVariantMap firstMap = pendingCandidateAt(&controller, 0);
+        QVERIFY(invokeAccept(&controller, firstMap));
+        QCOMPARE(profileController.registerMap().size(), 1);
+
+        // The projection order: profile-field queue is empty, so the SECOND
+        // register candidate is now pendingCandidateAt(0).
+        const QVariantMap secondMap = pendingCandidateAt(&controller, 0);
+        QVERIFY(!invokeAccept(&controller, secondMap));
+        QCOMPARE(controller.property("lastReviewErrorToken").toString(),
+                 QStringLiteral("candidate_apply_failed"));
+        QCOMPARE(profileController.lastActionErrorToken(),
+                 QStringLiteral("duplicate_address"));
+        // Fail-closed: the refused candidate stays pending, draft unchanged.
+        QCOMPARE(pendingCandidates(&controller).size(), 1);
+        QCOMPARE(pendingCandidateAt(&controller, 0), secondMap);
+        QCOMPARE(profileController.registerMap().size(), 1);
+    }
+
+    // -------------------------------------------------- A32-03 (§4-C/E) -
+    // Overlapping span against a MANUAL draft entry (FC03@100) — the
+    // candidate FC03@99..100 is refused; draft and pending set unchanged.
+    void a32_03_overlappingSpanAgainstManualEntryFailsClosed()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        QVERIFY(profileController.addRegisterEntry(registerEntryFields()));
+        ReviewHarness harness(tempRoot_.path());
+
+        QVariantMap overlapping = registerProposal();
+        overlapping.insert(QStringLiteral("functionCode"), 3);
+        overlapping.insert(QStringLiteral("address"), 99);
+        overlapping.insert(QStringLiteral("dataType"), QStringLiteral("Float32"));
+        overlapping.insert(QStringLiteral("quantity"), 2);
+        overlapping.insert(QStringLiteral("name"), QStringLiteral("Overlaps"));
+        overlapping.insert(QStringLiteral("evidenceExcerpt"),
+                           QStringLiteral("Model: INV-1000"));
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{overlapping}));
+
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(!invokeAccept(&controller, candidate));
+        QCOMPARE(profileController.lastActionErrorToken(),
+                 QStringLiteral("overlapping_span"));
+        QCOMPARE(profileController.registerMap().size(), 1);
+        QCOMPARE(pendingCandidates(&controller).size(), 1);
+    }
+
+    // -------------------------------------------------- A32-04 (§7-K) ---
+    // The apply-side forensics records the machine token: a register accept
+    // that fails profile validation produces a
+    // "[register validation forensics]" block with
+    // stage=validation:duplicate_address (Human T035-A.3.2.2 §6).
+    void a32_04_forensicsValidationTokenRecorded()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        ReviewHarness harness(tempRoot_.path());
+
+        qputenv("MODBUSLENS_PROVIDER_FORENSICS", "1");
+        const QString logPath =
+            QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+            + QStringLiteral("/modbuslens_provider_forensics.log");
+        QFile::remove(logPath);
+
+        QVariantMap first = registerProposal();
+        first.insert(QStringLiteral("functionCode"), 3);
+        first.insert(QStringLiteral("address"), 100);
+        first.insert(QStringLiteral("dataType"), QStringLiteral("UInt16"));
+        first.insert(QStringLiteral("quantity"), 1);
+        first.insert(QStringLiteral("name"), QStringLiteral("Setpoint"));
+        QVariantMap duplicate = first;
+        duplicate.insert(QStringLiteral("name"), QStringLiteral("Copy"));
+
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{first, duplicate}));
+        QVERIFY(invokeAccept(&controller, pendingCandidateAt(&controller, 0)));
+        QVERIFY(!invokeAccept(&controller, pendingCandidateAt(&controller, 0)));
+
+        QFile log(logPath);
+        QVERIFY(log.open(QIODevice::ReadOnly));
+        const QString content = QString::fromUtf8(log.readAll());
+        QVERIFY(content.contains(
+            QStringLiteral("[register validation forensics]")));
+        QVERIFY(content.contains(
+            QStringLiteral("stage=validation:duplicate_address")));
+        log.close();
+        QFile::remove(logPath);
+        qunsetenv("MODBUSLENS_PROVIDER_FORENSICS");
+    }
+
+    // =======================================================================
+    // T035-A.3.2.3 — LINE-ENDING EVIDENCE, END TO END THROUGH THE REVIEW MODEL
+    // =======================================================================
+
+    // A-323-01: a register proposal whose evidence differs from the canonical
+    // text ONLY in line endings now SEEDS a PendingReview candidate (the
+    // extraction-time fallback), and the stored excerpt stays the PROVIDER's
+    // submission (no laundering).
+    void a323_01_registerSeedAcceptsLineEndingEvidence()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        ReviewHarness harness(tempRoot_.path(), kCrlfManualText,
+                              QStringLiteral("crlf-manual.txt"));
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{crlfRegisterProposal()}));
+        QCOMPARE(pendingCandidates(&controller).size(), 1);
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QCOMPARE(candidate.value(QStringLiteral("evidenceExcerpt")).toString(),
+                 QStringLiteral("Model: INV-1000\n"
+                                "Register 5: Temperature degC"));
+    }
+
+    // A-323-02 (Human §5 — the critical one): extraction passed, so ACCEPT must
+    // pass too. The register freshness gate uses the SAME rule as generation.
+    void a323_02_registerAcceptRevalidatesWithLineEndingRule()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        ReviewHarness harness(tempRoot_.path(), kCrlfManualText,
+                              QStringLiteral("crlf-manual.txt"));
+        QVERIFY(invokeSeedRegister(&controller, harness.documentMap,
+                                   harness.canonicalText,
+                                   QVariantList{crlfRegisterProposal()}));
+        const QVariantMap candidate = pendingCandidateAt(&controller, 0);
+        QVERIFY(invokeAccept(&controller, candidate));
+        QCOMPARE(pendingCandidates(&controller).size(), 0);
+        QCOMPARE(profileController.registerMap().size(), 1);
+        const QVariantMap row = profileController.registerMap().at(0).toMap();
+        QCOMPARE(row.value(QStringLiteral("address")).toInt(), 5);
+        QCOMPARE(row.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Temperature"));
+        // Still staged-draft only.
+        QVERIFY(!QFile::exists(ProfileStore::defaultFilePathFor(
+            profileController.currentProfileId())));
+    }
+
+    // A-323-03 (Human §5/§10): the MANUFACTURER path is NOT widened. The same
+    // CRLF manual with an LF manufacturer excerpt is refused — extraction and
+    // accept both, so the frozen contract is provably intact.
+    void a323_03_manufacturerEvidenceStaysExactOnly()
+    {
+        CountingRefusingRunner runner;
+        CandidateExtractionController controller(runner);
+        ProfileController profileController;
+        wire(&controller, &profileController);
+        openProfileWithOldManufacturer(&profileController);
+        ReviewHarness harness(tempRoot_.path(), kCrlfManualText,
+                              QStringLiteral("crlf-manual.txt"));
+        QVERIFY(invokeSeed(&controller, harness.documentMap, harness.canonicalText,
+                           QVariantList{crlfManufacturerProposal()}));
+        // Refused by the exact-only manufacturer validator: nothing lands.
+        QCOMPARE(pendingCandidates(&controller).size(), 0);
+    }
+
+    // A-323-04 NOTE: forensics for the EVIDENCE stage is emitted by the
+    // production COMPLETION path (completeRegisterAttempt), which the
+    // automation seed deliberately does not go through. The forensics
+    // consistency assertion therefore lives in the orchestration suite
+    // (reg06_forensicsAgreesWithLineEndingJudgment), where the real completion
+    // seam is reached. Keeping a copy here would only assert the absence of a
+    // log file — a vacuous test.
+
+private:
+    // NOTE (T035-A.3.1 lesson): a member VARIABLE must never live inside a
+    // "private slots:" section — moc rejects it ("Not a signal or slot
+    // declaration") and silently emits a partial moc table, which drops the
+    // new slots from test discovery while the build still succeeds.
     QTemporaryDir tempRoot_;
 };
 

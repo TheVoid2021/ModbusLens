@@ -39,6 +39,16 @@ public:
         int statusCode = 200;
         QByteArray body;
         int delayMs = 0;
+        // T035-A Round H: deterministic response-lifecycle controls.
+        // -1 => declare the real body size in Content-Length (default, unchanged
+        // behavior). >=0 => declare THIS many bytes regardless of how many are
+        // actually written, so a premature close can be scripted (case D).
+        int declaredContentLength = -1;
+        // true => write the response HEADERS immediately but withhold the BODY
+        // entirely (never send it) so the client sees a validated status while
+        // the body never arrives (cases C/E). The connection is held open; the
+        // caller's own timeout must fire.
+        bool stallBodyAfterHeaders = false;
     };
 
     explicit FakeChatCompletionsServer(QObject* parent = nullptr)
@@ -81,6 +91,19 @@ public:
     void enqueueResponse(int statusCode, const QByteArray& body,
                          int delayMs = 0);
     void clearScript();
+
+    // T035-A Round H: script a response whose HEADERS are written immediately
+    // but whose BODY is withheld entirely (the client must time out). The
+    // declared Content-Length defaults to the real body size (0 keeps header
+    // and body consistent). Used to produce the Round F signature
+    // (HTTP 200 headers + no body).
+    void enqueueStalledBody(int statusCode, int declaredContentLength = 0);
+
+    // T035-A Round H: script a response that DECLARES more bytes than it
+    // writes, then closes the connection early (case D). The headers carry
+    // `declaredContentLength`; only `body` bytes are actually delivered.
+    void enqueueShortBody(int statusCode, const QByteArray& body,
+                          int declaredContentLength);
 
     const CapturedRequest& lastRequest() const { return lastRequest_; }
     const std::vector<CapturedRequest>& requests() const { return requests_; }

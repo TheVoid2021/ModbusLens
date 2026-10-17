@@ -143,6 +143,36 @@ public:
     Q_INVOKABLE bool applyCandidateField(const QString &fieldToken,
                                          const QString &value);
 
+    // ------------------------------------------------------------------
+    // T035-A.3.2.1 — the CONTROLLED register-candidate write (staged draft
+    // ONLY). Accepts the review-variant register map (kind:"register"
+    // projection fields: functionCode / address / name / description /
+    // dataType token / quantity / scale / offset / unit) and applies the SAME
+    // staged discipline as applyCandidateField/addRegisterEntry: whole-draft
+    // copy -> full validateDeviceProfile -> commit-to-draft once. No Save, no
+    // auto-persist, no second pipeline, no auto-correction (duplicate /
+    // overlap / mismatch are explicit refusals with the draft untouched).
+    // byteOrder/wordOrder are deliberately ABSENT from the v1 candidate and
+    // take the frozen RegisterEntry defaults (Normal / HighWordFirst).
+    // ------------------------------------------------------------------
+    Q_INVOKABLE bool applyRegisterCandidate(const QVariantMap &fields);
+
+    // T035-C Round C1 — READ-ONLY access to a SAVED profile. The selector
+    // consumes only persisted files (never the editor draft, never a dirty
+    // unsaved state); nothing here saves, mutates or opens anything.
+    // Returns { available, reason?, registers: [ {functionCode, fcLabel,
+    // address, name, dataTypeToken, wordCount, spanLabel} ] } — `available`
+    // is false for an unknown/malformed id or an unreadable file.
+    Q_INVOKABLE QVariantMap savedProfileRegisters(const QString &profileId);
+    // Per-register readiness for ONE register of a SAVED profile, addressed
+    // by (functionCode, address) — never a bare list index (C1-7: no
+    // index-only identity). Runs the core readiness contract with the
+    // Linear decoder; returns { available, reason?, readable,
+    // engineeringReady, level, decoderKind, missing[], invalid[], reasons[] }.
+    Q_INVOKABLE QVariantMap savedRegisterReadiness(const QString &profileId,
+                                                   int functionCode,
+                                                   int address);
+
 signals:
     void catalogChanged();
     void editorChanged();
@@ -157,6 +187,13 @@ private:
     // 1 / 0 / ""). On any parse failure: false + human text + token, no entry.
     [[nodiscard]] bool parseEntryFields(const QVariantMap &fields,
                                         modbuslens::core::RegisterEntry &out);
+    // T035-A.3.2.1: parses the REVIEW-VARIANT register map into a
+    // RegisterEntry (dataType = frozen M11 token; functionCode/address are
+    // range-checked BEFORE the integer narrowing — an out-of-domain value is
+    // a refusal with a token, never a wrap). On any parse failure: false +
+    // human text + token, no entry.
+    [[nodiscard]] bool parseRegisterCandidateFields(
+        const QVariantMap &fields, modbuslens::core::RegisterEntry &out);
     // Human-readable validation failure text (T027 §24: never a bare token).
     [[nodiscard]] QString validationHumanText(
         const modbuslens::core::DeviceProfile &candidate,

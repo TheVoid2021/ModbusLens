@@ -162,6 +162,51 @@ ProfileLoadResult parseRegisterEntry(const QJsonObject& object,
         }
         out.unit = object.value(QStringLiteral("unit")).toString().toStdString();
     }
+    // T035-A Round O (O-2 provenance): OPTIONAL members — a legacy entry
+    // without them loads with configured=false (the conservative default: an
+    // old file cannot prove the values were explicitly confirmed). Wrong
+    // types are structural violations; unknown keys stay ignored (T027
+    // §24.2), so older readers tolerate these fields too.
+    // T035-C C1.2: OPTIONAL decoder declaration. A legacy entry without the
+    // key loads as Unknown (the conservative default — a missing key proves
+    // no declaration). An unrecognized token or wrong type is a STRUCTURAL
+    // ERROR: this path NEVER falls back to Linear or any other value.
+    if (object.contains(QStringLiteral("decoderKind"))) {
+        if (!object.value(QStringLiteral("decoderKind")).isString()) {
+            return malformed();
+        }
+        modbuslens::core::EngineeringDecoderKind kind =
+            modbuslens::core::EngineeringDecoderKind::Unknown;
+        if (!modbuslens::core::profileDecoderKindFromToken(
+                object.value(QStringLiteral("decoderKind"))
+                    .toString()
+                    .toStdString(),
+                kind)) {
+            return malformed();
+        }
+        out.decoderKind = kind;
+    }
+    if (object.contains(QStringLiteral("scaleConfigured"))) {
+        if (!object.value(QStringLiteral("scaleConfigured")).isBool()) {
+            return malformed();
+        }
+        out.scaleConfigured =
+            object.value(QStringLiteral("scaleConfigured")).toBool();
+    }
+    if (object.contains(QStringLiteral("offsetConfigured"))) {
+        if (!object.value(QStringLiteral("offsetConfigured")).isBool()) {
+            return malformed();
+        }
+        out.offsetConfigured =
+            object.value(QStringLiteral("offsetConfigured")).toBool();
+    }
+    if (object.contains(QStringLiteral("unitConfigured"))) {
+        if (!object.value(QStringLiteral("unitConfigured")).isBool()) {
+            return malformed();
+        }
+        out.unitConfigured =
+            object.value(QStringLiteral("unitConfigured")).toBool();
+    }
     // Unknown keys inside an entry are ignored on purpose (T027 §24.2).
     return ProfileLoadResult{};
 }
@@ -278,6 +323,17 @@ QByteArray ProfileStore::serializeToJson(const DeviceProfile& profile)
         object.insert(QStringLiteral("scale"), entry.scale);
         object.insert(QStringLiteral("offset"), entry.offset);
         object.insert(QStringLiteral("unit"), QString::fromStdString(entry.unit));
+        // T035-C C1.2: the decoder declaration is ALWAYS written (stable
+        // machine token — never a ComboBox index).
+        object.insert(QStringLiteral("decoderKind"),
+                      QString::fromStdString(std::string(
+                          modbuslens::core::profileDecoderKindToken(
+                              entry.decoderKind))));
+        // T035-A Round O (O-2 provenance): round-trip the configured flags.
+        object.insert(QStringLiteral("scaleConfigured"), entry.scaleConfigured);
+        object.insert(QStringLiteral("offsetConfigured"),
+                      entry.offsetConfigured);
+        object.insert(QStringLiteral("unitConfigured"), entry.unitConfigured);
         registers.append(object);
     }
     root.insert(QStringLiteral("registers"), registers);

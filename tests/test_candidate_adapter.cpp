@@ -617,6 +617,470 @@ private slots:
 
         ProfileStore::setManagedRootOverride(QString());
     }
+
+    // ================================================== T035-A.1 register ==
+    // The strict register-candidate parser (ADR-004 / Human T035-A.1 §5-§7).
+    // These slots exercise parseStrictRegisterCandidateProposals DIRECTLY:
+    // A.1 is the parser foundation; wiring it into extract()/prompt belongs
+    // to the next slice, so the manufacturer path above stays untouched.
+
+    // --------------------------------------------------------------- R01 --
+    // (§8-A) A legal register proposal parses with exact field values and
+    // frozen defaults for absent optional members.
+    void r01_validRegisterProposalParses()
+    {
+        // All fields present.
+        const std::string full =
+            "{\"registerProposals\":[{\"functionCode\":4,\"address\":5,"
+            "\"name\":\"Temperature\",\"dataType\":\"Float32\",\"quantity\":2,"
+            "\"evidence\":\"Register 5 Temperature Float32 scale 0.1\","
+            "\"description\":\"Process temperature\",\"scale\":0.1,"
+            "\"offset\":0,\"unit\":\"degC\"}]}";
+        const modbuslens::ui::RegisterProviderExtractionResult result =
+            modbuslens::ui::parseStrictRegisterCandidateProposals(full);
+        QCOMPARE(result.ok, true);
+        QCOMPARE(result.failure, ProviderExtractionFailure::None);
+        QCOMPARE(result.proposals.size(), std::size_t{1});
+        QCOMPARE(int(result.proposals.at(0).functionCode), 4);
+        QCOMPARE(int(result.proposals.at(0).address), 5);
+        QVERIFY(result.proposals.at(0).name == "Temperature");
+        QVERIFY(result.proposals.at(0).description == "Process temperature");
+        QCOMPARE(result.proposals.at(0).dataType,
+                 modbuslens::core::RegisterDecodeType::Float32);
+        QCOMPARE(result.proposals.at(0).quantity, 2);
+        QCOMPARE(result.proposals.at(0).scale, 0.1);
+        QCOMPARE(result.proposals.at(0).offset, 0.0);
+        QVERIFY(result.proposals.at(0).unit == "degC");
+        QVERIFY(result.proposals.at(0).evidenceExcerpt
+                == "Register 5 Temperature Float32 scale 0.1");
+
+        // Optional members absent => frozen defaults (scale 1.0 / offset 0.0
+        // / unit "" / description "").
+        const std::string minimal =
+            "{\"registerProposals\":[{\"functionCode\":3,\"address\":100,"
+            "\"name\":\"Setpoint\",\"dataType\":\"UInt16\",\"quantity\":1,"
+            "\"evidence\":\"Register 100 Setpoint UInt16\"}]}";
+        const modbuslens::ui::RegisterProviderExtractionResult defaults =
+            modbuslens::ui::parseStrictRegisterCandidateProposals(minimal);
+        QCOMPARE(defaults.ok, true);
+        QCOMPARE(defaults.proposals.size(), std::size_t{1});
+        QCOMPARE(defaults.proposals.at(0).scale, 1.0);
+        QCOMPARE(defaults.proposals.at(0).offset, 0.0);
+        QVERIFY(defaults.proposals.at(0).unit.empty());
+        QVERIFY(defaults.proposals.at(0).description.empty());
+        QCOMPARE(defaults.proposals.at(0).dataType,
+                 modbuslens::core::RegisterDecodeType::UInt16);
+    }
+
+    // --------------------------------------------------------------- R02 --
+    // (§8-B) A missing required member is a schema violation.
+    void r02_missingRequiredMemberIsRejected()
+    {
+        // "address" is missing.
+        const std::string content =
+            "{\"registerProposals\":[{\"functionCode\":4,"
+            "\"name\":\"Temperature\",\"dataType\":\"UInt16\",\"quantity\":1,"
+            "\"evidence\":\"e\"}]}";
+        const modbuslens::ui::RegisterProviderExtractionResult result =
+            modbuslens::ui::parseStrictRegisterCandidateProposals(content);
+        QCOMPARE(result.ok, false);
+        QCOMPARE(result.failure, ProviderExtractionFailure::SchemaViolation);
+        QCOMPARE(result.proposals.size(), std::size_t{0});
+    }
+
+    // --------------------------------------------------------------- R03 --
+    // (§8-C) Unknown members are rejected AND the two envelopes never mix:
+    // a response carrying both "proposals" and "registerProposals" is a
+    // violation on BOTH parsers (no implicit routing, §6).
+    void r03_unknownMemberAndMixedEnvelopeAreRejected()
+    {
+        // (a) Extra member inside a register proposal.
+        const std::string extra =
+            "{\"registerProposals\":[{\"functionCode\":4,\"address\":5,"
+            "\"name\":\"T\",\"dataType\":\"UInt16\",\"quantity\":1,"
+            "\"evidence\":\"e\",\"note\":\"extra\"}]}";
+        const modbuslens::ui::RegisterProviderExtractionResult extraResult =
+            modbuslens::ui::parseStrictRegisterCandidateProposals(extra);
+        QCOMPARE(extraResult.ok, false);
+        QCOMPARE(extraResult.failure,
+                 ProviderExtractionFailure::SchemaViolation);
+        QCOMPARE(extraResult.proposals.size(), std::size_t{0});
+
+        // (b) Mixed envelope: register parser refuses "proposals".
+        const std::string mixed =
+            std::string{
+                "{\"proposals\":[{\"target\":\"manufacturer\",\"value\":\"v\","
+                "\"evidence\":\"e\"}],\"registerProposals\":[]}"};
+        const modbuslens::ui::RegisterProviderExtractionResult mixedResult =
+            modbuslens::ui::parseStrictRegisterCandidateProposals(mixed);
+        QCOMPARE(mixedResult.ok, false);
+        QCOMPARE(mixedResult.failure,
+                 ProviderExtractionFailure::SchemaViolation);
+
+        // (c) Symmetry: the PROFILE-FIELD parser equally refuses the
+        // register envelope (unknown member "registerProposals").
+        const ProviderExtractionResult profileResult =
+            modbuslens::ui::parseStrictCandidateProposals(
+                "{\"registerProposals\":[]}");
+        QCOMPARE(profileResult.ok, false);
+        QCOMPARE(profileResult.failure,
+                 ProviderExtractionFailure::SchemaViolation);
+    }
+
+    // --------------------------------------------------------------- R04 --
+    // (§8-D) Illegal functionCode: 0x00, the exception space, fractional and
+    // string forms are all refusals — never coerced, never defaulted.
+    void r04_illegalFunctionCodeIsRejected()
+    {
+        for (const char *bad :
+             {"0", "128", "255", "4.5", "\"4\""}) {
+            const std::string content =
+                std::string{"{\"registerProposals\":[{\"functionCode\":"}
+                + bad
+                + ",\"address\":5,\"name\":\"T\",\"dataType\":\"UInt16\","
+                  "\"quantity\":1,\"evidence\":\"e\"}]}";
+            const modbuslens::ui::RegisterProviderExtractionResult result =
+                modbuslens::ui::parseStrictRegisterCandidateProposals(content);
+            QCOMPARE(result.ok, false);
+            QCOMPARE(result.failure,
+                     ProviderExtractionFailure::SchemaViolation);
+            QCOMPARE(result.proposals.size(), std::size_t{0});
+        }
+    }
+
+    // --------------------------------------------------------------- R05 --
+    // (§8-E) Illegal address: above the PDU top, negative and fractional
+    // forms are refusals.
+    void r05_illegalAddressIsRejected()
+    {
+        for (const char *bad : {"65536", "-1", "1.5"}) {
+            const std::string content =
+                std::string{"{\"registerProposals\":[{\"functionCode\":4,"
+                            "\"address\":"}
+                + bad
+                + ",\"name\":\"T\",\"dataType\":\"UInt16\",\"quantity\":1,"
+                  "\"evidence\":\"e\"}]}";
+            const modbuslens::ui::RegisterProviderExtractionResult result =
+                modbuslens::ui::parseStrictRegisterCandidateProposals(content);
+            QCOMPARE(result.ok, false);
+            QCOMPARE(result.failure,
+                     ProviderExtractionFailure::SchemaViolation);
+            QCOMPARE(result.proposals.size(), std::size_t{0});
+        }
+    }
+
+    // --------------------------------------------------------------- R06 --
+    // (§8-F) quantity must equal the dataType word count — the mismatch is
+    // REJECTED, never auto-corrected (Human T035-A.1 §5).
+    void r06_quantityDataTypeMismatchIsRejectedWithoutCorrection()
+    {
+        const std::string uint16Three =
+            "{\"registerProposals\":[{\"functionCode\":3,\"address\":100,"
+            "\"name\":\"T\",\"dataType\":\"UInt16\",\"quantity\":3,"
+            "\"evidence\":\"e\"}]}";
+        QCOMPARE(
+            modbuslens::ui::parseStrictRegisterCandidateProposals(uint16Three)
+                .ok,
+            false);
+        const std::string uint16Two =
+            "{\"registerProposals\":[{\"functionCode\":3,\"address\":100,"
+            "\"name\":\"T\",\"dataType\":\"UInt16\",\"quantity\":2,"
+            "\"evidence\":\"e\"}]}";
+        QCOMPARE(
+            modbuslens::ui::parseStrictRegisterCandidateProposals(uint16Two).ok,
+            false);
+        const std::string float32One =
+            "{\"registerProposals\":[{\"functionCode\":3,\"address\":100,"
+            "\"name\":\"T\",\"dataType\":\"Float32\",\"quantity\":1,"
+            "\"evidence\":\"e\"}]}";
+        QCOMPARE(
+            modbuslens::ui::parseStrictRegisterCandidateProposals(float32One)
+                .ok,
+            false);
+        // The matching pairs stay legal (positive controls).
+        const std::string uint16One =
+            "{\"registerProposals\":[{\"functionCode\":3,\"address\":100,"
+            "\"name\":\"T\",\"dataType\":\"UInt16\",\"quantity\":1,"
+            "\"evidence\":\"e\"}]}";
+        QCOMPARE(
+            modbuslens::ui::parseStrictRegisterCandidateProposals(uint16One)
+                .ok,
+            true);
+        const std::string float32Two =
+            "{\"registerProposals\":[{\"functionCode\":3,\"address\":100,"
+            "\"name\":\"T\",\"dataType\":\"Float32\",\"quantity\":2,"
+            "\"evidence\":\"e\"}]}";
+        QCOMPARE(
+            modbuslens::ui::parseStrictRegisterCandidateProposals(float32Two)
+                .ok,
+            true);
+    }
+
+    // --------------------------------------------------------------- R07 --
+    // (§8-G) Non-finite scale: JSON has no NaN/Infinity literals, so an
+    // overflowing literal ("1e999") fails the finite check via from_chars
+    // out_of_range, and a string "0.1" is a type error. Same for offset.
+    void r07_nonFiniteOrWrongTypeScaleIsRejected()
+    {
+        for (const char *badScale : {"1e999", "-1e999", "\"0.1\""}) {
+            const std::string content =
+                std::string{"{\"registerProposals\":[{\"functionCode\":4,"
+                            "\"address\":5,\"name\":\"T\","
+                            "\"dataType\":\"UInt16\",\"quantity\":1,"
+                            "\"evidence\":\"e\",\"scale\":"}
+                + badScale + "}]}";
+            const modbuslens::ui::RegisterProviderExtractionResult result =
+                modbuslens::ui::parseStrictRegisterCandidateProposals(content);
+            QCOMPARE(result.ok, false);
+            QCOMPARE(result.failure,
+                     ProviderExtractionFailure::SchemaViolation);
+            QCOMPARE(result.proposals.size(), std::size_t{0});
+        }
+        for (const char *badOffset : {"1e999", "\"0\""}) {
+            const std::string content =
+                std::string{"{\"registerProposals\":[{\"functionCode\":4,"
+                            "\"address\":5,\"name\":\"T\","
+                            "\"dataType\":\"UInt16\",\"quantity\":1,"
+                            "\"evidence\":\"e\",\"offset\":"}
+                + badOffset + "}]}";
+            const modbuslens::ui::RegisterProviderExtractionResult result =
+                modbuslens::ui::parseStrictRegisterCandidateProposals(content);
+            QCOMPARE(result.ok, false);
+            QCOMPARE(result.failure,
+                     ProviderExtractionFailure::SchemaViolation);
+        }
+    }
+
+    // --------------------------------------------------------------- R08 --
+    // (§8-H) Evidence is REQUIRED: an empty or absent "evidence" member is a
+    // refusal (the candidate can never exist without its exact excerpt).
+    void r08_missingOrEmptyEvidenceIsRejected()
+    {
+        const std::string empty =
+            "{\"registerProposals\":[{\"functionCode\":4,\"address\":5,"
+            "\"name\":\"T\",\"dataType\":\"UInt16\",\"quantity\":1,"
+            "\"evidence\":\"\"}]}";
+        QCOMPARE(
+            modbuslens::ui::parseStrictRegisterCandidateProposals(empty).ok,
+            false);
+        const std::string absent =
+            "{\"registerProposals\":[{\"functionCode\":4,\"address\":5,"
+            "\"name\":\"T\",\"dataType\":\"UInt16\",\"quantity\":1}]}";
+        QCOMPARE(
+            modbuslens::ui::parseStrictRegisterCandidateProposals(absent).ok,
+            false);
+    }
+
+    // --------------------------------------------------------------- R09 --
+    // An empty "registerProposals" array is legal (mirror of the frozen
+    // profile-field rule: "the source supports nothing" is a valid outcome).
+    void r09_emptyRegisterProposalsArrayIsLegal()
+    {
+        const modbuslens::ui::RegisterProviderExtractionResult result =
+            modbuslens::ui::parseStrictRegisterCandidateProposals(
+                "{\"registerProposals\":[]}");
+        QCOMPARE(result.ok, true);
+        QCOMPARE(result.failure, ProviderExtractionFailure::None);
+        QCOMPARE(result.proposals.size(), std::size_t{0});
+    }
+
+    // --------------------------------------------------------------- R10 --
+    // (§8-I) Manufacturer-path regression marker: the profile-field parser
+    // still accepts exactly its own frozen contract, untouched by the
+    // register parser addition (full suite = the remaining slots above).
+    void r10_manufacturerParserStillAcceptsItsOwnContract()
+    {
+        const std::string content =
+            std::string{"{\"proposals\":[{\"target\":\"manufacturer\",\"value\":\""}
+            + kManufacturerValue + "\",\"evidence\":\"" + kManufacturerExcerpt
+            + "\"}]}";
+        const ProviderExtractionResult result =
+            modbuslens::ui::parseStrictCandidateProposals(content);
+        QCOMPARE(result.ok, true);
+        QCOMPARE(result.proposals.size(), std::size_t{1});
+        QCOMPARE(result.proposals.at(0).target,
+                 ProfileFieldTarget::Manufacturer);
+    }
+
+    // ================================================== T035-A.2 wiring ==
+    // The register_map request contract, prompt branch and parser
+    // integration (ADR-004 / Human T035-A.2 §3-§7). extract() itself is
+    // untouched: manufacturer slots above ARE the compatibility proof.
+
+    // --------------------------------------------------------------- R11 --
+    // (§7-A) The register-map request is generated with the frozen token and
+    // the SAME H2 payload discipline; the wrong-mode guard refuses closed.
+    void r11_registerMapRequestIsGenerated()
+    {
+        const ExtractionRequest request =
+            modbuslens::core::buildRegisterMapExtractionRequest(
+                makeDocument(), std::string_view{kManualText});
+        QVERIFY(request.targetFieldToken
+                == modbuslens::core::kRegisterMapTargetToken);
+        QVERIFY(request.targetFieldToken == "register_map");
+        QVERIFY(request.documentTypeToken == "txt");
+        QVERIFY(request.canonicalExtractedText == kManualText);
+
+        // Wrong-mode dispatch is refused closed (caller bug, never guessed).
+        FakeExtractionTransport transport;
+        CandidateProviderAdapter adapter =
+            makeAdapter(transport, chatCompletionsEnvelope("{}"));
+        const modbuslens::ui::RegisterProviderExtractionResult wrongMode =
+            adapter.extractRegister(
+                modbuslens::core::buildC2FirstSliceExtractionRequest(
+                    makeDocument(), std::string_view{kManualText}));
+        QCOMPARE(wrongMode.ok, false);
+        QCOMPARE(wrongMode.failure,
+                 ProviderExtractionFailure::SchemaViolation);
+        QCOMPARE(wrongMode.proposals.size(), std::size_t{0});
+    }
+
+    // --------------------------------------------------------------- R12 --
+    // (§7-B) The register prompt branch: the wire body carries the register
+    // schema and the manual text, and NEVER the profile-field envelope key.
+    void r12_registerPromptBranchDrivesTheWireBody()
+    {
+        FakeExtractionTransport transport;
+        CandidateProviderAdapter adapter =
+            makeAdapter(transport, chatCompletionsEnvelope("{}"));
+        const std::string body = adapter.buildWireBodyForTest(
+            modbuslens::core::buildRegisterMapExtractionRequest(
+                makeDocument(), std::string_view{kManualText}));
+
+        QVERIFY(body.find("registerProposals") != std::string::npos);
+        QVERIFY(body.find("\"proposals\"") == std::string::npos);
+        QVERIFY(body.find("Target: register_map") != std::string::npos);
+        QVERIFY(body.find("functionCode") != std::string::npos);
+        QVERIFY(body.find("quantity") != std::string::npos);
+        QVERIFY(body.find("MANUAL TEXT BEGIN") != std::string::npos);
+        // The manual text is embedded, but JSON-escaped: assert a SINGLE-LINE
+        // excerpt (real newlines become \n sequences inside the JSON string).
+        QVERIFY(body.find("Model: INV-1000") != std::string::npos);
+        // The manufacturer schema key must not leak into the register prompt.
+        QVERIFY(body.find("\"value\":\"...\"") == std::string::npos);
+    }
+
+    // --------------------------------------------------------------- R13 --
+    // (§7-C) A legal registerProposals response flows through the FULL
+    // adapter path (transport -> envelope -> strict register parser).
+    void r13_legalRegisterProposalsFlowThroughTheAdapter()
+    {
+        const std::string content =
+            "{\"registerProposals\":[{\"functionCode\":4,\"address\":5,"
+            "\"name\":\"Temperature\",\"dataType\":\"Float32\",\"quantity\":2,"
+            "\"evidence\":\"Register 5 Temperature Float32 scale 0.1\","
+            "\"scale\":0.1,\"unit\":\"degC\"}]}";
+        FakeExtractionTransport transport;
+        CandidateProviderAdapter adapter =
+            makeAdapter(transport, chatCompletionsEnvelope(content));
+
+        const modbuslens::ui::RegisterProviderExtractionResult result =
+            adapter.extractRegister(
+                modbuslens::core::buildRegisterMapExtractionRequest(
+                    makeDocument(), std::string_view{kManualText}));
+
+        QCOMPARE(result.ok, true);
+        QCOMPARE(result.failure, ProviderExtractionFailure::None);
+        QCOMPARE(result.proposals.size(), std::size_t{1});
+        QCOMPARE(int(result.proposals.at(0).functionCode), 4);
+        QCOMPARE(int(result.proposals.at(0).address), 5);
+        QVERIFY(result.proposals.at(0).name == "Temperature");
+        QCOMPARE(result.proposals.at(0).dataType,
+                 modbuslens::core::RegisterDecodeType::Float32);
+        QCOMPARE(result.proposals.at(0).quantity, 2);
+        QCOMPARE(result.proposals.at(0).scale, 0.1);
+        QVERIFY(result.proposals.at(0).unit == "degC");
+    }
+
+    // --------------------------------------------------------------- R14 --
+    // (§7-D) A MIXED envelope (proposals + registerProposals) through the
+    // register path is a whole-response rejection.
+    void r14_mixedEnvelopeViaRegisterPathIsRejected()
+    {
+        const std::string mixed =
+            std::string{
+                "{\"proposals\":[{\"target\":\"manufacturer\",\"value\":\"v\","
+                "\"evidence\":\"e\"}],\"registerProposals\":[]}"};
+        FakeExtractionTransport transport;
+        CandidateProviderAdapter adapter =
+            makeAdapter(transport, chatCompletionsEnvelope(mixed));
+
+        const modbuslens::ui::RegisterProviderExtractionResult result =
+            adapter.extractRegister(
+                modbuslens::core::buildRegisterMapExtractionRequest(
+                    makeDocument(), std::string_view{kManualText}));
+
+        QCOMPARE(result.ok, false);
+        QCOMPARE(result.failure, ProviderExtractionFailure::SchemaViolation);
+        QCOMPARE(result.proposals.size(), std::size_t{0});
+    }
+
+    // --------------------------------------------------------------- R15 --
+    // (§7-E) An unknown member inside a register proposal is rejected.
+    void r15_unknownFieldViaRegisterPathIsRejected()
+    {
+        const std::string content =
+            "{\"registerProposals\":[{\"functionCode\":4,\"address\":5,"
+            "\"name\":\"T\",\"dataType\":\"UInt16\",\"quantity\":1,"
+            "\"evidence\":\"e\",\"confidence\":0.9}]}";
+        FakeExtractionTransport transport;
+        CandidateProviderAdapter adapter =
+            makeAdapter(transport, chatCompletionsEnvelope(content));
+
+        const modbuslens::ui::RegisterProviderExtractionResult result =
+            adapter.extractRegister(
+                modbuslens::core::buildRegisterMapExtractionRequest(
+                    makeDocument(), std::string_view{kManualText}));
+
+        QCOMPARE(result.ok, false);
+        QCOMPARE(result.failure, ProviderExtractionFailure::SchemaViolation);
+        QCOMPARE(result.proposals.size(), std::size_t{0});
+    }
+
+    // --------------------------------------------------------------- R16 --
+    // (§7-F) A missing required member is rejected through the full path.
+    void r16_missingFieldViaRegisterPathIsRejected()
+    {
+        const std::string content =
+            "{\"registerProposals\":[{\"functionCode\":4,"
+            "\"name\":\"T\",\"dataType\":\"UInt16\",\"quantity\":1,"
+            "\"evidence\":\"e\"}]}";
+        FakeExtractionTransport transport;
+        CandidateProviderAdapter adapter =
+            makeAdapter(transport, chatCompletionsEnvelope(content));
+
+        const modbuslens::ui::RegisterProviderExtractionResult result =
+            adapter.extractRegister(
+                modbuslens::core::buildRegisterMapExtractionRequest(
+                    makeDocument(), std::string_view{kManualText}));
+
+        QCOMPARE(result.ok, false);
+        QCOMPARE(result.failure, ProviderExtractionFailure::SchemaViolation);
+        QCOMPARE(result.proposals.size(), std::size_t{0});
+    }
+
+    // --------------------------------------------------------------- R17 --
+    // (§7-G) An unknown dataType token is rejected — the M11 frozen token
+    // set is the only authority.
+    void r17_unknownDataTypeViaRegisterPathIsRejected()
+    {
+        const std::string content =
+            "{\"registerProposals\":[{\"functionCode\":4,\"address\":5,"
+            "\"name\":\"T\",\"dataType\":\"Uint64\",\"quantity\":1,"
+            "\"evidence\":\"e\"}]}";
+        FakeExtractionTransport transport;
+        CandidateProviderAdapter adapter =
+            makeAdapter(transport, chatCompletionsEnvelope(content));
+
+        const modbuslens::ui::RegisterProviderExtractionResult result =
+            adapter.extractRegister(
+                modbuslens::core::buildRegisterMapExtractionRequest(
+                    makeDocument(), std::string_view{kManualText}));
+
+        QCOMPARE(result.ok, false);
+        QCOMPARE(result.failure, ProviderExtractionFailure::SchemaViolation);
+        QCOMPARE(result.proposals.size(), std::size_t{0});
+    }
 };
 
 QTEST_MAIN(CandidateAdapterTest)

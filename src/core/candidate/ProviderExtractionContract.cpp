@@ -32,4 +32,16 @@ ExtractionRequest buildC2FirstSliceExtractionRequest(
     return request;
 }
 
+ExtractionRequest buildRegisterMapExtractionRequest(
+    const ManualDocument &document, std::string_view canonicalExtractedText)
+{
+    // T035-A.2: identical payload discipline, different frozen target token.
+    ExtractionRequest request;
+    request.targetFieldToken = std::string(kRegisterMapTargetToken);
+    request.documentTypeToken =
+        std::string(manualDocumentTypeToken(document.documentType));
+    request.canonicalExtractedText = std::string(canonicalExtractedText);
+    return request;
+}
+
 } // namespace modbuslens::core

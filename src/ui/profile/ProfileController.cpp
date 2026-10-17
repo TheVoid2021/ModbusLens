@@ -2,6 +2,8 @@
 
 #include "ui/profile/ProfileStore.h"
 
+#include "core/profile/RegisterReadiness.h"
+
 #include "core/active/ReadRequestParsing.h"
 #include "core/active/WriteDraftParsing.h"
 
@@ -457,9 +459,20 @@ QVariantMap ProfileController::registerEntryAt(int draftIndex)
                static_cast<int>(entry.byteOrder));
     out.insert(QStringLiteral("wordOrder"),
                static_cast<int>(entry.wordOrder));
+    // T035-A Round O: expose provenance so the editor can show an EMPTY
+    // field for not-configured values (never presenting the frozen default
+    // as if it were confirmed) and tests can assert the full state.
+    out.insert(QStringLiteral("scaleConfigured"), entry.scaleConfigured);
+    out.insert(QStringLiteral("offsetConfigured"), entry.offsetConfigured);
+    out.insert(QStringLiteral("unitConfigured"), entry.unitConfigured);
     out.insert(QStringLiteral("scale"), entry.scale);
     out.insert(QStringLiteral("offset"), entry.offset);
     out.insert(QStringLiteral("unit"), QString::fromStdString(entry.unit));
+    // T035-C C1.2: expose the decoder declaration so the editor can show it
+    // and tests can assert it (stable machine token).
+    out.insert(QStringLiteral("decoderKind"),
+               QString::fromLatin1(modbuslens::core::profileDecoderKindToken(
+                   entry.decoderKind)));
     return out;
 }
 
@@ -570,10 +583,37 @@ bool ProfileController::parseEntryFields(const QVariantMap &fields,
         out.wordOrder = modbuslens::core::RegisterWordOrder::HighWordFirst;
     }
 
-    // ---- scale / offset: empty = the frozen defaults; finite required ----
+    // ---- decoderKind (T035-C C1.2): OPTIONAL stable machine token — absent
+    // means the editor/candidate did not touch the declaration, so the entry
+    // keeps Unknown. An unrecognized token is a hard refusal (fail closed:
+    // never silently Linear); this is ALSO the guarantee that the AI
+    // Candidate path (which never carries the key) can never set it.
+    {
+        const QString decoderToken =
+            rawText("decoderKind").trimmed().toLower();
+        if (!decoderToken.isEmpty()) {
+            modbuslens::core::EngineeringDecoderKind kind =
+                modbuslens::core::EngineeringDecoderKind::Unknown;
+            if (!modbuslens::core::profileDecoderKindFromToken(
+                    decoderToken.toStdString(), kind)) {
+                m_lastActionErrorToken =
+                    QStringLiteral("invalid_decoder_kind");
+                m_lastActionError = QStringLiteral(
+                    "解码方式不在允许集合内（unknown / raw / linear / "
+                    "variable_decimal / enum）");
+                return false;
+            }
+            out.decoderKind = kind;
+        }
+    }
+
+    // ---- scale / offset: EMPTY = NOT configured (value falls back to the
+    // frozen defaults 1 / 0); a valid number = EXPLICITLY configured
+    // (T035-A Round O provenance). A non-numeric text is still a refusal.
     const QString scaleRaw = rawText("scale").trimmed();
     if (scaleRaw.isEmpty()) {
         out.scale = 1.0; // frozen default (T027 §24.3)
+        out.scaleConfigured = false;
     } else {
         bool scaleOk = false;
         out.scale = scaleRaw.toDouble(&scaleOk);
@@ -583,10 +623,12 @@ bool ProfileController::parseEntryFields(const QVariantMap &fields,
                 "缩放系数必须是有效数字（不接受 NaN / 无穷大 / 非数字文本）");
             return false;
         }
+        out.scaleConfigured = true;
     }
     const QString offsetRaw = rawText("offset").trimmed();
     if (offsetRaw.isEmpty()) {
         out.offset = 0.0; // frozen default
+        out.offsetConfigured = false;
     } else {
         bool offsetOk = false;
         out.offset = offsetRaw.toDouble(&offsetOk);
@@ -596,8 +638,12 @@ bool ProfileController::parseEntryFields(const QVariantMap &fields,
                 "偏移量必须是有效数字（不接受 NaN / 无穷大 / 非数字文本）");
             return false;
         }
+        out.offsetConfigured = true;
     }
+    // unit: empty text = NOT configured; any content = configured. Clearing
+    // the field is therefore the recoverable way back to not-configured.
     out.unit = rawText("unit").toStdString();
+    out.unitConfigured = !out.unit.empty();
     return true;
 }
 
@@ -791,6 +837,102 @@ bool ProfileController::applyCandidateField(const QString &fieldToken,
     return true;
 }
 
+bool ProfileController::parseRegisterCandidateFields(
+    const QVariantMap &fields, modbuslens::core::RegisterEntry &out)
+{
+    // T035-A.3.2.1: review-variant register map -> RegisterEntry. The two
+    // narrowing casts (uint8 functionCode / uint16 address) are guarded by
+    // explicit domain range checks FIRST — an out-of-domain value is a
+    // refusal with a token, never a silent wrap. quantity consistency and
+    // scale/offset finiteness are owned by validateDeviceProfile downstream
+    // (no duplication, no auto-correction).
+    bool intOk = false;
+    const int functionCode = fields.value(QStringLiteral("functionCode")).toInt(&intOk);
+    if (!intOk || functionCode < 0x01 || functionCode > 0x7F) {
+        m_lastActionErrorToken = QStringLiteral("invalid_function_code");
+        m_lastActionError = QStringLiteral("寄存器候选的读取功能码超出合法域（0x01..0x7F）");
+        return false;
+    }
+    const int address = fields.value(QStringLiteral("address")).toInt(&intOk);
+    if (!intOk || address < 0 || address > 65535) {
+        m_lastActionErrorToken = QStringLiteral("invalid_address");
+        m_lastActionError = QStringLiteral("寄存器候选的地址超出 PDU 范围（0..65535）");
+        return false;
+    }
+    modbuslens::core::RegisterDecodeType dataType{};
+    if (!modbuslens::core::profileDataTypeFromToken(
+            fields.value(QStringLiteral("dataType")).toString().toStdString(),
+            dataType)) {
+        m_lastActionErrorToken = QStringLiteral("unsupported_data_type");
+        m_lastActionError = QStringLiteral("寄存器候选的 dataType 超出 M11 类型矩阵");
+        return false;
+    }
+
+    modbuslens::core::RegisterEntry entry;
+    entry.readFunctionCode = static_cast<std::uint8_t>(functionCode);
+    entry.address = static_cast<std::uint16_t>(address);
+    entry.name = fields.value(QStringLiteral("name")).toString().toStdString();
+    entry.description =
+        fields.value(QStringLiteral("description")).toString().toStdString();
+    entry.dataType = dataType;
+    entry.registerCount = fields.value(QStringLiteral("quantity")).toInt();
+    // byteOrder/wordOrder are deliberately ABSENT from the v1 register
+    // candidate (Human T035-A.1 §4 scope ruling) and take the frozen
+    // RegisterEntry defaults: Normal / HighWordFirst.
+    entry.scale = fields.value(QStringLiteral("scale")).toDouble();
+    entry.offset = fields.value(QStringLiteral("offset")).toDouble();
+    entry.unit = fields.value(QStringLiteral("unit")).toString().toStdString();
+    // T035-A Round O (O-2 provenance): CONSUME the hasXXX flags the review
+    // surface already carries (Round N proved this boundary dropped them).
+    // The flags mean "the manual/candidate EXPLICITLY stated the member" —
+    // a value equal to the frozen default with hasXXX=true stays configured,
+    // and a missing flag stays not-configured even though the staged value
+    // is 1 / 0 / "". Absent key = not stated (conservative default false).
+    entry.scaleConfigured =
+        fields.value(QStringLiteral("hasScale")).toBool();
+    entry.offsetConfigured =
+        fields.value(QStringLiteral("hasOffset")).toBool();
+    entry.unitConfigured = fields.value(QStringLiteral("hasUnit")).toBool();
+    out = std::move(entry);
+    return true;
+}
+
+bool ProfileController::applyRegisterCandidate(const QVariantMap &fields)
+{
+    // T035-A.3.2.1: the CONTROLLED register-candidate write. Same staged
+    // discipline as addRegisterEntry — whole-draft copy, FULL
+    // validateDeviceProfile, commit-to-draft once — and NEVER a Save / any
+    // ProfileStore access (staged draft only, Human T035-A.3.2.1 §0-§2).
+    // Duplicate address / overlapping span / quantity mismatch are explicit
+    // refusals with the draft untouched (no auto-correction).
+    m_lastActionError.clear();
+    m_lastActionErrorToken.clear();
+    if (!m_hasOpenProfile) {
+        m_lastActionError = QStringLiteral("没有打开的设备档案");
+        m_lastActionErrorToken = QStringLiteral("profile_target_missing");
+        emitEditorChanged();
+        return false;
+    }
+    modbuslens::core::RegisterEntry entry;
+    if (!parseRegisterCandidateFields(fields, entry)) {
+        emitEditorChanged();
+        return false;
+    }
+    auto candidate = m_draft;
+    candidate.registers.push_back(entry);
+    const auto validation = modbuslens::core::validateDeviceProfile(candidate);
+    if (!validation.ok()) {
+        m_lastActionErrorToken = QString::fromLatin1(
+            modbuslens::core::profileValidationCodeName(validation.code));
+        m_lastActionError = validationHumanText(candidate, validation);
+        emitEditorChanged();
+        return false;
+    }
+    m_draft = candidate;
+    emitEditorChanged();
+    return true;
+}
+
 void ProfileController::clearActionError()
 {
     if (m_lastActionError.isEmpty() && m_lastActionErrorToken.isEmpty()) {
@@ -799,6 +941,135 @@ void ProfileController::clearActionError()
     m_lastActionError.clear();
     m_lastActionErrorToken.clear();
     emitEditorChanged();
+}
+
+// ======================================================================
+// T035-C Round C1 — READ-ONLY saved-profile access (selector + readiness).
+// The selector consumes ONLY persisted profile files; the editor draft and
+// every save/write path stay untouched. Addressing is (functionCode,
+// address) — the profile's natural unique key — never a bare list index.
+// ======================================================================
+
+QVariantMap ProfileController::savedProfileRegisters(const QString &profileId)
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("available"), false);
+    if (profileId.isEmpty()) {
+        out.insert(QStringLiteral("reason"),
+                   QStringLiteral("profile_id_missing"));
+        return out;
+    }
+    const ProfileLoadResult loaded = ProfileStore::loadFromFile(
+        ProfileStore::defaultFilePathFor(profileId));
+    if (!loaded.ok()) {
+        out.insert(QStringLiteral("reason"),
+                   QStringLiteral("profile_unavailable"));
+        return out;
+    }
+    QVariantList rows;
+    for (const modbuslens::core::RegisterEntry &entry :
+         loaded.profile.registers) {
+        const int wordCount = modbuslens::core::registerDecodeTypeWordCount(
+            entry.dataType);
+        QVariantMap row;
+        row.insert(QStringLiteral("functionCode"),
+                   static_cast<int>(entry.readFunctionCode));
+        row.insert(QStringLiteral("fcLabel"),
+                   QStringLiteral("FC%1")
+                       .arg(entry.readFunctionCode, 2, 16, QLatin1Char('0'))
+                       .toUpper());
+        row.insert(QStringLiteral("address"), static_cast<int>(entry.address));
+        row.insert(QStringLiteral("name"), QString::fromStdString(entry.name));
+        row.insert(QStringLiteral("dataTypeToken"),
+                   QString::fromLatin1(
+                       modbuslens::core::profileDataTypeToken(entry.dataType)));
+        row.insert(QStringLiteral("wordCount"), wordCount);
+        row.insert(QStringLiteral("spanLabel"),
+                   wordCount == 1
+                       ? QStringLiteral("@%1").arg(entry.address)
+                       : QStringLiteral("@%1..%2")
+                             .arg(entry.address)
+                             .arg(int(entry.address) + wordCount - 1));
+        // One pre-joined display label for the selector ComboBox
+        // ("FC04 @0 — Sample"). The machine fields above stay separate.
+        row.insert(QStringLiteral("label"),
+                   row.value(QStringLiteral("fcLabel")).toString() + " "
+                       + row.value(QStringLiteral("spanLabel")).toString()
+                       + " — "
+                       + row.value(QStringLiteral("name")).toString());
+        rows.append(row);
+    }
+    out.insert(QStringLiteral("available"), true);
+    out.insert(QStringLiteral("registers"), rows);
+    return out;
+}
+
+QVariantMap ProfileController::savedRegisterReadiness(const QString &profileId,
+                                                      int functionCode,
+                                                      int address)
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("available"), false);
+    if (profileId.isEmpty()) {
+        out.insert(QStringLiteral("reason"),
+                   QStringLiteral("profile_id_missing"));
+        return out;
+    }
+    if (functionCode < 0x01 || functionCode > 0x7F || address < 0
+        || address > 65535) {
+        out.insert(QStringLiteral("reason"),
+                   QStringLiteral("register_key_out_of_domain"));
+        return out;
+    }
+    const ProfileLoadResult loaded = ProfileStore::loadFromFile(
+        ProfileStore::defaultFilePathFor(profileId));
+    if (!loaded.ok()) {
+        out.insert(QStringLiteral("reason"),
+                   QStringLiteral("profile_unavailable"));
+        return out;
+    }
+    const modbuslens::core::ProfileLookupResult lookup =
+        modbuslens::core::findProfileEntryByStartAddress(
+            loaded.profile, static_cast<std::uint8_t>(functionCode),
+            static_cast<std::uint16_t>(address));
+    if (!lookup.found()) {
+        out.insert(QStringLiteral("reason"),
+                   QStringLiteral("register_not_found"));
+        return out;
+    }
+    const modbuslens::core::RegisterEntry &entry =
+        loaded.profile.registers[static_cast<std::size_t>(lookup.entryIndex)];
+    const modbuslens::core::RegisterReadinessResult readiness =
+        modbuslens::core::validateRegisterForEngineeringDisplay(loaded.profile,
+                                                                entry);
+
+    QStringList missing;
+    for (const std::string &token : readiness.missingFields) {
+        missing << QString::fromStdString(token);
+    }
+    QStringList invalid;
+    for (const std::string &token : readiness.invalidFields) {
+        invalid << QString::fromStdString(token);
+    }
+    QStringList reasons;
+    for (const std::string &reason : readiness.reasons) {
+        reasons << QString::fromStdString(reason);
+    }
+    out.insert(QStringLiteral("available"), true);
+    out.insert(QStringLiteral("readable"), readiness.readable);
+    out.insert(QStringLiteral("engineeringReady"), readiness.engineeringReady);
+    out.insert(QStringLiteral("level"),
+               QString::fromLatin1(
+                   modbuslens::core::registerReadinessLevelToken(
+                       readiness.level)));
+    out.insert(QStringLiteral("decoderKind"),
+               QString::fromLatin1(
+                   modbuslens::core::profileDecoderKindToken(
+                       readiness.decoderKind)));
+    out.insert(QStringLiteral("missing"), missing);
+    out.insert(QStringLiteral("invalid"), invalid);
+    out.insert(QStringLiteral("reasons"), reasons);
+    return out;
 }
 
 } // namespace modbuslens::ui

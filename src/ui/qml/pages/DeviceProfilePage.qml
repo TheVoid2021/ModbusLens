@@ -170,13 +170,65 @@ Item {
     property string entryScaleText: ""
     property string entryOffsetText: ""
     property string entryUnitText: ""
+    // T035-C C1.2: the persisted decoder declaration. The combo selects by
+    // INDEX but the editor ALWAYS persists and forwards the stable machine
+    // TOKEN (never an index) — saved values are unknown/raw/linear/
+    // variable_decimal/enum.
+    property int entryDecoderIndex: 0
+    readonly property var decoderKindTokens:
+        ["unknown", "raw", "linear", "variable_decimal", "enum"]
+    readonly property var decoderKindChoices:
+        ["未确认（暂不进行工程换算）", "仅查看原始值（不换算单位）",
+         "固定倍率换算（原始值 × 倍率 + 偏移量）",
+         "可变小数点（由设备规则决定，暂不支持）",
+         "状态代码转换（例如 0=关、1=开，暂不支持）"]
+    // C1.3: the per-choice explanation shown UNDER the combo so the option
+    // labels themselves can stay short.
+    function decoderHelpText(index) {
+        switch (index) {
+        case 1:
+            return qsTr("只保留原始数据，不进行单位换算。")
+        case 2:
+            return qsTr("适用于手册明确规定固定倍率和偏移量的寄存器。"
+                        + "例如原始值 1234、倍率 0.01、偏移量 0，结果为 12.34。")
+        case 3:
+            return qsTr("小数点位置可能依赖其他设备配置。"
+                        + "当前版本尚未支持该计算。")
+        case 4:
+            return qsTr("原始数字代表状态类别，当前版本尚未支持映射。")
+        default:
+            return qsTr("尚未确认寄存器应如何换算，暂不能显示最终工程值。")
+        }
+    }
     // The M11 seven-type matrix (T027 §8: no second type enum anywhere).
+    // T035-B Round B1: DISPLAY text = English standard name + Chinese
+    // explanation ("英文标准名称 + 中文解释"). The combo selects by INDEX and
+    // the dialog forwards the INDEX; the persisted dataType token is
+    // completely unaffected by these display strings.
     readonly property var dataTypeChoices:
-        ["HEX", "BIN", "UInt16", "Int16", "UInt32", "Int32", "Float32"]
+        ["HEX（十六进制显示）", "BIN（二进制显示）",
+         "UInt16（16位无符号整数）", "Int16（16位有符号整数）",
+         "UInt32（32位无符号整数）", "Int32（32位有符号整数）",
+         "Float32（32位浮点数）"]
     readonly property var byteOrderChoices:
-        ["Normal 正序", "ByteSwapped 交换"]
+        ["Normal（正序）", "ByteSwapped（字节交换）"]
     readonly property var wordOrderChoices:
-        ["HighWordFirst 高字在前", "LowWordFirst 低字在前"]
+        ["HighWordFirst（高字在前）", "LowWordFirst（低字在前）"]
+    // T035-B Round B1: display mapping for the register-list DataType column.
+    // Input = the frozen token (never modified); output = the en+zh display
+    // string. Unknown tokens fall through unchanged (never invented).
+    function dataTypeDisplay(token) {
+        var map = {
+            "HEX": "HEX（十六进制显示）",
+            "BIN": "BIN（二进制显示）",
+            "UInt16": "UInt16（16位无符号整数）",
+            "Int16": "Int16（16位有符号整数）",
+            "UInt32": "UInt32（32位无符号整数）",
+            "Int32": "Int32（32位有符号整数）",
+            "Float32": "Float32（32位浮点数）"
+        }
+        return map[token] !== undefined ? map[token] : token
+    }
     // Group 1-B: registerCount is DERIVED — Hex/Binary/16-bit → 1, 32-bit → 2.
     readonly property int entryDerivedRegisterCount:
         entryDataTypeIndex >= 4 ? 2 : 1
@@ -196,6 +248,7 @@ Item {
         entryScaleText = ""
         entryOffsetText = ""
         entryUnitText = ""
+        entryDecoderIndex = 0 // Unknown — never a silent Linear
         entryEditorMode = "add"
         entryEditorDialog.open()
     }
@@ -214,9 +267,17 @@ Item {
         entryDataTypeIndex = entry.dataType
         entryByteOrderIndex = entry.byteOrder
         entryWordOrderIndex = entry.wordOrder
-        entryScaleText = String(entry.scale)
-        entryOffsetText = String(entry.offset)
-        entryUnitText = entry.unit
+        // T035-A Round O provenance: a NOT-configured field shows as EMPTY
+        // (never presenting the frozen default as if it were confirmed).
+        // Saving the empty field keeps configured=false; typing a value
+        // marks it configured. This is the minimal recoverable semantics.
+        entryScaleText = entry.scaleConfigured === true
+                         ? String(entry.scale) : ""
+        entryOffsetText = entry.offsetConfigured === true
+                          ? String(entry.offset) : ""
+        entryUnitText = entry.unitConfigured === true ? entry.unit : ""
+        const decoderIdx = decoderKindTokens.indexOf(entry.decoderKind)
+        entryDecoderIndex = decoderIdx >= 0 ? decoderIdx : 0
         entryEditorMode = draftIndex
         entryEditorDialog.open()
     }
@@ -234,7 +295,10 @@ Item {
             "wordOrder": entryIsTwoWord ? String(entryWordOrderIndex) : "-1",
             "scale": entryScaleText,
             "offset": entryOffsetText,
-            "unit": entryUnitText
+            "unit": entryUnitText,
+            // T035-C C1.2: the decoder declaration travels as its STABLE
+            // MACHINE TOKEN — never the combo index.
+            "decoderKind": decoderKindTokens[entryDecoderIndex]
         }
     }
 
@@ -787,13 +851,24 @@ Item {
                                         }
                                         Label {
                                             // dataType + derived span.
-                                            text: registerDelegate
-                                                  .rowData.dataType + " "
+                                            // T035-B B1: en+zh display text;
+                                            // the row data itself keeps the
+                                            // frozen token (mapping is
+                                            // display-only).
+                                            objectName:
+                                                "registerRowDataTypeLabel"
+                                            text: deviceProfileRoot
+                                                      .dataTypeDisplay(
+                                                          registerDelegate
+                                                              .rowData
+                                                              .dataType)
+                                                  + " "
                                                   + registerDelegate
-                                                  .rowData.span
+                                                        .rowData.span
                                             color: DS.textSecondary
                                             font.pixelSize: DS.fontCaption
-                                            Layout.preferredWidth: 110
+                                            elide: Text.ElideRight
+                                            Layout.preferredWidth: 150
                                         }
                                     }
                                 }
@@ -1087,19 +1162,47 @@ Item {
                 Layout.fillWidth: true
                 title: qsTr("AI 候选（待审核）")
             }
-            AppButton {
-                objectName: "candidateExtractButton"
+            // T035-A.3.2.2: the two extraction entries share ONE row — the
+            // Human can tell 设备信息候选 from 寄存器候选 at a glance, and the
+            // card's vertical footprint stays identical to the pre-register
+            // layout (the review list below must not lose viewport height).
+            RowLayout {
                 Layout.fillWidth: true
-                Accessible.name: qsTr("AI 提取设备档案候选")
-                text: qsTr("AI 提取候选")
-                enabled: manualController.selectedIndex >= 0
-                         && !candidateController.busy
-                onClicked: {
-                    // Without a grant for this document/content the controller
-                    // stops at consent_required and calls NOTHING (O01).
-                    candidateController.requestExtraction()
-                    if (candidateController.stateToken === "consent_required") {
-                        candidateConsentDialog.open()
+                spacing: DS.spacingS
+                AppButton {
+                    objectName: "candidateExtractButton"
+                    Layout.fillWidth: true
+                    Accessible.name: qsTr("AI 提取设备档案候选")
+                    text: qsTr("AI 提取候选")
+                    enabled: manualController.selectedIndex >= 0
+                             && !candidateController.busy
+                    onClicked: {
+                        // Without a grant for this document/content the
+                        // controller stops at consent_required and calls
+                        // NOTHING (O01).
+                        candidateController.requestExtraction()
+                        if (candidateController.stateToken
+                            === "consent_required") {
+                            candidateConsentDialog.open()
+                        }
+                    }
+                }
+                // T035-A.3.2.2: the INDEPENDENT register-map extraction
+                // entry — same consent gate; only the request token / prompt
+                // / strict parser differ.
+                AppButton {
+                    objectName: "candidateRegisterExtractButton"
+                    Layout.fillWidth: true
+                    Accessible.name: qsTr("AI 提取寄存器候选")
+                    text: qsTr("AI 提取寄存器")
+                    enabled: manualController.selectedIndex >= 0
+                             && !candidateController.busy
+                    onClicked: {
+                        candidateController.requestRegisterExtraction()
+                        if (candidateController.stateToken
+                            === "consent_required") {
+                            candidateConsentDialog.open()
+                        }
                     }
                 }
             }
@@ -1190,6 +1293,11 @@ Item {
                             Label {
                                 objectName: "candidateRowValue"
                                 Layout.fillWidth: true
+                                // T035-A.3.2.2: profile-field rows carry a
+                                // targetField; register rows render their own
+                                // block below and hide this one.
+                                visible: modelData
+                                         && modelData.targetField !== undefined
                                 // Defensive on purpose: a model reset can leave
                                 // the row roles undefined for a beat.
                                 text: (modelData && modelData.targetField
@@ -1199,6 +1307,110 @@ Item {
                                          ? modelData.proposedValue : "")
                                 font.pixelSize: DS.fontCaption
                                 elide: Text.ElideRight
+                            }
+                            // T035-A.3.2.2: the REGISTER candidate block —
+                            // v1 fields + HONEST optional-member display (a
+                            // frozen default is never presented as an AI
+                            // extraction; Human T035-A.3.2.2 §4).
+                            ColumnLayout {
+                                objectName: "candidateRegisterRowFields"
+                                Layout.fillWidth: true
+                                spacing: 0
+                                visible: modelData
+                                         && modelData.kind === "register"
+                                Label {
+                                    objectName: "candidateRegisterRowIdentity"
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                          && modelData.kind === "register"
+                                          ? qsTr("寄存器候选  FC%1  地址 %2  数量 %3")
+                                                .arg(modelData.functionCode)
+                                                .arg(modelData.address)
+                                                .arg(modelData.quantity)
+                                          : ""
+                                    font.pixelSize: DS.fontCaption
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    objectName: "candidateRegisterRowName"
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                          && modelData.kind === "register"
+                                          ? qsTr("名称: %1").arg(modelData.name)
+                                          : ""
+                                    font.pixelSize: DS.fontCaption
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    objectName: "candidateRegisterRowDataType"
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                          && modelData.kind === "register"
+                                          ? qsTr("数据类型: %1").arg(
+                                                modelData.dataType)
+                                          : ""
+                                    font.pixelSize: DS.fontCaption
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    objectName: "candidateRegisterRowScale"
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                          && modelData.kind === "register"
+                                          ? (modelData.hasScale
+                                             ? qsTr("Scale（倍率）: %1").arg(
+                                                   modelData.scale)
+                                             : qsTr("Scale（倍率）: 未提供（默认 1.0）"))
+                                          : ""
+                                    color: modelData && modelData.hasScale
+                                           ? DS.textPrimary : DS.textSecondary
+                                    font.pixelSize: DS.fontCaption
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    objectName: "candidateRegisterRowOffset"
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                          && modelData.kind === "register"
+                                          ? (modelData.hasOffset
+                                             ? qsTr("Offset（偏移量）: %1").arg(
+                                                   modelData.offset)
+                                             : qsTr("Offset（偏移量）: 未提供（默认 0）"))
+                                          : ""
+                                    color: modelData && modelData.hasOffset
+                                           ? DS.textPrimary : DS.textSecondary
+                                    font.pixelSize: DS.fontCaption
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    objectName: "candidateRegisterRowUnit"
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                          && modelData.kind === "register"
+                                          ? (modelData.hasUnit
+                                             ? qsTr("Unit（单位）: %1").arg(
+                                                   modelData.unit)
+                                             : qsTr("Unit（单位）: 未提供"))
+                                          : ""
+                                    color: modelData && modelData.hasUnit
+                                           ? DS.textPrimary : DS.textSecondary
+                                    font.pixelSize: DS.fontCaption
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    objectName: "candidateRegisterRowDescription"
+                                    Layout.fillWidth: true
+                                    visible: modelData
+                                             && modelData.kind === "register"
+                                             && modelData.hasDescription
+                                    text: modelData
+                                          && modelData.hasDescription
+                                          ? qsTr("描述: %1").arg(
+                                                modelData.description)
+                                          : ""
+                                    font.pixelSize: DS.fontCaption
+                                    elide: Text.ElideRight
+                                }
                             }
                             Label {
                                 objectName: "candidateRowEvidence"
@@ -1216,8 +1428,8 @@ Item {
                             Label {
                                 objectName: "candidateRowTargetContext"
                                 Layout.fillWidth: true
-                                visible: modelData && modelData.targetField
-                                         !== ""
+                                visible: modelData
+                                         && modelData.targetField !== undefined
                                 text: (profileController.hasOpenProfile
                                        ? qsTr("目标档案: %1 / %2").arg(
                                              profileController.displayName).arg(
@@ -1231,8 +1443,8 @@ Item {
                             Label {
                                 objectName: "candidateRowDraftValue"
                                 Layout.fillWidth: true
-                                visible: modelData && modelData.targetField
-                                         !== ""
+                                visible: modelData
+                                         && modelData.targetField !== undefined
                                 text: (profileController.hasOpenProfile
                                        ? qsTr("当前草稿值: %1").arg(
                                              profileController.manufacturer)
@@ -1262,6 +1474,11 @@ Item {
                                 objectName: "candidateEditButton_"
                                             + index
                                 Layout.fillWidth: true
+                                // T035-A.3.2.2: register rows have no Edit —
+                                // the register edited-confirm path is still
+                                // fail-closed (separately authorized).
+                                visible: modelData
+                                         && modelData.targetField !== undefined
                                 Accessible.name: qsTr("编辑该候选值")
                                 text: qsTr("编辑")
                                 enabled: profileController.hasOpenProfile
@@ -1853,7 +2070,12 @@ Item {
         modal: true
         closePolicy: Popup.NoAutoClose
         anchors.centerIn: parent
-        width: 480
+        // T035-B Round B1.1 — a DESKTOP-sized editor. Targets 920 px wide and
+        // never exceeds the page (the app window minimum is 1000x700, so the
+        // dialog stays inside 936x636); the ScrollView absorbs any height
+        // shortage and the footer buttons never scroll away.
+        width: Math.min(920, parent ? parent.width - 64 : 920)
+        height: Math.min(720, parent ? parent.height - 64 : 720)
         title: deviceProfileRoot.entryEditorAdding
                ? qsTr("添加寄存器条目") : qsTr("编辑寄存器条目")
 
@@ -1862,235 +2084,437 @@ Item {
                 deviceProfileRoot.entryEditorMode = ""
         }
 
-        ColumnLayout {
-            width: parent.width
-            spacing: DS.spacingS
+        // Dialog-local readability scale (T035-B B1.1). The global DS
+        // typography tokens stay untouched; this dialog simply stops using
+        // the 11px caption scale for its form. One label column width keeps
+        // every input's left edge aligned.
+        readonly property int fieldLabelFont: 14
+        readonly property int fieldFont: 15
+        readonly property int hintFont: 13
+        readonly property int labelColumnWidth: 150
+        readonly property int fieldHeight: 32
 
-            GridLayout {
-                columns: 2
-                columnSpacing: DS.spacingM
-                rowSpacing: DS.spacingS
-                Layout.fillWidth: true
+        ScrollView {
+            id: entryEditorScroll
+            anchors.fill: parent
+            clip: true
+            contentWidth: availableWidth
 
-                Label {
-                    text: qsTr("读取功能码：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                TextField {
-                    objectName: "regFcField"
-                    Accessible.name: qsTr("读取功能码")
+            // One ROW per field: [label | input]. A stable ColumnLayout of
+            // RowLayouts — no auto-flow grid, so no label can ever drift
+            // onto a neighbouring field's line.
+            ColumnLayout {
+                width: entryEditorScroll.availableWidth
+                spacing: DS.spacingM
+
+                // ---- 读取功能码（说明独立成块，不挤占字段行） --------
+                RowLayout {
                     Layout.fillWidth: true
-                    implicitHeight: 24
-                    // REQUIRED, keyboard-editable, accepts the M10 input
-                    // conventions (03 / 41 / 0x41); starts EMPTY for Add —
-                    // never a silent FC03 (T027 §32/§35).
-                    placeholderText: qsTr("03 / 41 / 0x41（必填）")
-                    text: deviceProfileRoot.entryFcText
-                    onTextChanged: deviceProfileRoot.entryFcText = text
-                }
-
-                Label {
-                    text: qsTr("寄存器地址：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                ColumnLayout {
-                    spacing: 0
-                    Layout.fillWidth: true
-                    DecimalField {
-                        objectName: "regAddressField"
-                        accessibleName: qsTr("寄存器地址")
-                        Layout.fillWidth: true
-                        implicitHeight: 24
-                        fieldLabel: qsTr("寄存器地址（PDU / 0-based）")
-                        placeholderText: "0..65535"
-                        text: deviceProfileRoot.entryAddressText
-                        onTextChanged:
-                            deviceProfileRoot.entryAddressText = text
-                    }
+                    spacing: DS.spacingM
                     Label {
-                        // Display-only reminder of the address authority.
-                        text: qsTr("PDU / 0-based，十进制（无 40001 别名）")
+                        objectName: "regFcRowLabel"
+                        text: qsTr("读取功能码：")
                         color: DS.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                    }
+                    TextField {
+                        objectName: "regFcField"
+                        Accessible.name: qsTr("读取功能码")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight
+                        font.pixelSize: entryEditorDialog.fieldFont
+                        // REQUIRED, keyboard-editable, accepts the M10 input
+                        // conventions (03 / 41 / 0x41); starts EMPTY for Add —
+                        // never a silent FC03 (T027 §32/§35).
+                        placeholderText: qsTr("03 / 41 / 0x41（必填）")
+                        text: deviceProfileRoot.entryFcText
+                        onTextChanged: deviceProfileRoot.entryFcText = text
+                    }
+                }
+                Label {
+                    objectName: "regFcHintLabel"
+                    // T035-B B1: en+zh explanation of the common read
+                    // function codes (display-only; the field value stays a
+                    // plain hex code). B1.1: its OWN block, aligned under the
+                    // input column, allowed to wrap freely.
+                    text: qsTr("FC03 Read Holding Registers（读取保持寄存器）/ FC04 Read Input Registers（读取输入寄存器）")
+                    color: DS.textSecondary
+                    font.pixelSize: entryEditorDialog.hintFont
+                    Layout.fillWidth: true
+                    Layout.leftMargin:
+                        entryEditorDialog.labelColumnWidth + DS.spacingM
+                    wrapMode: Text.Wrap
+                }
+
+                // ---- 寄存器地址 + PDU 提示 ------------------------------
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regAddressRowLabel"
+                        text: qsTr("寄存器地址：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                    }
+                    ColumnLayout {
+                        spacing: 2
+                        Layout.fillWidth: true
+                        DecimalField {
+                            objectName: "regAddressField"
+                            accessibleName: qsTr("寄存器地址")
+                            Layout.fillWidth: true
+                            implicitHeight: entryEditorDialog.fieldHeight
+                            fontPixelSize: entryEditorDialog.fieldFont
+                            fieldLabel: qsTr("寄存器地址（PDU / 0-based）")
+                            placeholderText: "0..65535"
+                            text: deviceProfileRoot.entryAddressText
+                            onTextChanged:
+                                deviceProfileRoot.entryAddressText = text
+                        }
+                        Label {
+                            // Display-only reminder of the address authority.
+                            text: qsTr("PDU / 0-based，十进制（无 40001 别名）")
+                            color: DS.textSecondary
+                            font.pixelSize: entryEditorDialog.hintFont
+                        }
                     }
                 }
 
-                Label {
-                    text: qsTr("名称：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                TextField {
-                    objectName: "regNameField"
-                    Accessible.name: qsTr("寄存器名称")
+                // ---- 名称 / 描述 ----------------------------------------
+                RowLayout {
                     Layout.fillWidth: true
-                    implicitHeight: 24
-                    text: deviceProfileRoot.entryNameText
-                    onTextChanged: deviceProfileRoot.entryNameText = text
-                }
-
-                Label {
-                    text: qsTr("描述：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                TextField {
-                    objectName: "regDescField"
-                    Accessible.name: qsTr("寄存器描述")
-                    Layout.fillWidth: true
-                    implicitHeight: 24
-                    text: deviceProfileRoot.entryDescriptionText
-                    onTextChanged:
-                        deviceProfileRoot.entryDescriptionText = text
-                }
-
-                Label {
-                    text: qsTr("数据类型：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                ComboBox {
-                    id: regDataTypeCombo
-                    objectName: "regDataTypeCombo"
-                    Accessible.name: qsTr("数据类型")
-                    Layout.fillWidth: true
-                    model: deviceProfileRoot.dataTypeChoices
-                    currentIndex: deviceProfileRoot.entryDataTypeIndex
-                    onActivated: deviceProfileRoot.entryDataTypeIndex =
-                                     currentIndex
-                    // setCurrentIndex from C++ (the automated gate) fires
-                    // currentIndexChanged but never activated.
-                    onCurrentIndexChanged:
-                        deviceProfileRoot.entryDataTypeIndex = currentIndex
-                }
-
-                Label {
-                    text: qsTr("寄存器数量：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                TextField {
-                    objectName: "regCountField"
-                    Accessible.name: qsTr("寄存器数量")
-                    Layout.fillWidth: true
-                    implicitHeight: 24
-                    // Group 1-B: DERIVED from dataType, read-only; the schema
-                    // validation keeps checking it strictly.
-                    readOnly: true
-                    text: String(deviceProfileRoot.entryDerivedRegisterCount)
-                }
-
-                Label {
-                    text: qsTr("字节序：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                ComboBox {
-                    id: regByteOrderCombo
-                    objectName: "regByteOrderCombo"
-                    Accessible.name: qsTr("字节序")
-                    Layout.fillWidth: true
-                    model: deviceProfileRoot.byteOrderChoices
-                    currentIndex: deviceProfileRoot.entryByteOrderIndex
-                    onActivated: deviceProfileRoot.entryByteOrderIndex =
-                                     currentIndex
-                    onCurrentIndexChanged:
-                        deviceProfileRoot.entryByteOrderIndex = currentIndex
-                }
-
-                Label {
-                    text: qsTr("字序：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regNameRowLabel"
+                        text: qsTr("名称：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                    }
+                    TextField {
+                        objectName: "regNameField"
+                        Accessible.name: qsTr("寄存器名称")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight
+                        font.pixelSize: entryEditorDialog.fieldFont
+                        text: deviceProfileRoot.entryNameText
+                        onTextChanged: deviceProfileRoot.entryNameText = text
+                    }
                 }
                 RowLayout {
-                    spacing: DS.spacingS
                     Layout.fillWidth: true
-                    ComboBox {
-                        id: regWordOrderCombo
-                        objectName: "regWordOrderCombo"
-                        Accessible.name: qsTr("字序")
-                        Layout.fillWidth: true
-                        model: deviceProfileRoot.wordOrderChoices
-                        // Group 1-C: SHOWN but disabled for 1-word types —
-                        // never hidden, never removed from persistence.
-                        enabled: deviceProfileRoot.entryIsTwoWord
-                        currentIndex: deviceProfileRoot.entryWordOrderIndex
-                        opacity: enabled ? 1.0 : 0.5
-                        onActivated:
-                            deviceProfileRoot.entryWordOrderIndex = currentIndex
-                        onCurrentIndexChanged:
-                            deviceProfileRoot.entryWordOrderIndex = currentIndex
-                    }
+                    spacing: DS.spacingM
                     Label {
-                        objectName: "regWordOrderNaLabel"
-                        // The Human-visible "not applicable" expression.
-                        visible: !deviceProfileRoot.entryIsTwoWord
-                        text: qsTr("不适用（1-word 类型）")
+                        objectName: "regDescRowLabel"
+                        text: qsTr("描述：")
                         color: DS.textSecondary
-                        font.pixelSize: DS.fontCaption
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                    }
+                    TextField {
+                        objectName: "regDescField"
+                        Accessible.name: qsTr("寄存器描述")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight
+                        font.pixelSize: entryEditorDialog.fieldFont
+                        text: deviceProfileRoot.entryDescriptionText
+                        onTextChanged:
+                            deviceProfileRoot.entryDescriptionText = text
+                    }
+                }
+
+                // ---- 数据类型 / 寄存器数量 ------------------------------
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regDataTypeRowLabel"
+                        text: qsTr("数据类型：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                        // C1.3 field help (hover; zero layout impact).
+                        HoverHandler { id: dataTypeHintHover }
+                        ToolTip.visible: dataTypeHintHover.hovered
+                        ToolTip.text: qsTr("UInt16 = 16 位无符号整数；Float32 等 32 位类型跨两个寄存器。")
+                    }
+                    ComboBox {
+                        id: regDataTypeCombo
+                        objectName: "regDataTypeCombo"
+                        Accessible.name: qsTr("数据类型")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight + 2
+                        font.pixelSize: entryEditorDialog.fieldFont
+                        model: deviceProfileRoot.dataTypeChoices
+                        currentIndex: deviceProfileRoot.entryDataTypeIndex
+                        onActivated: deviceProfileRoot.entryDataTypeIndex =
+                                         currentIndex
+                        // setCurrentIndex from C++ (the automated gate) fires
+                        // currentIndexChanged but never activated.
+                        onCurrentIndexChanged:
+                            deviceProfileRoot.entryDataTypeIndex = currentIndex
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regCountRowLabel"
+                        text: qsTr("寄存器数量：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                    }
+                    TextField {
+                        objectName: "regCountField"
+                        Accessible.name: qsTr("寄存器数量")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight
+                        font.pixelSize: entryEditorDialog.fieldFont
+                        // Group 1-B: DERIVED from dataType, read-only; the
+                        // schema validation keeps checking it strictly.
+                        readOnly: true
+                        text: String(deviceProfileRoot.entryDerivedRegisterCount)
+                    }
+                }
+
+                // ---- 字节序 / 字序 --------------------------------------
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regByteOrderRowLabel"
+                        text: qsTr("字节序：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                        // C1.3 field help (hover; zero layout impact).
+                        HoverHandler { id: byteOrderHintHover }
+                        ToolTip.visible: byteOrderHintHover.hovered
+                        ToolTip.text: qsTr("决定数据内部字节的排列方式。")
+                    }
+                    ComboBox {
+                        id: regByteOrderCombo
+                        objectName: "regByteOrderCombo"
+                        Accessible.name: qsTr("字节序")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight + 2
+                        font.pixelSize: entryEditorDialog.fieldFont
+                        model: deviceProfileRoot.byteOrderChoices
+                        currentIndex: deviceProfileRoot.entryByteOrderIndex
+                        onActivated: deviceProfileRoot.entryByteOrderIndex =
+                                         currentIndex
+                        onCurrentIndexChanged:
+                            deviceProfileRoot.entryByteOrderIndex = currentIndex
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regWordOrderRowLabel"
+                        text: qsTr("字序：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                        // C1.3 field help (hover; zero layout impact).
+                        HoverHandler { id: wordOrderHintHover }
+                        ToolTip.visible: wordOrderHintHover.hovered
+                        ToolTip.text: qsTr("只在数值跨多个寄存器时有意义。")
+                    }
+                    RowLayout {
+                        spacing: DS.spacingS
+                        Layout.fillWidth: true
+                        ComboBox {
+                            id: regWordOrderCombo
+                            objectName: "regWordOrderCombo"
+                            Accessible.name: qsTr("字序")
+                            Layout.fillWidth: true
+                            implicitHeight: entryEditorDialog.fieldHeight + 2
+                            font.pixelSize: entryEditorDialog.fieldFont
+                            model: deviceProfileRoot.wordOrderChoices
+                            // Group 1-C: SHOWN but disabled for 1-word types —
+                            // never hidden, never removed from persistence.
+                            enabled: deviceProfileRoot.entryIsTwoWord
+                            currentIndex: deviceProfileRoot.entryWordOrderIndex
+                            opacity: enabled ? 1.0 : 0.5
+                            onActivated:
+                                deviceProfileRoot.entryWordOrderIndex =
+                                    currentIndex
+                            onCurrentIndexChanged:
+                                deviceProfileRoot.entryWordOrderIndex =
+                                    currentIndex
+                        }
+                        Label {
+                            objectName: "regWordOrderNaLabel"
+                            // The Human-visible "not applicable" expression.
+                            visible: !deviceProfileRoot.entryIsTwoWord
+                            text: qsTr("不适用（1-word 类型）")
+                            color: DS.textSecondary
+                            font.pixelSize: entryEditorDialog.hintFont
+                        }
+                    }
+                }
+
+                // ---- Decoder（T035-C C1.2：工程解码方式声明）-------------
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regDecoderRowLabel"
+                        // C1.3: the Human-facing title replaces the bare
+                        // jargon word (the machine side stays decoderKind).
+                        text: qsTr("数据换算方式（Decoder）：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                    }
+                    ComboBox {
+                        id: regDecoderCombo
+                        objectName: "regDecoderCombo"
+                        Accessible.name: qsTr("工程解码方式")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight + 2
+                        font.pixelSize: entryEditorDialog.fieldFont
+                        model: deviceProfileRoot.decoderKindChoices
+                        currentIndex: deviceProfileRoot.entryDecoderIndex
+                        onActivated: deviceProfileRoot.entryDecoderIndex =
+                                         currentIndex
+                        onCurrentIndexChanged:
+                            deviceProfileRoot.entryDecoderIndex = currentIndex
+                    }
+                }
+                Label {
+                    objectName: "regDecoderHintLabel"
+                    // C1.3: the explanation FOLLOWS the selection so the
+                    // option labels can stay short.
+                    text: deviceProfileRoot.decoderHelpText(
+                              deviceProfileRoot.entryDecoderIndex)
+                    color: DS.textSecondary
+                    font.pixelSize: entryEditorDialog.hintFont
+                    Layout.fillWidth: true
+                    Layout.leftMargin:
+                        entryEditorDialog.labelColumnWidth + DS.spacingM
+                    wrapMode: Text.Wrap
+                }
+                Label {
+                    objectName: "regDecoderNoticeLabel"
+                    // The standing reminder (never removed by C1.3).
+                    text: qsTr("请根据设备手册确认解码方式。字段齐全不代表所选解析方式一定正确。")
+                    color: DS.textSecondary
+                    font.pixelSize: entryEditorDialog.hintFont
+                    Layout.fillWidth: true
+                    Layout.leftMargin:
+                        entryEditorDialog.labelColumnWidth + DS.spacingM
+                    wrapMode: Text.Wrap
+                }
+
+                // ---- Scale / Offset / Unit ------------------------------
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regScaleLabel"
+                        // T035-B B1: en+zh terminology.
+                        text: qsTr("Scale（倍率）：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                        // C1.3 field help (hover; zero layout impact).
+                        HoverHandler { id: scaleHintHover }
+                        ToolTip.visible: scaleHintHover.hovered
+                        ToolTip.text: qsTr("原始数字要乘的系数。")
+                    }
+                    DecimalField {
+                        objectName: "regScaleField"
+                        accessibleName: qsTr("缩放系数")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight
+                        fontPixelSize: entryEditorDialog.fieldFont
+                        placeholderText: qsTr("默认 1；0 合法")
+                        text: deviceProfileRoot.entryScaleText
+                        onTextChanged: deviceProfileRoot.entryScaleText = text
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regOffsetLabel"
+                        // T035-B B1: en+zh terminology.
+                        text: qsTr("Offset（偏移量）：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                        // C1.3 field help (hover; zero layout impact).
+                        HoverHandler { id: offsetHintHover }
+                        ToolTip.visible: offsetHintHover.hovered
+                        ToolTip.text: qsTr("完成乘法后再加的数值。")
+                    }
+                    DecimalField {
+                        objectName: "regOffsetField"
+                        accessibleName: qsTr("偏移量")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight
+                        fontPixelSize: entryEditorDialog.fieldFont
+                        placeholderText: qsTr("默认 0")
+                        text: deviceProfileRoot.entryOffsetText
+                        onTextChanged: deviceProfileRoot.entryOffsetText = text
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: DS.spacingM
+                    Label {
+                        objectName: "regUnitLabel"
+                        // T035-B B1: en+zh terminology.
+                        text: qsTr("Unit（单位）：")
+                        color: DS.textSecondary
+                        font.pixelSize: entryEditorDialog.fieldLabelFont
+                        Layout.preferredWidth:
+                            entryEditorDialog.labelColumnWidth
+                        // C1.3 field help (hover; zero layout impact).
+                        HoverHandler { id: unitHintHover }
+                        ToolTip.visible: unitHintHover.hovered
+                        ToolTip.text: qsTr("最终结果使用的单位，例如 V、mA、℃、s。")
+                    }
+                    TextField {
+                        objectName: "regUnitField"
+                        Accessible.name: qsTr("单位")
+                        Layout.fillWidth: true
+                        implicitHeight: entryEditorDialog.fieldHeight
+                        font.pixelSize: entryEditorDialog.fieldFont
+                        placeholderText: qsTr("自由文本，如 Hz")
+                        text: deviceProfileRoot.entryUnitText
+                        onTextChanged: deviceProfileRoot.entryUnitText = text
                     }
                 }
 
                 Label {
-                    text: qsTr("缩放 scale：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                TextField {
-                    objectName: "regScaleField"
-                    Accessible.name: qsTr("缩放系数")
+                    objectName: "regEditorErrorLabel"
+                    // Human-readable rejection reason (T027 §24): the
+                    // controller produces the text; the stable token stays in
+                    // lastActionErrorToken for the tests.
+                    visible: profileController.lastActionError !== ""
+                    text: profileController.lastActionError
+                    color: DS.error
+                    font.pixelSize: entryEditorDialog.hintFont
                     Layout.fillWidth: true
-                    implicitHeight: 24
-                    placeholderText: qsTr("默认 1；0 合法")
-                    text: deviceProfileRoot.entryScaleText
-                    onTextChanged: deviceProfileRoot.entryScaleText = text
+                    wrapMode: Text.Wrap
                 }
-
-                Label {
-                    text: qsTr("偏移 offset：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                TextField {
-                    objectName: "regOffsetField"
-                    Accessible.name: qsTr("偏移量")
-                    Layout.fillWidth: true
-                    implicitHeight: 24
-                    placeholderText: qsTr("默认 0")
-                    text: deviceProfileRoot.entryOffsetText
-                    onTextChanged: deviceProfileRoot.entryOffsetText = text
-                }
-
-                Label {
-                    text: qsTr("单位 unit：")
-                    color: DS.textSecondary
-                    font.pixelSize: DS.fontCaption
-                }
-                TextField {
-                    objectName: "regUnitField"
-                    Accessible.name: qsTr("单位")
-                    Layout.fillWidth: true
-                    implicitHeight: 24
-                    placeholderText: qsTr("自由文本，如 Hz")
-                    text: deviceProfileRoot.entryUnitText
-                    onTextChanged: deviceProfileRoot.entryUnitText = text
-                }
-            }
-
-            Label {
-                objectName: "regEditorErrorLabel"
-                // Human-readable rejection reason (T027 §24): the controller
-                // produces the text; the stable token stays in
-                // lastActionErrorToken for the tests.
-                visible: profileController.lastActionError !== ""
-                text: profileController.lastActionError
-                color: DS.error
-                font.pixelSize: DS.fontCaption
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
             }
         }
 

@@ -3,6 +3,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QTemporaryDir>
 
@@ -253,6 +256,10 @@ private slots:
     void rl09_invalidRequestedFc();
     void rl10_lookupDoesNotMutateProfile();
     void rl11_lookupDoesNotTouchM11Decode();
+
+    // ---- T035-A Round O: provenance serialization ----
+    void o05_provenanceSerializationRoundTrip();
+    void o06_legacyProfileWithoutConfiguredFlagsLoadsConservatively();
 };
 
 void DeviceProfileTest::p01_profileIdentityRequired()
@@ -1763,6 +1770,83 @@ void DeviceProfileTest::rl11_lookupDoesNotTouchM11Decode()
     QCOMPARE(after.status, before.status);
     QCOMPARE(after.text, before.text);
     QCOMPARE(int(rawWords.at(0)), 0x1234);
+}
+
+// ==================================== T035-A Round O — provenance store ==
+// O-2: the configured flags must round-trip through serialization, and a
+// legacy profile WITHOUT the flags must load with the conservative
+// configured=false (an old file cannot prove explicit confirmation).
+
+// ------------------------------------------------------------- O05 --
+void DeviceProfileTest::o05_provenanceSerializationRoundTrip()
+{
+    DeviceProfile profile = makeValidProfile();
+    QVERIFY(!profile.registers.empty());
+    DeviceProfile before = profile;
+    before.registers[0].scaleConfigured = true;
+    before.registers[0].offsetConfigured = false;
+    before.registers[0].unitConfigured = true;
+    // A second entry with the mirror pattern proves per-entry isolation.
+    if (before.registers.size() > 1) {
+        before.registers[1].scaleConfigured = false;
+        before.registers[1].offsetConfigured = true;
+        before.registers[1].unitConfigured = false;
+    }
+
+    const QByteArray json = ProfileStore::serializeToJson(before);
+    const ProfileLoadResult loaded = ProfileStore::parseFromJson(json);
+    QVERIFY(loaded.ok());
+    const DeviceProfile after = loaded.profile;
+    QVERIFY(after.registers.size() == before.registers.size());
+    for (std::size_t i = 0; i < before.registers.size(); ++i) {
+        QCOMPARE(after.registers[i].scaleConfigured,
+                 before.registers[i].scaleConfigured);
+        QCOMPARE(after.registers[i].offsetConfigured,
+                 before.registers[i].offsetConfigured);
+        QCOMPARE(after.registers[i].unitConfigured,
+                 before.registers[i].unitConfigured);
+    }
+    // Whole-entry equality: no other field drifted either.
+    QVERIFY(after.registers == before.registers);
+}
+
+// ------------------------------------------------------------- O06 --
+void DeviceProfileTest::o06_legacyProfileWithoutConfiguredFlagsLoadsConservatively()
+{
+    // Serialize a valid profile, then STRIP the three configured flags from
+    // every register object — the exact shape of a pre-Round-O file.
+    const QString json = ProfileStore::serializeToJson(makeValidProfile());
+    const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    QVERIFY(!doc.isNull());
+    QJsonObject root = doc.object();
+    QVERIFY(root.contains(QStringLiteral("registers")));
+    QJsonArray registers = root.value(QStringLiteral("registers")).toArray();
+    for (int i = 0; i < registers.size(); ++i) {
+        QJsonObject entry = registers.at(i).toObject();
+        entry.remove(QStringLiteral("scaleConfigured"));
+        entry.remove(QStringLiteral("offsetConfigured"));
+        entry.remove(QStringLiteral("unitConfigured"));
+        registers.replace(i, entry);
+    }
+    root.insert(QStringLiteral("registers"), registers);
+    const QByteArray legacyJson = QJsonDocument(root).toJson(QJsonDocument::Compact);
+
+    // Loads fine: no crash, no schema reject, no malformed verdict.
+    const ProfileLoadResult loaded = ProfileStore::parseFromJson(legacyJson);
+    QVERIFY(loaded.ok());
+    // Conservative provenance: a legacy file cannot prove explicit
+    // configuration, so every flag loads as FALSE (never "value==default
+    // means configured").
+    for (std::size_t i = 0; i < loaded.profile.registers.size(); ++i) {
+        const RegisterEntry &entry = loaded.profile.registers[i];
+        QVERIFY(!entry.scaleConfigured);
+        QVERIFY(!entry.offsetConfigured);
+        QVERIFY(!entry.unitConfigured);
+        // The VALUES still load exactly as stored (identical to the source
+        // profile — only the provenance flags default to false).
+        QVERIFY(entry.scale == makeValidProfile().registers[i].scale);
+        QVERIFY(entry.offset == makeValidProfile().registers[i].offset);
+    }
 }
 
 QTEST_GUILESS_MAIN(DeviceProfileTest)

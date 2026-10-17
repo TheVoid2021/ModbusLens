@@ -64,6 +64,9 @@ class AnalysisController : public QObject
     Q_PROPERTY(bool hasSerialError READ hasSerialError NOTIFY serialErrorChanged)
     Q_PROPERTY(QString serialErrorMessage READ serialErrorMessage NOTIFY serialErrorChanged)
     Q_PROPERTY(QStringList serialPortNames READ serialPortNames NOTIFY serialPortsChanged)
+    // T035-C C2: the connected port identity for the Engineering status line.
+    Q_PROPERTY(QString serialPortName READ serialPortName NOTIFY serialConnChanged)
+    Q_PROPERTY(int serialBaudRate READ serialBaudRate NOTIFY serialConnChanged)
     Q_PROPERTY(bool hasBaselineDiagnosis READ hasBaselineDiagnosis NOTIFY diagnosisChanged)
     Q_PROPERTY(QString baselineDiagnosisText READ baselineDiagnosisText NOTIFY diagnosisChanged)
     Q_PROPERTY(bool aiConfigured READ aiConfigured NOTIFY aiStateChanged)
@@ -346,6 +349,8 @@ public:
     [[nodiscard]] bool hasSerialError() const;
     [[nodiscard]] QString serialErrorMessage() const;
     [[nodiscard]] QStringList serialPortNames() const;
+    [[nodiscard]] QString serialPortName() const;
+    [[nodiscard]] int serialBaudRate() const;
 
     [[nodiscard]] bool hasBaselineDiagnosis() const;
     [[nodiscard]] QString baselineDiagnosisText() const;

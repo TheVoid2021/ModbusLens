@@ -145,6 +145,12 @@ public:
     // ConsentRequired and calls NOTHING (O01).
     Q_INVOKABLE void requestExtraction();
 
+    // T035-A.3.2.2 — the REGISTER-MAP Human trigger. Independent entry by
+    // design: it never changes the semantics of the manufacturer button.
+    // Same selection/preamble, same consent gate, same runner seam — only
+    // the request token / prompt / strict parser differ.
+    Q_INVOKABLE void requestRegisterExtraction();
+
     // --- the consent gate (§6) -------------------------------------------
     // Grant applies to (documentId, contentHash) for THIS application session
     // only; it is never written to disk and there is no "remember forever".
@@ -157,6 +163,11 @@ public:
     // explicit document + canonical text (O05 / O06 / O17 need crafted inputs).
     void requestExtractionFor(const core::ManualDocument &document,
                               const std::string &canonicalExtractedText);
+    // T035-A.3.2.2: the register-map orchestration core (same consent/stale
+    // semantics, register request token + strict register parser path).
+    void requestRegisterExtractionFor(
+        const core::ManualDocument &document,
+        const std::string &canonicalExtractedText);
 
     // --- M12-C C3 Human review (T027 §81) --------------------------------
     // The candidate map is the SAME QVariantMap the UI received through the
@@ -208,6 +219,17 @@ public:
         const QVariantMap &document, const QString &canonicalExtractedText,
         const QVariantList &proposals);
 
+    // T035-A.3.1 — TEST/AUTOMATION seam for the REGISTER review model: the
+    // proposals flow through the REAL deterministic register validator
+    // (core::extractRegisterCandidates — same H6 evidence rules as a live
+    // register extraction) and land in the session-only PendingReview register
+    // set. Same automation-only discipline as the profile-field seed: nothing
+    // in the production UI reaches this. Atomic replacement applies to the
+    // register set; the profile-field pending set is a separate queue.
+    Q_INVOKABLE bool seedRegisterReviewCandidatesForAutomation(
+        const QVariantMap &document, const QString &canonicalExtractedText,
+        const QVariantList &proposals);
+
     // --- read-only accessors for tests -----------------------------------
     [[nodiscard]] const std::vector<core::ProfileFieldCandidate>
         &validatedCandidates() const
@@ -251,17 +273,46 @@ private:
     static constexpr char kReviewEvidenceSourceMissing[] = "evidence_source_missing";
     static constexpr char kReviewEvidenceInvalid[] = "evidence_invalid";
     static constexpr char kReviewApplyFailed[] = "candidate_apply_failed";
+    // T035-A.3.1/A.3.2.1: register review-action boundary tokens. Since
+    // A.3.2.1 the register ACCEPT flows through the controlled staged-draft
+    // write (ProfileController::applyRegisterCandidate + full
+    // validateDeviceProfile). EDITED-CONFIRM on a register candidate (a
+    // Human-edited register value) is still an explicit refusal until
+    // separately authorized — the candidate stays PendingReview and nothing
+    // is consumed or written.
+    static constexpr char kReviewRegisterApplyNotAvailable[] =
+        "register_candidate_apply_not_available";
 
     struct Attempt {
         std::uint64_t generation{0};
         std::string documentId;
         std::string contentHash;
+        // T035-A.3.2.2: the attempt's extraction mode routes the completion
+        // to the matching deterministic validator (profile-field vs register).
+        enum class Mode { ProfileField, RegisterMap };
+        Mode mode{Mode::ProfileField};
     };
 
     void setState(State state, QString failureToken, QString failureText);
     void beginAttempt(const core::ManualDocument &document,
-                      const std::string &canonicalExtractedText);
+                      const std::string &canonicalExtractedText,
+                      Attempt::Mode mode = Attempt::Mode::ProfileField);
     void completeAttempt(const ICandidateExtractionRunner::Completion &done);
+    // T035-A.3.2.2: the register completion path (deterministic register
+    // validation + register forensics + atomic replacement).
+    void completeRegisterAttempt(
+        const ICandidateExtractionRunner::Completion &done);
+    // Shared selection preamble for both Human triggers: reads the selected
+    // manual, refuses no_extractable_text / unreadable canonical text, and
+    // builds the ManualDocument identity. False = failure state already set.
+    [[nodiscard]] bool prepareSelectedExtraction(
+        core::ManualDocument &document, std::string &canonicalText);
+    // T035-A.3.2.2: the MODE-CARRYING orchestration core (private). The
+    // public 2-arg requestExtractionFor delegates with ProfileField; the
+    // register entry delegates with RegisterMap.
+    void requestExtractionFor(const core::ManualDocument &document,
+                              const std::string &canonicalExtractedText,
+                              Attempt::Mode mode);
     // T034-B2.1 slice C1: convergence handler for
     // AiRuntimeConfiguration::configurationChanged. When the configuration
     // epoch of the IN-FLIGHT attempt is replaced, the attempt becomes
@@ -287,6 +338,12 @@ private:
     // matches, the canonical text loads, and the stored evidence round-trips.
     [[nodiscard]] bool revalidateEvidence(
         const core::ProfileFieldCandidate &candidate);
+    // T035-A.3.2.1: the C3-H3 freshness gate for REGISTER candidates — the
+    // same four deterministic checks as revalidateEvidence (document
+    // resolves / content identity matches / canonical text loads / stored
+    // evidence round-trips), typed for the register candidate.
+    [[nodiscard]] bool revalidateRegisterEvidence(
+        const core::RegisterEntryCandidate &candidate);
     void setReviewError(QString token, QString text);
     void clearReviewError();
     // ML-2 (T027 §91): the frozen P0-ML-B/C guards as a pure read. An empty
@@ -300,6 +357,17 @@ private:
     // list (C3-H5/H6) and refreshes the UI projection.
     void consumeCandidate(core::ProfileFieldCandidate &pending,
                           core::CandidateLifecycleState consumedState);
+    // T035-A.3.1 — register review-model projection/matching/consumption.
+    // The register variant carries "kind":"register" plus the v1 register
+    // fields; the profile-field variant carries "kind":"profile_field".
+    [[nodiscard]] static QVariantMap registerCandidateToVariant(
+        const core::RegisterEntryCandidate &candidate);
+    [[nodiscard]] static bool registerCandidateFromVariant(
+        const QVariantMap &map, core::RegisterEntryCandidate &out);
+    [[nodiscard]] int findPendingRegisterCandidate(
+        const core::RegisterEntryCandidate &candidate);
+    void consumeRegisterCandidate(core::RegisterEntryCandidate &pending,
+                                  core::CandidateLifecycleState consumedState);
 
     ManualImportController *manualController_{nullptr};
     ProfileController *profileController_{nullptr};
@@ -317,6 +385,13 @@ private:
     std::vector<core::ProfileFieldCandidate> candidates_;
     std::vector<core::ProfileFieldCandidate> consumedAccepted_;
     std::vector<core::ProfileFieldCandidate> consumedRejected_;
+    // T035-A.3.1: the session-only REGISTER pending set and its consumed
+    // counterparts. Session-only like everything else here — no disk, no
+    // QSettings, no cache. Since A.3.2.1 an Accepted register candidate is
+    // consumed after the CONTROLLED staged-draft write succeeds.
+    std::vector<core::RegisterEntryCandidate> registerCandidates_;
+    std::vector<core::RegisterEntryCandidate> registerConsumedAccepted_;
+    std::vector<core::RegisterEntryCandidate> registerConsumedRejected_;
     QString lastReviewError_;
     QString lastReviewErrorToken_;
 
@@ -333,6 +408,7 @@ private:
     // validation at completion time).
     core::ManualDocument pendingDocument_;
     std::string pendingCanonicalText_;
+    Attempt::Mode pendingMode_{Attempt::Mode::ProfileField};
     std::string lastCanonicalText_;
 
     // SESSION-ONLY, in-memory. No disk, no QSettings, no cache.

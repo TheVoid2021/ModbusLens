@@ -135,6 +135,23 @@ public:
         stored.onDone(done);
     }
 
+    // Delivers a REGISTER completion for the attempt at `index` (0 = oldest).
+    // T035-A.3.2.2: register_map attempts carry their own proposal vector.
+    void completeRegister(std::size_t index, bool ok,
+                          ProviderExtractionFailure failure,
+                          std::vector<modbuslens::core::RegisterCandidateProposal>
+                              proposals = {})
+    {
+        const Pending stored = pending.at(index);
+        pending.erase(pending.begin() + static_cast<std::ptrdiff_t>(index));
+        Completion done;
+        done.generation = stored.generation;
+        done.ok = ok;
+        done.failure = failure;
+        done.registerProposals = std::move(proposals);
+        stored.onDone(done);
+    }
+
     void completeSuccess(std::size_t index, std::vector<CandidateProposal> proposals)
     {
         complete(index, true, ProviderExtractionFailure::None, std::move(proposals));
@@ -148,6 +165,26 @@ public:
     std::vector<Pending> pending;
     int beginCount_{0};
 };
+
+// T035-A.3.2.2 register fixtures: a unique single-line excerpt from
+// kManualText and a legal v1 register proposal built on it.
+[[nodiscard]] modbuslens::core::RegisterCandidateProposal
+orchestrationRegisterProposal()
+{
+    modbuslens::core::RegisterCandidateProposal proposal;
+    proposal.functionCode = 4;
+    proposal.address = 5;
+    proposal.name = "Temperature";
+    proposal.dataType = modbuslens::core::RegisterDecodeType::Float32;
+    proposal.quantity = 2;
+    proposal.scale = 0.1;
+    proposal.offset = 0.0;
+    proposal.unit = "degC";
+    proposal.hasScale = true;
+    proposal.hasUnit = true;
+    proposal.evidenceExcerpt = "Model: INV-1000";
+    return proposal;
+}
 
 QStringList snapshotTree(const QString &root)
 {
@@ -875,6 +912,228 @@ private slots:
                  std::string("txt"));
         QCOMPARE(runner.pending.at(0).request.canonicalExtractedText,
                  std::string(kManualText));
+    }
+    // ==================================== T035-A.3.2.2 register route ==
+
+    // -------------------------------------------------- REG-O01 (§7-A/D) -
+    // The register production route: independent entry, SAME consent gate,
+    // and the outbound request carries the frozen register_map token.
+    void reg01_registerRouteConsentGateAndRequestToken()
+    {
+        FakeCandidateRunner runner;
+        CandidateExtractionController controller(runner);
+
+        // The consent gate applies to the register route identically (D).
+        controller.requestRegisterExtractionFor(
+            makeDocument(kDocAId, kDocAHash), std::string{kManualText});
+        QCOMPARE(stateOf(controller), QStringLiteral("consent_required"));
+        QCOMPARE(runner.beginCount(), 0); // the gate called NOTHING
+
+        controller.grantConsent();
+        QCOMPARE(stateOf(controller), QStringLiteral("running"));
+        QCOMPARE(runner.beginCount(), 1);
+        QCOMPARE(runner.pending.size(), std::size_t{1});
+        // (A) the outbound request carries the frozen register_map token.
+        QCOMPARE(runner.pending.front().request.targetFieldToken,
+                 std::string{"register_map"});
+    }
+
+    // -------------------------------------------------- REG-O02 (§7-D) --
+    // The stale guard applies to the register route: a completion for a
+    // superseded attempt (older generation) is dropped; the NEW attempt's
+    // completion installs the register candidates.
+    void reg02_staleRegisterCompletionDropped()
+    {
+        FakeCandidateRunner runner;
+        CandidateExtractionController controller(runner);
+
+        controller.requestRegisterExtractionFor(
+            makeDocument(kDocAId, kDocAHash), std::string{kManualText});
+        controller.grantConsent();
+        QCOMPARE(runner.beginCount(), 1);
+
+        // A DIFFERENT content identity supersedes the in-flight attempt.
+        controller.requestRegisterExtractionFor(
+            makeDocument(kDocAId, kDocAHash2), std::string{kManualText});
+        QCOMPARE(stateOf(controller), QStringLiteral("consent_required"));
+        controller.grantConsent();
+        QCOMPARE(runner.beginCount(), 2);
+
+        // The OLD generation's completion is dropped by the stale guard.
+        runner.completeRegister(0, true, ProviderExtractionFailure::None,
+                                {orchestrationRegisterProposal()});
+        QCOMPARE(controller.candidateCount(), 0);
+        QCOMPARE(stateOf(controller), QStringLiteral("running"));
+
+        // The CURRENT attempt's completion installs the register candidate.
+        runner.completeRegister(0, true, ProviderExtractionFailure::None,
+                                {orchestrationRegisterProposal()});
+        QCOMPARE(controller.candidateCount(), 1);
+        QCOMPARE(controller.candidates().front().toMap()
+                     .value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("register"));
+    }
+
+    // -------------------------------------------------- REG-O03 (§7-E/F) -
+    // Provider response → deterministic register validation → PendingReview;
+    // invalid evidence (excerpt not in the manual) fails closed and the OLD
+    // successful set is preserved.
+    void reg03_registerEvidenceFailClosedPreservesOldSet()
+    {
+        FakeCandidateRunner runner;
+        CandidateExtractionController controller(runner);
+        controller.requestRegisterExtractionFor(
+            makeDocument(kDocAId, kDocAHash), std::string{kManualText});
+        controller.grantConsent();
+        runner.completeRegister(0, true, ProviderExtractionFailure::None,
+                                {orchestrationRegisterProposal()});
+        QCOMPARE(controller.candidateCount(), 1);
+
+        // A structurally valid proposal whose excerpt is NOT in the manual:
+        // the H6 evidence validation must reject it and PRESERVE the old set.
+        auto fabricated = orchestrationRegisterProposal();
+        fabricated.evidenceExcerpt = "REGISTER NOT IN TEXT";
+        controller.requestRegisterExtractionFor(
+            makeDocument(kDocAId, kDocAHash), std::string{kManualText});
+        runner.completeRegister(0, true, ProviderExtractionFailure::None,
+                                {fabricated});
+
+        QCOMPARE(stateOf(controller), QStringLiteral("failed"));
+        QCOMPARE(controller.candidateCount(), 1);
+        QCOMPARE(controller.candidates().front().toMap()
+                     .value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("register"));
+    }
+
+    // -------------------------------------------------- REG-O04 (§7-K) --
+    // A register proposal whose quantity contradicts its dataType is refused
+    // with the machine-traceable validation:quantity_mismatch forensics
+    // stage (Human T035-A.3.2.2 §6).
+    void reg04_forensicsQuantityMismatchStage()
+    {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        ProfileStore::setManagedRootOverride(root.path());
+
+        qputenv("MODBUSLENS_PROVIDER_FORENSICS", "1");
+        const QString logPath =
+            QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+            + QStringLiteral("/modbuslens_provider_forensics.log");
+        QFile::remove(logPath);
+
+        FakeCandidateRunner runner;
+        CandidateExtractionController controller(runner);
+        controller.requestRegisterExtractionFor(
+            makeDocument(kDocAId, kDocAHash), std::string{kManualText});
+        controller.grantConsent();
+
+        auto mismatched = orchestrationRegisterProposal();
+        mismatched.dataType = modbuslens::core::RegisterDecodeType::UInt16;
+        mismatched.quantity = 3; // UInt16 needs exactly 1 word
+        runner.completeRegister(0, true, ProviderExtractionFailure::None,
+                                {mismatched});
+
+        // The validation refusal is a failure outcome (§8) and the forensics
+        // block records the machine token.
+        QCOMPARE(stateOf(controller), QStringLiteral("failed"));
+        QFile log(logPath);
+        QVERIFY(log.open(QIODevice::ReadOnly));
+        const QString content = QString::fromUtf8(log.readAll());
+        QVERIFY(content.contains(
+            QStringLiteral("stage=validation:quantity_mismatch")));
+        QVERIFY(content.contains(
+            QStringLiteral("[register evidence forensics]")));
+        log.close();
+        QFile::remove(logPath);
+        qunsetenv("MODBUSLENS_PROVIDER_FORENSICS");
+        ProfileStore::setManagedRootOverride(QString());
+    }
+
+    // -------------------------------------------------- REG-O06 (§7-16) --
+    // T035-A.3.2.3 FORENSICS CONSISTENCY: when the register fallback locates an
+    // excerpt by line-ending equivalence, the production completion path must
+    // record `stage=accepted` and name the rule — the log must never contradict
+    // the judgment path with `evidence_not_found` (Human §6).
+    void reg06_forensicsAgreesWithLineEndingJudgment()
+    {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        ProfileStore::setManagedRootOverride(root.path());
+
+        qputenv("MODBUSLENS_PROVIDER_FORENSICS", "1");
+        const QString logPath =
+            QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+            + QStringLiteral("/modbuslens_provider_forensics.log");
+        QFile::remove(logPath);
+
+        // A canonical text with CRLF inside the lines, exactly like a real PDF
+        // page, while the provider answers with a bare LF.
+        const std::string crlfText =
+            "Identity\r\nModel: INV-1000\r\nRegister 5: Temperature\r\n";
+
+        FakeCandidateRunner runner;
+        CandidateExtractionController controller(runner);
+        controller.requestRegisterExtractionFor(makeDocument(kDocAId, kDocAHash),
+                                                crlfText);
+        controller.grantConsent();
+
+        auto proposal = orchestrationRegisterProposal();
+        proposal.evidenceExcerpt = "Model: INV-1000\nRegister 5: Temperature";
+        runner.completeRegister(0, true, ProviderExtractionFailure::None,
+                                {proposal});
+
+        // The judgment path ACCEPTED the candidate …
+        QCOMPARE(stateOf(controller), QStringLiteral("succeeded"));
+        QCOMPARE(controller.candidateCount(), 1);
+
+        QFile log(logPath);
+        QVERIFY(log.open(QIODevice::ReadOnly));
+        const QString content = QString::fromUtf8(log.readAll());
+        log.close();
+        QVERIFY(content.contains(
+            QStringLiteral("[register evidence forensics]")));
+        // … and the log agrees instead of contradicting it.
+        QVERIFY(content.contains(QStringLiteral("stage=accepted")));
+        QVERIFY(!content.contains(
+            QStringLiteral("stage=evidence:evidence_not_found")));
+        QVERIFY(content.contains(
+            QStringLiteral("match_mode=line_ending_normalized")));
+        QFile::remove(logPath);
+        qunsetenv("MODBUSLENS_PROVIDER_FORENSICS");
+        ProfileStore::setManagedRootOverride(QString());
+    }
+
+    // -------------------------------------------------- REG-O05 (§7-C/L) -
+    // Manufacturer production route regression inside the SAME controller:
+    // after a register extraction, the profile-field route still runs its
+    // frozen request/validator path end to end, and the review surface is
+    // replaced wholesale (no mixed-kind leftovers).
+    void reg05_manufacturerRouteRegressionAfterRegister()
+    {
+        FakeCandidateRunner runner;
+        CandidateExtractionController controller(runner);
+        controller.requestRegisterExtractionFor(
+            makeDocument(kDocAId, kDocAHash), std::string{kManualText});
+        controller.grantConsent();
+        runner.completeRegister(0, true, ProviderExtractionFailure::None,
+                                {orchestrationRegisterProposal()});
+        QCOMPARE(controller.candidateCount(), 1);
+
+        controller.requestExtractionFor(makeDocument(kDocAId, kDocAHash),
+                                        std::string{kManualText});
+        QCOMPARE(runner.beginCount(), 2);
+        QCOMPARE(runner.pending.front().request.targetFieldToken,
+                 std::string{"manufacturer"});
+        runner.completeSuccess(0, {manufacturerProposal()});
+        QCOMPARE(controller.candidateCount(), 1);
+        // The register queue was replaced by the profile-field extraction
+        // (atomic replacement of the whole review surface). The profile-field
+        // variant keeps its FROZEN key set — no kind key (o16 contract).
+        QVERIFY(!controller.candidates().front().toMap().contains(
+            QStringLiteral("kind")));
+        QVERIFY(controller.candidates().front().toMap()
+                    .value(QStringLiteral("proposedValue")).toString()
+                == QStringLiteral("ACME Power Systems Ltd."));
     }
 };
 

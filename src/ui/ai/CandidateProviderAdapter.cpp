@@ -7,7 +7,9 @@
 #include <QFile>
 #include <QStandardPaths>
 
+#include <charconv>
 #include <cstddef>
+#include <cmath>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -15,6 +17,7 @@
 
 #include "ui/ai/AiProviderProfile.h"
 #include "core/candidate/CandidateExtraction.h"
+#include "core/profile/DeviceProfile.h"
 
 namespace modbuslens::ui {
 namespace {
@@ -388,6 +391,14 @@ bool parseJsonStrict(std::string_view text, JsonValue &out)
     return result;
 }
 
+[[nodiscard]] RegisterProviderExtractionResult registerSchemaFailure()
+{
+    RegisterProviderExtractionResult result;
+    result.ok = false;
+    result.failure = core::ProviderExtractionFailure::SchemaViolation;
+    return result;
+}
+
 // Read a REQUIRED string member. Wrong JSON type is a schema violation (never
 // coerced), and an empty value is invalid where the contract says it is
 // required to carry meaning.
@@ -425,6 +436,82 @@ bool parseJsonStrict(std::string_view text, JsonValue &out)
             return false;
         }
     }
+    return true;
+}
+
+// T035-A.1: read a REQUIRED integral number member in [minValue, maxValue].
+// The raw literal is parsed with from_chars (locale-independent); a
+// fractional value, an out-of-range value, or a non-finite overflow
+// ("1e999" — JSON has no NaN/Infinity literals) is a refusal — never a
+// clamp, never a coercion.
+[[nodiscard]] bool readRequiredIntegralNumber(const JsonValue &object,
+                                              std::string_view name,
+                                              double minValue, double maxValue,
+                                              double &out)
+{
+    const JsonValue *member = object.find(name);
+    if (member == nullptr || member->kind != JsonValue::Kind::Number) {
+        return false;
+    }
+    double value = 0.0;
+    const char *first = member->text.data();
+    const char *last = first + member->text.size();
+    const auto parsed = std::from_chars(first, last, value);
+    if (parsed.ec != std::errc{} || parsed.ptr != last) {
+        return false;
+    }
+    if (!std::isfinite(value) || value != std::floor(value)
+        || value < minValue || value > maxValue) {
+        return false;
+    }
+    out = value;
+    return true;
+}
+
+// T035-A.1: read an OPTIONAL finite number member; absence yields the
+// frozen default. A present member must be a JSON number and must be finite.
+[[nodiscard]] bool readOptionalFiniteNumber(const JsonValue &object,
+                                            std::string_view name,
+                                            double defaultValue, double &out)
+{
+    const JsonValue *member = object.find(name);
+    if (member == nullptr) {
+        out = defaultValue;
+        return true;
+    }
+    if (member->kind != JsonValue::Kind::Number) {
+        return false;
+    }
+    double value = 0.0;
+    const char *first = member->text.data();
+    const char *last = first + member->text.size();
+    const auto parsed = std::from_chars(first, last, value);
+    if (parsed.ec != std::errc{} || parsed.ptr != last) {
+        return false;
+    }
+    if (!std::isfinite(value)) {
+        return false;
+    }
+    out = value;
+    return true;
+}
+
+// T035-A.1: read an OPTIONAL string member; absence yields the frozen
+// default. A present member must be a JSON string (no coercion).
+[[nodiscard]] bool readOptionalString(const JsonValue &object,
+                                      std::string_view name,
+                                      std::string_view defaultValue,
+                                      std::string &out)
+{
+    const JsonValue *member = object.find(name);
+    if (member == nullptr) {
+        out = std::string(defaultValue);
+        return true;
+    }
+    if (member->kind != JsonValue::Kind::String) {
+        return false;
+    }
+    out = member->text;
     return true;
 }
 
@@ -543,6 +630,133 @@ ProviderExtractionResult parseStrictCandidateProposals(
     return result;
 }
 
+RegisterProviderExtractionResult parseStrictRegisterCandidateProposals(
+    std::string_view providerContent)
+{
+    JsonValue root;
+    if (!parseJsonStrict(providerContent, root)) {
+        RegisterProviderExtractionResult failed;
+        failed.ok = false;
+        failed.failure = core::ProviderExtractionFailure::MalformedResponse;
+        return failed;
+    }
+    // Wrong top-level type: fail closed.
+    if (root.kind != JsonValue::Kind::Object) {
+        return registerSchemaFailure();
+    }
+    // STRICT member set: "registerProposals" ONLY. A response that also
+    // carries the profile-field "proposals" member (or any other member) is
+    // a violation — the two contracts never mix and are never routed
+    // implicitly (Human T035-A.1 §6).
+    if (!hasOnlyMembers(root, {"registerProposals"})) {
+        return registerSchemaFailure();
+    }
+    const JsonValue *proposals = root.find("registerProposals");
+    if (proposals == nullptr || proposals->kind != JsonValue::Kind::Array) {
+        return registerSchemaFailure();
+    }
+
+    RegisterProviderExtractionResult result;
+    result.ok = true;
+    result.failure = core::ProviderExtractionFailure::None;
+
+    // ATOMICITY (§13, same as the profile-field parser): one violation
+    // anywhere discards EVERYTHING. There is no partial acceptance and no
+    // auto-correction anywhere in this parser.
+    std::vector<core::RegisterCandidateProposal> accepted;
+    for (const JsonValue &element : proposals->items) {
+        if (element.kind != JsonValue::Kind::Object) {
+            return registerSchemaFailure();
+        }
+        if (!hasOnlyMembers(
+                element,
+                {"functionCode", "address", "name", "dataType", "quantity",
+                 "evidence", "description", "scale", "offset", "unit"})) {
+            return registerSchemaFailure();
+        }
+
+        // functionCode: the frozen M10 register space 0x01..0x7F; address:
+        // the PDU space 0..65535. Both must be integral JSON numbers —
+        // string or fractional forms are type errors, never coerced.
+        double functionCode = 0.0;
+        double address = 0.0;
+        double quantity = 0.0;
+        if (!readRequiredIntegralNumber(element, "functionCode", 1.0, 127.0,
+                                        functionCode)) {
+            return registerSchemaFailure();
+        }
+        if (!readRequiredIntegralNumber(element, "address", 0.0, 65535.0,
+                                        address)) {
+            return registerSchemaFailure();
+        }
+        if (!readRequiredIntegralNumber(element, "quantity", 1.0, 65535.0,
+                                        quantity)) {
+            return registerSchemaFailure();
+        }
+
+        std::string name;
+        std::string dataTypeToken;
+        std::string evidence;
+        if (!readRequiredNonEmptyString(element, "name", name)
+            || !readRequiredNonEmptyString(element, "dataType", dataTypeToken)
+            || !readRequiredNonEmptyString(element, "evidence", evidence)) {
+            return registerSchemaFailure();
+        }
+
+        // An unknown dataType token cannot be mapped onto the frozen M11
+        // matrix, so it is refused instead of guessed.
+        core::RegisterDecodeType dataType{core::RegisterDecodeType::UInt16};
+        if (!core::profileDataTypeFromToken(dataTypeToken, dataType)) {
+            return registerSchemaFailure();
+        }
+        // quantity MUST equal the type's word count — the mismatch is a
+        // violation, never a silent repair (Human T035-A.1 §5).
+        const int requiredWords = core::registerDecodeTypeWordCount(dataType);
+        if (requiredWords == 0
+            || static_cast<int>(quantity) != requiredWords) {
+            return registerSchemaFailure();
+        }
+
+        // Optional members (frozen defaults: description "", scale 1.0,
+        // offset 0.0, unit "").
+        std::string description;
+        std::string unit;
+        double scale = 1.0;
+        double offset = 0.0;
+        if (!readOptionalString(element, "description", "", description)
+            || !readOptionalString(element, "unit", "", unit)
+            || !readOptionalFiniteNumber(element, "scale", 1.0, scale)
+            || !readOptionalFiniteNumber(element, "offset", 0.0, offset)) {
+            return registerSchemaFailure();
+        }
+
+        // Optional members (frozen defaults: description "", scale 1.0,
+        // offset 0.0, unit ""). The has* presence flags record HONESTLY
+        // whether the provider actually stated each optional member — the
+        // review surface must never present a default as an extraction
+        // (Human T035-A.3.2.2 §4).
+        core::RegisterCandidateProposal proposal;
+        proposal.functionCode = static_cast<std::uint8_t>(functionCode);
+        proposal.address = static_cast<std::uint16_t>(address);
+        proposal.name = std::move(name);
+        proposal.description = std::move(description);
+        proposal.dataType = dataType;
+        proposal.quantity = static_cast<int>(quantity);
+        proposal.scale = scale;
+        proposal.offset = offset;
+        proposal.unit = std::move(unit);
+        proposal.hasDescription = element.find("description") != nullptr;
+        proposal.hasScale = element.find("scale") != nullptr;
+        proposal.hasOffset = element.find("offset") != nullptr;
+        proposal.hasUnit = element.find("unit") != nullptr;
+        proposal.evidenceExcerpt = std::move(evidence);
+        accepted.push_back(std::move(proposal));
+    }
+
+    result.proposals = std::move(accepted);
+    return result;
+}
+
 // ---------------------------------------------------------------------------
 // Adapter implementation.
 // ---------------------------------------------------------------------------
@@ -623,6 +837,90 @@ namespace {
            "Do not wrap the JSON in Markdown code fences. Do not add any "
            "prose, explanation or any other text before or after the JSON. "
            "Follow exactly the schema shown above.";
+}
+
+// ---------------------------------------------------------------------------
+// T035-A.2 — REGISTER-MAP prompt branch. Separate functions on purpose: the
+// manufacturer prompt/system-instruction bytes stay EXACTLY what they were,
+// and the register contract never reuses or re-words them.
+// ---------------------------------------------------------------------------
+[[nodiscard]] std::string buildRegisterSystemInstruction()
+{
+    // Evidence rules 1-4 and 6 are the SAME frozen anchoring semantics as the
+    // profile-field system instruction (CAND-F1); rule 5 is register-specific.
+    return "You extract the device register map from the supplied manual "
+           "text. Use ONLY the supplied text. Do not guess or infer anything "
+           "the text does not state. For every register entry, return the "
+           "exact excerpt from the supplied text that supports it. Omit "
+           "anything the text does not support. Never claim a fact is "
+           "verified. Evidence rules — an excerpt is only usable when ALL of "
+           "them hold:\n"
+           "1. Copy it CHARACTER FOR CHARACTER, VERBATIM, exactly as the "
+           "supplied text shows it. Never paraphrase, summarize, translate, "
+           "correct, reorder or restyle it.\n"
+           "2. It must be ONE CONTIGUOUS run of the text. Never join separate "
+           "lines or fragments together, and never add, drop or change any "
+           "character, digit, punctuation mark, space or character form "
+           "(full-width characters stay full-width, half-width stay "
+           "half-width).\n"
+           "3. Prefer a SHORT, COMPLETE SINGLE-LINE snippet from the register "
+           "table row or the surrounding description. Do not quote across a "
+           "line break.\n"
+           "4. It must occur EXACTLY ONCE in the WHOLE supplied text, not "
+           "merely once on its page. Never use repeated page headers, page "
+           "footers, copyright notices, document titles or other boilerplate "
+           "as evidence — those are not unique and are rejected.\n"
+           "5. For a register entry, prefer the table row (or the sentence) "
+           "that states the register address, its name and its data type — "
+           "and scale/resolution/unit when the text gives them.\n"
+           "6. If a register cannot satisfy these rules, leave it out and "
+           "return a LEGAL EMPTY result: an empty registerProposals list. "
+           "NEVER invent, approximate, reconstruct or pad an excerpt to fill "
+           "the result.\n"
+           "Name rules — the \"name\" member of a register proposal:\n"
+           "1. \"name\" holds ONLY the concise register name; keep the "
+           "manual's own wording exactly as written. Do not split, reword, "
+           "shorten or clean it just because it contains separators, slashes "
+           "or units.\n"
+           "2. Descriptive, explanatory, or reference-style texts (for "
+           "example \"same as above\" or \"description same as the first "
+           "channel\", notes, unit remarks, range remarks) belong in "
+           "\"description\", NEVER inside \"name\".\n"
+           "3. If the name and such a remark sit on the same manual line, "
+           "split them: the name part goes to \"name\", the remark goes to "
+           "\"description\". When the split is not reliable, stay "
+           "conservative: keep the line's wording intact and do not invent a "
+           "replacement. An empty description is legal.\n"
+           "4. Do not invent a name or a description the text does not "
+           "state.";
+}
+
+[[nodiscard]] std::string buildRegisterUserPrompt(
+    const core::ExtractionRequest &request)
+{
+    std::string prompt;
+    prompt += "Extract the device register map from the manual text below.\n";
+    prompt += "Target: register_map\n";
+    prompt +=
+        "Respond with JSON of the form {\"registerProposals\":[{"
+        "\"functionCode\":<integer 1..127>,\"address\":<integer 0..65535>,"
+        "\"name\":\"...\",\"dataType\":\"UInt16|Int16|UInt32|Int32|Float32\","
+        "\"quantity\":<integer>,\"evidence\":\"...\"}]}.\n";
+    prompt +=
+        "Optional members you may include ONLY when the text states them: "
+        "\"description\":\"...\", \"scale\":<number>, \"offset\":<number>, "
+        "\"unit\":\"...\". Omit every member the text does not state.\n";
+    prompt +=
+        "quantity is the number of 16-bit registers the value spans: 1 for "
+        "UInt16/Int16, 2 for UInt32/Int32/Float32. It must match dataType "
+        "exactly; a wrong quantity is rejected, never corrected.\n";
+    prompt +=
+        "No confidence, score, reason or any other member is allowed; "
+        "unknown members are rejected.\n";
+    prompt += "--- MANUAL TEXT BEGIN ---\n";
+    prompt += request.canonicalExtractedText;
+    prompt += "\n--- MANUAL TEXT END ---\n";
+    return prompt;
 }
 
 // ---------------------------------------------------------------------------
@@ -867,7 +1165,18 @@ std::string CandidateProviderAdapter::buildWireBodyForTest(
     // max_tokens }; provider extras come EXCLUSIVELY from the compiled
     // profile table (DeepSeek: thinking.type=disabled; ModelScope: none —
     // the verified wire semantics stay exactly what they were).
-    std::string userPromptText = buildUserPrompt(request);
+    // T035-A.2: the ONLY mode routing key is the request's target token —
+    // register_map uses the register prompt/system-instruction pair; every
+    // other token keeps the byte-for-byte manufacturer path.
+    std::string userPromptText;
+    std::string systemInstructionText;
+    if (request.targetFieldToken == core::kRegisterMapTargetToken) {
+        userPromptText = buildRegisterUserPrompt(request);
+        systemInstructionText = buildRegisterSystemInstruction();
+    } else {
+        userPromptText = buildUserPrompt(request);
+        systemInstructionText = buildSystemInstruction();
+    }
     const AiProviderProfile &profile = aiProviderProfile(config_.kind);
     if (profile.jsonOnlyPromptInstruction) {
         userPromptText += "\n";
@@ -876,7 +1185,7 @@ std::string CandidateProviderAdapter::buildWireBodyForTest(
     const QJsonObject systemMessage{
         {QStringLiteral("role"), QStringLiteral("system")},
         {QStringLiteral("content"),
-         QString::fromStdString(buildSystemInstruction())}};
+         QString::fromStdString(systemInstructionText)}};
     const QJsonObject userMessage{
         {QStringLiteral("role"), QStringLiteral("user")},
         {QStringLiteral("content"), QString::fromStdString(userPromptText)}};
@@ -952,6 +1261,78 @@ core::ProviderExtractionResult CandidateProviderAdapter::extract(
     }
     writeProviderForensics(exchange, /*envelopeStageReached=*/true,
                            /*envelopeOk=*/true, content.content, &result);
+    return result;
+}
+
+RegisterProviderExtractionResult CandidateProviderAdapter::extractRegister(
+    const core::ExtractionRequest &request)
+{
+    lastFailure_ = core::ProviderExtractionFailure::None;
+
+    // Fail-closed mode guard: a wrong-mode request is a caller bug and is
+    // refused instead of being silently parsed against the wrong contract
+    // (the prompt would not match the parser either way).
+    if (request.targetFieldToken != core::kRegisterMapTargetToken) {
+        lastFailure_ = core::ProviderExtractionFailure::SchemaViolation;
+        return registerSchemaFailure();
+    }
+
+    // Every failure path returns a result with an EMPTY proposal list, so a
+    // caller can never mistake a failure for a partial success (§13). The
+    // transport/envelope steps mirror extract() exactly; ONLY the prompt
+    // branch (inside buildWireBodyForTest) and the strict parser differ.
+    const std::string wireBody = buildWireBodyForTest(request);
+    const IExtractionTransport::Exchange exchange = transport_.send(wireBody);
+
+    if (!exchange.transportOk) {
+        lastFailure_ = core::ProviderExtractionFailure::TransportError;
+        writeProviderForensics(exchange, /*envelopeStageReached=*/false,
+                               /*envelopeOk=*/false, /*extractedContent=*/{},
+                               /*parserResult=*/nullptr);
+        RegisterProviderExtractionResult failed;
+        failed.ok = false;
+        failed.failure = lastFailure_;
+        return failed;
+    }
+    if (!exchange.statusOk) {
+        lastFailure_ = core::ProviderExtractionFailure::ProviderRejectedStatus;
+        writeProviderForensics(exchange, /*envelopeStageReached=*/true,
+                               /*envelopeOk=*/false, /*extractedContent=*/{},
+                               /*parserResult=*/nullptr);
+        RegisterProviderExtractionResult failed;
+        failed.ok = false;
+        failed.failure = lastFailure_;
+        return failed;
+    }
+
+    // The raw provider body is used HERE ONLY and never stored: it does not
+    // leave this call scope (H4 / §14).
+    const ProviderContentExtraction content =
+        extractChatCompletionsResponseContent(exchange.responseBody);
+    if (!content.ok) {
+        lastFailure_ = core::ProviderExtractionFailure::MalformedResponse;
+        writeProviderForensics(exchange, /*envelopeStageReached=*/true,
+                               /*envelopeOk=*/false, /*extractedContent=*/{},
+                               /*parserResult=*/nullptr);
+        RegisterProviderExtractionResult failed;
+        failed.ok = false;
+        failed.failure = lastFailure_;
+        return failed;
+    }
+
+    RegisterProviderExtractionResult result =
+        parseStrictRegisterCandidateProposals(content.content);
+    if (!result.ok) {
+        lastFailure_ = result.failure;
+    }
+    // Forensics boundary (honest): the structural descriptor models the
+    // PROFILE-FIELD contract, so the register parser result is NOT passed —
+    // transport / envelope / raw-content forensics still apply. Extending
+    // the structural descriptor for the register contract belongs to the
+    // orchestration slice (A.3).
+    writeProviderForensics(exchange, /*envelopeStageReached=*/true,
+                           /*envelopeOk=*/true, content.content,
+                           /*parserResult=*/nullptr);
     return result;
 }
 

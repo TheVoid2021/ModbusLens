@@ -48,6 +48,11 @@ public:
 
     [[nodiscard]] virtual bool hasActiveTransaction() const = 0;
     [[nodiscard]] virtual bool isPortOpen() const = 0;
+    // T035-C C2 (additive, defaulted): the port identity for the Engineering
+    // status line. The production adapter overrides these; every existing
+    // fake keeps compiling with the empty defaults.
+    [[nodiscard]] virtual QString currentPortName() const { return {}; }
+    [[nodiscard]] virtual qint32 currentBaudRate() const { return 0; }
 
 public slots:
     // Intentional disconnect: cancels any pending transaction WITHOUT

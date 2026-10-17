@@ -19,7 +19,9 @@
 #include "core/active/ActiveTransactionEvidence.h"
 #include "core/protocol/Function16.h"
 #include "core/protocol/ModbusRtuCodec.h"
+#include "core/protocol/ModbusCrc.h"
 #include "ui/AnalysisController.h"
+#include "ui/engineering/EngineeringReadController.h"
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -4456,9 +4458,9 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             break;
         }
         case 148: {
-            // S2: the compact rail — seven entries, final order and
-            // enablement. The seventh entry is the intended T034-B2.1 AI
-            // Settings workspace (Main.qml Human §2 contract).
+            // S2: the compact rail — the final order and enablement for
+            // the entries that existed before T035-C C1 (0..6). The S3
+            // stage below covers the eighth entry (Engineering).
             for (int i = 0; i <= 4; ++i) {
                 auto *item = findNamedItem(
                     roots, QStringLiteral("navItem_%1").arg(i));
@@ -4543,12 +4545,48 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             if (aiSettings && !hasAiLabel(aiSettings))
                 fail(QStringLiteral("NAVFAIL scenario S3: navItem_6 does not "
                                     "carry the AI Settings entry label"));
-            for (int i = 7; i <= 9; ++i) {
+            // T035-C C1 (R30, Human-authorized): the rail contract grew by
+            // ONE entry — navItem_7 = the Engineering workspace. The
+            // legacy-protection check follows the new contract: navItem_7
+            // must be the INTENDED Engineering entry, and navItem_8+ must
+            // not exist.
+            auto *engineering =
+                findNamedItem(roots, QStringLiteral("navItem_7"));
+            if (!engineering)
+                fail(QStringLiteral("NAVFAIL scenario S3: navItem_7 "
+                                    "(Engineering) not found — the T035-C C1 "
+                                    "contract requires the eighth rail "
+                                    "entry"));
+            else if (!engineering->property("enabled").toBool())
+                fail(QStringLiteral("NAVFAIL scenario S3: navItem_7 "
+                                    "(Engineering) must be enabled"));
+            if (rootObj->property("workspaceEngineeringIndex").toInt() != 7)
+                fail(QStringLiteral("NAVFAIL scenario S3: "
+                                    "workspaceEngineeringIndex=%1, expected 7")
+                         .arg(rootObj->property("workspaceEngineeringIndex")
+                                  .toInt()));
+            const std::function<bool(QQuickItem *)> hasEngineeringLabel =
+                [&](QQuickItem *item) -> bool {
+                if (!item)
+                    return false;
+                if (item->property("text").toString()
+                    == QStringLiteral("工程值"))
+                    return true;
+                for (QQuickItem *child : item->childItems())
+                    if (hasEngineeringLabel(child))
+                        return true;
+                return false;
+            };
+            if (engineering && !hasEngineeringLabel(engineering))
+                fail(QStringLiteral("NAVFAIL scenario S3: navItem_7 does "
+                                    "not carry the Engineering entry "
+                                    "label"));
+            for (int i = 8; i <= 10; ++i) {
                 if (findNamedItem(roots,
                                   QStringLiteral("navItem_%1").arg(i)))
-                    fail(QStringLiteral("NAVFAIL scenario S3: navItem_%1 must "
-                                        "not exist (no eighth-or-later rail "
-                                        "entry in the current product "
+                    fail(QStringLiteral("NAVFAIL scenario S3: navItem_%1 "
+                                        "must not exist (no ninth-or-later "
+                                        "rail entry in the current product "
                                         "contract)").arg(i));
             }
             if (findNamedItem(roots,
@@ -4561,9 +4599,11 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                     "not removed"));
             qInfo().noquote()
                 << QStringLiteral("NAV [scenario S3/S4]: navItem_6 = AI "
-                                  "Settings (index 6, intended), navItem_7+ "
-                                  "absent, legacy StatisticsOverview instance "
-                                  "absent, legacyTailSpacer absent");
+                                  "Settings (index 6), navItem_7 = "
+                                  "Engineering (index 7, T035-C C1), "
+                                  "navItem_8+ absent, legacy "
+                                  "StatisticsOverview instance absent, "
+                                  "legacyTailSpacer absent");
             break;
         }
         case 150: {
@@ -4885,7 +4925,7 @@ int runNavCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                               "workflow. No AI result is fabricated here.");
 
         if (failures->isEmpty())
-            qInfo() << "NAV CHECK PASS (post-Legacy five workspaces; identity "
+            qInfo() << "NAV CHECK PASS (post-Legacy eight workspaces; identity "
                        "stable; navigation changed no business values; "
                        "scenarios A/B/D/E/F/G'/H/I/J/K/K'/L/N/O/P/Q/R/S/T "
                        "asserted; M deferred by design)";
@@ -5028,6 +5068,43 @@ public:
                                      std::nullopt};
         }
         ++readStarts_;
+        // C2.1 fix (ISSUE-026): the read request enters THE SAME session that
+        // will later see the response bytes — the completion then comes from
+        // a genuine state transition (AwaitingResponse -> complete), exactly
+        // like a real serial port receiving an RTU response.
+        const auto begin = session_.beginActiveRequest(request);
+        const bool beginOk =
+            std::get_if<modbuslens::core::SerialTransactionError>(&begin) == nullptr;
+        if (qEnvironmentVariableIsSet("MODBUSLENS_HARNESS_TRACE")) {
+            // SOURCE-REPRO-R4 diagnostic: prove (or refute) the stale-session
+            // hypothesis for the K-scenario 125-register read. Read-only.
+            int reqQty = -1;
+            if (const auto *rd =
+                    std::get_if<modbuslens::core::ReadHoldingRegistersIntent>(
+                        &request.intent.payload)) {
+                reqQty = static_cast<int>(rd->quantity);
+            }
+            qWarning().noquote()
+                << QStringLiteral("[HARNESS] read-start #%1 begin_ok=%2 "
+                                  "qty=%3 wire=%4B pending_before=%5")
+                       .arg(readStarts_)
+                       .arg(beginOk ? 1 : 0)
+                       .arg(reqQty)
+                       .arg(int(request.wire.size()))
+                       .arg(pending_.has_value() ? 1 : 0);
+        }
+        // FIX-02 (SOURCE-REPRO-R4): never pretend a request started when the
+        // shared session refused to begin (a stale AwaitingResponse left by an
+        // earlier terminal path). Rejecting here keeps pending_ consistent
+        // with the session instead of feeding a later response to an old
+        // descriptor.
+        if (!beginOk) {
+            qWarning().noquote()
+                << QStringLiteral("[HARNESS] read-start rejected: session "
+                                  "refused beginActiveRequest");
+            return ActiveStartResult{false, TransportDisposition::NotSent,
+                                     std::nullopt};
+        }
         pending_ = request;
         observed_.clear();
         if (completeReadImmediately_) {
@@ -5092,6 +5169,14 @@ public:
                 std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
             const auto finished = *pending_;
             pending_.reset();
+            // FIX-02c (SOURCE-REPRO-R8): the LOCAL session completed this
+            // request, but startActiveRequest() had begun the MEMBER session —
+            // without this, the member stays in AwaitingResponse forever and
+            // the NEXT read's beginActiveRequest() fails (C35/R16 root cause).
+            // Order matters: cancel BEFORE emit, because Qt delivers this
+            // signal synchronously on this thread and a completion callback
+            // may legitimately start a new request that must not be cancelled.
+            session_.cancel();
             emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
                 .request = finished,
                 .responseAdu = response,
@@ -5124,6 +5209,11 @@ public:
                 std::get_if<modbuslens::core::TransactionAnalysis>(&result)) {
             const auto finished = *pending_;
             pending_.reset();
+            // FIX-02c (SOURCE-REPRO-R8): same cleanup as completeRead() — the
+            // member session begun by startActiveRequest() must leave
+            // AwaitingResponse before the completion signal is emitted
+            // (Qt delivers it synchronously; a callback may start a new request).
+            session_.cancel();
             emit transactionCompleted(modbuslens::core::ActiveTransactionResult{
                 .request = finished,
                 .responseAdu = {},
@@ -5153,20 +5243,37 @@ public:
                 != modbuslens::core::ActiveFunction::ReadHoldingRegisters) {
             return;
         }
-        SerialTransactionSession session;
-        const auto begin = session.beginActiveRequest(*pending_);
-        if (std::get_if<SerialTransactionError>(&begin) != nullptr) {
-            return;
-        }
         observed_ = response;
         std::optional<TransactionAnalysis> analysis;
-        const auto fed = session.feedResponseBytes(response, elapsed);
+        // C2.1 fix (ISSUE-026): feed THE session that is already
+        // AwaitingResponse (started in startActiveRequest) — the completion
+        // comes from a genuine state transition, never from a replay.
+        const auto fed = session_.feedResponseBytes(response, elapsed);
+        if (qEnvironmentVariableIsSet("MODBUSLENS_HARNESS_TRACE")) {
+            // SOURCE-REPRO-R4 diagnostic (read-only): compare the pending
+            // request's quantity against the injected response length so a
+            // stale-session feed is directly observable.
+            int pendingQty = -1;
+            if (const auto *rd =
+                    std::get_if<modbuslens::core::ReadHoldingRegistersIntent>(
+                        &pending_->intent.payload)) {
+                pendingQty = static_cast<int>(rd->quantity);
+            }
+            qWarning().noquote()
+                << QStringLiteral("[HARNESS] complete pending_qty=%1 "
+                                  "resp=%2B feed=%3")
+                       .arg(pendingQty)
+                       .arg(int(response.size()))
+                       .arg(std::get_if<TransactionAnalysis>(&fed)
+                                ? QStringLiteral("analysis")
+                                : QStringLiteral("no-analysis"));
+        }
         if (const auto* landed = std::get_if<TransactionAnalysis>(&fed)) {
             analysis = *landed;
         } else {
             // Not a complete candidate: close at the response timeout so the
             // analyzer decodes the ENTIRE observed buffer (partial / oversized).
-            const auto closed = session.onResponseTimeout(elapsed);
+            const auto closed = session_.onResponseTimeout(elapsed);
             if (const auto* landed = std::get_if<TransactionAnalysis>(&closed)) {
                 analysis = *landed;
             }
@@ -5203,6 +5310,19 @@ public:
                 .submissionAcceptedByteCount = std::nullopt,
             };
             pending_.reset();
+            // FIX-02 (SOURCE-REPRO-R4): the terminal path must leave the
+            // shared session in a state the NEXT request can begin from.
+            // Symptom before this fix: the following read's
+            // beginActiveRequest() failed silently while pending_ was set to
+            // the new request, so the injected response was validated against
+            // the PREVIOUS descriptor (K-scenario value count = 0).
+            session_.cancel();
+            if (qEnvironmentVariableIsSet("MODBUSLENS_HARNESS_TRACE")) {
+                qWarning().noquote()
+                    << QStringLiteral("[HARNESS] adapter-removal terminal: "
+                                      "transport pending cleared + session "
+                                      "cancelled");
+            }
             emit transactionTerminated(terminal);
         }
         portOpen_ = false;
@@ -5354,6 +5474,13 @@ public:
     {
         portOpen_ = false;
         pending_.reset();
+        // FIX-02b (SOURCE-REPRO-R6): closePort is an EXPLICIT TERMINATION path
+        // (disconnect). Every unfinished transaction ends here, so the shared
+        // session must leave AwaitingResponse too. Before this fix a later
+        // read's beginActiveRequest() failed against the stale descriptor,
+        // which surfaced as "the read did not make busy true" /
+        // "reason is not BusyBecameTrue" in the DLG5b scenarios.
+        session_.cancel();
     }
 
 private:
@@ -5369,6 +5496,10 @@ private:
     std::vector<std::vector<std::uint8_t>> writeAduLog_;
     std::optional<modbuslens::core::ActiveRequestDescriptor> written_;
     std::optional<modbuslens::core::ActiveRequestDescriptor> pending_;
+    // C2.1 fix (ISSUE-026): the session that started with beginActiveRequest
+    // and completes with feedResponseBytes — ONE state machine per
+    // transaction, like the real adapter.
+    modbuslens::core::SerialTransactionSession session_;
     std::vector<std::uint8_t> observed_;
 };
 
@@ -6275,7 +6406,25 @@ int runWriteFoundationCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     push([&]() {
         transport->setCompleteReadImmediately(true);
         transport->completeRead();
+        // R7 diagnostic (instrumentation-only): record the busy/reason state
+        // BEFORE the disconnect so the overwrite (if any) is attributable.
+        if (qEnvironmentVariableIsSet("MODBUSLENS_HARNESS_TRACE")) {
+            qWarning().noquote()
+                << QStringLiteral("[R7C35] after completeRead: busy=%1 "
+                                  "reason=%2 terminals=%3")
+                       .arg(controller->serialBusy() ? 1 : 0)
+                       .arg(controller->preparedWriteInvalidReasonToken())
+                       .arg(controller->activeSerialTerminalCount());
+        }
         controller->disconnectSerial();
+        if (qEnvironmentVariableIsSet("MODBUSLENS_HARNESS_TRACE")) {
+            qWarning().noquote()
+                << QStringLiteral("[R7C35] after disconnect: busy=%1 "
+                                  "reason=%2 terminals=%3")
+                       .arg(controller->serialBusy() ? 1 : 0)
+                       .arg(controller->preparedWriteInvalidReasonToken())
+                       .arg(controller->activeSerialTerminalCount());
+        }
         if (controller->preparedWriteInvalidReasonToken()
             != QStringLiteral("busy_became_true"))
             fail(QStringLiteral("WRITEFAIL C35: the reason was overwritten (%1)")
@@ -9853,6 +10002,18 @@ int runProductionWriteCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("PRODWRITEFAIL R16: clickNamed(commReadButton) "
                                 "refused (missing or not visible)"));
         transport->setCompleteReadImmediately(true);
+        // R7 diagnostic (instrumentation-only): the busy flag after the click
+        // must reflect whether the request was actually ACCEPTED. A rejected
+        // begin leaves busy=false, which is what "no pending request to lose"
+        // reports.
+        if (qEnvironmentVariableIsSet("MODBUSLENS_HARNESS_TRACE")) {
+            qWarning().noquote()
+                << QStringLiteral("[R7R16] after click: busy=%1 readStarts=%2 "
+                                  "portOpen=%3")
+                       .arg(controller->serialBusy() ? 1 : 0)
+                       .arg(transport->readStarts())
+                       .arg(controller->serialConnected() ? 1 : 0);
+        }
         if (!controller->serialBusy())
             fail(QStringLiteral("PRODWRITEFAIL R16: no pending request to lose"));
         transport->simulateAdapterRemoval(
@@ -14519,9 +14680,11 @@ static int runSerialHotplugProbe(const QStringList &arguments)
 
 // ---------------------------------------------------------------------------
 using modbuslens::core::DeviceProfile;
+using modbuslens::core::EngineeringDecoderKind;
 using modbuslens::core::RegisterDecodeType;
 using modbuslens::core::RegisterEntry;
 using modbuslens::ui::ProfileStore;
+using modbuslens::ui::EngineeringReadController;
 using modbuslens::ui::ManualStore;
 using modbuslens::ui::CandidateProviderRunner;
 
@@ -14537,6 +14700,655 @@ using modbuslens::ui::CandidateProviderRunner;
 // malformed-catalog warning, 1000×700 reachability, keyboard, existing
 // workspaces unaffected, and the exit dirty guard (Cancel blocks close).
 // ---------------------------------------------------------------------------
+// T035-C Round C2 `--qml-c2-read-check`: the single-read engineering path —
+// ONE click produces ONE FC03/FC04 request over the SHIPPED serial session
+// (driven here by the harness transport with EXACT response bytes — never a
+// real COM port, never a fabricated UI number). Covers: not-connected,
+// not-ready, reading, success (raw 1234 x 0.01 = 12.34 s), CRC-damaged
+// failure, timeout, and invalidation-during-read.
+int runC2ReadCheck(QQmlApplicationEngine &engine, QGuiApplication &app,
+                   modbuslens::ui::EngineeringReadController *reader)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    if (!window || !rootObj) {
+        qWarning().noquote() << QStringLiteral("C2FAIL: window not found");
+        return 1;
+    }
+    auto *analysis = rootObj->findChild<QObject *>(
+        QStringLiteral("analysisController"));
+    auto *profiles = rootObj->findChild<QObject *>(
+        QStringLiteral("profileController"));
+    auto *rail = rootObj->findChild<QObject *>(
+        QStringLiteral("navigationRail"));
+    auto *page = rootObj->findChild<QObject *>(
+        QStringLiteral("engineeringWorkspace"));
+    if (!analysis || !profiles || !rail || !page) {
+        qWarning().noquote()
+            << QStringLiteral("C2FAIL: controller/rail/page not found");
+        return 1;
+    }
+
+    QTemporaryDir managedRoot;
+    if (!managedRoot.isValid()) {
+        qWarning().noquote() << QStringLiteral("C2FAIL: temp root invalid");
+        return 1;
+    }
+    ProfileStore::setManagedRootOverride(managedRoot.path());
+
+    const auto writeSeed = [](const QString &profileId, std::uint8_t fc,
+                              std::uint16_t address,
+                              EngineeringDecoderKind kind) {
+        DeviceProfile profile;
+        profile.schemaVersion = 1;
+        profile.profileId = profileId.toStdString();
+        profile.displayName = profileId.toStdString();
+        RegisterEntry entry;
+        entry.readFunctionCode = fc;
+        entry.address = address;
+        entry.name = "Sample";
+        entry.dataType = RegisterDecodeType::UInt16;
+        entry.registerCount = 1;
+        entry.scale = 0.01;
+        entry.offset = 0.0;
+        entry.unit = "s";
+        entry.scaleConfigured = true;
+        entry.offsetConfigured = true;
+        entry.unitConfigured = true;
+        entry.decoderKind = kind;
+        profile.registers.push_back(entry);
+        return ProfileStore::saveToFile(
+                   profile, ProfileStore::defaultFilePathFor(profileId))
+            .ok();
+    };
+    const QString idLinear = QStringLiteral("c2-linear");
+    const QString idUnknown = QStringLiteral("c2-unknown");
+    if (!writeSeed(idLinear, 0x03, 10, EngineeringDecoderKind::Linear)
+        || !writeSeed(idUnknown, 0x04, 0,
+                      EngineeringDecoderKind::Unknown)) {
+        qWarning().noquote() << QStringLiteral("C2FAIL: seed write failed");
+        return 1;
+    }
+
+    // The harness transport: exact-byte stimulus, no COM port. The shipped
+    // AnalysisController owns it through the SAME SerialTransport seam the
+    // production adapter uses.
+    HarnessWriteTransport harnessTransport(&app);
+    auto *analysisC = qobject_cast<AnalysisController *>(analysis);
+    if (!analysisC) {
+        qWarning().noquote()
+            << QStringLiteral("C2FAIL: analysisController cast failed");
+        return 1;
+    }
+    // C2.1 (ISSUE-026 root cause #1): WITHOUT this line the AnalysisController
+    // keeps the production adapter, the harness transport never sees the
+    // request, and completeReadWithBytes injects into an object nobody
+    // listens to. This line IS the wiring.
+    analysisC->setSerialTransport(&harnessTransport);
+    harnessTransport.setCompleteReadImmediately(false);
+    analysisC->setSerialTransport(&harnessTransport);
+
+    QStringList failures;
+    const auto fail = [&failures](const QString &message) {
+        failures << message;
+    };
+    const auto note = [](const QString &message) {
+        qInfo().noquote() << QStringLiteral("C2:") << message;
+    };
+    const auto itemOf = [&rootObj](const QString &name) -> QQuickItem * {
+        return rootObj->findChild<QQuickItem *>(name);
+    };
+    const auto textOf = [&itemOf](const QString &name) -> QString {
+        QQuickItem *item = itemOf(name);
+        return item ? item->property("text").toString()
+                    : QStringLiteral("<missing>");
+    };
+    const auto propOf = [&itemOf](const QString &name,
+                                  const char *prop) -> QVariant {
+        QQuickItem *item = itemOf(name);
+        return item ? item->property(prop) : QVariant();
+    };
+    const auto clickGate = [&]() -> bool {
+        // The gate button is enabled only when the full chain holds; the
+        // click goes through the REAL button so a disabled state can never
+        // dispatch.
+        return QMetaObject::invokeMethod(
+            itemOf(QStringLiteral("engineeringGateButton")), "clicked");
+    };
+
+    QTimer::singleShot(150, &app, [&]() {
+        rail->setProperty("currentWorkspaceIndex", 7);
+        for (const char *name :
+             {"engineeringValueBox", "engineeringValueLabel",
+              "engineeringValueUnit", "engineeringReadStatus",
+              "engineeringGateButton", "engineeringSlaveField",
+              "engineeringTimeoutField", "engineeringSemanticNotice"}) {
+            if (!itemOf(QString::fromLatin1(name)))
+                fail(QStringLiteral("missing control %1")
+                         .arg(QString::fromLatin1(name)));
+        }
+        // Big-number typography sanity: >= 48px (C2 §11).
+        if (itemOf(QStringLiteral("engineeringValueLabel"))
+                ->property("font")
+                .value<QFont>()
+                .pixelSize()
+            < 48)
+            fail(QStringLiteral("the big value font is below 48px"));
+        note(QStringLiteral("S1: controls present; big value typography OK"));
+
+        // ---- S2 (not connected): Linear profile selected, gate DISABLED,
+        // and the status line names the missing connection.
+        QMetaObject::invokeMethod(profiles, "refreshCatalog");
+        QMetaObject::invokeMethod(page, "selectProfile",
+                                  Q_ARG(QVariant, QVariant(idLinear)));
+        QMetaObject::invokeMethod(page, "selectRegister", Q_ARG(QVariant, 3),
+                                  Q_ARG(QVariant, 10));
+        if (itemOf(QStringLiteral("engineeringGateButton"))
+                ->property("enabled")
+                .toBool())
+            fail(QStringLiteral("C2-02: the gate is enabled while the port "
+                                "is not connected"));
+        if (!textOf(QStringLiteral("engineeringCommStatus"))
+                 .contains(QStringLiteral("未连接")))
+            fail(QStringLiteral("C2-02: the comm status does not say "
+                                "not-connected"));
+        // C2.1: the gate is disabled, but a programmatic read attempt (the
+        // path a stale UI could still take) must be REFUSED with the
+        // explanatory reason — and zero requests must be sent.
+        const int startsBeforeS2 = harnessTransport.readStarts();
+        QMetaObject::invokeMethod(page, "requestSingleRead");
+        if (harnessTransport.readStarts() != startsBeforeS2)
+            fail(QStringLiteral("C2-02: a read was dispatched while the "
+                                "port is not connected"));
+        if (!textOf(QStringLiteral("engineeringReadRefusal"))
+                 .contains(QStringLiteral("尚未连接")))
+            fail(QStringLiteral("C2-02: the refusal text does not explain "
+                                "the missing connection"));
+        note(QStringLiteral("S2: EngineeringReady + not connected -> gate "
+                            "disabled with the explanatory status"));
+
+        // ---- connect (the fake port opens instantly) ----
+        QMetaObject::invokeMethod(analysisC, "connectSerial",
+                                  Q_ARG(QString, QStringLiteral("COM_C2")),
+                                  Q_ARG(int, 9600));
+        if (!analysis->property("serialConnected").toBool())
+            fail(QStringLiteral("C2: the fake connection did not open"));
+        if (!itemOf(QStringLiteral("engineeringGateButton"))
+                ->property("enabled")
+                .toBool())
+            fail(QStringLiteral("C2: the gate did not enable after "
+                                "connect"));
+        note(QStringLiteral("S2b: connected -> gate enabled for the Linear "
+                            "register"));
+
+        // ---- S3: ONE click -> ONE request -> READING (no completion yet).
+        if (!QMetaObject::invokeMethod(page, "requestSingleRead")) {
+            fail(QStringLiteral("C2-03: the read action is not invokable"));
+        }
+        if (harnessTransport.readStarts() != 1)
+            fail(QStringLiteral("C2-03: read starts %1 != 1 (refusal='%2')")
+                     .arg(harnessTransport.readStarts())
+                     .arg(reader->refusalToken()));
+        if (harnessTransport.writeAttempts() != 0)
+            fail(QStringLiteral("C2-19: a WRITE attempt happened"));
+        note(QStringLiteral("S3: one click -> one request; reading"));
+
+        // ---- S4 (C2-04/05/06): the EXACT golden response -> 12.34 s.
+        note(QStringLiteral("S4a: building golden frame"));
+        std::vector<std::uint8_t> golden{1, 0x03, 0x02, 0x04, 0xD2};
+        const std::uint16_t crc =
+            modbuslens::core::calculateModbusCrc(golden);
+        golden.push_back(static_cast<std::uint8_t>(crc & 0xFF));
+        golden.push_back(static_cast<std::uint8_t>(crc >> 8));
+        note(QStringLiteral("S4b: injecting response bytes"));
+        harnessTransport.completeReadWithBytes(
+            golden, std::chrono::milliseconds{25});
+        note(QStringLiteral("S4c: response injected"));
+        if (reader->readState() != QStringLiteral("success"))
+            fail(QStringLiteral("C2-06: the read did not reach success"));
+        // The COMPUTED value is asserted on the controller (C++ side); the
+        // Label's on-screen rendering is a Human Visual Check item.
+        if (reader->valueText() != QStringLiteral("12.34"))
+            fail(QStringLiteral("C2-06: the computed value is not 12.34 "
+                                "(got '%1')")
+                     .arg(reader->valueText()));
+        if (reader->unitText() != QStringLiteral("s"))
+            fail(QStringLiteral("C2-06: the unit is not 's'"));
+        if (!itemOf(QStringLiteral("engineeringValueLabel"))
+            || !itemOf(QStringLiteral("engineeringValueUnit")))
+            fail(QStringLiteral("C2-06: the big value labels are missing"));
+        note(QStringLiteral("S4: raw 1234 x 0.01 -> 12.34 s (EngineeringReady "
+                            "value shown)"));
+
+        // ---- S5 (C2-09/22): a CRC-damaged response fails the read and the
+        // previous value is NOT resurrected.
+        auto damaged = golden;
+        damaged.back() ^= 0xFF;
+        if (!QMetaObject::invokeMethod(page, "requestSingleRead"))
+            fail(QStringLiteral("C2-22: the second read is not invokable"));
+        harnessTransport.completeReadWithBytes(
+            damaged, std::chrono::milliseconds{25});
+        if (reader->readState() != QStringLiteral("failed"))
+            fail(QStringLiteral("C2-22: the damaged read did not fail"));
+        if (reader->hasValue())
+            fail(QStringLiteral("C2-22: the old value survived a failed "
+                                "read"));
+        note(QStringLiteral("S5: CRC-damaged response -> failed; previous "
+                            "value cleared"));
+
+        // ---- S6 (C2-10): timeout -> failed, no value.
+        if (!QMetaObject::invokeMethod(page, "requestSingleRead"))
+            fail(QStringLiteral("C2-10: the third read is not invokable"));
+        harnessTransport.completeReadWithTimeout();
+        if (reader->readState() != QStringLiteral("failed"))
+            fail(QStringLiteral("C2-10: the timeout did not fail the read"));
+        note(QStringLiteral("S6: timeout -> failed; no value"));
+
+        // ---- S7 (C2-16/01): the Unknown register is refused at the gate
+        // with zero sends.
+        QMetaObject::invokeMethod(page, "selectProfile",
+                                  Q_ARG(QVariant, QVariant(idUnknown)));
+        QMetaObject::invokeMethod(page, "selectRegister", Q_ARG(QVariant, 4),
+                                  Q_ARG(QVariant, 0));
+        if (itemOf(QStringLiteral("engineeringGateButton"))
+                ->property("enabled")
+                .toBool())
+            fail(QStringLiteral("C2-16: the Unknown register enabled the "
+                                "gate"));
+        const int startsBefore = harnessTransport.readStarts();
+        if (QMetaObject::invokeMethod(
+                itemOf(QStringLiteral("engineeringGateButton")), "clicked"))
+            ; // the click on a DISABLED button must not dispatch anything
+        if (harnessTransport.readStarts() != startsBefore)
+            fail(QStringLiteral("C2-16: a disabled gate dispatched a "
+                                "request"));
+        if (!textOf(QStringLiteral("engineeringReadRefusal"))
+                 .contains(QStringLiteral("工程换算配置未就绪")))
+            fail(QStringLiteral("C2-01: the refusal text does not explain "
+                                "the not-ready gate"));
+        note(QStringLiteral("S7: Unknown register -> gate disabled; zero "
+                            "sends; refusal explained"));
+
+        // ---- S8 (C2-14): invalidate during read drops the late response.
+        QMetaObject::invokeMethod(page, "selectProfile",
+                                  Q_ARG(QVariant, QVariant(idLinear)));
+        QMetaObject::invokeMethod(page, "selectRegister", Q_ARG(QVariant, 3),
+                                  Q_ARG(QVariant, 10));
+        if (!QMetaObject::invokeMethod(
+                itemOf(QStringLiteral("engineeringGateButton")), "clicked"))
+            fail(QStringLiteral("C2-14: the fourth click is not invokable"));
+        QMetaObject::invokeMethod(page, "selectProfile",
+                                  Q_ARG(QVariant, QVariant(idUnknown)));
+        harnessTransport.completeReadWithBytes(
+            golden, std::chrono::milliseconds{25});
+        if (reader->hasValue())
+            fail(QStringLiteral("C2-14: a late response landed after the "
+                                "target changed"));
+        note(QStringLiteral("S8: invalidate-during-read drops the late "
+                            "response"));
+
+        ProfileStore::setManagedRootOverride(QString());
+        if (failures.isEmpty()) {
+            qInfo() << "C2 READ CHECK PASS: not-connected gate; single-click "
+                       "single-request; FC03 wire fidelity; Linear 12.34 s; "
+                       "CRC/timeout failures clear the value; Unknown "
+                       "refused with zero sends; invalidation drops late "
+                       "responses; no writes; no polling; no real device";
+            app.exit(0);
+            return;
+        }
+        for (const QString &f : failures)
+            qWarning().noquote() << "C2FAIL:" << f;
+        app.exit(1);
+    });
+    return app.exec();
+}
+
+// T035-C Round C1 `--qml-c1-readiness-check`: the Engineering workspace's
+// saved-profile selection + EngineeringReady gate. Deterministic and
+// file-backed (a temporary managed root — the production AppData directory is
+// never touched). It NEVER reads a device, computes a value, polls, or asks
+// any provider; the gate control must stay a permanent placeholder.
+int runC1ReadinessCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const auto roots = engine.rootObjects();
+    QObject *rootObj = roots.value(0);
+    auto *window = qobject_cast<QQuickWindow *>(roots.value(0));
+    if (!window || !rootObj) {
+        qWarning().noquote() << QStringLiteral("C1FAIL: window not found");
+        return 1;
+    }
+    auto *controller = rootObj->findChild<QObject *>(
+        QStringLiteral("profileController"));
+    auto *rail = rootObj->findChild<QObject *>(
+        QStringLiteral("navigationRail"));
+    auto *page = rootObj->findChild<QObject *>(
+        QStringLiteral("engineeringWorkspace"));
+    if (!controller || !rail || !page) {
+        qWarning().noquote()
+            << QStringLiteral("C1FAIL: controller/rail/page not found "
+                              "(controller=%1 rail=%2 page=%3)")
+                   .arg(controller != nullptr)
+                   .arg(rail != nullptr)
+                   .arg(page != nullptr);
+        return 1;
+    }
+    // The ApplicationWindow root is a QQuickWindow, not a QQuickItem — read
+    // the workspace-index property straight off the root QObject.
+    if (rootObj->property("workspaceEngineeringIndex").toInt() != 7) {
+        qWarning().noquote()
+            << QStringLiteral("C1FAIL: the Engineering workspace index is "
+                              "not 7");
+        return 1;
+    }
+
+    QTemporaryDir managedRoot;
+    if (!managedRoot.isValid()) {
+        qWarning().noquote() << QStringLiteral("C1FAIL: temp root invalid");
+        return 1;
+    }
+    ProfileStore::setManagedRootOverride(managedRoot.path());
+    const auto writeSeed =
+        [](const QString &profileId, const QString &displayName,
+           std::uint8_t fc, std::uint16_t address, const char *name,
+           bool configured, EngineeringDecoderKind decoderKind) {
+            DeviceProfile profile;
+            profile.schemaVersion = 1;
+            profile.profileId = profileId.toStdString();
+            profile.displayName = displayName.toStdString();
+            RegisterEntry entry;
+            entry.readFunctionCode = fc;
+            entry.address = address;
+            entry.name = name;
+            entry.dataType = RegisterDecodeType::UInt16;
+            entry.registerCount = 1;
+            if (configured) {
+                entry.scale = 0.01;
+                entry.offset = 0.0;
+                entry.unit = "s";
+                entry.scaleConfigured = true;
+                entry.offsetConfigured = true;
+                entry.unitConfigured = true;
+            }
+            // T035-C C1.2: the decoder declaration is part of the SAVED
+            // configuration this gate exercises.
+            entry.decoderKind = decoderKind;
+            profile.registers.push_back(entry);
+            return ProfileStore::saveToFile(
+                       profile,
+                       ProfileStore::defaultFilePathFor(profileId))
+                .ok();
+        };
+    const QString idA = QStringLiteral("c1-configured-unknown");
+    const QString idB = QStringLiteral("c1-linear-ready");
+    const QString idC = QStringLiteral("c1-variable-decimal");
+    if (!writeSeed(idA, QStringLiteral("C1 Configured But Unknown"), 0x04, 0,
+                   "Channel 1", true, EngineeringDecoderKind::Unknown)
+        || !writeSeed(idB, QStringLiteral("C1 Linear Ready"), 0x03, 10,
+                      "Interval", true, EngineeringDecoderKind::Linear)
+        || !writeSeed(idC, QStringLiteral("C1 Variable Decimal"), 0x03, 20,
+                      "Sampled value", true,
+                      EngineeringDecoderKind::VariableDecimal)) {
+        qWarning().noquote() << QStringLiteral("C1FAIL: seed write failed");
+        return 1;
+    }
+
+    QStringList failures;
+    const auto fail = [&failures](const QString &message) {
+        failures << message;
+    };
+    const auto note = [](const QString &message) {
+        qInfo().noquote() << QStringLiteral("C1:") << message;
+    };
+    const auto itemOf = [&rootObj](const QString &name) -> QQuickItem * {
+        return rootObj->findChild<QQuickItem *>(name);
+    };
+    const auto textOf = [&itemOf](const QString &name) -> QString {
+        QQuickItem *item = itemOf(name);
+        return item ? item->property("text").toString() : QStringLiteral(
+                          "<missing>");
+    };
+    const auto boolOf = [&itemOf](const QString &name,
+                                  const char *prop) -> bool {
+        QQuickItem *item = itemOf(name);
+        return item && item->property(prop).toBool();
+    };
+
+    QTimer::singleShot(150, &app, [&, page, controller, rail]() {
+        // -------- S1: switch to the Engineering workspace; controls exist.
+        rail->setProperty("currentWorkspaceIndex", 7);
+        for (const char *name :
+             {"engineeringWorkspace", "engineeringProfileCombo",
+              "engineeringRegisterCombo", "engineeringGateButton",
+              "engineeringOpenDeviceButton"}) {
+            if (!itemOf(QString::fromLatin1(name)))
+                fail(QStringLiteral("missing control %1")
+                         .arg(QString::fromLatin1(name)));
+        }
+        if (itemOf(QStringLiteral("engineeringGateButton"))->property(
+                "enabled").toBool())
+            fail(QStringLiteral("the C1 gate button is enabled"));
+        note(QStringLiteral("S1: workspace reachable; gate is a placeholder"));
+
+        // -------- S2: the selector lists SAVED profiles only.
+        QMetaObject::invokeMethod(controller, "refreshCatalog");
+        const QVariantList catalog =
+            controller->property("profileCatalog").toList();
+        if (catalog.size() != 3)
+            fail(QStringLiteral("catalog size %1 != 3 (drafts must not "
+                                "appear)")
+                     .arg(catalog.size()));
+
+        // -------- S2b (C1.3 U01-U04): the SELECTORS' VISIBLE TEXT. A
+        // ComboBox with a non-empty model but blank visible text is a real
+        // display defect (found in C1.2-H) — count alone proves nothing.
+        const auto displayTextOf = [&itemOf](const QString &name) -> QString {
+            QQuickItem *item = itemOf(name);
+            return item ? item->property("displayText").toString()
+                        : QStringLiteral("<missing>");
+        };
+        {
+            auto *combo = itemOf(QStringLiteral("engineeringProfileCombo"));
+            if (!combo) {
+                fail(QStringLiteral("C1.3: the profile combo is missing"));
+            } else if (displayTextOf(
+                           QStringLiteral("engineeringProfileCombo"))
+                           .trimmed()
+                           .isEmpty()) {
+                fail(QStringLiteral("C1.3 (U01/U04): the profile combo's "
+                                    "visible text is EMPTY"));
+            }
+            auto *regCombo = itemOf(QStringLiteral("engineeringRegisterCombo"));
+            if (!regCombo) {
+                fail(QStringLiteral("C1.3: the register combo is missing"));
+            } else if (displayTextOf(
+                           QStringLiteral("engineeringRegisterCombo"))
+                           != QStringLiteral("请选择寄存器")) {
+                fail(QStringLiteral("C1.3 (U04): the register combo does "
+                                    "not show its explicit placeholder "
+                                    "(got '%1')")
+                         .arg(displayTextOf(QStringLiteral(
+                             "engineeringRegisterCombo"))));
+            }
+            // U04: the profile combo's placeholder is explicit, never a
+            // blank highlighted row.
+            if (displayTextOf(QStringLiteral("engineeringProfileCombo"))
+                != QStringLiteral("请选择设备档案"))
+                fail(QStringLiteral("C1.3 (U04): the profile combo does not "
+                                    "show its explicit placeholder (got "
+                                    "'%1')")
+                         .arg(displayTextOf(QStringLiteral(
+                             "engineeringProfileCombo"))));
+            note(QStringLiteral("S2b (C1.3): both selectors show explicit "
+                                "placeholders before any selection"));
+        }
+
+        // -------- S3: CONFIGURED but decoder Unknown (the C1.1 risk
+        // sample) -> Readable / Not Ready; the missing list names the
+        // decoder; the page shows the ACTUAL declaration.
+        QMetaObject::invokeMethod(page, "selectProfile",
+                                  Q_ARG(QVariant, QVariant(idA)));
+        const QVariant regsA = page->property("registersResult");
+        if (regsA.toMap().value(QStringLiteral("registers")).toList().size()
+            != 1)
+            fail(QStringLiteral("profile A did not expose exactly 1 "
+                                "register"));
+        QMetaObject::invokeMethod(page, "selectRegister", Q_ARG(QVariant, 4),
+                                  Q_ARG(QVariant, 0));
+        // C1.3 U02: the VISIBLE profile name matches the selected id.
+        {
+            const QString shownProfile =
+                displayTextOf(QStringLiteral("engineeringProfileCombo"));
+            QString expectedName;
+            for (const QVariant &entry : catalog) {
+                const QVariantMap row = entry.toMap();
+                if (row.value(QStringLiteral("profileId")).toString()
+                    == idA) {
+                    expectedName =
+                        row.value(QStringLiteral("displayPrimary")).toString();
+                }
+            }
+            if (shownProfile != expectedName || shownProfile.trimmed().isEmpty())
+                fail(QStringLiteral("C1.3 (U02): the profile combo shows "
+                                    "'%1', expected '%2'")
+                         .arg(shownProfile, expectedName));
+            const QString shownRegister =
+                displayTextOf(QStringLiteral("engineeringRegisterCombo"));
+            if (shownRegister.trimmed().isEmpty())
+                fail(QStringLiteral("C1.3 (U03): the register combo's "
+                                    "visible text is EMPTY after selection"));
+        }
+        QVariantMap readiness =
+            page->property("readinessResult").toMap();
+        if (!readiness.value(QStringLiteral("readable")).toBool())
+            fail(QStringLiteral("FC04@0 was not Readable"));
+        if (readiness.value(QStringLiteral("engineeringReady")).toBool())
+            fail(QStringLiteral("a decoder-Unknown register was deemed "
+                                "EngineeringReady"));
+        const QVariantList missing =
+            readiness.value(QStringLiteral("missing")).toList();
+        if (!missing.contains(QStringLiteral("decoder_kind")))
+            fail(QStringLiteral("the missing list does not name the "
+                                "undeclared decoder"));
+        if (!textOf(QStringLiteral("engineeringReadyLabel"))
+                 .contains(QStringLiteral("Not Ready")))
+            fail(QStringLiteral("the readiness label does not show Not "
+                                "Ready"));
+        if (!textOf(QStringLiteral("engineeringDecoderLabel"))
+                 .contains(QStringLiteral("Unknown")))
+            fail(QStringLiteral("the Decoder line does not show Unknown"));
+        if (!textOf(QStringLiteral("engineeringGateHint"))
+                 .contains(QStringLiteral("未达到")))
+            fail(QStringLiteral("the gate hint does not tell the Human what "
+                                "is missing"));
+        note(QStringLiteral("S3: configured-but-Unknown -> Readable / Not "
+                            "Ready (decoder_kind named)"));
+
+        // -------- S4: the Linear-ready register -> EngineeringReady; the
+        // gate STILL stays disabled (C1 has no live read).
+        QMetaObject::invokeMethod(page, "selectProfile",
+                                  Q_ARG(QVariant, QVariant(idB)));
+        QMetaObject::invokeMethod(page, "selectRegister", Q_ARG(QVariant, 3),
+                                  Q_ARG(QVariant, 10));
+        readiness = page->property("readinessResult").toMap();
+        if (!readiness.value(QStringLiteral("engineeringReady")).toBool())
+            fail(QStringLiteral("the configured Linear register was not "
+                                "EngineeringReady"));
+        if (!textOf(QStringLiteral("engineeringDecoderLabel"))
+                 .contains(QStringLiteral("Linear")))
+            fail(QStringLiteral("the Decoder line does not show Linear"));
+        if (!textOf(QStringLiteral("engineeringGateHint"))
+                 .contains(QStringLiteral("配置校验通过")))
+            fail(QStringLiteral("the ready hint is not the C1 wording"));
+        if (itemOf(QStringLiteral("engineeringGateButton"))
+                ->property("enabled")
+                .toBool())
+            fail(QStringLiteral("the gate became a live read trigger"));
+        note(QStringLiteral("S4: explicit-Linear register -> "
+                            "EngineeringReady; gate remains a placeholder"));
+
+        // -------- S4b: a declared-but-unsupported decoder (VariableDecimal)
+        // -> Readable / Not Ready with the honest reason (C1.2).
+        QMetaObject::invokeMethod(page, "selectProfile",
+                                  Q_ARG(QVariant, QVariant(idC)));
+        QMetaObject::invokeMethod(page, "selectRegister", Q_ARG(QVariant, 3),
+                                  Q_ARG(QVariant, 20));
+        readiness = page->property("readinessResult").toMap();
+        if (!readiness.value(QStringLiteral("readable")).toBool())
+            fail(QStringLiteral("the VariableDecimal register was not "
+                                "Readable"));
+        if (readiness.value(QStringLiteral("engineeringReady")).toBool())
+            fail(QStringLiteral("VaridableDecimal was deemed ready"));
+        if (!textOf(QStringLiteral("engineeringDecoderLabel"))
+                 .contains(QStringLiteral("VariableDecimal")))
+            fail(QStringLiteral("the Decoder line does not show "
+                                "VariableDecimal"));
+        bool mentionsVd = false;
+        for (const QVariant &reason :
+             readiness.value(QStringLiteral("reasons")).toList()) {
+            if (reason.toString().contains(QStringLiteral("VariableDecimal"))) {
+                mentionsVd = true;
+            }
+        }
+        if (!mentionsVd)
+            fail(QStringLiteral("the VariableDecimal reason is missing"));
+        note(QStringLiteral("S4b: declared VariableDecimal -> Readable / "
+                            "Not Ready (unsupported named)"));
+
+        // -------- S5 (D16): re-selecting profile A re-evaluates from ITS
+        // own declaration — the previous profile's decoder never leaks.
+        QMetaObject::invokeMethod(page, "selectProfile",
+                                  Q_ARG(QVariant, QVariant(idA)));
+        QMetaObject::invokeMethod(page, "selectRegister", Q_ARG(QVariant, 4),
+                                  Q_ARG(QVariant, 0));
+        readiness = page->property("readinessResult").toMap();
+        if (readiness.value(QStringLiteral("engineeringReady")).toBool())
+            fail(QStringLiteral("the previous decoder leaked into profile "
+                                "A"));
+        if (!textOf(QStringLiteral("engineeringDecoderLabel"))
+                 .contains(QStringLiteral("Unknown")))
+            fail(QStringLiteral("the Decoder line did not return to "
+                                "Unknown"));
+        note(QStringLiteral("S5: re-selection re-evaluates; no decoder "
+                            "leakage"));
+
+        // -------- S6: deleting the SELECTED profile clears the selection.
+        QFile::remove(ProfileStore::defaultFilePathFor(idA));
+        QMetaObject::invokeMethod(controller, "refreshCatalog");
+        if (!page->property("selectedProfileId").toString().isEmpty())
+            fail(QStringLiteral("the deleted profile stayed selected"));
+        note(QStringLiteral("S6: deleting the selected profile cleared the "
+                            "selection"));
+
+        // -------- S7: an empty catalog shows the honest empty state.
+        QFile::remove(ProfileStore::defaultFilePathFor(idB));
+        QFile::remove(ProfileStore::defaultFilePathFor(idC));
+        QMetaObject::invokeMethod(controller, "refreshCatalog");
+        if (itemOf(QStringLiteral("engineeringEmptyHint"))
+                ->property("visible")
+                .toBool() == false)
+            fail(QStringLiteral("the empty state hint is hidden"));
+        note(QStringLiteral("S7: empty catalog shows the empty-state hint"));
+
+        ProfileStore::setManagedRootOverride(QString());
+        if (failures.isEmpty()) {
+            qInfo() << "C1 READINESS CHECK PASS: selector consumes SAVED "
+                       "profiles only; FC04/FC03 whitelist; complete missing "
+                       "lists; EngineeringReady gate wording; deletion "
+                       "clears the selection; empty state honest; no read, "
+                       "no compute, no poll, no provider";
+            boolOf(QStringLiteral("engineeringGateButton"), "enabled");
+            app.exit(0);
+            return;
+        }
+        for (const QString &f : failures)
+            qWarning().noquote() << "C1FAIL:" << f;
+        app.exit(1);
+    });
+    return app.exec();
+}
+
 int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
 {
     const auto roots = engine.rootObjects();
@@ -15273,6 +16085,441 @@ int runProfileEditorCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                            "draft; enabled follows dirty; nothing saved"));
     });
 
+    // Stage 17 (T035-B Round B1): professional terminology — DISPLAY shows
+    // the English standard name with a Chinese explanation, while every
+    // internal token / index / persisted value stays byte-identical. The
+    // displayed text must never become the data: selection is still by INDEX
+    // and the dialog still forwards indices in its fields map.
+    push([&]() {
+        // Ensure the register list has at least one row (earlier stages may
+        // have opened a different catalog profile): add one through the REAL
+        // editor flow when needed.
+        const bool listEmpty =
+            controller->property("registerMap").toList().isEmpty();
+        if (listEmpty) {
+            if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+                fail(QStringLiteral("B1: Add is not clickable (seed row)"));
+            setField(QStringLiteral("regFcField"), QStringLiteral("03"));
+            setField(QStringLiteral("regAddressField"),
+                     QStringLiteral("900"));
+            setField(QStringLiteral("regNameField"),
+                     QStringLiteral("B1 Row"));
+            if (!clickNamed(QStringLiteral("regApplyButton")))
+                fail(QStringLiteral("B1: the seed row was not applied"));
+        }
+        if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+            fail(QStringLiteral("B1: Add is not clickable"));
+        if (!visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("B1: the entry editor dialog did not open"));
+
+        const auto modelTexts = [&itemOf](const QString &name) -> QStringList {
+            QStringList out;
+            QObject *item = itemOf(name);
+            if (!item) {
+                return out;
+            }
+            const QVariant model = item->property("model");
+            const QVariantList list = model.toList();
+            for (const QVariant &v : list) {
+                out << v.toString();
+            }
+            return out;
+        };
+        const auto setComboIndex = [&itemOf](const QString &name,
+                                             int index) -> bool {
+            QObject *combo = itemOf(name);
+            if (!combo || index < 0) {
+                return false;
+            }
+            return combo->setProperty("currentIndex", index);
+        };
+
+        // B01/B02: dataType combo shows "English（中文解释）" for every one of
+        // the 7 M11 types; the INDEX (the persisted value) is untouched.
+        const QStringList dataTypeTexts =
+            modelTexts(QStringLiteral("regDataTypeCombo"));
+        if (dataTypeTexts.size() != 7) {
+            fail(QStringLiteral("B1: dataType model size is %1, expected 7")
+                     .arg(dataTypeTexts.size()));
+        } else {
+            if (dataTypeTexts.at(2)
+                != QStringLiteral("UInt16（16位无符号整数）"))
+                fail(QStringLiteral("B1: UInt16 display text lacks the zh "
+                                    "explanation"));
+            if (dataTypeTexts.at(3)
+                != QStringLiteral("Int16（16位有符号整数）"))
+                fail(QStringLiteral("B1: Int16 display text lacks the zh "
+                                    "explanation"));
+            if (dataTypeTexts.at(6)
+                != QStringLiteral("Float32（32位浮点数）"))
+                fail(QStringLiteral("B1: Float32 display text lacks the zh "
+                                    "explanation"));
+        }
+        // Token separation: selection by index still lands on the same index
+        // the dialog forwards to the controller — display text never becomes
+        // data.
+        if (!setComboIndex(QStringLiteral("regDataTypeCombo"), 2))
+            fail(QStringLiteral("B1: cannot select UInt16 by index"));
+        else if (itemOf(QStringLiteral("regDataTypeCombo"))
+                     ->property("currentIndex").toInt()
+                 != 2)
+            fail(QStringLiteral("B1: the dataType index drifted"));
+        if (!setComboIndex(QStringLiteral("regDataTypeCombo"), 6))
+            fail(QStringLiteral("B1: cannot select Float32 by index"));
+        else if (itemOf(QStringLiteral("regCountField"))
+                     ->property("text").toString()
+                 != QStringLiteral("2"))
+            fail(QStringLiteral("B1: Float32 no longer derives count=2"));
+
+        // B05: byte/word order combos share the same English（中文）style.
+        const QStringList byteTexts =
+            modelTexts(QStringLiteral("regByteOrderCombo"));
+        if (byteTexts.size() != 2
+            || byteTexts.at(0) != QStringLiteral("Normal（正序）")
+            || byteTexts.at(1) != QStringLiteral("ByteSwapped（字节交换）"))
+            fail(QStringLiteral("B1: byteOrder display texts wrong"));
+        const QStringList wordTexts =
+            modelTexts(QStringLiteral("regWordOrderCombo"));
+        if (wordTexts.size() != 2
+            || wordTexts.at(0) != QStringLiteral("HighWordFirst（高字在前）")
+            || wordTexts.at(1) != QStringLiteral("LowWordFirst（低字在前）"))
+            fail(QStringLiteral("B1: wordOrder display texts wrong"));
+
+        // B04: engineering field labels.
+        if (propStr(itemOf(QStringLiteral("regScaleLabel")), "text")
+            != QStringLiteral("Scale（倍率）："))
+            fail(QStringLiteral("B1: Scale label is not the en+zh text"));
+        if (propStr(itemOf(QStringLiteral("regOffsetLabel")), "text")
+            != QStringLiteral("Offset（偏移量）："))
+            fail(QStringLiteral("B1: Offset label is not the en+zh text"));
+        if (propStr(itemOf(QStringLiteral("regUnitLabel")), "text")
+            != QStringLiteral("Unit（单位）："))
+            fail(QStringLiteral("B1: Unit label is not the en+zh text"));
+
+        // B03: the FC field carries a standing hint naming FC03/FC04 in both
+        // languages.
+        const QString fcHint =
+            propStr(itemOf(QStringLiteral("regFcHintLabel")), "text");
+        if (!fcHint.contains(QStringLiteral("FC03"))
+            || !fcHint.contains(QStringLiteral("FC04")))
+            fail(QStringLiteral("B1: the FC hint does not name FC03/FC04"));
+
+        // Register LIST: the DataType column shows the en+zh display text
+        // while the row data itself keeps the frozen token.
+        auto *listTypeLabel =
+            itemOf(QStringLiteral("registerRowDataTypeLabel"));
+        if (!listTypeLabel) {
+            fail(QStringLiteral("B1: the register-list dataType label is "
+                                "missing"));
+        } else {
+            const QString listText = propStr(listTypeLabel, "text");
+            if (listText == QStringLiteral("<none>")) {
+                fail(QStringLiteral("B1: the register-list dataType label "
+                                    "has no text"));
+            } else if (!listText.contains(QStringLiteral("（"))) {
+                fail(QStringLiteral("B1: the register-list dataType column "
+                                    "has no zh explanation"));
+            } else {
+                // The display text STARTS with the frozen token: the mapping
+                // appends the explanation, it never replaces the token.
+                const QVariantList rows =
+                    controller->property("registerMap").toList();
+                if (!rows.isEmpty()) {
+                    const QString token =
+                        rows.first()
+                            .toMap()
+                            .value(QStringLiteral("dataType"))
+                            .toString();
+                    if (!listText.startsWith(token))
+                        fail(QStringLiteral("B1: the list display text no "
+                                            "longer starts with the token"));
+                }
+            }
+        }
+        // Cancel the editor: the seeded draft row is untouched.
+        if (!clickNamed(QStringLiteral("regCancelButton")))
+            fail(QStringLiteral("B1: the cancel button is not clickable"));
+        note(QStringLiteral("stage 17 (B1): en+zh display texts asserted; "
+                            "indices and derived values unchanged"));
+    });
+
+    // Stage 18 (T035-B Round B1.1): the editor dialog is a DESKTOP-sized,
+    // row-aligned form. Each label sits on the SAME line as its OWN field
+    // (the label column never drifts into a neighbouring field), the dialog
+    // fits inside the window, the type is readable, and the footer buttons
+    // stay reachable. Geometry-only: apparent roundness goes to the Human
+    // Visual Check list.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+            fail(QStringLiteral("B1.1: Add is not clickable"));
+        if (!visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("B1.1: the entry editor dialog did not open"));
+        QObject *dlg = nullptr;
+        for (QObject *root : roots) {
+            dlg = root->findChild<QObject *>(
+                QStringLiteral("entryEditorDialog"));
+            if (dlg) {
+                break;
+            }
+        }
+        if (!dlg) {
+            fail(QStringLiteral("B1.1: the dialog object is missing"));
+            return;
+        }
+        const double dlgW = dlg->property("width").toDouble();
+        const double dlgH = dlg->property("height").toDouble();
+        // B11/B12: desktop target and inside the window.
+        if (dlgW < 860.0)
+            fail(QStringLiteral("B1.1: dialog width %1 is below the desktop "
+                                "minimum of 860").arg(dlgW));
+        if (dlgH < 560.0)
+            fail(QStringLiteral("B1.1: dialog height %1 is below 560")
+                     .arg(dlgH));
+        if (dlgW > double(window->width()) || dlgH > double(window->height()))
+            fail(QStringLiteral("B1.1: the dialog exceeds the window"));
+
+        // B13/B15: every label shares ONE line with its OWN field, and the
+        // field starts to the right of the label (no interleaving).
+        const auto labelFieldOnOneLine =
+            [&sceneRectOf](const QString &labelName,
+                           const QString &fieldName) -> bool {
+            const QRectF lr = sceneRectOf(labelName);
+            const QRectF fr = sceneRectOf(fieldName);
+            if (lr.isEmpty() || fr.isEmpty()) {
+                return false;
+            }
+            const double dy = std::fabs((lr.top() + lr.height() / 2.0)
+                                        - (fr.top() + fr.height() / 2.0));
+            return dy <= 12.0
+                   && (lr.left() + lr.width()) <= fr.left() + 2.0;
+        };
+        const std::initializer_list<std::pair<const char *, const char *>>
+            pairs = {{"regFcRowLabel", "regFcField"},
+                     {"regAddressRowLabel", "regAddressField"},
+                     {"regNameRowLabel", "regNameField"},
+                     {"regDescRowLabel", "regDescField"},
+                     {"regDataTypeRowLabel", "regDataTypeCombo"},
+                     {"regCountRowLabel", "regCountField"},
+                     {"regByteOrderRowLabel", "regByteOrderCombo"},
+                     {"regWordOrderRowLabel", "regWordOrderCombo"},
+                     // C1.3: the new decoder row participates in the same
+                     // one-line label/field geometry contract.
+                     {"regDecoderRowLabel", "regDecoderCombo"},
+                     {"regScaleLabel", "regScaleField"},
+                     {"regOffsetLabel", "regOffsetField"},
+                     {"regUnitLabel", "regUnitField"}};
+        for (const auto &pair : pairs) {
+            if (!labelFieldOnOneLine(QString::fromLatin1(pair.first),
+                                     QString::fromLatin1(pair.second)))
+                fail(QStringLiteral("B1.1: label %1 is not on one line with "
+                                    "%2")
+                         .arg(QString::fromLatin1(pair.first),
+                              QString::fromLatin1(pair.second)));
+        }
+
+        // B14: the FC bilingual hint occupies its OWN block — below the FC
+        // field, above the address row, never squeezed into the FC line.
+        const QRectF hintR = sceneRectOf(QStringLiteral("regFcHintLabel"));
+        const QRectF fcR = sceneRectOf(QStringLiteral("regFcField"));
+        const QRectF addrR = sceneRectOf(QStringLiteral("regAddressField"));
+        if (hintR.isEmpty()) {
+            fail(QStringLiteral("B1.1: the FC hint is missing"));
+        } else if (!(hintR.top() >= fcR.top() + fcR.height() - 2.0)) {
+            fail(QStringLiteral("B1.1: the FC hint is not below the FC "
+                                "field"));
+        } else if (!(hintR.bottom() <= addrR.top() + 2.0)) {
+            fail(QStringLiteral("B1.1: the FC hint runs into the address "
+                                "row"));
+        }
+
+        // B16: readable type sizes (dialog-local scale).
+        const auto fontPxOf = [&itemOf](const QString &name) -> int {
+            QObject *o = itemOf(name);
+            if (!o) {
+                return 0;
+            }
+            const QVariant f = o->property("font");
+            if (f.canConvert<QFont>()) {
+                const int px = f.value<QFont>().pixelSize();
+                if (px > 0) {
+                    return px;
+                }
+            }
+            return o->property("fontPixelSize").toInt();
+        };
+        if (fontPxOf(QStringLiteral("regFcRowLabel")) < 14)
+            fail(QStringLiteral("B1.1: field label font below 14px"));
+        if (fontPxOf(QStringLiteral("regFcField")) < 15)
+            fail(QStringLiteral("B1.1: input font below 15px"));
+        if (fontPxOf(QStringLiteral("regFcHintLabel")) < 13)
+            fail(QStringLiteral("B1.1: hint font below 13px"));
+        if (fontPxOf(QStringLiteral("regDataTypeCombo")) < 15)
+            fail(QStringLiteral("B1.1: combo font below 15px"));
+        if (fontPxOf(QStringLiteral("regScaleField")) < 15)
+            fail(QStringLiteral("B1.1: decimal field font below 15px"));
+
+        // B18: an unconfigured Scale shows EMPTY in the fresh editor (the
+        // Round O semantics survive the layout change).
+        if (!propStr(itemOf(QStringLiteral("regScaleField")), "text")
+                 .isEmpty())
+            fail(QStringLiteral("B1.1: the fresh editor prefilled scale"));
+
+        // B20: every field exists and the footer buttons stay operational.
+        for (const char *name :
+             {"regFcField", "regAddressField", "regNameField", "regDescField",
+              "regDataTypeCombo", "regCountField", "regByteOrderCombo",
+              "regWordOrderCombo", "regScaleField", "regOffsetField",
+              "regUnitField"}) {
+            if (!itemOf(QString::fromLatin1(name)))
+                fail(QStringLiteral("B1.1: field %1 is missing")
+                         .arg(QString::fromLatin1(name)));
+        }
+        if (!propBool(itemOf(QStringLiteral("regApplyButton")), "enabled"))
+            fail(QStringLiteral("B1.1: Apply is not enabled"));
+        if (!propBool(itemOf(QStringLiteral("regCancelButton")), "enabled"))
+            fail(QStringLiteral("B1.1: Cancel is not enabled"));
+
+        if (!clickNamed(QStringLiteral("regCancelButton")))
+            fail(QStringLiteral("B1.1: Cancel is not clickable"));
+        note(QStringLiteral("stage 18 (B1.1): desktop dialog geometry, "
+                            "label-field rows, hint block, font floor — all "
+                            "asserted"));
+    });
+
+    // Stage 19 (T035-C C1.2): the Decoder declaration ComboBox — the editor
+    // persists the STABLE MACHINE TOKEN, the projection round-trips it, and
+    // the Human can change the declaration (Linear -> Unknown).
+    push([&]() {
+        const auto setComboIndex = [&itemOf](const QString &name,
+                                             int index) -> bool {
+            QObject *combo = itemOf(name);
+            if (!combo || index < 0) {
+                return false;
+            }
+            return combo->setProperty("currentIndex", index);
+        };
+        if (!clickNamed(QStringLiteral("profileRegisterAddButton")))
+            fail(QStringLiteral("C1.2: Add is not clickable"));
+        if (!visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("C1.2: editor did not open"));
+
+        auto *combo = itemOf(QStringLiteral("regDecoderCombo"));
+        if (!combo) {
+            fail(QStringLiteral("C1.2: regDecoderCombo is missing"));
+        } else {
+            if (combo->property("currentIndex").toInt() != 0)
+                fail(QStringLiteral("C1.2: the decoder combo does not "
+                                    "default to Unknown"));
+            const QVariantList model = combo->property("model").toList();
+            if (model.size() != 5)
+                fail(QStringLiteral("C1.2: decoder model size %1 != 5")
+                         .arg(model.size()));
+            else if (model.at(2).toString()
+                     != QStringLiteral("固定倍率换算（原始值 × 倍率 + 偏移量）"))
+                fail(QStringLiteral("C1.3: the Linear option text is not "
+                                    "the Human-readable wording"));
+        }
+        if (!itemOf(QStringLiteral("regDecoderHintLabel")))
+            fail(QStringLiteral("C1.2: the decoder hint is missing"));
+        if (!itemOf(QStringLiteral("regDecoderRowLabel")))
+            fail(QStringLiteral("C1.2: the decoder row label is missing"));
+        // C1.3 U08/U09: visible option text + the explanation follows the
+        // selection + the standing notice.
+        if (!itemOf(QStringLiteral("regDecoderNoticeLabel"))
+            || !propStr(itemOf(QStringLiteral("regDecoderNoticeLabel")),
+                        "text")
+                    .contains(QStringLiteral("请根据设备手册确认")))
+            fail(QStringLiteral("C1.3: the decoder notice is missing"));
+        if (combo
+            && combo->property("displayText").toString().trimmed().isEmpty())
+            fail(QStringLiteral("C1.3: the decoder combo's visible text is "
+                                "EMPTY"));
+        {
+            const QString unknownHelp =
+                propStr(itemOf(QStringLiteral("regDecoderHintLabel")),
+                        "text");
+            if (!unknownHelp.contains(QStringLiteral("尚未确认")))
+                fail(QStringLiteral("C1.3: the Unknown explanation is "
+                                    "wrong"));
+            if (itemOf(QStringLiteral("regDecoderHintLabel"))
+                    ->property("text")
+                    .toString()
+                    .contains(QStringLiteral("固定倍率")))
+                fail(QStringLiteral("C1.3: the Unknown state shows the "
+                                    "Linear help"));
+        }
+
+        // Add a valid row with an EXPLICIT Linear declaration; apply.
+        setField(QStringLiteral("regFcField"), QStringLiteral("03"));
+        setField(QStringLiteral("regAddressField"), QStringLiteral("700"));
+        setField(QStringLiteral("regNameField"), QStringLiteral("C12 Row"));
+        if (!setComboIndex(QStringLiteral("regDecoderCombo"), 2))
+            fail(QStringLiteral("C1.2: cannot select Linear"));
+        // C1.3 U09: the explanation follows the selection.
+        if (!propStr(itemOf(QStringLiteral("regDecoderHintLabel")), "text")
+                 .contains(QStringLiteral("倍率")))
+            fail(QStringLiteral("C1.3: the Linear explanation did not "
+                                "follow the selection"));
+        if (!clickNamed(QStringLiteral("regApplyButton")))
+            fail(QStringLiteral("C1.2: apply failed"));
+
+        // The projection round-trips the TOKEN (never the index).
+        const int lastIndex =
+            controller->property("registerMap").toList().size() - 1;
+        QVariantMap stored;
+        if (!QMetaObject::invokeMethod(controller, "registerEntryAt",
+                                       Q_RETURN_ARG(QVariantMap, stored),
+                                       Q_ARG(int, lastIndex))) {
+            fail(QStringLiteral("C1.2: registerEntryAt is not invokable"));
+        } else if (stored.value(QStringLiteral("decoderKind")).toString()
+                   != QStringLiteral("linear")) {
+            fail(QStringLiteral("C1.2: the stored decoder token is not "
+                                "'linear' (got '%1')")
+                     .arg(stored.value(QStringLiteral("decoderKind"))
+                              .toString()));
+        }
+
+        // Edit the row: the combo REFILLS from the projection...
+        auto *profilePage = rootObj->findChild<QObject *>(
+            QStringLiteral("deviceProfileWorkspace"));
+        if (!profilePage
+            || !QMetaObject::invokeMethod(
+                profilePage, "openEntryEdit",
+                Q_ARG(QVariant, QVariant(lastIndex))))
+            fail(QStringLiteral("C1.2: cannot reopen the editor for the "
+                                "saved row"));
+        if (!visibleOf(QStringLiteral("entryEditorDialog")))
+            fail(QStringLiteral("C1.2: the editor did not reopen for edit"));
+        if (itemOf(QStringLiteral("regDecoderCombo"))
+                ->property("currentIndex").toInt()
+            != 2)
+            fail(QStringLiteral("C1.2: the decoder combo did not refill to "
+                                "Linear"));
+        // ...and the Human can clear it back to Unknown.
+        if (!setComboIndex(QStringLiteral("regDecoderCombo"), 0))
+            fail(QStringLiteral("C1.2: cannot reset the decoder combo"));
+        if (!propStr(itemOf(QStringLiteral("regDecoderHintLabel")), "text")
+                 .contains(QStringLiteral("尚未确认")))
+            fail(QStringLiteral("C1.3: the Unknown explanation did not "
+                                "return"));
+        if (!clickNamed(QStringLiteral("regApplyButton")))
+            fail(QStringLiteral("C1.2: the edit apply failed"));
+        QVariantMap stored2;
+        if (!QMetaObject::invokeMethod(controller, "registerEntryAt",
+                                       Q_RETURN_ARG(QVariantMap, stored2),
+                                       Q_ARG(int, lastIndex))) {
+            fail(QStringLiteral("C1.2: registerEntryAt is not invokable "
+                                "(second read)"));
+        } else if (stored2.value(QStringLiteral("decoderKind")).toString()
+                   != QStringLiteral("unknown")) {
+            fail(QStringLiteral("C1.2: clearing the declaration did not "
+                                "store 'unknown'"));
+        }
+        note(QStringLiteral("stage 19 (C1.2): decoder combo defaults to "
+                            "Unknown; token round-trips; Linear -> Unknown "
+                            "clearable"));
+    });
+
     const int settleMs = 60;
     auto step = std::make_shared<int>(0);
     auto schedule = std::make_shared<std::function<void()>>();
@@ -15832,7 +17079,102 @@ int runRegisterMapCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
               QStringLiteral("regUnitField"),
               QStringLiteral("regApplyButton"),
               QStringLiteral("regCancelButton")})
+        {
+            if (name == QStringLiteral("regUnitField")) {
+                // R5: this field lives inside the editor's ScrollView, so its
+                // contract is "scrollable into FULL view", not "visible at
+                // scroll offset 0". Prove that by actually scrolling, then
+                // assert full visibility + enabled + focus.
+                auto *field = itemOf(name);
+                QQuickItem *flickable = nullptr;
+                for (QQuickItem *p = field ? field->parentItem() : nullptr; p;
+                     p = p->parentItem()) {
+                    if (p->inherits("QQuickFlickable")) {
+                        flickable = p;
+                        break;
+                    }
+                }
+                if (!field || !flickable) {
+                    fail(QStringLiteral("regUnitField is not inside a "
+                                        "scrollable container (scroll contract "
+                                        "broken)"));
+                    continue;
+                }
+                const qreal contentH =
+                    flickable->property("contentHeight").toReal();
+                const qreal viewH = flickable->height();
+                const qreal maxY = qMax<qreal>(0.0, contentH - viewH);
+                qInfo().noquote()
+                    << QStringLiteral("SCROLLDIAG before: contentY=%1 "
+                                      "contentHeight=%2 viewport=%3 maxY=%4")
+                           .arg(flickable->property("contentY").toReal())
+                           .arg(contentH)
+                           .arg(viewH)
+                           .arg(maxY);
+                // PROGRAMMATIC scroll (documented as such): proves GEOMETRIC
+                // reachability, not wheel/touch ergonomics.
+                flickable->setProperty("contentY", maxY);
+                QCoreApplication::processEvents();
+                const QRectF fieldRect = sceneRectOf(name);
+                const QRectF windowRect(0, 0, window->width(),
+                                        window->height());
+                // NOTE: sceneRectOf() on a QQuickPopup resolves through a
+                // different origin than mapToItem(dialog), so comparing scene
+                // rects across the popup boundary is not meaningful. The
+                // dialog-local mapping below uses ONE coordinate system.
+                // The popup wrapper reports height 0, and scene rects across
+                // the popup boundary use different origins — so the reliable
+                // contract is the SCROLL VIEWPORT: after scrolling, the field
+                // must be fully inside the flickable's visible height.
+                const QPointF inViewport =
+                    field->mapToItem(flickable, QPointF(0, 0));
+                const bool insideViewport =
+                    inViewport.y() >= -0.5
+                    && inViewport.y() + fieldRect.height() <= viewH + 0.5;
+                const bool insideWindow = windowRect.contains(fieldRect);
+                const bool insideDialog = insideViewport;
+                qInfo().noquote()
+                    << QStringLiteral("SCROLLDIAG after: contentY=%1 "
+                                      "fieldRect=x%2 y%3 w%4 h%5 "
+                                      "insideWindow=%6 insideDialog=%7 "
+                                      "enabled=%8")
+                           .arg(flickable->property("contentY").toReal())
+                           .arg(fieldRect.x())
+                           .arg(fieldRect.y())
+                           .arg(fieldRect.width())
+                           .arg(fieldRect.height())
+                           .arg(insideWindow ? 1 : 0)
+                           .arg(insideDialog ? 1 : 0)
+                           .arg(field->isEnabled() ? 1 : 0);
+                qInfo().noquote()
+                    << QStringLiteral("SCROLLDIAG viewportLocal: y=%1 h=%2 "
+                                      "viewportH=%3 insideViewport=%4")
+                           .arg(inViewport.y())
+                           .arg(fieldRect.height())
+                           .arg(viewH)
+                           .arg(insideViewport ? 1 : 0);
+                field->forceActiveFocus();
+                QCoreApplication::processEvents();
+                const bool focused = field->hasActiveFocus();
+                qInfo().noquote()
+                    << QStringLiteral("SCROLLDIAG focus=%1")
+                           .arg(focused ? 1 : 0);
+                flickable->setProperty("contentY", 0);
+                QCoreApplication::processEvents();
+                if (!insideWindow || !insideDialog || !field->isEnabled()
+                    || !focused)
+                    fail(QStringLiteral("regUnitField is not reachable inside "
+                                        "the editor dialog after scrolling "
+                                        "(insideWindow=%1 insideDialog=%2 "
+                                        "enabled=%3 focus=%4)")
+                             .arg(insideWindow ? 1 : 0)
+                             .arg(insideDialog ? 1 : 0)
+                             .arg(field->isEnabled() ? 1 : 0)
+                             .arg(focused ? 1 : 0));
+                continue;
+            }
             requireInsideWindow(name);
+        }
         if (!clickNamed(QStringLiteral("regCancelButton")))
             fail(QStringLiteral("the editor Cancel is not clickable"));
         note(QStringLiteral("stage 16: 1000x700 reachable incl. dialog"));
@@ -16395,17 +17737,91 @@ int runActiveProfileCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
     // (B3-Q18) — the read result panel is untouched by profile state.
     push([&]() {
         QList<QQuickItem *> semanticItems;
+        // FIX-04 (SOURCE-REPRO-R4): the assertion targets UNAUTHORISED
+        // semantic overlays. The M12 readout cell ("readSemanticCell",
+        // shipped 2026-09-26 in f1567a5) is an approved PRODUCT component
+        // that lives inside the read-result evidence DIALOG (a QQuickPopup
+        // rendered through QQuickOverlay), so the structural criterion must
+        // cover the dialog subtree as well as the read-result panel. Any
+        // other semantic-named item on the page still fails the gate — this
+        // is an ownership criterion, not a name whitelist.
+        const auto belongsToReadResultEvidence = [](QQuickItem *item) {
+            for (QQuickItem *p = item->parentItem(); p; p = p->parentItem()) {
+                const QString name = p->objectName();
+                if (name == QStringLiteral("readResultPanel")
+                    || name == QStringLiteral("readResultDetailDialog")
+                    || name == QStringLiteral("readResultValuesList"))
+                    return true;
+            }
+            return false;
+        };
         std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            // R5: only a VISIBLE item can be an overlay. A hidden semantic
+            // component (e.g. engineeringSemanticNotice living in the
+            // inactive Engineering workspace with visible=0) is not an
+            // overlay and must not fail this Communication-page assertion.
             if (item->objectName().contains(QStringLiteral("semantic"),
-                                            Qt::CaseInsensitive))
+                                            Qt::CaseInsensitive)
+                && item->isVisible()
+                && !belongsToReadResultEvidence(item))
                 semanticItems << item;
             for (QQuickItem *child : item->childItems())
                 walk(child);
         };
         if (window->contentItem())
             walk(window->contentItem());
-        if (!semanticItems.isEmpty())
+        if (!semanticItems.isEmpty()) {
+            // R5 diagnostic: identify exactly which items the ownership
+            // criterion still rejects, so the scope can be judged from
+            // evidence instead of guesswork.
+            for (QQuickItem *item : semanticItems) {
+                QStringList chain;
+                for (QQuickItem *p = item->parentItem(); p;
+                     p = p->parentItem()) {
+                    chain << (p->objectName().isEmpty()
+                                  ? QStringLiteral("<%1>").arg(
+                                        QString::fromLatin1(
+                                            p->metaObject()->className()))
+                                  : p->objectName());
+                }
+                qWarning().noquote()
+                    << QStringLiteral("[SEMDIAG] hit=%1 visible=%2 chain=%3")
+                           .arg(item->objectName())
+                           .arg(item->isVisible() ? 1 : 0)
+                           .arg(chain.join(QStringLiteral(" < ")));
+            }
             fail(QStringLiteral("a semantic overlay object appeared"));
+        }
+        // FIX-04 negative control (R5): a VISIBLE, unauthorised semantic item
+        // must still be caught by the SAME criterion, proving this relaxed
+        // scope did not turn the gate into "always pass".
+        auto *probe = new QQuickItem(window->contentItem());
+        probe->setObjectName(QStringLiteral("testSemanticOverlayProbe"));
+        probe->setSize(QSizeF(8, 8));
+        probe->setVisible(true);
+        QList<QQuickItem *> probeHits;
+        std::function<void(QQuickItem *)> walkProbe = [&](QQuickItem *item) {
+            if (item->objectName().contains(QStringLiteral("semantic"),
+                                            Qt::CaseInsensitive)
+                && item->isVisible()
+                && !belongsToReadResultEvidence(item))
+                probeHits << item;
+            for (QQuickItem *child : item->childItems())
+                walkProbe(child);
+        };
+        if (window->contentItem())
+            walkProbe(window->contentItem());
+        const bool negativeCaught =
+            std::any_of(probeHits.cbegin(), probeHits.cend(),
+                        [probe](QQuickItem *hit) { return hit == probe; });
+        delete probe;
+        if (!negativeCaught)
+            fail(QStringLiteral("FIX-04 negative control failed: a visible "
+                                "unauthorised semantic overlay was NOT "
+                                "detected"));
+        else
+            note(QStringLiteral("stage 13 negative control: visible "
+                                "unauthorised semantic overlay detected"));
         if (!visibleOf(QStringLiteral("readResultPanel")))
             fail(QStringLiteral("the read result panel disappeared"));
         note(QStringLiteral("stage 13: no semantic overlay"));
@@ -19209,6 +20625,124 @@ int runCandidateReviewCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
                                 "(auto-save / second pipeline)"));
         }
     });
+    // =====================================================================
+    // T035-A.3.2.2 — REGISTER review steps (R10-R12): the register-kind
+    // candidate reaches the SAME review card, shows its v1 fields with
+    // HONEST optional-member display, and Accept stages it into the draft
+    // through the controlled apply path (no auto-save).
+    // =====================================================================
+    // R10 — seed ONE validated register candidate through the REAL register
+    // validator (the automation seam; no provider call). Re-import is
+    // unnecessary: the SAME managed manual is already selected from the
+    // profile-field steps above.
+    push([&]() {
+        QVariantMap proposal;
+        proposal.insert(QStringLiteral("functionCode"), 4);
+        proposal.insert(QStringLiteral("address"), 5);
+        proposal.insert(QStringLiteral("name"), QStringLiteral("Temperature"));
+        proposal.insert(QStringLiteral("dataType"), QStringLiteral("Float32"));
+        proposal.insert(QStringLiteral("quantity"), 2);
+        proposal.insert(QStringLiteral("scale"), 0.1);
+        proposal.insert(QStringLiteral("unit"), QStringLiteral("degC"));
+        proposal.insert(QStringLiteral("evidenceExcerpt"),
+                        QStringLiteral("Model: INV-1000"));
+        QVariantMap document;
+        document.insert(QStringLiteral("documentId"),
+                        manual->property("selectedDocument")
+                            .toMap()
+                            .value(QStringLiteral("documentId")));
+        document.insert(QStringLiteral("contentHash"),
+                        manual->property("selectedDocument")
+                            .toMap()
+                            .value(QStringLiteral("contentHash")));
+        document.insert(QStringLiteral("originalFileName"),
+                        manual->property("selectedDocument")
+                            .toMap()
+                            .value(QStringLiteral("originalFileName")));
+        document.insert(QStringLiteral("originalPath"),
+                        manual->property("selectedDocument")
+                            .toMap()
+                            .value(QStringLiteral("originalPath")));
+        bool seeded = false;
+        QMetaObject::invokeMethod(
+            candidate, "seedRegisterReviewCandidatesForAutomation",
+            Qt::DirectConnection, Q_RETURN_ARG(bool, seeded),
+            Q_ARG(QVariantMap, document),
+            Q_ARG(QString, ManualStore::loadText(
+                                document.value(QStringLiteral("contentHash"))
+                                    .toString(),
+                                nullptr)),
+            Q_ARG(QVariantList, QVariantList{proposal}));
+        if (!seeded) {
+            fail(QStringLiteral("R10: the register candidate seed failed"));
+            return;
+        }
+        if (candidate->property("candidateCount").toInt() != 1) {
+            fail(QStringLiteral("R10: expected exactly 1 pending register "
+                                "candidate"));
+        }
+    });
+    // R11 — the register review card shows the v1 fields and the HONEST
+    // optional-member display: scale stated by the manual vs offset/unit
+    // NOT provided (frozen defaults, never presented as extractions).
+    push([&]() {
+        auto *identity = itemOf(QStringLiteral("candidateRegisterRowIdentity"));
+        auto *scale = itemOf(QStringLiteral("candidateRegisterRowScale"));
+        auto *offset = itemOf(QStringLiteral("candidateRegisterRowOffset"));
+        auto *unit = itemOf(QStringLiteral("candidateRegisterRowUnit"));
+        auto *accept = itemOf(QStringLiteral("candidateAcceptButton_0"));
+        if (!identity || !identity->isVisible()
+            || !identity->property("text").toString().contains(
+                   QStringLiteral("FC4"))) {
+            fail(QStringLiteral("R11: the register identity row is missing"));
+        }
+        if (!scale || !scale->isVisible()
+            || !scale->property("text").toString().contains(
+                   QStringLiteral("0.1"))) {
+            fail(QStringLiteral("R11: the stated scale is not visible"));
+        }
+        if (!offset || !offset->property("text").toString().contains(
+                            QStringLiteral("未提供"))) {
+            fail(QStringLiteral("R11: the unstated offset is not honestly "
+                                "displayed as 未提供"));
+        }
+        if (!unit || !unit->property("text").toString().contains(
+                          QStringLiteral("degC"))) {
+            fail(QStringLiteral("R11: the stated unit is not visible"));
+        }
+        if (!accept || !accept->isVisible()) {
+            fail(QStringLiteral("R11: the register Accept control is missing"));
+        }
+    });
+    // R12 — REAL register Accept: controlled staged-draft write (validate
+    // inside ProfileController), candidate consumed, draft register map
+    // updated, persisted profile NOT touched.
+    push([&]() {
+        if (!clickNamed(QStringLiteral("candidateAcceptButton_0"))) {
+            fail(QStringLiteral("R12: candidateAcceptButton_0 is not clickable"));
+            return;
+        }
+        if (candidate->property("candidateCount").toInt() != 0) {
+            fail(QStringLiteral("R12: the accepted register candidate is still "
+                                "pending"));
+        }
+        const QVariantList rows =
+            profile->property("registerMap").toList();
+        if (rows.size() != 1
+            || rows.at(0).toMap().value(QStringLiteral("address")).toInt() != 5
+            || rows.at(0).toMap().value(QStringLiteral("name")).toString()
+                   != QStringLiteral("Temperature")) {
+            fail(QStringLiteral("R12: the register draft entry is missing or "
+                                "wrong"));
+        }
+        const auto persisted = ProfileStore::loadFromFile(
+            ProfileStore::defaultFilePathFor(
+                profile->property("currentProfileId").toString()));
+        if (persisted.ok() && !persisted.profile.registers.empty()) {
+            fail(QStringLiteral("R12: register Accept mutated the persisted "
+                                "profile (auto-save)"));
+        }
+    });
     // R3a — REAL Reject setup: a fresh pending Candidate, list scrolled to
     // the top (the click below must hit what a Human sees).
     push([&]() {
@@ -19371,7 +20905,16 @@ int runCandidateReviewCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("E1: the Edit action is not clickable"));
             return;
         }
-        if (!visibleOf(QStringLiteral("candidateEditDialog"))) {
+        // T035-A.3.2.2: QQuickPopup::open() visibility propagation has an
+        // async window — poll the event loop (bounded, ~1s) instead of
+        // asserting synchronously. The dialog must APPEAR; a genuinely
+        // broken open still fails the gate.
+        bool dialogOpened = false;
+        for (int settle = 0; settle < 20 && !dialogOpened; ++settle) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+            dialogOpened = visibleOf(QStringLiteral("candidateEditDialog"));
+        }
+        if (!dialogOpened) {
             fail(QStringLiteral("E1: the edit dialog did not open"));
             return;
         }
@@ -19420,7 +20963,13 @@ int runCandidateReviewCheck(QQmlApplicationEngine &engine, QGuiApplication &app)
             fail(QStringLiteral("E3: the Edit action is not clickable"));
             return;
         }
-        if (!visibleOf(QStringLiteral("candidateEditDialog"))) {
+        // T035-A.3.2.2: same bounded async-open wait as E1.
+        bool dialogReopened = false;
+        for (int settle = 0; settle < 20 && !dialogReopened; ++settle) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+            dialogReopened = visibleOf(QStringLiteral("candidateEditDialog"));
+        }
+        if (!dialogReopened) {
             fail(QStringLiteral("E3: the edit dialog did not reopen"));
             return;
         }
@@ -21312,6 +22861,8 @@ int main(int argc, char *argv[])
         QStringLiteral("--qml-profile-editor-check"),
         QStringLiteral("--qml-register-map-check"),
         QStringLiteral("--qml-active-profile-check"),
+        QStringLiteral("--qml-c1-readiness-check"),
+        QStringLiteral("--qml-c2-read-check"),
         QStringLiteral("--qml-manual-import-check"),
         QStringLiteral("--qml-consent-check"),
         QStringLiteral("--qml-candidate-review-check"),
@@ -21359,6 +22910,16 @@ int main(int argc, char *argv[])
             QStringLiteral("harness/deterministic-qa-model"));
     }
 
+    // T035-C C2: the single-read controller is declared BEFORE the engine so
+    // its lifetime covers every QML consumer (same reverse-destruction
+    // discipline as aiRuntimeConfiguration above). Dependencies are attached
+    // right after the engine loads (they are QML-side instances).
+    EngineeringReadController engineeringReadController(nullptr, nullptr);
+
+    // T035-C C2: the single-read controller is declared BEFORE the engine so
+    // its lifetime covers every QML consumer (same reverse-destruction
+    // discipline as aiRuntimeConfiguration above). Dependencies are attached
+    // right after the engine loads (they are QML-side instances).
     QQmlApplicationEngine engine;
 
     // M9-A: the DesignSystem token singleton is exposed as an engine context
@@ -21408,9 +22969,31 @@ int main(int argc, char *argv[])
         &app,
         []() { QCoreApplication::exit(-1); },
         Qt::QueuedConnection);
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("engineeringReadController"), &engineeringReadController);
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("engineeringReadController"), &engineeringReadController);
     engine.loadFromModule(QStringLiteral("ModbusLens"), QStringLiteral("Main"));
     if (engine.rootObjects().isEmpty()) {
         return -1;
+    }
+
+    // T035-C C2: attach the QML-side controllers the read path must drive.
+    {
+        QObject* rootObject = engine.rootObjects().value(0);
+        auto* analysisObject =
+            rootObject
+                ? rootObject->findChild<QObject*>(
+                      QStringLiteral("analysisController"))
+                : nullptr;
+        auto* profileObject =
+            rootObject
+                ? rootObject->findChild<QObject*>(
+                      QStringLiteral("profileController"))
+                : nullptr;
+        engineeringReadController.attach(
+            qobject_cast<::AnalysisController*>(analysisObject),
+            qobject_cast<modbuslens::ui::ProfileController*>(profileObject));
     }
 
     // Diagnostic mode for CTest (see T008 Part A): load the real QML module,
@@ -21569,6 +23152,13 @@ int main(int argc, char *argv[])
     // M12-B first slice gate: the Device Profile workspace end to end.
     if (app.arguments().contains(QStringLiteral("--qml-profile-editor-check"))) {
         return runProfileEditorCheck(engine, app);
+    }
+    // T035-C C1: the Engineering workspace selector + EngineeringReady gate.
+    if (launchArguments.contains(QStringLiteral("--qml-c1-readiness-check"))) {
+        return runC1ReadinessCheck(engine, app);
+    }
+    if (launchArguments.contains(QStringLiteral("--qml-c2-read-check"))) {
+        return runC2ReadCheck(engine, app, &engineeringReadController);
     }
 
     // M12-B second slice gate: the Register Map editor end to end.

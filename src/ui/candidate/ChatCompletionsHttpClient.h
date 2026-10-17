@@ -118,6 +118,24 @@ public:
     explicit QtChatCompletionsHttpClient(QObject *parent = nullptr);
     ~QtChatCompletionsHttpClient() override;
 
+#ifdef MODBUSLENS_ENABLE_TEST_LOOPBACK
+    // T035-A Round H.1 — TEST-ONLY tag/constructor, compiled ONLY into the
+    // deterministic test targets (PRIVATE compile definition; never into the
+    // `modbuslens` product target). It admits the expressly-allowed loopback
+    // host (http://127.0.0.1) for the SYNCHRONOUS post() path so the socket
+    // matrix (S01–S05) can drive the REAL client without widening production.
+    // Frozen constraints (mirrors the accepted E2 precedent):
+    //   · C++ constructor dependency ONLY — never Q_PROPERTY / Q_INVOKABLE /
+    //     slot / signal / QSettings / env var / CLI / global mutable static;
+    //   · LOOPBACK-ONLY (host must be 127.0.0.1) — any other non-https
+    //     endpoint still fails closed and sends NOTHING;
+    //   · the production default constructor never enables it, and in a
+    //     production build this constructor does not exist at all.
+    struct TestLoopbackTag {
+    };
+    explicit QtChatCompletionsHttpClient(TestLoopbackTag, QObject *parent = nullptr);
+#endif
+
     [[nodiscard]] ChatCompletionsHttpResult post(
         const ChatCompletionsHttpRequest &request) override;
 
@@ -144,6 +162,12 @@ private:
 
     std::uint64_t nextId_{0};
     std::map<std::uint64_t, InFlight> inFlight_;
+#ifdef MODBUSLENS_ENABLE_TEST_LOOPBACK
+    // TEST-ONLY: false for every production-default instance; true only when
+    // constructed with TestLoopbackTag. Consulted ONLY inside post()'s
+    // non-https branch, which itself only exists under this macro.
+    bool allowLoopbackTestEndpoint_{false};
+#endif
 };
 
 } // namespace modbuslens::ui

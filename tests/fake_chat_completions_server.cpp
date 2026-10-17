@@ -22,6 +22,37 @@ void FakeChatCompletionsServer::enqueueResponse(int statusCode,
     lastScripted_ = script_.back();
 }
 
+// T035-A Round H: headers immediately, body withheld forever. The connection
+// stays OPEN (no close) so the failure can only be produced by the client's own
+// timeout owner, never by a server-side disconnect.
+void FakeChatCompletionsServer::enqueueStalledBody(int statusCode,
+                                                   int declaredContentLength)
+{
+    ScriptedResponse response;
+    response.statusCode = statusCode;
+    response.body = QByteArray{}; // nothing is ever written for the body
+    response.delayMs = 0;
+    response.declaredContentLength = declaredContentLength;
+    response.stallBodyAfterHeaders = true;
+    script_.push(response);
+    lastScripted_ = script_.back();
+}
+
+// T035-A Round H: declare MORE bytes than are delivered, then close early.
+void FakeChatCompletionsServer::enqueueShortBody(int statusCode,
+                                                 const QByteArray& body,
+                                                 int declaredContentLength)
+{
+    ScriptedResponse response;
+    response.statusCode = statusCode;
+    response.body = body;
+    response.delayMs = 0;
+    response.declaredContentLength = declaredContentLength;
+    response.stallBodyAfterHeaders = false;
+    script_.push(response);
+    lastScripted_ = script_.back();
+}
+
 void FakeChatCompletionsServer::clearScript()
 {
     while (!script_.empty()) {
@@ -216,16 +247,28 @@ void FakeChatCompletionsServer::handleReadyRead(Connection& connection)
     // written to the wire it answers.
     const int status = scripted.statusCode;
     const QByteArray payload = scripted.body;
+    const bool stallBody = scripted.stallBodyAfterHeaders;
+    const int declaredLength =
+        scripted.declaredContentLength >= 0 ? scripted.declaredContentLength
+                                            : static_cast<int>(payload.size());
     QTcpSocket* const target = socket;
-    const auto responder = [target, status, payload] {
+    const auto responder = [target, status, payload, stallBody, declaredLength] {
         if (target->state() != QAbstractSocket::ConnectedState) {
             return;
         }
         const QByteArray head = "HTTP/1.1 " + QByteArray::number(status) + " OK\r\n"
             + "Content-Type: application/json\r\n"
-            + "Content-Length: " + QByteArray::number(payload.size()) + "\r\n"
+            + "Content-Length: " + QByteArray::number(declaredLength) + "\r\n"
             + "Connection: close\r\n\r\n";
         target->write(head);
+        target->flush();
+        if (stallBody) {
+            // T035-A Round H: headers are on the wire; the body is NEVER sent
+            // and the socket is NEVER closed. The exchange can only end via the
+            // client's own timeout owner (the socket is left open so no
+            // server-side FIN can end it either).
+            return;
+        }
         target->write(payload);
         // Flush before closing: an immediate disconnect can reset the
         // connection before the reply bytes are delivered.

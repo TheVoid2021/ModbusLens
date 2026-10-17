@@ -31,6 +31,16 @@ constexpr TokenPair kWordOrderTokens[] = {
     {"HighWordFirst", static_cast<int>(RegisterWordOrder::HighWordFirst)},
     {"LowWordFirst", static_cast<int>(RegisterWordOrder::LowWordFirst)},
 };
+// T035-C Round C1.2: stable machine tokens for the persisted decoder
+// declaration (never a ComboBox index).
+constexpr TokenPair kDecoderKindTokens[] = {
+    {"unknown", static_cast<int>(EngineeringDecoderKind::Unknown)},
+    {"raw", static_cast<int>(EngineeringDecoderKind::Raw)},
+    {"linear", static_cast<int>(EngineeringDecoderKind::Linear)},
+    {"variable_decimal",
+     static_cast<int>(EngineeringDecoderKind::VariableDecimal)},
+    {"enum", static_cast<int>(EngineeringDecoderKind::Enum)},
+};
 
 std::string_view tokenOf(const TokenPair* pairs, std::size_t count, int value)
 {
@@ -111,6 +121,23 @@ bool profileWordOrderFromToken(std::string_view token, RegisterWordOrder& out)
         return false;
     }
     out = static_cast<RegisterWordOrder>(value);
+    return true;
+}
+
+std::string_view profileDecoderKindToken(EngineeringDecoderKind kind)
+{
+    return tokenOf(kDecoderKindTokens, std::size(kDecoderKindTokens),
+                   static_cast<int>(kind));
+}
+
+bool profileDecoderKindFromToken(std::string_view token,
+                                 EngineeringDecoderKind& out)
+{
+    int value = 0;
+    if (!valueOfTokenArray(kDecoderKindTokens, token, value)) {
+        return false;
+    }
+    out = static_cast<EngineeringDecoderKind>(value);
     return true;
 }
 

@@ -45,6 +45,10 @@ ApplicationWindow {
     // T034-B2.1: the DEDICATED AI Settings workspace (Human §2 — never
     // crammed into a business page). Index 6 = the new rail entry.
     readonly property int workspaceAiSettingsIndex: 6
+    // T035-C C1: the Engineering workspace (saved-profile selection +
+    // EngineeringReady gate). Index 7 = the new rail entry. Nothing here
+    // reads the device in C1.
+    readonly property int workspaceEngineeringIndex: 7
 
     width: 1024
     height: 720
@@ -418,6 +422,23 @@ ApplicationWindow {
                     objectName: "aiSettingsWorkspace"
                     runtimeConfiguration: aiRuntimeConfiguration
                     enabled: workspaceHost.currentIndex === workspaceAiSettingsIndex
+                }
+
+                // T035-C C1: the Engineering workspace (rail index 7). The
+                // saved-profile selector + EngineeringReady gate; the page
+                // cannot navigate on its own, so the request is routed here.
+                EngineeringPage {
+                    objectName: "engineeringWorkspace"
+                    profileController: profileController
+                    // T035-C C2: the shipped serial session owner + the
+                    // single-read controller (both C++ objects). The read
+                    // controller's property is deliberately named
+                    // `readController` to avoid self-shadowing.
+                    analysisController: analysisController
+                    readController: engineeringReadController
+                    enabled: workspaceHost.currentIndex === workspaceEngineeringIndex
+                    onNavigateToDeviceProfile:
+                        navigationRail.currentWorkspaceIndex = workspaceDeviceIndex
                 }
             }
         }

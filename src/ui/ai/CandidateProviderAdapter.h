@@ -75,6 +75,49 @@ struct ProviderContentExtraction {
 [[nodiscard]] core::ProviderExtractionResult parseStrictCandidateProposals(
     std::string_view providerContent);
 
+// ---------------------------------------------------------------------------
+// T035-A.1 — STRICT register-candidate payload parser (ADR-004 / Human
+// T035-A.1 §5-§7). Same fail-closed discipline as the profile-field parser:
+//
+//   { "registerProposals": [ { "functionCode": <int 1..127>,
+//                              "address":      <int 0..65535>,
+//                              "name":         "<non-empty string>",
+//                              "dataType":     "<frozen M11 token>",
+//                              "quantity":     <int == type word count>,
+//                              "evidence":     "<non-empty exact excerpt>",
+//                              // optional members (frozen defaults):
+//                              "description": "<string>",
+//                              "scale": <number>,   // default 1.0
+//                              "offset": <number>,  // default 0.0
+//                              "unit": "<string>" } ] }  // default ""
+//
+// Fail-closed (whole response, ZERO proposals — never a partial mixture):
+//   · malformed JSON / wrong top-level type
+//   · ANY unexpected member at any level — in particular a response carrying
+//     BOTH "proposals" and "registerProposals" is a violation: the two
+//     contracts never mix and are never routed implicitly (§6)
+//   · missing required member / wrong JSON type (numbers are never strings)
+//   · non-integral or out-of-range functionCode / address / quantity
+//   · unknown dataType token (outside the frozen M11 profile token set)
+//   · quantity != the dataType word count (NO auto-correction, §5)
+//   · non-finite scale / offset (an overflowing literal such as 1e999 is
+//     out of range for from_chars and is refused, never clamped)
+//   · empty "name" / empty "evidence"
+// An empty "registerProposals" array is legal and means "no registers found".
+// This slice is the PARSER FOUNDATION only: wiring it into extract() /
+// prompt building / orchestration belongs to the next slice, so the
+// manufacturer path is untouched by construction.
+// ---------------------------------------------------------------------------
+struct RegisterProviderExtractionResult {
+    bool ok{false};
+    core::ProviderExtractionFailure failure{
+        core::ProviderExtractionFailure::None};
+    std::vector<core::RegisterCandidateProposal> proposals;
+};
+
+[[nodiscard]] RegisterProviderExtractionResult
+parseStrictRegisterCandidateProposals(std::string_view providerContent);
+
 // Provider-side configuration. The model id is CONFIGURATION, never domain
 // truth (H1), which is exactly why it lives here and not in a Candidate. The
 // provider kind routes the PROFILE-DECIDED request extras (T034-B1): the
@@ -117,6 +160,17 @@ public:
     // On any failure the proposal list is EMPTY (fail-closed, §13) and
     // lastFailure() carries the deterministic reason.
     [[nodiscard]] core::ProviderExtractionResult extract(
+        const core::ExtractionRequest &request);
+
+    // T035-A.2 — the REGISTER-MAP entry point (ADR-004 / Human T035-A.2 §3-§5).
+    // Same transport/envelope/atomicity discipline as extract(), but the
+    // prompt branch and the STRICT parser are the register contract
+    // ({"registerProposals":[...]} — parseStrictRegisterCandidateProposals).
+    // The request MUST carry the frozen kRegisterMapTargetToken; a wrong-mode
+    // request is refused closed (SchemaViolation) instead of being silently
+    // parsed against the wrong contract. extract() itself is UNTOUCHED: the
+    // manufacturer path keeps its exact prompt, parser and failure behavior.
+    [[nodiscard]] RegisterProviderExtractionResult extractRegister(
         const core::ExtractionRequest &request);
 
     // The only provider-specific artifact this class exposes, and only so a

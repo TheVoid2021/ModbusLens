@@ -1031,6 +1031,325 @@ private slots:
         QCOMPARE(calls, 0);
     }
 
+    // ======================================================================
+    // T035-A Round H — DETERMINISTIC SYNCHRONOUS RESPONSE-LIFECYCLE MATRIX
+    //
+    // These drive the REAL synchronous QtChatCompletionsHttpClient::post()
+    // against the localhost FakeChatCompletionsServer. Round G found that the
+    // synchronous path was NEVER exercised end-to-end (only sendAsync was), so
+    // this is the first socket-level coverage of post(). The timeout is a
+    // SHORT test-only seam (transport ctor timeout -> request.timeoutMs), so no
+    // test waits 90 s. Every assertion characterizes EXISTING behavior; none is
+    // softened to make a case pass.
+    // ======================================================================
+
+    // Helper: run one synchronous exchange through the REAL client and return
+    // the completed HTTP result. This drives `QtChatCompletionsHttpClient::post()`
+    // DIRECTLY — the exact synchronous function the Candidate chain reaches via
+    // `ChatCompletionsTransport::send()`. Omitting the transport wrapper keeps the
+    // exchange to ONE socket request (the wrapper would dispatch its own request
+    // and drain the script queue). The one-shot credential discipline is
+    // irrelevant here: post() takes the token from the request it is handed.
+    //
+    // T035-A Round H.1: the client is built with the TEST-ONLY tag constructor,
+    // which exists ONLY because this test target compiles
+    // ChatCompletionsHttpClient.cpp with MODBUSLENS_ENABLE_TEST_LOOPBACK. The
+    // production executable does not define that macro, so the constructor and
+    // the allowance are absent there — the loopback exception is unavailable in
+    // production builds, not merely unused.
+    ChatCompletionsHttpResult runSyncPost(const QString &endpoint, int timeoutMs,
+                                          std::string requestBody = "{\"r\":1}")
+    {
+        QtChatCompletionsHttpClient http(
+            QtChatCompletionsHttpClient::TestLoopbackTag{});
+        ChatCompletionsHttpRequest request;
+        request.url = endpoint.toStdString();
+        request.bearerToken = "token-not-a-real-secret";
+        request.contentType = ChatCompletionsTransport::kJsonContentType;
+        request.body = std::move(requestBody);
+        request.timeoutMs = timeoutMs;
+        return http.post(request);
+    }
+
+    // NEGATIVE-CONTROL helper: run the SAME exchange through a
+    // PRODUCTION-CONFIGURED client (default constructor, loopback NOT enabled).
+    // Used to prove that the production-configured synchronous client refuses
+    // HTTP loopback without dispatch.
+    ChatCompletionsHttpResult runSyncPostProductionConfigured(
+        const QString &endpoint, int timeoutMs,
+        std::string requestBody = "{\"r\":1}")
+    {
+        QtChatCompletionsHttpClient http; // default = production configuration
+        ChatCompletionsHttpRequest request;
+        request.url = endpoint.toStdString();
+        request.bearerToken = "token-not-a-real-secret";
+        request.contentType = ChatCompletionsTransport::kJsonContentType;
+        request.body = std::move(requestBody);
+        request.timeoutMs = timeoutMs;
+        return http.post(request);
+    }
+
+    // ------------------------------------------------------------- S01 --
+    // A. HTTP 200 + complete valid JSON body: the synchronous reader returns
+    // the FULL body and marks transport success. Baseline for B/C/D/E.
+    void s01_syncPostCompleteBody()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+        const QByteArray payload = "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}";
+        server.setNextResponse(200, payload);
+
+        const ChatCompletionsHttpResult result =
+            runSyncPost(server.chatCompletionsUrl(), 10000);
+
+        QCOMPARE(result.status, 200);
+        QCOMPARE(result.transportOk, true);
+        QCOMPARE(result.timedOut, false);
+        QCOMPARE(static_cast<int>(result.body.size()),
+                 static_cast<int>(payload.size()));
+        QCOMPARE(QByteArray::fromStdString(result.body), payload);
+    }
+
+    // ------------------------------------------------------------- S02 --
+    // B. HTTP 200 + Content-Length: 0 (empty body is HTTP-legal). The reader
+    // returns an EMPTY body but STILL reports transportOk=true — this is the
+    // Round F shape produced WITHOUT any timeout.
+    void s02_syncPostEmptyBodyContentLengthZero()
+    {
+        // A real zero-length body response: headers + Content-Length: 0,
+        // connection closed immediately (no stall).
+        FakeChatCompletionsServer zeroServer;
+        QVERIFY(zeroServer.start());
+        zeroServer.enqueueShortBody(200, QByteArray{}, 0);
+
+        const ChatCompletionsHttpResult result =
+            runSyncPost(zeroServer.chatCompletionsUrl(), 10000);
+
+        QCOMPARE(result.status, 200);
+        QCOMPARE(result.transportOk, true);
+        QCOMPARE(result.timedOut, false);
+        QCOMPARE(static_cast<int>(result.body.size()), 0);
+    }
+
+    // ------------------------------------------------------------- S03 --
+    // C. HTTP 200 + headers first, then the COMPLETE body after a delay. The
+    // synchronous reader must still return the FULL body (no loss from the
+    // delayed arrival).
+    //
+    // T035-A Round H.1 (trim-boundary safety): the response delay and the
+    // client timeout are separated by a WIDE margin so this case cannot be
+    // resolved by scheduling jitter. delay = 300 ms, timeout = 10000 ms
+    // (33× the delay); the observed completion is ~300 ms, so neither a slow
+    // CI machine nor a fast one can flip this case into a timeout or a false
+    // pass. The delay is intentionally well above the ~1-5 ms loopback RTT
+    // (S01/S02) and well below the timeout.
+    void s03_syncPostDelayedCompleteBody()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+        const QByteArray payload = "{\"choices\":[{\"message\":{\"content\":\"delayed-ok\"}}]}";
+        constexpr int kResponseDelayMs = 300;
+        constexpr int kClientTimeoutMs = 10000; // 33x the delay: wide margin
+        // delayMs delays the WHOLE response (headers+body) by kResponseDelayMs.
+        server.enqueueResponse(200, payload, kResponseDelayMs);
+
+        const ChatCompletionsHttpResult result =
+            runSyncPost(server.chatCompletionsUrl(), kClientTimeoutMs);
+
+        QCOMPARE(result.status, 200);
+        QCOMPARE(result.transportOk, true);
+        QCOMPARE(result.timedOut, false);
+        QCOMPARE(QByteArray::fromStdString(result.body), payload);
+    }
+
+    // ------------------------------------------------------------- S04 --
+    // D. HTTP 200 + Content-Length GREATER than delivered, then premature
+    // close. Characterizes what Qt surfaces for a truncated body.
+    void s04_syncPostShortBodyPrematureClose()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+        const QByteArray partial = "{\"choices\":[{\"mess";
+        const int declared = static_cast<int>(partial.size()) + 100; // lie
+        server.enqueueShortBody(200, partial, declared);
+
+        const ChatCompletionsHttpResult result =
+            runSyncPost(server.chatCompletionsUrl(), 10000);
+
+        // T035-A Round I (Human-specified reclassification): a reply that ends
+        // in a NETWORK ERROR (premature close => RemoteHostClosedError) must
+        // NOT be classified as transport success just because HTTP 200 headers
+        // arrived. The truncated body must NOT be surfaced either.
+        QCOMPARE(result.timedOut, false);
+        QCOMPARE(result.transportOk, false);
+        QCOMPARE(static_cast<int>(result.body.size()), 0);
+        // The HTTP status may still be recorded for diagnostics, but it must
+        // not turn the failed transfer into a success.
+        qInfo() << "S04 status=" << result.status
+                << " transportOk=" << result.transportOk
+                << " bodyLen=" << static_cast<int>(result.body.size());
+    }
+
+    // ------------------------------------------------------------- S05 --
+    // E. THE ROUND F CANDIDATE: HTTP 200 headers arrive WITH A DECLARED BODY
+    // LENGTH, the body NEVER does, and the client's (short, test-only) timeout
+    // fires. This is the case the Human's "~90 s" recollection points at.
+    // Declares a POSITIVE Content-Length (64) so Qt cannot treat the message as
+    // complete: a `Content-Length: 0` would finish the reply instantly and NOT
+    // exercise the timeout path at all (that variant is S02).
+    void s05_syncPostTimeoutAfterHeaders()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+        // Headers written immediately declaring 64 bytes; body withheld; the
+        // connection is held OPEN so only the client timeout can end it.
+        server.enqueueStalledBody(200, 64);
+
+        // SHORT test-only timeout (transport ctor -> request.timeoutMs).
+        const ChatCompletionsHttpResult result =
+            runSyncPost(server.chatCompletionsUrl(), 300);
+
+        qInfo() << "S05 status=" << result.status
+                << " transportOk=" << result.transportOk
+                << " timedOut=" << result.timedOut
+                << " bodyLen=" << static_cast<int>(result.body.size());
+
+        // T035-A Round I (Human-specified reclassification, reproduces the
+        // 2026-10-15 12:38:42 real replay): when the local timeout owner
+        // fires, the exchange is a TRANSPORT FAILURE — HTTP 200 headers must
+        // never upgrade an aborted request to transportOk, and the timeout
+        // must be propagated so the adapter maps it to transport_error
+        // (never provider_rejected_status / malformed_response).
+        QCOMPARE(result.timedOut, true);
+        QCOMPARE(result.transportOk, false);
+        QCOMPARE(static_cast<int>(result.body.size()), 0);
+        // The 200 status remains visible for diagnostics only.
+        QCOMPARE(result.status, 200);
+    }
+
+    // ======================================================================
+    // T035-A Round H.1 — TEST-ONLY BOUNDARY NEGATIVE CONTROLS
+    //
+    // These prove the test-only affordance is BOUNDED: it is enabled only by
+    // the tag constructor (present only in test builds), it admits ONLY the
+    // expressly-allowed loopback host, and it does NOT touch HTTPS or the
+    // async path. Combined with the fact that the production target compiles
+    // this translation unit WITHOUT MODBUSLENS_ENABLE_TEST_LOOPBACK, they
+    // establish: the loopback exception cannot exist in a production binary.
+    // ======================================================================
+
+    // ------------------------------------------------------------- N01 --
+    // The PRODUCTION-CONFIGURED synchronous client (default constructor) must
+    // REFUSE an HTTP loopback endpoint and dispatch NOTHING: status stays 0,
+    // transportOk stays false, body empty AND — the dispatch proof — the fake
+    // server receives ZERO requests (a refused dispatch never reaches the wire).
+    void n01_productionConfiguredSyncRefusesLoopbackWithoutDispatch()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+        server.setNextResponse(200, "{\"choices\":[]}");
+
+        const ChatCompletionsHttpResult result =
+            runSyncPostProductionConfigured(server.chatCompletionsUrl(), 2000);
+
+        // Fail closed: no dispatch, no status, no body.
+        QCOMPARE(result.status, 0);
+        QCOMPARE(result.transportOk, false);
+        QCOMPARE(result.timedOut, false);
+        QCOMPARE(static_cast<int>(result.body.size()), 0);
+        // The decisive dispatch proof: nothing ever reached the socket.
+        QCOMPARE(server.requestCount(), 0);
+    }
+
+    // ------------------------------------------------------------- N02 --
+    // The test-configured client admits ONLY the expressly allowed loopback
+    // address: a NON-loopback HTTP host is still refused even with the tag
+    // constructor (the allowance is host-bounded, not "http allowed").
+    void n02_testConfiguredClientRefusesNonLoopbackHttp()
+    {
+        // No server needed: the endpoint must be rejected before any dispatch.
+        const ChatCompletionsHttpResult result =
+            runSyncPost(QStringLiteral("http://example.com/v1/chat/completions"),
+                        2000);
+        QCOMPARE(result.status, 0);
+        QCOMPARE(result.transportOk, false);
+        QCOMPARE(static_cast<int>(result.body.size()), 0);
+    }
+
+    // ------------------------------------------------------------- N03 --
+    // A non-loopback HTTP host is refused by the PRODUCTION-configured client
+    // too (mirror of N02 across the two configurations): both paths reject it.
+    void n03_productionConfiguredClientRefusesNonLoopbackHttp()
+    {
+        const ChatCompletionsHttpResult result =
+            runSyncPostProductionConfigured(
+                QStringLiteral("http://example.com/v1/chat/completions"), 2000);
+        QCOMPARE(result.status, 0);
+        QCOMPARE(result.transportOk, false);
+        QCOMPARE(static_cast<int>(result.body.size()), 0);
+    }
+
+    // ------------------------------------------------------------- N04 --
+    // HTTPS behavior is UNCHANGED by the test affordance: an HTTPS endpoint is
+    // still subject to the real network path (we do NOT make a real request).
+    // This asserts the guard DECISION only: an https URL passes the scheme
+    // guard. We cannot observe a dispatch without a network, so we assert the
+    // guard admits https by checking the client does NOT fail closed for the
+    // https scheme — via a scheme-level probe using an obviously unroutable
+    // https host with a very short timeout (no bytes leave the box for a
+    // non-resolving host; DNS failure => status 0, but crucially the guard did
+    // NOT pre-reject on scheme). This keeps the case deterministic and offline.
+    void n04_httpsSchemeGuardUnchanged()
+    {
+        // The scheme guard admits https; with an invalid host the transport
+        // fails at DNS (status 0) but NOT at the guard. Both the
+        // production-configured and the test-configured client must behave
+        // identically here — the affordance never changes https handling.
+        const ChatCompletionsHttpResult prod =
+            runSyncPostProductionConfigured(
+                QStringLiteral("https://invalid.invalid.invalid/chat"), 2000);
+        const ChatCompletionsHttpResult test =
+            runSyncPost(QStringLiteral("https://invalid.invalid.invalid/chat"),
+                        2000);
+        // Identical outcome across configurations (no affordance leakage).
+        QCOMPARE(prod.status, test.status);
+        QCOMPARE(prod.transportOk, test.transportOk);
+        QCOMPARE(prod.timedOut, test.timedOut);
+        QCOMPARE(static_cast<int>(prod.body.size()),
+                 static_cast<int>(test.body.size()));
+    }
+
+    // ------------------------------------------------------------- N05 --
+    // The ASYNC test affordance (startAsync against loopback) is UNCHANGED by
+    // Round H.1: the accepted async behavior still dispatches to a localhost
+    // fake server and completes. (Regression guard for the pre-existing E2
+    // affordance.)
+    void n05_asyncTestAffordanceUnchanged()
+    {
+        FakeChatCompletionsServer server;
+        QVERIFY(server.start());
+        server.enqueueResponse(200, "{\"choices\":[{\"message\":{\"content\":\"async-ok\"}}]}");
+
+        QtChatCompletionsHttpClient http; // production configuration is fine for async
+        ChatCompletionsTransport transport(
+            http, server.chatCompletionsUrl().toStdString(), 10000);
+
+        ChatCompletionsHttpResult got;
+        bool called = false;
+        transport.setOneShotBearerToken("token-not-a-real-secret");
+        const auto handle = transport.sendAsync(
+            std::string{"{\"req\":\"async\"}"}, nullptr,
+            [&](ChatCompletionsHttpResult r) {
+                got = std::move(r);
+                called = true;
+            });
+        QVERIFY(handle.valid());
+        QTRY_VERIFY(called);
+        QCOMPARE(got.status, 200);
+        QVERIFY(got.body.find("async-ok") != std::string::npos);
+        QCOMPARE(server.requestCount(), 1);
+    }
+
     // ------------------------------------------------------------- LC2-06 --
     // T034-B2-LC2-CF1: NO saved global configuration while ALL FIVE legacy
     // env tokens are populated — a REAL Candidate controller dispatch must

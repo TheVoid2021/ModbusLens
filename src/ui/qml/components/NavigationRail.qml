@@ -32,7 +32,8 @@ Rectangle {
         { label: qsTr("回放"), enabled: true },     // Replay (3)
         { label: qsTr("诊断"), enabled: true },     // Diagnosis (4)
         { label: qsTr("设备"), enabled: true },     // Device profiles (5, M12-B)
-        { label: qsTr("AI 设置"), enabled: true }   // AI Settings (6, T034-B2.1)
+        { label: qsTr("AI 设置"), enabled: true },  // AI Settings (6, T034-B2.1)
+        { label: qsTr("工程值"), enabled: true }    // Engineering (7, T035-C C1)
     ]
 
     // Compact rail only in B1 (no expanded mode — T017 §21-D).
