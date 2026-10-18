@@ -14,6 +14,9 @@
 
 #include <zip.h>
 
+#include <cstdlib>
+#include <cstring>
+
 #include "core/manual/ManualDocument.h"
 #include "ui/manual/ManualStore.h"
 
@@ -235,12 +238,45 @@ constexpr char kContentTypes[] =
         return false;
     }
     const auto add = [archive](const QString &name, const QByteArray &content) {
-        zip_source_t *source =
-            zip_source_buffer(archive, content.constData(), content.size(), 0);
-        return source != nullptr
-               && zip_file_add(archive, name.toUtf8().constData(), source,
-                               ZIP_FL_ENC_UTF_8)
-                      >= 0;
+        // ISSUE-025 FIX-R2: libzip reads a source-buffer entry when zip_close()
+        // runs, NOT when the entry is added. Callers may pass a TEMPORARY
+        // QByteArray (e.g. `QByteArray(kContentTypes)`); its storage dies at
+        // the end of this call, so handing `content.constData()` to
+        // zip_source_buffer(..., freep=0) left libzip with a DANGLING pointer
+        // and produced non-deterministic archive bytes. Take an explicit deep
+        // copy and let libzip own/free it (freep = 1).
+        const auto size = static_cast<std::size_t>(content.size());
+        auto *copy = static_cast<char *>(std::malloc(size == 0 ? 1 : size));
+        if (copy == nullptr) {
+            return false;
+        }
+        if (size > 0) {
+            std::memcpy(copy, content.constData(), size);
+        }
+        zip_source_t *source = zip_source_buffer(archive, copy, size, 1);
+        if (source == nullptr) {
+            std::free(copy);
+            return false;
+        }
+        const zip_int64_t index =
+            zip_file_add(archive, name.toUtf8().constData(), source,
+                         ZIP_FL_ENC_UTF_8);
+        if (index < 0) {
+            return false;
+        }
+        // ISSUE-025 FIX-A: pin every entry's DOS date/time so that identical
+        // logical content yields IDENTICAL archive bytes. libzip otherwise
+        // stamps "now" with 2-second granularity, which made i24 (same-bytes
+        // two-records) flaky whenever the two writes straddled that boundary.
+        // 2000-01-01 00:00:00 (ZIP DOS date 0x2821 / time 0x0000).
+        constexpr zip_uint16_t kFixedDosTime = 0x0000;
+        constexpr zip_uint16_t kFixedDosDate = 0x2821;
+        if (zip_file_set_dostime(archive, static_cast<zip_uint64_t>(index),
+                                  kFixedDosTime, kFixedDosDate, 0)
+            < 0) {
+            return false;
+        }
+        return true;
     };
     bool ok = add(QStringLiteral("[Content_Types].xml"), QByteArray(kContentTypes));
     ok = ok && add(QStringLiteral("_rels/.rels"), rels);
@@ -685,14 +721,74 @@ private slots:
         QVERIFY(writeBytes(first, QByteArray()));
         QVERIFY(writeDocx(first, rels, document));
         QVERIFY(writeDocx(second, rels, document));
+        // ISSUE-025 FIX-R2 diagnostic (env-guarded, no default behaviour
+        // change): copy the ACTUAL i24 fixtures out so their bytes can be
+        // diffed outside the test process.
+        if (qEnvironmentVariableIsSet("MODBUSLENS_ISSUE025_DUMP")) {
+            const QString dumpDir =
+                qEnvironmentVariable("MODBUSLENS_ISSUE025_DUMP");
+            QDir().mkpath(dumpDir);
+            const QString outA =
+                dumpDir + QStringLiteral("/actual_i24_a.docx");
+            const QString outB =
+                dumpDir + QStringLiteral("/actual_i24_b.docx");
+            QFile::remove(outA);
+            QFile::remove(outB);
+            QFile::copy(first, outA);
+            QFile::copy(second, outB);
+        }
         const ManualImportResult a =
             ManualStore::importSourceFile(first, QStringLiteral("a.docx"));
         const ManualImportResult b =
             ManualStore::importSourceFile(second, QStringLiteral("b.docx"));
         QVERIFY(a.ok());
         QVERIFY(b.ok());
+        // ISSUE-025 FIX-A (positive control): the two fixtures must be
+        // byte-identical at the SOURCE level — not merely "same XML". Without
+        // this, a green contentHash comparison would not prove anything.
+        const auto readAll = [](const QString &path) {
+            QFile f(path);
+            if (!f.open(QIODevice::ReadOnly))
+                return QByteArray();
+            return f.readAll();
+        };
+        const QByteArray bytesA = readAll(first);
+        const QByteArray bytesB = readAll(second);
+        QCOMPARE(bytesA.size(), bytesB.size());
+        QVERIFY(QCryptographicHash::hash(bytesA, QCryptographicHash::Sha256)
+                == QCryptographicHash::hash(bytesB, QCryptographicHash::Sha256));
         QVERIFY(a.document.documentId != b.document.documentId);
         QCOMPARE(a.document.contentHash, b.document.contentHash);
+    }
+
+    // ISSUE-025 FIX-A (negative control): pinning the DOS timestamp must NOT
+    // freeze the hash. Two archives of EQUAL SIZE but different document text
+    // must still produce different content hashes.
+    void i24b_differentDocxContentChangesHash()
+    {
+        const QString first = pathFor("i24b-a.docx");
+        const QString second = pathFor("i24b-b.docx");
+        const QByteArray rels = relationships(
+            officeDocumentRelationship(QStringLiteral("word/document.xml")));
+        const QByteArray docA =
+            documentXml(QStringLiteral("<w:p><w:r><w:t>内容甲</w:t></w:r></w:p>"));
+        const QByteArray docB =
+            documentXml(QStringLiteral("<w:p><w:r><w:t>内容乙</w:t></w:r></w:p>"));
+        QVERIFY(writeDocx(first, rels, docA));
+        QVERIFY(writeDocx(second, rels, docB));
+        const ManualImportResult a =
+            ManualStore::importSourceFile(first, QStringLiteral("a.docx"));
+        const ManualImportResult b =
+            ManualStore::importSourceFile(second, QStringLiteral("b.docx"));
+        QVERIFY(a.ok());
+        QVERIFY(b.ok());
+        // NOTE (FIX-R2): do NOT require equal byteSize. Deflate output length
+        // depends on the content, so two different texts can compress to
+        // different sizes (observed 918 vs 916 bytes). The contract actually
+        // under test is: different source bytes -> different contentHash.
+        QVERIFY(a.document.byteSize > 0);
+        QVERIFY(b.document.byteSize > 0);
+        QVERIFY(a.document.contentHash != b.document.contentHash);
     }
 
     void i25_sameBytesSameContentHash()

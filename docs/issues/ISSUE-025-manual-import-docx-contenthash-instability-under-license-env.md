@@ -94,3 +94,113 @@ FAIL!  : ManualImportPdfDocxTest::i24_sameDocxBytesTwoRecords() Compared values 
 - `docs/tasks/T035-device-intelligence-enhancement.md` §5.8（Gate 验证）与 §7 问题追踪（T035-P08）
 - `docs/devlog/2026-10-14.md` §11（Gate 执行）与 §13（登记）
 - `build/acceptance/session-t035a-completion-gate-20261014/`（全部幸存证据）
+
+---
+
+# Resolution / Closure Addendum（2026-10-18 追加，不覆盖以上原文）
+
+```text
+ISSUE-025 STATUS = CLOSED
+CLOSED DATE      = 2026-10-18
+RESOLUTION       = TEST FIXTURE DETERMINISM FIX
+```
+
+## R1. 原始症状（历史事实，未改写）
+
+```text
+R5 manual_import_pdf_docx = FAIL
+tests/test_manual_import_pdf_docx.cpp(695) : failure location
+Actual   (a.document.contentHash): c44db754e9b368873b49e8b5669374931d5217bcee11986c6320086ed445c199
+Expected (b.document.contentHash): a51a5cd4410740e36720cc65f9c9c2637d5e49ecbf681dfb436f69813d37319a
+```
+R5 为 FAIL，R1 与 R8 同一测试为 PASS —— 这一「不稳定」事实在原文中保留，未作任何修改。
+
+## R2. 最终根因（RCA-R1 + FIX-R1 + FIX-R2 三轮定位）
+
+**双层不确定性叠加，全部位于测试 Fixture 构造，不在产品实现。**
+
+1. **（主因）libzip source buffer 生命周期缺陷**
+   `writeDocx()` 的 `add` lambda 把 `content.constData()` 传给
+   `zip_source_buffer(..., freep = 0)`（**不拷贝、不拥有**）。而 `[Content_Types].xml`
+   这一条传入的是**临时 `QByteArray(kContentTypes)`**：临时对象在 `add()` 返回时析构，
+   而 libzip **直到 `zip_close()` 才读取条目数据** ⇒ 悬空指针 ⇒ 读到被复用的堆内存
+   ⇒ 两次写入的 `[Content_Types].xml` 内容不同 ⇒ DOCX 源字节不同
+   ⇒ `contentHash = SHA-256(源字节)` 不同 ⇒ `i24` 断言失败。
+
+   > 这同时解释了「最小 probe 成功、真实 i24 失败」：probe 用 `const char*` 字面量
+   > （静态存储，进程生命周期），不存在悬空。
+
+2. **（次因）ZIP entry 的 DOS 时间戳**
+   libzip 默认以「当前时间」写每个 entry 的 mtime（2 秒粒度）。即使数据有效，
+   两次写入若**跨过 2 秒边界**，字节仍会不同。
+
+**⇒ 原文 `## Root Cause` 章节中关于 License 环境的怀疑，经三轮机制审计判定为
+**历史调查记录**，本次以本 Addendum 作出明确纠正：**
+
+```text
+LICENSE ENV = 非本次已确认的根因（三轮 ctest 运行均 unset QTLICD_*）
+```
+
+## R3. 修复措施（全部位于 `tests/test_manual_import_pdf_docx.cpp`）
+
+1. **修复 ZIP Source Buffer 所有权与生存期**：`add` 内部 `malloc` + `memcpy` 深拷贝，
+   `zip_source_buffer(..., freep = 1)` 由 libzip 释放；`zip_source_buffer` 返回空时
+   自行 `free(copy)`（未把 Qt 拥有的内存交给 `free`）。
+2. **固定受控 DOCX 条目的 DOS 时间戳**：`zip_file_set_dostime(index, 0x0000, 0x2821, 0)`
+   （2000-01-01 00:00:00），不受系统时钟影响。
+3. **增加真实 DOCX 字节相等验证**（i24）：比较两份 fixture 的源字节长度与 SHA-256，
+   不只比较 XML 文本。
+4. **保留「不同内容 ⇒ 不同 Hash」负例**（i24b）。
+5. **删除错误的「压缩文件等长」前提**：deflate 输出长度取决于内容（实测 918 vs 916），
+   等长不是有效契约。
+
+## R4. 验证证据（仅对应 2026-10-18 的 FIX-R2 受控运行）
+
+```text
+I24 = PASS
+I24B = PASS
+I25 = PASS
+MANUAL_IMPORT_TARGET = PASS（35 passed / 0 failed）
+DOCX BYTE EQUALITY = VERIFIED（两份 fixture 均 922 B，
+                     SHA-256 = 55cb1dd25c307dd7d2e6c6bd1e3e244ae10e61b53cd0d46fda66690d05de898b）
+10-RUN STABILITY = 10/10 PASS（独立进程；10 轮 DOCX SHA 唯一 = 1；
+                   时间跨 16:54:01–16:56:41 ≈ 80 个 2 秒窗口）
+FULL BUILD = 619/619 PASS（0 error）
+FULL CTEST = 74/74 PASS（CTEST_EXIT_CODE = 0，260.80 s，单次完整运行）
+```
+
+以上为 **FIX-R2 受控运行**的证据，不得与 R1/R5/R8 的历史结果混为同一轮。
+
+## R5. 产品影响（明确边界）
+
+- **产品 ContentHash 算法未修改。**
+- **产品契约保持原样**：`contentHash = SHA-256(完整源文件字节)`（`ManualStore::importSourceFile`，`src/ui/manual/ManualStore.cpp`）。
+- **未发现此次故障来自产品 Hash 计算** —— 产品对任意真实文件都正确计算源字节摘要。
+- **License 环境不是本次已确认的根因**（三轮运行均 `QTLICD_*` unset）。
+- **本次关闭的是「测试 Fixture 不确定性」**，不代表所有 DOCX 导入缺陷均已不存在；
+  真实硬件 / 真实用户文档场景仍按既有边界管理。
+
+## R6. 历史保真
+
+- 原文 `## Observed` / `## Expected` / `## Evidence` / `## Root Cause` / `## Fix` /
+  `## Verification` / `## Evidence Gaps` **全部保留**，未删改。
+- R5 的 FAIL 事实与两条 contentHash **保留为历史记录**。
+- R1/R5 的历史 FAIL **未改成 PASS**。
+- R8（74/74）与 FIX-R2（74/74）**分属不同轮次**，未合并陈述。
+
+## R7. 本地证据位置（未进入 Git）
+
+```text
+build/t035c-issue025-rca-r1-20261018/_evidence/     ISSUE025_R1_02_ANALYSIS.md
+build/t035c-issue025-fix-r1-20261018/_fix_evidence/ （FIX-R1：已实施但未通过的中间态）
+build/t035c-issue025-fix-r2-20261018/_evidence/     R2_02_BUFFER_LIFETIME_AUDIT.md、
+                                                    R2_08/R2_09/R2_10/R2_11 日志、
+                                                    actual_i24_a.docx / actual_i24_b.docx
+```
+
+```text
+FIX-R2 RAW EVIDENCE = LOCAL / GITIGNORED
+FIX-R2 EVIDENCE GIT ARCHIVE = NOT EXECUTED
+FIX-R2 EVIDENCE EXTERNAL BACKUP = NOT VERIFIED
+```
+上述日志**尚未归档进 Git**；如需要，应另行发起受控证据归档任务。
