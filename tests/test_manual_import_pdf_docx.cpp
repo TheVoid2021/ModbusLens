@@ -262,6 +262,11 @@ constexpr char kContentTypes[] =
             zip_file_add(archive, name.toUtf8().constData(), source,
                          ZIP_FL_ENC_UTF_8);
         if (index < 0) {
+            // POSTCLOSE-SAFETY (ISSUE-025): libzip's contract is that a FAILED
+            // zip_file_add() does NOT take ownership of the source. The caller
+            // must free it — and because this source owns `copy` (freep = 1),
+            // skipping this leaked BOTH the source and the deep copy.
+            zip_source_free(source);
             return false;
         }
         // ISSUE-025 FIX-A: pin every entry's DOS date/time so that identical
@@ -284,7 +289,14 @@ constexpr char kContentTypes[] =
     for (const auto &entry : extra) {
         ok = ok && add(entry.first, entry.second);
     }
-    zip_close(archive);
+    if (zip_close(archive) < 0) {
+        // POSTCLOSE-SAFETY (ISSUE-025): on failure zip_close() leaves the
+        // archive alive, so it must be discarded — and the fixture must NOT be
+        // reported as successfully written (a half-written DOCX would silently
+        // poison later assertions).
+        zip_discard(archive);
+        return false;
+    }
     return ok;
 }
 
