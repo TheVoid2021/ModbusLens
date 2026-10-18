@@ -1,0 +1,154 @@
+Internal ctest changing into directory: E:/desktop/ModbusLens/build/t035c-issue025-fix-r1-20261018
+Test project E:/desktop/ModbusLens/build/t035c-issue025-fix-r1-20261018
+      Start  1: crc
+ 1/74 Test  #1: crc ..................................   Passed    0.52 sec
+      Start  2: frame
+ 2/74 Test  #2: frame ................................   Passed    0.47 sec
+      Start  3: codec
+ 3/74 Test  #3: codec ................................   Passed    0.49 sec
+      Start  4: f03
+ 4/74 Test  #4: f03 ..................................   Passed    0.55 sec
+      Start  5: simulator
+ 5/74 Test  #5: simulator ............................   Passed    0.50 sec
+      Start  6: simulator_integration
+ 6/74 Test  #6: simulator_integration ................   Passed    0.54 sec
+      Start  7: fault
+ 7/74 Test  #7: fault ................................   Passed    0.63 sec
+      Start  8: fault_integration
+ 8/74 Test  #8: fault_integration ....................   Passed    0.76 sec
+      Start  9: transaction
+ 9/74 Test  #9: transaction ..........................   Passed    0.71 sec
+      Start 10: transaction_integration
+10/74 Test #10: transaction_integration ..............   Passed    0.64 sec
+      Start 11: statistics
+11/74 Test #11: statistics ...........................   Passed    0.85 sec
+      Start 12: statistics_integration
+12/74 Test #12: statistics_integration ...............   Passed    0.95 sec
+      Start 13: ui_bridge
+13/74 Test #13: ui_bridge ............................   Passed    4.74 sec
+      Start 14: replay_log
+14/74 Test #14: replay_log ...........................   Passed    0.57 sec
+      Start 15: replay_analysis
+15/74 Test #15: replay_analysis ......................   Passed    0.60 sec
+      Start 16: passive
+16/74 Test #16: passive ..............................   Passed    1.15 sec
+      Start 17: serial
+17/74 Test #17: serial ...............................   Passed    0.86 sec
+      Start 18: active_request
+18/74 Test #18: active_request .......................   Passed    1.38 sec
+      Start 19: write_prepare
+19/74 Test #19: write_prepare ........................   Passed    1.17 sec
+      Start 20: write_encoder
+20/74 Test #20: write_encoder ........................   Passed    1.22 sec
+      Start 21: fc06_active
+21/74 Test #21: fc06_active ..........................   Passed    1.45 sec
+      Start 22: register_decode
+22/74 Test #22: register_decode ......................   Passed    0.84 sec
+      Start 23: device_profile
+23/74 Test #23: device_profile .......................   Passed    1.07 sec
+      Start 24: register_readiness
+24/74 Test #24: register_readiness ...................   Passed    0.69 sec
+      Start 25: profile_controller
+25/74 Test #25: profile_controller ...................   Passed    1.96 sec
+      Start 26: active_profile_controller
+26/74 Test #26: active_profile_controller ............   Passed    1.11 sec
+      Start 27: manual_import
+27/74 Test #27: manual_import ........................   Passed    2.30 sec
+      Start 28: candidate_extraction
+28/74 Test #28: candidate_extraction .................   Passed    0.71 sec
+      Start 29: candidate_adapter
+29/74 Test #29: candidate_adapter ....................   Passed    0.70 sec
+      Start 30: candidate_orchestration
+30/74 Test #30: candidate_orchestration ..............   Passed    1.19 sec
+      Start 31: candidate_transport
+31/74 Test #31: candidate_transport ..................   Passed    6.32 sec
+      Start 32: candidate_provider_matrix
+32/74 Test #32: candidate_provider_matrix ............   Passed    1.12 sec
+      Start 33: ai_settings
+33/74 Test #33: ai_settings ..........................   Passed    3.46 sec
+      Start 34: ai_settings_qml
+34/74 Test #34: ai_settings_qml ......................   Passed    6.55 sec
+      Start 35: candidate_review
+35/74 Test #35: candidate_review .....................   Passed    3.45 sec
+      Start 36: manual_qa
+36/74 Test #36: manual_qa ............................   Passed    5.30 sec
+      Start 37: manual_delete
+37/74 Test #37: manual_delete ........................   Passed    1.88 sec
+      Start 38: manual_extraction
+38/74 Test #38: manual_extraction ....................   Passed    1.27 sec
+      Start 39: manual_import_pdf_docx
+39/74 Test #39: manual_import_pdf_docx ...............   Passed    1.73 sec
+      Start 40: deployment_startup_check
+40/74 Test #40: deployment_startup_check .............   Passed   46.74 sec
+      Start 41: profile_semantic
+41/74 Test #41: profile_semantic .....................   Passed    1.40 sec
+      Start 42: qml_profile_semantic_check
+42/74 Test #42: qml_profile_semantic_check ...........   Passed    2.46 sec
+      Start 43: qml_profile_semantic_demo
+43/74 Test #43: qml_profile_semantic_demo ............   Passed    0.84 sec
+      Start 44: fc16_active
+44/74 Test #44: fc16_active ..........................   Passed    0.84 sec
+      Start 45: active_master
+45/74 Test #45: active_master ........................   Passed    0.79 sec
+      Start 46: engineering_read
+46/74 Test #46: engineering_read .....................   Passed    1.62 sec
+      Start 47: write_dispatch
+47/74 Test #47: write_dispatch .......................   Passed    0.54 sec
+      Start 48: serial_adapter
+48/74 Test #48: serial_adapter .......................   Passed    1.74 sec
+      Start 49: diagnosis
+49/74 Test #49: diagnosis ............................   Passed    0.65 sec
+      Start 50: ai_client
+50/74 Test #50: ai_client ............................   Passed    4.44 sec
+      Start 51: agent_tools
+51/74 Test #51: agent_tools ..........................   Passed    0.72 sec
+      Start 52: agent_runtime
+52/74 Test #52: agent_runtime ........................   Passed    7.31 sec
+      Start 53: agent_integration
+53/74 Test #53: agent_integration ....................   Passed    6.76 sec
+      Start 54: qml_smoke
+54/74 Test #54: qml_smoke ............................   Passed    0.72 sec
+      Start 55: qml_geometry_check
+55/74 Test #55: qml_geometry_check ...................   Passed    4.60 sec
+      Start 56: qml_nav_check
+56/74 Test #56: qml_nav_check ........................   Passed   17.65 sec
+      Start 57: qml_focus_check
+57/74 Test #57: qml_focus_check ......................   Passed   11.16 sec
+      Start 58: qml_write_foundation_check
+58/74 Test #58: qml_write_foundation_check ...........   Passed   10.13 sec
+      Start 59: qml_production_write_check
+59/74 Test #59: qml_production_write_check ...........   Passed    5.81 sec
+      Start 60: qml_read_result_check
+60/74 Test #60: qml_read_result_check ................   Passed    8.33 sec
+      Start 61: qml_read_result_demo
+61/74 Test #61: qml_read_result_demo .................   Passed    1.33 sec
+      Start 62: qml_read_result_demo32
+62/74 Test #62: qml_read_result_demo32 ...............   Passed    1.47 sec
+      Start 63: qml_profile_editor_check
+63/74 Test #63: qml_profile_editor_check .............   Passed    2.68 sec
+      Start 64: qml_register_map_check
+64/74 Test #64: qml_register_map_check ...............   Passed    2.26 sec
+      Start 65: qml_active_profile_check
+65/74 Test #65: qml_active_profile_check .............   Passed    2.23 sec
+      Start 66: qml_manual_import_check
+66/74 Test #66: qml_manual_import_check ..............   Passed    2.28 sec
+      Start 67: qml_consent_check
+67/74 Test #67: qml_consent_check ....................   Passed    2.29 sec
+      Start 68: qml_consent_check_windows
+68/74 Test #68: qml_consent_check_windows ............   Passed    5.02 sec
+      Start 69: qml_candidate_review_check
+69/74 Test #69: qml_candidate_review_check ...........   Passed    3.09 sec
+      Start 70: qml_candidate_review_check_windows
+70/74 Test #70: qml_candidate_review_check_windows ...   Passed    5.61 sec
+      Start 71: qml_write_foundation_check_windows
+71/74 Test #71: qml_write_foundation_check_windows ...   Passed   10.48 sec
+      Start 72: qml_manual_import_check_windows
+72/74 Test #72: qml_manual_import_check_windows ......   Passed    5.71 sec
+      Start 73: qml_manual_qa_check
+73/74 Test #73: qml_manual_qa_check ..................   Passed    9.02 sec
+      Start 74: qml_manual_qa_check_windows
+74/74 Test #74: qml_manual_qa_check_windows ..........   Passed    9.16 sec
+
+100% tests passed, 0 tests failed out of 74
+
+Total Test time (real) = 260.80 sec

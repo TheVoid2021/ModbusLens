@@ -1,0 +1,4 @@
+ninja: Entering directory `build/t035c-issue025-fix-r1-20261018'
+[1/4] Automatic MOC and UIC for target modbuslens_manual_import_pdf_docx_tests
+[2/3] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/tests/test_manual_import_pdf_docx.cpp.obj
+[3/3] Linking CXX executable modbuslens_manual_import_pdf_docx_tests.exe

@@ -1,0 +1,8 @@
+# Preserve original evidence bytes.
+* -text whitespace=cr-at-eol
+
+# Per-file whitespace exceptions: these RAW logs contain genuine trailing
+# spaces from compiler/license-client output. Evidence bytes are preserved;
+# the whitespace CHECK is relaxed for exactly these files only.
+source/FIX-R2/R2_11_FULL_BUILD.log whitespace=-blank-at-eol,cr-at-eol
+source/POSTCLOSE-SAFETY-R1/SAFETY_R1_CONFIGURE.log whitespace=-blank-at-eol,cr-at-eol

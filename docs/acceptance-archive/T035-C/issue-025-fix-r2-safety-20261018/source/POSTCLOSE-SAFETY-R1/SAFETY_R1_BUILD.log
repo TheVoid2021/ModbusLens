@@ -1,0 +1,10 @@
+ninja: Entering directory `build/t035c-issue025-postclose-safety-r1-20261018'
+[1/9] Automatic MOC and UIC for target modbuslens_manual_import_pdf_docx_tests
+[2/9] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/modbuslens_manual_import_pdf_docx_tests_autogen/mocs_compilation.cpp.obj
+[3/9] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/core/manual/ManualDocument.cpp.obj
+[4/9] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/ui/manual/ManualTextExtraction.cpp.obj
+[5/9] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/ui/manual/ManualDocxTextExtractor.cpp.obj
+[6/9] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/ui/manual/ManualStore.cpp.obj
+[7/9] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/src/ui/manual/ManualPdfTextExtractor.cpp.obj
+[8/9] Building CXX object CMakeFiles/modbuslens_manual_import_pdf_docx_tests.dir/tests/test_manual_import_pdf_docx.cpp.obj
+[9/9] Linking CXX executable modbuslens_manual_import_pdf_docx_tests.exe
